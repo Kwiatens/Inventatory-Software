@@ -64,7 +64,7 @@ class App {
     Complete,
   };
 
-  enum class SettingsCategory { General, Printer, HimsScan, DigiKey };
+  enum class SettingsCategory { General, Printer, QuickLabels, HimsScan, DigiKey };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
 
@@ -200,6 +200,11 @@ class App {
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);
+  bool printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, DeviceQuickLabelPrintResult& result);
+  void addQuickLabelPreset();
+  void deleteQuickLabelPreset();
+  void moveQuickLabelPreset(int direction);
+  void testQuickLabelPreset();
   bool printLabelForItem(const InventoryItem& item, const std::string& successPrefix, bool openSetupOnMissingPrinter);
   void toggleAutoPrintScannedLabels();
   bool autoPrintScannedLabel(const std::string& itemId);
@@ -394,6 +399,9 @@ class App {
   std::string stagedDigiKeySecret_;
   bool stagedDigiKeySecretChanged_ = false;
   bool hasStoredDigiKeySecret_ = false;
+  std::unordered_map<std::string, DeviceQuickLabelPrintResult> quickLabelPrintResults_;
+  std::deque<std::string> quickLabelPrintOrder_;
+  mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;
   time_t settingsConfirmUntil_ = 0;
   mutable std::vector<UiTarget> uiTargets_;

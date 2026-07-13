@@ -83,6 +83,22 @@ struct DeviceLookupResult {
   std::string itemName;
 };
 
+constexpr std::size_t kQuickLabelPresetLimit = 12;
+constexpr std::size_t kQuickLabelPresetTextLimit = 24;
+
+struct DeviceQuickLabelPrintRequest {
+  std::string requestId;
+  int presetIndex = 0;  // One-based index in the published ordered list.
+  std::uint32_t revision = 0;
+};
+
+struct DeviceQuickLabelPrintResult {
+  std::string requestId;
+  std::string status;
+  std::string code;
+  std::string message;
+};
+
 struct DeviceSyncRequest {
   int protocolVersion = 0;
   std::string requestId;
@@ -95,6 +111,8 @@ struct DeviceSyncRequest {
   std::vector<std::string> resultAcks;
   bool hasLookup = false;
   DeviceLookupRequest lookup;
+  bool hasQuickLabelPrint = false;
+  DeviceQuickLabelPrintRequest quickLabelPrint;
 };
 
 struct DeviceSyncResult {
@@ -118,6 +136,11 @@ struct DeviceSyncResponse {
   std::vector<DeviceSyncResult> results;
   bool hasLookupResult = false;
   DeviceLookupResult lookupResult;
+  bool hasQuickLabels = false;
+  std::uint32_t quickLabelRevision = 0;
+  std::vector<std::string> quickLabelPresets;
+  bool hasQuickLabelPrintResult = false;
+  DeviceQuickLabelPrintResult quickLabelPrintResult;
 };
 
 bool loadHimsScanConfig(const std::filesystem::path& path, HimsScanConfig& config);
