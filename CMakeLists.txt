@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(HIMSSoftware VERSION 0.1.0 LANGUAGES CXX)
 
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -18,7 +20,9 @@ find_package(ftxui CONFIG QUIET)
 if(NOT ftxui_FOUND)
   FetchContent_Declare(ftxui
     GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
-    GIT_TAG v6.1.9
+    # FTXUI v6.1.9. Pinning the commit makes source builds reproducible even
+    # if its upstream tag is later moved.
+    GIT_TAG 5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6
   )
   FetchContent_MakeAvailable(ftxui)
 endif()
@@ -96,3 +100,7 @@ if(WIN32)
 endif()
 
 target_link_libraries(hims_tests PRIVATE ftxui::screen ftxui::dom ftxui::component)
+
+if(BUILD_TESTING)
+  add_test(NAME hims_core COMMAND hims_tests)
+endif()
