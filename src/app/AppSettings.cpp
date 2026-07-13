@@ -74,6 +74,14 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       value >> quoted(loaded.digiKeyLanguage);
     } else if (key == "digikey_currency") {
       value >> quoted(loaded.digiKeyCurrency);
+    } else if (key == "quick_label") {
+      string preset;
+      value >> quoted(preset);
+      if (!preset.empty() && loaded.quickLabelPresets.size() < 12) loaded.quickLabelPresets.push_back(preset);
+    } else if (key == "quick_label_revision") {
+      unsigned long revision = loaded.quickLabelRevision;
+      value >> revision;
+      if (revision > 0 && revision <= UINT32_MAX) loaded.quickLabelRevision = static_cast<uint32_t>(revision);
     }
   }
   if (loaded.schemaVersion != 1) return false;
@@ -98,7 +106,11 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "digikey_account_id=" << quoted(settings.digiKeyAccountId) << '\n'
          << "digikey_site=" << quoted(settings.digiKeySite) << '\n'
          << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
-         << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n';
+         << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n'
+         << "quick_label_revision=" << settings.quickLabelRevision << '\n';
+  for (const auto& preset : settings.quickLabelPresets) {
+    output << "quick_label=" << quoted(preset) << '\n';
+  }
   output.close();
   if (!output) return false;
   filesystem::remove(path, error);
