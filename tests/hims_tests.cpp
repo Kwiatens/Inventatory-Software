@@ -1207,6 +1207,14 @@ int main() {
 
     assert(parseScanRequestJson(R"({"deviceId":"r1-a","requestId":"req-2","code":"ABC123"})", request, error));
     assert(request.quantity == 1);
+    assert(parseScanRequestJson(
+        R"({"deviceId":"r1-a","requestId":"req-3","code":"ABC123","metadata":{"code":"ignored"}})",
+        request, error));
+    assert(request.code == "ABC123");
+    assert(!parseScanRequestJson(
+        R"({"deviceId":"r1-a","requestId":"req-4","code":"ABC123","code":"ambiguous"})", request, error));
+    assert(!parseScanRequestJson(
+        R"({"deviceId":"r1-a","requestId":"req-5","code":"ABC123")", request, error));
   }
 
   {
@@ -1283,6 +1291,9 @@ int main() {
     const auto quickLabelJson = deviceSyncResponseJson(quickLabelResponse);
     assert(quickLabelJson.find("\"quickLabels\":{\"revision\":3") != string::npos);
     assert(quickLabelJson.find("\"quickLabelPrintResult\":{\"requestId\":\"r1-a-label-1\"") != string::npos);
+    quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
+    quickLabelResponse.hasLookupResult = true;
+    assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
     assert(!parseDeviceSyncRequestJson(
         R"({"protocolVersion":2,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));

@@ -40,27 +40,129 @@ int hexDigit(char ch) {
 
 string jsonEscape(const string& value) {
   ostringstream out;
-  for (const char ch : value) {
+  for (const unsigned char ch : value) {
     switch (ch) {
       case '\\': out << "\\\\"; break;
       case '"': out << "\\\""; break;
       case '\n': out << "\\n"; break;
       case '\r': out << "\\r"; break;
       case '\t': out << "\\t"; break;
-      default: out << ch; break;
+      default:
+        if (ch < 0x20U) {
+          static constexpr char kHex[] = "0123456789abcdef";
+          out << "\\u00" << kHex[(ch >> 4U) & 0x0fU] << kHex[ch & 0x0fU];
+        } else {
+          out << static_cast<char>(ch);
+        }
+        break;
     }
   }
   return out.str();
 }
 
+bool jsonObjectIsComplete(const string& body) {
+  const auto begin = body.find_first_not_of(" \t\r\n");
+  const auto end = body.find_last_not_of(" \t\r\n");
+  if (begin == string::npos || body[begin] != '{' || body[end] != '}') {
+    return false;
+  }
+
+  int objectDepth = 0;
+  int arrayDepth = 0;
+  bool inString = false;
+  bool escaped = false;
+  for (size_t index = begin; index <= end; ++index) {
+    const unsigned char ch = static_cast<unsigned char>(body[index]);
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == '"') {
+        inString = false;
+      } else if (ch < 0x20U) {
+        return false;
+      }
+      continue;
+    }
+    if (ch == '"') {
+      inString = true;
+    } else if (ch == '{') {
+      ++objectDepth;
+    } else if (ch == '}') {
+      if (--objectDepth < 0) return false;
+    } else if (ch == '[') {
+      ++arrayDepth;
+    } else if (ch == ']') {
+      if (--arrayDepth < 0) return false;
+    }
+  }
+  return !inString && !escaped && objectDepth == 0 && arrayDepth == 0;
+}
+
+optional<size_t> jsonMemberValuePosition(const string& body, const string& key) {
+  if (!jsonObjectIsComplete(body)) {
+    return nullopt;
+  }
+
+  int objectDepth = 0;
+  int arrayDepth = 0;
+  optional<size_t> valuePosition;
+  for (size_t index = 0; index < body.size(); ++index) {
+    const char ch = body[index];
+    if (ch == '{') {
+      ++objectDepth;
+      continue;
+    }
+    if (ch == '}') {
+      --objectDepth;
+      continue;
+    }
+    if (ch == '[') {
+      ++arrayDepth;
+      continue;
+    }
+    if (ch == ']') {
+      --arrayDepth;
+      continue;
+    }
+    if (ch != '"') {
+      continue;
+    }
+
+    const auto stringStart = index + 1;
+    bool escaped = false;
+    for (++index; index < body.size(); ++index) {
+      if (escaped) {
+        escaped = false;
+      } else if (body[index] == '\\') {
+        escaped = true;
+      } else if (body[index] == '"') {
+        break;
+      }
+    }
+    if (index >= body.size()) return nullopt;
+
+    size_t afterName = index + 1;
+    while (afterName < body.size() && isspace(static_cast<unsigned char>(body[afterName]))) ++afterName;
+    if (objectDepth != 1 || arrayDepth != 0 || afterName >= body.size() || body[afterName] != ':' ||
+        body.substr(stringStart, index - stringStart) != key) {
+      continue;
+    }
+    ++afterName;
+    while (afterName < body.size() && isspace(static_cast<unsigned char>(body[afterName]))) ++afterName;
+    if (valuePosition.has_value()) {
+      return nullopt;
+    }
+    valuePosition = afterName;
+  }
+  return valuePosition;
+}
+
 optional<string> jsonString(const string& body, const string& key) {
-  const auto marker = string("\"") + key + "\"";
-  auto position = body.find(marker);
-  if (position == string::npos) return nullopt;
-  position = body.find(':', position + marker.size());
-  if (position == string::npos) return nullopt;
-  position = body.find('"', position + 1);
-  if (position == string::npos) return nullopt;
+  const auto valuePosition = jsonMemberValuePosition(body, key);
+  if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != '"') return nullopt;
+  auto position = *valuePosition;
   string value;
   bool escaped = false;
   for (++position; position < body.size(); ++position) {
@@ -103,12 +205,9 @@ optional<string> jsonString(const string& body, const string& key) {
 }
 
 optional<int> jsonInt(const string& body, const string& key) {
-  const auto marker = string("\"") + key + "\"";
-  auto position = body.find(marker);
-  if (position == string::npos) return nullopt;
-  position = body.find(':', position + marker.size());
-  if (position == string::npos) return nullopt;
-  ++position;
+  const auto valuePosition = jsonMemberValuePosition(body, key);
+  if (!valuePosition) return nullopt;
+  auto position = *valuePosition;
   while (position < body.size() && isspace(static_cast<unsigned char>(body[position]))) ++position;
   const auto begin = position;
   if (position < body.size() && (body[position] == '-' || body[position] == '+')) ++position;
@@ -124,12 +223,9 @@ optional<int> jsonInt(const string& body, const string& key) {
 }
 
 optional<bool> jsonBool(const string& body, const string& key) {
-  const auto marker = string("\"") + key + "\"";
-  auto position = body.find(marker);
-  if (position == string::npos) return nullopt;
-  position = body.find(':', position + marker.size());
-  if (position == string::npos) return nullopt;
-  ++position;
+  const auto valuePosition = jsonMemberValuePosition(body, key);
+  if (!valuePosition) return nullopt;
+  auto position = *valuePosition;
   while (position < body.size() && isspace(static_cast<unsigned char>(body[position]))) ++position;
   if (body.compare(position, 4, "true") == 0) return true;
   if (body.compare(position, 5, "false") == 0) return false;
@@ -137,11 +233,9 @@ optional<bool> jsonBool(const string& body, const string& key) {
 }
 
 optional<string> jsonArrayBody(const string& body, const string& key) {
-  const auto marker = string("\"") + key + "\"";
-  auto position = body.find(marker);
-  if (position == string::npos) return nullopt;
-  const auto begin = body.find('[', position + marker.size());
-  if (begin == string::npos) return nullopt;
+  const auto valuePosition = jsonMemberValuePosition(body, key);
+  if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != '[') return nullopt;
+  const auto begin = *valuePosition;
   bool inString = false;
   bool escaped = false;
   int depth = 0;
@@ -161,11 +255,9 @@ optional<string> jsonArrayBody(const string& body, const string& key) {
 }
 
 optional<string> jsonObjectBody(const string& body, const string& key) {
-  const auto marker = string("\"") + key + "\"";
-  auto position = body.find(marker);
-  if (position == string::npos) return nullopt;
-  const auto begin = body.find('{', position + marker.size());
-  if (begin == string::npos) return nullopt;
+  const auto valuePosition = jsonMemberValuePosition(body, key);
+  if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != '{') return nullopt;
+  const auto begin = *valuePosition;
   bool inString = false;
   bool escaped = false;
   int depth = 0;
@@ -314,6 +406,10 @@ string generateHimsScanToken() {
 }
 
 bool parseQuantityRequestJson(const string& body, DeviceQuantityRequest& request, string& error) {
+  if (!jsonObjectIsComplete(body)) {
+    error = "Invalid JSON request";
+    return false;
+  }
   const auto deviceId = jsonString(body, "deviceId");
   const auto requestId = jsonString(body, "requestId");
   const auto code = jsonString(body, "code");
@@ -335,6 +431,10 @@ bool parseQuantityRequestJson(const string& body, DeviceQuantityRequest& request
 }
 
 bool parseScanRequestJson(const string& body, DeviceScanRequest& request, string& error) {
+  if (!jsonObjectIsComplete(body)) {
+    error = "Invalid JSON request";
+    return false;
+  }
   const auto deviceId = jsonString(body, "deviceId");
   const auto requestId = jsonString(body, "requestId");
   const auto code = jsonString(body, "code");
@@ -357,6 +457,10 @@ bool parseScanRequestJson(const string& body, DeviceScanRequest& request, string
 }
 
 bool parseDebugReportJson(const string& body, DeviceDebugReport& report, string& error) {
+  if (!jsonObjectIsComplete(body)) {
+    error = "Invalid JSON request";
+    return false;
+  }
   const auto deviceId = jsonString(body, "deviceId");
   const auto requestId = jsonString(body, "requestId");
   const auto level = jsonString(body, "level");
@@ -375,6 +479,10 @@ bool parseDebugReportJson(const string& body, DeviceDebugReport& report, string&
 }
 
 bool parseStatusReportJson(const string& body, DeviceStatusReport& report, string& error) {
+  if (!jsonObjectIsComplete(body)) {
+    error = "Invalid JSON request";
+    return false;
+  }
   const auto deviceId = jsonString(body, "deviceId");
   const auto version = jsonString(body, "firmwareVersion");
   const auto rssi = jsonInt(body, "rssi");
@@ -388,6 +496,10 @@ bool parseStatusReportJson(const string& body, DeviceStatusReport& report, strin
 }
 
 bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, string& error) {
+  if (!jsonObjectIsComplete(body)) {
+    error = "Invalid JSON request";
+    return false;
+  }
   const auto protocolVersion = jsonInt(body, "protocolVersion");
   const auto requestId = jsonString(body, "requestId");
   const auto deviceId = jsonString(body, "deviceId");
