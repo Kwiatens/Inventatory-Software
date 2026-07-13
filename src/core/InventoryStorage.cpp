@@ -212,15 +212,8 @@ bool loadItemsFromHimsTable(SqliteConnection& connection, vector<InventoryItem>&
     item.quantity = sqliteApi().column_int(statement.stmt, 4);
     item.reorderThreshold = sqliteApi().column_int(statement.stmt, 5);
     item.location = sqliteText(statement.stmt, 6);
-    item.tags = split(sqliteText(statement.stmt, 7), '|');
-    item.parameters.clear();
-    for (const auto& entry : split(sqliteText(statement.stmt, 8), ';')) {
-      const auto equalsPos = entry.find('=');
-      if (equalsPos == string::npos) {
-        continue;
-      }
-      item.parameters.push_back({trim(entry.substr(0, equalsPos)), trim(entry.substr(equalsPos + 1))});
-    }
+    item.tags = deserializeTagsFromStorage(sqliteText(statement.stmt, 7));
+    item.parameters = deserializeParametersFromStorage(sqliteText(statement.stmt, 8));
     item.notes = sqliteText(statement.stmt, 9);
     item.digikeyPartNumber = sqliteText(statement.stmt, 10);
     item.datasheetUrl = sqliteText(statement.stmt, 11);
@@ -344,15 +337,9 @@ bool writeItemsToHimsTable(SqliteConnection& connection, const vector<InventoryI
     sqliteApi().bind_int(statement.stmt, 5, item.quantity);
     sqliteApi().bind_int(statement.stmt, 6, item.reorderThreshold);
     sqliteApi().bind_text(statement.stmt, 7, item.location.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 8, join(item.tags, '|').c_str(), -1, SQLITE_TRANSIENT);
-    const auto parameters = [&]() {
-      vector<string> serialized;
-      serialized.reserve(item.parameters.size());
-      for (const auto& parameter : item.parameters) {
-        serialized.push_back(parameter.name + "=" + parameter.value);
-      }
-      return join(serialized, ';');
-    }();
+    const auto tags = serializeTagsForStorage(item.tags);
+    sqliteApi().bind_text(statement.stmt, 8, tags.c_str(), -1, SQLITE_TRANSIENT);
+    const auto parameters = serializeParametersForStorage(item.parameters);
     sqliteApi().bind_text(statement.stmt, 9, parameters.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 10, item.notes.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 11, item.digikeyPartNumber.c_str(), -1, SQLITE_TRANSIENT);
