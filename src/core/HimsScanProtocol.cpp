@@ -451,6 +451,18 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
     parsed.hasLookup = true;
     parsed.lookup = {*lookupId, *code};
   }
+  if (const auto print = jsonObjectBody(body, "quickLabelPrint")) {
+    const auto printId = jsonString(*print, "requestId");
+    const auto presetIndex = jsonInt(*print, "presetIndex");
+    const auto revision = jsonInt(*print, "revision");
+    if (!printId || trim(*printId).empty() || !presetIndex || !revision || printId->size() > 96 ||
+        *presetIndex < 1 || *presetIndex > static_cast<int>(kQuickLabelPresetLimit) || *revision < 1) {
+      error = "Invalid quick-label print request";
+      return false;
+    }
+    parsed.hasQuickLabelPrint = true;
+    parsed.quickLabelPrint = {*printId, *presetIndex, static_cast<uint32_t>(*revision)};
+  }
   request = move(parsed);
   return true;
 }
@@ -484,6 +496,20 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
     out << ",\"lookupResult\":{\"lookupId\":\"" << jsonEscape(response.lookupResult.lookupId)
         << "\",\"status\":\"" << jsonEscape(response.lookupResult.status)
         << "\",\"itemName\":\"" << jsonEscape(response.lookupResult.itemName) << "\"}";
+  }
+  if (response.hasQuickLabels) {
+    out << ",\"quickLabels\":{\"revision\":" << response.quickLabelRevision << ",\"presets\":[";
+    for (size_t index = 0; index < response.quickLabelPresets.size(); ++index) {
+      if (index != 0) out << ',';
+      out << '"' << jsonEscape(response.quickLabelPresets[index]) << '"';
+    }
+    out << "]}";
+  }
+  if (response.hasQuickLabelPrintResult) {
+    const auto& result = response.quickLabelPrintResult;
+    out << ",\"quickLabelPrintResult\":{\"requestId\":\"" << jsonEscape(result.requestId)
+        << "\",\"status\":\"" << jsonEscape(result.status) << "\",\"code\":\""
+        << jsonEscape(result.code) << "\",\"message\":\"" << jsonEscape(result.message) << "\"}";
   }
   out << '}';
   return out.str();
