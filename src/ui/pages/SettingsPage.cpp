@@ -54,6 +54,7 @@ string App::settingsCategoryName(SettingsCategory category) const {
   switch (category) {
     case SettingsCategory::General: return "General / Data";
     case SettingsCategory::Printer: return "Printer";
+    case SettingsCategory::QuickLabels: return "Quick Labels";
     case SettingsCategory::HimsScan: return "HIMS Scan";
     case SettingsCategory::DigiKey: return "DigiKey";
   }
@@ -148,6 +149,11 @@ void App::beginSettingsFieldEdit(int field) {
     case SettingsCategory::Printer:
       inputBuffer_ = field == 50 ? wireLabelText_ : string();
       break;
+    case SettingsCategory::QuickLabels:
+      inputBuffer_ = field >= 0 && field < static_cast<int>(settingsDraft_.quickLabelPresets.size())
+                         ? settingsDraft_.quickLabelPresets[field]
+                         : string();
+      break;
     case SettingsCategory::HimsScan:
       inputBuffer_ = field == 0 ? to_string(settingsDraft_.deviceServicePort) : string();
       break;
@@ -170,6 +176,15 @@ void App::commitSettingsFieldEdit() {
   if (!settingsEditingField_) return;
   if (settingsCategory_ == SettingsCategory::Printer && settingsField_ == 50) {
     wireLabelText_ = trim(inputBuffer_);
+  } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
+    const auto preset = trim(inputBuffer_);
+    if (preset.empty() || preset.size() > kQuickLabelPresetTextLimit) {
+      setMessage("Quick labels must contain 1 to 24 characters", 4);
+      return;
+    }
+    if (settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())) {
+      settingsDraft_.quickLabelPresets[settingsField_] = preset;
+    }
   } else if (settingsCategory_ == SettingsCategory::HimsScan) {
     if (settingsField_ == 0) {
       try {
@@ -215,6 +230,12 @@ bool App::saveSettingsDraft() {
 
   const bool dataChanged = settingsDraft_.dataDirectory != dataPath_;
   const bool portChanged = settingsDraft_.deviceServicePort != settings_.deviceServicePort;
+  const bool quickLabelsChanged = settingsDraft_.quickLabelPresets != settings_.quickLabelPresets;
+  if (quickLabelsChanged) {
+    settingsDraft_.quickLabelRevision = settings_.quickLabelRevision == UINT32_MAX
+                                            ? 1U
+                                            : max(1U, settings_.quickLabelRevision + 1U);
+  }
   if (dataChanged) {
     const auto candidateDatabase = settingsDraft_.dataDirectory / "inventory.db";
     if (filesystem::exists(candidateDatabase, error)) {
@@ -247,7 +268,10 @@ bool App::saveSettingsDraft() {
     server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
   }
 
-  settings_ = settingsDraft_;
+  {
+    lock_guard<mutex> lock(quickLabelMutex_);
+    settings_ = settingsDraft_;
+  }
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   if (!settings_.printerQueue.empty()) {
@@ -282,7 +306,7 @@ ftxui::Element App::renderSettingsUi() const {
 
   ftxui::Elements categories;
   categories.push_back(styledText(" SETTINGS", uiMutedText()));
-  for (const auto category : {SettingsCategory::General, SettingsCategory::Printer,
+  for (const auto category : {SettingsCategory::General, SettingsCategory::Printer, SettingsCategory::QuickLabels,
                               SettingsCategory::HimsScan, SettingsCategory::DigiKey}) {
     const bool selected = category == settingsCategory_;
     auto row = fullLine(string(selected ? "  > " : "    ") + settingsCategoryName(category),
@@ -350,24 +374,59 @@ ftxui::Element App::renderSettingsUi() const {
                UiTargetKind::Button, [self] { self->testStagedPrinter(); }),
     }));
     rows.push_back(uiDivider());
+    rows.push_back(target(settingLine("Quick label presets", "Open editor...", contentWidth),
+                          "settings.printer.quick_labels", UiTargetKind::Button, [self] {
+                            self->settingsCategory_ = SettingsCategory::QuickLabels;
+                            self->settingsField_ = 0;
+                            self->settingsEditingField_ = false;
+                            self->dirty_ = true;
+                          }));
+    rows.push_back(styledText("Create and order the labels available on Scan R1", uiMutedText()));
+    rows.push_back(uiDivider());
     const auto wireValue = settingsEditingField_ && settingsField_ == 50 ? inputBuffer_ + "_"
                                                                            : wireLabelText_.empty() ? "Enter custom wire text" : wireLabelText_;
     rows.push_back(target(settingLine("Wire label", wireValue, contentWidth, settingsEditingField_ && settingsField_ == 50),
                           "settings.printer.wire", UiTargetKind::Field,
                           [self] { self->beginSettingsFieldEdit(50); }));
+    rows.push_back(target(styledText(" Print custom ", uiFocusColor(), uiRaisedSurfaceBg()),
+                          "settings.printer.wire.custom", UiTargetKind::Button,
+                          [self] { self->printWireLabel(self->wireLabelText_); }, !wireLabelText_.empty()));
+  } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
+    rows.push_back(styledText("QUICK LABEL PRESETS", uiPrimaryText()) | ftxui::bold);
+    rows.push_back(styledText("Saved labels sync to Scan R1 automatically", uiSecondaryText()));
+    rows.push_back(target(styledText(" + Add quick label ", uiFocusColor(), uiRaisedSurfaceBg()),
+                          "settings.quick_label.add.primary", UiTargetKind::Button,
+                          [self] { self->addQuickLabelPreset(); },
+                          settingsDraft_.quickLabelPresets.size() < kQuickLabelPresetLimit));
+    rows.push_back(uiDivider());
+    if (settingsDraft_.quickLabelPresets.empty()) {
+      rows.push_back(styledText("No quick labels yet", uiWarnColor()));
+    }
+    for (size_t index = 0; index < settingsDraft_.quickLabelPresets.size(); ++index) {
+      const bool editing = settingsEditingField_ && settingsField_ == static_cast<int>(index);
+      rows.push_back(target(settingLine(to_string(index + 1), editing ? inputBuffer_ + "_"
+                                                               : settingsDraft_.quickLabelPresets[index], contentWidth,
+                                        settingsField_ == static_cast<int>(index)),
+                            "settings.quick_label." + to_string(index), UiTargetKind::Field,
+                            [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
+    }
     rows.push_back(ftxui::hbox({
-        target(styledText(" 5V ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.wire.5v",
-               UiTargetKind::Button, [self] { self->printWireLabel("5V"); }),
+        target(styledText(" Test ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.quick_label.test",
+               UiTargetKind::Button, [self] { self->testQuickLabelPreset(); },
+               settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
         ftxui::text("  "),
-        target(styledText(" GND ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.wire.gnd",
-               UiTargetKind::Button, [self] { self->printWireLabel("GND"); }),
+        target(styledText(" Remove ", uiWarnColor(), uiRaisedSurfaceBg()), "settings.quick_label.remove",
+               UiTargetKind::Button, [self] { self->deleteQuickLabelPreset(); },
+               settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
         ftxui::text("  "),
-        target(styledText(" 12V ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.wire.12v",
-               UiTargetKind::Button, [self] { self->printWireLabel("12V"); }),
+        target(styledText(" Up ", uiSecondaryText(), uiRaisedSurfaceBg()), "settings.quick_label.up",
+               UiTargetKind::Button, [self] { self->moveQuickLabelPreset(-1); }, settingsField_ > 0),
         ftxui::text("  "),
-        target(styledText(" Print custom ", uiFocusColor(), uiRaisedSurfaceBg()), "settings.printer.wire.custom",
-               UiTargetKind::Button, [self] { self->printWireLabel(self->wireLabelText_); }, !wireLabelText_.empty()),
+        target(styledText(" Down ", uiSecondaryText(), uiRaisedSurfaceBg()), "settings.quick_label.down",
+               UiTargetKind::Button, [self] { self->moveQuickLabelPreset(1); },
+               settingsField_ >= 0 && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
     }));
+    rows.push_back(styledText("Select a label to edit. A adds; X removes; [ ] changes order; T test-prints.", uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::HimsScan) {
     const auto now = time(nullptr);
     const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
@@ -472,8 +531,13 @@ void App::handleSettingsKey(const KeyEvent& key) {
     if (ch == 's' && settingsDirty_) saveSettingsDraft();
     else if (ch == 'b' && settingsCategory_ == SettingsCategory::General) stageHimsFolder();
     else if (ch == 't' && settingsCategory_ == SettingsCategory::Printer) testStagedPrinter();
+    else if (ch == 'a' && settingsCategory_ == SettingsCategory::QuickLabels) addQuickLabelPreset();
+    else if (ch == 'x' && settingsCategory_ == SettingsCategory::QuickLabels) deleteQuickLabelPreset();
+    else if (ch == '[' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(-1);
+    else if (ch == ']' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(1);
+    else if (ch == 't' && settingsCategory_ == SettingsCategory::QuickLabels) testQuickLabelPreset();
     else if (ch == 't' && settingsCategory_ == SettingsCategory::DigiKey) testStagedDigiKey();
-    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::HimsScan ||
+    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::QuickLabels || settingsCategory_ == SettingsCategory::HimsScan ||
                            settingsCategory_ == SettingsCategory::DigiKey)) beginSettingsFieldEdit(settingsField_);
     return;
   }
@@ -483,9 +547,16 @@ void App::handleSettingsKey(const KeyEvent& key) {
     settingsField_ = 0;
     dirty_ = true;
   } else if (key.type == KeyType::Right) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(3, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(4, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
+    dirty_ = true;
+  } else if (key.type == KeyType::Up && settingsCategory_ == SettingsCategory::QuickLabels && settingsField_ > 0) {
+    --settingsField_;
+    dirty_ = true;
+  } else if (key.type == KeyType::Down && settingsCategory_ == SettingsCategory::QuickLabels &&
+             settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())) {
+    ++settingsField_;
     dirty_ = true;
   } else if (key.type == KeyType::Up && settingsCategory_ == SettingsCategory::Printer && printerSelection_ > 0) {
     --printerSelection_;

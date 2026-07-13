@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace hims {
 
@@ -20,6 +21,9 @@ struct AppSettings {
   std::string digiKeySite = "US";
   std::string digiKeyLanguage = "en";
   std::string digiKeyCurrency = "USD";
+  // Shared wire-label shortcuts published to the paired Scan R1.
+  std::vector<std::string> quickLabelPresets;
+  std::uint32_t quickLabelRevision = 1;
 };
 
 std::filesystem::path appSettingsDirectory();
