@@ -296,7 +296,6 @@ bool saveHimsScanConfig(const filesystem::path& path, const HimsScanConfig& conf
   ofstream output(path, ios::trunc);
   if (!output) return false;
   output << "device_id=" << config.deviceId << '\n'
-         << "token=" << config.token << '\n'
          << "fallback_host=" << config.fallbackHost << '\n'
          << "fallback_port=" << config.fallbackPort << '\n';
   return static_cast<bool>(output);

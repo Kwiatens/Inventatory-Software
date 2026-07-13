@@ -48,6 +48,7 @@ add_executable(hims
   src/platform/DigiKeyApi.cpp
   src/platform/Console.cpp
   src/platform/CredentialStore.cpp
+  src/platform/BleProvisioningService.cpp
   src/ui/shared/AppUiShared.cpp
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
@@ -64,7 +65,7 @@ target_include_directories(hims PRIVATE src)
 target_compile_definitions(hims PRIVATE HIMS_VERSION_STRING="${PROJECT_VERSION}")
 
 if(WIN32)
-  target_link_libraries(hims PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32)
+  target_link_libraries(hims PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
 endif()
 
 target_link_libraries(hims PRIVATE ftxui::screen ftxui::dom ftxui::component)
