@@ -1150,6 +1150,13 @@ int main() {
   }
 
   {
+    const string csv = "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+                       "123-ND,ABC-123,Acme,Overflow quantity,2147483648\n";
+    const auto result = parseDigiKeyCsvText(csv, {});
+    assert(!result.ok);
+  }
+
+  {
     DeviceQuantityRequest request;
     string error;
     assert(parseQuantityRequestJson(
