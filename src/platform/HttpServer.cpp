@@ -12,6 +12,8 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -28,6 +30,10 @@ namespace hims {
 using namespace std;
 
 namespace {
+
+constexpr size_t kMaxHttpHeaderBytes = 8U * 1024U;
+constexpr size_t kMaxHttpBodyBytes = 64U * 1024U;
+constexpr DWORD kClientIoTimeoutMs = 5000U;
 
 string jsonEscape(const string& value) {
   ostringstream out;
@@ -85,13 +91,43 @@ string headerValue(const string& headers, const string& wantedName) {
   return {};
 }
 
+optional<size_t> contentLength(const string& headers) {
+  const auto value = headerValue(headers, "Content-Length");
+  if (value.empty()) {
+    return 0U;
+  }
+
+  size_t length = 0;
+  for (const unsigned char ch : value) {
+    if (!isdigit(ch) || length > (numeric_limits<size_t>::max() - (ch - '0')) / 10U) {
+      return nullopt;
+    }
+    length = length * 10U + (ch - '0');
+  }
+  return length;
+}
+
+bool tokensMatch(const string& expected, const string& supplied) {
+  if (expected.empty() || expected.size() != supplied.size()) {
+    return false;
+  }
+
+  unsigned char difference = 0;
+  for (size_t index = 0; index < expected.size(); ++index) {
+    difference |= static_cast<unsigned char>(expected[index]) ^ static_cast<unsigned char>(supplied[index]);
+  }
+  return difference == 0;
+}
+
 string httpStatusText(int status) {
   switch (status) {
     case 200: return "200 OK";
     case 400: return "400 Bad Request";
     case 401: return "401 Unauthorized";
+    case 408: return "408 Request Timeout";
     case 404: return "404 Not Found";
     case 409: return "409 Conflict";
+    case 413: return "413 Payload Too Large";
     case 426: return "426 Upgrade Required";
     case 503: return "503 Service Unavailable";
     default: return "500 Internal Server Error";
@@ -238,22 +274,29 @@ void LocalHttpServer::workerLoop() {
       break;
     }
 
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&kClientIoTimeoutMs),
+               sizeof(kClientIoTimeoutMs));
+    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&kClientIoTimeoutMs),
+               sizeof(kClientIoTimeoutMs));
+
     string request;
     array<char, 4096> buffer{};
     size_t expectedSize = string::npos;
+    const auto deadline = chrono::steady_clock::now() + chrono::milliseconds(kClientIoTimeoutMs);
     while (true) {
+      if (chrono::steady_clock::now() >= deadline) break;
       const int received = recv(client, buffer.data(), static_cast<int>(buffer.size()), 0);
       if (received <= 0) break;
       request.append(buffer.data(), buffer.data() + received);
       const auto headerEnd = request.find("\r\n\r\n");
+      if (headerEnd != string::npos && headerEnd > kMaxHttpHeaderBytes) break;
       if (headerEnd != string::npos && expectedSize == string::npos) {
-        const auto contentLength = headerValue(request.substr(0, headerEnd), "Content-Length");
-        size_t bodySize = 0;
-        try { bodySize = contentLength.empty() ? 0 : stoul(contentLength); } catch (...) { bodySize = 0; }
-        expectedSize = headerEnd + 4 + bodySize;
+        const auto bodySize = contentLength(request.substr(0, headerEnd));
+        if (!bodySize || *bodySize > kMaxHttpBodyBytes) break;
+        expectedSize = headerEnd + 4 + *bodySize;
       }
       if (expectedSize != string::npos && request.size() >= expectedSize) break;
-      if (request.size() > 65536) break;
+      if (request.size() > kMaxHttpHeaderBytes + kMaxHttpBodyBytes) break;
     }
 
     serveConnection(client, move(request));
@@ -278,9 +321,20 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   if (headerEnd == string::npos) {
     return false;
   }
+  if (headerEnd > kMaxHttpHeaderBytes) {
+    const auto response = responseText("413 Payload Too Large", "text/plain; charset=utf-8", "Request too large");
+    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+    return false;
+  }
 
   const auto headers = requestText.substr(0, headerEnd);
   const auto body = requestText.substr(headerEnd + 4);
+  const auto declaredBodySize = contentLength(headers);
+  if (!declaredBodySize || *declaredBodySize > kMaxHttpBodyBytes || body.size() != *declaredBodySize) {
+    const auto response = responseText("400 Bad Request", "text/plain; charset=utf-8", "Invalid request body");
+    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+    return false;
+  }
   istringstream input(headers);
   string method;
   string target;
@@ -297,7 +351,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedToken = deviceToken_;
     }
     const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
-    if (expectedToken.empty() || suppliedToken != expectedToken) {
+    if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          statusResultJson(false, "Unauthorized device"));
       send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
@@ -341,7 +395,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedToken = deviceToken_;
     }
     const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
-    if (expectedToken.empty() || suppliedToken != expectedToken) {
+    if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          scanResultJson(false, "Unauthorized device"));
       send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
@@ -391,7 +445,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedToken = deviceToken_;
     }
     const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
-    if (expectedToken.empty() || suppliedToken != expectedToken) {
+    if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          debugResultJson(false, "Unauthorized device"));
       send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
@@ -425,7 +479,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedToken = deviceToken_;
     }
     const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
-    if (expectedToken.empty() || suppliedToken != expectedToken) {
+    if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          statusResultJson(false, "Unauthorized device"));
       send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);

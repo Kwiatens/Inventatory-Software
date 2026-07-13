@@ -4,6 +4,7 @@
 #include "core/InventoryInternals.h"
 
 #include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -15,7 +16,80 @@ using namespace std;
 
 namespace {
 
-vector<Parameter> parseParametersFromDb(const string& value) {
+constexpr const char* kStructuredStoragePrefix = "v2:";
+
+string escapeStorageField(const string& value, const string& delimiters) {
+  string escaped;
+  escaped.reserve(value.size());
+  for (const char ch : value) {
+    if (ch == '\\' || delimiters.find(ch) != string::npos) {
+      escaped.push_back('\\');
+    }
+    escaped.push_back(ch);
+  }
+  return escaped;
+}
+
+vector<string> splitEscapedStorageFields(const string& value, char delimiter) {
+  vector<string> fields;
+  string field;
+  bool escaped = false;
+  for (const char ch : value) {
+    if (escaped) {
+      field.push_back('\\');
+      field.push_back(ch);
+      escaped = false;
+    } else if (ch == '\\') {
+      escaped = true;
+    } else if (ch == delimiter) {
+      fields.push_back(move(field));
+      field.clear();
+    } else {
+      field.push_back(ch);
+    }
+  }
+  if (escaped) {
+    field.push_back('\\');
+  }
+  fields.push_back(move(field));
+  return fields;
+}
+
+string unescapeStorageField(const string& value) {
+  string unescaped;
+  unescaped.reserve(value.size());
+  bool escaped = false;
+  for (const char ch : value) {
+    if (escaped) {
+      unescaped.push_back(ch);
+      escaped = false;
+    } else if (ch == '\\') {
+      escaped = true;
+    } else {
+      unescaped.push_back(ch);
+    }
+  }
+  if (escaped) {
+    unescaped.push_back('\\');
+  }
+  return unescaped;
+}
+
+size_t findUnescapedDelimiter(const string& value, char delimiter) {
+  bool escaped = false;
+  for (size_t index = 0; index < value.size(); ++index) {
+    if (escaped) {
+      escaped = false;
+    } else if (value[index] == '\\') {
+      escaped = true;
+    } else if (value[index] == delimiter) {
+      return index;
+    }
+  }
+  return string::npos;
+}
+
+vector<Parameter> parseLegacyParameters(const string& value) {
   vector<Parameter> parameters;
   for (const auto& entry : split(value, ';')) {
     const auto equalsPos = entry.find('=');
@@ -27,23 +101,66 @@ vector<Parameter> parseParametersFromDb(const string& value) {
   return parameters;
 }
 
-vector<string> parseTagsFromDb(const string& value) {
+vector<string> parseLegacyTags(const string& value) {
   return split(value, '|');
 }
 
 }  // namespace
 
-string serializeItem(const InventoryItem& item) {
-  ostringstream out;
-  vector<string> parameterEntries;
-  parameterEntries.reserve(item.parameters.size());
-  for (const auto& parameter : item.parameters) {
-    parameterEntries.push_back(parameter.name + "=" + parameter.value);
+string serializeTagsForStorage(const vector<string>& tags) {
+  vector<string> encoded;
+  encoded.reserve(tags.size());
+  for (const auto& tag : tags) {
+    encoded.push_back(escapeStorageField(tag, "|"));
+  }
+  return string(kStructuredStoragePrefix) + join(encoded, '|');
+}
+
+vector<string> deserializeTagsFromStorage(const string& value) {
+  if (value.rfind(kStructuredStoragePrefix, 0) != 0) {
+    return parseLegacyTags(value);
   }
 
+  vector<string> tags;
+  for (const auto& field : splitEscapedStorageFields(value.substr(strlen(kStructuredStoragePrefix)), '|')) {
+    tags.push_back(unescapeStorageField(field));
+  }
+  return tags;
+}
+
+string serializeParametersForStorage(const vector<Parameter>& parameters) {
+  vector<string> encoded;
+  encoded.reserve(parameters.size());
+  for (const auto& parameter : parameters) {
+    encoded.push_back(escapeStorageField(parameter.name, ";=") + "=" +
+                      escapeStorageField(parameter.value, ";="));
+  }
+  return string(kStructuredStoragePrefix) + join(encoded, ';');
+}
+
+vector<Parameter> deserializeParametersFromStorage(const string& value) {
+  if (value.rfind(kStructuredStoragePrefix, 0) != 0) {
+    return parseLegacyParameters(value);
+  }
+
+  vector<Parameter> parameters;
+  for (const auto& entry : splitEscapedStorageFields(value.substr(strlen(kStructuredStoragePrefix)), ';')) {
+    const auto equalsPos = findUnescapedDelimiter(entry, '=');
+    if (equalsPos == string::npos) {
+      continue;
+    }
+    parameters.push_back({unescapeStorageField(entry.substr(0, equalsPos)),
+                          unescapeStorageField(entry.substr(equalsPos + 1))});
+  }
+  return parameters;
+}
+
+string serializeItem(const InventoryItem& item) {
+  ostringstream out;
   out << quoted(item.id) << '\t' << quoted(item.partName) << '\t' << quoted(item.manufacturer) << '\t'
-      << quoted(item.category) << '\t' << item.quantity << '\t' << item.reorderThreshold << '\t'
-      << quoted(item.location) << '\t' << quoted(join(item.tags, '|')) << '\t' << quoted(join(parameterEntries, ';'))
+       << quoted(item.category) << '\t' << item.quantity << '\t' << item.reorderThreshold << '\t'
+       << quoted(item.location) << '\t' << quoted(serializeTagsForStorage(item.tags)) << '\t'
+       << quoted(serializeParametersForStorage(item.parameters))
       << '\t' << quoted(item.notes) << '\t' << quoted(item.digikeyPartNumber) << '\t' << quoted(item.datasheetUrl)
       << '\t' << quoted(item.productUrl) << '\t' << quoted(item.syncStatus) << '\t' << quoted(item.sku) << '\t'
       << item.lastUpdated << '\t' << quoted(item.himsId) << '\t' << item.createdAt << '\t'
@@ -63,8 +180,8 @@ bool deserializeItem(const string& line, InventoryItem& item) {
     return false;
   }
 
-  item.tags = parseTagsFromDb(tags);
-  item.parameters = parseParametersFromDb(parameters);
+  item.tags = deserializeTagsFromStorage(tags);
+  item.parameters = deserializeParametersFromStorage(parameters);
   item.machineCode.clear();
 
   if (item.lastUpdated == 0) {
