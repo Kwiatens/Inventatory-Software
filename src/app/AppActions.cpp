@@ -4,6 +4,7 @@
 #include "App.h"
 
 #include "platform/DigiKeyApi.h"
+#include "platform/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -22,6 +23,7 @@ using namespace std;
 namespace {
 
 constexpr size_t kDeviceDebugWindowLines = 14;
+constexpr const char* kHimsScanTokenCredential = "hims-scan-pairing-token";
 
 filesystem::path resolveInventoryDatabasePath(const filesystem::path& selectedPath) {
   error_code error;
@@ -220,7 +222,14 @@ void App::loadState() {
 
   server_.setRecentActivity(activities_);
   if (trim(himsScanConfig_.token).empty()) {
-    himsScanConfig_.token = generateHimsScanToken();
+    if (const auto stored = CredentialStore::read(kHimsScanTokenCredential); stored.has_value()) {
+      himsScanConfig_.token = *stored;
+    } else {
+      himsScanConfig_.token = generateHimsScanToken();
+    }
+  }
+  if (!CredentialStore::write(kHimsScanTokenCredential, himsScanConfig_.token)) {
+    setMessage("Unable to save the scanner pairing token securely", 5);
   }
 
   error_code error;
@@ -1171,6 +1180,24 @@ DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& req
   return pending->result;
 }
 
+bool App::printWireLabel(const string& text) {
+  if (!printerService_.hasConfiguredPrinter()) {
+    setMessage("No printer configured", 3);
+    openSettings(SettingsCategory::Printer);
+    return false;
+  }
+  string error;
+  if (!printerService_.printWireLabel(text, &error)) {
+    setMessage(error.empty() ? "Wire label could not be printed" : error, 4);
+    refreshPrinterState();
+    return false;
+  }
+  printerFlashUntil_ = time(nullptr) + 3;
+  logActivity("print", "wire label printed");
+  setMessage("Wire label sent", 3);
+  return true;
+}
+
 void App::enqueueDeviceStatus(const DeviceStatusReport& report) {
   lock_guard<mutex> lock(deviceQueueMutex_);
   deviceStatusQueue_.push_back(report);
@@ -1193,10 +1220,7 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   enqueueDeviceStatus(status);
   if (!acceptDeviceSyncEvents(inventoryPath_, request, response, error)) return false;
   if (request.hasLookup) {
-    InventoryStore lookupStore;
-    response.lookupResult = lookupStore.load(inventoryPath_)
-                                ? lookupDeviceItem(lookupStore, request.lookup)
-                                : DeviceLookupResult{request.lookup.lookupId, "unavailable", {}};
+    response.lookupResult = lookupDeviceItem(inventoryPath_, request.lookup);
     response.hasLookupResult = true;
   }
   return true;

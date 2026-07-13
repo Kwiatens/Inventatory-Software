@@ -1793,6 +1793,38 @@ bool LabelPrinterService::printItemLabel(const InventoryItem& item, string* erro
   return backend_->sendRawJob(configuredPrinter_, makeJobName(item), zpl, error);
 }
 
+string LabelPrinterService::buildWireLabelZpl(const string& text) const {
+  const auto label = fitSingleLineLabel(text, 18);
+  if (label.empty()) return {};
+  ostringstream out;
+  out << "^XA\r\n";
+  out << "^CI28\r\n^PW256\r\n^LL200\r\n^LH0,0\r\n^PR3\r\n^MD12\r\n";
+  out << "^FX --- Cable flag: normal-facing half ---\r\n";
+  out << "^FO10,12^A0N,34,31^FB236,1,0,C^FD" << sanitizeLabelText(label) << "^FS\r\n";
+  out << "^FO14,88^GB228,2,2^FS\r\n";
+  out << "^FX --- Cable flag: opposite-facing half for the folded side ---\r\n";
+  out << "^FO246,182^A0I,34,31^FB236,1,0,C^FD" << sanitizeLabelText(label) << "^FS\r\n";
+  out << "^XZ\r\n";
+  return out.str();
+}
+
+bool LabelPrinterService::printWireLabel(const string& text, string* error) const {
+  if (backend_ == nullptr) {
+    if (error != nullptr) *error = "Printer backend unavailable";
+    return false;
+  }
+  if (!hasConfiguredPrinter()) {
+    if (error != nullptr) *error = "No printer configured";
+    return false;
+  }
+  const auto zpl = buildWireLabelZpl(text);
+  if (zpl.empty()) {
+    if (error != nullptr) *error = "Wire label text is empty";
+    return false;
+  }
+  return backend_->sendRawJob(configuredPrinter_, "Inventatory Wire Label", zpl, error);
+}
+
 HimsRackLabelPlan LabelPrinterService::buildRackLabelPlan(const HimsRack& rack) const {
   HimsRackLabelPlan plan;
   plan.categoryText = rackDisplayCategory(rack.componentType);

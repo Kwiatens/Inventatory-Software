@@ -81,6 +81,8 @@ class LabelPrinterService {
   HimsLabelPlan buildLabelPlan(const InventoryItem& item, string rackLocation = {}) const;
   string buildZpl(const InventoryItem& item, string rackLocation = {}) const;
   bool printItemLabel(const InventoryItem& item, string* error, string rackLocation = {}) const;
+  string buildWireLabelZpl(const string& text) const;
+  bool printWireLabel(const string& text, string* error) const;
   HimsRackLabelPlan buildRackLabelPlan(const HimsRack& rack) const;
   string buildRackLabelZpl(const HimsRack& rack) const;
   bool printRackLabel(const HimsRack& rack, string* error) const;

@@ -195,6 +195,8 @@ std::string App::pageName() const {
       return "Racks";
     case Page::Import:
       return "Import";
+    case Page::ScanSetup:
+      return "Scan R1 Setup";
     case Page::Settings:
       return "Settings";
   }
@@ -268,6 +270,8 @@ ftxui::Element App::renderPageUi() const {
       return renderRackManagementUi();
     case Page::Import:
       return renderImportCsvUi();
+    case Page::ScanSetup:
+      return renderHimsScanSetupUi();
     case Page::Settings:
       return renderSettingsUi();
   }
@@ -312,6 +316,10 @@ ftxui::Element App::renderSearchBarUi() const {
         contextText = importCandidates_.empty() ? "Choose a CSV file to begin"
                                                 : to_string(importSelection_ + 1) + " / " +
                                                       to_string(importCandidates_.size()) + " rows";
+        break;
+      case Page::ScanSetup:
+        contextTitle = "Setup wizard";
+        contextText = "Guided Bluetooth provisioning for HIMS Scan R1";
         break;
       case Page::Settings:
         contextTitle = "Settings";
@@ -440,6 +448,13 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
+  // The setup wizard owns every key while open: its Wi-Fi password and the
+  // six-digit verification code must never be interpreted as global shortcuts.
+  if (page_ == Page::ScanSetup) {
+    handleHimsScanSetupKey(key);
+    return;
+  }
+
   if (key.type == KeyType::Tab) {
     moveUiFocus(1);
     return;
@@ -485,6 +500,9 @@ void App::handleKey(const KeyEvent& key) {
       break;
     case Page::Import:
       handleImportCsvKey(key);
+      break;
+    case Page::ScanSetup:
+      handleHimsScanSetupKey(key);
       break;
     case Page::Settings:
       handleSettingsKey(key);
