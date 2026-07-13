@@ -36,6 +36,8 @@ Settings has four categories. Changes to data location, printer, the HIMS Scan
 R1 service port, auto-label behavior, and DigiKey configuration are staged until Save. Cancel
 restores the saved values. Printer and DigiKey tests use the staged values.
 
+The Printer category includes quick cable-flag labels: `5V`, `GND`, `12V`, or custom text. The label repeats the text in the opposite orientation for folding around a wire.
+
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
 next launch. DigiKey secrets are stored in Windows Credential Manager.
@@ -48,3 +50,5 @@ clearing a device removes its paired identity.
 The R1 communicates directly with the authenticated device service inside the
 desktop application. This is not the retired phone/web scanner: HIMS exposes no
 browser scanning page, and the service accepts only the paired R1 device API.
+
+For a new or reset R1, use **Settings → HIMS Scan → Find scanner**. Enter the six-digit code shown on the R1 and the home Wi-Fi credentials. Bluetooth LE Secure Connections encrypts and authenticates that transfer; Bluetooth setup then turns off and normal mDNS syncing starts. Hold `#` on the R1 to erase only provisioning and return to this flow; queued inventory events stay intact.
