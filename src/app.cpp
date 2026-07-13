@@ -359,6 +359,9 @@ ftxui::Element App::renderSearchBarUi() const {
 }
 
 ftxui::Element App::renderMessageUi() const {
+  if (!persistenceError_.empty()) {
+    return fullLine(persistenceError_, uiDangerColor(), uiPanelLeftBg());
+  }
   if (message_.empty()) {
     return ftxui::text("");
   }
