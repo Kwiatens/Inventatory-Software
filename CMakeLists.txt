@@ -53,7 +53,6 @@ add_executable(hims
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
   src/ui/pages/StockPage.cpp
-  src/ui/pages/DetailPage.cpp
   src/ui/pages/RackManagementPage.cpp
   src/ui/pages/PrinterSetupPage.cpp
   src/ui/pages/HimsScanSetupPage.cpp
