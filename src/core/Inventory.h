@@ -187,6 +187,10 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);
+string serializeTagsForStorage(const vector<string>& tags);
+vector<string> deserializeTagsFromStorage(const string& value);
+string serializeParametersForStorage(const vector<Parameter>& parameters);
+vector<Parameter> deserializeParametersFromStorage(const string& value);
 string serializeActivity(const ActivityEntry& entry);
 bool deserializeActivity(const string& line, ActivityEntry& entry);
 
