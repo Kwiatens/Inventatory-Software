@@ -5,11 +5,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <conio.h>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -29,66 +26,6 @@ using namespace std;
 
 namespace {
 
-bool ensureVirtualTerminal() {
-  HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (handle == INVALID_HANDLE_VALUE || handle == nullptr) {
-    return false;
-  }
-
-  DWORD mode = 0;
-  if (!GetConsoleMode(handle, &mode)) {
-    return false;
-  }
-
-  mode |= ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-  return SetConsoleMode(handle, mode) != 0;
-}
-
-void writeEscapeSequence(const char* sequence) {
-  cout << sequence;
-}
-
-void setCursorVisibility(bool visible) {
-  HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (handle == INVALID_HANDLE_VALUE || handle == nullptr) {
-    return;
-  }
-
-  CONSOLE_CURSOR_INFO info{};
-  if (!GetConsoleCursorInfo(handle, &info)) {
-    return;
-  }
-
-  info.bVisible = visible ? TRUE : FALSE;
-  info.dwSize = 25;
-  SetConsoleCursorInfo(handle, &info);
-}
-
-KeyEvent translateSpecialKey(int code) {
-  switch (code) {
-    case 72:
-      return {KeyType::Up, '\0'};
-    case 80:
-      return {KeyType::Down, '\0'};
-    case 75:
-      return {KeyType::Left, '\0'};
-    case 77:
-      return {KeyType::Right, '\0'};
-    case 71:
-      return {KeyType::Home, '\0'};
-    case 79:
-      return {KeyType::End, '\0'};
-    case 73:
-      return {KeyType::PageUp, '\0'};
-    case 81:
-      return {KeyType::PageDown, '\0'};
-    case 83:
-      return {KeyType::Delete, '\0'};
-    default:
-      return {KeyType::Unknown, '\0'};
-  }
-}
-
 string ipv4ToString(const sockaddr_in& address) {
   char buffer[INET_ADDRSTRLEN] = {};
   if (InetNtopA(AF_INET, &address.sin_addr, buffer, sizeof(buffer)) == nullptr) {
@@ -106,70 +43,6 @@ bool controlModifierPressed() {
          (GetKeyState(VK_CONTROL) & 0x8000) != 0 ||
          (GetKeyState(VK_LCONTROL) & 0x8000) != 0 ||
          (GetKeyState(VK_RCONTROL) & 0x8000) != 0;
-}
-
-ConsoleSession::ConsoleSession() {
-  const bool vtEnabled = ensureVirtualTerminal();
-  if (vtEnabled) {
-    writeEscapeSequence("\x1b[?1049h");
-    writeEscapeSequence("\x1b[2J\x1b[H");
-    alternateScreen_ = true;
-  } else {
-    clearConsole();
-  }
-  hideCursor();
-  setConsoleTitle("HIMS Terminal");
-  active_ = true;
-}
-
-ConsoleSession::~ConsoleSession() {
-  restore();
-}
-
-void ConsoleSession::restore() {
-  if (!active_) {
-    return;
-  }
-
-  showCursor();
-  if (alternateScreen_) {
-    writeEscapeSequence("\x1b[?1049l");
-    cout << flush;
-    alternateScreen_ = false;
-  }
-  active_ = false;
-}
-
-ConsoleSize consoleSize() {
-  ConsoleSize result;
-  CONSOLE_SCREEN_BUFFER_INFO info{};
-  const HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (handle == INVALID_HANDLE_VALUE || handle == nullptr) {
-    return result;
-  }
-
-  if (GetConsoleScreenBufferInfo(handle, &info)) {
-    result.columns = info.srWindow.Right - info.srWindow.Left + 1;
-    result.rows = info.srWindow.Bottom - info.srWindow.Top + 1;
-  }
-
-  return result;
-}
-
-void clearConsole() {
-  cout << "\x1b[2J\x1b[3J\x1b[H";
-}
-
-void hideCursor() {
-  setCursorVisibility(false);
-}
-
-void showCursor() {
-  setCursorVisibility(true);
-}
-
-void setConsoleTitle(const string& title) {
-  SetConsoleTitleA(title.c_str());
 }
 
 bool openUrl(const string& url) {
@@ -296,45 +169,6 @@ vector<string> localAddresses() {
   }
 
   return addresses;
-}
-
-vector<KeyEvent> pollKeys() {
-  vector<KeyEvent> keys;
-  while (_kbhit()) {
-    const int first = _getch();
-    if (first == 0 || first == 224) {
-      const int second = _getch();
-      keys.push_back(translateSpecialKey(second));
-      continue;
-    }
-
-    switch (first) {
-      case 13:
-        keys.push_back({KeyType::Enter, '\0'});
-        break;
-      case 27:
-        keys.push_back({KeyType::Escape, '\0'});
-        break;
-      case 8:
-        keys.push_back({controlModifierPressed() ? KeyType::CtrlBackspace : KeyType::Backspace, '\0'});
-        break;
-      case 26:
-        keys.push_back({KeyType::CtrlZ, '\0'});
-        break;
-      case 9:
-        keys.push_back({KeyType::Tab, '\0'});
-        break;
-      default:
-        if (first >= 32 && first <= 126) {
-          keys.push_back({KeyType::Character, static_cast<char>(first)});
-        } else {
-          keys.push_back({KeyType::Unknown, '\0'});
-        }
-        break;
-    }
-  }
-
-  return keys;
 }
 
 }  // namespace hims

@@ -152,9 +152,7 @@ class App {
   void handleKey(const KeyEvent& key);
   void handleDashboardKey(const KeyEvent& key);
   void handleStockKey(const KeyEvent& key);
-  void handleDetailKey(const KeyEvent& key);
   void handleRackManagementKey(const KeyEvent& key);
-  void handlePrinterSetupKey(const KeyEvent& key);
   void handleHimsScanSetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
@@ -168,9 +166,7 @@ class App {
   std::string pageName() const;
   ftxui::Element renderDashboardUi() const;
   ftxui::Element renderStockUi() const;
-  ftxui::Element renderDetailUi() const;
   ftxui::Element renderRackManagementUi() const;
-  ftxui::Element renderPrinterSetupUi() const;
   ftxui::Element renderHimsScanSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderSettingsUi() const;
