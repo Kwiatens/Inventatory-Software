@@ -1,0 +1,210 @@
+// HIMS - Hardware Inventory Management System
+// Durable inbox and result delivery for HIMS Scan protocol v1.
+
+#include "core/HimsScanProtocol.h"
+
+#include "core/InventorySqlite.h"
+
+#include <algorithm>
+#include <ctime>
+
+namespace hims {
+
+using namespace std;
+
+#ifdef _WIN32
+namespace {
+
+bool ensureDeviceSyncSchema(SqliteConnection& connection) {
+  return execSql(connection, R"SQL(
+    CREATE TABLE IF NOT EXISTS hims_device_events (
+      event_id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_code TEXT NOT NULL,
+      event_value INTEGER NOT NULL,
+      state TEXT NOT NULL DEFAULT 'received',
+      result_id TEXT NOT NULL DEFAULT '',
+      result_status TEXT NOT NULL DEFAULT '',
+      result_existing INTEGER NOT NULL DEFAULT 0,
+      result_item_name TEXT NOT NULL DEFAULT '',
+      result_requested_delta INTEGER NOT NULL DEFAULT 0,
+      result_applied_delta INTEGER NOT NULL DEFAULT 0,
+      result_quantity INTEGER NOT NULL DEFAULT 0,
+      result_location TEXT NOT NULL DEFAULT '',
+      result_code TEXT NOT NULL DEFAULT '',
+      result_message TEXT NOT NULL DEFAULT '',
+      result_acknowledged INTEGER NOT NULL DEFAULT 0,
+      received_at INTEGER NOT NULL DEFAULT 0,
+      completed_at INTEGER NOT NULL DEFAULT 0
+    )
+  )SQL") && execSql(connection,
+      "CREATE INDEX IF NOT EXISTS idx_hims_device_events_delivery "
+      "ON hims_device_events(device_id, state, result_acknowledged, completed_at)");
+}
+
+bool eventExists(SqliteConnection& connection, const string& eventId) {
+  SqliteStatement statement;
+  if (sqliteApi().prepare_v2(connection.db,
+      "SELECT 1 FROM hims_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqliteApi().bind_text(statement.stmt, 1, eventId.c_str(), -1, SQLITE_TRANSIENT);
+  return sqliteApi().step(statement.stmt) == SQLITE_ROW;
+}
+
+bool insertEvent(SqliteConnection& connection, const string& deviceId, const DeviceSyncEvent& event) {
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    INSERT OR IGNORE INTO hims_device_events
+      (event_id, device_id, event_type, event_code, event_value, received_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
+  sqliteApi().bind_text(statement.stmt, 1, event.eventId.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 3, event.type.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 4, event.code.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_int(statement.stmt, 5, event.value);
+  sqliteApi().bind_int64(statement.stmt, 6, static_cast<sqlite3_int64>(time(nullptr)));
+  return sqliteApi().step(statement.stmt) == SQLITE_DONE;
+}
+
+bool acknowledgeResult(SqliteConnection& connection, const string& deviceId, const string& resultId) {
+  SqliteStatement statement;
+  if (sqliteApi().prepare_v2(connection.db,
+      "UPDATE hims_device_events SET result_acknowledged=1 WHERE device_id=? AND result_id=?",
+      -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
+  sqliteApi().bind_text(statement.stmt, 1, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 2, resultId.c_str(), -1, SQLITE_TRANSIENT);
+  return sqliteApi().step(statement.stmt) == SQLITE_DONE;
+}
+
+bool pruneAcknowledgedResults(SqliteConnection& connection, const string& deviceId) {
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    DELETE FROM hims_device_events
+    WHERE device_id=? AND event_id IN (
+      SELECT event_id FROM hims_device_events
+      WHERE device_id=? AND state='completed' AND result_acknowledged=1
+      ORDER BY completed_at DESC LIMIT -1 OFFSET 256
+    )
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
+  sqliteApi().bind_text(statement.stmt, 1, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 2, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+  return sqliteApi().step(statement.stmt) == SQLITE_DONE;
+}
+
+vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string& deviceId, size_t limit) {
+  vector<DeviceSyncResult> results;
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    SELECT result_id, event_id, result_status, result_existing, result_item_name,
+           result_requested_delta, result_applied_delta, result_quantity, result_location,
+           result_code, result_message
+    FROM hims_device_events
+    WHERE device_id=? AND state='completed' AND result_acknowledged=0
+    ORDER BY completed_at, received_at LIMIT ?
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return results;
+  sqliteApi().bind_text(statement.stmt, 1, deviceId.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_int(statement.stmt, 2, static_cast<int>(limit));
+  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+    DeviceSyncResult result;
+    result.resultId = sqliteText(statement.stmt, 0);
+    result.eventId = sqliteText(statement.stmt, 1);
+    result.status = sqliteText(statement.stmt, 2);
+    result.existing = sqliteApi().column_int(statement.stmt, 3) != 0;
+    result.itemName = sqliteText(statement.stmt, 4);
+    result.requestedDelta = sqliteApi().column_int(statement.stmt, 5);
+    result.appliedDelta = sqliteApi().column_int(statement.stmt, 6);
+    result.quantity = sqliteApi().column_int(statement.stmt, 7);
+    result.location = sqliteText(statement.stmt, 8);
+    result.code = sqliteText(statement.stmt, 9);
+    result.message = sqliteText(statement.stmt, 10);
+    results.push_back(move(result));
+  }
+  return results;
+}
+
+}  // namespace
+#endif
+
+bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSyncRequest& request,
+                            DeviceSyncResponse& response, string& error) {
+  response = {};
+  response.requestId = request.requestId;
+#ifdef _WIN32
+  SqliteConnection connection;
+  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
+      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
+    error = "Unable to open the durable device inbox";
+    return false;
+  }
+
+  bool ok = true;
+  for (const auto& resultId : request.resultAcks) ok = acknowledgeResult(connection, request.deviceId, resultId) && ok;
+  ok = pruneAcknowledgedResults(connection, request.deviceId) && ok;
+  for (const auto& event : request.events) {
+    const bool alreadyStored = eventExists(connection, event.eventId);
+    if (!alreadyStored) ok = insertEvent(connection, request.deviceId, event) && ok;
+    if (ok) response.acceptedEventIds.push_back(event.eventId);
+  }
+  if (!ok || !execSql(connection, "COMMIT")) {
+    execSql(connection, "ROLLBACK");
+    error = "Unable to persist device events";
+    return false;
+  }
+  response.results = loadResults(connection, request.deviceId, 4);
+  return true;
+#else
+  (void)databasePath;
+  (void)request;
+  error = "Protocol v1 persistence requires SQLite";
+  return false;
+#endif
+}
+
+vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& databasePath, size_t limit) {
+  vector<DeviceSyncEvent> events;
+#ifdef _WIN32
+  SqliteConnection connection;
+  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return events;
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    SELECT event_id, event_type, event_code, event_value
+    FROM hims_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return events;
+  sqliteApi().bind_int(statement.stmt, 1, static_cast<int>(limit));
+  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+    events.push_back({sqliteText(statement.stmt, 0), sqliteText(statement.stmt, 1),
+                      sqliteText(statement.stmt, 2), sqliteApi().column_int(statement.stmt, 3)});
+  }
+#else
+  (void)databasePath;
+  (void)limit;
+#endif
+  return events;
+}
+
+bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& databasePath,
+                             const DeviceSyncResult& result) {
+  DeviceEventCommit commit;
+  commit.eventId = result.eventId;
+  commit.resultId = result.resultId;
+  commit.status = result.status;
+  commit.existing = result.existing;
+  commit.itemName = result.itemName;
+  commit.requestedDelta = result.requestedDelta;
+  commit.appliedDelta = result.appliedDelta;
+  commit.quantity = result.quantity;
+  commit.location = result.location;
+  commit.code = result.code;
+  commit.message = result.message;
+  commit.completedAt = time(nullptr);
+  return store.saveWithDeviceEvent(databasePath, commit);
+}
+
+}  // namespace hims
