@@ -1242,9 +1242,26 @@ int main() {
     assert(request.hasLookup);
     assert(request.lookup.lookupId == "lookup-9");
     assert(request.lookup.code == "0002");
+    assert(parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
+        request, error));
+    assert(request.hasQuickLabelPrint);
+    assert(request.quickLabelPrint.presetIndex == 2);
+    assert(request.quickLabelPrint.revision == 3);
     assert(!parseDeviceSyncRequestJson(
         R"({"protocolVersion":1,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"ABC"}})",
         request, error));
+
+    DeviceSyncResponse quickLabelResponse;
+    quickLabelResponse.requestId = "sync-label";
+    quickLabelResponse.hasQuickLabels = true;
+    quickLabelResponse.quickLabelRevision = 3;
+    quickLabelResponse.quickLabelPresets = {"5V", "12V"};
+    quickLabelResponse.hasQuickLabelPrintResult = true;
+    quickLabelResponse.quickLabelPrintResult = {"r1-a-label-1", "completed", "", "Label sent"};
+    const auto quickLabelJson = deviceSyncResponseJson(quickLabelResponse);
+    assert(quickLabelJson.find("\"quickLabels\":{\"revision\":3") != string::npos);
+    assert(quickLabelJson.find("\"quickLabelPrintResult\":{\"requestId\":\"r1-a-label-1\"") != string::npos);
     assert(!parseDeviceSyncRequestJson(
         R"({"protocolVersion":2,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
@@ -1359,6 +1376,8 @@ int main() {
     expected.digiKeySite = "PL";
     expected.digiKeyLanguage = "pl";
     expected.digiKeyCurrency = "PLN";
+    expected.quickLabelPresets = {"5V", "GND", "12V"};
+    expected.quickLabelRevision = 9;
     assert(saveAppSettings(path, expected));
 
     AppSettings loaded;
@@ -1373,6 +1392,8 @@ int main() {
     assert(loaded.digiKeySite == "PL");
     assert(loaded.digiKeyLanguage == "pl");
     assert(loaded.digiKeyCurrency == "PLN");
+    assert(loaded.quickLabelPresets == expected.quickLabelPresets);
+    assert(loaded.quickLabelRevision == 9);
 
     ifstream persisted(path);
     const string text((istreambuf_iterator<char>(persisted)), istreambuf_iterator<char>());

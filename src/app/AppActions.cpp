@@ -1198,6 +1198,92 @@ bool App::printWireLabel(const string& text) {
   return true;
 }
 
+bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, DeviceQuickLabelPrintResult& result) {
+  result.requestId = request.requestId;
+  {
+    lock_guard<mutex> lock(quickLabelMutex_);
+    const auto known = quickLabelPrintResults_.find(request.requestId);
+    if (known != quickLabelPrintResults_.end()) {
+      result = known->second;
+      return result.status == "completed";
+    }
+    if (request.revision != settings_.quickLabelRevision) {
+      result = {request.requestId, "failed", "stale_presets", "Refresh quick labels"};
+    } else if (request.presetIndex < 1 || request.presetIndex > static_cast<int>(settings_.quickLabelPresets.size())) {
+      result = {request.requestId, "failed", "missing_preset", "Quick label not found"};
+    }
+  }
+
+  if (result.status.empty()) {
+    string text;
+    {
+      lock_guard<mutex> lock(quickLabelMutex_);
+      text = settings_.quickLabelPresets[request.presetIndex - 1];
+    }
+    string error;
+    if (!printerService_.hasConfiguredPrinter()) {
+      result = {request.requestId, "failed", "printer_unconfigured", "No printer configured"};
+    } else if (!printerService_.printWireLabel(text, &error)) {
+      result = {request.requestId, "failed", "printer_failed", error.empty() ? "Printer failed" : error};
+    } else {
+      result = {request.requestId, "completed", "", "Label sent"};
+    }
+  }
+
+  {
+    lock_guard<mutex> lock(quickLabelMutex_);
+    quickLabelPrintResults_[request.requestId] = result;
+    quickLabelPrintOrder_.push_back(request.requestId);
+    while (quickLabelPrintOrder_.size() > 64) {
+      quickLabelPrintResults_.erase(quickLabelPrintOrder_.front());
+      quickLabelPrintOrder_.pop_front();
+    }
+  }
+  return result.status == "completed";
+}
+
+void App::addQuickLabelPreset() {
+  if (settingsDraft_.quickLabelPresets.size() >= kQuickLabelPresetLimit) {
+    setMessage("A maximum of 12 quick labels is supported", 3);
+    return;
+  }
+  settingsDraft_.quickLabelPresets.push_back("New label");
+  settingsField_ = static_cast<int>(settingsDraft_.quickLabelPresets.size() - 1);
+  settingsDirty_ = true;
+  beginSettingsFieldEdit(settingsField_);
+}
+
+void App::deleteQuickLabelPreset() {
+  if (settingsField_ < 0 || settingsField_ >= static_cast<int>(settingsDraft_.quickLabelPresets.size())) return;
+  settingsDraft_.quickLabelPresets.erase(settingsDraft_.quickLabelPresets.begin() + settingsField_);
+  if (settingsField_ >= static_cast<int>(settingsDraft_.quickLabelPresets.size())) --settingsField_;
+  settingsDirty_ = true;
+  dirty_ = true;
+}
+
+void App::moveQuickLabelPreset(int direction) {
+  const int destination = settingsField_ + direction;
+  if (settingsField_ < 0 || destination < 0 || destination >= static_cast<int>(settingsDraft_.quickLabelPresets.size())) return;
+  swap(settingsDraft_.quickLabelPresets[settingsField_], settingsDraft_.quickLabelPresets[destination]);
+  settingsField_ = destination;
+  settingsDirty_ = true;
+  dirty_ = true;
+}
+
+void App::testQuickLabelPreset() {
+  if (settingsField_ < 0 || settingsField_ >= static_cast<int>(settingsDraft_.quickLabelPresets.size())) {
+    setMessage("Select a quick label first", 3);
+    return;
+  }
+  const auto original = printerService_.configuredPrinter();
+  if (!settingsDraft_.printerQueue.empty()) printerService_.setConfiguredPrinter(settingsDraft_.printerQueue);
+  string error;
+  const bool printed = printerService_.hasConfiguredPrinter() &&
+                       printerService_.printWireLabel(settingsDraft_.quickLabelPresets[settingsField_], &error);
+  printerService_.setConfiguredPrinter(original);
+  setMessage(printed ? "Quick label sent" : (error.empty() ? "No printer configured" : error), 4);
+}
+
 void App::enqueueDeviceStatus(const DeviceStatusReport& report) {
   lock_guard<mutex> lock(deviceQueueMutex_);
   deviceStatusQueue_.push_back(report);
@@ -1222,6 +1308,16 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   if (request.hasLookup) {
     response.lookupResult = lookupDeviceItem(inventoryPath_, request.lookup);
     response.hasLookupResult = true;
+  }
+  {
+    lock_guard<mutex> lock(quickLabelMutex_);
+    response.hasQuickLabels = true;
+    response.quickLabelRevision = settings_.quickLabelRevision;
+    response.quickLabelPresets = settings_.quickLabelPresets;
+  }
+  if (request.hasQuickLabelPrint) {
+    response.hasQuickLabelPrintResult = true;
+    printDeviceQuickLabel(request.quickLabelPrint, response.quickLabelPrintResult);
   }
   return true;
 }
