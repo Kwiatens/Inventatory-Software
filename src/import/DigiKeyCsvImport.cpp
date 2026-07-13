@@ -7,6 +7,7 @@
 #include <cctype>
 #include <ctime>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <unordered_map>
@@ -115,7 +116,11 @@ optional<int> parsePositiveInt(const string& value) {
     if (!isdigit(ch)) {
       return nullopt;
     }
-    result = result * 10 + static_cast<int>(ch - '0');
+    const int digit = static_cast<int>(ch - '0');
+    if (result > (numeric_limits<int>::max() - digit) / 10) {
+      return nullopt;
+    }
+    result = result * 10 + digit;
   }
   return result;
 }
