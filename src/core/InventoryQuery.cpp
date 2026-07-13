@@ -66,20 +66,26 @@ bool tokenMatchesParameter(const InventoryItem& item, const string& value) {
 }
 
 bool tokenMatchesQuantity(const InventoryItem& item, const string& token) {
-  if (token.rfind("qty>=", 0) == 0) {
-    return item.quantity >= stoi(token.substr(5));
-  }
-  if (token.rfind("qty<=", 0) == 0) {
-    return item.quantity <= stoi(token.substr(5));
-  }
-  if (token.rfind("qty>", 0) == 0) {
-    return item.quantity > stoi(token.substr(4));
-  }
-  if (token.rfind("qty<", 0) == 0) {
-    return item.quantity < stoi(token.substr(4));
-  }
-  if (token.rfind("qty=", 0) == 0) {
-    return item.quantity == stoi(token.substr(4));
+  try {
+    if (token.rfind("qty>=", 0) == 0) {
+      return item.quantity >= stoi(token.substr(5));
+    }
+    if (token.rfind("qty<=", 0) == 0) {
+      return item.quantity <= stoi(token.substr(5));
+    }
+    if (token.rfind("qty>", 0) == 0) {
+      return item.quantity > stoi(token.substr(4));
+    }
+    if (token.rfind("qty<", 0) == 0) {
+      return item.quantity < stoi(token.substr(4));
+    }
+    if (token.rfind("qty=", 0) == 0) {
+      return item.quantity == stoi(token.substr(4));
+    }
+  } catch (const invalid_argument&) {
+    return false;
+  } catch (const out_of_range&) {
+    return false;
   }
   return false;
 }
