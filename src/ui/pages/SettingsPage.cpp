@@ -68,6 +68,8 @@ void App::openSettings(SettingsCategory category) {
   settingsEditingField_ = false;
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
+  bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+  bleWifiPassword_.clear();
   hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value() ||
                             !loadDigiKeyConfig().clientSecret.empty();
   inputBuffer_.clear();
@@ -136,7 +138,7 @@ bool App::testStagedDigiKey() {
 }
 
 void App::beginSettingsFieldEdit(int field) {
-  if (settingsCategory_ == SettingsCategory::General || settingsCategory_ == SettingsCategory::Printer) return;
+  if (settingsCategory_ == SettingsCategory::General) return;
   settingsField_ = field;
   settingsEditingField_ = true;
   switch (settingsCategory_) {
@@ -144,10 +146,10 @@ void App::beginSettingsFieldEdit(int field) {
       inputBuffer_.clear();
       break;
     case SettingsCategory::Printer:
-      inputBuffer_.clear();
+      inputBuffer_ = field == 50 ? wireLabelText_ : string();
       break;
     case SettingsCategory::HimsScan:
-      inputBuffer_ = to_string(settingsDraft_.deviceServicePort);
+      inputBuffer_ = field == 0 ? to_string(settingsDraft_.deviceServicePort) : string();
       break;
     case SettingsCategory::DigiKey:
       switch (field) {
@@ -166,14 +168,18 @@ void App::beginSettingsFieldEdit(int field) {
 
 void App::commitSettingsFieldEdit() {
   if (!settingsEditingField_) return;
-  if (settingsCategory_ == SettingsCategory::HimsScan) {
-    try {
-      const auto port = stoi(inputBuffer_);
-      if (port < 1 || port > 65535) throw out_of_range("port");
-      settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
-    } catch (...) {
-      setMessage("Device service port must be between 1 and 65535", 4);
-      return;
+  if (settingsCategory_ == SettingsCategory::Printer && settingsField_ == 50) {
+    wireLabelText_ = trim(inputBuffer_);
+  } else if (settingsCategory_ == SettingsCategory::HimsScan) {
+    if (settingsField_ == 0) {
+      try {
+        const auto port = stoi(inputBuffer_);
+        if (port < 1 || port > 65535) throw out_of_range("port");
+        settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
+      } catch (...) {
+        setMessage("Device service port must be between 1 and 65535", 4);
+        return;
+      }
     }
   } else if (settingsCategory_ == SettingsCategory::DigiKey) {
     switch (settingsField_) {
@@ -252,6 +258,8 @@ bool App::saveSettingsDraft() {
   settingsDirty_ = false;
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
+  bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+  bleWifiPassword_.clear();
   setMessage(portChanged ? "Settings saved; restart HIMS to apply the device service port" : "Settings saved", 4);
   return true;
 }
@@ -341,6 +349,25 @@ ftxui::Element App::renderSettingsUi() const {
         target(styledText(" Test selected ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.test",
                UiTargetKind::Button, [self] { self->testStagedPrinter(); }),
     }));
+    rows.push_back(uiDivider());
+    const auto wireValue = settingsEditingField_ && settingsField_ == 50 ? inputBuffer_ + "_"
+                                                                           : wireLabelText_.empty() ? "Enter custom wire text" : wireLabelText_;
+    rows.push_back(target(settingLine("Wire label", wireValue, contentWidth, settingsEditingField_ && settingsField_ == 50),
+                          "settings.printer.wire", UiTargetKind::Field,
+                          [self] { self->beginSettingsFieldEdit(50); }));
+    rows.push_back(ftxui::hbox({
+        target(styledText(" 5V ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.wire.5v",
+               UiTargetKind::Button, [self] { self->printWireLabel("5V"); }),
+        ftxui::text("  "),
+        target(styledText(" GND ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.wire.gnd",
+               UiTargetKind::Button, [self] { self->printWireLabel("GND"); }),
+        ftxui::text("  "),
+        target(styledText(" 12V ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.wire.12v",
+               UiTargetKind::Button, [self] { self->printWireLabel("12V"); }),
+        ftxui::text("  "),
+        target(styledText(" Print custom ", uiFocusColor(), uiRaisedSurfaceBg()), "settings.printer.wire.custom",
+               UiTargetKind::Button, [self] { self->printWireLabel(self->wireLabelText_); }, !wireLabelText_.empty()),
+    }));
   } else if (settingsCategory_ == SettingsCategory::HimsScan) {
     const auto now = time(nullptr);
     const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
@@ -369,6 +396,8 @@ ftxui::Element App::renderSettingsUi() const {
         target(styledText(" Clear device ", uiDangerColor(), uiRaisedSurfaceBg()), "settings.scan.clear",
                UiTargetKind::Button, [self] { self->clearHimsScanPairing(); }),
     }));
+    rows.push_back(uiDivider());
+    rows.push_back(styledText("First-use connection is available from Home > Operations > Set up Scan R1.", uiMutedText()));
     rows.push_back(uiDivider());
     rows.push_back(styledText("Recent device diagnostics", uiSecondaryText()));
     const size_t start = deviceDebugLog_.size() > 10 ? deviceDebugLog_.size() - 10 : 0;

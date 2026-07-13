@@ -713,6 +713,11 @@ int main() {
     assert(backendPtr->lastPrinterName_ == "ZDesigner LP 2824 Plus (ZPL)");
     assert(backendPtr->lastJobName_.find("HIMS Label") == 0);
     assert(backendPtr->lastZpl_.find("^FDLA,0002^FS") != string::npos);
+    const auto wireZpl = service.buildWireLabelZpl("12V");
+    assert(wireZpl.find("^A0N,34,31^FB236,1,0,C^FD12V^FS") != string::npos);
+    assert(wireZpl.find("^A0I,34,31^FB236,1,0,C^FD12V^FS") != string::npos);
+    assert(service.printWireLabel("GND", &error));
+    assert(backendPtr->lastJobName_ == "Inventatory Wire Label");
 
     HimsRack resistorRack;
     resistorRack.id = "rack-res-1";
@@ -1190,7 +1195,7 @@ int main() {
     HimsScanConfig loaded;
     assert(loadHimsScanConfig(configPath, loaded));
     assert(loaded.deviceId == expected.deviceId);
-    assert(loaded.token == expected.token);
+    assert(loaded.token.empty());
     assert(loaded.fallbackHost == expected.fallbackHost);
     assert(loaded.fallbackPort == expected.fallbackPort);
     filesystem::remove(configPath);
@@ -1263,8 +1268,13 @@ int main() {
     assert(foundLookup.status == "found");
     assert(foundLookup.itemName == "10k resistor");
     assert(lookupSnapshot.items().front().quantity == beforeLookupQuantity);
+    const auto databaseFoundLookup = lookupDeviceItem(databasePath, {"lookup-9-db", "0002"});
+    assert(databaseFoundLookup.status == "found");
+    assert(databaseFoundLookup.itemName == "10k resistor");
     const auto missingLookup = lookupDeviceItem(lookupSnapshot, {"lookup-10", "9999"});
     assert(missingLookup.status == "not_found");
+    const auto databaseMissingLookup = lookupDeviceItem(databasePath, {"lookup-10-db", "9999"});
+    assert(databaseMissingLookup.status == "not_found");
 
     DeviceSyncResponse lookupResponse;
     lookupResponse.requestId = "sync-lookup";

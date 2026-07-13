@@ -3,6 +3,7 @@
 
 #include "App.h"
 
+#include "platform/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -15,6 +16,7 @@ using namespace std;
 namespace {
 
 constexpr size_t kDebugWindowLines = 14;
+constexpr const char* kHimsScanTokenCredential = "hims-scan-pairing-token";
 
 }  // namespace
 
@@ -29,6 +31,10 @@ bool App::regenerateHimsScanToken() {
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
   himsScanConfig_.token = generateHimsScanToken();
+  if (!CredentialStore::write(kHimsScanTokenCredential, himsScanConfig_.token)) {
+    setMessage("Unable to save the new pairing token securely", 4);
+    return false;
+  }
   himsScanConfig_.deviceId.clear();
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
@@ -104,74 +110,182 @@ bool App::copyHimsScanToken() {
 }
 
 void App::openHimsScanSetup() {
-  openSettings(SettingsCategory::HimsScan);
-  setMessage("Pair the device with the token shown here", 4);
+  bleProvisioning_.stopDiscovery();
+  bleWifiSsid_.clear();
+  bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+  bleWifiPassword_.clear();
+  blePairingCode_.clear();
+  bleSetupSelection_ = 0;
+  bleSetupMessage_.clear();
+  scanSetupStep_ = ScanSetupStep::Introduction;
+  inputBuffer_.clear();
+  changePage(Page::ScanSetup);
+  setMessage("Scan R1 setup wizard started", 3);
+}
+
+void App::refreshBleSetupDiscovery() {
+  bleProvisioning_.startDiscovery();
+  bleSetupSelection_ = 0;
+  bleSetupMessage_ = "Searching for nearby unconfigured Scan R1 devices";
+  setMessage(bleSetupMessage_, 4);
+  dirty_ = true;
+}
+
+bool App::provisionSelectedBleSetupDevice() {
+  const auto devices = bleProvisioning_.devices();
+  if (devices.empty() || bleSetupSelection_ >= devices.size()) {
+    setMessage("Select a nearby Scan R1 first", 4);
+    return false;
+  }
+  if (trim(bleWifiSsid_).empty() || blePairingCode_.size() != 6) {
+    setMessage("Enter the Wi-Fi name and the six-digit code shown on the R1", 5);
+    return false;
+  }
+  const auto candidateToken = generateHimsScanToken();
+  BleProvisioningRequest request;
+  request.address = devices[bleSetupSelection_].address;
+  request.wifiSsid = trim(bleWifiSsid_);
+  request.wifiPassword = bleWifiPassword_;
+  request.deviceToken = candidateToken;
+  request.pairingCode = blePairingCode_;
+  string error;
+  if (!bleProvisioning_.provision(request, error)) {
+    setMessage(error.empty() ? "Bluetooth setup failed" : error, 5);
+    return false;
+  }
+  if (!CredentialStore::write(kHimsScanTokenCredential, candidateToken)) {
+    setMessage("Scanner accepted setup, but HIMS could not save its token securely", 6);
+    return false;
+  }
+  himsScanConfig_.token = candidateToken;
+  himsScanConfig_.deviceId.clear();
+  server_.setDeviceCredentials({}, himsScanConfig_.token);
+  if (!saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_)) {
+    setMessage("Scanner setup was sent, but HIMS could not save pairing metadata", 6);
+    return false;
+  }
+  bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+  bleWifiPassword_.clear();
+  blePairingCode_.clear();
+  bleSetupMessage_ = "Wi-Fi setup sent securely; waiting for the R1 to join the PC service";
+  setMessage(bleSetupMessage_, 6);
+  dirty_ = true;
+  return true;
 }
 
 ftxui::Element App::renderHimsScanSetupUi() const {
-  const auto serviceUrl = server_.running() ? server_.baseUrl() : string("R1 service unavailable");
-  const auto deviceState = trim(himsScanConfig_.deviceId).empty() ? string("Waiting for first valid device report")
-                                                                  : string("Paired device: ") + himsScanConfig_.deviceId;
-  const auto lastSeen = deviceLastSeen_ == 0 ? string("No heartbeat yet") : string("Last heartbeat: ") +
-                                                                         nowTimestampString(deviceLastSeen_);
-  const auto statusLine = himsScanDeviceSummary();
+  const auto stepNumber = [&] {
+    switch (scanSetupStep_) {
+      case ScanSetupStep::Introduction: return string("0 / 5");
+      case ScanSetupStep::WifiName: return string("1 / 5");
+      case ScanSetupStep::WifiPassword: return string("2 / 5");
+      case ScanSetupStep::PairingCode: return string("3 / 5");
+      case ScanSetupStep::FindScanner: return string("4 / 5");
+      case ScanSetupStep::Confirm: return string("5 / 5");
+      case ScanSetupStep::Complete: return string("complete");
+    }
+    return string();
+  };
+  const auto progressMark = [this](ScanSetupStep step) {
+    const auto active = static_cast<int>(scanSetupStep_);
+    const auto candidate = static_cast<int>(step);
+    return active > candidate ? string("[x]") : active == candidate ? string("[>]") : string("[ ]");
+  };
 
-  ftxui::Elements leftRows;
-  leftRows.push_back(fullLine("Pairing flow", uiAccentColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine("1. Open the device portal on the ESP32.", uiTitleColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine("2. Join Wi-Fi; the scanner discovers the HIMS PC service.", uiTitleColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine("3. Paste the pairing token shown on this page.", uiTitleColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine("4. Scan a numeric HIMS code for quantity changes or a Data Matrix code for DigiKey",
-                              uiTitleColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine("   intake; both are sent straight to HIMS software.", uiTitleColor(),
-                              uiPanelLeftBg()));
-  leftRows.push_back(uiDivider());
-  leftRows.push_back(fullLine("R1 device service", uiAccentColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine(serviceUrl, server_.running() ? uiLinkColor() : uiWarnColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine("Pairing token", uiAccentColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine(himsScanConfig_.token.empty() ? string("Not configured")
-                                                             : string("Configured - use Copy token"),
-                              uiTitleColor(), uiPanelLeftBg()));
-  leftRows.push_back(fullLine("[t] Copy token to clipboard", uiLinkColor(), uiPanelLeftBg()));
+  ftxui::Elements rows;
+  rows.push_back(styledText("$ hims setup scan-r1", uiSuccessColor()) | ftxui::bold);
+  rows.push_back(styledText("Bluetooth first-use provisioning  |  Step " + stepNumber(), uiMutedText()));
+  rows.push_back(uiDivider());
+  rows.push_back(fullLine(progressMark(ScanSetupStep::WifiName) + " Wi-Fi network   " +
+                          progressMark(ScanSetupStep::WifiPassword) + " Wi-Fi password   " +
+                          progressMark(ScanSetupStep::PairingCode) + " R1 verification code   " +
+                          progressMark(ScanSetupStep::FindScanner) + " Find scanner   " +
+                          progressMark(ScanSetupStep::Confirm) + " Secure transfer",
+                          uiMutedColor(), uiPanelLeftBg()));
+  rows.push_back(uiDivider());
 
-  ftxui::Elements rightRows;
-  rightRows.push_back(fullLine("Device status", uiAccentColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine(statusLine, uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine(deviceState, uiMutedColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine(lastSeen, uiMutedColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("Protocol: " + (deviceProtocolVersion_ > 0 ? string("v") + to_string(deviceProtocolVersion_)
-                                                                    : string("legacy")),
-                               deviceProtocolVersion_ == 1 ? uiSuccessColor() : uiWarnColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("Mode: " + (deviceMode_.empty() ? string("n/a") : deviceMode_) +
-                                   "  Pending: " + to_string(devicePendingEventCount_),
-                               uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine(deviceLastSync_ == 0 ? string("Last sync: n/a")
-                                                    : string("Last sync: ") + nowTimestampString(deviceLastSync_),
-                               uiMutedColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("Wi-Fi debug", uiAccentColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine(deviceDebug_.empty() ? string("n/a") : ellipsize(deviceDebug_, 64),
-                              uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(uiDivider());
-  rightRows.push_back(fullLine("What the device sends", uiAccentColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("A scan code from the GM65 UART module", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("Numeric codes enter quantity mode", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("Data Matrix quantities wait for A confirmation", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("A or B add or subtract HIMS quantities", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("Protocol v1 retries safely without double applying stock", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(uiDivider());
-  rightRows.push_back(fullLine("Actions", uiAccentColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("'t' copy token to clipboard", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("'r' regenerate token", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("'c' clear paired device", uiTitleColor(), uiPanelRightBg()));
-  rightRows.push_back(fullLine("'Esc' return to dashboard", uiTitleColor(), uiPanelRightBg()));
+  switch (scanSetupStep_) {
+    case ScanSetupStep::Introduction:
+      rows.push_back(styledText("Welcome. This assistant connects an unconfigured Scan R1 without editing files.", uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("Before continuing:", uiSecondaryText()));
+      rows.push_back(styledText("  1. Power on the R1; it must show a six-digit BLE code.", uiTitleColor()));
+      rows.push_back(styledText("  2. Keep Bluetooth enabled on this PC.", uiTitleColor()));
+      rows.push_back(styledText("  3. Have the Wi-Fi name and password ready.", uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("> Press Enter to begin  |  Esc to cancel", uiLinkColor()));
+      break;
+    case ScanSetupStep::WifiName:
+      rows.push_back(styledText("[1/5] Wi-Fi network", uiAccentColor()));
+      rows.push_back(styledText("Enter the Wi-Fi SSID the Scan R1 should join.", uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("network> " + inputBuffer_ + "_", uiSuccessColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("Enter continues  |  Esc cancels", uiMutedText()));
+      break;
+    case ScanSetupStep::WifiPassword:
+      rows.push_back(styledText("[2/5] Wi-Fi password", uiAccentColor()));
+      rows.push_back(styledText("Enter the password. It is masked, transmitted only over encrypted BLE, and cleared after setup.",
+                                uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("password> " + string(inputBuffer_.size(), '*') + "_", uiSuccessColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("Enter continues  |  Esc cancels", uiMutedText()));
+      break;
+    case ScanSetupStep::PairingCode:
+      rows.push_back(styledText("[3/5] Verify the physical scanner", uiAccentColor()));
+      rows.push_back(styledText("Type the six-digit code currently shown on the R1 display.", uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("r1-code> " + inputBuffer_ + "_", uiSuccessColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("This proves you are pairing with the scanner in front of you.", uiMutedText()));
+      break;
+    case ScanSetupStep::FindScanner: {
+      const auto devices = bleProvisioning_.devices();
+      rows.push_back(styledText("[4/5] Find Scan R1", uiAccentColor()));
+      rows.push_back(styledText("Searching for nearby R1 devices advertising the setup service...", uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      if (devices.empty()) {
+        rows.push_back(styledText("bluetooth> waiting for an unconfigured Scan R1", uiWarnColor()));
+      } else {
+        for (size_t index = 0; index < devices.size(); ++index) {
+          const auto& device = devices[index];
+          rows.push_back(styledText(string(index == bleSetupSelection_ ? "> " : "  ") + device.name + "  " +
+                                    to_string(device.rssi) + " dBm",
+                                    index == bleSetupSelection_ ? uiFocusColor() : uiTitleColor()));
+        }
+      }
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("Up/Down selects  |  R refreshes search  |  Enter continues", uiMutedText()));
+      break;
+    }
+    case ScanSetupStep::Confirm: {
+      const auto devices = bleProvisioning_.devices();
+      const auto scanner = bleSetupSelection_ < devices.size() ? devices[bleSetupSelection_].name : string("No scanner selected");
+      rows.push_back(styledText("[5/5] Review and provision", uiAccentColor()));
+      rows.push_back(styledText("Scanner: " + scanner, uiTitleColor()));
+      rows.push_back(styledText("Wi-Fi network: " + bleWifiSsid_, uiTitleColor()));
+      rows.push_back(styledText("Wi-Fi password: " + string(bleWifiPassword_.empty() ? 0 : 12, '*'), uiTitleColor()));
+      rows.push_back(styledText("Verification code: " + blePairingCode_, uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("> Press Enter to securely transfer this configuration", uiSuccessColor()));
+      rows.push_back(styledText("  Esc cancels without changing the scanner.", uiMutedText()));
+      break;
+    }
+    case ScanSetupStep::Complete:
+      rows.push_back(styledText("Setup request accepted.", uiSuccessColor()) | ftxui::bold);
+      rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect to this HIMS PC automatically.", uiTitleColor()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("The device token was stored in Windows Credential Manager; the Wi-Fi password was cleared from HIMS.",
+                                uiMutedText()));
+      rows.push_back(ftxui::text(""));
+      rows.push_back(styledText("> Press Enter or Esc to return to Home", uiLinkColor()));
+      break;
+  }
 
-  auto left = ftxui::vbox(move(leftRows)) | ftxui::bgcolor(uiPanelLeftBg()) | ftxui::flex;
-  auto right = ftxui::vbox(move(rightRows)) | ftxui::bgcolor(uiPanelRightBg()) | ftxui::flex;
-  return ftxui::vbox({
-      ftxui::hbox({move(left), uiDivider(), move(right)}),
-      uiDivider(),
-      renderDeviceDebugConsoleUi(),
-  });
+  return ftxui::window(styledText(" Scan R1 Setup Wizard ", uiAccentColor()),
+                       ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelLeftBg()) | ftxui::flex) |
+         ftxui::bgcolor(uiCanvasBg());
 }
 
 ftxui::Element App::renderDeviceDebugConsoleUi() const {
@@ -200,71 +314,101 @@ ftxui::Element App::renderDeviceDebugConsoleUi() const {
 }
 
 void App::handleHimsScanSetupKey(const KeyEvent& key) {
-  if (key.type == KeyType::Escape) {
+  const auto cancel = [this] {
+    bleProvisioning_.stopDiscovery();
+    bleWifiSsid_.clear();
+    bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+    bleWifiPassword_.clear();
+    blePairingCode_.clear();
+    inputBuffer_.clear();
     changePage(Page::Home);
+  };
+
+  if (key.type == KeyType::Escape) {
+    cancel();
     return;
   }
 
-  if (key.type == KeyType::Character) {
-    const auto ch = static_cast<char>(tolower(static_cast<unsigned char>(key.ch)));
-    if (ch == 'r') {
-      regenerateHimsScanToken();
+  if (scanSetupStep_ == ScanSetupStep::WifiName || scanSetupStep_ == ScanSetupStep::WifiPassword ||
+      scanSetupStep_ == ScanSetupStep::PairingCode) {
+    if (key.type == KeyType::Character) {
+      inputBuffer_.push_back(key.ch);
+      dirty_ = true;
       return;
     }
-    if (ch == 't') {
-      copyHimsScanToken();
-      return;
-    }
-    if (ch == 'c') {
-      clearHimsScanPairing();
-      return;
-    }
-    if (ch == 'q') {
-      running_ = false;
+    if (key.type == KeyType::Backspace) {
+      if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+      dirty_ = true;
       return;
     }
   }
 
-  if (key.type == KeyType::Up) {
-    deviceDebugFollow_ = false;
-    adjustDeviceDebugScroll(1);
-    return;
-  }
-
-  if (key.type == KeyType::Down) {
-    adjustDeviceDebugScroll(-1);
-    if (deviceDebugScroll_ + 1 >= deviceDebugLog_.size()) {
-      deviceDebugFollow_ = true;
+  if (scanSetupStep_ == ScanSetupStep::FindScanner) {
+    const auto devices = bleProvisioning_.devices();
+    if (key.type == KeyType::Up && bleSetupSelection_ > 0) {
+      --bleSetupSelection_;
+      dirty_ = true;
+      return;
     }
-    return;
-  }
-
-  if (key.type == KeyType::PageUp) {
-    deviceDebugFollow_ = false;
-    adjustDeviceDebugScroll(8);
-    return;
-  }
-
-  if (key.type == KeyType::PageDown) {
-    adjustDeviceDebugScroll(-8);
-    if (deviceDebugScroll_ + 1 >= deviceDebugLog_.size()) {
-      deviceDebugFollow_ = true;
+    if (key.type == KeyType::Down && bleSetupSelection_ + 1 < devices.size()) {
+      ++bleSetupSelection_;
+      dirty_ = true;
+      return;
     }
-    return;
+    if (key.type == KeyType::Character && tolower(static_cast<unsigned char>(key.ch)) == 'r') {
+      bleProvisioning_.stopDiscovery();
+      refreshBleSetupDiscovery();
+      return;
+    }
   }
 
-  if (key.type == KeyType::Home) {
-    deviceDebugFollow_ = false;
-    deviceDebugScroll_ = 0;
-    return;
+  if (key.type != KeyType::Enter) return;
+  switch (scanSetupStep_) {
+    case ScanSetupStep::Introduction:
+      scanSetupStep_ = ScanSetupStep::WifiName;
+      inputBuffer_.clear();
+      break;
+    case ScanSetupStep::WifiName:
+      bleWifiSsid_ = trim(inputBuffer_);
+      if (bleWifiSsid_.empty()) {
+        setMessage("Enter a Wi-Fi network name", 3);
+        return;
+      }
+      inputBuffer_.clear();
+      scanSetupStep_ = ScanSetupStep::WifiPassword;
+      break;
+    case ScanSetupStep::WifiPassword:
+      bleWifiPassword_ = inputBuffer_;
+      inputBuffer_.clear();
+      scanSetupStep_ = ScanSetupStep::PairingCode;
+      break;
+    case ScanSetupStep::PairingCode:
+      blePairingCode_ = trim(inputBuffer_);
+      if (blePairingCode_.size() != 6 ||
+          !all_of(blePairingCode_.begin(), blePairingCode_.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) {
+        setMessage("The R1 verification code must contain exactly six digits", 4);
+        return;
+      }
+      inputBuffer_.clear();
+      scanSetupStep_ = ScanSetupStep::FindScanner;
+      refreshBleSetupDiscovery();
+      break;
+    case ScanSetupStep::FindScanner:
+      if (bleProvisioning_.devices().empty()) {
+        setMessage("Wait for a nearby unconfigured Scan R1, then try again", 4);
+        return;
+      }
+      scanSetupStep_ = ScanSetupStep::Confirm;
+      break;
+    case ScanSetupStep::Confirm:
+      bleProvisioning_.stopDiscovery();
+      if (provisionSelectedBleSetupDevice()) scanSetupStep_ = ScanSetupStep::Complete;
+      break;
+    case ScanSetupStep::Complete:
+      cancel();
+      return;
   }
-
-  if (key.type == KeyType::End) {
-    deviceDebugFollow_ = true;
-    deviceDebugScroll_ = deviceDebugLog_.empty() ? 0 : deviceDebugLog_.size() - 1;
-    return;
-  }
-
+  dirty_ = true;
 }
 
 }  // namespace hims

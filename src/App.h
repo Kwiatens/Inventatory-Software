@@ -9,6 +9,7 @@
 #include "import/DigiKeyCsvImport.h"
 #include "label_printer/LabelPrinter.h"
 #include "platform/Console.h"
+#include "platform/BleProvisioningService.h"
 #include "platform/HttpServer.h"
 #include "platform/MdnsService.h"
 
@@ -49,7 +50,18 @@ class App {
     Stock,
     Racks,
     Import,
+    ScanSetup,
     Settings,
+  };
+
+  enum class ScanSetupStep {
+    Introduction,
+    WifiName,
+    WifiPassword,
+    PairingCode,
+    FindScanner,
+    Confirm,
+    Complete,
   };
 
   enum class SettingsCategory { General, Printer, HimsScan, DigiKey };
@@ -187,6 +199,7 @@ class App {
   void refreshPrinterState();
   void openPrinterSetup();
   bool printSelectedLabel();
+  bool printWireLabel(const std::string& text);
   bool printLabelForItem(const InventoryItem& item, const std::string& successPrefix, bool openSetupOnMissingPrinter);
   void toggleAutoPrintScannedLabels();
   bool autoPrintScannedLabel(const std::string& itemId);
@@ -195,6 +208,8 @@ class App {
   bool regenerateHimsScanToken();
   bool clearHimsScanPairing();
   bool copyHimsScanToken();
+  void refreshBleSetupDiscovery();
+  bool provisionSelectedBleSetupDevice();
   DeviceQuantityResult enqueueDeviceQuantity(const DeviceQuantityRequest& request);
   void enqueueDeviceStatus(const DeviceStatusReport& report);
   void processDeviceRequests();
@@ -291,6 +306,7 @@ class App {
   std::vector<PrinterQueueInfo> printerQueues_;
   PrinterCheckResult printerCheck_;
   LocalHttpServer server_;
+  BleProvisioningService bleProvisioning_;
   MdnsService mdnsService_;
   std::filesystem::path root_;
   std::filesystem::path dataPath_;
@@ -358,6 +374,13 @@ class App {
   std::string deleteConfirmationItemId_;
   time_t deleteConfirmationUntil_ = 0;
   size_t printerSelection_ = 0;
+  size_t bleSetupSelection_ = 0;
+  std::string bleWifiSsid_;
+  std::string bleWifiPassword_;
+  std::string blePairingCode_;
+  std::string bleSetupMessage_;
+  ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
+  std::string wireLabelText_;
   time_t scannerFlashUntil_ = 0;
   time_t printerFlashUntil_ = 0;
   bool autoPrintScannedLabels_ = true;

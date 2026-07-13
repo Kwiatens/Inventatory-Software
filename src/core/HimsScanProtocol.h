@@ -137,6 +137,8 @@ std::vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const std::filesystem::
 bool completeDeviceSyncEvent(InventoryStore& store, const std::filesystem::path& databasePath,
                              const DeviceSyncResult& result);
 DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLookupRequest& request);
+DeviceLookupResult lookupDeviceItem(const std::filesystem::path& databasePath,
+                                    const DeviceLookupRequest& request);
 DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuantityRequest& request);
 DeviceQuantityResult applyDeviceQuantityCached(
     InventoryStore& store, const DeviceQuantityRequest& request,
