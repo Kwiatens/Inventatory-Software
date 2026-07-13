@@ -122,6 +122,11 @@ int main() {
     assert(filtered.size() == 1);
     assert(items[filtered[0]].id == "res-0603-10k");
 
+    // Malformed quantity filters must behave as a non-match rather than
+    // propagating std::stoi exceptions through the interactive search path.
+    assert(filterItems(items, "qty>not-a-number").empty());
+    assert(filterItems(items, "qty>=999999999999999999999").empty());
+
     const auto tagFiltered = filterItems(items, "tag:module param:Flash=16MB");
     assert(tagFiltered.size() == 1);
     assert(items[tagFiltered[0]].id == "esp32-s3-module");
