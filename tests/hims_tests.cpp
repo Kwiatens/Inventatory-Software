@@ -122,6 +122,11 @@ int main() {
     assert(filtered.size() == 1);
     assert(items[filtered[0]].id == "res-0603-10k");
 
+    // Malformed quantity filters must behave as a non-match rather than
+    // propagating std::stoi exceptions through the interactive search path.
+    assert(filterItems(items, "qty>not-a-number").empty());
+    assert(filterItems(items, "qty>=999999999999999999999").empty());
+
     const auto tagFiltered = filterItems(items, "tag:module param:Flash=16MB");
     assert(tagFiltered.size() == 1);
     assert(items[tagFiltered[0]].id == "esp32-s3-module");
@@ -439,8 +444,8 @@ int main() {
     item.quantity = 2;
     item.reorderThreshold = 1;
     item.location = "Bin 1";
-    item.tags = {"alpha", "beta"};
-    item.parameters = {{"Voltage", "5V"}, {"Package", "0805"}};
+    item.tags = {"alpha|beta", R"(path\\value)"};
+    item.parameters = {{"Voltage=nominal", "5V; tolerance=1%"}, {"Package", R"(0805\\metric)"}};
     item.notes = "Roundtrip test";
     item.digikeyPartNumber = "123";
     item.datasheetUrl = "https://example.com/datasheet";
@@ -456,6 +461,9 @@ int main() {
     assert(restored.partName == item.partName);
     assert(restored.parameters.size() == 2);
     assert(restored.tags.size() == 2);
+    assert(restored.tags == item.tags);
+    assert(restored.parameters[0].name == item.parameters[0].name);
+    assert(restored.parameters[0].value == item.parameters[0].value);
     assert(restored.himsId == item.himsId);
     assert(restored.machineCode == item.machineCode);
   }
@@ -471,6 +479,8 @@ int main() {
     item.quantity = 1;
     item.lastUpdated = 1710000000;
     item.machineCode = "0002";
+    item.tags = {"lab|bench", R"(path\fixture)"};
+    item.parameters = {{"Test=Point", "A;B=C"}};
     store.items().push_back(item);
 
     assert(store.save(tempPath));
@@ -478,6 +488,10 @@ int main() {
     assert(loaded.load(tempPath));
     assert(!loaded.items().empty());
     assert(loaded.items().front().machineCode == "0002");
+    assert(loaded.items().front().tags == item.tags);
+    assert(loaded.items().front().parameters.size() == 1);
+    assert(loaded.items().front().parameters.front().name == "Test=Point");
+    assert(loaded.items().front().parameters.front().value == "A;B=C");
     filesystem::remove(tempPath);
   }
 
@@ -1140,6 +1154,13 @@ int main() {
   {
     const string csv = "Digi-Key Part Number,Manufacturer,Description,Quantity\n"
                        "123-ND,Acme,Missing manufacturer part,3\n";
+    const auto result = parseDigiKeyCsvText(csv, {});
+    assert(!result.ok);
+  }
+
+  {
+    const string csv = "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+                       "123-ND,ABC-123,Acme,Overflow quantity,2147483648\n";
     const auto result = parseDigiKeyCsvText(csv, {});
     assert(!result.ok);
   }
