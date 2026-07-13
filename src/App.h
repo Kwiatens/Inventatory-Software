@@ -148,7 +148,7 @@ class App {
   };
 
   void loadState();
-  void saveState();
+  bool saveState();
   void handleKey(const KeyEvent& key);
   void handleDashboardKey(const KeyEvent& key);
   void handleStockKey(const KeyEvent& key);
@@ -324,6 +324,7 @@ class App {
   std::string searchQuery_;
   std::string inputBuffer_;
   std::string message_;
+  std::string persistenceError_;
   time_t messageUntil_ = 0;
   size_t selectedPosition_ = 0;
   size_t stockScroll_ = 0;

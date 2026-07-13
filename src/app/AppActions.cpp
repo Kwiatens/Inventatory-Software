@@ -234,20 +234,29 @@ void App::loadState() {
 
   error_code error;
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, error);
+  vector<string> saveFailures;
   if (inventoryLoaded || !inventoryFileExists) {
-    store_.save(inventoryPath_);
+    if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
   }
-  printerService_.saveConfig(printerPath_);
-  saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_);
-  saveActivities(activityPath_, activities_);
+  if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
+  if (!saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_)) saveFailures.push_back("scanner settings");
+  if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
+  persistenceError_ = saveFailures.empty()
+                          ? string()
+                          : "Could not save " + join(saveFailures, ',') + "; changes remain in memory.";
 }
 
-void App::saveState() {
+bool App::saveState() {
   ensureInventoryIdentifiers(store_.items());
   reconcileRackAssignments(store_);
-  store_.save(inventoryPath_);
-  printerService_.saveConfig(printerPath_);
-  saveActivities(activityPath_, activities_);
+  vector<string> saveFailures;
+  if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
+  if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
+  if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
+  persistenceError_ = saveFailures.empty()
+                          ? string()
+                          : "Could not save " + join(saveFailures, ',') + "; changes remain in memory.";
+  return saveFailures.empty();
 }
 
 bool App::chooseHimsFolder() {
