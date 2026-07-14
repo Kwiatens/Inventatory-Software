@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Windows Credential Manager implementation for user-scoped secrets.
 
 #include "platform/CredentialStore.h"
@@ -8,7 +8,7 @@
 
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -31,7 +31,7 @@ string narrow(const wchar_t* value, size_t length) {
 }
 
 wstring targetName(const string& key) {
-  return L"HIMS/" + widen(key);
+  return L"Inventatory/" + widen(key);
 }
 
 }  // namespace
@@ -57,7 +57,7 @@ bool CredentialStore::write(const string& key, const string& secret) {
   credential.CredentialBlobSize = static_cast<DWORD>(wideSecret.size() * sizeof(wchar_t));
   credential.CredentialBlob = reinterpret_cast<LPBYTE>(wideSecret.data());
   credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
-  credential.UserName = const_cast<wchar_t*>(L"HIMS user");
+  credential.UserName = const_cast<wchar_t*>(L"Inventatory user");
   return CredWriteW(&credential, 0) != FALSE;
 }
 
@@ -67,4 +67,4 @@ bool CredentialStore::erase(const string& key) {
   return GetLastError() == ERROR_NOT_FOUND;
 }
 
-}  // namespace hims
+}  // namespace inventatory

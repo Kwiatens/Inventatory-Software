@@ -1,6 +1,6 @@
-# HIMS UI Redesign v2
+# Inventatory UI Redesign v2
 
-This document is the source of truth for the HIMS terminal interface. HIMS is a
+This document is the source of truth for the Inventatory terminal interface. Inventatory is a
 compact electronics-inventory tool: text first, fast under the keyboard, and
 fully approachable with a mouse. Styling is used only to communicate structure,
 focus, interaction, or state.
@@ -17,10 +17,10 @@ Every workspace uses the same four regions:
 The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Settings`.
 `Actions · Space` is always visible and opens the contextual action sheet.
 There is no persistent action wall and no separate Detail, Printer Setup, or
-HIMS Scan Setup page.
+Inventatory Scan Setup page.
 
 The retired phone/web scanner is not part of the v2 interface. The physical
-HIMS Scan R1 remains supported through the desktop application's authenticated
+Inventatory Scan R1 remains supported through the desktop application's authenticated
 device service; UI copy calls this the R1 service rather than a generic bridge.
 
 The minimum supported terminal is 100 by 30 cells. Smaller terminals show a
@@ -97,7 +97,7 @@ offered after review with an explicit completion choice.
 
 ### Settings
 
-General/Data, Printer, HIMS Scan, and DigiKey live in one category/detail
+General/Data, Printer, Inventatory Scan, and DigiKey live in one category/detail
 workspace. Ordinary edits are staged and use Save/Cancel. Refresh, Test, Copy,
 Regenerate, and Clear are operational actions. DigiKey secrets are stored in
 Windows Credential Manager, never in `settings.conf`.

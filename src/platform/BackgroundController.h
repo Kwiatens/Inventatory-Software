@@ -1,4 +1,4 @@
-// HIMS - Notification-area lifetime control for the background scanner service.
+// Inventatory - Notification-area lifetime control for the background scanner service.
 
 #pragma once
 
@@ -10,7 +10,7 @@
 struct HWND__;
 using HWND = HWND__*;
 
-namespace hims {
+namespace inventatory {
 
 class BackgroundController {
  public:
@@ -41,4 +41,4 @@ class BackgroundController {
   Callback onQuit_;
 };
 
-}  // namespace hims
+}  // namespace inventatory

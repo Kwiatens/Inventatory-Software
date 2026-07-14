@@ -1,5 +1,5 @@
-// HIMS - Hardware Inventory Management System
-// Simple pairing and status page for one HIMS Scan R1 device.
+// Inventatory - Hardware Inventory Management System
+// Simple pairing and status page for one Inventatory Scan R1 device.
 
 #include "App.h"
 
@@ -9,18 +9,18 @@
 #include <algorithm>
 #include <string>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
 namespace {
 
 constexpr size_t kDebugWindowLines = 14;
-constexpr const char* kHimsScanTokenCredential = "hims-scan-pairing-token";
+constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 }  // namespace
 
-bool App::regenerateHimsScanToken() {
+bool App::regenerateInventatoryScanToken() {
   const auto now = time(nullptr);
   if (settingsConfirmAction_ != "regenerate-token" || now > settingsConfirmUntil_) {
     settingsConfirmAction_ = "regenerate-token";
@@ -30,12 +30,12 @@ bool App::regenerateHimsScanToken() {
   }
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
-  himsScanConfig_.token = generateHimsScanToken();
-  if (!CredentialStore::write(kHimsScanTokenCredential, himsScanConfig_.token)) {
+  inventatoryScanConfig_.token = generateInventatoryScanToken();
+  if (!CredentialStore::write(kInventatoryScanTokenCredential, inventatoryScanConfig_.token)) {
     setMessage("Unable to save the new pairing token securely", 4);
     return false;
   }
-  himsScanConfig_.deviceId.clear();
+  inventatoryScanConfig_.deviceId.clear();
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
@@ -47,9 +47,9 @@ bool App::regenerateHimsScanToken() {
   deviceLastSync_ = 0;
   deviceRequestCache_.clear();
   deviceRequestOrder_.clear();
-  server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
-  if (!saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_)) {
-    setMessage("Generated a new token, but HIMS could not save it", 4);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
+    setMessage("Generated a new token, but Inventatory could not save it", 4);
     return false;
   }
   setMessage("Generated a new pairing token", 3);
@@ -57,8 +57,8 @@ bool App::regenerateHimsScanToken() {
   return true;
 }
 
-bool App::clearHimsScanPairing() {
-  if (trim(himsScanConfig_.deviceId).empty()) {
+bool App::clearInventatoryScanPairing() {
+  if (trim(inventatoryScanConfig_.deviceId).empty()) {
     setMessage("No paired device to clear", 2);
     return false;
   }
@@ -73,7 +73,7 @@ bool App::clearHimsScanPairing() {
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
 
-  himsScanConfig_.deviceId.clear();
+  inventatoryScanConfig_.deviceId.clear();
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
@@ -83,9 +83,9 @@ bool App::clearHimsScanPairing() {
   deviceMode_.clear();
   devicePendingEventCount_ = 0;
   deviceLastSync_ = 0;
-  server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
-  if (!saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_)) {
-    setMessage("Cleared pairing in memory, but HIMS could not save it", 4);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
+    setMessage("Cleared pairing in memory, but Inventatory could not save it", 4);
     return false;
   }
   setMessage("Cleared paired device identity", 3);
@@ -93,8 +93,8 @@ bool App::clearHimsScanPairing() {
   return true;
 }
 
-bool App::copyHimsScanToken() {
-  const auto token = trim(himsScanConfig_.token);
+bool App::copyInventatoryScanToken() {
+  const auto token = trim(inventatoryScanConfig_.token);
   if (token.empty()) {
     setMessage("No pairing token to copy", 2);
     return false;
@@ -109,7 +109,7 @@ bool App::copyHimsScanToken() {
   return true;
 }
 
-void App::openHimsScanSetup() {
+void App::openInventatoryScanSetup() {
   bleProvisioning_.stopDiscovery();
   bleWifiSsid_.clear();
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
@@ -141,7 +141,7 @@ bool App::provisionSelectedBleSetupDevice() {
     setMessage("Enter the Wi-Fi name and the six-digit code shown on the R1", 5);
     return false;
   }
-  const auto candidateToken = generateHimsScanToken();
+  const auto candidateToken = generateInventatoryScanToken();
   BleProvisioningRequest request;
   request.address = devices[bleSetupSelection_].address;
   request.wifiSsid = trim(bleWifiSsid_);
@@ -153,15 +153,15 @@ bool App::provisionSelectedBleSetupDevice() {
     setMessage(error.empty() ? "Bluetooth setup failed" : error, 5);
     return false;
   }
-  if (!CredentialStore::write(kHimsScanTokenCredential, candidateToken)) {
-    setMessage("Scanner accepted setup, but HIMS could not save its token securely", 6);
+  if (!CredentialStore::write(kInventatoryScanTokenCredential, candidateToken)) {
+    setMessage("Scanner accepted setup, but Inventatory could not save its token securely", 6);
     return false;
   }
-  himsScanConfig_.token = candidateToken;
-  himsScanConfig_.deviceId.clear();
-  server_.setDeviceCredentials({}, himsScanConfig_.token);
-  if (!saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_)) {
-    setMessage("Scanner setup was sent, but HIMS could not save pairing metadata", 6);
+  inventatoryScanConfig_.token = candidateToken;
+  inventatoryScanConfig_.deviceId.clear();
+  server_.setDeviceCredentials({}, inventatoryScanConfig_.token);
+  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
+    setMessage("Scanner setup was sent, but Inventatory could not save pairing metadata", 6);
     return false;
   }
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
@@ -173,7 +173,7 @@ bool App::provisionSelectedBleSetupDevice() {
   return true;
 }
 
-ftxui::Element App::renderHimsScanSetupUi() const {
+ftxui::Element App::renderInventatoryScanSetupUi() const {
   const auto stepNumber = [&] {
     switch (scanSetupStep_) {
       case ScanSetupStep::Introduction: return string("0 / 5");
@@ -193,7 +193,7 @@ ftxui::Element App::renderHimsScanSetupUi() const {
   };
 
   ftxui::Elements rows;
-  rows.push_back(styledText("$ hims setup scan-r1", uiSuccessColor()) | ftxui::bold);
+  rows.push_back(styledText("$ inventatory setup scan-r1", uiSuccessColor()) | ftxui::bold);
   rows.push_back(styledText("Bluetooth first-use provisioning  |  Step " + stepNumber(), uiMutedText()));
   rows.push_back(uiDivider());
   rows.push_back(fullLine(progressMark(ScanSetupStep::WifiName) + " Wi-Fi network   " +
@@ -274,9 +274,9 @@ ftxui::Element App::renderHimsScanSetupUi() const {
     }
     case ScanSetupStep::Complete:
       rows.push_back(styledText("Setup request accepted.", uiSuccessColor()) | ftxui::bold);
-      rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect to this HIMS PC automatically.", uiTitleColor()));
+      rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect to this Inventatory PC automatically.", uiTitleColor()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("The device token was stored in Windows Credential Manager; the Wi-Fi password was cleared from HIMS.",
+      rows.push_back(styledText("The device token was stored in Windows Credential Manager; the Wi-Fi password was cleared from Inventatory.",
                                 uiMutedText()));
       rows.push_back(ftxui::text(""));
       rows.push_back(styledText("> Press Enter or Esc to return to Home", uiLinkColor()));
@@ -313,7 +313,7 @@ ftxui::Element App::renderDeviceDebugConsoleUi() const {
          ftxui::bgcolor(uiPanelLeftBg());
 }
 
-void App::handleHimsScanSetupKey(const KeyEvent& key) {
+void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
   const auto cancel = [this] {
     bleProvisioning_.stopDiscovery();
     bleWifiSsid_.clear();
@@ -411,4 +411,4 @@ void App::handleHimsScanSetupKey(const KeyEvent& key) {
   dirty_ = true;
 }
 
-}  // namespace hims
+}  // namespace inventatory

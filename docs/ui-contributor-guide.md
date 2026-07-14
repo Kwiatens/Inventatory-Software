@@ -1,4 +1,4 @@
-# HIMS UI Contributor Guide
+# Inventatory UI Contributor Guide
 
 ## Structure
 
@@ -33,8 +33,8 @@ and a single dim divider over windows nested inside windows.
 
 ## Settings and secrets
 
-Machine/user settings are versioned in `%LOCALAPPDATA%/HIMS/settings.conf`.
-Inventory content stays in the selected HIMS data directory. Secrets use
+Machine/user settings are versioned in `%LOCALAPPDATA%/Inventatory/settings.conf`.
+Inventory content stays in the selected Inventatory data directory. Secrets use
 `CredentialStore`; never write them to config, logs, activity history, test
 snapshots, messages, or screenshots. New settings must define validation,
 staging, save/cancel behavior, migration defaults, and runtime/restart effects.
@@ -42,6 +42,6 @@ staging, save/cancel behavior, migration defaults, and runtime/restart effects.
 ## Verification
 
 After changing terminal rendering, build, run the core tests, launch a fresh
-agent-owned maximized HIMS terminal, and inspect a window-only capture. Check
+agent-owned maximized Inventatory terminal, and inspect a window-only capture. Check
 100x30, 120x30, and a wide layout for clipping, wrapping, focus, contrast,
 scrolling, and action-sheet opacity.

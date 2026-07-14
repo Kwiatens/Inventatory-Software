@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Inventory history persistence helpers.
 
 #include "core/InventorySqlite.h"
@@ -7,7 +7,7 @@
 #include <sstream>
 #include <utility>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -39,7 +39,7 @@ bool deserializeHistoryPoint(const string& line, InventoryHistoryPoint& point) {
 
 bool createHistoryTable(SqliteConnection& connection) {
   return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS hims_inventory_history (
+    CREATE TABLE IF NOT EXISTS inventatory_inventory_history (
       timestamp INTEGER NOT NULL,
       item_count INTEGER NOT NULL,
       total_units INTEGER NOT NULL,
@@ -50,15 +50,15 @@ bool createHistoryTable(SqliteConnection& connection) {
   )SQL");
 }
 
-bool loadHistoryFromHimsTable(SqliteConnection& connection, vector<InventoryHistoryPoint>& history) {
-  if (!tableExists(connection, "hims_inventory_history")) {
+bool loadHistoryFromInventatoryTable(SqliteConnection& connection, vector<InventoryHistoryPoint>& history) {
+  if (!tableExists(connection, "inventatory_inventory_history")) {
     return false;
   }
 
   SqliteStatement statement;
   const char* sql = R"SQL(
     SELECT timestamp, item_count, total_units, low_stock_count, out_of_stock_count, data_error_count
-    FROM hims_inventory_history
+    FROM inventatory_inventory_history
     ORDER BY timestamp ASC
   )SQL";
 
@@ -80,7 +80,7 @@ bool loadHistoryFromHimsTable(SqliteConnection& connection, vector<InventoryHist
   return true;
 }
 
-bool writeHistoryToHimsTable(SqliteConnection& connection, const vector<InventoryHistoryPoint>& history) {
+bool writeHistoryToInventatoryTable(SqliteConnection& connection, const vector<InventoryHistoryPoint>& history) {
   if (!createHistoryTable(connection)) {
     return false;
   }
@@ -88,14 +88,14 @@ bool writeHistoryToHimsTable(SqliteConnection& connection, const vector<Inventor
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     return false;
   }
-  if (!execSql(connection, "DELETE FROM hims_inventory_history")) {
+  if (!execSql(connection, "DELETE FROM inventatory_inventory_history")) {
     execSql(connection, "ROLLBACK");
     return false;
   }
 
   SqliteStatement statement;
   const char* sql = R"SQL(
-    INSERT INTO hims_inventory_history (
+    INSERT INTO inventatory_inventory_history (
       timestamp, item_count, total_units, low_stock_count, out_of_stock_count, data_error_count
     ) VALUES (?, ?, ?, ?, ?, ?)
   )SQL";
@@ -142,7 +142,7 @@ bool loadInventoryHistory(const filesystem::path& path, vector<InventoryHistoryP
     return false;
   }
 
-  return loadHistoryFromHimsTable(connection, history);
+  return loadHistoryFromInventatoryTable(connection, history);
 #else
   ifstream file(historyFilePath(path));
   if (!file) {
@@ -173,7 +173,7 @@ bool saveInventoryHistory(const filesystem::path& path, const vector<InventoryHi
     return false;
   }
 
-  return writeHistoryToHimsTable(connection, history);
+  return writeHistoryToInventatoryTable(connection, history);
 #else
   filesystem::create_directories(path.parent_path());
 
@@ -182,7 +182,7 @@ bool saveInventoryHistory(const filesystem::path& path, const vector<InventoryHi
     return false;
   }
 
-  file << "# HIMS inventory history\n";
+  file << "# Inventatory inventory history\n";
   for (const auto& point : history) {
     file << serializeHistoryPoint(point) << '\n';
   }
@@ -190,4 +190,4 @@ bool saveInventoryHistory(const filesystem::path& path, const vector<InventoryHi
 #endif
 }
 
-}  // namespace hims
+}  // namespace inventatory

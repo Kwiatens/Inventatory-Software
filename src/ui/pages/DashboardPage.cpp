@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Dashboard page rendering and keyboard handling.
 
 #include "App.h"
@@ -15,7 +15,7 @@
 
 #include <ftxui/component/screen_interactive.hpp>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -311,7 +311,7 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   }
 
   snapshot.devices = {
-      {"HIMS Scan R1", deviceConnected, false, scannerRunning ? string("Device service ready")
+      {"Inventatory Scan R1", deviceConnected, false, scannerRunning ? string("Device service ready")
                                                                 : string("Device service offline"),
        snapshot.lastScannedPart.empty() ? "Waiting for scans" : snapshot.lastScannedPart,
        deviceConnected ? string() : (scannerRunning ? string("No recent device status")
@@ -484,7 +484,7 @@ ftxui::Element App::renderDashboardUi() const {
              UiTargetKind::Button, [self] { self->changePage(Page::Import); }),
       ftxui::text("  "),
       target(styledText(" Set up Scan R1 ", uiFocusColor(), uiRaisedSurfaceBg()), "home.scan.setup",
-             UiTargetKind::Button, [self] { self->openHimsScanSetup(); }),
+             UiTargetKind::Button, [self] { self->openInventatoryScanSetup(); }),
       ftxui::text("  "),
       target(styledText(" System settings ", uiInteractiveColor(), uiRaisedSurfaceBg()), "home.settings",
              UiTargetKind::Button, [self] { self->openSettings(); }),
@@ -526,7 +526,7 @@ void App::handleDashboardKey(const KeyEvent& key) {
         openRackManagement();
         break;
       case 'u':
-        openHimsScanSetup();
+        openInventatoryScanSetup();
         break;
       case 'f':
         changePage(Page::Stock);
@@ -552,4 +552,4 @@ void App::handleDashboardKey(const KeyEvent& key) {
   }
 }
 
-}  // namespace hims
+}  // namespace inventatory

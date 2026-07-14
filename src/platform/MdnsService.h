@@ -1,5 +1,5 @@
-// HIMS - Hardware Inventory Management System
-// Windows DNS-SD registration for automatic HIMS Scan discovery.
+// Inventatory - Hardware Inventory Management System
+// Windows DNS-SD registration for automatic Inventatory Scan discovery.
 
 #pragma once
 
@@ -13,7 +13,7 @@
 #include <windns.h>
 #endif
 
-namespace hims {
+namespace inventatory {
 
 class MdnsService {
  public:
@@ -34,4 +34,4 @@ class MdnsService {
   bool running_ = false;
 };
 
-}  // namespace hims
+}  // namespace inventatory

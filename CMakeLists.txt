@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(HIMSSoftware VERSION 0.1.0 LANGUAGES CXX)
+project(InventatorySoftware VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -27,7 +27,7 @@ if(NOT ftxui_FOUND)
   FetchContent_MakeAvailable(ftxui)
 endif()
 
-add_executable(hims
+add_executable(inventatory
   src/main.cpp
   src/app.cpp
   src/app/AppBootstrap.cpp
@@ -44,7 +44,7 @@ add_executable(hims
   src/core/InventoryStorage.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
-  src/core/HimsScanProtocol.cpp
+  src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
   src/import/DigiKeyCsvImport.cpp
   src/label_printer/LabelPrinter.cpp
@@ -61,22 +61,22 @@ add_executable(hims
   src/ui/pages/StockPage.cpp
   src/ui/pages/RackManagementPage.cpp
   src/ui/pages/PrinterSetupPage.cpp
-  src/ui/pages/HimsScanSetupPage.cpp
+  src/ui/pages/InventatoryScanSetupPage.cpp
   src/ui/pages/ImportCsvPage.cpp
   src/ui/pages/SettingsPage.cpp
 )
 
-target_include_directories(hims PRIVATE src)
-target_compile_definitions(hims PRIVATE HIMS_VERSION_STRING="${PROJECT_VERSION}")
+target_include_directories(inventatory PRIVATE src)
+target_compile_definitions(inventatory PRIVATE Inventatory_VERSION_STRING="${PROJECT_VERSION}")
 
 if(WIN32)
-  target_link_libraries(hims PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
+  target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
 endif()
 
-target_link_libraries(hims PRIVATE ftxui::screen ftxui::dom ftxui::component)
+target_link_libraries(inventatory PRIVATE ftxui::screen ftxui::dom ftxui::component)
 
-add_executable(hims_tests
-  tests/hims_tests.cpp
+add_executable(inventatory_tests
+  tests/inventatory_tests.cpp
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/import/DigiKeyCsvImport.cpp
@@ -91,19 +91,19 @@ add_executable(hims_tests
   src/core/InventoryStorage.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
-  src/core/HimsScanProtocol.cpp
+  src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
   src/label_printer/LabelPrinter.cpp
 )
 
-target_include_directories(hims_tests PRIVATE src)
+target_include_directories(inventatory_tests PRIVATE src)
 
 if(WIN32)
-  target_link_libraries(hims_tests PRIVATE winspool bcrypt advapi32)
+  target_link_libraries(inventatory_tests PRIVATE winspool bcrypt advapi32)
 endif()
 
-target_link_libraries(hims_tests PRIVATE ftxui::screen ftxui::dom ftxui::component)
+target_link_libraries(inventatory_tests PRIVATE ftxui::screen ftxui::dom ftxui::component)
 
 if(BUILD_TESTING)
-  add_test(NAME hims_core COMMAND hims_tests)
+  add_test(NAME inventatory_core COMMAND inventatory_tests)
 endif()

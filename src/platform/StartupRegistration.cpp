@@ -1,4 +1,4 @@
-// HIMS - Windows per-user startup registration for the background scanner service.
+// Inventatory - Windows per-user startup registration for the background scanner service.
 
 #define WIN32_LEAN_AND_MEAN
 #include "platform/StartupRegistration.h"
@@ -7,12 +7,12 @@
 
 #include <string>
 
-namespace hims {
+namespace inventatory {
 
 namespace {
 
 constexpr wchar_t kRunKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr wchar_t kValueName[] = L"HIMSSoftware";
+constexpr wchar_t kValueName[] = L"InventatorySoftware";
 
 std::string systemError(DWORD code) {
   char message[256] = {};
@@ -52,7 +52,7 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
     const auto executablePath = currentExecutablePath();
     if (executablePath.empty()) {
       RegCloseKey(key);
-      error = "Unable to find the HIMS executable for Windows startup";
+      error = "Unable to find the Inventatory executable for Windows startup";
       return false;
     }
     const auto command = buildBackgroundStartupCommand(executablePath);
@@ -70,4 +70,4 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
   return true;
 }
 
-}  // namespace hims
+}  // namespace inventatory
