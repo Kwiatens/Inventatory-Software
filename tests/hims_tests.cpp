@@ -728,8 +728,11 @@ int main() {
     assert(backendPtr->lastJobName_.find("HIMS Label") == 0);
     assert(backendPtr->lastZpl_.find("^FDLA,0002^FS") != string::npos);
     const auto wireZpl = service.buildWireLabelZpl("12V");
-    assert(wireZpl.find("^A0N,34,31^FB236,1,0,C^FD12V^FS") != string::npos);
-    assert(wireZpl.find("^A0I,34,31^FB236,1,0,C^FD12V^FS") != string::npos);
+    assert(wireZpl.find("^A0N,68,58^FB236,1,0,C^FD12V^FS") != string::npos);
+    assert(wireZpl.find("^FO10,112^A0N,68,58^FB236,1,0,C^FD12V^FS") != string::npos);
+    const auto longWireZpl = service.buildWireLabelZpl("CONTROL SIGNAL +5V");
+    assert(longWireZpl.find("^A0N,28,16^FB236,1,0,C^FDCONTROL SIGNAL +5V^FS") != string::npos);
+    assert(longWireZpl.find("^FO10,112^A0N,28,16^FB236,1,0,C^FDCONTROL SIGNAL +5V^FS") != string::npos);
     assert(service.printWireLabel("GND", &error));
     assert(backendPtr->lastJobName_ == "Inventatory Wire Label");
 
@@ -1207,6 +1210,14 @@ int main() {
 
     assert(parseScanRequestJson(R"({"deviceId":"r1-a","requestId":"req-2","code":"ABC123"})", request, error));
     assert(request.quantity == 1);
+    assert(parseScanRequestJson(
+        R"({"deviceId":"r1-a","requestId":"req-3","code":"ABC123","metadata":{"code":"ignored"}})",
+        request, error));
+    assert(request.code == "ABC123");
+    assert(!parseScanRequestJson(
+        R"({"deviceId":"r1-a","requestId":"req-4","code":"ABC123","code":"ambiguous"})", request, error));
+    assert(!parseScanRequestJson(
+        R"({"deviceId":"r1-a","requestId":"req-5","code":"ABC123")", request, error));
   }
 
   {
@@ -1264,6 +1275,11 @@ int main() {
     assert(request.lookup.lookupId == "lookup-9");
     assert(request.lookup.code == "0002");
     assert(parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
+        request, error));
+    assert(request.hasLookup);
+    assert(request.lookup.code == "718-2362-1-ND");
+    assert(parseDeviceSyncRequestJson(
         R"({"protocolVersion":1,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
         request, error));
     assert(request.hasQuickLabelPrint);
@@ -1283,6 +1299,9 @@ int main() {
     const auto quickLabelJson = deviceSyncResponseJson(quickLabelResponse);
     assert(quickLabelJson.find("\"quickLabels\":{\"revision\":3") != string::npos);
     assert(quickLabelJson.find("\"quickLabelPrintResult\":{\"requestId\":\"r1-a-label-1\"") != string::npos);
+    quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
+    quickLabelResponse.hasLookupResult = true;
+    assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
     assert(!parseDeviceSyncRequestJson(
         R"({"protocolVersion":2,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
@@ -1294,6 +1313,7 @@ int main() {
     item.id = "sync-item";
     item.machineCode = "0002";
     item.partName = "10k resistor";
+    item.digikeyPartNumber = "718-2362-1-ND";
     item.quantity = 5;
     item.location = "R1-A1";
     store.items().push_back(item);
@@ -1309,6 +1329,13 @@ int main() {
     const auto databaseFoundLookup = lookupDeviceItem(databasePath, {"lookup-9-db", "0002"});
     assert(databaseFoundLookup.status == "found");
     assert(databaseFoundLookup.itemName == "10k resistor");
+    const auto digiKeyLookup = lookupDeviceItem(lookupSnapshot, {"lookup-dk-1", "718-2362-1-ND"});
+    assert(digiKeyLookup.status == "found");
+    assert(digiKeyLookup.itemName == "10k resistor");
+    const auto databaseDigiKeyLookup =
+        lookupDeviceItem(databasePath, {"lookup-dk-1-db", "718-2362-1-ND"});
+    assert(databaseDigiKeyLookup.status == "found");
+    assert(databaseDigiKeyLookup.itemName == "10k resistor");
     const auto missingLookup = lookupDeviceItem(lookupSnapshot, {"lookup-10", "9999"});
     assert(missingLookup.status == "not_found");
     const auto databaseMissingLookup = lookupDeviceItem(databasePath, {"lookup-10-db", "9999"});
@@ -1356,7 +1383,25 @@ int main() {
     result.quantity = quantity.quantity;
     result.location = "R1-A1";
     result.message = "Quantity updated";
+
+    // A new protocol-v1 receive is auto-printed immediately after its event is
+    // committed. Its live item must receive the same identifiers as the SQLite
+    // snapshot; otherwise the label has blank HIMS text and an empty QR field.
+    InventoryItem autoLabelItem;
+    autoLabelItem.id = "auto-label-new-item";
+    autoLabelItem.partName = "Auto label IC";
+    autoLabelItem.category = "Integrated Circuits";
+    autoLabelItem.lastUpdated = time(nullptr);
+    autoLabelItem.createdAt = autoLabelItem.lastUpdated;
+    candidate.items().push_back(autoLabelItem);
     assert(completeDeviceSyncEvent(candidate, databasePath, result));
+    const auto* finalizedAutoLabelItem = candidate.findById(autoLabelItem.id);
+    assert(finalizedAutoLabelItem != nullptr);
+    assert(isHimsId(finalizedAutoLabelItem->himsId));
+    assert(finalizedAutoLabelItem->machineCode.size() == 4);
+    const auto autoLabelPlan = LabelPrinterService{}.buildLabelPlan(*finalizedAutoLabelItem);
+    assert(autoLabelPlan.scannerHint == buildVisibleHimsId(*finalizedAutoLabelItem));
+    assert(autoLabelPlan.barcodeHint == finalizedAutoLabelItem->machineCode);
 
     response = {};
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));
