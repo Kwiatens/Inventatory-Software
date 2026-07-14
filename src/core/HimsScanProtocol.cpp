@@ -351,6 +351,19 @@ bool looksLikeSupportedHimsScanCode(const string& code) {
          all_of(trimmed.begin(), trimmed.end(), [](unsigned char ch) { return isdigit(ch) != 0; });
 }
 
+bool looksLikeSupportedLookupCode(const string& code) {
+  const auto trimmed = trim(code);
+  if (looksLikeSupportedHimsScanCode(trimmed)) return true;
+  if (trimmed.size() < 5 || trimmed.size() > 64) return false;
+  bool hasDigit = false;
+  for (const unsigned char ch : trimmed) {
+    if (isdigit(ch) != 0) hasDigit = true;
+    if (isalnum(ch) == 0 && ch != '-' && ch != '.' && ch != '_') return false;
+  }
+  const auto suffix = trimmed.substr(trimmed.size() - 3);
+  return hasDigit && (suffix == "-ND" || suffix == "-nd");
+}
+
 }  // namespace
 
 bool HimsScanConfig::paired() const {
@@ -555,7 +568,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
   if (const auto lookup = jsonObjectBody(body, "lookup")) {
     const auto lookupId = jsonString(*lookup, "lookupId");
     const auto code = jsonString(*lookup, "code");
-    if (!lookupId || trim(*lookupId).empty() || !code || !looksLikeSupportedHimsScanCode(*code) ||
+    if (!lookupId || trim(*lookupId).empty() || !code || !looksLikeSupportedLookupCode(*code) ||
         lookupId->size() > 96 || code->size() > 128) {
       error = "Invalid sync lookup";
       return false;
@@ -631,11 +644,31 @@ DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLoo
   DeviceLookupResult result;
   result.lookupId = request.lookupId;
   const auto code = trim(request.code);
-  if (!looksLikeSupportedHimsScanCode(code)) {
+  if (!looksLikeSupportedLookupCode(code)) {
     result.status = "not_found";
     return result;
   }
-  const auto* item = store.findByMachineCode(code);
+  const InventoryItem* item = nullptr;
+  if (looksLikeSupportedHimsScanCode(code)) {
+    item = store.findByMachineCode(code);
+  } else {
+    const auto foldedCode = [&code] {
+      string folded = code;
+      transform(folded.begin(), folded.end(), folded.begin(),
+                [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+      return folded;
+    }();
+    const auto match = find_if(store.items().begin(), store.items().end(), [&](const InventoryItem& candidate) {
+      auto equalsCode = [&foldedCode](string value) {
+        value = trim(value);
+        transform(value.begin(), value.end(), value.begin(),
+                  [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+        return value == foldedCode;
+      };
+      return equalsCode(candidate.digikeyPartNumber) || equalsCode(candidate.sku);
+    });
+    if (match != store.items().end()) item = &(*match);
+  }
   if (item == nullptr) {
     result.status = "not_found";
     return result;

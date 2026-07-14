@@ -194,7 +194,7 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
   DeviceLookupResult result;
   result.lookupId = request.lookupId;
   const auto code = trim(request.code);
-  if (code.empty() || !all_of(code.begin(), code.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) {
+  if (code.empty() || code.size() > 64) {
     result.status = "not_found";
     return result;
   }
@@ -207,17 +207,21 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
   }
 
   SqliteStatement statement;
-  constexpr char kLookupSql[] = "SELECT machine_code, part_name FROM hims_items";
+  constexpr char kLookupSql[] =
+      "SELECT part_name FROM hims_items "
+      "WHERE machine_code=? COLLATE NOCASE OR digikey_part_number=? COLLATE NOCASE "
+      "OR sku=? COLLATE NOCASE LIMIT 1";
   if (sqliteApi().prepare_v2(connection.db, kLookupSql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
     result.status = "unavailable";
     return result;
   }
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
-    if (matchesMachineCode(sqliteText(statement.stmt, 0), code)) {
-      result.status = "found";
-      result.itemName = sqliteText(statement.stmt, 1);
-      return result;
-    }
+  sqliteApi().bind_text(statement.stmt, 1, code.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 2, code.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 3, code.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+    result.status = "found";
+    result.itemName = sqliteText(statement.stmt, 0);
+    return result;
   }
   result.status = "not_found";
 #else
