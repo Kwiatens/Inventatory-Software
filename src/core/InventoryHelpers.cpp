@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Core inventory string, identifier, and item helpers.
 
 #include "core/InventoryInternals.h"
@@ -10,11 +10,12 @@
 #include <iomanip>
 #include <random>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <unordered_map>
 #include <unordered_set>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -49,7 +50,7 @@ vector<string> splitTokensRespectingQuotes(const string& query) {
   return tokens;
 }
 
-string normalizeHimsPrefix(const string& category) {
+string normalizeInventatoryPrefix(const string& category) {
   const auto lowered = toLower(trim(category));
   if (lowered.find("capacitor") != string::npos) {
     return "C";
@@ -102,18 +103,20 @@ string normalizeHimsPrefix(const string& category) {
   return "X";
 }
 
-bool parseHimsIdValue(const string& value, string& prefix, size_t& sequence) {
+bool parseInventatoryIdValue(const string& value, string& prefix, size_t& sequence) {
   const auto trimmed = trim(value);
-  if (trimmed.rfind("HIMS:", 0) != 0) {
+  constexpr string_view kInventatoryIdPrefix = "Inventatory:";
+  if (trimmed.rfind(kInventatoryIdPrefix, 0) != 0) {
     return false;
   }
 
-  const auto dash = trimmed.find('-', 5);
-  if (dash == string::npos || dash <= 5 || dash + 1 >= trimmed.size()) {
+  const auto prefixSize = kInventatoryIdPrefix.size();
+  const auto dash = trimmed.find('-', prefixSize);
+  if (dash == string::npos || dash <= prefixSize || dash + 1 >= trimmed.size()) {
     return false;
   }
 
-  const auto rawPrefix = trimmed.substr(5, dash - 5);
+  const auto rawPrefix = trimmed.substr(prefixSize, dash - prefixSize);
   if (rawPrefix.empty()) {
     return false;
   }
@@ -132,8 +135,8 @@ bool parseHimsIdValue(const string& value, string& prefix, size_t& sequence) {
   return true;
 }
 
-string compactHimsDisplayCodeImpl(const string& himsId) {
-  auto compact = trim(himsId);
+string compactInventatoryDisplayCodeImpl(const string& inventatoryId) {
+  auto compact = trim(inventatoryId);
   const auto colon = compact.find(':');
   if (colon != string::npos && colon + 1 < compact.size()) {
     compact = compact.substr(colon + 1);
@@ -213,7 +216,7 @@ string InventoryItem::searchableText() const {
   ostringstream out;
   out << partName << ' ' << manufacturer << ' ' << category << ' ' << location << ' ' << notes << ' '
       << digikeyPartNumber << ' ' << datasheetUrl << ' ' << productUrl << ' ' << sku << ' ' << machineCode << ' '
-      << himsId << ' ' << syncStatus;
+      << inventatoryId << ' ' << syncStatus;
 
   for (const auto& tag : tags) {
     out << ' ' << tag;
@@ -270,20 +273,20 @@ string makeId() {
   return out.str();
 }
 
-string himsCategoryPrefix(const string& category) {
-  return normalizeHimsPrefix(category);
+string inventatoryCategoryPrefix(const string& category) {
+  return normalizeInventatoryPrefix(category);
 }
 
-string makeHimsId(const string& category, size_t sequence) {
+string makeInventatoryId(const string& category, size_t sequence) {
   ostringstream out;
-  out << "HIMS:" << himsCategoryPrefix(category) << '-' << uppercase << setw(5) << setfill('0') << sequence;
+  out << "Inventatory:" << inventatoryCategoryPrefix(category) << '-' << uppercase << setw(5) << setfill('0') << sequence;
   return out.str();
 }
 
-bool isHimsId(const string& value) {
+bool isInventatoryId(const string& value) {
   string prefix;
   size_t sequence = 0;
-  return parseHimsIdValue(value, prefix, sequence);
+  return parseInventatoryIdValue(value, prefix, sequence);
 }
 
 string formatMachineCode(size_t sequence) {
@@ -300,31 +303,31 @@ bool isMachineCode(const string& value) {
   return digitsOnly(trim(value));
 }
 
-string buildVisibleHimsId(const InventoryItem& item) {
+string buildVisibleInventatoryId(const InventoryItem& item) {
   const auto code = normalizeMachineCode(item.machineCode);
   if (code.empty()) {
-    return trim(item.himsId);
+    return trim(item.inventatoryId);
   }
 
-  string prefix = himsCategoryPrefix(item.category);
+  string prefix = inventatoryCategoryPrefix(item.category);
   string parsedPrefix;
   size_t sequence = 0;
-  if (parseHimsIdValue(item.himsId, parsedPrefix, sequence) && !parsedPrefix.empty()) {
+  if (parseInventatoryIdValue(item.inventatoryId, parsedPrefix, sequence) && !parsedPrefix.empty()) {
     prefix = parsedPrefix;
   }
   if (prefix.empty()) {
-    return trim(item.himsId);
+    return trim(item.inventatoryId);
   }
 
-  return "HIMS:" + prefix + '-' + code;
+  return "Inventatory:" + prefix + '-' + code;
 }
 
-string compactHimsDisplayCode(const string& himsId) {
-  return compactHimsDisplayCodeImpl(himsId);
+string compactInventatoryDisplayCode(const string& inventatoryId) {
+  return compactInventatoryDisplayCodeImpl(inventatoryId);
 }
 
-string compactHimsBarcodeCode(const string& himsId) {
-  auto code = compactHimsDisplayCodeImpl(himsId);
+string compactInventatoryBarcodeCode(const string& inventatoryId) {
+  auto code = compactInventatoryDisplayCodeImpl(inventatoryId);
   code.erase(remove(code.begin(), code.end(), '-'), code.end());
   if (code.size() > 1 && code[1] == '0') {
     code.erase(1, 1);
@@ -332,23 +335,23 @@ string compactHimsBarcodeCode(const string& himsId) {
   return code;
 }
 
-bool matchesHimsScanCode(const string& himsId, const string& code) {
+bool matchesInventatoryScanCode(const string& inventatoryId, const string& code) {
   const auto needle = toLower(trim(code));
   if (needle.empty()) {
     return false;
   }
 
-  const auto full = toLower(trim(himsId));
+  const auto full = toLower(trim(inventatoryId));
   if (!full.empty() && full == needle) {
     return true;
   }
 
-  const auto display = toLower(compactHimsDisplayCode(himsId));
+  const auto display = toLower(compactInventatoryDisplayCode(inventatoryId));
   if (!display.empty() && display == needle) {
     return true;
   }
 
-  const auto barcode = toLower(compactHimsBarcodeCode(himsId));
+  const auto barcode = toLower(compactInventatoryBarcodeCode(inventatoryId));
   if (!barcode.empty() && barcode == needle) {
     return true;
   }
@@ -382,11 +385,11 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
   size_t nextMachineSequence = 1;
 
   for (const auto& item : items) {
-    if (!trim(item.himsId).empty()) {
-      usedIds.insert(toLower(trim(item.himsId)));
+    if (!trim(item.inventatoryId).empty()) {
+      usedIds.insert(toLower(trim(item.inventatoryId)));
       string prefix;
       size_t sequence = 0;
-      if (parseHimsIdValue(item.himsId, prefix, sequence)) {
+      if (parseInventatoryIdValue(item.inventatoryId, prefix, sequence)) {
         auto& nextSequence = nextSequenceByPrefix[prefix];
         nextSequence = max(nextSequence, sequence + 1);
       }
@@ -404,11 +407,11 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
       item.createdAt = item.lastUpdated == 0 ? nowEpoch() : item.lastUpdated;
     }
 
-    auto normalizedId = trim(item.himsId);
-    if (!normalizedId.empty() && isHimsId(normalizedId)) {
-      item.himsId = normalizedId;
+    auto normalizedId = trim(item.inventatoryId);
+    if (!normalizedId.empty() && isInventatoryId(normalizedId)) {
+      item.inventatoryId = normalizedId;
     } else {
-      const auto prefix = himsCategoryPrefix(item.category);
+      const auto prefix = inventatoryCategoryPrefix(item.category);
       auto& nextSequence = nextSequenceByPrefix[prefix];
       if (nextSequence == 0) {
         nextSequence = 1;
@@ -416,11 +419,11 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
 
       string candidate;
       do {
-        candidate = makeHimsId(item.category, nextSequence++);
+        candidate = makeInventatoryId(item.category, nextSequence++);
       } while (usedIds.count(toLower(candidate)) != 0);
 
-      item.himsId = move(candidate);
-      usedIds.insert(toLower(item.himsId));
+      item.inventatoryId = move(candidate);
+      usedIds.insert(toLower(item.inventatoryId));
     }
 
     auto normalizedMachineCode = normalizeMachineCode(item.machineCode);
@@ -483,4 +486,4 @@ bool containsInsensitive(string_view haystack, string_view needle) {
   return loweredHaystack.find(loweredNeedle) != string::npos;
 }
 
-}  // namespace hims
+}  // namespace inventatory

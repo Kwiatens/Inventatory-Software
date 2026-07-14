@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Internal SQLite helpers shared by inventory persistence files.
 
 #pragma once
@@ -11,7 +11,7 @@
 #include <windows.h>
 #endif
 
-namespace hims {
+namespace inventatory {
 
 #ifdef _WIN32
 using sqlite3 = struct sqlite3;
@@ -98,4 +98,4 @@ bool tableColumnExists(SqliteConnection& connection, const string& tableName, co
 
 #endif
 
-}  // namespace hims
+}  // namespace inventatory

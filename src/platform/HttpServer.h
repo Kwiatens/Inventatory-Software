@@ -1,5 +1,5 @@
-// HIMS - Hardware Inventory Management System
-// Authenticated local device service used by the HIMS Scan R1 hardware.
+// Inventatory - Hardware Inventory Management System
+// Authenticated local device service used by the Inventatory Scan R1 hardware.
 
 #pragma once
 
@@ -24,9 +24,9 @@
 #include <winsock2.h>
 
 #include "core/Inventory.h"
-#include "core/HimsScanProtocol.h"
+#include "core/InventatoryScanProtocol.h"
 
-namespace hims {
+namespace inventatory {
 
 namespace filesystem = std::filesystem;
 using std::atomic;
@@ -93,4 +93,4 @@ class LocalHttpServer {
   SOCKET listenSocket_ = INVALID_SOCKET;
 };
 
-}  // namespace hims
+}  // namespace inventatory

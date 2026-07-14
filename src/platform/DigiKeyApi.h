@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 namespace filesystem = std::filesystem;
 using std::filesystem::path;
@@ -72,5 +72,5 @@ class DigiKeyApiClient {
   time_t tokenExpiresAt_ = 0;
 };
 
-}  // namespace hims
+}  // namespace inventatory
 

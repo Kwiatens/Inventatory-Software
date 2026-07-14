@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // User-scoped secret storage abstraction.
 
 #pragma once
@@ -6,7 +6,7 @@
 #include <optional>
 #include <string>
 
-namespace hims {
+namespace inventatory {
 
 class CredentialStore {
  public:
@@ -15,4 +15,4 @@ class CredentialStore {
   static bool erase(const std::string& key);
 };
 
-}  // namespace hims
+}  // namespace inventatory

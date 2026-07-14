@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Shared short part description classifier.
 
 #pragma once
@@ -7,7 +7,7 @@
 
 #include <string>
 
-namespace hims {
+namespace inventatory {
 
 struct PartDescriptor {
   string shortDescription;
@@ -16,4 +16,4 @@ struct PartDescriptor {
 PartDescriptor describePart(const InventoryItem& item);
 string partShortDescription(const InventoryItem& item);
 
-}  // namespace hims
+}  // namespace inventatory

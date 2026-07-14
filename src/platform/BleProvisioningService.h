@@ -7,7 +7,7 @@
 #include <thread>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 struct BleSetupDevice {
   std::uint64_t address = 0;
@@ -47,4 +47,4 @@ class BleProvisioningService {
   bool discovering_ = false;
 };
 
-}  // namespace hims
+}  // namespace inventatory
