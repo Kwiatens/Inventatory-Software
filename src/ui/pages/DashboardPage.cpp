@@ -54,7 +54,6 @@ struct DashboardSnapshot {
   time_t lastUpdated = 0;
   string lastUpdatedPart;
   string lastScannedPart;
-  float stockHealth = 1.0f;
   vector<AlertRow> stockWarnings;
   vector<DeviceStatus> devices;
   vector<ActivityEntry> recentEvents;
@@ -145,28 +144,6 @@ ftxui::Element metricLine(const string& label, const string& value, ftxui::Color
       styledText(label, uiMutedColor()),
       ftxui::filler(),
       styledText(value, valueColor),
-  });
-}
-
-string barString(float ratio, int width) {
-  if (width <= 0) {
-    return {};
-  }
-  ratio = max(0.0f, min(1.0f, ratio));
-  const auto filled = static_cast<int>(ratio * static_cast<float>(width));
-  string bar;
-  bar.reserve(static_cast<size_t>(width));
-  bar.append(static_cast<size_t>(filled), '#');
-  bar.append(static_cast<size_t>(width - filled), '.');
-  return bar;
-}
-
-ftxui::Element ratioLine(const string& label, float ratio, ftxui::Color color) {
-  const int percent = static_cast<int>(ratio * 100.0f + 0.5f);
-  return ftxui::hbox({
-      styledText(label, uiMutedColor()),
-      ftxui::filler(),
-      styledText("[" + barString(ratio, 16) + "] " + to_string(percent) + "%", color),
   });
 }
 
@@ -274,7 +251,7 @@ ftxui::Color recentEventColor(const ActivityEntry& entry) {
 }
 
 DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, const vector<ActivityEntry>& activities,
-                                         bool scannerRunning, size_t recentEventLimit) {
+                                         bool scannerRunning, bool deviceConnected, size_t recentEventLimit) {
   DashboardSnapshot snapshot;
   snapshot.itemCount = items.size();
   snapshot.recentEvents = recentEventEntries(activities, recentEventLimit);
@@ -282,8 +259,6 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   unordered_set<string> categories;
   unordered_set<string> locations;
   unordered_set<string> seenIds;
-  size_t healthyCount = 0;
-
   for (const auto& item : items) {
     snapshot.totalQuantity += static_cast<size_t>(max(item.quantity, 0));
     snapshot.missingMetadataCount += item.hasMissingMetadata() ? 1 : 0;
@@ -312,8 +287,6 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
       if (item.quantity > 0) {
         snapshot.stockWarnings.push_back(makeAlertRow(item, threshold));
       }
-    } else {
-      ++healthyCount;
     }
 
     if (outOfStock) {
@@ -329,7 +302,6 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
 
   snapshot.categoryCount = categories.size();
   snapshot.locationCount = locations.size();
-  snapshot.stockHealth = snapshot.itemCount == 0 ? 1.0f : static_cast<float>(healthyCount) / static_cast<float>(snapshot.itemCount);
 
   for (auto it = activities.rbegin(); it != activities.rend(); ++it) {
     if (it->kind.find("scan") != string::npos) {
@@ -339,10 +311,11 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   }
 
   snapshot.devices = {
-      {"HIMS Scan R1", scannerRunning, false, scannerRunning ? string("Device service ready")
-                                                               : string("Device service offline"),
+      {"HIMS Scan R1", deviceConnected, false, scannerRunning ? string("Device service ready")
+                                                                : string("Device service offline"),
        snapshot.lastScannedPart.empty() ? "Waiting for scans" : snapshot.lastScannedPart,
-       scannerRunning ? string() : "Scanner server is not running"},
+       deviceConnected ? string() : (scannerRunning ? string("No recent device status")
+                                                      : string("Scanner server is not running"))},
       {"Label Printer", false, false, "not configured", "No print jobs yet", "Printer integration pending"},
   };
 
@@ -372,7 +345,8 @@ ftxui::Element App::renderDashboardUi() const {
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 40;
   const size_t recentEventLimit = static_cast<size_t>(max(8, screenHeight - 16));
 
-  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, server_.running(), recentEventLimit);
+  const bool deviceConnected = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
+  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, server_.running(), deviceConnected, recentEventLimit);
   if (snapshot.devices.size() > 1) {
     snapshot.devices[1].connected = printerService_.hasConfiguredPrinter();
     snapshot.devices[1].flashing = now <= printerFlashUntil_;
@@ -414,7 +388,6 @@ ftxui::Element App::renderDashboardUi() const {
               }) | ftxui::flex,
           }),
           uiDivider(),
-          ratioLine("Stock health", snapshot.stockHealth, uiSuccessColor()),
           metricLine("Last update", timestampOrDash(snapshot.lastUpdated), uiAccentColor()),
           metricLine("Last modified", snapshot.lastUpdatedPart.empty() ? string("n/a") : snapshot.lastUpdatedPart,
                      uiInfoColor()),

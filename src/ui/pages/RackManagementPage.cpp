@@ -147,15 +147,28 @@ ftxui::Element App::renderRackManagementUi() const {
 
   ftxui::Elements detailRows;
   auto self = const_cast<App*>(this);
-  detailRows.push_back(ftxui::hbox({
-      target(styledText(" Place / Move ", rack != nullptr ? uiInteractiveColor() : uiMutedText(), uiRaisedSurfaceBg()),
-             "racks.move", UiTargetKind::Button, [self] { self->beginOrCompleteRackMove(); }, rack != nullptr),
-      ftxui::text("  "),
-      target(styledText(" Print part ", selectedSlotItem != nullptr ? uiInteractiveColor() : uiMutedText(), uiRaisedSurfaceBg()),
-             "racks.print.part", UiTargetKind::Button, [self] { self->printSelectedRackPartLabel(); },
-             selectedSlotItem != nullptr),
-      ftxui::filler(),
-  }));
+  ftxui::Elements slotActions;
+  slotActions.push_back(target(styledText(" Place / Move ", rack != nullptr ? uiInteractiveColor() : uiMutedText(),
+                                                uiRaisedSurfaceBg()),
+                               "racks.move", UiTargetKind::Button, [self] { self->beginOrCompleteRackMove(); },
+                               rack != nullptr));
+  slotActions.push_back(ftxui::text("  "));
+  slotActions.push_back(target(styledText(" Print part ", selectedSlotItem != nullptr ? uiInteractiveColor() : uiMutedText(),
+                                                uiRaisedSurfaceBg()),
+                               "racks.print.part", UiTargetKind::Button, [self] { self->printSelectedRackPartLabel(); },
+                               selectedSlotItem != nullptr));
+  if (selectedSlotItem != nullptr) {
+    slotActions.push_back(ftxui::text("  "));
+    slotActions.push_back(target(styledText(" - ", uiInteractiveColor(), uiRaisedSurfaceBg()), "racks.part.minus",
+                                 UiTargetKind::Button, [self] { self->adjustSelectedRackItemQuantity(-1); }));
+    slotActions.push_back(target(styledText(" + ", uiInteractiveColor(), uiRaisedSurfaceBg()), "racks.part.plus",
+                                 UiTargetKind::Button, [self] { self->adjustSelectedRackItemQuantity(1); }));
+    slotActions.push_back(ftxui::text("  "));
+    slotActions.push_back(target(styledText(" Details ", uiInteractiveColor(), uiRaisedSurfaceBg()), "racks.part.details",
+                                 UiTargetKind::Button, [self] { self->openSelectedRackItemDetail(); }));
+  }
+  slotActions.push_back(ftxui::filler());
+  detailRows.push_back(ftxui::hbox(move(slotActions)));
   detailRows.push_back(ftxui::separator() | ftxui::color(uiDividerColor()));
   detailRows.push_back(fullLine("Selected slot", uiSecondaryText(), uiSurfaceBg()));
   if (rack == nullptr) {
