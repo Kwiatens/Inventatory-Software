@@ -5,6 +5,7 @@
 
 #include "platform/CredentialStore.h"
 #include "platform/DigiKeyApi.h"
+#include "platform/StartupRegistration.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -230,6 +231,7 @@ bool App::saveSettingsDraft() {
 
   const bool dataChanged = settingsDraft_.dataDirectory != dataPath_;
   const bool portChanged = settingsDraft_.deviceServicePort != settings_.deviceServicePort;
+  const bool backgroundChanged = settingsDraft_.backgroundServiceEnabled != settings_.backgroundServiceEnabled;
   const bool quickLabelsChanged = settingsDraft_.quickLabelPresets != settings_.quickLabelPresets;
   if (quickLabelsChanged) {
     settingsDraft_.quickLabelRevision = settings_.quickLabelRevision == UINT32_MAX
@@ -250,7 +252,19 @@ bool App::saveSettingsDraft() {
     setMessage("Unable to save the DigiKey secret securely", 5);
     return false;
   }
+  if (backgroundChanged) {
+    string startupError;
+    if (!setBackgroundStartupEnabled(settingsDraft_.backgroundServiceEnabled, startupError)) {
+      setMessage("Unable to update Windows startup: " + startupError, 5);
+      return false;
+    }
+    settingsDraft_.backgroundConsentAsked = true;
+  }
   if (!saveAppSettings(settingsPath_, settingsDraft_)) {
+    if (backgroundChanged) {
+      string ignored;
+      setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
+    }
     setMessage("Unable to save HIMS settings", 5);
     return false;
   }
@@ -274,6 +288,13 @@ bool App::saveSettingsDraft() {
   }
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
+  if (backgroundChanged) {
+    if (settings_.backgroundServiceEnabled) {
+      backgroundController_.start(true, false, [this] { backgroundQuitRequested_.store(true); });
+    } else {
+      backgroundController_.stop();
+    }
+  }
   if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     printerCheck_ = printerService_.probeConfiguredPrinter();
@@ -347,6 +368,16 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(uiDivider());
     rows.push_back(styledText("APPLICATION", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Settings file", settingsPath_.string(), contentWidth));
+    rows.push_back(target(settingLine("Background & startup", settingsDraft_.backgroundServiceEnabled ? "On" : "Off",
+                                      contentWidth),
+                          "settings.general.background", UiTargetKind::Field, [self] {
+                            self->settingsDraft_.backgroundServiceEnabled = !self->settingsDraft_.backgroundServiceEnabled;
+                            self->settingsDraft_.backgroundConsentAsked = true;
+                            self->settingsDirty_ = true;
+                            self->dirty_ = true;
+                          }));
+    rows.push_back(styledText("When on, closing HIMS keeps Scan R1 ready in the notification area and starts HIMS at sign-in.",
+                              uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Configured queue",

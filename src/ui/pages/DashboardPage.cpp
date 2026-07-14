@@ -539,7 +539,7 @@ void App::handleDashboardKey(const KeyEvent& key) {
         startSearch();
         break;
       case 'q':
-        running_ = false;
+        requestUserExit();
         break;
       default:
         break;

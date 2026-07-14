@@ -15,6 +15,8 @@ struct AppSettings {
   std::filesystem::path dataDirectory;
   std::string printerQueue;
   bool autoPrintScannedLabels = true;
+  bool backgroundServiceEnabled = false;
+  bool backgroundConsentAsked = false;
   std::uint16_t deviceServicePort = 8080;
   std::string digiKeyClientId;
   std::string digiKeyAccountId;
