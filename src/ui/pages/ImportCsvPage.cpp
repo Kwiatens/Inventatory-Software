@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // CSV import review page rendering and keyboard handling.
 
 #include "App.h"
@@ -13,7 +13,7 @@
 
 #include <ftxui/component/screen_interactive.hpp>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -272,4 +272,4 @@ void App::handleImportCsvKey(const KeyEvent& key) {
   }
 }
 
-}  // namespace hims
+}  // namespace inventatory

@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Printer setup wizard rendering and keyboard handling.
 
 #include "App.h"
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -113,4 +113,4 @@ string App::printerSummary() const {
   return "Printer connected";
 }
 
-}  // namespace hims
+}  // namespace inventatory

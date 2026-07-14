@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Shared terminal UI formatting and inventory detail helpers.
 
 #include "ui/shared/AppUiShared.h"
@@ -13,7 +13,7 @@
 #include <regex>
 #include <sstream>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -670,7 +670,7 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
 vector<DetailField> stockPreviewFields(const InventoryItem& item, string rack) {
   vector<DetailField> fields;
   const bool rackAssigned = !rack.empty();
-  fields.push_back({"HIMS RACK: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
+  fields.push_back({"Inventatory RACK: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
                     rackAssigned ? uiTitleColor() : uiWarnColor()});
   fields.push_back({"Name: ", item.partName, uiInfoColor(), uiTitleColor()});
   fields.push_back({"At a glance: ", partShortDescription(item), uiLabelColor(), uiTitleColor()});
@@ -685,7 +685,7 @@ vector<DetailField> stockPreviewFields(const InventoryItem& item, string rack) {
 vector<DetailField> detailCoreFields(const InventoryItem& item, string rack) {
   const bool rackAssigned = !rack.empty();
   return {
-      {"HIMS RACK: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
+      {"Inventatory RACK: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
        rackAssigned ? uiTitleColor() : uiWarnColor()},
       {"Name: ", item.partName, uiInfoColor(), uiTitleColor()},
       {"At a glance: ", partShortDescription(item), uiLabelColor(), uiTitleColor()},
@@ -707,4 +707,4 @@ ftxui::Element detailFieldLine(const DetailField& field, int width) {
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-}  // namespace hims
+}  // namespace inventatory

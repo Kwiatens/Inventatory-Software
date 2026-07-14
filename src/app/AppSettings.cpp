@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Versioned user-level application settings, stored outside inventory data.
 
 #include "app/AppSettings.h"
@@ -8,7 +8,7 @@
 #include <iomanip>
 #include <sstream>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -24,12 +24,12 @@ bool parseBool(const string& value, bool fallback) {
 
 filesystem::path appSettingsDirectory() {
   if (const char* value = getenv("LOCALAPPDATA"); value != nullptr && *value != '\0') {
-    return filesystem::path(value) / "HIMS";
+    return filesystem::path(value) / "Inventatory";
   }
   if (const char* value = getenv("USERPROFILE"); value != nullptr && *value != '\0') {
-    return filesystem::path(value) / "AppData" / "Local" / "HIMS";
+    return filesystem::path(value) / "AppData" / "Local" / "Inventatory";
   }
-  return filesystem::current_path() / ".hims";
+  return filesystem::current_path() / ".inventatory";
 }
 
 filesystem::path appSettingsPath() {
@@ -129,4 +129,4 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
   return !error;
 }
 
-}  // namespace hims
+}  // namespace inventatory
