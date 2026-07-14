@@ -728,8 +728,11 @@ int main() {
     assert(backendPtr->lastJobName_.find("HIMS Label") == 0);
     assert(backendPtr->lastZpl_.find("^FDLA,0002^FS") != string::npos);
     const auto wireZpl = service.buildWireLabelZpl("12V");
-    assert(wireZpl.find("^A0N,34,31^FB236,1,0,C^FD12V^FS") != string::npos);
-    assert(wireZpl.find("^A0I,34,31^FB236,1,0,C^FD12V^FS") != string::npos);
+    assert(wireZpl.find("^A0N,68,58^FB236,1,0,C^FD12V^FS") != string::npos);
+    assert(wireZpl.find("^FO10,112^A0N,68,58^FB236,1,0,C^FD12V^FS") != string::npos);
+    const auto longWireZpl = service.buildWireLabelZpl("CONTROL SIGNAL +5V");
+    assert(longWireZpl.find("^A0N,28,16^FB236,1,0,C^FDCONTROL SIGNAL +5V^FS") != string::npos);
+    assert(longWireZpl.find("^FO10,112^A0N,28,16^FB236,1,0,C^FDCONTROL SIGNAL +5V^FS") != string::npos);
     assert(service.printWireLabel("GND", &error));
     assert(backendPtr->lastJobName_ == "Inventatory Wire Label");
 
@@ -1272,6 +1275,11 @@ int main() {
     assert(request.lookup.lookupId == "lookup-9");
     assert(request.lookup.code == "0002");
     assert(parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
+        request, error));
+    assert(request.hasLookup);
+    assert(request.lookup.code == "718-2362-1-ND");
+    assert(parseDeviceSyncRequestJson(
         R"({"protocolVersion":1,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
         request, error));
     assert(request.hasQuickLabelPrint);
@@ -1305,6 +1313,7 @@ int main() {
     item.id = "sync-item";
     item.machineCode = "0002";
     item.partName = "10k resistor";
+    item.digikeyPartNumber = "718-2362-1-ND";
     item.quantity = 5;
     item.location = "R1-A1";
     store.items().push_back(item);
@@ -1320,6 +1329,13 @@ int main() {
     const auto databaseFoundLookup = lookupDeviceItem(databasePath, {"lookup-9-db", "0002"});
     assert(databaseFoundLookup.status == "found");
     assert(databaseFoundLookup.itemName == "10k resistor");
+    const auto digiKeyLookup = lookupDeviceItem(lookupSnapshot, {"lookup-dk-1", "718-2362-1-ND"});
+    assert(digiKeyLookup.status == "found");
+    assert(digiKeyLookup.itemName == "10k resistor");
+    const auto databaseDigiKeyLookup =
+        lookupDeviceItem(databasePath, {"lookup-dk-1-db", "718-2362-1-ND"});
+    assert(databaseDigiKeyLookup.status == "found");
+    assert(databaseDigiKeyLookup.itemName == "10k resistor");
     const auto missingLookup = lookupDeviceItem(lookupSnapshot, {"lookup-10", "9999"});
     assert(missingLookup.status == "not_found");
     const auto databaseMissingLookup = lookupDeviceItem(databasePath, {"lookup-10-db", "9999"});
