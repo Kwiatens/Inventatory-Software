@@ -359,8 +359,64 @@ void App::markDirty() {
   dirty_ = true;
 }
 
+string App::stockDateFilterName(StockDateFilter filter) const {
+  switch (filter) {
+    case StockDateFilter::All:
+      return "All modification dates";
+    case StockDateFilter::Today:
+      return "Modified today";
+    case StockDateFilter::Last7Days:
+      return "Modified in the last 7 days";
+    case StockDateFilter::Last30Days:
+      return "Modified in the last 30 days";
+    case StockDateFilter::OlderThan30Days:
+      return "Modified over 30 days ago";
+  }
+  return "All modification dates";
+}
+
+bool App::stockDateFilterMatches(const InventoryItem& item) const {
+  if (stockDateFilter_ == StockDateFilter::All) return true;
+  if (item.lastUpdated == 0) return false;
+
+  const auto age = difftime(time(nullptr), item.lastUpdated);
+  constexpr double day = 24.0 * 60.0 * 60.0;
+  switch (stockDateFilter_) {
+    case StockDateFilter::Today:
+      return age >= 0.0 && age < day;
+    case StockDateFilter::Last7Days:
+      return age >= 0.0 && age < 7.0 * day;
+    case StockDateFilter::Last30Days:
+      return age >= 0.0 && age < 30.0 * day;
+    case StockDateFilter::OlderThan30Days:
+      return age >= 30.0 * day;
+    case StockDateFilter::All:
+      return true;
+  }
+  return true;
+}
+
 vector<size_t> App::filteredIndices() const {
-  return filterItems(store_.items(), searchQuery_, store_.racks());
+  const auto queryMatches = filterItems(store_.items(), searchQuery_, store_.racks());
+  vector<size_t> indices;
+  indices.reserve(queryMatches.size());
+  for (const auto index : queryMatches) {
+    if (stockDateFilterMatches(store_.items()[index])) indices.push_back(index);
+  }
+  sort(indices.begin(), indices.end(), [&](size_t lhs, size_t rhs) {
+    const auto& left = store_.items()[lhs];
+    const auto& right = store_.items()[rhs];
+    if (stockSortOrder_ == StockSortOrder::Quantity && left.quantity != right.quantity) {
+      return left.quantity > right.quantity;
+    }
+    const auto leftName = toLower(left.partName);
+    const auto rightName = toLower(right.partName);
+    if (leftName != rightName) {
+      return stockSortOrder_ == StockSortOrder::Za ? leftName > rightName : leftName < rightName;
+    }
+    return left.id < right.id;
+  });
+  return indices;
 }
 
 size_t App::selectedIndex() const {
@@ -706,6 +762,48 @@ void App::beginRackFilter() {
   inputBuffer_ = rackFilter_;
   inputMode_ = InputMode::RackFilter;
   setMessage("Filter by rack code, type, free, full, or empty", 4);
+}
+
+void App::adjustSelectedRackItemQuantity(int delta) {
+  auto* item = selectedRackItem();
+  if (item == nullptr) {
+    setMessage("No part in this slot", 2);
+    return;
+  }
+
+  captureUndoSnapshot();
+  item->quantity = max(0, item->quantity + delta);
+  item->lastUpdated = time(nullptr);
+  logActivity(delta > 0 ? "stock" : "usage", item->partName + " quantity changed to " + to_string(item->quantity));
+  saveState();
+  setMessage(item->partName + " quantity is now " + to_string(item->quantity), 2);
+  dirty_ = true;
+}
+
+void App::openSelectedRackItemDetail() {
+  const auto* item = selectedRackItem();
+  if (item == nullptr) {
+    setMessage("No part in this slot", 2);
+    return;
+  }
+
+  const auto it = find_if(store_.items().begin(), store_.items().end(), [&](const InventoryItem& candidate) {
+    return candidate.id == item->id;
+  });
+  if (it == store_.items().end()) {
+    setMessage("Selected part is no longer available", 2);
+    return;
+  }
+
+  // The stock selection is position-based, so reset the stock query before
+  // selecting a rack part to ensure the detail panel can always show it.
+  searchQuery_.clear();
+  selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
+  inputMode_ = InputMode::None;
+  focusedTarget_ = -1;
+  page_ = Page::Stock;
+  syncSelectionToFilter();
+  dirty_ = true;
 }
 
 bool App::printSelectedRackPartLabel() {
@@ -1267,6 +1365,91 @@ void App::deleteQuickLabelPreset() {
   settingsDraft_.quickLabelPresets.erase(settingsDraft_.quickLabelPresets.begin() + settingsField_);
   if (settingsField_ >= static_cast<int>(settingsDraft_.quickLabelPresets.size())) --settingsField_;
   settingsDirty_ = true;
+  dirty_ = true;
+}
+
+void App::openStockFilterPanel() {
+  inputMode_ = InputMode::StockFilter;
+  stockDateFilterSubmenuOpen_ = false;
+  stockFilterSelection_ = stockDateFilter_ != StockDateFilter::All ? 0
+                          : stockSortOrder_ == StockSortOrder::Quantity ? 1
+                          : stockSortOrder_ == StockSortOrder::Za ? 3 : 2;
+  focusedTarget_ = -1;
+  dirty_ = true;
+}
+
+void App::openStockDateFilterSubmenu() {
+  stockDateFilterSubmenuOpen_ = true;
+  stockFilterSelection_ = static_cast<int>(stockDateFilter_);
+  dirty_ = true;
+}
+
+void App::applyStockDateFilter(StockDateFilter filter) {
+  stockDateFilter_ = filter;
+  stockFilterSelection_ = static_cast<int>(filter);
+  stockDateFilterSubmenuOpen_ = false;
+  inputMode_ = InputMode::None;
+  syncSelectionToFilter();
+  setMessage("Stock filter: " + stockDateFilterName(filter), 3);
+  dirty_ = true;
+}
+
+void App::applyStockSortOrder(StockSortOrder order) {
+  stockSortOrder_ = order;
+  stockDateFilterSubmenuOpen_ = false;
+  inputMode_ = InputMode::None;
+  syncSelectionToFilter();
+  const auto message = order == StockSortOrder::Az ? "Stock sorted A-Z"
+                       : order == StockSortOrder::Za ? "Stock sorted Z-A"
+                                                     : "Stock sorted by quantity";
+  setMessage(message, 3);
+  dirty_ = true;
+}
+
+void App::handleStockFilterKey(const KeyEvent& key) {
+  const int optionCount = stockDateFilterSubmenuOpen_ ? 5 : 4;
+  if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
+    stockFilterSelection_ = max(0, stockFilterSelection_ - 1);
+  } else if (key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j')) {
+    stockFilterSelection_ = min(optionCount - 1, stockFilterSelection_ + 1);
+  } else if (key.type == KeyType::Enter) {
+    if (stockDateFilterSubmenuOpen_) {
+      applyStockDateFilter(static_cast<StockDateFilter>(stockFilterSelection_));
+    } else if (stockFilterSelection_ == 0) {
+      openStockDateFilterSubmenu();
+    } else if (stockFilterSelection_ == 1) {
+      applyStockSortOrder(StockSortOrder::Quantity);
+    } else if (stockFilterSelection_ == 2) {
+      applyStockSortOrder(StockSortOrder::Az);
+    } else {
+      applyStockSortOrder(StockSortOrder::Za);
+    }
+    return;
+  } else if (key.type == KeyType::Escape || (key.type == KeyType::Character && key.ch == 'f')) {
+    if (stockDateFilterSubmenuOpen_) {
+      stockDateFilterSubmenuOpen_ = false;
+      stockFilterSelection_ = 0;
+    } else {
+      inputMode_ = InputMode::None;
+    }
+  } else if (key.type == KeyType::Left && stockDateFilterSubmenuOpen_) {
+    stockDateFilterSubmenuOpen_ = false;
+    stockFilterSelection_ = 0;
+  } else if (key.type == KeyType::Character && key.ch >= '1' && key.ch <= '4' && !stockDateFilterSubmenuOpen_) {
+    const auto choice = key.ch - '1';
+    if (choice == 0) {
+      openStockDateFilterSubmenu();
+    } else if (choice == 1) {
+      applyStockSortOrder(StockSortOrder::Quantity);
+    } else if (choice == 2) {
+      applyStockSortOrder(StockSortOrder::Az);
+    } else {
+      applyStockSortOrder(StockSortOrder::Za);
+    }
+    return;
+  } else {
+    return;
+  }
   dirty_ = true;
 }
 
