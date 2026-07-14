@@ -1367,7 +1367,25 @@ int main() {
     result.quantity = quantity.quantity;
     result.location = "R1-A1";
     result.message = "Quantity updated";
+
+    // A new protocol-v1 receive is auto-printed immediately after its event is
+    // committed. Its live item must receive the same identifiers as the SQLite
+    // snapshot; otherwise the label has blank HIMS text and an empty QR field.
+    InventoryItem autoLabelItem;
+    autoLabelItem.id = "auto-label-new-item";
+    autoLabelItem.partName = "Auto label IC";
+    autoLabelItem.category = "Integrated Circuits";
+    autoLabelItem.lastUpdated = time(nullptr);
+    autoLabelItem.createdAt = autoLabelItem.lastUpdated;
+    candidate.items().push_back(autoLabelItem);
     assert(completeDeviceSyncEvent(candidate, databasePath, result));
+    const auto* finalizedAutoLabelItem = candidate.findById(autoLabelItem.id);
+    assert(finalizedAutoLabelItem != nullptr);
+    assert(isHimsId(finalizedAutoLabelItem->himsId));
+    assert(finalizedAutoLabelItem->machineCode.size() == 4);
+    const auto autoLabelPlan = LabelPrinterService{}.buildLabelPlan(*finalizedAutoLabelItem);
+    assert(autoLabelPlan.scannerHint == buildVisibleHimsId(*finalizedAutoLabelItem));
+    assert(autoLabelPlan.barcodeHint == finalizedAutoLabelItem->machineCode);
 
     response = {};
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));

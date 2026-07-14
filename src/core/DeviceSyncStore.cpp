@@ -229,6 +229,14 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
 
 bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& databasePath,
                              const DeviceSyncResult& result) {
+  // Finalize identifiers in the same snapshot that is committed and returned
+  // to the application. InventoryStore::saveWithDeviceEvent() normalizes a
+  // private copy, which is sufficient for SQLite but would otherwise leave a
+  // newly received item without its HIMS ID/machine code in live memory. The
+  // auto-label path prints from that live item immediately after this call.
+  auto finalized = store;
+  ensureInventoryIdentifiers(finalized.items());
+
   DeviceEventCommit commit;
   commit.eventId = result.eventId;
   commit.resultId = result.resultId;
@@ -242,7 +250,9 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   commit.code = result.code;
   commit.message = result.message;
   commit.completedAt = time(nullptr);
-  return store.saveWithDeviceEvent(databasePath, commit);
+  if (!finalized.saveWithDeviceEvent(databasePath, commit)) return false;
+  store = move(finalized);
+  return true;
 }
 
 }  // namespace hims
