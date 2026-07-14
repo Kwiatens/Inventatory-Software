@@ -45,6 +45,12 @@ Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
 next launch. DigiKey secrets are stored in Windows Credential Manager.
 
+In **Settings -> General / Data**, **Background & startup** controls whether HIMS remains available for Scan R1 after
+the terminal is closed. The first normal launch asks for permission and defaults to Off. When enabled, HIMS starts for
+the signed-in Windows user, hides in the notification area after close, and continues the R1 service. Use the HIMS tray
+icon to Open HIMS or Quit HIMS; disabling the setting removes HIMS from Windows startup. This does not run before a
+user signs in.
+
 HIMS Scan status, pairing state, firmware, RSSI, last result, and recent device
 diagnostics are shown in HIMS Scan settings. The token is masked; use Copy token
 when provisioning a device. Regenerating it invalidates the old token, and
