@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Zebra label generation and printer queue integration.
 
 #pragma once
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 namespace filesystem = std::filesystem;
 using std::filesystem::path;
@@ -34,7 +34,7 @@ struct PrinterCheckResult {
   string message;
 };
 
-struct HimsLabelPlan {
+struct InventatoryLabelPlan {
   string categoryHeader;
   string mainValue;
   string packageLine;
@@ -42,13 +42,13 @@ struct HimsLabelPlan {
   string parameterLine1;
   string parameterLine2;
   string parameterLine3;
-  string himsId;
+  string inventatoryId;
   string scannerHint;
   string barcodeHint;
   string rackLocation;
 };
 
-struct HimsRackLabelPlan {
+struct InventatoryRackLabelPlan {
   string categoryText;
   string rackText;
 };
@@ -78,14 +78,14 @@ class LabelPrinterService {
   optional<PrinterQueueInfo> configuredPrinterInfo() const;
   PrinterCheckResult probeConfiguredPrinter() const;
 
-  HimsLabelPlan buildLabelPlan(const InventoryItem& item, string rackLocation = {}) const;
+  InventatoryLabelPlan buildLabelPlan(const InventoryItem& item, string rackLocation = {}) const;
   string buildZpl(const InventoryItem& item, string rackLocation = {}) const;
   bool printItemLabel(const InventoryItem& item, string* error, string rackLocation = {}) const;
   string buildWireLabelZpl(const string& text) const;
   bool printWireLabel(const string& text, string* error) const;
-  HimsRackLabelPlan buildRackLabelPlan(const HimsRack& rack) const;
-  string buildRackLabelZpl(const HimsRack& rack) const;
-  bool printRackLabel(const HimsRack& rack, string* error) const;
+  InventatoryRackLabelPlan buildRackLabelPlan(const InventatoryRack& rack) const;
+  string buildRackLabelZpl(const InventatoryRack& rack) const;
+  bool printRackLabel(const InventatoryRack& rack, string* error) const;
 
   string summaryText() const;
 
@@ -97,4 +97,4 @@ class LabelPrinterService {
 
 string sanitizeLabelText(const string& value);
 
-}  // namespace hims
+}  // namespace inventatory

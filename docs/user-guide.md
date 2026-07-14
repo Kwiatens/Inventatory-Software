@@ -1,4 +1,4 @@
-# HIMS User Guide
+# Inventatory User Guide
 
 ## Navigation
 
@@ -27,12 +27,12 @@ assignment, unassignment, filtering, and rack administration are in Actions.
 
 Open Import and choose a CSV file. Review each candidate, correct it if needed,
 then Accept or Skip. After the final row, choose whether to enrich accepted
-parts with DigiKey metadata. HIMS reports created, merged, skipped, and failed
+parts with DigiKey metadata. Inventatory reports created, merged, skipped, and failed
 counts before returning to inventory.
 
 ## Settings workflow
 
-Settings has five categories. Changes to data location, printer, Quick Labels, the HIMS Scan
+Settings has five categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
 R1 service port, auto-label behavior, and DigiKey configuration are staged until Save. Cancel
 restores the saved values. Printer and DigiKey tests use the staged values.
 
@@ -45,22 +45,22 @@ Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
 next launch. DigiKey secrets are stored in Windows Credential Manager.
 
-In **Settings -> General / Data**, **Background & startup** controls whether HIMS remains available for Scan R1 after
-the terminal is closed. The first normal launch asks for permission and defaults to Off. When enabled, HIMS starts for
-the signed-in Windows user, hides in the notification area after close, and continues the R1 service. Use the HIMS tray
-icon to Open HIMS or Quit HIMS; disabling the setting removes HIMS from Windows startup. This does not run before a
+In **Settings -> General / Data**, **Background & startup** controls whether Inventatory remains available for Scan R1 after
+the terminal is closed. The first normal launch asks for permission and defaults to Off. When enabled, Inventatory starts for
+the signed-in Windows user, hides in the notification area after close, and continues the R1 service. Use the Inventatory tray
+icon to Open Inventatory or Quit Inventatory; disabling the setting removes Inventatory from Windows startup. This does not run before a
 user signs in.
 
-HIMS Scan status, pairing state, firmware, RSSI, last result, and recent device
-diagnostics are shown in HIMS Scan settings. The token is masked; use Copy token
+Inventatory Scan status, pairing state, firmware, RSSI, last result, and recent device
+diagnostics are shown in Inventatory Scan settings. The token is masked; use Copy token
 when provisioning a device. Regenerating it invalidates the old token, and
 clearing a device removes its paired identity.
 
 The R1 communicates directly with the authenticated device service inside the
-desktop application. This is not the retired phone/web scanner: HIMS exposes no
+desktop application. This is not the retired phone/web scanner: Inventatory exposes no
 browser scanning page, and the service accepts only the paired R1 device API.
 
-For a new or reset R1, use **Settings → HIMS Scan → Find scanner**. Enter the six-digit code shown on the R1 and the home Wi-Fi credentials. Bluetooth LE Secure Connections encrypts and authenticates that transfer; Bluetooth setup then turns off and normal mDNS syncing starts. Hold `#` on the R1 to erase only provisioning and return to this flow; queued inventory events stay intact.
+For a new or reset R1, use **Settings → Inventatory Scan → Find scanner**. Enter the six-digit code shown on the R1 and the home Wi-Fi credentials. Bluetooth LE Secure Connections encrypts and authenticates that transfer; Bluetooth setup then turns off and normal mDNS syncing starts. Hold `#` on the R1 to erase only provisioning and return to this flow; queued inventory events stay intact.
 
 On an idle R1, press `C` for the device menu. **Quick Labels** automatically checks the paired PC for the latest
 presets when opened (use `D` for the next page). **Quick Settings** changes LCD contrast, enters standby, starts OTA,

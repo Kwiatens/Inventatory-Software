@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Shared app state helpers and business actions.
 
 #include "App.h"
@@ -16,14 +16,14 @@
 #include <sstream>
 #include <system_error>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
 namespace {
 
 constexpr size_t kDeviceDebugWindowLines = 14;
-constexpr const char* kHimsScanTokenCredential = "hims-scan-pairing-token";
+constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 filesystem::path resolveInventoryDatabasePath(const filesystem::path& selectedPath) {
   error_code error;
@@ -221,14 +221,14 @@ void App::loadState() {
   // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 
   server_.setRecentActivity(activities_);
-  if (trim(himsScanConfig_.token).empty()) {
-    if (const auto stored = CredentialStore::read(kHimsScanTokenCredential); stored.has_value()) {
-      himsScanConfig_.token = *stored;
+  if (trim(inventatoryScanConfig_.token).empty()) {
+    if (const auto stored = CredentialStore::read(kInventatoryScanTokenCredential); stored.has_value()) {
+      inventatoryScanConfig_.token = *stored;
     } else {
-      himsScanConfig_.token = generateHimsScanToken();
+      inventatoryScanConfig_.token = generateInventatoryScanToken();
     }
   }
-  if (!CredentialStore::write(kHimsScanTokenCredential, himsScanConfig_.token)) {
+  if (!CredentialStore::write(kInventatoryScanTokenCredential, inventatoryScanConfig_.token)) {
     setMessage("Unable to save the scanner pairing token securely", 5);
   }
 
@@ -239,7 +239,7 @@ void App::loadState() {
     if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
-  if (!saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_)) saveFailures.push_back("scanner settings");
+  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) saveFailures.push_back("scanner settings");
   if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
   persistenceError_ = saveFailures.empty()
                           ? string()
@@ -259,10 +259,10 @@ bool App::saveState() {
   return saveFailures.empty();
 }
 
-bool App::chooseHimsFolder() {
+bool App::chooseInventatoryFolder() {
   filesystem::path selectedPath;
-  if (!openFolderDialog(selectedPath, "Select HIMS folder")) {
-    setMessage("HIMS folder selection cancelled", 2);
+  if (!openFolderDialog(selectedPath, "Select Inventatory folder")) {
+    setMessage("Inventatory folder selection cancelled", 2);
     return false;
   }
 
@@ -278,7 +278,7 @@ bool App::chooseHimsFolder() {
   inventoryPath_ = selectedInventoryPath;
   printerPath_ = dataPath_ / "printer.conf";
   activityPath_ = dataPath_ / "activity.tsv";
-  himsScanConfigPath_ = dataPath_ / "hims_scan.conf";
+  inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
   ensureInventoryDatabaseCopied(inventoryPath_);
 
   printerQueues_.clear();
@@ -301,14 +301,14 @@ bool App::chooseHimsFolder() {
   page_ = Page::Home;
   dirty_ = true;
 
-  loadHimsScanConfig(himsScanConfigPath_, himsScanConfig_);
+  loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
-  if (trim(himsScanConfig_.token).empty()) {
-    himsScanConfig_.token = generateHimsScanToken();
-    saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_);
+  if (trim(inventatoryScanConfig_.token).empty()) {
+    inventatoryScanConfig_.token = generateInventatoryScanToken();
+    saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   }
-  server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
-  setMessage("Loaded HIMS folder: " + dataPath_.string(), 4);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  setMessage("Loaded Inventatory folder: " + dataPath_.string(), 4);
   return true;
 }
 
@@ -564,7 +564,7 @@ void App::openSelectedDetail() {
 void App::openRackManagement() {
   syncRackSelection();
   changePage(Page::Racks);
-  setMessage(store_.racks().empty() ? "No HIMS racks exist yet; eligible parts create racks automatically"
+  setMessage(store_.racks().empty() ? "No Inventatory racks exist yet; eligible parts create racks automatically"
                                     : "Rack management opened",
              3);
 }
@@ -596,14 +596,14 @@ vector<size_t> App::sortedRackIndices() const {
   return indices;
 }
 
-const HimsRack* App::selectedRack() const {
+const InventatoryRack* App::selectedRack() const {
   const auto indices = sortedRackIndices();
   if (indices.empty()) return nullptr;
   const auto position = min(rackSelection_, indices.size() - 1);
   return &store_.racks()[indices[position]];
 }
 
-HimsRack* App::selectedRack() {
+InventatoryRack* App::selectedRack() {
   const auto indices = sortedRackIndices();
   if (indices.empty()) return nullptr;
   const auto position = min(rackSelection_, indices.size() - 1);
@@ -652,7 +652,7 @@ void App::renameSelectedRack(const string& value) {
     setMessage("Rack code must look like R12", 3);
     return;
   }
-  const auto duplicate = find_if(store_.racks().begin(), store_.racks().end(), [&](const HimsRack& candidate) {
+  const auto duplicate = find_if(store_.racks().begin(), store_.racks().end(), [&](const InventatoryRack& candidate) {
     return candidate.id != rack->id && toLower(candidate.code) == toLower(code);
   });
   if (duplicate != store_.racks().end()) {
@@ -698,7 +698,7 @@ void App::createRackWithType(const string& value) {
   for (const auto& rack : store_.racks()) {
     nextNumber = max(nextNumber, rackNumberFromCode(rack.code) + 1);
   }
-  HimsRack rack;
+  InventatoryRack rack;
   rack.id = makeId();
   rack.code = "R" + to_string(nextNumber);
   rack.componentType = type;
@@ -1281,7 +1281,7 @@ DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& req
   if (!pending->ready.wait_for(lock, chrono::seconds(3), [&] { return pending->complete; })) {
     DeviceQuantityResult timeout;
     timeout.httpStatus = 503;
-    timeout.error = "HIMS did not process the request in time";
+    timeout.error = "Inventatory did not process the request in time";
     return timeout;
   }
   return pending->result;
@@ -1598,7 +1598,7 @@ void App::processDeviceSyncEvents() {
   }
 
   if (!completeDeviceSyncEvent(candidate, inventoryPath_, result)) {
-    setMessage("HIMS Scan event could not be committed", 4);
+    setMessage("Inventatory Scan event could not be committed", 4);
     return;
   }
   store_ = move(candidate);
@@ -1660,10 +1660,10 @@ void App::processDeviceRequests() {
       devicePendingEventCount_ = status.pendingEventCount;
       deviceLastSync_ = time(nullptr);
     }
-    if (trim(himsScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
-      himsScanConfig_.deviceId = trim(status.deviceId);
-      saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_);
-      server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
+    if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
+      inventatoryScanConfig_.deviceId = trim(status.deviceId);
+      saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
     }
     dirty_ = true;
   }
@@ -1687,14 +1687,14 @@ void App::processDeviceRequests() {
 
   for (const auto& pending : quantities) {
     bool pairingChanged = false;
-    if (trim(himsScanConfig_.deviceId).empty() && !trim(pending->request.deviceId).empty()) {
-      himsScanConfig_.deviceId = trim(pending->request.deviceId);
+    if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(pending->request.deviceId).empty()) {
+      inventatoryScanConfig_.deviceId = trim(pending->request.deviceId);
       pairingChanged = true;
     }
     const auto result = applyDeviceQuantityCached(store_, pending->request, deviceRequestCache_, deviceRequestOrder_);
     if (pairingChanged) {
-      saveHimsScanConfig(himsScanConfigPath_, himsScanConfig_);
-      server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
+      saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
     }
     if (result.ok) {
       logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",
@@ -1718,9 +1718,9 @@ void App::processDeviceRequests() {
   }
 }
 
-string App::himsScanDeviceSummary() const {
-  if (trim(himsScanConfig_.token).empty()) return "R1 UNPAIRED";
-  if (trim(himsScanConfig_.deviceId).empty()) return "R1 WAITING FOR DEVICE";
+string App::inventatoryScanDeviceSummary() const {
+  if (trim(inventatoryScanConfig_.token).empty()) return "R1 UNPAIRED";
+  if (trim(inventatoryScanConfig_.deviceId).empty()) return "R1 WAITING FOR DEVICE";
   if (deviceLastSeen_ == 0 || time(nullptr) - deviceLastSeen_ > 15) return "R1 OFFLINE";
   if (!deviceLastResult_.empty()) return "R1 ONLINE  " + deviceLastResult_;
   return "R1 ONLINE  RSSI " + to_string(deviceRssi_);
@@ -2045,8 +2045,8 @@ vector<App::FieldOption> App::fieldOptions() const {
 }
 
 string App::softwareVersion() const {
-#ifdef HIMS_VERSION_STRING
-  return HIMS_VERSION_STRING;
+#ifdef Inventatory_VERSION_STRING
+  return Inventatory_VERSION_STRING;
 #else
   return "dev";
 #endif
@@ -2088,4 +2088,4 @@ string App::activePrompt() const {
   return "";
 }
 
-}  // namespace hims
+}  // namespace inventatory

@@ -1,5 +1,5 @@
-// HIMS - Hardware Inventory Management System
-// Authenticated local device service used by the HIMS Scan R1 hardware.
+// Inventatory - Hardware Inventory Management System
+// Authenticated local device service used by the Inventatory Scan R1 hardware.
 
 #define NOMINMAX
 
@@ -25,7 +25,7 @@
 #include "core/Inventory.h"
 #include "platform/Console.h"
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -350,7 +350,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedDevice = pairedDeviceId_;
       expectedToken = deviceToken_;
     }
-    const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
+    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
     if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          statusResultJson(false, "Unauthorized device"));
@@ -394,7 +394,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedDevice = pairedDeviceId_;
       expectedToken = deviceToken_;
     }
-    const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
+    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
     if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          scanResultJson(false, "Unauthorized device"));
@@ -444,7 +444,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedDevice = pairedDeviceId_;
       expectedToken = deviceToken_;
     }
-    const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
+    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
     if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          debugResultJson(false, "Unauthorized device"));
@@ -478,7 +478,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedDevice = pairedDeviceId_;
       expectedToken = deviceToken_;
     }
-    const auto suppliedToken = headerValue(headers, "X-HIMS-Token");
+    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
     if (!tokensMatch(expectedToken, suppliedToken)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          statusResultJson(false, "Unauthorized device"));
@@ -530,4 +530,4 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   return false;
 }
 
-}  // namespace hims
+}  // namespace inventatory

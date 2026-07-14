@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Internal SQLite helpers shared by inventory persistence files.
 
 #include "core/InventorySqlite.h"
@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <system_error>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -216,4 +216,4 @@ bool tableColumnExists(SqliteConnection& connection, const string& tableName, co
 
 #endif
 
-}  // namespace hims
+}  // namespace inventatory

@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Contextual action registry: the single source of truth for each screen's
 // commands. The action bar and the bottom sheet are both generated from
 // currentActions(), and key accelerators dispatch through the same list.
@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -151,7 +151,7 @@ vector<App::Action> App::currentActions() const {
 
     case Page::Settings:
       if (settingsCategory_ == SettingsCategory::General) {
-        add("choose data folder", "General", "b", chr('b'), [self] { self->stageHimsFolder(); });
+        add("choose data folder", "General", "b", chr('b'), [self] { self->stageInventatoryFolder(); });
       }
       if (settingsCategory_ == SettingsCategory::Printer) {
       add("refresh", "Printer", "r", chr('r'), [self] {
@@ -179,10 +179,10 @@ vector<App::Action> App::currentActions() const {
         });
       }
       }
-      if (settingsCategory_ == SettingsCategory::HimsScan) {
-        add("copy token", "Device", "t", chr('t'), [self] { self->copyHimsScanToken(); });
-        add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateHimsScanToken(); });
-        add("clear device", "Device", "c", chr('c'), [self] { self->clearHimsScanPairing(); });
+      if (settingsCategory_ == SettingsCategory::InventatoryScan) {
+        add("copy token", "Device", "t", chr('t'), [self] { self->copyInventatoryScanToken(); });
+        add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateInventatoryScanToken(); });
+        add("clear device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });
       }
       if (settingsCategory_ == SettingsCategory::DigiKey) {
         add("test credentials", "DigiKey", "t", chr('t'), [self] { self->testStagedDigiKey(); });
@@ -271,7 +271,7 @@ ftxui::Element App::renderActionSheetUi() const {
   const int screenWidth = active != nullptr ? active->dimx() : 120;
 
   ftxui::Elements rows;
-  rows.push_back(fullLine("  HIMS actions \xE2\x80\x94 \xE2\x86\x91\xE2\x86\x93 move  \xE2\x8F\x8E run  esc close",
+  rows.push_back(fullLine("  Inventatory actions \xE2\x80\x94 \xE2\x86\x91\xE2\x86\x93 move  \xE2\x8F\x8E run  esc close",
                           uiAccentColor(), uiPanelRightBg()));
   rows.push_back(uiDivider());
 
@@ -312,4 +312,4 @@ ftxui::Element App::renderActionSheetUi() const {
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, screenWidth);
 }
 
-}  // namespace hims
+}  // namespace inventatory

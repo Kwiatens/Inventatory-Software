@@ -1,5 +1,5 @@
-// HIMS - Hardware Inventory Management System
-// HIMS Scan R1 protocol types, validation, persistence, and stock mutation rules.
+// Inventatory - Hardware Inventory Management System
+// Inventatory Scan R1 protocol types, validation, persistence, and stock mutation rules.
 
 #pragma once
 
@@ -13,9 +13,9 @@
 #include <unordered_map>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
-struct HimsScanConfig {
+struct InventatoryScanConfig {
   std::string deviceId;
   std::string token;
   std::string fallbackHost;
@@ -143,9 +143,9 @@ struct DeviceSyncResponse {
   DeviceQuickLabelPrintResult quickLabelPrintResult;
 };
 
-bool loadHimsScanConfig(const std::filesystem::path& path, HimsScanConfig& config);
-bool saveHimsScanConfig(const std::filesystem::path& path, const HimsScanConfig& config);
-std::string generateHimsScanToken();
+bool loadInventatoryScanConfig(const std::filesystem::path& path, InventatoryScanConfig& config);
+bool saveInventatoryScanConfig(const std::filesystem::path& path, const InventatoryScanConfig& config);
+std::string generateInventatoryScanToken();
 
 bool parseQuantityRequestJson(const std::string& body, DeviceQuantityRequest& request, std::string& error);
 bool parseScanRequestJson(const std::string& body, DeviceScanRequest& request, std::string& error);
@@ -172,4 +172,4 @@ std::string scanResultJson(bool ok, const std::string& error = {});
 std::string quantityResultJson(const DeviceQuantityResult& result);
 std::string statusResultJson(bool ok, const std::string& error = {});
 
-}  // namespace hims
+}  // namespace inventatory

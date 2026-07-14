@@ -1,8 +1,8 @@
-# HIMS Agent Notes
+# Inventatory Agent Notes
 
 ## What This Software Is
 
-HIMS is a lightweight, keyboard-first Hardware Inventory Management System built in C++ as a terminal application.
+Inventatory is a lightweight, keyboard-first Hardware Inventory Management System built in C++ as a terminal application.
 
 The goals are:
 
@@ -10,7 +10,7 @@ The goals are:
 - instant search and filtering
 - a clear dashboard for system health and alerts
 - a split-pane stock browser with item details on the same screen
-- a local HTTP bridge that the HIMS Scan hardware device talks to
+- a local HTTP bridge that the Inventatory Scan hardware device talks to
 
 ## Main Behaviors
 
@@ -18,7 +18,7 @@ The goals are:
 - The stock browser shows part name, category, and quantity in the list, with full details for the selected item.
 - Search should work by keyword, category, tag, parameter, location, SKU, status, and quantity filters.
 - Item details should include DigiKey links, datasheet links, and metadata sync status.
-- The HIMS Scan hardware device pushes scans and status reports to the local bridge, which passes them back to the terminal app.
+- The Inventatory Scan hardware device pushes scans and status reports to the local bridge, which passes them back to the terminal app.
 
 ## Design Principles
 
@@ -54,8 +54,8 @@ The goals are:
 
 ## Data And Files
 
-- Inventory data is stored locally in `Documents/HIMS/inventory.db`.
-- Activity history is stored locally in `Documents/HIMS/activity.tsv`.
+- Inventory data is stored locally in `Documents/Inventatory/inventory.db`.
+- Activity history is stored locally in `Documents/Inventatory/activity.tsv`.
 - On first launch, the app copies the existing OG inventory database if it is available, so the inventory can be reused without rescanning.
 - The app does not ship with built-in sample inventory; an empty store on first launch is expected until the user adds parts or imports data.
 
@@ -72,7 +72,7 @@ cmake --build build
 Tests:
 
 ```powershell
-.\build\Debug\hims_tests.exe
+.\build\Debug\inventatory_tests.exe
 ```
 
 After verification, please build the software - so the user can test it on their own:
@@ -97,19 +97,19 @@ If the app is already running and the linker cannot overwrite the executable, cl
 
 ## Agent-Owned Verification Sessions
 
-Do not rely on a HIMS window that the user already has open. Agents may not reliably see minimized, background, or user-focused programs, and using the user's live window can mix verification with the user's own work.
+Do not rely on a Inventatory window that the user already has open. Agents may not reliably see minimized, background, or user-focused programs, and using the user's live window can mix verification with the user's own work.
 
-For verification, always launch a fresh HIMS instance that belongs to the agent:
+For verification, always launch a fresh Inventatory instance that belongs to the agent:
 
 - Rebuild first in the generic build folder, then launch the already-built executable for visual verification. Do not use `run.ps1` for visual QA because it rebuilds and then detaches the app in a way that makes ownership and window capture harder to prove.
 - Launch the app in a real visible desktop terminal window that the user can see and the agent can inspect. Do not use a temporary `USERPROFILE`, hidden process, minimized process, detached process, or background-only launch for visual verification.
 - Use the normal user profile/data for visual verification unless the user explicitly asks for a temporary test profile.
-- Give the verification terminal a unique title such as `HIMS-Agent-Verify-<timestamp>` so the screenshot tool can identify the correct window without touching an unrelated terminal.
+- Give the verification terminal a unique title such as `Inventatory-Agent-Verify-<timestamp>` so the screenshot tool can identify the correct window without touching an unrelated terminal.
 - For a plain CMD verification window, launch with a command shaped like:
 
 ```powershell
-$title = "HIMS-Agent-Verify-" + (Get-Date -Format "yyyyMMdd-HHmmss")
-$exe = (Resolve-Path ".\build\Debug\hims.exe").Path
+$title = "Inventatory-Agent-Verify-" + (Get-Date -Format "yyyyMMdd-HHmmss")
+$exe = (Resolve-Path ".\build\Debug\inventatory.exe").Path
 Start-Process -FilePath "$env:ComSpec" -WorkingDirectory (Split-Path $exe) -ArgumentList "/k", "title $title && `"$exe`""
 ```
 
@@ -117,11 +117,11 @@ Start-Process -FilePath "$env:ComSpec" -WorkingDirectory (Split-Path $exe) -Argu
 - If `PrintWindow` returns a blank frame, retry with a different window-only capture path that still targets the exact verification window rather than the desktop.
 - The verification window must remain visible and inspectable; do not rely on a shell process that cannot be seen on the desktop.
 - Do not use full-desktop or screen-pixel screenshots for terminal QA; they can capture whatever is behind the window.
-- If the terminal must be made visible for interactive inspection, keep it on the agent-owned window only, not on a user-owned HIMS session.
-- Do not inspect, drive, or capture a user-owned HIMS window unless the user explicitly asks you to use that exact window.
-- If the app throws a startup error dialog, opens the wrong surface, or the captured image is not the HIMS terminal, close only that failed agent-owned verification window before relaunching. Do not spawn repeated extra windows.
-- If a user-owned or stale HIMS instance locks `build\Debug\hims.exe`, close only the HIMS verification process you started when possible. Ask before closing anything that may belong to the user.
-- Record that visual verification used the normal `Documents/HIMS` data, unless the user explicitly requested otherwise.
+- If the terminal must be made visible for interactive inspection, keep it on the agent-owned window only, not on a user-owned Inventatory session.
+- Do not inspect, drive, or capture a user-owned Inventatory window unless the user explicitly asks you to use that exact window.
+- If the app throws a startup error dialog, opens the wrong surface, or the captured image is not the Inventatory terminal, close only that failed agent-owned verification window before relaunching. Do not spawn repeated extra windows.
+- If a user-owned or stale Inventatory instance locks `build\Debug\inventatory.exe`, close only the Inventatory verification process you started when possible. Ask before closing anything that may belong to the user.
+- Record that visual verification used the normal `Documents/Inventatory` data, unless the user explicitly requested otherwise.
 
 ## TUI Visual QA
 
@@ -139,7 +139,7 @@ When you change terminal rendering, do not stop at a successful build.
 
 - During verification, the local shell runner can occasionally fail before command startup with `windows sandbox: spawn setup refresh`.
 - If that happens, rerun the build or test command through the escalated shell path instead of spending time on the failing local runner.
-- When debugging SQLite/database behavior, prefer a direct test binary run or a small external probe against `Documents/HIMS/inventory.db` so failures are easier to isolate.
+- When debugging SQLite/database behavior, prefer a direct test binary run or a small external probe against `Documents/Inventatory/inventory.db` so failures are easier to isolate.
 
 ## When Editing
 
