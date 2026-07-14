@@ -355,6 +355,20 @@ string fitSingleLineLabel(const string& value, size_t maxLength) {
   return fieldOrBlank(value, maxLength);
 }
 
+struct CableFlagFont {
+  int height;
+  int width;
+};
+
+CableFlagFont cableFlagFont(const string& text) {
+  const auto length = text.size();
+  if (length <= 4) return {68, 58};
+  if (length <= 6) return {56, 38};
+  if (length <= 9) return {44, 26};
+  if (length <= 13) return {36, 20};
+  return {28, 16};
+}
+
 vector<string> wrapLabelLines(const string& value, size_t maxWidth, size_t maxLines) {
   vector<string> lines;
   if (maxWidth == 0 || maxLines == 0) {
@@ -1796,14 +1810,18 @@ bool LabelPrinterService::printItemLabel(const InventoryItem& item, string* erro
 string LabelPrinterService::buildWireLabelZpl(const string& text) const {
   const auto label = fitSingleLineLabel(text, 18);
   if (label.empty()) return {};
+  const auto font = cableFlagFont(label);
   ostringstream out;
   out << "^XA\r\n";
   out << "^CI28\r\n^PW256\r\n^LL200\r\n^LH0,0\r\n^PR3\r\n^MD12\r\n";
   out << "^FX --- Cable flag: normal-facing half ---\r\n";
-  out << "^FO10,12^A0N,34,31^FB236,1,0,C^FD" << sanitizeLabelText(label) << "^FS\r\n";
+  out << "^FO10,12^A0N," << font.height << ',' << font.width << "^FB236,1,0,C^FD"
+      << sanitizeLabelText(label) << "^FS\r\n";
   out << "^FO14,88^GB228,2,2^FS\r\n";
-  out << "^FX --- Cable flag: opposite-facing half for the folded side ---\r\n";
-  out << "^FO246,182^A0I,34,31^FB236,1,0,C^FD" << sanitizeLabelText(label) << "^FS\r\n";
+  out << "^FX --- Cable flag: lower half, matching orientation ---\r\n";
+  out << "^FO10,112^A0N," << font.height << ',' << font.width << "^FB236,1,0,C^FD"
+      << sanitizeLabelText(label) << "^FS\r\n";
+  out << "^FO14,88^GB228,2,2^FS\r\n";
   out << "^XZ\r\n";
   return out.str();
 }

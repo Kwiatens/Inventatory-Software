@@ -197,9 +197,75 @@ ftxui::Element App::renderStockUi() const {
     detailRows.push_back(fullLine("No item selected.", uiMutedColor(), uiPanelRightBg()));
   }
 
-  listRows.insert(listRows.begin(), fullLine("STOCK  " + to_string(filtered.size()) + " items", uiSecondaryText(), uiSurfaceBg()));
-  auto listPanel = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
-                   ftxui::bgcolor(uiSurfaceBg()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
+  auto filterButton = target(styledText(" Filter ", uiInteractiveColor(), uiRaisedSurfaceBg()),
+                             "stock.filters.header", UiTargetKind::Button,
+                             [self] { self->openStockFilterPanel(); });
+  listRows.insert(listRows.begin(), ftxui::hbox({
+      styledText("STOCK  " + to_string(filtered.size()) + " items", uiSecondaryText()),
+      ftxui::filler(),
+      filterButton,
+  }) | ftxui::bgcolor(uiSurfaceBg()));
+
+  ftxui::Element filterMenu = ftxui::text("");
+  if (inputMode_ == InputMode::StockFilter) {
+    ftxui::Elements filterRows;
+    if (stockDateFilterSubmenuOpen_) {
+      filterRows.push_back(fullLine("< Date of modification", uiSecondaryText(), uiPanelLeftBg()));
+      const vector<StockDateFilter> dateFilters = {
+          StockDateFilter::All,
+          StockDateFilter::Today,
+          StockDateFilter::Last7Days,
+          StockDateFilter::Last30Days,
+          StockDateFilter::OlderThan30Days,
+      };
+      for (size_t index = 0; index < dateFilters.size(); ++index) {
+        const bool selected = static_cast<int>(index) == stockFilterSelection_;
+        auto row = fullLine(string(selected ? "  > " : "    ") + stockDateFilterName(dateFilters[index]),
+                            selected ? uiTitleColor() : uiMutedColor(),
+                            selected ? uiSelectionBg() : uiPanelLeftBg());
+        filterRows.push_back(target(row, "stock.filter.date." + to_string(index), UiTargetKind::Button,
+                                    [self, filter = dateFilters[index]] { self->applyStockDateFilter(filter); }));
+      }
+    } else {
+      const vector<string> labels = {"Date of modification", "Quantity", "A-Z", "Z-A"};
+      for (size_t index = 0; index < labels.size(); ++index) {
+        const bool selected = static_cast<int>(index) == stockFilterSelection_;
+        auto row = fullLine(string(selected ? "  > " : "    ") + labels[index],
+                            selected ? uiTitleColor() : uiMutedColor(),
+                            selected ? uiSelectionBg() : uiPanelLeftBg());
+        if (index == 0) {
+          filterRows.push_back(target(row, "stock.filter.date", UiTargetKind::Button,
+                                      [self] { self->openStockDateFilterSubmenu(); }));
+        } else {
+          const auto order = index == 1 ? StockSortOrder::Quantity
+                            : index == 2 ? StockSortOrder::Az
+                                         : StockSortOrder::Za;
+          filterRows.push_back(target(row, "stock.filter.sort." + to_string(index), UiTargetKind::Button,
+                                      [self, order] { self->applyStockSortOrder(order); }));
+        }
+      }
+    }
+    filterMenu = ftxui::window(styledText(" Filters: ", uiAccentColor()),
+                               ftxui::vbox(move(filterRows)) | ftxui::bgcolor(uiPanelLeftBg()) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34)) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34) |
+                 ftxui::color(uiAccentColor()) | ftxui::bgcolor(uiPanelLeftBg()) |
+                 ftxui::clear_under;
+  }
+
+  ftxui::Element listPanel = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                             ftxui::bgcolor(uiSurfaceBg()) |
+                             ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
+  if (inputMode_ == InputMode::StockFilter) {
+    auto filterOverlay = ftxui::vbox({
+        ftxui::text(" "),
+        ftxui::hbox({ftxui::filler(), filterMenu}),
+        ftxui::filler(),
+    });
+    listPanel = ftxui::dbox({listPanel, filterOverlay}) |
+                ftxui::bgcolor(uiSurfaceBg()) |
+                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
+  }
   detailRows.insert(detailRows.begin(), fullLine(editing ? "EDIT ITEM" : "ITEM DETAIL", uiSecondaryText(), uiSurfaceBg()));
   auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::yframe | ftxui::vscroll_indicator |
                      ftxui::bgcolor(uiSurfaceBg()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailOuterWidth);
@@ -253,6 +319,20 @@ ftxui::Element App::renderStockUi() const {
 }
 
 void App::handleStockKey(const KeyEvent& key) {
+  if (deleteConfirmationActive()) {
+    if (key.type == KeyType::Enter) {
+      confirmDeleteSelectedItem();
+      return;
+    }
+    if (key.type == KeyType::Escape) {
+      cancelDeleteConfirmation();
+      return;
+    }
+
+    cancelDeleteConfirmation();
+    return;
+  }
+
   if (key.type == KeyType::CtrlZ) {
     undoLastInventoryChange();
     return;
@@ -269,18 +349,7 @@ void App::handleStockKey(const KeyEvent& key) {
     }
   }
 
-  if (deleteConfirmationActive()) {
-    if (key.type == KeyType::Enter) {
-      confirmDeleteSelectedItem();
-      return;
-    }
-    if (key.type == KeyType::Escape) {
-      cancelDeleteConfirmation();
-      return;
-    }
-
-    cancelDeleteConfirmation();
-  } else if (key.type == KeyType::Backspace) {
+  if (key.type == KeyType::Backspace) {
     return;
   }
 
