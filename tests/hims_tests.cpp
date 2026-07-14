@@ -1,5 +1,6 @@
 #include "core/Inventory.h"
 #include "app/AppSettings.h"
+#include "platform/StartupRegistration.h"
 #include "core/InventoryInternals.h"
 #include "core/HimsScanProtocol.h"
 #include "core/PartDescriptor.h"
@@ -1436,6 +1437,8 @@ int main() {
     expected.dataDirectory = filesystem::temp_directory_path() / "HIMS test data";
     expected.printerQueue = "ZDesigner Test Queue";
     expected.autoPrintScannedLabels = false;
+    expected.backgroundServiceEnabled = true;
+    expected.backgroundConsentAsked = true;
     expected.deviceServicePort = 8181;
     expected.digiKeyClientId = "client-id";
     expected.digiKeyAccountId = "account-id";
@@ -1452,6 +1455,8 @@ int main() {
     assert(loaded.dataDirectory == expected.dataDirectory);
     assert(loaded.printerQueue == expected.printerQueue);
     assert(!loaded.autoPrintScannedLabels);
+    assert(loaded.backgroundServiceEnabled);
+    assert(loaded.backgroundConsentAsked);
     assert(loaded.deviceServicePort == 8181);
     assert(loaded.digiKeyClientId == "client-id");
     assert(loaded.digiKeyAccountId == "account-id");
@@ -1474,6 +1479,11 @@ int main() {
   }
 
   {
+    assert(buildBackgroundStartupCommand(L"C:\\Program Files\\HIMS\\hims.exe") ==
+           L"\"C:\\Program Files\\HIMS\\hims.exe\" --background");
+  }
+
+  {
     const auto path = filesystem::temp_directory_path() / "hims-legacy-settings-test.conf";
     ofstream legacy(path, ios::trunc);
     legacy << "schema_version=1\n"
@@ -1482,6 +1492,8 @@ int main() {
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
     assert(loaded.deviceServicePort == 8182);
+    assert(!loaded.backgroundServiceEnabled);
+    assert(!loaded.backgroundConsentAsked);
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
