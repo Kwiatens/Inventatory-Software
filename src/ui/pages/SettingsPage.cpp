@@ -306,8 +306,7 @@ ftxui::Element App::renderSettingsUi() const {
 
   ftxui::Elements categories;
   categories.push_back(styledText(" SETTINGS", uiMutedText()));
-  for (const auto category : {SettingsCategory::General, SettingsCategory::Printer, SettingsCategory::QuickLabels,
-                              SettingsCategory::HimsScan, SettingsCategory::DigiKey}) {
+  const auto addCategory = [&](SettingsCategory category) {
     const bool selected = category == settingsCategory_;
     auto row = fullLine(string(selected ? "  > " : "    ") + settingsCategoryName(category),
                         selected ? uiFocusColor() : uiSecondaryText(),
@@ -320,7 +319,16 @@ ftxui::Element App::renderSettingsUi() const {
                                   if (category == SettingsCategory::Printer) self->refreshPrinterState();
                                   self->dirty_ = true;
                                 }));
-  }
+  };
+  categories.push_back(styledText(" SYSTEM", uiDimColor()));
+  addCategory(SettingsCategory::General);
+  categories.push_back(styledText(" OUTPUT", uiDimColor()));
+  addCategory(SettingsCategory::Printer);
+  addCategory(SettingsCategory::QuickLabels);
+  categories.push_back(styledText(" DEVICES", uiDimColor()));
+  addCategory(SettingsCategory::HimsScan);
+  categories.push_back(styledText(" INTEGRATIONS", uiDimColor()));
+  addCategory(SettingsCategory::DigiKey);
 
   ftxui::Elements rows;
   rows.push_back(ftxui::hbox({
@@ -332,14 +340,15 @@ ftxui::Element App::renderSettingsUi() const {
   rows.push_back(uiDivider());
 
   if (settingsCategory_ == SettingsCategory::General) {
-    rows.push_back(styledText("Data", uiSecondaryText()));
+    rows.push_back(styledText("DATA STORAGE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("HIMS folder", settingsDraft_.dataDirectory.string(), contentWidth));
     rows.push_back(target(settingLine("Change folder", "Browse...", contentWidth), "settings.data.browse",
                           UiTargetKind::Button, [self] { self->stageHimsFolder(); }));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("Application", uiSecondaryText()));
+    rows.push_back(styledText("APPLICATION", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Settings file", settingsPath_.string(), contentWidth));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
+    rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Configured queue",
                                settingsDraft_.printerQueue.empty() ? "Not configured" : settingsDraft_.printerQueue,
                                contentWidth));
@@ -350,7 +359,7 @@ ftxui::Element App::renderSettingsUi() const {
                             self->dirty_ = true;
                           }));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("Detected printer queues", uiSecondaryText()));
+    rows.push_back(styledText("DETECTED QUEUES", uiSecondaryText()) | ftxui::bold);
     if (printerQueues_.empty()) {
       rows.push_back(styledText("No printer queues detected", uiWarnColor()));
     } else {
@@ -392,7 +401,7 @@ ftxui::Element App::renderSettingsUi() const {
                           "settings.printer.wire.custom", UiTargetKind::Button,
                           [self] { self->printWireLabel(self->wireLabelText_); }, !wireLabelText_.empty()));
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
-    rows.push_back(styledText("QUICK LABEL PRESETS", uiPrimaryText()) | ftxui::bold);
+    rows.push_back(styledText("QUICK LABELS / PRESETS", uiPrimaryText()) | ftxui::bold);
     rows.push_back(styledText("Saved labels sync to Scan R1 automatically", uiSecondaryText()));
     rows.push_back(target(styledText(" + Add quick label ", uiFocusColor(), uiRaisedSurfaceBg()),
                           "settings.quick_label.add.primary", UiTargetKind::Button,
@@ -428,6 +437,7 @@ ftxui::Element App::renderSettingsUi() const {
     }));
     rows.push_back(styledText("Select a label to edit. A adds; X removes; [ ] changes order; T test-prints.", uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::HimsScan) {
+    rows.push_back(styledText("SCAN R1 SERVICE", uiSecondaryText()) | ftxui::bold);
     const auto now = time(nullptr);
     const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
     const auto portValue = settingsEditingField_ ? inputBuffer_ + "_" : to_string(settingsDraft_.deviceServicePort);
@@ -458,13 +468,14 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(uiDivider());
     rows.push_back(styledText("First-use connection is available from Home > Operations > Set up Scan R1.", uiMutedText()));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("Recent device diagnostics", uiSecondaryText()));
+    rows.push_back(styledText("RECENT DEVICE DIAGNOSTICS", uiSecondaryText()) | ftxui::bold);
     const size_t start = deviceDebugLog_.size() > 10 ? deviceDebugLog_.size() - 10 : 0;
     for (size_t index = start; index < deviceDebugLog_.size(); ++index) {
       rows.push_back(styledText(ellipsize(deviceDebugLog_[index], static_cast<size_t>(contentWidth)), uiMutedText()));
     }
     if (deviceDebugLog_.empty()) rows.push_back(styledText("Waiting for device messages", uiMutedText()));
   } else {
+    rows.push_back(styledText("DIGIKEY API CREDENTIALS", uiSecondaryText()) | ftxui::bold);
     const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
     const vector<pair<string, string>> fields = {
         {"Client ID", settingsDraft_.digiKeyClientId},

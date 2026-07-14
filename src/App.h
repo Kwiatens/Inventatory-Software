@@ -66,6 +66,9 @@ class App {
 
   enum class SettingsCategory { General, Printer, QuickLabels, HimsScan, DigiKey };
 
+  enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
+  enum class StockSortOrder { Az, Quantity, Za };
+
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
 
   struct UiTarget {
@@ -87,6 +90,7 @@ class App {
     RackCreate,
     RackJump,
     RackFilter,
+    StockFilter,
     ActionSheet,
   };
 
@@ -160,6 +164,7 @@ class App {
   void handleEditMenuKey(const KeyEvent& key);
   void handleEditValueKey(const KeyEvent& key);
   void handleRackValueKey(const KeyEvent& key);
+  void handleStockFilterKey(const KeyEvent& key);
 
   ftxui::Element renderUi() const;
   ftxui::Element renderHeaderUi() const;
@@ -171,6 +176,8 @@ class App {
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderSettingsUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
+  std::string stockDateFilterName(StockDateFilter filter) const;
+  bool stockDateFilterMatches(const InventoryItem& item) const;
   ftxui::Element renderSearchBarUi() const;
   ftxui::Element renderActionSheetUi() const;
   ftxui::Element renderMessageUi() const;
@@ -269,6 +276,12 @@ class App {
   void beginRackFilter();
   bool printSelectedRackPartLabel();
   bool printSelectedRackLabel();
+  void adjustSelectedRackItemQuantity(int delta);
+  void openSelectedRackItemDetail();
+  void openStockFilterPanel();
+  void openStockDateFilterSubmenu();
+  void applyStockDateFilter(StockDateFilter filter);
+  void applyStockSortOrder(StockSortOrder order);
   void startSearch();
   void cancelInput();
   void beginEditCurrentItem(bool createNew);
@@ -319,6 +332,10 @@ class App {
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
   std::string inputBuffer_;
+  StockDateFilter stockDateFilter_ = StockDateFilter::All;
+  StockSortOrder stockSortOrder_ = StockSortOrder::Az;
+  int stockFilterSelection_ = 0;
+  bool stockDateFilterSubmenuOpen_ = false;
   std::string message_;
   std::string persistenceError_;
   time_t messageUntil_ = 0;
