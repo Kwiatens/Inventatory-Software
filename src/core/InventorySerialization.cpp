@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Core inventory serialization helpers.
 
 #include "core/InventoryInternals.h"
@@ -10,7 +10,7 @@
 #include <sstream>
 #include <utility>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -163,7 +163,7 @@ string serializeItem(const InventoryItem& item) {
        << quoted(serializeParametersForStorage(item.parameters))
       << '\t' << quoted(item.notes) << '\t' << quoted(item.digikeyPartNumber) << '\t' << quoted(item.datasheetUrl)
       << '\t' << quoted(item.productUrl) << '\t' << quoted(item.syncStatus) << '\t' << quoted(item.sku) << '\t'
-      << item.lastUpdated << '\t' << quoted(item.himsId) << '\t' << item.createdAt << '\t'
+      << item.lastUpdated << '\t' << quoted(item.inventatoryId) << '\t' << item.createdAt << '\t'
       << quoted(item.machineCode) << '\t' << quoted(item.rackId) << '\t' << quoted(item.rackSlot) << '\t'
       << quoted(rackAssignmentModeName(item.rackAssignment));
   return out.str();
@@ -188,7 +188,7 @@ bool deserializeItem(const string& line, InventoryItem& item) {
     item.lastUpdated = nowEpoch();
   }
   item.createdAt = item.lastUpdated;
-  if (input >> quoted(item.himsId)) {
+  if (input >> quoted(item.inventatoryId)) {
     if (!(input >> item.createdAt) || item.createdAt == 0) {
       item.createdAt = item.lastUpdated;
     }
@@ -250,7 +250,7 @@ bool saveActivities(const filesystem::path& path, const vector<ActivityEntry>& a
     return false;
   }
 
-  file << "# HIMS activity log\n";
+  file << "# Inventatory activity log\n";
   for (const auto& entry : activities) {
     file << serializeActivity(entry) << '\n';
   }
@@ -268,4 +268,4 @@ ActivityEntry makeActivity(string kind, string message) {
   return {nowEpoch(), move(kind), move(message)};
 }
 
-}  // namespace hims
+}  // namespace inventatory

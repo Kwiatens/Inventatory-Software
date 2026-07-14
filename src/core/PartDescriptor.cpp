@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Shared short part description classifier.
 
 #include "core/PartDescriptor.h"
@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -506,4 +506,4 @@ string partShortDescription(const InventoryItem& item) {
   return describePart(item).shortDescription;
 }
 
-}  // namespace hims
+}  // namespace inventatory

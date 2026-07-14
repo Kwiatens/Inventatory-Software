@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // DigiKey order CSV parsing and import candidate preparation.
 
 #pragma once
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 namespace filesystem = std::filesystem;
 using std::filesystem::path;
@@ -39,4 +39,4 @@ CsvImportResult loadDigiKeyCsvFile(const filesystem::path& path, const vector<In
 
 void mergeImportedMetadata(InventoryItem& target, const InventoryItem& source);
 
-}  // namespace hims
+}  // namespace inventatory

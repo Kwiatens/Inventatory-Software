@@ -1,10 +1,10 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Terminal application controller and shared app state.
 
 #pragma once
 
 #include "core/Inventory.h"
-#include "core/HimsScanProtocol.h"
+#include "core/InventatoryScanProtocol.h"
 #include "app/AppSettings.h"
 #include "import/DigiKeyCsvImport.h"
 #include "label_printer/LabelPrinter.h"
@@ -31,10 +31,10 @@
 #include <vector>
 #include <unordered_map>
 
-namespace hims {
+namespace inventatory {
 
-std::filesystem::path documentsHimsPath();
-std::filesystem::path discoverHimsDataPath();
+std::filesystem::path documentsInventatoryPath();
+std::filesystem::path discoverInventatoryDataPath();
 std::filesystem::path legacyDatabasePath();
 void copyDatabaseSidecar(const std::filesystem::path& sourceBase,
                          const std::filesystem::path& destinationBase, const std::string& suffix);
@@ -66,7 +66,7 @@ class App {
     Complete,
   };
 
-  enum class SettingsCategory { General, Printer, QuickLabels, HimsScan, DigiKey };
+  enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan, DigiKey };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
@@ -139,7 +139,7 @@ class App {
 
   struct UndoSnapshot {
     std::vector<InventoryItem> items;
-    std::vector<HimsRack> racks;
+    std::vector<InventatoryRack> racks;
     std::vector<ActivityEntry> activities;
     size_t selectedPosition = 0;
     bool valid = false;
@@ -159,7 +159,7 @@ class App {
   void handleDashboardKey(const KeyEvent& key);
   void handleStockKey(const KeyEvent& key);
   void handleRackManagementKey(const KeyEvent& key);
-  void handleHimsScanSetupKey(const KeyEvent& key);
+  void handleInventatoryScanSetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
   void handleSearchKey(const KeyEvent& key);
@@ -174,7 +174,7 @@ class App {
   ftxui::Element renderDashboardUi() const;
   ftxui::Element renderStockUi() const;
   ftxui::Element renderRackManagementUi() const;
-  ftxui::Element renderHimsScanSetupUi() const;
+  ftxui::Element renderInventatoryScanSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderSettingsUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
@@ -215,10 +215,10 @@ class App {
   void toggleAutoPrintScannedLabels();
   bool autoPrintScannedLabel(const std::string& itemId);
   std::string printerSummary() const;
-  void openHimsScanSetup();
-  bool regenerateHimsScanToken();
-  bool clearHimsScanPairing();
-  bool copyHimsScanToken();
+  void openInventatoryScanSetup();
+  bool regenerateInventatoryScanToken();
+  bool clearInventatoryScanPairing();
+  bool copyInventatoryScanToken();
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
   DeviceQuantityResult enqueueDeviceQuantity(const DeviceQuantityRequest& request);
@@ -228,7 +228,7 @@ class App {
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
   void processDeviceSyncEvents();
   void adjustDeviceDebugScroll(int delta);
-  std::string himsScanDeviceSummary() const;
+  std::string inventatoryScanDeviceSummary() const;
   ftxui::Element renderDeviceDebugConsoleUi() const;
 
   std::vector<size_t> filteredIndices() const;
@@ -240,12 +240,12 @@ class App {
   void syncSelectionToFilter();
   void moveSelection(int delta);
   void changePage(Page page);
-  bool chooseHimsFolder();
+  bool chooseInventatoryFolder();
   void openSettings(SettingsCategory category = SettingsCategory::General);
   void beginSettingsEdit();
   bool saveSettingsDraft();
   void cancelSettingsDraft();
-  bool stageHimsFolder();
+  bool stageInventatoryFolder();
   bool testStagedPrinter();
   bool testStagedDigiKey();
   void beginSettingsFieldEdit(int field);
@@ -260,8 +260,8 @@ class App {
   void openSelectedDetail();
   void openRackManagement();
   std::vector<size_t> sortedRackIndices() const;
-  const HimsRack* selectedRack() const;
-  HimsRack* selectedRack();
+  const InventatoryRack* selectedRack() const;
+  InventatoryRack* selectedRack();
   std::string selectedRackSlot() const;
   InventoryItem* selectedRackItem();
   const InventoryItem* selectedRackItem() const;
@@ -332,7 +332,7 @@ class App {
   std::filesystem::path inventoryPath_;
   std::filesystem::path printerPath_;
   std::filesystem::path activityPath_;
-  std::filesystem::path himsScanConfigPath_;
+  std::filesystem::path inventatoryScanConfigPath_;
   Page page_ = Page::Home;
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
@@ -359,7 +359,7 @@ class App {
   std::filesystem::path importSourcePath_;
   std::vector<InventoryHistoryPoint> inventoryHistory_;
   std::mutex scanMutex_;
-  HimsScanConfig himsScanConfig_;
+  InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
   std::vector<std::shared_ptr<PendingDeviceQuantity>> deviceQuantityQueue_;
   std::vector<DeviceStatusReport> deviceStatusQueue_;
@@ -429,4 +429,4 @@ class App {
   int focusedTarget_ = -1;
 };
 
-}  // namespace hims
+}  // namespace inventatory

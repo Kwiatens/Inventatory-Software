@@ -1,4 +1,4 @@
-﻿// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Terminal application controller and app-level state management.
 
 #include "App.h"
@@ -29,7 +29,7 @@
 #include <utility>
 #include <thread>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -97,11 +97,11 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       startInBackground_(startInBackground),
       root_(filesystem::current_path()),
       settingsPath_(appSettingsPath()),
-      dataPath_(discoverHimsDataPath()),
+      dataPath_(discoverInventatoryDataPath()),
       inventoryPath_(dataPath_ / "inventory.db"),
       printerPath_(dataPath_ / "printer.conf"),
       activityPath_(dataPath_ / "activity.tsv"),
-      himsScanConfigPath_(dataPath_ / "hims_scan.conf") {
+      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf") {
   loadEnvironmentFile(locateDotEnvFile());
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
@@ -109,7 +109,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     inventoryPath_ = dataPath_ / "inventory.db";
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
-    himsScanConfigPath_ = dataPath_ / "hims_scan.conf";
+    inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
   } else {
     settings_.dataDirectory = dataPath_;
   }
@@ -118,7 +118,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
                             !loadDigiKeyConfig().clientSecret.empty();
   ensureInventoryDatabaseCopied(inventoryPath_);
-  loadHimsScanConfig(himsScanConfigPath_, himsScanConfig_);
+  loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (!loadedSettings) {
     settings_.printerQueue = printerService_.configuredPrinter();
@@ -138,9 +138,9 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     settings_.backgroundConsentAsked = true;
     bool startupWasEnabled = false;
     const int choice = MessageBoxA(nullptr,
-                                   "Keep HIMS available for Scan R1 after you close the terminal and start it when you sign in to Windows?\n\n"
+                                   "Keep Inventatory available for Scan R1 after you close the terminal and start it when you sign in to Windows?\n\n"
                                    "You can change this later in Settings. This is off by default.",
-                                   "Run HIMS in the background", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+                                   "Run Inventatory in the background", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
     if (choice == IDYES) {
       string error;
       if (setBackgroundStartupEnabled(true, error)) {
@@ -161,7 +161,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       setMessage("Unable to save background-service preference", 5);
     }
   }
-  server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
 
   if (!server_.start(settings_.deviceServicePort, [this](const DeviceScanRequest& request) { pushScanCode(request); },
                      [this](const DeviceQuantityRequest& request) { return enqueueDeviceQuantity(request); },
@@ -170,10 +170,10 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
                        return handleDeviceSync(request, response, error);
                      })) {
-    setMessage("HIMS Scan R1 service failed to start; terminal still works", 5);
+    setMessage("Inventatory Scan R1 service failed to start; terminal still works", 5);
   } else {
     mdnsService_.start(server_.port());
-    setMessage("HIMS Scan R1 service ready", 5);
+    setMessage("Inventatory Scan R1 service ready", 5);
   }
 }
 
@@ -188,7 +188,7 @@ ftxui::Element App::renderUi() const {
     return ftxui::vbox({
                ftxui::filler(),
                ftxui::hbox({ftxui::filler(),
-                            styledText("HIMS needs a terminal of at least 100 x 30", uiWarnColor()),
+                            styledText("Inventatory needs a terminal of at least 100 x 30", uiWarnColor()),
                             ftxui::filler()}),
                ftxui::hbox({ftxui::filler(),
                             styledText("Current: " + to_string(active->dimx()) + " x " +
@@ -235,7 +235,7 @@ std::string App::pageName() const {
 }
 
 // Header region: breadcrumb on the left, condensed system status dots on the
-// right (scan server, printer, HIMS Scan device, auto-label state).
+// right (scan server, printer, Inventatory Scan device, auto-label state).
 ftxui::Element App::renderHeaderUi() const {
   const auto now = time(nullptr);
   const bool deviceOnline = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
@@ -263,7 +263,7 @@ ftxui::Element App::renderHeaderUi() const {
   };
 
   auto navigation = ftxui::hbox({
-      styledText(" HIMS ", uiPrimaryText()) | ftxui::bold,
+      styledText(" Inventatory ", uiPrimaryText()) | ftxui::bold,
       nav(Page::Home, "nav.home", "1 Home"),
       nav(Page::Stock, "nav.stock", "2 Stock"),
       nav(Page::Racks, "nav.racks", "3 Racks"),
@@ -302,7 +302,7 @@ ftxui::Element App::renderPageUi() const {
     case Page::Import:
       return renderImportCsvUi();
     case Page::ScanSetup:
-      return renderHimsScanSetupUi();
+      return renderInventatoryScanSetupUi();
     case Page::Settings:
       return renderSettingsUi();
   }
@@ -356,7 +356,7 @@ ftxui::Element App::renderSearchBarUi() const {
         break;
       case Page::ScanSetup:
         contextTitle = "Setup wizard";
-        contextText = "Guided Bluetooth provisioning for HIMS Scan R1";
+        contextText = "Guided Bluetooth provisioning for Inventatory Scan R1";
         break;
       case Page::Settings:
         contextTitle = "Settings";
@@ -511,7 +511,7 @@ void App::handleKey(const KeyEvent& key) {
   // The setup wizard owns every key while open: its Wi-Fi password and the
   // six-digit verification code must never be interpreted as global shortcuts.
   if (page_ == Page::ScanSetup) {
-    handleHimsScanSetupKey(key);
+    handleInventatoryScanSetupKey(key);
     return;
   }
 
@@ -569,7 +569,7 @@ void App::handleKey(const KeyEvent& key) {
       handleImportCsvKey(key);
       break;
     case Page::ScanSetup:
-      handleHimsScanSetupKey(key);
+      handleInventatoryScanSetupKey(key);
       break;
     case Page::Settings:
       handleSettingsKey(key);
@@ -790,6 +790,6 @@ void App::handleRackValueKey(const KeyEvent& key) {
   }
 }
 
-}  // namespace hims
+}  // namespace inventatory
 
 

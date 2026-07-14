@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Rack classification, allocation, and manual placement validation.
 
 #include "core/Inventory.h"
@@ -7,7 +7,7 @@
 #include <cctype>
 #include <optional>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -108,7 +108,7 @@ bool slotOccupied(const InventoryStore& store, const string& rackId, const strin
   });
 }
 
-string firstFreeSlot(const InventoryStore& store, const HimsRack& rack, const InventoryItem* except) {
+string firstFreeSlot(const InventoryStore& store, const InventatoryRack& rack, const InventoryItem* except) {
   for (int row = 0; row < rack.rows; ++row) {
     for (int column = 1; column <= rack.columns; ++column) {
       const string slot = string(1, static_cast<char>('A' + row)) + to_string(column);
@@ -118,8 +118,8 @@ string firstFreeSlot(const InventoryStore& store, const HimsRack& rack, const In
   return {};
 }
 
-HimsRack* findRack(InventoryStore& store, const string& id) {
-  const auto it = find_if(store.racks().begin(), store.racks().end(), [&](const HimsRack& rack) { return rack.id == id; });
+InventatoryRack* findRack(InventoryStore& store, const string& id) {
+  const auto it = find_if(store.racks().begin(), store.racks().end(), [&](const InventatoryRack& rack) { return rack.id == id; });
   return it == store.racks().end() ? nullptr : &*it;
 }
 
@@ -138,9 +138,9 @@ RackAssignmentMode parseRackAssignmentMode(const string& value) {
   return RackAssignmentMode::Automatic;
 }
 
-string rackLocation(const InventoryItem& item, const vector<HimsRack>& racks) {
+string rackLocation(const InventoryItem& item, const vector<InventatoryRack>& racks) {
   if (item.rackId.empty() || item.rackSlot.empty()) return {};
-  const auto it = find_if(racks.begin(), racks.end(), [&](const HimsRack& rack) { return rack.id == item.rackId; });
+  const auto it = find_if(racks.begin(), racks.end(), [&](const InventatoryRack& rack) { return rack.id == item.rackId; });
   return it == racks.end() ? string() : it->code + "-" + item.rackSlot;
 }
 
@@ -166,10 +166,10 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
 
   item.rackId.clear();
   item.rackSlot.clear();
-  vector<HimsRack*> compatible;
+  vector<InventatoryRack*> compatible;
   for (auto& rack : store.racks())
     if (sameRackType(rack.componentType, *componentType)) compatible.push_back(&rack);
-  sort(compatible.begin(), compatible.end(), [](const HimsRack* lhs, const HimsRack* rhs) {
+  sort(compatible.begin(), compatible.end(), [](const InventatoryRack* lhs, const InventatoryRack* rhs) {
     return rackNumber(lhs->code) < rackNumber(rhs->code);
   });
   for (auto* rack : compatible) {
@@ -184,7 +184,7 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
 
   int nextNumber = 1;
   for (const auto& rack : store.racks()) nextNumber = max(nextNumber, rackNumber(rack.code) + 1);
-  HimsRack rack;
+  InventatoryRack rack;
   rack.id = makeId();
   rack.code = "R" + to_string(nextNumber);
   rack.componentType = *componentType;
@@ -229,7 +229,7 @@ bool setManualRackLocation(InventoryStore& store, InventoryItem& item, const str
     error = "Rack slot must be A1 through E5";
     return false;
   }
-  const auto rack = find_if(store.racks().begin(), store.racks().end(), [&](const HimsRack& candidate) {
+  const auto rack = find_if(store.racks().begin(), store.racks().end(), [&](const InventatoryRack& candidate) {
     return toLower(candidate.code) == code;
   });
   if (rack == store.racks().end()) {
@@ -255,7 +255,7 @@ string rackSlotLabel(int row, int column) {
   return string(1, static_cast<char>('A' + row)) + to_string(column + 1);
 }
 
-size_t rackOccupiedSlotCount(const InventoryStore& store, const HimsRack& rack) {
+size_t rackOccupiedSlotCount(const InventoryStore& store, const InventatoryRack& rack) {
   return static_cast<size_t>(count_if(store.items().begin(), store.items().end(), [&](const InventoryItem& item) {
     return item.rackId == rack.id && isValidRackSlot(item.rackSlot);
   }));
@@ -277,7 +277,7 @@ const InventoryItem* itemAtRackSlot(const InventoryStore& store, const string& r
   return it == store.items().end() ? nullptr : &*it;
 }
 
-bool moveItemToRackSlot(InventoryStore& store, InventoryItem& item, const HimsRack& rack, const string& slot,
+bool moveItemToRackSlot(InventoryStore& store, InventoryItem& item, const InventatoryRack& rack, const string& slot,
                         string& error) {
   error.clear();
   if (!isValidRackSlot(slot)) {
@@ -310,4 +310,4 @@ bool restoreAutomaticRackAssignment(InventoryStore& store, InventoryItem& item) 
   return reconcileRackAssignment(store, item);
 }
 
-}  // namespace hims
+}  // namespace inventatory

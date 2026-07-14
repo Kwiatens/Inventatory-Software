@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Inventory store persistence and database-backed item loading.
 
 #include "core/InventoryInternals.h"
@@ -9,7 +9,7 @@
 #include <fstream>
 #include <utility>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -17,9 +17,22 @@ using namespace std;
 
 namespace {
 
-bool ensureHimsTableSchema(SqliteConnection& connection) {
+bool migrateLegacySchema(SqliteConnection& connection) {
+  if (!tableExists(connection, "inventatory_items") && tableExists(connection, "hims_items") &&
+      !execSql(connection, "ALTER TABLE hims_items RENAME TO inventatory_items")) return false;
+  if (tableExists(connection, "inventatory_items") && tableColumnExists(connection, "inventatory_items", "hims_id") &&
+      !execSql(connection, "ALTER TABLE inventatory_items RENAME COLUMN hims_id TO inventatory_id")) return false;
+  if (!tableExists(connection, "inventatory_racks") && tableExists(connection, "hims_racks") &&
+      !execSql(connection, "ALTER TABLE hims_racks RENAME TO inventatory_racks")) return false;
+  if (!tableExists(connection, "inventatory_device_events") && tableExists(connection, "hims_device_events") &&
+      !execSql(connection, "ALTER TABLE hims_device_events RENAME TO inventatory_device_events")) return false;
+  return true;
+}
+
+bool ensureInventatoryTableSchema(SqliteConnection& connection) {
+  if (!migrateLegacySchema(connection)) return false;
   if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS hims_items (
+    CREATE TABLE IF NOT EXISTS inventatory_items (
       id TEXT PRIMARY KEY,
       part_name TEXT NOT NULL,
       manufacturer TEXT NOT NULL,
@@ -36,7 +49,7 @@ bool ensureHimsTableSchema(SqliteConnection& connection) {
       sync_status TEXT NOT NULL,
       sku TEXT NOT NULL,
       last_updated INTEGER NOT NULL,
-      hims_id TEXT NOT NULL DEFAULT '',
+      inventatory_id TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL DEFAULT 0,
       machine_code TEXT NOT NULL DEFAULT '',
       rack_id TEXT NOT NULL DEFAULT '',
@@ -47,29 +60,29 @@ bool ensureHimsTableSchema(SqliteConnection& connection) {
     return false;
   }
 
-  if (!tableColumnExists(connection, "hims_items", "hims_id")) {
-    if (!execSql(connection, "ALTER TABLE hims_items ADD COLUMN hims_id TEXT NOT NULL DEFAULT ''")) {
+  if (!tableColumnExists(connection, "inventatory_items", "inventatory_id")) {
+    if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN inventatory_id TEXT NOT NULL DEFAULT ''")) {
       return false;
     }
   }
-  if (!tableColumnExists(connection, "hims_items", "created_at")) {
-    if (!execSql(connection, "ALTER TABLE hims_items ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")) {
+  if (!tableColumnExists(connection, "inventatory_items", "created_at")) {
+    if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")) {
       return false;
     }
   }
-  if (!tableColumnExists(connection, "hims_items", "machine_code")) {
-    if (!execSql(connection, "ALTER TABLE hims_items ADD COLUMN machine_code TEXT NOT NULL DEFAULT ''")) {
+  if (!tableColumnExists(connection, "inventatory_items", "machine_code")) {
+    if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN machine_code TEXT NOT NULL DEFAULT ''")) {
       return false;
     }
   }
-  if (!tableColumnExists(connection, "hims_items", "rack_id") &&
-      !execSql(connection, "ALTER TABLE hims_items ADD COLUMN rack_id TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "hims_items", "rack_slot") &&
-      !execSql(connection, "ALTER TABLE hims_items ADD COLUMN rack_slot TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "hims_items", "rack_assignment") &&
-      !execSql(connection, "ALTER TABLE hims_items ADD COLUMN rack_assignment TEXT NOT NULL DEFAULT 'automatic'")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "rack_id") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_id TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "rack_slot") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_slot TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "rack_assignment") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_assignment TEXT NOT NULL DEFAULT 'automatic'")) return false;
   if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS hims_racks (
+    CREATE TABLE IF NOT EXISTS inventatory_racks (
       id TEXT PRIMARY KEY,
       code TEXT NOT NULL UNIQUE,
       component_type TEXT NOT NULL,
@@ -79,20 +92,20 @@ bool ensureHimsTableSchema(SqliteConnection& connection) {
     )
   )SQL")) return false;
   if (!execSql(connection, R"SQL(
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_hims_items_rack_slot
-    ON hims_items(rack_id, rack_slot)
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_inventatory_items_rack_slot
+    ON inventatory_items(rack_id, rack_slot)
     WHERE rack_id <> '' AND rack_slot <> ''
   )SQL")) return false;
   return true;
 }
 
-bool loadRacks(SqliteConnection& connection, vector<HimsRack>& racks) {
+bool loadRacks(SqliteConnection& connection, vector<InventatoryRack>& racks) {
   SqliteStatement statement;
   if (sqliteApi().prepare_v2(connection.db,
-      "SELECT id, code, component_type, rows_count, columns_count, created_at FROM hims_racks ORDER BY created_at, code",
+      "SELECT id, code, component_type, rows_count, columns_count, created_at FROM inventatory_racks ORDER BY created_at, code",
       -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
   while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
-    HimsRack rack;
+    InventatoryRack rack;
     rack.id = sqliteText(statement.stmt, 0);
     rack.code = sqliteText(statement.stmt, 1);
     rack.componentType = sqliteText(statement.stmt, 2);
@@ -188,14 +201,14 @@ InventoryItem legacyRowToItem(sqlite3_stmt* stmt) {
   return item;
 }
 
-bool loadItemsFromHimsTable(SqliteConnection& connection, vector<InventoryItem>& items) {
+bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<InventoryItem>& items) {
   SqliteStatement statement;
   const char* sql = R"SQL(
     SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
            tags, parameters, notes, digikey_part_number, datasheet_url, product_url,
-           sync_status, sku, last_updated, hims_id, created_at, machine_code,
+           sync_status, sku, last_updated, inventatory_id, created_at, machine_code,
            rack_id, rack_slot, rack_assignment
-    FROM hims_items
+    FROM inventatory_items
     ORDER BY part_name COLLATE NOCASE ASC
   )SQL";
 
@@ -221,7 +234,7 @@ bool loadItemsFromHimsTable(SqliteConnection& connection, vector<InventoryItem>&
     item.syncStatus = sqliteText(statement.stmt, 13);
     item.sku = sqliteText(statement.stmt, 14);
     item.lastUpdated = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 15));
-    item.himsId = sqliteText(statement.stmt, 16);
+    item.inventatoryId = sqliteText(statement.stmt, 16);
     item.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 17));
     item.machineCode = sqliteText(statement.stmt, 18);
     item.rackId = sqliteText(statement.stmt, 19);
@@ -259,7 +272,7 @@ bool importLegacyItems(SqliteConnection& connection, vector<InventoryItem>& item
 
 bool ensureDeviceEventCommitSchema(SqliteConnection& connection) {
   return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS hims_device_events (
+    CREATE TABLE IF NOT EXISTS inventatory_device_events (
       event_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, event_type TEXT NOT NULL,
       event_code TEXT NOT NULL, event_value INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'received',
       result_id TEXT NOT NULL DEFAULT '', result_status TEXT NOT NULL DEFAULT '',
@@ -273,9 +286,9 @@ bool ensureDeviceEventCommitSchema(SqliteConnection& connection) {
   )SQL");
 }
 
-bool writeItemsToHimsTable(SqliteConnection& connection, const vector<InventoryItem>& items,
-                           const vector<HimsRack>& racks, const DeviceEventCommit* deviceEvent = nullptr) {
-  if (!ensureHimsTableSchema(connection)) {
+bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<InventoryItem>& items,
+                           const vector<InventatoryRack>& racks, const DeviceEventCommit* deviceEvent = nullptr) {
+  if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
   if (deviceEvent != nullptr && !ensureDeviceEventCommitSchema(connection)) return false;
@@ -283,13 +296,13 @@ bool writeItemsToHimsTable(SqliteConnection& connection, const vector<InventoryI
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     return false;
   }
-  if (!execSql(connection, "DELETE FROM hims_racks")) {
+  if (!execSql(connection, "DELETE FROM inventatory_racks")) {
     execSql(connection, "ROLLBACK");
     return false;
   }
   {
     SqliteStatement rackStatement;
-    const char* rackSql = "INSERT INTO hims_racks (id, code, component_type, rows_count, columns_count, created_at) VALUES (?, ?, ?, ?, ?, ?)";
+    const char* rackSql = "INSERT INTO inventatory_racks (id, code, component_type, rows_count, columns_count, created_at) VALUES (?, ?, ?, ?, ?, ?)";
     if (sqliteApi().prepare_v2(connection.db, rackSql, -1, &rackStatement.stmt, nullptr) != SQLITE_OK) {
       execSql(connection, "ROLLBACK");
       return false;
@@ -309,17 +322,17 @@ bool writeItemsToHimsTable(SqliteConnection& connection, const vector<InventoryI
       sqliteApi().clear_bindings(rackStatement.stmt);
     }
   }
-  if (!execSql(connection, "DELETE FROM hims_items")) {
+  if (!execSql(connection, "DELETE FROM inventatory_items")) {
     execSql(connection, "ROLLBACK");
     return false;
   }
 
   SqliteStatement statement;
   const char* sql = R"SQL(
-    INSERT OR REPLACE INTO hims_items (
+    INSERT OR REPLACE INTO inventatory_items (
       id, part_name, manufacturer, category, quantity, reorder_threshold, location,
       tags, parameters, notes, digikey_part_number, datasheet_url, product_url,
-      sync_status, sku, last_updated, hims_id, created_at, machine_code,
+      sync_status, sku, last_updated, inventatory_id, created_at, machine_code,
       rack_id, rack_slot, rack_assignment
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )SQL";
@@ -348,7 +361,7 @@ bool writeItemsToHimsTable(SqliteConnection& connection, const vector<InventoryI
     sqliteApi().bind_text(statement.stmt, 14, item.syncStatus.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 15, item.sku.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_int64(statement.stmt, 16, static_cast<sqlite3_int64>(item.lastUpdated));
-    sqliteApi().bind_text(statement.stmt, 17, item.himsId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 17, item.inventatoryId.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_int64(statement.stmt, 18, static_cast<sqlite3_int64>(item.createdAt));
     sqliteApi().bind_text(statement.stmt, 19, item.machineCode.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 20, item.rackId.c_str(), -1, SQLITE_TRANSIENT);
@@ -368,7 +381,7 @@ bool writeItemsToHimsTable(SqliteConnection& connection, const vector<InventoryI
   if (deviceEvent != nullptr) {
     SqliteStatement eventStatement;
     const char* eventSql = R"SQL(
-      UPDATE hims_device_events SET
+      UPDATE inventatory_device_events SET
         state='completed', result_id=?, result_status=?, result_existing=?, result_item_name=?,
         result_requested_delta=?, result_applied_delta=?, result_quantity=?, result_location=?,
         result_code=?, result_message=?, completed_at=?
@@ -412,9 +425,9 @@ vector<InventoryItem>& InventoryStore::items() {
   return items_;
 }
 
-vector<HimsRack>& InventoryStore::racks() { return racks_; }
+vector<InventatoryRack>& InventoryStore::racks() { return racks_; }
 
-const vector<HimsRack>& InventoryStore::racks() const { return racks_; }
+const vector<InventatoryRack>& InventoryStore::racks() const { return racks_; }
 
 const vector<InventoryItem>& InventoryStore::items() const {
   return items_;
@@ -429,18 +442,18 @@ bool InventoryStore::load(const filesystem::path& path) {
     return false;
   }
 
-  if (!ensureHimsTableSchema(connection)) {
+  if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
   loadRacks(connection, racks_);
 
-  const bool hasHimsTable = tableExists(connection, "hims_items");
+  const bool hasInventatoryTable = tableExists(connection, "inventatory_items");
   const bool hasLegacyTable = tableExists(connection, "items");
 
-  vector<InventoryItem> himsItems;
+  vector<InventoryItem> inventatoryItems;
   bool loaded = false;
-  if (hasHimsTable) {
-    loaded = loadItemsFromHimsTable(connection, himsItems);
+  if (hasInventatoryTable) {
+    loaded = loadItemsFromInventatoryTable(connection, inventatoryItems);
   }
 
   vector<InventoryItem> legacyItems;
@@ -448,22 +461,22 @@ bool InventoryStore::load(const filesystem::path& path) {
     importLegacyItems(connection, legacyItems);
   }
 
-  if (!legacyItems.empty() && (himsItems.empty() || legacyItems.size() > himsItems.size())) {
+  if (!legacyItems.empty() && (inventatoryItems.empty() || legacyItems.size() > inventatoryItems.size())) {
     items_ = move(legacyItems);
     loaded = true;
     ensureInventoryIdentifiers(items_);
-    writeItemsToHimsTable(connection, items_, racks_);
-  } else if (loaded && !himsItems.empty()) {
-    items_ = move(himsItems);
+    writeItemsToInventatoryTable(connection, items_, racks_);
+  } else if (loaded && !inventatoryItems.empty()) {
+    items_ = move(inventatoryItems);
   } else if (!loaded || items_.empty()) {
-    if (!himsItems.empty()) {
-      items_ = move(himsItems);
+    if (!inventatoryItems.empty()) {
+      items_ = move(inventatoryItems);
       loaded = true;
     } else if (!legacyItems.empty()) {
       items_ = move(legacyItems);
       loaded = true;
       ensureInventoryIdentifiers(items_);
-      writeItemsToHimsTable(connection, items_, racks_);
+      writeItemsToInventatoryTable(connection, items_, racks_);
     }
   }
 
@@ -504,7 +517,7 @@ bool InventoryStore::save(const filesystem::path& path) const {
     return false;
   }
 
-  return writeItemsToHimsTable(connection, items, racks_);
+  return writeItemsToInventatoryTable(connection, items, racks_);
 #else
   auto items = items_;
   ensureInventoryIdentifiers(items);
@@ -516,7 +529,7 @@ bool InventoryStore::save(const filesystem::path& path) const {
     return false;
   }
 
-  file << "# HIMS inventory data\n";
+  file << "# Inventatory inventory data\n";
   for (const auto& item : items) {
     file << serializeItem(item) << '\n';
   }
@@ -530,7 +543,7 @@ bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const Dev
   ensureInventoryIdentifiers(items);
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
-  return writeItemsToHimsTable(connection, items, racks_, &event);
+  return writeItemsToInventatoryTable(connection, items, racks_, &event);
 #else
   (void)event;
   return save(path);
@@ -554,7 +567,7 @@ const InventoryItem* InventoryStore::findById(const string& id) const {
 InventoryItem* InventoryStore::findByCode(const string& code) {
   const auto needle = toLower(trim(code));
   const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.himsId) == needle || toLower(item.sku) == needle ||
+    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
            toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
            containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
   });
@@ -564,7 +577,7 @@ InventoryItem* InventoryStore::findByCode(const string& code) {
 const InventoryItem* InventoryStore::findByCode(const string& code) const {
   const auto needle = toLower(trim(code));
   const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.himsId) == needle || toLower(item.sku) == needle ||
+    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
            toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
            containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
   });
@@ -595,4 +608,4 @@ const InventoryItem* InventoryStore::findByMachineCode(const string& machineCode
   return it == items_.end() ? nullptr : &(*it);
 }
 
-}  // namespace hims
+}  // namespace inventatory

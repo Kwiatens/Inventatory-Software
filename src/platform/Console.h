@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 namespace filesystem = std::filesystem;
 using std::filesystem::path;
@@ -71,5 +71,5 @@ bool controlModifierPressed();
 bool controlModifierPressed();
 vector<KeyEvent> pollKeys();
 
-}  // namespace hims
+}  // namespace inventatory
 

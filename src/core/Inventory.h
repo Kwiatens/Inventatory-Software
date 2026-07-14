@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 namespace filesystem = std::filesystem;
 using std::filesystem::path;
@@ -27,7 +27,7 @@ enum class RackAssignmentMode {
   Unassigned,
 };
 
-struct HimsRack {
+struct InventatoryRack {
   string id;
   string code;
   string componentType;
@@ -53,7 +53,7 @@ struct InventoryItem {
   string syncStatus = "synced";
   string sku;
   time_t lastUpdated = 0;
-  string himsId;
+  string inventatoryId;
   time_t createdAt = 0;
   string machineCode;
   string rackId;
@@ -116,9 +116,9 @@ string trim(const string& value);
 string toLower(string value);
 string nowTimestampString(time_t value);
 string makeId();
-string himsCategoryPrefix(const string& category);
-string makeHimsId(const string& category, size_t sequence);
-bool isHimsId(const string& value);
+string inventatoryCategoryPrefix(const string& category);
+string makeInventatoryId(const string& category, size_t sequence);
+bool isInventatoryId(const string& value);
 void ensureInventoryIdentifiers(vector<InventoryItem>& items);
 string join(const vector<string>& values, char delimiter);
 vector<string> split(const string& value, char delimiter);
@@ -126,9 +126,9 @@ vector<string> tokenizeQuery(const string& query);
 
 bool containsInsensitive(string_view haystack, string_view needle);
 bool matchesQuery(const InventoryItem& item, const string& query);
-bool matchesQuery(const InventoryItem& item, const string& query, const vector<HimsRack>& racks);
+bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks);
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query);
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, const vector<HimsRack>& racks);
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, const vector<InventatoryRack>& racks);
 Summary summarize(const vector<InventoryItem>& items);
 int categoryLowStockThreshold(const string& category);
 bool lowStockByCategory(const InventoryItem& item);
@@ -142,8 +142,8 @@ class InventoryStore {
  public:
   vector<InventoryItem>& items();
   const vector<InventoryItem>& items() const;
-  vector<HimsRack>& racks();
-  const vector<HimsRack>& racks() const;
+  vector<InventatoryRack>& racks();
+  const vector<InventatoryRack>& racks() const;
 
   bool load(const filesystem::path& path);
   bool save(const filesystem::path& path) const;
@@ -158,22 +158,22 @@ class InventoryStore {
 
  private:
   vector<InventoryItem> items_;
-  vector<HimsRack> racks_;
+  vector<InventatoryRack> racks_;
 };
 
 string rackAssignmentModeName(RackAssignmentMode mode);
 RackAssignmentMode parseRackAssignmentMode(const string& value);
-string rackLocation(const InventoryItem& item, const vector<HimsRack>& racks);
+string rackLocation(const InventoryItem& item, const vector<InventatoryRack>& racks);
 bool isValidRackSlot(const string& slot);
 bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item);
 bool reconcileRackAssignments(InventoryStore& store);
 bool setManualRackLocation(InventoryStore& store, InventoryItem& item, const string& value, string& error);
 int rackNumberFromCode(const string& code);
 string rackSlotLabel(int row, int column);
-size_t rackOccupiedSlotCount(const InventoryStore& store, const HimsRack& rack);
+size_t rackOccupiedSlotCount(const InventoryStore& store, const InventatoryRack& rack);
 InventoryItem* itemAtRackSlot(InventoryStore& store, const string& rackId, const string& slot);
 const InventoryItem* itemAtRackSlot(const InventoryStore& store, const string& rackId, const string& slot);
-bool moveItemToRackSlot(InventoryStore& store, InventoryItem& item, const HimsRack& rack, const string& slot,
+bool moveItemToRackSlot(InventoryStore& store, InventoryItem& item, const InventatoryRack& rack, const string& slot,
                         string& error);
 bool unassignItemFromRack(InventoryItem& item);
 bool restoreAutomaticRackAssignment(InventoryStore& store, InventoryItem& item);
@@ -194,5 +194,5 @@ vector<Parameter> deserializeParametersFromStorage(const string& value);
 string serializeActivity(const ActivityEntry& entry);
 bool deserializeActivity(const string& line, ActivityEntry& entry);
 
-}  // namespace hims
+}  // namespace inventatory
 

@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Core inventory search, filtering, and summary logic.
 
 #include "core/Inventory.h"
@@ -9,7 +9,7 @@
 #include <sstream>
 #include <unordered_set>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -203,9 +203,9 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
       return false;
     }
 
-    if (token.rfind("hims:", 0) == 0 || token.rfind("himsid:", 0) == 0) {
+    if (token.rfind("inventatory:", 0) == 0 || token.rfind("inventatoryid:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesField(item.himsId, value)) {
+      if (tokenMatchesField(item.inventatoryId, value)) {
         continue;
       }
       return false;
@@ -261,7 +261,7 @@ bool matchesQuery(const InventoryItem& item, const string& query) {
   return matchesQueryWithRack(item, query, {});
 }
 
-bool matchesQuery(const InventoryItem& item, const string& query, const vector<HimsRack>& racks) {
+bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks) {
   return matchesQueryWithRack(item, query, rackLocation(item, racks));
 }
 
@@ -275,7 +275,7 @@ vector<size_t> filterItems(const vector<InventoryItem>& items, const string& que
   return indices;
 }
 
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, const vector<HimsRack>& racks) {
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, const vector<InventatoryRack>& racks) {
   vector<size_t> indices;
   for (size_t index = 0; index < items.size(); ++index) {
     if (matchesQuery(items[index], query, racks)) indices.push_back(index);
@@ -356,4 +356,4 @@ void appendInventoryHistory(vector<InventoryHistoryPoint>& history, const Invent
   }
 }
 
-}  // namespace hims
+}  // namespace inventatory

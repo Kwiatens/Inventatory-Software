@@ -1,7 +1,7 @@
-// HIMS - Hardware Inventory Management System
-// HIMS Scan R1 protocol types, validation, persistence, and stock mutation rules.
+// Inventatory - Hardware Inventory Management System
+// Inventatory Scan R1 protocol types, validation, persistence, and stock mutation rules.
 
-#include "core/HimsScanProtocol.h"
+#include "core/InventatoryScanProtocol.h"
 #include "core/InventoryInternals.h"
 
 #include <algorithm>
@@ -25,7 +25,7 @@
 #pragma comment(lib, "Bcrypt.lib")
 #endif
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -345,7 +345,7 @@ string hexToken(const array<unsigned char, 32>& bytes) {
   return result;
 }
 
-bool looksLikeSupportedHimsScanCode(const string& code) {
+bool looksLikeSupportedInventatoryScanCode(const string& code) {
   const auto trimmed = trim(code);
   return !trimmed.empty() &&
          all_of(trimmed.begin(), trimmed.end(), [](unsigned char ch) { return isdigit(ch) != 0; });
@@ -353,7 +353,7 @@ bool looksLikeSupportedHimsScanCode(const string& code) {
 
 bool looksLikeSupportedLookupCode(const string& code) {
   const auto trimmed = trim(code);
-  if (looksLikeSupportedHimsScanCode(trimmed)) return true;
+  if (looksLikeSupportedInventatoryScanCode(trimmed)) return true;
   if (trimmed.size() < 5 || trimmed.size() > 64) return false;
   bool hasDigit = false;
   for (const unsigned char ch : trimmed) {
@@ -366,14 +366,14 @@ bool looksLikeSupportedLookupCode(const string& code) {
 
 }  // namespace
 
-bool HimsScanConfig::paired() const {
+bool InventatoryScanConfig::paired() const {
   return !trim(token).empty() && token.size() >= 32;
 }
 
-bool loadHimsScanConfig(const filesystem::path& path, HimsScanConfig& config) {
+bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConfig& config) {
   ifstream input(path);
   if (!input) return false;
-  HimsScanConfig loaded;
+  InventatoryScanConfig loaded;
   string line;
   while (getline(input, line)) {
     const auto separator = line.find('=');
@@ -395,7 +395,7 @@ bool loadHimsScanConfig(const filesystem::path& path, HimsScanConfig& config) {
   return true;
 }
 
-bool saveHimsScanConfig(const filesystem::path& path, const HimsScanConfig& config) {
+bool saveInventatoryScanConfig(const filesystem::path& path, const InventatoryScanConfig& config) {
   error_code error;
   filesystem::create_directories(path.parent_path(), error);
   ofstream output(path, ios::trunc);
@@ -406,7 +406,7 @@ bool saveHimsScanConfig(const filesystem::path& path, const HimsScanConfig& conf
   return static_cast<bool>(output);
 }
 
-string generateHimsScanToken() {
+string generateInventatoryScanToken() {
   array<unsigned char, 32> bytes{};
 #ifdef _WIN32
   if (BCryptGenRandom(nullptr, bytes.data(), static_cast<ULONG>(bytes.size()), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
@@ -649,7 +649,7 @@ DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLoo
     return result;
   }
   const InventoryItem* item = nullptr;
-  if (looksLikeSupportedHimsScanCode(code)) {
+  if (looksLikeSupportedInventatoryScanCode(code)) {
     item = store.findByMachineCode(code);
   } else {
     const auto foldedCode = [&code] {
@@ -682,7 +682,7 @@ DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuan
   DeviceQuantityResult result;
   result.requestedDelta = request.delta;
   const auto code = trim(request.code);
-  if (!looksLikeSupportedHimsScanCode(code)) {
+  if (!looksLikeSupportedInventatoryScanCode(code)) {
     result.httpStatus = 400;
     result.error = "Only numeric machine codes can change stock";
     return result;
@@ -759,4 +759,4 @@ string statusResultJson(bool ok, const string& error) {
             : string("{\"ok\":false,\"error\":\"") + jsonEscape(error) + "\"}";
 }
 
-}  // namespace hims
+}  // namespace inventatory

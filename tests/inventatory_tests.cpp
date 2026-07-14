@@ -2,7 +2,7 @@
 #include "app/AppSettings.h"
 #include "platform/StartupRegistration.h"
 #include "core/InventoryInternals.h"
-#include "core/HimsScanProtocol.h"
+#include "core/InventatoryScanProtocol.h"
 #include "core/PartDescriptor.h"
 #include "import/DigiKeyCsvImport.h"
 #include "label_printer/LabelPrinter.h"
@@ -26,7 +26,7 @@
     }                                                                                                                 \
   } while (false)
 
-using namespace hims;
+using namespace inventatory;
 using namespace std;
 
 namespace {
@@ -150,9 +150,9 @@ int main() {
     assert(!machineResolution.created);
     assert(machineResolution.itemId == "res-0603-10k");
 
-    const auto rejected = resolveScanCode(store, "HIMS:R-0002");
+    const auto rejected = resolveScanCode(store, "Inventatory:R-0002");
     assert(!rejected.matched);
-    assert(rejected.message == "Unknown HIMS ID");
+    assert(rejected.message == "Unknown Inventatory ID");
 
     const auto unknownMachine = resolveScanCode(store, "9999");
     assert(!unknownMachine.matched);
@@ -178,7 +178,7 @@ int main() {
     capacitor.id = "capacitor-1";
     capacitor.partName = "10uF capacitor";
     capacitor.category = "Capacitors";
-    capacitor.himsId = "HIMS:C-00127";
+    capacitor.inventatoryId = "Inventatory:C-00127";
     capacitor.machineCode = "0002";
     capacitor.lastUpdated = 1710001000;
     items.push_back(capacitor);
@@ -191,14 +191,14 @@ int main() {
     items.push_back(diode);
 
     ensureInventoryIdentifiers(items);
-    assert(isHimsId(items[0].himsId));
-    assert(items[0].himsId.find("HIMS:R-") == 0);
+    assert(isInventatoryId(items[0].inventatoryId));
+    assert(items[0].inventatoryId.find("Inventatory:R-") == 0);
     assert(items[0].createdAt != 0);
-    assert(items[1].himsId == "HIMS:C-00127");
+    assert(items[1].inventatoryId == "Inventatory:C-00127");
     assert(items[0].machineCode == "0001");
     assert(items[1].machineCode == "0002");
     assert(items[2].machineCode == "0003");
-    assert(buildVisibleHimsId(items[1]) == "HIMS:C-0002");
+    assert(buildVisibleInventatoryId(items[1]) == "Inventatory:C-0002");
   }
 
   {
@@ -365,7 +365,7 @@ int main() {
 
     {
       InventoryStore legacyStore;
-      HimsRack legacyRack;
+      InventatoryRack legacyRack;
       legacyRack.id = "legacy-rack";
       legacyRack.code = "R9";
       legacyRack.componentType = "integrated-circuits";
@@ -411,7 +411,7 @@ int main() {
     assert(matchesQuery(manuallyPlaced, automaticLocation, rackStore.racks()));
     const auto stockFields = stockPreviewFields(manuallyPlaced, automaticLocation);
     assert(!stockFields.empty());
-    assert(stockFields.front().label == "HIMS RACK: ");
+    assert(stockFields.front().label == "Inventatory RACK: ");
     assert(stockFields.front().value == automaticLocation);
     bool foundAtAGlance = false;
     for (const auto& field : stockFields) {
@@ -425,7 +425,7 @@ int main() {
     assert(!coreFields.empty());
     assert(coreFields.front().value == automaticLocation);
 
-    const auto tempPath = filesystem::temp_directory_path() / "hims-rack-roundtrip.db";
+    const auto tempPath = filesystem::temp_directory_path() / "inventatory-rack-roundtrip.db";
     assert(rackStore.save(tempPath));
     InventoryStore loadedRackStore;
     assert(loadedRackStore.load(tempPath));
@@ -465,12 +465,12 @@ int main() {
     assert(restored.tags == item.tags);
     assert(restored.parameters[0].name == item.parameters[0].name);
     assert(restored.parameters[0].value == item.parameters[0].value);
-    assert(restored.himsId == item.himsId);
+    assert(restored.inventatoryId == item.inventatoryId);
     assert(restored.machineCode == item.machineCode);
   }
 
   {
-    const auto tempPath = filesystem::temp_directory_path() / "hims-machine-code-roundtrip.db";
+    const auto tempPath = filesystem::temp_directory_path() / "inventatory-machine-code-roundtrip.db";
     InventoryStore store;
     InventoryItem item;
     item.id = "roundtrip-1";
@@ -686,7 +686,7 @@ int main() {
     item.reorderThreshold = 20;
     item.lastUpdated = 1710000000;
     item.createdAt = 1710000000;
-    item.himsId = "HIMS:R-00123";
+    item.inventatoryId = "Inventatory:R-00123";
     item.machineCode = "0002";
     item.sku = "RC0603FR-0710KL";
     item.digikeyPartNumber = "311-10.0KHRCT-ND";
@@ -702,8 +702,8 @@ int main() {
     assert(plan.parameterLine1.find("10k") != string::npos);
     assert(plan.parameterLine2.find("Pwr") != string::npos);
     assert(plan.parameterLine3.empty());
-    assert(plan.himsId == "HIMS:R-00123");
-    assert(plan.scannerHint == "HIMS:R-0002");
+    assert(plan.inventatoryId == "Inventatory:R-00123");
+    assert(plan.scannerHint == "Inventatory:R-0002");
     assert(plan.barcodeHint == "0002");
     const auto zpl = service.buildZpl(item);
     assert(!zpl.empty());
@@ -719,14 +719,14 @@ int main() {
     const auto rackZpl = service.buildZpl(item, "R3-E3");
     assert(rackZpl.find("^FO10,173^A0N,18,18^FDR3-E3^FS") != string::npos);
     assert(zpl.find("^FDLA,0002^FS") != string::npos);
-    assert(zpl.find("^FO162,173^A0N,13,13^FDHIMS:R-0002^FS") != string::npos);
+    assert(zpl.find("^FO56,173^A0N,10,10^FDInventatory:R-0002^FS") != string::npos);
     assert(zpl.find("^BC") == string::npos);
 
     string error;
     assert(service.printItemLabel(item, &error));
     assert(error.empty());
     assert(backendPtr->lastPrinterName_ == "ZDesigner LP 2824 Plus (ZPL)");
-    assert(backendPtr->lastJobName_.find("HIMS Label") == 0);
+    assert(backendPtr->lastJobName_.find("Inventatory Label") == 0);
     assert(backendPtr->lastZpl_.find("^FDLA,0002^FS") != string::npos);
     const auto wireZpl = service.buildWireLabelZpl("12V");
     assert(wireZpl.find("^A0N,68,58^FB236,1,0,C^FD12V^FS") != string::npos);
@@ -737,7 +737,7 @@ int main() {
     assert(service.printWireLabel("GND", &error));
     assert(backendPtr->lastJobName_ == "Inventatory Wire Label");
 
-    HimsRack resistorRack;
+    InventatoryRack resistorRack;
     resistorRack.id = "rack-res-1";
     resistorRack.code = "R1";
     resistorRack.componentType = "resistors";
@@ -745,13 +745,13 @@ int main() {
     assert(rackLabelPlan.categoryText == "RESISTORS");
     assert(rackLabelPlan.rackText == "RACK 01");
     const auto rackLabelZpl = service.buildRackLabelZpl(resistorRack);
-    assert(rackLabelZpl.find("^FDHIMS RACK^FS") != string::npos);
+    assert(rackLabelZpl.find("^FDInventatory RACK^FS") != string::npos);
     assert(rackLabelZpl.find("^FDRESISTORS^FS") != string::npos);
     assert(rackLabelZpl.find("^FDRACK 01^FS") != string::npos);
     assert(rackLabelZpl.find("^GFA") == string::npos);
     assert(rackLabelZpl.find("^FO6,55^A0N,40,34^FB244,1,0,C^FDRESISTORS^FS") != string::npos);
 
-    HimsRack customRack;
+    InventatoryRack customRack;
     customRack.id = "rack-custom-1";
     customRack.code = "R12";
     customRack.componentType = "smd widgets";
@@ -762,7 +762,7 @@ int main() {
     assert(customRackZpl.find("^FO6,48^A0N,27,24^FB244,2,4,C^FDSMD\\&WIDGETS^FS") != string::npos);
     assert(customRackZpl.find("^GFA") == string::npos);
 
-    HimsRack longRack;
+    InventatoryRack longRack;
     longRack.id = "rack-long-1";
     longRack.code = "R13";
     longRack.componentType = "integrated circuits";
@@ -772,7 +772,7 @@ int main() {
     error.clear();
     assert(service.printRackLabel(resistorRack, &error));
     assert(error.empty());
-    assert(backendPtr->lastJobName_ == "HIMS Rack R1");
+    assert(backendPtr->lastJobName_ == "Inventatory Rack R1");
     assert(backendPtr->lastZpl_.find("^FDRACK 01^FS") != string::npos);
 
     InventoryItem tvsDiode;
@@ -1048,7 +1048,7 @@ int main() {
     item.partName = "STM32G0 demo board";
     item.manufacturer = "STMicroelectronics";
     item.category = "MCUs";
-    item.himsId = "HIMS:M-00045";
+    item.inventatoryId = "Inventatory:M-00045";
     item.quantity = 12;
     item.lastUpdated = 1710000000;
     item.createdAt = 1710000000;
@@ -1082,7 +1082,7 @@ int main() {
     item.partName = "N-channel MOSFET";
     item.manufacturer = "Alpha & Omega";
     item.category = "MOSFETs";
-    item.himsId = "HIMS:T-00012";
+    item.inventatoryId = "Inventatory:T-00012";
     item.parameters = {
         {"Package / Case", "TO-263-3, D2PAK (2 Leads + Tab)"},
         {"Drain-Source Voltage", "30V"},
@@ -1181,7 +1181,7 @@ int main() {
     InventoryStore store;
     InventoryItem item;
     item.id = "scan-r1-item";
-    item.himsId = "HIMS:R-00123";
+    item.inventatoryId = "Inventatory:R-00123";
     item.machineCode = "0002";
     item.partName = "10k resistor";
     item.quantity = 5;
@@ -1192,7 +1192,7 @@ int main() {
     assert(clamped.requestedDelta == -12);
     assert(clamped.appliedDelta == -5);
     assert(clamped.quantity == 0);
-    request = {"r1-a", "req-4", "HIMS:R-0002", 2};
+    request = {"r1-a", "req-4", "Inventatory:R-0002", 2};
     assert(applyDeviceQuantity(store, request).httpStatus == 400);
     request = {"r1-a", "req-5", "R123", 2};
     assert(applyDeviceQuantity(store, request).httpStatus == 400);
@@ -1222,24 +1222,24 @@ int main() {
   }
 
   {
-    const auto configPath = filesystem::temp_directory_path() / "hims-scan-config-test.conf";
-    const HimsScanConfig expected{"r1-test", string(64, 'a'), "192.168.1.2", 8080};
-    assert(saveHimsScanConfig(configPath, expected));
-    HimsScanConfig loaded;
-    assert(loadHimsScanConfig(configPath, loaded));
+    const auto configPath = filesystem::temp_directory_path() / "inventatory-scan-config-test.conf";
+    const InventatoryScanConfig expected{"r1-test", string(64, 'a'), "192.168.1.2", 8080};
+    assert(saveInventatoryScanConfig(configPath, expected));
+    InventatoryScanConfig loaded;
+    assert(loadInventatoryScanConfig(configPath, loaded));
     assert(loaded.deviceId == expected.deviceId);
     assert(loaded.token.empty());
     assert(loaded.fallbackHost == expected.fallbackHost);
     assert(loaded.fallbackPort == expected.fallbackPort);
     filesystem::remove(configPath);
-    assert(generateHimsScanToken().size() == 64);
+    assert(generateInventatoryScanToken().size() == 64);
   }
 
   {
     InventoryStore store;
     InventoryItem item;
     item.id = "scan-r1-item";
-    item.himsId = "HIMS:R-00123";
+    item.inventatoryId = "Inventatory:R-00123";
     item.machineCode = "0002";
     item.partName = "10k resistor";
     item.quantity = 5;
@@ -1307,7 +1307,7 @@ int main() {
         R"({"protocolVersion":2,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
 
-    const auto databasePath = filesystem::temp_directory_path() / "hims-device-sync-v1-test.db";
+    const auto databasePath = filesystem::temp_directory_path() / "inventatory-device-sync-v1-test.db";
     filesystem::remove(databasePath);
     InventoryStore store;
     InventoryItem item;
@@ -1387,7 +1387,7 @@ int main() {
 
     // A new protocol-v1 receive is auto-printed immediately after its event is
     // committed. Its live item must receive the same identifiers as the SQLite
-    // snapshot; otherwise the label has blank HIMS text and an empty QR field.
+    // snapshot; otherwise the label has blank Inventatory text and an empty QR field.
     InventoryItem autoLabelItem;
     autoLabelItem.id = "auto-label-new-item";
     autoLabelItem.partName = "Auto label IC";
@@ -1398,10 +1398,10 @@ int main() {
     assert(completeDeviceSyncEvent(candidate, databasePath, result));
     const auto* finalizedAutoLabelItem = candidate.findById(autoLabelItem.id);
     assert(finalizedAutoLabelItem != nullptr);
-    assert(isHimsId(finalizedAutoLabelItem->himsId));
+    assert(isInventatoryId(finalizedAutoLabelItem->inventatoryId));
     assert(finalizedAutoLabelItem->machineCode.size() == 4);
     const auto autoLabelPlan = LabelPrinterService{}.buildLabelPlan(*finalizedAutoLabelItem);
-    assert(autoLabelPlan.scannerHint == buildVisibleHimsId(*finalizedAutoLabelItem));
+    assert(autoLabelPlan.scannerHint == buildVisibleInventatoryId(*finalizedAutoLabelItem));
     assert(autoLabelPlan.barcodeHint == finalizedAutoLabelItem->machineCode);
 
     response = {};
@@ -1432,9 +1432,9 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "hims-app-settings-test.conf";
+    const auto path = filesystem::temp_directory_path() / "inventatory-app-settings-test.conf";
     AppSettings expected;
-    expected.dataDirectory = filesystem::temp_directory_path() / "HIMS test data";
+    expected.dataDirectory = filesystem::temp_directory_path() / "Inventatory test data";
     expected.printerQueue = "ZDesigner Test Queue";
     expected.autoPrintScannedLabels = false;
     expected.backgroundServiceEnabled = true;
@@ -1479,12 +1479,12 @@ int main() {
   }
 
   {
-    assert(buildBackgroundStartupCommand(L"C:\\Program Files\\HIMS\\hims.exe") ==
-           L"\"C:\\Program Files\\HIMS\\hims.exe\" --background");
+    assert(buildBackgroundStartupCommand(L"C:\\Program Files\\Inventatory\\inventatory.exe") ==
+           L"\"C:\\Program Files\\Inventatory\\inventatory.exe\" --background");
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "hims-legacy-settings-test.conf";
+    const auto path = filesystem::temp_directory_path() / "inventatory-legacy-settings-test.conf";
     ofstream legacy(path, ios::trunc);
     legacy << "schema_version=1\n"
            << "bridge_port=8182\n";
@@ -1499,6 +1499,6 @@ int main() {
     assert(!removeError);
   }
 
-  cout << "HIMS core tests passed\n";
+  cout << "Inventatory core tests passed\n";
   return 0;
 }

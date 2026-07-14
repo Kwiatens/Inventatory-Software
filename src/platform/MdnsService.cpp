@@ -1,5 +1,5 @@
-// HIMS - Hardware Inventory Management System
-// Windows DNS-SD registration for automatic HIMS Scan discovery.
+// Inventatory - Hardware Inventory Management System
+// Windows DNS-SD registration for automatic Inventatory Scan discovery.
 
 #include "platform/MdnsService.h"
 
@@ -8,7 +8,7 @@
 
 #include <winsock2.h>
 
-namespace hims {
+namespace inventatory {
 
 MdnsService::~MdnsService() {
   stop();
@@ -24,7 +24,7 @@ bool MdnsService::start(std::uint16_t port) {
   wideHost += L".local";
   const wchar_t* keys[] = {L"protocol"};
   const wchar_t* values[] = {L"1"};
-  instance_ = DnsServiceConstructInstance(L"HIMS._hims._tcp.local", wideHost.c_str(), nullptr, nullptr, port, 0, 0,
+  instance_ = DnsServiceConstructInstance(L"Inventatory._inventatory._tcp.local", wideHost.c_str(), nullptr, nullptr, port, 0, 0,
                                           1, keys, values);
   if (instance_ == nullptr) return false;
   request_ = {};
@@ -60,4 +60,4 @@ bool MdnsService::running() const {
   return running_;
 }
 
-}  // namespace hims
+}  // namespace inventatory

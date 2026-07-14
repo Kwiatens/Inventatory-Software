@@ -1,5 +1,5 @@
-// HIMS - Hardware Inventory Management System
-// HIMS Rack management page rendering and keyboard handling.
+// Inventatory - Hardware Inventory Management System
+// Inventatory Rack management page rendering and keyboard handling.
 
 #include "App.h"
 
@@ -13,7 +13,7 @@
 
 #include <ftxui/component/screen_interactive.hpp>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -187,7 +187,7 @@ ftxui::Element App::renderRackManagementUi() const {
                                                          : "Press v here to place the moving part.") |
                            ftxui::color(movingRackItemId_.empty() ? uiMutedColor() : uiAccentColor()));
     } else {
-      detailRows.push_back(fullLine("HIMS RACK: " + rack->code + "-" + selectedSlot, uiTitleColor(), uiRowSelectedBg()));
+      detailRows.push_back(fullLine("Inventatory RACK: " + rack->code + "-" + selectedSlot, uiTitleColor(), uiRowSelectedBg()));
       detailRows.push_back(detailFieldLine({"Part: ", selectedSlotItem->partName, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
       detailRows.push_back(detailFieldLine({"Category: ", displayCategory(selectedSlotItem->category), uiLabelColor(), uiTitleColor()},
                                           detailWidth - 2));
@@ -296,4 +296,4 @@ void App::handleRackManagementKey(const KeyEvent& key) {
   }
 }
 
-}  // namespace hims
+}  // namespace inventatory
