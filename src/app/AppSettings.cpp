@@ -59,6 +59,14 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       string decoded;
       value >> decoded;
       loaded.autoPrintScannedLabels = parseBool(decoded, loaded.autoPrintScannedLabels);
+    } else if (key == "background_service_enabled") {
+      string decoded;
+      value >> decoded;
+      loaded.backgroundServiceEnabled = parseBool(decoded, loaded.backgroundServiceEnabled);
+    } else if (key == "background_consent_asked") {
+      string decoded;
+      value >> decoded;
+      loaded.backgroundConsentAsked = parseBool(decoded, loaded.backgroundConsentAsked);
     } else if (key == "device_service_port" || key == "bridge_port") {
       // bridge_port is the pre-v2 name and remains readable for migration.
       unsigned int port = loaded.deviceServicePort;
@@ -101,6 +109,8 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "data_directory=" << quoted(settings.dataDirectory.string()) << '\n'
          << "printer_queue=" << quoted(settings.printerQueue) << '\n'
          << "auto_print_scanned_labels=" << (settings.autoPrintScannedLabels ? "true" : "false") << '\n'
+         << "background_service_enabled=" << (settings.backgroundServiceEnabled ? "true" : "false") << '\n'
+         << "background_consent_asked=" << (settings.backgroundConsentAsked ? "true" : "false") << '\n'
          << "device_service_port=" << settings.deviceServicePort << '\n'
          << "digikey_client_id=" << quoted(settings.digiKeyClientId) << '\n'
          << "digikey_account_id=" << quoted(settings.digiKeyAccountId) << '\n'
