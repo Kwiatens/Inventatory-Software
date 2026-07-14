@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // DigiKey order CSV parsing and import candidate preparation.
 
 #include "import/DigiKeyCsvImport.h"
@@ -12,7 +12,7 @@
 #include <sstream>
 #include <unordered_map>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -392,7 +392,7 @@ void mergeImportedMetadata(InventoryItem& target, const InventoryItem& source) {
   assignIfBlank(target.digikeyPartNumber, source.digikeyPartNumber);
   assignIfBlank(target.productUrl, source.productUrl);
   assignIfBlank(target.sku, source.sku);
-  assignIfBlank(target.himsId, source.himsId);
+  assignIfBlank(target.inventatoryId, source.inventatoryId);
   assignIfBlank(target.machineCode, source.machineCode);
   if (target.createdAt == 0) {
     target.createdAt = source.createdAt == 0 ? target.lastUpdated : source.createdAt;
@@ -417,4 +417,4 @@ void mergeImportedMetadata(InventoryItem& target, const InventoryItem& source) {
   }
 }
 
-}  // namespace hims
+}  // namespace inventatory

@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // DigiKey API response parsing and metadata synchronization.
 
 #define WIN32_LEAN_AND_MEAN
@@ -30,7 +30,7 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -161,7 +161,7 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
     path.append(components.lpszExtraInfo, components.dwExtraInfoLength);
   }
 
-  HINTERNET session = WinHttpOpen(L"HIMS DigiKey client/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+  HINTERNET session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
                                   WINHTTP_NO_PROXY_BYPASS, 0);
   if (session == nullptr) {
     if (error != nullptr) {
@@ -1500,11 +1500,11 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
   return nullopt;
 }
 
-}  // namespace hims
+}  // namespace inventatory
 
 #else
 
-namespace hims {
+namespace inventatory {
 
 bool DigiKeyConfig::valid() const {
   return false;
@@ -1529,7 +1529,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
   return nullopt;
 }
 
-}  // namespace hims
+}  // namespace inventatory
 
 #endif
 

@@ -1,11 +1,11 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Scan code resolution for local and DigiKey flows.
 
 #include "core/InventoryInternals.h"
 
 #include <utility>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -22,8 +22,8 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode) {
     return {false, false, {}, "Unknown machine code"};
   }
 
-  if (toLower(code).rfind("hims:", 0) == 0) {
-    return {false, false, {}, "Unknown HIMS ID"};
+  if (toLower(code).rfind("inventatory:", 0) == 0) {
+    return {false, false, {}, "Unknown Inventatory ID"};
   }
 
   if (auto* existing = store.findByCode(code)) {
@@ -49,4 +49,4 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode) {
   return {true, true, store.items().back().id, "Created a placeholder item from the scanned code"};
 }
 
-}  // namespace hims
+}  // namespace inventatory

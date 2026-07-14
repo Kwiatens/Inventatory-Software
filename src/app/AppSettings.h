@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Versioned user-level application settings, stored outside inventory data.
 
 #pragma once
@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 struct AppSettings {
   int schemaVersion = 1;
@@ -33,4 +33,4 @@ std::filesystem::path appSettingsPath();
 bool loadAppSettings(const std::filesystem::path& path, AppSettings& settings);
 bool saveAppSettings(const std::filesystem::path& path, const AppSettings& settings);
 
-}  // namespace hims
+}  // namespace inventatory

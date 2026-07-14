@@ -21,7 +21,7 @@
 #include <vector>
 #endif
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -205,4 +205,4 @@ bool BleProvisioningService::provision(const BleProvisioningRequest& request, st
 #endif
 }
 
-}  // namespace hims
+}  // namespace inventatory

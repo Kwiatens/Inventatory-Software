@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Shared terminal UI formatting and inventory detail helpers.
 
 #pragma once
@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-namespace hims {
+namespace inventatory {
 
 using std::filesystem::path;
 using std::initializer_list;
@@ -106,5 +106,5 @@ vector<DetailField> stockPreviewFields(const InventoryItem& item, string rack = 
 vector<DetailField> detailCoreFields(const InventoryItem& item, string rack = {});
 ftxui::Element detailFieldLine(const DetailField& field, int width);
 
-}  // namespace hims
+}  // namespace inventatory
 

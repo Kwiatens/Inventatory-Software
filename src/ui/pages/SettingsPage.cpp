@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Central application settings workspace and staged configuration workflow.
 
 #include "App.h"
@@ -15,7 +15,7 @@
 
 #include <ftxui/component/screen_interactive.hpp>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -56,7 +56,7 @@ string App::settingsCategoryName(SettingsCategory category) const {
     case SettingsCategory::General: return "General / Data";
     case SettingsCategory::Printer: return "Printer";
     case SettingsCategory::QuickLabels: return "Quick Labels";
-    case SettingsCategory::HimsScan: return "HIMS Scan";
+    case SettingsCategory::InventatoryScan: return "Inventatory Scan";
     case SettingsCategory::DigiKey: return "DigiKey";
   }
   return {};
@@ -84,9 +84,9 @@ void App::beginSettingsEdit() {
   settingsDirty_ = false;
 }
 
-bool App::stageHimsFolder() {
+bool App::stageInventatoryFolder() {
   filesystem::path selected;
-  if (!openFolderDialog(selected, "Select HIMS data folder")) {
+  if (!openFolderDialog(selected, "Select Inventatory data folder")) {
     setMessage("Data folder selection cancelled", 2);
     return false;
   }
@@ -155,7 +155,7 @@ void App::beginSettingsFieldEdit(int field) {
                          ? settingsDraft_.quickLabelPresets[field]
                          : string();
       break;
-    case SettingsCategory::HimsScan:
+    case SettingsCategory::InventatoryScan:
       inputBuffer_ = field == 0 ? to_string(settingsDraft_.deviceServicePort) : string();
       break;
     case SettingsCategory::DigiKey:
@@ -186,7 +186,7 @@ void App::commitSettingsFieldEdit() {
     if (settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())) {
       settingsDraft_.quickLabelPresets[settingsField_] = preset;
     }
-  } else if (settingsCategory_ == SettingsCategory::HimsScan) {
+  } else if (settingsCategory_ == SettingsCategory::InventatoryScan) {
     if (settingsField_ == 0) {
       try {
         const auto port = stoi(inputBuffer_);
@@ -219,7 +219,7 @@ void App::commitSettingsFieldEdit() {
 
 bool App::saveSettingsDraft() {
   if (settingsDraft_.dataDirectory.empty()) {
-    setMessage("Choose a valid HIMS data directory", 4);
+    setMessage("Choose a valid Inventatory data directory", 4);
     return false;
   }
   error_code error;
@@ -243,7 +243,7 @@ bool App::saveSettingsDraft() {
     if (filesystem::exists(candidateDatabase, error)) {
       InventoryStore candidate;
       if (!candidate.load(candidateDatabase)) {
-        setMessage("The selected folder contains an inventory database HIMS cannot load", 5);
+        setMessage("The selected folder contains an inventory database Inventatory cannot load", 5);
         return false;
       }
     }
@@ -265,7 +265,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    setMessage("Unable to save HIMS settings", 5);
+    setMessage("Unable to save Inventatory settings", 5);
     return false;
   }
 
@@ -275,11 +275,11 @@ bool App::saveSettingsDraft() {
     inventoryPath_ = dataPath_ / "inventory.db";
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
-    himsScanConfigPath_ = dataPath_ / "hims_scan.conf";
+    inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
     ensureInventoryDatabaseCopied(inventoryPath_);
-    loadHimsScanConfig(himsScanConfigPath_, himsScanConfig_);
+    loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     loadState();
-    server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
+    server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
   }
 
   {
@@ -305,7 +305,7 @@ bool App::saveSettingsDraft() {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  setMessage(portChanged ? "Settings saved; restart HIMS to apply the device service port" : "Settings saved", 4);
+  setMessage(portChanged ? "Settings saved; restart Inventatory to apply the device service port" : "Settings saved", 4);
   return true;
 }
 
@@ -347,7 +347,7 @@ ftxui::Element App::renderSettingsUi() const {
   addCategory(SettingsCategory::Printer);
   addCategory(SettingsCategory::QuickLabels);
   categories.push_back(styledText(" DEVICES", uiDimColor()));
-  addCategory(SettingsCategory::HimsScan);
+  addCategory(SettingsCategory::InventatoryScan);
   categories.push_back(styledText(" INTEGRATIONS", uiDimColor()));
   addCategory(SettingsCategory::DigiKey);
 
@@ -362,9 +362,9 @@ ftxui::Element App::renderSettingsUi() const {
 
   if (settingsCategory_ == SettingsCategory::General) {
     rows.push_back(styledText("DATA STORAGE", uiSecondaryText()) | ftxui::bold);
-    rows.push_back(settingLine("HIMS folder", settingsDraft_.dataDirectory.string(), contentWidth));
+    rows.push_back(settingLine("Inventatory folder", settingsDraft_.dataDirectory.string(), contentWidth));
     rows.push_back(target(settingLine("Change folder", "Browse...", contentWidth), "settings.data.browse",
-                          UiTargetKind::Button, [self] { self->stageHimsFolder(); }));
+                          UiTargetKind::Button, [self] { self->stageInventatoryFolder(); }));
     rows.push_back(uiDivider());
     rows.push_back(styledText("APPLICATION", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Settings file", settingsPath_.string(), contentWidth));
@@ -376,7 +376,7 @@ ftxui::Element App::renderSettingsUi() const {
                             self->settingsDirty_ = true;
                             self->dirty_ = true;
                           }));
-    rows.push_back(styledText("When on, closing HIMS keeps Scan R1 ready in the notification area and starts HIMS at sign-in.",
+    rows.push_back(styledText("When on, closing Inventatory keeps Scan R1 ready in the notification area and starts Inventatory at sign-in.",
                               uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
@@ -467,7 +467,7 @@ ftxui::Element App::renderSettingsUi() const {
                settingsField_ >= 0 && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
     }));
     rows.push_back(styledText("Select a label to edit. A adds; X removes; [ ] changes order; T test-prints.", uiMutedText()));
-  } else if (settingsCategory_ == SettingsCategory::HimsScan) {
+  } else if (settingsCategory_ == SettingsCategory::InventatoryScan) {
     rows.push_back(styledText("SCAN R1 SERVICE", uiSecondaryText()) | ftxui::bold);
     const auto now = time(nullptr);
     const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
@@ -477,24 +477,24 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(target(settingLine("Service port", portValue, contentWidth, settingsEditingField_),
                           "settings.scan.port", UiTargetKind::Field,
                           [self] { self->beginSettingsFieldEdit(0); }));
-    rows.push_back(settingLine("Device", himsScanConfig_.deviceId.empty() ? "Not paired" : himsScanConfig_.deviceId,
+    rows.push_back(settingLine("Device", inventatoryScanConfig_.deviceId.empty() ? "Not paired" : inventatoryScanConfig_.deviceId,
                                contentWidth));
     rows.push_back(settingLine("Status", online ? "● online" : "× offline", contentWidth));
     rows.push_back(settingLine("Firmware", deviceFirmwareVersion_.empty() ? "n/a" : deviceFirmwareVersion_, contentWidth));
     rows.push_back(settingLine("RSSI", deviceLastSeen_ == 0 ? "n/a" : to_string(deviceRssi_) + " dBm", contentWidth));
     rows.push_back(settingLine("Last result", deviceLastResult_.empty() ? "n/a" : deviceLastResult_, contentWidth));
-    rows.push_back(settingLine("Pairing token", himsScanConfig_.token.empty() ? "Not configured"
+    rows.push_back(settingLine("Pairing token", inventatoryScanConfig_.token.empty() ? "Not configured"
                                                                               : "Configured · use Copy token",
                                contentWidth));
     rows.push_back(ftxui::hbox({
         target(styledText(" Copy token ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.scan.copy",
-               UiTargetKind::Button, [self] { self->copyHimsScanToken(); }),
+               UiTargetKind::Button, [self] { self->copyInventatoryScanToken(); }),
         ftxui::text("  "),
         target(styledText(" Regenerate ", uiWarnColor(), uiRaisedSurfaceBg()), "settings.scan.regenerate",
-               UiTargetKind::Button, [self] { self->regenerateHimsScanToken(); }),
+               UiTargetKind::Button, [self] { self->regenerateInventatoryScanToken(); }),
         ftxui::text("  "),
         target(styledText(" Clear device ", uiDangerColor(), uiRaisedSurfaceBg()), "settings.scan.clear",
-               UiTargetKind::Button, [self] { self->clearHimsScanPairing(); }),
+               UiTargetKind::Button, [self] { self->clearInventatoryScanPairing(); }),
     }));
     rows.push_back(uiDivider());
     rows.push_back(styledText("First-use connection is available from Home > Operations > Set up Scan R1.", uiMutedText()));
@@ -571,7 +571,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
     const auto ch = static_cast<char>(tolower(static_cast<unsigned char>(key.ch)));
     if (ch == 's' && settingsDirty_) saveSettingsDraft();
-    else if (ch == 'b' && settingsCategory_ == SettingsCategory::General) stageHimsFolder();
+    else if (ch == 'b' && settingsCategory_ == SettingsCategory::General) stageInventatoryFolder();
     else if (ch == 't' && settingsCategory_ == SettingsCategory::Printer) testStagedPrinter();
     else if (ch == 'a' && settingsCategory_ == SettingsCategory::QuickLabels) addQuickLabelPreset();
     else if (ch == 'x' && settingsCategory_ == SettingsCategory::QuickLabels) deleteQuickLabelPreset();
@@ -579,7 +579,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     else if (ch == ']' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(1);
     else if (ch == 't' && settingsCategory_ == SettingsCategory::QuickLabels) testQuickLabelPreset();
     else if (ch == 't' && settingsCategory_ == SettingsCategory::DigiKey) testStagedDigiKey();
-    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::QuickLabels || settingsCategory_ == SettingsCategory::HimsScan ||
+    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::QuickLabels || settingsCategory_ == SettingsCategory::InventatoryScan ||
                            settingsCategory_ == SettingsCategory::DigiKey)) beginSettingsFieldEdit(settingsField_);
     return;
   }
@@ -613,4 +613,4 @@ void App::handleSettingsKey(const KeyEvent& key) {
   }
 }
 
-}  // namespace hims
+}  // namespace inventatory

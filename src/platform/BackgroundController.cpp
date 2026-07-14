@@ -1,4 +1,4 @@
-// HIMS - Notification-area lifetime control for the background scanner service.
+// Inventatory - Notification-area lifetime control for the background scanner service.
 
 #define WIN32_LEAN_AND_MEAN
 #include "platform/BackgroundController.h"
@@ -8,13 +8,13 @@
 
 #include <string>
 
-namespace hims {
+namespace inventatory {
 
 namespace {
 
-constexpr wchar_t kWindowClass[] = L"HimsBackgroundControllerWindow";
-constexpr wchar_t kWindowTitle[] = L"HIMS Background Controller";
-constexpr wchar_t kMutexName[] = L"Local\\HIMSSoftware.SingleInstance";
+constexpr wchar_t kWindowClass[] = L"InventatoryBackgroundControllerWindow";
+constexpr wchar_t kWindowTitle[] = L"Inventatory Background Controller";
+constexpr wchar_t kMutexName[] = L"Local\\InventatorySoftware.SingleInstance";
 constexpr UINT kTrayMessage = WM_APP + 41;
 constexpr UINT kHideMessage = WM_APP + 42;
 constexpr UINT kStopMessage = WM_APP + 43;
@@ -48,8 +48,8 @@ LRESULT CALLBACK controllerWindowProc(HWND window, UINT message, WPARAM wParam, 
       }
       if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) {
         HMENU menu = CreatePopupMenu();
-        AppendMenuW(menu, MF_STRING, kOpenCommand, L"Open HIMS");
-        AppendMenuW(menu, MF_STRING, kQuitCommand, L"Quit HIMS");
+        AppendMenuW(menu, MF_STRING, kOpenCommand, L"Open Inventatory");
+        AppendMenuW(menu, MF_STRING, kQuitCommand, L"Quit Inventatory");
         POINT point{};
         GetCursorPos(&point);
         SetForegroundWindow(window);
@@ -150,8 +150,8 @@ void BackgroundController::hideConsole(bool notifyUser) {
       icon.hWnd = window;
       icon.uID = kTrayIconId;
       icon.uFlags = NIF_INFO;
-      wcscpy_s(icon.szInfoTitle, L"HIMS is still running");
-      wcscpy_s(icon.szInfo, L"HIMS remains available for Scan R1 in the notification area.");
+      wcscpy_s(icon.szInfoTitle, L"Inventatory is still running");
+      wcscpy_s(icon.szInfo, L"Inventatory remains available for Scan R1 in the notification area.");
       icon.dwInfoFlags = NIIF_INFO;
       Shell_NotifyIconW(NIM_MODIFY, &icon);
     }
@@ -189,7 +189,7 @@ void BackgroundController::trayThreadMain() {
   icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
   icon.uCallbackMessage = kTrayMessage;
   icon.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));  // IDI_APPLICATION
-  wcscpy_s(icon.szTip, L"HIMS Scan R1 service");
+  wcscpy_s(icon.szTip, L"Inventatory Scan R1 service");
   Shell_NotifyIconW(NIM_ADD, &icon);
 
   MSG message{};
@@ -200,4 +200,4 @@ void BackgroundController::trayThreadMain() {
   Shell_NotifyIconW(NIM_DELETE, &icon);
 }
 
-}  // namespace hims
+}  // namespace inventatory

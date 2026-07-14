@@ -1,4 +1,4 @@
-// HIMS - Hardware Inventory Management System
+// Inventatory - Hardware Inventory Management System
 // Zebra label generation and printer queue integration.
 
 #define WIN32_LEAN_AND_MEAN
@@ -26,7 +26,7 @@
 #pragma comment(lib, "Winspool.lib")
 #endif
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -1323,14 +1323,14 @@ vector<string> parameterLinesForItem(const InventoryItem& item) {
 }
 
 string makeJobName(const InventoryItem& item) {
-  const auto id = trim(item.himsId);
+  const auto id = trim(item.inventatoryId);
   if (!id.empty()) {
-    return "HIMS Label " + id;
+    return "Inventatory Label " + id;
   }
   if (!trim(item.partName).empty()) {
-    return "HIMS Label " + item.partName;
+    return "Inventatory Label " + item.partName;
   }
-  return "HIMS Label";
+  return "Inventatory Label";
 }
 
 string rackDisplayCategory(string value) {
@@ -1395,9 +1395,9 @@ string rackCategoryFieldData(const vector<string>& lines) {
   return output;
 }
 
-string makeRackJobName(const HimsRack& rack) {
+string makeRackJobName(const InventatoryRack& rack) {
   const auto code = trim(rack.code);
-  return code.empty() ? "HIMS Rack" : "HIMS Rack " + code;
+  return code.empty() ? "Inventatory Rack" : "Inventatory Rack " + code;
 }
 
 #ifdef _WIN32
@@ -1550,7 +1550,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
     DOC_INFO_1W doc{};
     const auto jobWide = widenFromUtf8(jobName);
     const auto rawWide = widenFromUtf8("RAW");
-    doc.pDocName = const_cast<LPWSTR>(jobWide.empty() ? L"HIMS Label" : jobWide.c_str());
+    doc.pDocName = const_cast<LPWSTR>(jobWide.empty() ? L"Inventatory Label" : jobWide.c_str());
     doc.pOutputFile = nullptr;
     doc.pDatatype = const_cast<LPWSTR>(rawWide.empty() ? L"RAW" : rawWide.c_str());
 
@@ -1687,8 +1687,8 @@ PrinterCheckResult LabelPrinterService::probeConfiguredPrinter() const {
   return backend_->probePrinter(configuredPrinter_);
 }
 
-HimsLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& item, string rackLocation) const {
-  HimsLabelPlan plan;
+InventatoryLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& item, string rackLocation) const {
+  InventatoryLabelPlan plan;
   const auto parameterLines = parameterLinesForItem(item);
   plan.categoryHeader = partContextHeader(item);
   plan.mainValue = mainLabelValue(item);
@@ -1703,10 +1703,10 @@ HimsLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& item, str
   if (parameterLines.size() > 2) {
     plan.parameterLine3 = parameterLines[2];
   }
-  plan.himsId = trim(item.himsId);
-  plan.scannerHint = buildVisibleHimsId(item);
+  plan.inventatoryId = trim(item.inventatoryId);
+  plan.scannerHint = buildVisibleInventatoryId(item);
   if (trim(plan.scannerHint).empty()) {
-    plan.scannerHint = shortCode(plan.himsId, 16);
+    plan.scannerHint = shortCode(plan.inventatoryId, 16);
   }
   plan.barcodeHint = normalizeMachineCode(item.machineCode);
   plan.rackLocation = trim(rackLocation);
@@ -1723,7 +1723,7 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   const auto parameterLine1 = fitSingleLineLabel(plan.parameterLine1, 24);
   const auto parameterLine2 = fitSingleLineLabel(plan.parameterLine2, 24);
   const auto parameterLine3 = fitSingleLineLabel(plan.parameterLine3, 24);
-  const auto scannerHint = fitSingleLineLabel(plan.scannerHint, 14);
+  const auto scannerHint = fitSingleLineLabel(plan.scannerHint, 22);
   const auto barcodeHint = fitSingleLineLabel(plan.barcodeHint, 14);
   const auto rackHint = fitSingleLineLabel(plan.rackLocation, 12);
   ostringstream out;
@@ -1739,7 +1739,7 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "^FX --- Header ---\r\n";
   out << "^FO5,0^GB180,24,24,B,6^FS\r\n";
   out << "^FO12,6^A0N,17,17^FR^FD" << sanitizeLabelText(categoryHeader) << "^FS\r\n";
-  out << "^FO200,6^A0N,17,17^FR^FDHIMS^FS\r\n";
+  out << "^FO200,6^A0N,17,17^FR^FDInventatory^FS\r\n";
   out << "\r\n";
 
   out << "^FX --- Main value ---\r\n";
@@ -1776,11 +1776,11 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "^FO170,60^BQN,2,3^FDLA," << sanitizeLabelText(barcodeHint) << "^FS\r\n";
   out << "\r\n";
 
-  out << "^FX --- Human readable HIMS ID ---\r\n";
-  out << "^FO162,173^A0N,13,13^FD" << sanitizeLabelText(scannerHint) << "^FS\r\n";
+  out << "^FX --- Human readable Inventatory ID ---\r\n";
+  out << "^FO56,173^A0N,10,10^FD" << sanitizeLabelText(scannerHint) << "^FS\r\n";
 
   if (!rackHint.empty()) {
-    out << "^FX --- HIMS rack location ---\r\n";
+    out << "^FX --- Inventatory rack location ---\r\n";
     out << "^FO10,173^A0N,18,18^FD" << sanitizeLabelText(rackHint) << "^FS\r\n";
   }
 
@@ -1843,14 +1843,14 @@ bool LabelPrinterService::printWireLabel(const string& text, string* error) cons
   return backend_->sendRawJob(configuredPrinter_, "Inventatory Wire Label", zpl, error);
 }
 
-HimsRackLabelPlan LabelPrinterService::buildRackLabelPlan(const HimsRack& rack) const {
-  HimsRackLabelPlan plan;
+InventatoryRackLabelPlan LabelPrinterService::buildRackLabelPlan(const InventatoryRack& rack) const {
+  InventatoryRackLabelPlan plan;
   plan.categoryText = rackDisplayCategory(rack.componentType);
   plan.rackText = rackLabelText(rack.code);
   return plan;
 }
 
-string LabelPrinterService::buildRackLabelZpl(const HimsRack& rack) const {
+string LabelPrinterService::buildRackLabelZpl(const InventatoryRack& rack) const {
   const auto plan = buildRackLabelPlan(rack);
   const auto categoryLines = rackCategoryLines(plan.categoryText);
   ostringstream out;
@@ -1865,7 +1865,7 @@ string LabelPrinterService::buildRackLabelZpl(const HimsRack& rack) const {
 
   out << "^FX --- Black header bar ---\r\n";
   out << "^FO4,4^GB248,28,28,B,5^FS\r\n";
-  out << "^FO12,11^A0N,16,16^FR^FDHIMS RACK^FS\r\n";
+  out << "^FO12,11^A0N,16,16^FR^FDInventatory RACK^FS\r\n";
   out << "\r\n";
 
   out << "^FX --- Main category text ---\r\n";
@@ -1889,7 +1889,7 @@ string LabelPrinterService::buildRackLabelZpl(const HimsRack& rack) const {
   return out.str();
 }
 
-bool LabelPrinterService::printRackLabel(const HimsRack& rack, string* error) const {
+bool LabelPrinterService::printRackLabel(const InventatoryRack& rack, string* error) const {
   if (backend_ == nullptr) {
     if (error != nullptr) {
       *error = "Printer backend unavailable";
@@ -1927,4 +1927,4 @@ string sanitizeLabelText(const string& value) {
   return sanitiseZplFragment(value);
 }
 
-}  // namespace hims
+}  // namespace inventatory

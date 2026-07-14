@@ -1,7 +1,7 @@
-// HIMS - Hardware Inventory Management System
-// Durable inbox and result delivery for HIMS Scan protocol v1.
+// Inventatory - Hardware Inventory Management System
+// Durable inbox and result delivery for Inventatory Scan protocol v1.
 
-#include "core/HimsScanProtocol.h"
+#include "core/InventatoryScanProtocol.h"
 
 #include "core/InventoryInternals.h"
 #include "core/InventorySqlite.h"
@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <ctime>
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -18,7 +18,7 @@ namespace {
 
 bool ensureDeviceSyncSchema(SqliteConnection& connection) {
   return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS hims_device_events (
+    CREATE TABLE IF NOT EXISTS inventatory_device_events (
       event_id TEXT PRIMARY KEY,
       device_id TEXT NOT NULL,
       event_type TEXT NOT NULL,
@@ -40,14 +40,14 @@ bool ensureDeviceSyncSchema(SqliteConnection& connection) {
       completed_at INTEGER NOT NULL DEFAULT 0
     )
   )SQL") && execSql(connection,
-      "CREATE INDEX IF NOT EXISTS idx_hims_device_events_delivery "
-      "ON hims_device_events(device_id, state, result_acknowledged, completed_at)");
+      "CREATE INDEX IF NOT EXISTS idx_inventatory_device_events_delivery "
+      "ON inventatory_device_events(device_id, state, result_acknowledged, completed_at)");
 }
 
 bool eventExists(SqliteConnection& connection, const string& eventId) {
   SqliteStatement statement;
   if (sqliteApi().prepare_v2(connection.db,
-      "SELECT 1 FROM hims_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt, nullptr) != SQLITE_OK) {
+      "SELECT 1 FROM inventatory_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt, nullptr) != SQLITE_OK) {
     return false;
   }
   sqliteApi().bind_text(statement.stmt, 1, eventId.c_str(), -1, SQLITE_TRANSIENT);
@@ -57,7 +57,7 @@ bool eventExists(SqliteConnection& connection, const string& eventId) {
 bool insertEvent(SqliteConnection& connection, const string& deviceId, const DeviceSyncEvent& event) {
   SqliteStatement statement;
   const char* sql = R"SQL(
-    INSERT OR IGNORE INTO hims_device_events
+    INSERT OR IGNORE INTO inventatory_device_events
       (event_id, device_id, event_type, event_code, event_value, received_at)
     VALUES (?, ?, ?, ?, ?, ?)
   )SQL";
@@ -74,7 +74,7 @@ bool insertEvent(SqliteConnection& connection, const string& deviceId, const Dev
 bool acknowledgeResult(SqliteConnection& connection, const string& deviceId, const string& resultId) {
   SqliteStatement statement;
   if (sqliteApi().prepare_v2(connection.db,
-      "UPDATE hims_device_events SET result_acknowledged=1 WHERE device_id=? AND result_id=?",
+      "UPDATE inventatory_device_events SET result_acknowledged=1 WHERE device_id=? AND result_id=?",
       -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
   sqliteApi().bind_text(statement.stmt, 1, deviceId.c_str(), -1, SQLITE_TRANSIENT);
   sqliteApi().bind_text(statement.stmt, 2, resultId.c_str(), -1, SQLITE_TRANSIENT);
@@ -84,9 +84,9 @@ bool acknowledgeResult(SqliteConnection& connection, const string& deviceId, con
 bool pruneAcknowledgedResults(SqliteConnection& connection, const string& deviceId) {
   SqliteStatement statement;
   const char* sql = R"SQL(
-    DELETE FROM hims_device_events
+    DELETE FROM inventatory_device_events
     WHERE device_id=? AND event_id IN (
-      SELECT event_id FROM hims_device_events
+      SELECT event_id FROM inventatory_device_events
       WHERE device_id=? AND state='completed' AND result_acknowledged=1
       ORDER BY completed_at DESC LIMIT -1 OFFSET 256
     )
@@ -104,7 +104,7 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
     SELECT result_id, event_id, result_status, result_existing, result_item_name,
            result_requested_delta, result_applied_delta, result_quantity, result_location,
            result_code, result_message
-    FROM hims_device_events
+    FROM inventatory_device_events
     WHERE device_id=? AND state='completed' AND result_acknowledged=0
     ORDER BY completed_at, received_at LIMIT ?
   )SQL";
@@ -175,7 +175,7 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
   SqliteStatement statement;
   const char* sql = R"SQL(
     SELECT event_id, event_type, event_code, event_value
-    FROM hims_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
+    FROM inventatory_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return events;
   sqliteApi().bind_int(statement.stmt, 1, static_cast<int>(limit));
@@ -208,7 +208,7 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
 
   SqliteStatement statement;
   constexpr char kLookupSql[] =
-      "SELECT part_name FROM hims_items "
+      "SELECT part_name FROM inventatory_items "
       "WHERE machine_code=? COLLATE NOCASE OR digikey_part_number=? COLLATE NOCASE "
       "OR sku=? COLLATE NOCASE LIMIT 1";
   if (sqliteApi().prepare_v2(connection.db, kLookupSql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
@@ -236,7 +236,7 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   // Finalize identifiers in the same snapshot that is committed and returned
   // to the application. InventoryStore::saveWithDeviceEvent() normalizes a
   // private copy, which is sufficient for SQLite but would otherwise leave a
-  // newly received item without its HIMS ID/machine code in live memory. The
+  // newly received item without its Inventatory ID/machine code in live memory. The
   // auto-label path prints from that live item immediately after this call.
   auto finalized = store;
   ensureInventoryIdentifiers(finalized.items());
@@ -259,4 +259,4 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   return true;
 }
 
-}  // namespace hims
+}  // namespace inventatory

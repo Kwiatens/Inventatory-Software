@@ -20,7 +20,7 @@
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Shell32.lib")
 
-namespace hims {
+namespace inventatory {
 
 using namespace std;
 
@@ -171,5 +171,5 @@ vector<string> localAddresses() {
   return addresses;
 }
 
-}  // namespace hims
+}  // namespace inventatory
 
