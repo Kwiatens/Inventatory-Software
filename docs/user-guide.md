@@ -38,7 +38,8 @@ restores the saved values. Printer and DigiKey tests use the staged values.
 
 The Quick Labels category owns up to twelve shared cable-flag texts. Add, edit, remove, reorder, test-print, then Save;
 the paired R1 receives the saved list during its next sync. Selecting a preset on the R1 prints immediately through the
-configured PC printer. Failed/offline device requests are not queued.
+configured PC printer. Each cable flag prints normally oriented text on both folded halves, with its font scaled to fit.
+Failed/offline device requests are not queued.
 
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
