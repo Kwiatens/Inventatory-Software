@@ -296,6 +296,9 @@ ftxui::Element App::renderSearchBarUi() const {
   if (inputMode_ == InputMode::Search) {
     contextTitle = "Search";
     contextText = "/" + inputBuffer_ + "_";
+  } else if (inputMode_ == InputMode::StockFilter) {
+    contextTitle = "Filters";
+    contextText = "Choose a stock modification-date filter";
   } else if (showsPrompt) {
     contextText = activePrompt() + inputBuffer_ + "_";
   } else {
@@ -306,6 +309,9 @@ ftxui::Element App::renderSearchBarUi() const {
       case Page::Stock:
         contextTitle = "Search";
         contextText = searchQuery_.empty() ? "/ type to filter" : "/" + searchQuery_;
+        if (stockDateFilter_ != StockDateFilter::All) {
+          contextText += " · " + stockDateFilterName(stockDateFilter_);
+        }
         break;
       case Page::Racks:
         contextTitle = "Rack filter";
@@ -436,6 +442,9 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::RackFilter:
       handleRackValueKey(key);
       return;
+    case InputMode::StockFilter:
+      handleStockFilterKey(key);
+      return;
     case InputMode::ActionSheet:
       handleActionSheetKey(key);
       return;
@@ -455,6 +464,13 @@ void App::handleKey(const KeyEvent& key) {
   // six-digit verification code must never be interpreted as global shortcuts.
   if (page_ == Page::ScanSetup) {
     handleHimsScanSetupKey(key);
+    return;
+  }
+
+  // Delete confirmation is modal. Route Enter/Escape to the confirmation
+  // handler before the normal focus system can activate an underlying target.
+  if (page_ == Page::Stock && deleteConfirmationActive()) {
+    handleStockKey(key);
     return;
   }
 

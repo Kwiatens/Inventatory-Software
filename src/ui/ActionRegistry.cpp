@@ -89,6 +89,7 @@ vector<App::Action> App::currentActions() const {
       add(autoPrintScannedLabels_ ? "auto-label off" : "auto-label on", "Print", "P", chr('P'),
           [self] { self->toggleAutoPrintScannedLabels(); });
       add("racks", "Go", "m", chr('m'), [self] { self->openRackManagement(); });
+      add("filters", "View", "f", chr('f'), [self] { self->openStockFilterPanel(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
       add("reload", "System", "r", chr('r'), [self, reloadInventory] {
         reloadInventory();
@@ -106,6 +107,9 @@ vector<App::Action> App::currentActions() const {
       // 'v' (not space): space is the global action-sheet key.
       add("place / move", "Slot", "v", chr('v'), [self] { self->beginOrCompleteRackMove(); });
       add("part label", "Slot", "p", chr('p'), [self] { self->printSelectedRackPartLabel(); });
+      add("part minus one", "Slot", "-", chr('-'), [self] { self->adjustSelectedRackItemQuantity(-1); });
+      add("part plus one", "Slot", "+", chr('+'), [self] { self->adjustSelectedRackItemQuantity(1); });
+      add("part details", "Slot", "Enter", special(KeyType::Enter), [self] { self->openSelectedRackItemDetail(); });
       add("unassign", "Slot", "u", chr('u'), [self] { self->unassignSelectedRackItem(); });
       add("auto-assign", "Slot", "a", chr('a'), [self] { self->autoAssignSelectedRackItem(); });
       add("prev rack", "Racks", "[", chr('['), [self] { self->moveRackPage(-1); });
