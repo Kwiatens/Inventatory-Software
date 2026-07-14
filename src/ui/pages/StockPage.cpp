@@ -344,7 +344,7 @@ void App::handleStockKey(const KeyEvent& key) {
       return;
     }
     if (ch == 'q') {
-      running_ = false;
+      requestUserExit();
       return;
     }
   }

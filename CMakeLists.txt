@@ -33,6 +33,7 @@ add_executable(hims
   src/app/AppBootstrap.cpp
   src/app/AppActions.cpp
   src/app/AppSettings.cpp
+  src/platform/StartupRegistration.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
   src/core/PartDescriptor.cpp
@@ -51,6 +52,7 @@ add_executable(hims
   src/platform/MdnsService.cpp
   src/platform/DigiKeyApi.cpp
   src/platform/Console.cpp
+  src/platform/BackgroundController.cpp
   src/platform/CredentialStore.cpp
   src/platform/BleProvisioningService.cpp
   src/ui/shared/AppUiShared.cpp
@@ -76,6 +78,7 @@ target_link_libraries(hims PRIVATE ftxui::screen ftxui::dom ftxui::component)
 add_executable(hims_tests
   tests/hims_tests.cpp
   src/app/AppSettings.cpp
+  src/platform/StartupRegistration.cpp
   src/import/DigiKeyCsvImport.cpp
   src/ui/shared/AppUiShared.cpp
   src/core/Inventory.cpp
