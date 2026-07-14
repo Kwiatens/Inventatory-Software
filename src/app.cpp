@@ -5,11 +5,13 @@
 
 #include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
+#include "platform/StartupRegistration.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <windows.h>
 
 #include <algorithm>
 #include <chrono>
@@ -90,8 +92,10 @@ KeyEvent translateEvent(const ftxui::Event& event) {
   return {KeyType::Unknown, '\0'};
 }
 
-App::App()
-    : root_(filesystem::current_path()),
+App::App(bool startInBackground, BackgroundController& backgroundController)
+    : backgroundController_(backgroundController),
+      startInBackground_(startInBackground),
+      root_(filesystem::current_path()),
       settingsPath_(appSettingsPath()),
       dataPath_(discoverHimsDataPath()),
       inventoryPath_(dataPath_ / "inventory.db"),
@@ -129,6 +133,33 @@ App::App()
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     printerCheck_ = printerService_.probeConfiguredPrinter();
+  }
+  if (!startInBackground_ && !settings_.backgroundConsentAsked) {
+    settings_.backgroundConsentAsked = true;
+    bool startupWasEnabled = false;
+    const int choice = MessageBoxA(nullptr,
+                                   "Keep HIMS available for Scan R1 after you close the terminal and start it when you sign in to Windows?\n\n"
+                                   "You can change this later in Settings. This is off by default.",
+                                   "Run HIMS in the background", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+    if (choice == IDYES) {
+      string error;
+      if (setBackgroundStartupEnabled(true, error)) {
+        settings_.backgroundServiceEnabled = true;
+        startupWasEnabled = true;
+      } else {
+        setMessage("Background startup was not enabled: " + error, 6);
+      }
+    }
+    settingsDraft_ = settings_;
+    if (!saveAppSettings(settingsPath_, settings_)) {
+      if (startupWasEnabled) {
+        string ignored;
+        setBackgroundStartupEnabled(false, ignored);
+        settings_.backgroundServiceEnabled = false;
+        settingsDraft_ = settings_;
+      }
+      setMessage("Unable to save background-service preference", 5);
+    }
   }
   server_.setDeviceCredentials(himsScanConfig_.deviceId, himsScanConfig_.token);
 
@@ -377,11 +408,19 @@ ftxui::Element App::renderMessageUi() const {
 int App::run() {
   running_ = true;
   auto screen = ftxui::ScreenInteractive::Fullscreen();
+  backgroundController_.start(settings_.backgroundServiceEnabled, startInBackground_, [this] {
+    backgroundQuitRequested_.store(true);
+  });
   screen.ForceHandleCtrlZ(false);
   screen.TrackMouse();
   auto renderer = ftxui::Renderer([this] { return renderUi(); });
   auto component = ftxui::CatchEvent(renderer, [this, &screen](ftxui::Event event) {
     if (event == ftxui::Event::Custom) {
+      if (backgroundQuitRequested_.exchange(false)) {
+        running_ = false;
+        screen.ExitLoopClosure()();
+        return true;
+      }
       processScans();
       processDeviceRequests();
       processDeviceSyncEvents();
@@ -419,9 +458,18 @@ int App::run() {
     ticker.join();
   }
   saveState();
+  backgroundController_.stop();
   mdnsService_.stop();
   server_.stop();
   return 0;
+}
+
+void App::requestUserExit() {
+  if (backgroundController_.enabled()) {
+    backgroundController_.hideConsole(true);
+  } else {
+    running_ = false;
+  }
 }
 
 void App::handleKey(const KeyEvent& key) {

@@ -74,7 +74,7 @@ vector<App::Action> App::currentActions() const {
         reloadInventory();
         self->setMessage("Inventory reloaded from the database", 2);
       });
-      add("quit", "System", "q", chr('q'), [self] { self->running_ = false; });
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 
     case Page::Stock:
@@ -100,7 +100,7 @@ vector<App::Action> App::currentActions() const {
       if (hasItem)
         add("delete", "System", "Ctrl+Bksp", special(KeyType::CtrlBackspace),
             [self] { self->armDeleteConfirmation(); });
-      add("quit", "System", "q", chr('q'), [self] { self->running_ = false; });
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 
     case Page::Racks:
@@ -146,7 +146,7 @@ vector<App::Action> App::currentActions() const {
         self->undoLastInventoryChange();
         self->syncRackSelection();
       });
-      add("quit", "System", "q", chr('q'), [self] { self->running_ = false; });
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 
     case Page::Settings:
@@ -191,7 +191,7 @@ vector<App::Action> App::currentActions() const {
         add("save settings", "Changes", "s", chr('s'), [self] { self->saveSettingsDraft(); });
         add("discard changes", "Changes", "Esc", special(KeyType::Escape), [self] { self->cancelSettingsDraft(); });
       }
-      add("quit", "System", "q", chr('q'), [self] { self->running_ = false; });
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 
     case Page::Import:

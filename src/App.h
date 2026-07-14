@@ -10,6 +10,7 @@
 #include "label_printer/LabelPrinter.h"
 #include "platform/Console.h"
 #include "platform/BleProvisioningService.h"
+#include "platform/BackgroundController.h"
 #include "platform/HttpServer.h"
 #include "platform/MdnsService.h"
 
@@ -18,6 +19,7 @@
 #include <ftxui/screen/box.hpp>
 
 #include <cstddef>
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -41,7 +43,7 @@ std::filesystem::path locateDotEnvFile();
 
 class App {
  public:
-  App();
+  App(bool startInBackground, BackgroundController& backgroundController);
   int run();
 
  private:
@@ -198,6 +200,7 @@ class App {
   void setMessage(std::string text, int seconds = 3);
   bool messageVisible() const;
   void clearMessageIfExpired();
+  void requestUserExit();
   void markDirty();
   void refreshPrinterState();
   void openPrinterSetup();
@@ -320,6 +323,8 @@ class App {
   std::vector<PrinterQueueInfo> printerQueues_;
   PrinterCheckResult printerCheck_;
   LocalHttpServer server_;
+  BackgroundController& backgroundController_;
+  bool startInBackground_ = false;
   BleProvisioningService bleProvisioning_;
   MdnsService mdnsService_;
   std::filesystem::path root_;
@@ -374,6 +379,7 @@ class App {
   size_t deviceDebugScroll_ = 0;
   bool deviceDebugFollow_ = true;
   bool running_ = true;
+  std::atomic<bool> backgroundQuitRequested_{false};
   bool dirty_ = true;
   WorkingCopy workingCopy_;
   UndoSnapshot undoSnapshot_;
