@@ -75,6 +75,13 @@ Tests:
 .\build\Debug\hims_tests.exe
 ```
 
+After verification, please build the software - so the user can test it on their own:
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Release
+```
+
 ## Required Agent Workflow
 
 After each finished change, always:
