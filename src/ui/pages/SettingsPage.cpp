@@ -378,6 +378,23 @@ ftxui::Element App::renderSettingsUi() const {
                           }));
     rows.push_back(styledText("When on, closing Inventatory keeps Scan R1 ready in the notification area and starts Inventatory at sign-in.",
                               uiMutedText()));
+    rows.push_back(uiDivider());
+    rows.push_back(styledText("PRIVATE BETA UPDATES", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
+                          "settings.general.updates", UiTargetKind::Field, [self] {
+                            self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
+                            self->settingsDirty_ = true;
+                            self->dirty_ = true;
+                          }));
+    const auto available = settings_.latestAvailableVersion.empty() ? "Up to date" : "Version " + settings_.latestAvailableVersion + " available";
+    rows.push_back(settingLine("Release status", available, contentWidth));
+    rows.push_back(target(styledText(" Check now ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.general.check_updates",
+                          UiTargetKind::Button, [self] {
+                            self->settings_.lastUpdateCheckUnixSeconds = 0;
+                            self->beginUpdateCheckIfDue();
+                            self->setMessage("Checking the private beta release...", 4);
+                          }));
+    rows.push_back(styledText("Checks use your authenticated GitHub CLI session; no inventory or device data is sent.", uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Configured queue",
