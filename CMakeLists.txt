@@ -77,7 +77,11 @@ add_executable(inventatory
 )
 
 target_include_directories(inventatory PRIVATE src)
-target_compile_definitions(inventatory PRIVATE Inventatory_VERSION_STRING="${INVENTATORY_VERSION}")
+target_compile_definitions(inventatory PRIVATE
+  Inventatory_VERSION_STRING="${INVENTATORY_VERSION}"
+  # GitHub's current MSVC toolset still needs WinRT's legacy coroutine header.
+  _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+)
 
 if(WIN32)
   target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
