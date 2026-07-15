@@ -11,12 +11,17 @@
 namespace inventatory {
 
 struct AppSettings {
-  int schemaVersion = 1;
+  int schemaVersion = 2;
+  int completedOnboardingVersion = 0;
   std::filesystem::path dataDirectory;
   std::string printerQueue;
   bool autoPrintScannedLabels = true;
   bool backgroundServiceEnabled = false;
   bool backgroundConsentAsked = false;
+  bool updateChecksEnabled = true;
+  std::int64_t lastUpdateCheckUnixSeconds = 0;
+  std::string latestAvailableVersion;
+  std::string latestReleaseUrl;
   std::uint16_t deviceServicePort = 8080;
   std::string digiKeyClientId;
   std::string digiKeyAccountId;
