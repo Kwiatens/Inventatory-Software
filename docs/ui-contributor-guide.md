@@ -26,10 +26,10 @@ route, and every accelerator must remain discoverable on screen or in Actions.
 
 ## Color and layout
 
-Use semantic Instrument Blue helpers rather than literal RGB values. Blue is
-for interaction/focus; semantic colors are for state. Use one surface for normal
-rows and reserve hover/selection backgrounds for interaction. Prefer alignment
-and a single dim divider over windows nested inside windows.
+Use semantic Graphite / Turquoise helpers rather than literal RGB values.
+Turquoise is for interaction/focus; semantic colors are for state. Use one
+surface for normal rows and reserve hover/selection backgrounds for interaction.
+Prefer alignment and a single dim divider over windows nested inside windows.
 
 ## Settings and secrets
 

@@ -26,26 +26,27 @@ device service; UI copy calls this the R1 service rather than a generic bridge.
 The minimum supported terminal is 100 by 30 cells. Smaller terminals show a
 resize notice instead of a clipped interface.
 
-## Instrument Blue palette
+## Graphite / Turquoise palette
 
 | Role | RGB / hex | Use |
 |---|---|---|
-| Canvas | `16,22,26` / `#10161A` | Application background |
-| Surface | `21,29,34` / `#151D22` | Tables and content |
-| Raised | `26,36,42` / `#1A242A` | Controls and overlays |
-| Hover | `32,44,51` / `#202C33` | Mouse hover |
-| Selection | `25,57,74` / `#19394A` | Current row/cell/field |
-| Divider | `44,57,64` / `#2C3940` | Necessary separators |
-| Primary text | `216,226,231` / `#D8E2E7` | Important content |
-| Secondary text | `170,184,191` / `#AAB8BF` | Labels |
-| Muted text | `126,141,149` / `#7E8D95` | Hints/inactive data |
-| Interactive | `98,169,209` / `#62A9D1` | Links and actions |
-| Focus | `138,200,232` / `#8AC8E8` | Active focus |
-| Success | `111,190,140` / `#6FBE8C` | Ready/completed |
-| Warning | `213,164,79` / `#D5A44F` | Attention/low stock |
-| Danger | `219,116,112` / `#DB7470` | Error/destructive/out |
+| Canvas | `12,14,15` / `#0C0E0F` | Application background |
+| Surface | `19,22,25` / `#131619` | Tables and content |
+| Raised | `28,32,36` / `#1C2024` | Controls and overlays |
+| Hover | `37,43,48` / `#252B30` | Mouse hover |
+| Selection | `18,61,64` / `#123D40` | Current row/cell/field |
+| Divider | `51,57,61` / `#33393D` | Necessary separators |
+| Primary text | `241,243,243` / `#F1F3F3` | Important content |
+| Secondary text | `198,202,203` / `#C6CACB` | Labels |
+| Muted text | `141,148,151` / `#8D9497` | Hints/inactive data |
+| Interactive | `73,212,203` / `#49D4CB` | Actions and brand cues |
+| Focus | `140,237,230` / `#8CEDE6` | Active focus |
+| Link | `114,199,238` / `#72C7EE` | External links |
+| Success | `117,199,147` / `#75C793` | Ready/completed |
+| Warning | `216,160,75` / `#D8A04B` | Attention/low stock |
+| Danger | `220,116,107` / `#DC746B` | Error/destructive/out |
 
-Blue means interactive, active, or focused. Ordinary headings are neutral.
+Turquoise means interactive, active, or focused. Ordinary headings are neutral.
 Green, amber, and red are reserved for real state and are always accompanied by
 a word or glyph. Normal rows share one surface; hover and selection provide the
 only background changes.
@@ -73,21 +74,28 @@ required.
 
 ### Home
 
-An operational overview: inventory health, attention items, recent activity,
-scanner/printer/device state, and direct next steps. It is not a grid of setup
-cards.
+An operational overview with a compact operations row, a horizontal health
+strip, a compact auto-rotating stock-status list beside recent activity, and
+system state. It is not a grid of setup cards. Out-of-stock part text in the
+Home stock-status list flashes its red highlight so urgent shortages stand out.
 
 ### Stock
 
 One split workspace owns browsing, complete details, links, quantity changes,
-printing, creation, and non-modal editing. The inventory list remains visible
-while editing. Save commits the entire working copy; Escape cancels it.
+printing, creation, and non-modal editing. Detail information is ordered by
+decision value: name and description, electrical/rack/quantity essentials,
+full electrical parameters, inventory identity, references, then notes. The
+inventory list remains visible while editing. Save commits the entire working
+copy; Escape cancels it.
 
 ### Racks
 
 Rack list, 5x5 grid, and slot detail share one surface with subtle dividers.
-Rows and cells are clickable. Place/Move is the primary control; administrative
-operations remain in Actions.
+Every occupied slot wraps its part name and shows a color-coded quantity
+highlight. The slot label is centered at the top of its cell. Rows and cells
+are clickable. Place/Move is the primary control; slot controls are anchored
+at the bottom of the detail panel and administrative operations remain in
+Actions.
 
 ### Import
 
@@ -108,7 +116,7 @@ Windows Credential Manager, never in `settings.conf`.
 - Use a divider only between major functional regions.
 - Controls are compact text labels on a raised surface, not decorative cards.
 - Tables use fixed columns and right-aligned numbers.
-- Selection combines a blue background, focus-colored text, and a marker.
+- Selection combines a dark turquoise background, focus-colored text, and a marker.
 - Messages never stack; the newest message replaces the previous one.
 - Confirmations use a raised surface, explicit danger text, and an unlock step
   where accidental activation would be costly.
