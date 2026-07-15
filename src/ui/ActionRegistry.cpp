@@ -64,7 +64,7 @@ vector<App::Action> App::currentActions() const {
   };
   switch (page_) {
     case Page::Home:
-      add("stock", "Go", "1", chr('1'), [self] { self->changePage(Page::Stock); });
+      add("stock", "Go", "2", chr('2'), [self] { self->changePage(Page::Stock); });
       add("racks", "Go", "3", chr('3'), [self] { self->openRackManagement(); });
       add("settings", "Go", "5", chr('5'), [self] { self->openSettings(); });
       add("add part", "Create", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });

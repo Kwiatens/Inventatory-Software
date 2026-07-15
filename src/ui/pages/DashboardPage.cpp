@@ -6,7 +6,6 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
 #include <string>
 #include <unordered_set>
@@ -70,20 +69,6 @@ ftxui::Color attentionColor(AttentionSeverity severity) {
   if (severity == AttentionSeverity::Data || severity == AttentionSeverity::Out) return uiDangerColor();
   if (severity == AttentionSeverity::Low) return uiWarnColor();
   return uiLinkColor();
-}
-
-long long currentTickMs() {
-  return chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now().time_since_epoch()).count();
-}
-
-size_t animatedOffset(size_t size, int periodMs) {
-  if (size == 0 || periodMs <= 0) return 0;
-  return static_cast<size_t>((currentTickMs() / periodMs) % static_cast<long long>(size));
-}
-
-bool pulseOn(int periodMs) {
-  if (periodMs <= 0) return true;
-  return ((currentTickMs() / periodMs) % 2) == 0;
 }
 
 ftxui::Element metricCard(const string& label, size_t value, ftxui::Color valueColor) {
@@ -150,8 +135,11 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
     const bool duplicateId = !seenIds.insert(item.id).second;
     const bool dataError = duplicateId || item.quantity < 0 || item.reorderThreshold < 0;
     const bool outOfStock = item.quantity <= 0;
-    const int threshold = categoryLowStockThreshold(item.category);
-    const bool lowStock = item.quantity > 0 && item.quantity <= threshold;
+    // A zero threshold deliberately means that this item has no configured
+    // reorder alert. The dashboard must use the same per-item rule shown in
+    // the detail pane, rather than silently substituting a category default.
+    const int threshold = item.reorderThreshold;
+    const bool lowStock = item.quantity > 0 && item.lowStock();
 
     snapshot.dataErrorCount += dataError ? 1 : 0;
     snapshot.outOfStockCount += outOfStock ? 1 : 0;
@@ -270,7 +258,7 @@ ftxui::Element App::renderDashboardUi() const {
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 30;
   const bool deviceConnected = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight / 4));
+  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 10));
   auto snapshot = buildDashboardSnapshot(store_.items(), activities_, server_.running(), deviceConnected, recentLimit);
 
   if (snapshot.devices.size() > 1) {
@@ -309,33 +297,28 @@ ftxui::Element App::renderDashboardUi() const {
       metricCard("PENDING SYNC", snapshot.unsyncedCount, snapshot.unsyncedCount > 0 ? uiLinkColor() : uiSuccessColor()),
   });
 
+  const int alertWidth = max(50, (screenWidth - 1) / 2);
+  const int activityWidth = max(50, screenWidth - alertWidth - 1);
+  const int activityTextWidth = max(30, activityWidth - 4);
   ftxui::Elements activityRows;
   if (snapshot.recentEvents.empty()) {
     activityRows.push_back(styledText("No activity yet.", uiMutedColor()));
   } else {
     for (const auto& entry : snapshot.recentEvents) {
       activityRows.push_back(styledText(
-          ellipsize(nowTimestampString(entry.timestamp) + "  " + entry.kind + "  " + entry.message, 48),
+          ellipsize(nowTimestampString(entry.timestamp) + "  " + entry.kind + "  " + entry.message,
+                    static_cast<size_t>(activityTextWidth)),
           recentEventColor(entry)));
     }
   }
   auto recentPanel = panel("RECENT ACTIVITY", move(activityRows), uiSecondaryText(), uiDividerColor()) | ftxui::flex;
 
-  ftxui::Elements deviceRows;
-  for (size_t index = 0; index < snapshot.devices.size(); ++index) {
-    deviceRows.push_back(deviceRow(snapshot.devices[index]));
-    if (index + 1 < snapshot.devices.size()) deviceRows.push_back(uiDivider());
-  }
-  auto systemsPanel = panel("SYSTEMS", move(deviceRows), uiSecondaryText(), uiDividerColor());
-
-  const int alertWidth = max(50, (screenWidth - 1) / 2);
-  const int activityWidth = max(50, screenWidth - alertWidth - 1);
-  const auto attentionOffset = animatedOffset(snapshot.attention.size(), 1000);
-  auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 9, attentionOffset, pulseOn(500)) |
+  // Keep the alert list stable. Inventory triage needs a predictable start
+  // point, not a timer-driven carousel that can move a critical row away.
+  auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 9, 0, true) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, alertWidth);
-  auto activitySide = ftxui::vbox({recentPanel, uiDivider(), systemsPanel}) |
-                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityWidth) | ftxui::flex;
-  auto mainContent = ftxui::hbox({queue, uiDivider(), activitySide});
+  auto activitySide = recentPanel | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityWidth) | ftxui::flex;
+  auto mainContent = ftxui::hbox({queue, uiDivider(), activitySide}) | ftxui::flex;
 
   return ftxui::vbox({operations, uiDivider(), metrics, uiDivider(), mainContent}) |
          ftxui::bgcolor(uiCanvasBg());
