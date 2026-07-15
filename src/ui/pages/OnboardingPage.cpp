@@ -1,4 +1,4 @@
-// Inventatory - Skippable first-run setup for fresh Windows installs.
+// Inventatory - Focused first-run terminal setup for fresh Windows installs.
 
 #include "App.h"
 
@@ -19,10 +19,8 @@ string onboardingStepName(int step) {
     case 0: return "Welcome";
     case 1: return "Data folder";
     case 2: return "Background service";
-    case 3: return "Printer";
-    case 4: return "Scan R1";
-    case 5: return "DigiKey";
-    case 6: return "Complete";
+    case 3: return "Scan R1";
+    case 4: return "Complete";
   }
   return {};
 }
@@ -49,15 +47,14 @@ void App::finishOnboarding() {
 ftxui::Element App::renderOnboardingUi() const {
   ftxui::Elements rows;
   rows.push_back(styledText("$ inventatory first-run setup", uiSuccessColor()) | ftxui::bold);
-  rows.push_back(styledText("Step: " + onboardingStepName(static_cast<int>(onboardingStep_)) + "  |  Optional choices can be skipped and changed later.",
-                            uiMutedText()));
+  rows.push_back(styledText("step> " + onboardingStepName(static_cast<int>(onboardingStep_)), uiMutedText()));
   rows.push_back(uiDivider());
 
   switch (onboardingStep_) {
     case OnboardingStep::Welcome:
       rows.push_back(styledText("Welcome to Inventatory.", uiTitleColor()) | ftxui::bold);
-      rows.push_back(ftxui::text("Inventatory stores your inventory locally and can keep Scan R1 available in the background."));
-      rows.push_back(ftxui::text("Press Enter to begin."));
+      rows.push_back(ftxui::text("Your inventory stays on this PC. Optional features can be configured later."));
+      rows.push_back(styledText("> Press Enter to begin", uiLinkColor()));
       break;
     case OnboardingStep::DataFolder:
       rows.push_back(styledText("Inventory data folder", uiAccentColor()) | ftxui::bold);
@@ -65,34 +62,24 @@ ftxui::Element App::renderOnboardingUi() const {
       rows.push_back(ftxui::text("Enter keeps this location. Press B to choose another folder."));
       break;
     case OnboardingStep::BackgroundService:
-      rows.push_back(styledText("Keep Inventatory ready for Scan R1?", uiAccentColor()) | ftxui::bold);
-      rows.push_back(ftxui::text("When enabled, Inventatory starts for this Windows user and stays in the notification area after the terminal closes."));
+      rows.push_back(styledText("Keep Inventatory running in the background?", uiAccentColor()) | ftxui::bold);
+      rows.push_back(ftxui::text("When enabled, Inventatory starts when you sign in and remains available in the notification area after this terminal closes."));
       rows.push_back(styledText("Y enables it  |  N keeps it off (default)", uiLinkColor()));
       break;
-    case OnboardingStep::Printer:
-      rows.push_back(styledText("Optional printer", uiAccentColor()) | ftxui::bold);
-      rows.push_back(ftxui::text(printerQueues_.empty() ? "No printers were detected." : "Press P to use the first detected printer: " + printerQueues_.front().name));
-      rows.push_back(styledText("Enter skips this step. You can select and test a printer later in Settings.", uiMutedText()));
-      break;
     case OnboardingStep::ScanR1:
-      rows.push_back(styledText("Optional Scan R1 pairing", uiAccentColor()) | ftxui::bold);
-      rows.push_back(ftxui::text("Press S to start encrypted Bluetooth and Wi-Fi provisioning now."));
-      rows.push_back(styledText("Enter skips it. Home > Set up Scan R1 remains available later.", uiMutedText()));
-      break;
-    case OnboardingStep::DigiKey:
-      rows.push_back(styledText("Optional DigiKey credentials", uiAccentColor()) | ftxui::bold);
-      rows.push_back(ftxui::text("DigiKey enrichment is optional. Credentials are kept in Windows Credential Manager."));
-      rows.push_back(styledText("Press D to configure them in Settings now, or Enter to skip.", uiMutedText()));
+      rows.push_back(styledText("Do you have a hardware Inventatory Scan R1 scanning device?", uiAccentColor()) | ftxui::bold);
+      rows.push_back(ftxui::text("The Scan R1 is an optional handheld device that scans parts into this Inventatory PC."));
+      rows.push_back(styledText("Y starts Scan R1 setup now  |  N continues without one", uiLinkColor()));
       break;
     case OnboardingStep::Complete:
       rows.push_back(styledText("Your Inventatory workspace is ready.", uiSuccessColor()) | ftxui::bold);
-      rows.push_back(ftxui::text("You can revisit printer, Scan R1, DigiKey, startup, data location, and update settings at any time."));
+      rows.push_back(ftxui::text("You can configure printers, Scan R1, vendor integrations, startup, and data location later in Settings."));
       rows.push_back(styledText("Press Enter to open the dashboard.", uiLinkColor()));
       break;
   }
 
   rows.push_back(ftxui::filler());
-  return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg());
+  return ftxui::vbox(move(rows)) | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
 }
 
 void App::handleOnboardingKey(const KeyEvent& key) {
@@ -124,28 +111,11 @@ void App::handleOnboardingKey(const KeyEvent& key) {
         if (saveSettingsDraft()) advanceOnboarding();
       }
       return;
-    case OnboardingStep::Printer:
-      if (ch == 'p' && !printerQueues_.empty()) {
-        settingsDraft_ = settings_;
-        settingsDraft_.printerQueue = printerQueues_.front().name;
-        if (saveSettingsDraft()) advanceOnboarding();
-      } else if (key.type == KeyType::Enter) {
-        advanceOnboarding();
-      }
-      return;
     case OnboardingStep::ScanR1:
-      if (ch == 's') {
+      if (ch == 'y') {
         returnToOnboardingAfterScan_ = true;
         openInventatoryScanSetup();
-      } else if (key.type == KeyType::Enter) {
-        advanceOnboarding();
-      }
-      return;
-    case OnboardingStep::DigiKey:
-      if (ch == 'd') {
-        finishOnboarding();
-        openSettings(SettingsCategory::DigiKey);
-      } else if (key.type == KeyType::Enter) {
+      } else if (ch == 'n') {
         advanceOnboarding();
       }
       return;
