@@ -539,7 +539,7 @@ ftxui::Element App::renderSettingsUi() const {
       target(styledText(" Cancel ", settingsDirty_ ? uiSecondaryText() : uiMutedText(), uiRaisedSurfaceBg()),
              "settings.cancel", UiTargetKind::Button, [self] { self->cancelSettingsDraft(); }, settingsDirty_),
       ftxui::filler(),
-      styledText("Tab focus  Enter activate  Space actions", uiMutedText()),
+      styledText("↑↓ categories  j/k lists  Tab focus  Enter activate", uiMutedText()),
   }));
 
   return ftxui::hbox({
@@ -581,6 +581,16 @@ void App::handleSettingsKey(const KeyEvent& key) {
     else if (ch == 't' && settingsCategory_ == SettingsCategory::DigiKey) testStagedDigiKey();
     else if (ch == 'e' && (settingsCategory_ == SettingsCategory::QuickLabels || settingsCategory_ == SettingsCategory::InventatoryScan ||
                            settingsCategory_ == SettingsCategory::DigiKey)) beginSettingsFieldEdit(settingsField_);
+    if (ch != 'j' && ch != 'k') return;
+    if (settingsCategory_ == SettingsCategory::QuickLabels) {
+      if (ch == 'j' && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())) ++settingsField_;
+      if (ch == 'k' && settingsField_ > 0) --settingsField_;
+      dirty_ = true;
+    } else if (settingsCategory_ == SettingsCategory::Printer) {
+      if (ch == 'j' && printerSelection_ + 1 < printerQueues_.size()) ++printerSelection_;
+      if (ch == 'k' && printerSelection_ > 0) --printerSelection_;
+      dirty_ = true;
+    }
     return;
   }
 
@@ -593,19 +603,15 @@ void App::handleSettingsKey(const KeyEvent& key) {
     settingsField_ = 0;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
-  } else if (key.type == KeyType::Up && settingsCategory_ == SettingsCategory::QuickLabels && settingsField_ > 0) {
-    --settingsField_;
+  } else if (key.type == KeyType::Up) {
+    settingsCategory_ = static_cast<SettingsCategory>(max(0, static_cast<int>(settingsCategory_) - 1));
+    settingsField_ = 0;
+    if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
-  } else if (key.type == KeyType::Down && settingsCategory_ == SettingsCategory::QuickLabels &&
-             settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())) {
-    ++settingsField_;
-    dirty_ = true;
-  } else if (key.type == KeyType::Up && settingsCategory_ == SettingsCategory::Printer && printerSelection_ > 0) {
-    --printerSelection_;
-    dirty_ = true;
-  } else if (key.type == KeyType::Down && settingsCategory_ == SettingsCategory::Printer &&
-             printerSelection_ + 1 < printerQueues_.size()) {
-    ++printerSelection_;
+  } else if (key.type == KeyType::Down) {
+    settingsCategory_ = static_cast<SettingsCategory>(min(4, static_cast<int>(settingsCategory_) + 1));
+    settingsField_ = 0;
+    if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Escape) {
     if (settingsDirty_) cancelSettingsDraft();

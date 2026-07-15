@@ -963,8 +963,9 @@ void App::autoAssignSelectedRackItem() {
 void App::startSearch() {
   page_ = Page::Stock;
   inputMode_ = InputMode::Search;
+  searchQueryBeforeEdit_ = searchQuery_;
   inputBuffer_ = searchQuery_;
-  setMessage("Type a keyword, category, tag, parameter, or qty filter", 3);
+  setMessage("Type to filter immediately; Enter keeps it, Esc restores the previous filter", 3);
 }
 
 void App::cancelInput() {
