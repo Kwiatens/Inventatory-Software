@@ -6,6 +6,7 @@
 #include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
 #include "platform/StartupRegistration.h"
+#include "platform/UpdateService.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/component/component.hpp>
@@ -28,6 +29,7 @@
 #include <unordered_set>
 #include <utility>
 #include <thread>
+#include <future>
 
 namespace inventatory {
 
@@ -134,32 +136,16 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     printerCheck_ = printerService_.probeConfiguredPrinter();
   }
-  if (!startInBackground_ && !settings_.backgroundConsentAsked) {
-    settings_.backgroundConsentAsked = true;
-    bool startupWasEnabled = false;
-    const int choice = MessageBoxA(nullptr,
-                                   "Keep Inventatory available for Scan R1 after you close the terminal and start it when you sign in to Windows?\n\n"
-                                   "You can change this later in Settings. This is off by default.",
-                                   "Run Inventatory in the background", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
-    if (choice == IDYES) {
-      string error;
-      if (setBackgroundStartupEnabled(true, error)) {
-        settings_.backgroundServiceEnabled = true;
-        startupWasEnabled = true;
-      } else {
-        setMessage("Background startup was not enabled: " + error, 6);
-      }
-    }
+  // Existing settings belong to established users; mark them complete when
+  // migrating so the first-run wizard only appears for fresh installs.
+  if (loadedSettings && settings_.completedOnboardingVersion == 0) {
+    settings_.completedOnboardingVersion = 1;
     settingsDraft_ = settings_;
-    if (!saveAppSettings(settingsPath_, settings_)) {
-      if (startupWasEnabled) {
-        string ignored;
-        setBackgroundStartupEnabled(false, ignored);
-        settings_.backgroundServiceEnabled = false;
-        settingsDraft_ = settings_;
-      }
-      setMessage("Unable to save background-service preference", 5);
-    }
+    saveAppSettings(settingsPath_, settings_);
+  }
+  if (!startInBackground_ && !loadedSettings) {
+    onboardingActive_ = true;
+    page_ = Page::Onboarding;
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
 
@@ -175,6 +161,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     mdnsService_.start(server_.port());
     setMessage("Inventatory Scan R1 service ready", 5);
   }
+  beginUpdateCheckIfDue();
 }
 
 // The application frame: header, content, context/search-or-actions, message.
@@ -230,6 +217,8 @@ std::string App::pageName() const {
       return "Scan R1 Setup";
     case Page::Settings:
       return "Settings";
+    case Page::Onboarding:
+      return "First-time setup";
   }
   return "";
 }
@@ -305,6 +294,8 @@ ftxui::Element App::renderPageUi() const {
       return renderInventatoryScanSetupUi();
     case Page::Settings:
       return renderSettingsUi();
+    case Page::Onboarding:
+      return renderOnboardingUi();
   }
 
   return ftxui::text("");
@@ -429,6 +420,7 @@ void App::processBackgroundWork() {
   processDeviceSyncEvents();
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
+  processUpdateCheck();
 }
 
 void App::runBackgroundLoop() {
@@ -540,6 +532,11 @@ void App::handleKey(const KeyEvent& key) {
   // six-digit verification code must never be interpreted as global shortcuts.
   if (page_ == Page::ScanSetup) {
     handleInventatoryScanSetupKey(key);
+    return;
+  }
+
+  if (page_ == Page::Onboarding) {
+    handleOnboardingKey(key);
     return;
   }
 

@@ -1,5 +1,6 @@
 #include "core/Inventory.h"
 #include "app/AppSettings.h"
+#include "platform/UpdateService.h"
 #include "platform/StartupRegistration.h"
 #include "core/InventoryInternals.h"
 #include "core/InventatoryScanProtocol.h"
@@ -1439,6 +1440,11 @@ int main() {
     expected.autoPrintScannedLabels = false;
     expected.backgroundServiceEnabled = true;
     expected.backgroundConsentAsked = true;
+    expected.completedOnboardingVersion = 1;
+    expected.updateChecksEnabled = false;
+    expected.lastUpdateCheckUnixSeconds = 123456789;
+    expected.latestAvailableVersion = "0.2.0";
+    expected.latestReleaseUrl = "https://github.com/Kwiatens/Inventatory-Software/releases/tag/v0.2.0";
     expected.deviceServicePort = 8181;
     expected.digiKeyClientId = "client-id";
     expected.digiKeyAccountId = "account-id";
@@ -1451,12 +1457,17 @@ int main() {
 
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
-    assert(loaded.schemaVersion == 1);
+    assert(loaded.schemaVersion == 2);
+    assert(loaded.completedOnboardingVersion == 1);
     assert(loaded.dataDirectory == expected.dataDirectory);
     assert(loaded.printerQueue == expected.printerQueue);
     assert(!loaded.autoPrintScannedLabels);
     assert(loaded.backgroundServiceEnabled);
     assert(loaded.backgroundConsentAsked);
+    assert(!loaded.updateChecksEnabled);
+    assert(loaded.lastUpdateCheckUnixSeconds == 123456789);
+    assert(loaded.latestAvailableVersion == "0.2.0");
+    assert(loaded.latestReleaseUrl == expected.latestReleaseUrl);
     assert(loaded.deviceServicePort == 8181);
     assert(loaded.digiKeyClientId == "client-id");
     assert(loaded.digiKeyAccountId == "account-id");
@@ -1491,12 +1502,24 @@ int main() {
     legacy.close();
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
+    assert(loaded.schemaVersion == 2);
     assert(loaded.deviceServicePort == 8182);
     assert(!loaded.backgroundServiceEnabled);
     assert(!loaded.backgroundConsentAsked);
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
+  }
+
+  {
+    assert(isVersionNewer("v0.2.0", "0.1.9"));
+    assert(isVersionNewer("0.2", "0.1.9"));
+    assert(!isVersionNewer("0.2.0", "0.2.0"));
+    assert(!isVersionNewer("preview", "0.2.0"));
+    assert(isUpdateCheckDue(true, 0, 100));
+    assert(!isUpdateCheckDue(false, 0, 100));
+    assert(!isUpdateCheckDue(true, 100, 100 + 60));
+    assert(isUpdateCheckDue(true, 100, 100 + 24 * 60 * 60));
   }
 
   cout << "Inventatory core tests passed\n";

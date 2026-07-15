@@ -303,11 +303,12 @@ ftxui::Element App::renderStockUi() const {
                              ftxui::bgcolor(uiSurfaceBg()) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
   if (inputMode_ == InputMode::StockFilter) {
-    // Restore the compact popup beside the trigger without clearing or
-    // repainting the list header beneath it.
+    // Clear only the popup footprint, then draw it over the list. This keeps
+    // the stock rows in place while preventing their text from bleeding
+    // through the floating menu.
     auto filterOverlay = ftxui::vbox({
         ftxui::text(""),
-        ftxui::hbox({ftxui::filler(), filterMenu}),
+        ftxui::hbox({ftxui::filler(), filterMenu | ftxui::clear_under}),
         ftxui::filler(),
     });
     listPanel = ftxui::dbox({listPanel, filterOverlay}) |

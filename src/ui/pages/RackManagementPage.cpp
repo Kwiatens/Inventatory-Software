@@ -73,7 +73,10 @@ ftxui::Element App::renderRackManagementUi() const {
   const bool compact = screenWidth < 100;
   const int listWidth = screenWidth < 118 ? 24 : 30;
   const int detailWidth = screenWidth < 118 ? 30 : 36;
-  const int gridWidth = max(42, screenWidth - listWidth - detailWidth - 4);
+  // In the horizontal layout, account for its two one-column separators. The
+  // compact layout stacks the grid below the side panels, so it uses the full
+  // screen width instead.
+  const int gridWidth = compact ? screenWidth : max(42, screenWidth - listWidth - detailWidth - 2);
   const auto rackIndices = sortedRackIndices();
   const auto* rack = selectedRack();
   const auto selectedSlot = selectedRackSlot();
@@ -83,7 +86,7 @@ ftxui::Element App::renderRackManagementUi() const {
   rackRows.push_back(ftxui::hbox({
       rackFixedCell("Rack", 6, uiMutedColor()),
       rackFixedCell("Type", max(8, listWidth - 18), uiMutedColor()),
-      rackFixedCell("Used", 7, uiMutedColor(), true),
+      rackFixedCell("Used", 7, uiMutedColor()),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
   if (rackIndices.empty()) {
     rackRows.push_back(fullLine(rackFilter_.empty() ? "No racks yet." : "No racks match filter.", uiMutedColor(),
@@ -98,7 +101,7 @@ ftxui::Element App::renderRackManagementUi() const {
       auto rackRow = ftxui::hbox({
           rackFixedCell(" " + candidate.code, 6, fg),
           rackFixedCell(candidate.componentType, max(8, listWidth - 18), selected ? uiTitleColor() : uiLabelColor()),
-          rackFixedCell(to_string(occupied) + "/25", 7, occupied >= 25 ? uiWarnColor() : uiSuccessColor(), true),
+          rackFixedCell(to_string(occupied) + "/25", 7, occupied >= 25 ? uiWarnColor() : uiSuccessColor()),
       }) | ftxui::bgcolor(bg);
       auto self = const_cast<App*>(this);
       rackRows.push_back(target(rackRow, "racks.row." + candidate.id, UiTargetKind::Row, [self, visible] {
@@ -121,7 +124,11 @@ ftxui::Element App::renderRackManagementUi() const {
       gridRows.push_back(fullLine("Filter: " + rackFilter_, uiWarnColor(), uiPanelRightBg()));
     }
     gridRows.push_back(uiDivider());
-    const int slotWidth = max(7, (gridWidth - 8) / 5);
+    // Four one-column separators divide the five cells. Distribute the
+    // remaining columns across the first cells so there is no trailing gap.
+    const int slotSpace = gridWidth - 4;
+    const int slotWidth = max(7, slotSpace / 5);
+    const int extraSlotColumns = max(0, slotSpace - slotWidth * 5);
     // Expand the five rows into the otherwise unused grid workspace. Longer
     // part names can still grow their cell and remain reachable by scrolling.
     const int slotHeight = max(3, (screenHeight - 13) / 5);
@@ -148,8 +155,9 @@ ftxui::Element App::renderRackManagementUi() const {
                                : ftxui::hbox({ftxui::filler(), rackQuantityIndicator(*item, selected), ftxui::filler()}));
         cellRows.push_back(ftxui::paragraphAlignLeft(itemText) |
                            ftxui::color(item == nullptr ? uiDimColor() : uiTitleColor()));
+        const int cellWidth = slotWidth + (column < extraSlotColumns ? 1 : 0);
         auto cell = ftxui::vbox(move(cellRows)) | ftxui::bgcolor(bg) |
-                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth) |
+                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
                     ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, slotHeight);
         if (selected) {
           cell = cell | ftxui::select;
@@ -244,7 +252,7 @@ ftxui::Element App::renderRackManagementUi() const {
   auto rackPanel = ftxui::vbox(move(rackRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth);
   auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::bgcolor(uiSurfaceBg()) |
-                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, gridWidth) | ftxui::flex;
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, gridWidth);
   auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailWidth);
 

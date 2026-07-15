@@ -1,0 +1,69 @@
+[CmdletBinding()]
+param([switch]$NoLaunch, [switch]$DesktopShortcut)
+
+$ErrorActionPreference = 'Stop'
+$repo = 'Kwiatens/Inventatory-Software'
+$installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Inventatory'
+$downloadRoot = Join-Path $env:TEMP ('Inventatory-' + [guid]::NewGuid())
+$stagingRoot = "$installRoot.staging"
+$backupRoot = "$installRoot.backup"
+
+function New-Shortcut([string]$path, [string]$target, [string]$arguments = '') {
+  $shell = New-Object -ComObject WScript.Shell
+  $shortcut = $shell.CreateShortcut($path)
+  $shortcut.TargetPath = $target
+  $shortcut.Arguments = $arguments
+  $shortcut.WorkingDirectory = Split-Path $target
+  $shortcut.Save()
+}
+
+try {
+  if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI is required for this private beta.' }
+  & gh auth status -h github.com | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Run "gh auth login" with the invited GitHub account before installing.' }
+
+  New-Item -ItemType Directory -Path $downloadRoot | Out-Null
+  $tag = (& gh release view --repo $repo --json tagName --jq '.tagName').Trim()
+  if (-not $tag) { throw 'No private beta release is available yet.' }
+  & gh release download $tag --repo $repo --pattern 'Inventatory-win-x64.zip' --pattern 'SHA256SUMS.txt' --dir $downloadRoot
+  if ($LASTEXITCODE -ne 0) { throw 'Could not download the private beta release. Confirm that your GitHub account is invited.' }
+
+  $archive = Join-Path $downloadRoot 'Inventatory-win-x64.zip'
+  $checksums = Join-Path $downloadRoot 'SHA256SUMS.txt'
+  $expected = ((Get-Content $checksums | Where-Object { $_ -match 'Inventatory-win-x64.zip$' } | Select-Object -First 1) -split '\s+')[0]
+  $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+  if (-not $expected -or $actual -ne $expected.ToLowerInvariant()) { throw 'Release checksum verification failed. The existing installation was left unchanged.' }
+
+  if (Get-Process inventatory -ErrorAction SilentlyContinue) {
+    $answer = Read-Host 'Inventatory is running. Close it, then press Enter to continue (or type N to cancel)'
+    if ($answer -match '^[Nn]') { throw 'Installation cancelled.' }
+    if (Get-Process inventatory -ErrorAction SilentlyContinue) { throw 'Inventatory is still running. Close it and run the installer again.' }
+  }
+
+  Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+  Expand-Archive -LiteralPath $archive -DestinationPath $stagingRoot -Force
+  $packageRoot = Join-Path $stagingRoot 'Inventatory'
+  if (-not (Test-Path (Join-Path $packageRoot 'inventatory.exe'))) { throw 'Release archive is missing Inventatory.' }
+  Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
+  if (Test-Path $installRoot) { Move-Item -LiteralPath $installRoot -Destination $backupRoot }
+  try {
+    Move-Item -LiteralPath $packageRoot -Destination $installRoot
+    Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
+  } catch {
+    if (Test-Path $backupRoot) { Move-Item -LiteralPath $backupRoot -Destination $installRoot }
+    throw
+  }
+
+  $exe = Join-Path $installRoot 'inventatory.exe'
+  $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+  New-Shortcut (Join-Path $programs 'Inventatory.lnk') $exe
+  $makeDesktop = $DesktopShortcut
+  if (-not $DesktopShortcut) { $makeDesktop = (Read-Host 'Create a desktop shortcut? [y/N]') -match '^[Yy]' }
+  if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $exe }
+
+  Write-Host "Inventatory $tag installed for this Windows user."
+  if (-not $NoLaunch -and ((Read-Host 'Launch first-run setup now? [Y/n]') -notmatch '^[Nn]')) { Start-Process -FilePath $exe -WorkingDirectory $installRoot }
+} finally {
+  Remove-Item -LiteralPath $downloadRoot -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
