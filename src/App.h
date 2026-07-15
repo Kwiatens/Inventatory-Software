@@ -339,6 +339,7 @@ class App {
   Page page_ = Page::Home;
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
+  std::string searchQueryBeforeEdit_;
   std::string inputBuffer_;
   StockDateFilter stockDateFilter_ = StockDateFilter::All;
   StockSortOrder stockSortOrder_ = StockSortOrder::Az;

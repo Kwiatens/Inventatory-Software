@@ -27,12 +27,18 @@ ftxui::Element App::renderStockUi() const {
   const int listOuterWidth = max(42, screenWidth - detailOuterWidth - 1);
   const int listInnerWidth = max(20, listOuterWidth - 2);
   const int detailInnerWidth = max(20, detailOuterWidth - 2);
-  const int qtyWidth = 10;
-  const int minCategoryWidth = 12;
+  size_t longestQuantity = string("Qty").size();
   size_t longestPartName = string("Part").size();
-  for (const auto index : filtered) longestPartName = max(longestPartName, store_.items()[index].partName.size() + 2);
+  for (const auto& item : store_.items()) {
+    longestPartName = max(longestPartName, item.partName.size());
+    longestQuantity = max(longestQuantity, to_string(item.quantity).size());
+  }
+  // The separators are positioned from the complete inventory, not just the
+  // current filter result, so columns do not jump or truncate a later row.
+  const int qtyWidth = max(7, static_cast<int>(longestQuantity) + 4);
+  const int minCategoryWidth = 12;
   const int maxPartWidth = max(18, listInnerWidth - qtyWidth - minCategoryWidth - 2);
-  const int partWidth = clamp(static_cast<int>(longestPartName) + 1, 18, maxPartWidth);
+  const int partWidth = clamp(static_cast<int>(longestPartName) + 3, 18, maxPartWidth);
   const int categoryWidth = max(minCategoryWidth, listInnerWidth - partWidth - qtyWidth - 2);
 
   auto fixedCell = [](const string& text, int width, ftxui::Color color, bool rightAligned = false) {
@@ -41,12 +47,24 @@ ftxui::Element App::renderStockUi() const {
                         : ftxui::hbox({content, ftxui::filler()}) |
            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
   };
+  const auto quantityCell = [&](int quantity, bool selected) {
+    const auto fg = quantity <= 0 ? uiDangerColor() : quantity <= 5 ? uiWarnColor() : uiSuccessColor();
+    const auto bg = selected ? uiSelectionBg()
+                    : quantity <= 0 ? ftxui::Color::RGB(55, 32, 31)
+                    : quantity <= 5 ? ftxui::Color::RGB(58, 48, 30)
+                                    : uiRaisedSurfaceBg();
+    return ftxui::hbox({
+        ftxui::filler(),
+        styledText(to_string(quantity), fg) | ftxui::bold,
+        ftxui::filler(),
+    }) | ftxui::bgcolor(bg) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
+  };
 
   ftxui::Elements listRows;
   listRows.push_back(ftxui::hbox({
                          fixedCell("Part", partWidth, uiMutedColor()),
                          ftxui::separator() | ftxui::color(uiDimColor()),
-                         fixedCell("Category", categoryWidth, uiMutedColor(), true),
+                         fixedCell("Category", categoryWidth, uiMutedColor()),
                          ftxui::separator() | ftxui::color(uiDimColor()),
                          ftxui::hbox({
                              ftxui::filler(),
@@ -72,15 +90,11 @@ ftxui::Element App::renderStockUi() const {
                                    : (lowStock ? uiWarnColor() : uiPrimaryText());
       const auto category = displayCategory(item.category);
       auto row = ftxui::hbox({
-                     fixedCell("  " + item.partName, partWidth, fg),
+                     fixedCell(" " + item.partName, partWidth, fg),
                      ftxui::separator() | ftxui::color(uiDimColor()),
-                     fixedCell(category, categoryWidth, selected ? uiTitleColor() : uiLabelColor(), true),
+                     fixedCell(category, categoryWidth, selected ? uiTitleColor() : uiLabelColor()),
                      ftxui::separator() | ftxui::color(uiDimColor()),
-                     ftxui::hbox({
-                         ftxui::filler(),
-                         quantityBadge(item.quantity, selected),
-                     }) |
-                         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth),
+                     quantityCell(item.quantity, selected),
                  }) |
                  ftxui::bgcolor(bg);
       if (selected) {
@@ -198,12 +212,6 @@ ftxui::Element App::renderStockUi() const {
                                          detailInnerWidth));
     detailRows.push_back(detailFieldLine({"SKU: ", item->sku, uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Tags: ", renderTags(item->tags), uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
-    if (!trim(item->notes).empty()) {
-      detailRows.push_back(uiDivider());
-      detailRows.push_back(fullLine("NOTES", uiSecondaryText(), uiSurfaceBg()));
-      detailRows.push_back(ftxui::paragraphAlignLeft(item->notes) | ftxui::color(uiPrimaryText()));
-    }
-
     const auto rack = rackLocation(*item, store_.racks());
     const auto quantityColor = item->quantity <= 0 ? uiDangerColor()
                                : item->lowStock() ? uiWarnColor()
@@ -218,18 +226,24 @@ ftxui::Element App::renderStockUi() const {
                                           rack.empty() ? uiWarnColor() : uiFocusColor()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Inventatory ID: ", item->inventatoryId, uiSecondaryText(), uiPrimaryText()},
                                          detailInnerWidth));
-    detailRows.push_back(detailFieldLine({"Threshold: ", to_string(item->reorderThreshold), uiSecondaryText(),
-                                          uiWarnColor()}, detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"Reorder threshold: ",
+                                          item->reorderThreshold == 0 ? "Disabled" : to_string(item->reorderThreshold),
+                                          uiSecondaryText(), uiWarnColor()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Location: ", item->location, uiSecondaryText(), uiPrimaryText()},
                                          detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Sync: ", item->syncStatus, uiSecondaryText(),
                                           toLower(item->syncStatus) == "synced" ? uiSuccessColor() : uiWarnColor()},
                                          detailInnerWidth));
+    if (!trim(item->notes).empty()) {
+      detailRows.push_back(uiDivider());
+      detailRows.push_back(fullLine("NOTES", uiSecondaryText(), uiSurfaceBg()));
+      detailRows.push_back(ftxui::paragraphAlignLeft(item->notes) | ftxui::color(uiPrimaryText()));
+    }
   } else {
     detailRows.push_back(fullLine("No item selected.", uiMutedColor(), uiPanelRightBg()));
   }
 
-  auto filterButton = target(styledText(" Filter ", uiInteractiveColor(), uiRaisedSurfaceBg()),
+  auto filterButton = target(styledText(" Sort / Filter ", uiInteractiveColor(), uiRaisedSurfaceBg()),
                              "stock.filters.header", UiTargetKind::Button,
                              [self] { self->openStockFilterPanel(); });
   listRows.insert(listRows.begin(), ftxui::hbox({
@@ -242,7 +256,7 @@ ftxui::Element App::renderStockUi() const {
   if (inputMode_ == InputMode::StockFilter) {
     ftxui::Elements filterRows;
     if (stockDateFilterSubmenuOpen_) {
-      filterRows.push_back(fullLine("< Date of modification", uiSecondaryText(), uiPanelLeftBg()));
+      filterRows.push_back(fullLine("FILTER BY DATE OF MODIFICATION", uiSecondaryText(), uiPanelLeftBg()));
       const vector<StockDateFilter> dateFilters = {
           StockDateFilter::All,
           StockDateFilter::Today,
@@ -259,7 +273,8 @@ ftxui::Element App::renderStockUi() const {
                                     [self, filter = dateFilters[index]] { self->applyStockDateFilter(filter); }));
       }
     } else {
-      const vector<string> labels = {"Date of modification", "Quantity", "A-Z", "Z-A"};
+      filterRows.push_back(fullLine("FILTER", uiSecondaryText(), uiPanelLeftBg()));
+      const vector<string> labels = {"Date of modification", "Sort: quantity", "Sort: A-Z", "Sort: Z-A"};
       for (size_t index = 0; index < labels.size(); ++index) {
         const bool selected = static_cast<int>(index) == stockFilterSelection_;
         auto row = fullLine(string(selected ? "  > " : "    ") + labels[index],
@@ -277,20 +292,21 @@ ftxui::Element App::renderStockUi() const {
         }
       }
     }
-    filterMenu = ftxui::window(styledText(" Filters: ", uiAccentColor()),
+    filterMenu = ftxui::window(styledText(" Sort / Filter ", uiAccentColor()),
                                ftxui::vbox(move(filterRows)) | ftxui::bgcolor(uiPanelLeftBg()) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34)) |
+                                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34)) |
                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34) |
-                 ftxui::color(uiAccentColor()) | ftxui::bgcolor(uiPanelLeftBg()) |
-                 ftxui::clear_under;
+                 ftxui::color(uiAccentColor()) | ftxui::bgcolor(uiPanelLeftBg());
   }
 
   ftxui::Element listPanel = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
                              ftxui::bgcolor(uiSurfaceBg()) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
   if (inputMode_ == InputMode::StockFilter) {
+    // Restore the compact popup beside the trigger without clearing or
+    // repainting the list header beneath it.
     auto filterOverlay = ftxui::vbox({
-        ftxui::text(" "),
+        ftxui::text(""),
         ftxui::hbox({ftxui::filler(), filterMenu}),
         ftxui::filler(),
     });

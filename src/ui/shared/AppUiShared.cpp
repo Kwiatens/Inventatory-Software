@@ -18,23 +18,23 @@ namespace inventatory {
 using namespace std;
 
 ftxui::Color uiCanvasBg() {
-  return ftxui::Color::RGB(12, 14, 15);
+  return ftxui::Color::RGB(16, 17, 18);
 }
 
 ftxui::Color uiSurfaceBg() {
-  return ftxui::Color::RGB(19, 22, 25);
+  return ftxui::Color::RGB(22, 23, 24);
 }
 
 ftxui::Color uiRaisedSurfaceBg() {
-  return ftxui::Color::RGB(28, 32, 36);
+  return ftxui::Color::RGB(30, 31, 32);
 }
 
 ftxui::Color uiHoverBg() {
-  return ftxui::Color::RGB(37, 43, 48);
+  return ftxui::Color::RGB(40, 41, 42);
 }
 
 ftxui::Color uiSelectionBg() {
-  return ftxui::Color::RGB(18, 61, 64);
+  return ftxui::Color::RGB(38, 42, 43);
 }
 
 ftxui::Color uiDividerColor() {
@@ -205,7 +205,7 @@ ftxui::Element quantityBadge(int quantity, bool selected) {
                            : (quantity <= 0 ? ftxui::Color::RGB(47, 27, 27)
                                             : (quantity <= 5 ? ftxui::Color::RGB(48, 39, 24)
                                                              : uiRaisedSurfaceBg()));
-  return ftxui::text(" QTY " + to_string(quantity) + " ") | ftxui::bold | ftxui::color(fg) | ftxui::bgcolor(bg);
+  return ftxui::text(" " + to_string(quantity) + " ") | ftxui::bold | ftxui::color(fg) | ftxui::bgcolor(bg);
 }
 
 string displayCategory(const string& category) {
@@ -296,7 +296,7 @@ string renderUrl(const string& url) {
   if (url.empty()) {
     return "-";
   }
-  return ellipsize(url, 32);
+  return ellipsize(url.rfind("//", 0) == 0 ? "https:" + url : url, 32);
 }
 
 string normalizeKey(string value) {
