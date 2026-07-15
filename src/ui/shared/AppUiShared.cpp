@@ -18,27 +18,27 @@ namespace inventatory {
 using namespace std;
 
 ftxui::Color uiCanvasBg() {
-  return ftxui::Color::RGB(16, 22, 26);
+  return ftxui::Color::RGB(12, 14, 15);
 }
 
 ftxui::Color uiSurfaceBg() {
-  return ftxui::Color::RGB(21, 29, 34);
+  return ftxui::Color::RGB(19, 22, 25);
 }
 
 ftxui::Color uiRaisedSurfaceBg() {
-  return ftxui::Color::RGB(26, 36, 42);
+  return ftxui::Color::RGB(28, 32, 36);
 }
 
 ftxui::Color uiHoverBg() {
-  return ftxui::Color::RGB(32, 44, 51);
+  return ftxui::Color::RGB(37, 43, 48);
 }
 
 ftxui::Color uiSelectionBg() {
-  return ftxui::Color::RGB(25, 57, 74);
+  return ftxui::Color::RGB(18, 61, 64);
 }
 
 ftxui::Color uiDividerColor() {
-  return ftxui::Color::RGB(44, 57, 64);
+  return ftxui::Color::RGB(51, 57, 61);
 }
 
 ftxui::Element uiDivider() {
@@ -46,23 +46,23 @@ ftxui::Element uiDivider() {
 }
 
 ftxui::Color uiPrimaryText() {
-  return ftxui::Color::RGB(216, 226, 231);
+  return ftxui::Color::RGB(241, 243, 243);
 }
 
 ftxui::Color uiSecondaryText() {
-  return ftxui::Color::RGB(170, 184, 191);
+  return ftxui::Color::RGB(198, 202, 203);
 }
 
 ftxui::Color uiMutedText() {
-  return ftxui::Color::RGB(126, 141, 149);
+  return ftxui::Color::RGB(141, 148, 151);
 }
 
 ftxui::Color uiInteractiveColor() {
-  return ftxui::Color::RGB(98, 169, 209);
+  return ftxui::Color::RGB(73, 212, 203);
 }
 
 ftxui::Color uiFocusColor() {
-  return ftxui::Color::RGB(138, 200, 232);
+  return ftxui::Color::RGB(140, 237, 230);
 }
 
 ftxui::Color uiTitleColor() {
@@ -78,11 +78,11 @@ ftxui::Color uiInfoColor() {
 }
 
 ftxui::Color uiSuccessColor() {
-  return ftxui::Color::RGB(111, 190, 140);
+  return ftxui::Color::RGB(117, 199, 147);
 }
 
 ftxui::Color uiLinkColor() {
-  return uiInteractiveColor();
+  return ftxui::Color::RGB(114, 199, 238);
 }
 
 ftxui::Color uiLabelColor() {
@@ -90,11 +90,11 @@ ftxui::Color uiLabelColor() {
 }
 
 ftxui::Color uiWarnColor() {
-  return ftxui::Color::RGB(213, 164, 79);
+  return ftxui::Color::RGB(216, 160, 75);
 }
 
 ftxui::Color uiDangerColor() {
-  return ftxui::Color::RGB(219, 116, 112);
+  return ftxui::Color::RGB(220, 116, 107);
 }
 
 ftxui::Color uiMutedColor() {
@@ -170,7 +170,7 @@ ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::
 
 ftxui::Element footerField(const string& title, const string& body, ftxui::Color titleColor, ftxui::Color bodyColor,
                            ftxui::Color background, bool flashing) {
-  const auto fill = flashing ? ftxui::Color::RGB(58, 42, 28) : background;
+  const auto fill = flashing ? ftxui::Color::RGB(48, 39, 24) : background;
   return ftxui::hbox({
              styledText(" " + title + ": ", titleColor, fill) | ftxui::bold,
              styledText(body, bodyColor, fill),
@@ -202,9 +202,9 @@ bool uiBoxContains(const ftxui::Box& box, int x, int y) {
 ftxui::Element quantityBadge(int quantity, bool selected) {
   const auto fg = quantity <= 0 ? uiDangerColor() : (quantity <= 5 ? uiWarnColor() : uiSuccessColor());
   const auto bg = selected ? uiRowSelectedBg()
-                           : (quantity <= 0 ? ftxui::Color::RGB(42, 24, 20)
-                                            : (quantity <= 5 ? ftxui::Color::RGB(52, 38, 20)
-                                                             : ftxui::Color::RGB(24, 24, 24)));
+                           : (quantity <= 0 ? ftxui::Color::RGB(47, 27, 27)
+                                            : (quantity <= 5 ? ftxui::Color::RGB(48, 39, 24)
+                                                             : uiRaisedSurfaceBg()));
   return ftxui::text(" QTY " + to_string(quantity) + " ") | ftxui::bold | ftxui::color(fg) | ftxui::bgcolor(bg);
 }
 
