@@ -407,10 +407,50 @@ ftxui::Element App::renderMessageUi() const {
 
 int App::run() {
   running_ = true;
-  auto screen = ftxui::ScreenInteractive::Fullscreen();
-  backgroundController_.start(settings_.backgroundServiceEnabled, startInBackground_, [this] {
+  // Windows sign-in launches this process with --background. Keep that path
+  // free of FTXUI so only the Scan R1 bridge and notification-area handler run.
+  backgroundController_.start(startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
     backgroundQuitRequested_.store(true);
-  });
+  }, [this] { foregroundRequested_.store(true); });
+
+  if (startInBackground_) {
+    runBackgroundLoop();
+  } else {
+    runInteractiveLoop();
+  }
+
+  saveState();
+  backgroundController_.stop();
+  mdnsService_.stop();
+  server_.stop();
+  return 0;
+}
+
+void App::processBackgroundWork() {
+  processScans();
+  processDeviceRequests();
+  processDeviceSyncEvents();
+  clearMessageIfExpired();
+  clearDeleteConfirmationIfExpired();
+}
+
+void App::runBackgroundLoop() {
+  while (running_) {
+    if (backgroundQuitRequested_.exchange(false)) {
+      running_ = false;
+      break;
+    }
+    if (foregroundRequested_.exchange(false)) {
+      runInteractiveLoop();
+      continue;
+    }
+    processBackgroundWork();
+    this_thread::sleep_for(chrono::milliseconds(100));
+  }
+}
+
+void App::runInteractiveLoop() {
+  auto screen = ftxui::ScreenInteractive::Fullscreen();
   screen.ForceHandleCtrlZ(false);
   screen.TrackMouse();
   auto renderer = ftxui::Renderer([this] { return renderUi(); });
@@ -421,11 +461,7 @@ int App::run() {
         screen.ExitLoopClosure()();
         return true;
       }
-      processScans();
-      processDeviceRequests();
-      processDeviceSyncEvents();
-      clearMessageIfExpired();
-      clearDeleteConfirmationIfExpired();
+      processBackgroundWork();
       return true;
     }
 
@@ -457,11 +493,6 @@ int App::run() {
   if (ticker.joinable()) {
     ticker.join();
   }
-  saveState();
-  backgroundController_.stop();
-  mdnsService_.stop();
-  server_.stop();
-  return 0;
 }
 
 void App::requestUserExit() {

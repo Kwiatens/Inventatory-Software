@@ -43,7 +43,7 @@ LRESULT CALLBACK controllerWindowProc(HWND window, UINT message, WPARAM wParam, 
   switch (message) {
     case kTrayMessage:
       if (lParam == WM_LBUTTONUP) {
-        restoreConsole();
+        if (controller != nullptr) controller->requestOpenFromTray();
         return 0;
       }
       if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) {
@@ -62,7 +62,7 @@ LRESULT CALLBACK controllerWindowProc(HWND window, UINT message, WPARAM wParam, 
       if (controller != nullptr) controller->hideConsole(true);
       return 0;
     case kRestoreMessage:
-      restoreConsole();
+      if (controller != nullptr) controller->requestOpenFromTray();
       return 0;
     case kStopMessage:
       DestroyWindow(window);
@@ -111,12 +111,13 @@ bool BackgroundController::signalExistingInstance() const {
   return window != nullptr && PostMessageW(window, kRestoreMessage, 0, 0) != 0;
 }
 
-bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQuit) {
+bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen) {
   if (!enabled) return true;
   if (enabled_.exchange(true)) return true;
   {
     std::lock_guard<std::mutex> lock(callbackMutex_);
     onQuit_ = std::move(onQuit);
+    onOpen_ = std::move(onOpen);
   }
   trayThread_ = std::thread(&BackgroundController::trayThreadMain, this);
   while (trayWindow_.load() == nullptr) Sleep(5);
@@ -133,6 +134,7 @@ void BackgroundController::stop() {
   trayWindow_.store(nullptr);
   std::lock_guard<std::mutex> lock(callbackMutex_);
   onQuit_ = {};
+  onOpen_ = {};
 }
 
 bool BackgroundController::enabled() const {
@@ -169,6 +171,16 @@ void BackgroundController::requestQuitFromTray() {
     callback = onQuit_;
   }
   if (callback) callback();
+}
+
+void BackgroundController::requestOpenFromTray() {
+  Callback callback;
+  {
+    std::lock_guard<std::mutex> lock(callbackMutex_);
+    callback = onOpen_;
+  }
+  if (callback) callback();
+  restoreConsole();
 }
 
 void BackgroundController::trayThreadMain() {
