@@ -1,0 +1,50 @@
+name: Private beta release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Build and test x64 release
+        shell: pwsh
+        run: |
+          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Release tags must use vX.Y.Z.' }
+          $version = $tag.Substring(1)
+          cmake -S . -B build -DINVENTATORY_VERSION=$version
+          cmake --build build --config Release --target inventatory inventatory_tests -- /m:1
+          ctest --test-dir build -C Release --output-on-failure
+      - name: Package release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\Inventatory | Out-Null
+          Copy-Item build\Release\inventatory.exe dist\Inventatory\
+          Copy-Item installer\Uninstall-Inventatory.cmd,installer\Uninstall-Inventatory.ps1 dist\Inventatory\
+          Copy-Item README.md,THIRD_PARTY_NOTICES.md dist\Inventatory\
+          Invoke-WebRequest -Uri 'https://www.gnu.org/licenses/gpl-3.0.txt' -OutFile dist\Inventatory\LICENSE
+          Compress-Archive -Path dist\Inventatory -DestinationPath dist\Inventatory-win-x64.zip -Force
+          $hash = (Get-FileHash dist\Inventatory-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -NoNewline -Path dist\SHA256SUMS.txt -Value "$hash  Inventatory-win-x64.zip"
+          Copy-Item installer\Install-Inventatory.cmd,installer\Install-Inventatory.ps1 dist\
+      - name: Create private GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          gh release create $tag --repo $env:GITHUB_REPOSITORY --title "Inventatory $tag" --generate-notes dist\Inventatory-win-x64.zip dist\SHA256SUMS.txt dist\Install-Inventatory.cmd dist\Install-Inventatory.ps1
