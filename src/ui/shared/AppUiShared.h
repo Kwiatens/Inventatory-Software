@@ -33,8 +33,8 @@ struct DetailField {
   ftxui::Color valueColor;
 };
 
-// Instrument Blue semantic palette. New UI code should use these role names;
-// the legacy helpers below remain as compatibility aliases during the v2
+// Graphite / Turquoise semantic palette. New UI code should use these role
+// names; the legacy helpers below remain as compatibility aliases during the
 // workspace migration.
 ftxui::Color uiCanvasBg();
 ftxui::Color uiSurfaceBg();

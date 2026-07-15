@@ -28,21 +28,17 @@ ftxui::Element App::renderStockUi() const {
   const int listInnerWidth = max(20, listOuterWidth - 2);
   const int detailInnerWidth = max(20, detailOuterWidth - 2);
   const int qtyWidth = 10;
-  int partWidth = clamp(listInnerWidth / 3, 22, 34);
-  int categoryWidth = listInnerWidth - partWidth - qtyWidth - 2;
-  if (categoryWidth < 12) {
-    categoryWidth = 12;
-    partWidth = max(18, listInnerWidth - categoryWidth - qtyWidth - 2);
-  }
-  if (partWidth < 18) {
-    partWidth = 18;
-  }
+  const int minCategoryWidth = 12;
+  size_t longestPartName = string("Part").size();
+  for (const auto index : filtered) longestPartName = max(longestPartName, store_.items()[index].partName.size() + 2);
+  const int maxPartWidth = max(18, listInnerWidth - qtyWidth - minCategoryWidth - 2);
+  const int partWidth = clamp(static_cast<int>(longestPartName) + 1, 18, maxPartWidth);
+  const int categoryWidth = max(minCategoryWidth, listInnerWidth - partWidth - qtyWidth - 2);
 
-  auto fixedCell = [](const string& text, int width, ftxui::Color color) {
-    return ftxui::hbox({
-               styledText(ellipsize(text, static_cast<size_t>(max(width, 0))), color),
-               ftxui::filler(),
-           }) |
+  auto fixedCell = [](const string& text, int width, ftxui::Color color, bool rightAligned = false) {
+    const auto content = styledText(ellipsize(text, static_cast<size_t>(max(width, 0))), color);
+    return rightAligned ? ftxui::hbox({ftxui::filler(), content}) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width)
+                        : ftxui::hbox({content, ftxui::filler()}) |
            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
   };
 
@@ -50,8 +46,8 @@ ftxui::Element App::renderStockUi() const {
   listRows.push_back(ftxui::hbox({
                          fixedCell("Part", partWidth, uiMutedColor()),
                          ftxui::separator() | ftxui::color(uiDimColor()),
-                         fixedCell("Category", categoryWidth, uiMutedColor()),
-                         ftxui::filler(),
+                         fixedCell("Category", categoryWidth, uiMutedColor(), true),
+                         ftxui::separator() | ftxui::color(uiDimColor()),
                          ftxui::hbox({
                              ftxui::filler(),
                              styledText("Qty", uiMutedColor()),
@@ -66,15 +62,20 @@ ftxui::Element App::renderStockUi() const {
     for (size_t index = 0; index < filtered.size(); ++index) {
       const auto& item = store_.items()[filtered[index]];
       const bool selected = index == selectedPosition_;
+      const bool outOfStock = item.quantity <= 0;
       const bool lowStock = item.lowStock();
-      const auto bg = selected ? uiSelectionBg() : uiSurfaceBg();
-      const auto fg = selected ? uiFocusColor() : (lowStock ? uiWarnColor() : uiPrimaryText());
+      const auto bg = selected ? uiSelectionBg()
+                      : outOfStock ? ftxui::Color::RGB(47, 27, 27)
+                                   : uiSurfaceBg();
+      const auto fg = selected ? uiFocusColor()
+                      : outOfStock ? uiDangerColor()
+                                   : (lowStock ? uiWarnColor() : uiPrimaryText());
       const auto category = displayCategory(item.category);
       auto row = ftxui::hbox({
                      fixedCell("  " + item.partName, partWidth, fg),
                      ftxui::separator() | ftxui::color(uiDimColor()),
-                     fixedCell(category, categoryWidth, selected ? uiTitleColor() : uiLabelColor()),
-                     ftxui::filler(),
+                     fixedCell(category, categoryWidth, selected ? uiTitleColor() : uiLabelColor(), true),
+                     ftxui::separator() | ftxui::color(uiDimColor()),
                      ftxui::hbox({
                          ftxui::filler(),
                          quantityBadge(item.quantity, selected),
@@ -156,25 +157,34 @@ ftxui::Element App::renderStockUi() const {
                                   }));
     }
   } else if (const auto* item = selectedItem()) {
-    detailRows.push_back(fullLine(item->partName, uiPrimaryText(), uiSurfaceBg()) | ftxui::bold);
-    detailRows.push_back(styledText(partShortDescription(*item), uiSecondaryText()));
-    detailRows.push_back(ftxui::separator() | ftxui::color(uiDividerColor()));
     const auto electricalFields = electricalFieldsForItem(*item);
-    const auto coreFields = detailCoreFields(*item, rackLocation(*item, store_.racks()));
-    for (size_t index = 0; index < coreFields.size(); ++index) {
-      const auto& field = coreFields[index];
-      if (index == 0) {
-        detailRows.push_back(fullLine(field.label + field.value, uiFocusColor(), uiSelectionBg()));
-        continue;
+    const bool passive = categoryContains(*item, {"resistor", "capacitor", "inductor", "diode", "fuse",
+                                                   "thermistor", "varistor", "crystal", "resonator"});
+    const auto manufacturer = trim(item->manufacturer).empty() ? string("UNKNOWN MANUFACTURER") : item->manufacturer;
+    detailRows.push_back(styledText(manufacturer, uiPrimaryText()) | ftxui::bold);
+    if (!passive) {
+      detailRows.push_back(styledText(item->partName, uiSecondaryText()));
+    } else {
+      const auto primary = electricalFields.empty() ? item->partName : electricalFields.front().value;
+      ftxui::Elements summary = {styledText(primary, uiPrimaryText()) | ftxui::bold};
+      for (size_t index = 1; index < electricalFields.size() && index < 3; ++index) {
+        if (trim(electricalFields[index].value).empty()) continue;
+        summary.push_back(styledText("  " + electricalFields[index].value, uiSecondaryText()));
       }
-      detailRows.push_back(detailFieldLine(field, detailInnerWidth));
+      detailRows.push_back(ftxui::hbox(move(summary)));
     }
+    if (!trim(partShortDescription(*item)).empty() && partShortDescription(*item) != item->partName) {
+      detailRows.push_back(styledText(partShortDescription(*item), uiMutedColor()));
+    }
+
     if (!electricalFields.empty()) {
-      detailRows.push_back(ftxui::separator() | ftxui::color(uiDividerColor()));
-      detailRows.push_back(fullLine("Electrical parameters", uiSecondaryText(), uiSurfaceBg()));
+      detailRows.push_back(uiDivider());
+      detailRows.push_back(fullLine("ELECTRICAL PARAMETERS", uiSecondaryText(), uiSurfaceBg()));
       for (const auto& field : electricalFields) detailRows.push_back(detailFieldLine(field, detailInnerWidth));
     }
-    detailRows.push_back(ftxui::separator() | ftxui::color(uiDividerColor()));
+
+    detailRows.push_back(uiDivider());
+    detailRows.push_back(fullLine("REFERENCES", uiSecondaryText(), uiSurfaceBg()));
     const auto link = [&](const string& id, const string& label, const string& value, function<void()> activate) {
       return target(detailFieldLine({label + ": ", renderUrl(value), uiSecondaryText(), uiInteractiveColor()},
                                     detailInnerWidth),
@@ -189,10 +199,32 @@ ftxui::Element App::renderStockUi() const {
     detailRows.push_back(detailFieldLine({"SKU: ", item->sku, uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Tags: ", renderTags(item->tags), uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
     if (!trim(item->notes).empty()) {
-      detailRows.push_back(ftxui::separator() | ftxui::color(uiDividerColor()));
-      detailRows.push_back(styledText("Notes", uiSecondaryText()));
+      detailRows.push_back(uiDivider());
+      detailRows.push_back(fullLine("NOTES", uiSecondaryText(), uiSurfaceBg()));
       detailRows.push_back(ftxui::paragraphAlignLeft(item->notes) | ftxui::color(uiPrimaryText()));
     }
+
+    const auto rack = rackLocation(*item, store_.racks());
+    const auto quantityColor = item->quantity <= 0 ? uiDangerColor()
+                               : item->lowStock() ? uiWarnColor()
+                                                  : uiPrimaryText();
+    detailRows.push_back(uiDivider());
+    detailRows.push_back(fullLine("INVENTATORY", uiSecondaryText(), uiSurfaceBg()));
+    detailRows.push_back(detailFieldLine({"Category: ", displayCategory(item->category), uiSecondaryText(), uiPrimaryText()},
+                                         detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"Quantity: ", to_string(item->quantity), uiSecondaryText(), quantityColor},
+                                         detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"Rack: ", rack.empty() ? "NOT ASSIGNED" : rack, uiSecondaryText(),
+                                          rack.empty() ? uiWarnColor() : uiFocusColor()}, detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"Inventatory ID: ", item->inventatoryId, uiSecondaryText(), uiPrimaryText()},
+                                         detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"Threshold: ", to_string(item->reorderThreshold), uiSecondaryText(),
+                                          uiWarnColor()}, detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"Location: ", item->location, uiSecondaryText(), uiPrimaryText()},
+                                         detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"Sync: ", item->syncStatus, uiSecondaryText(),
+                                          toLower(item->syncStatus) == "synced" ? uiSuccessColor() : uiWarnColor()},
+                                         detailInnerWidth));
   } else {
     detailRows.push_back(fullLine("No item selected.", uiMutedColor(), uiPanelRightBg()));
   }
