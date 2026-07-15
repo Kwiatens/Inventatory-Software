@@ -174,6 +174,8 @@ bool App::provisionSelectedBleSetupDevice() {
 }
 
 ftxui::Element App::renderInventatoryScanSetupUi() const {
+  const bool onboardingTerminal = returnToOnboardingAfterScan_;
+  const auto setupBackground = onboardingTerminal ? uiCanvasBg() : uiPanelLeftBg();
   const auto stepNumber = [&] {
     switch (scanSetupStep_) {
       case ScanSetupStep::Introduction: return string("0 / 5");
@@ -201,7 +203,7 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
                           progressMark(ScanSetupStep::PairingCode) + " R1 verification code   " +
                           progressMark(ScanSetupStep::FindScanner) + " Find scanner   " +
                           progressMark(ScanSetupStep::Confirm) + " Secure transfer",
-                          uiMutedColor(), uiPanelLeftBg()));
+                          uiMutedColor(), setupBackground));
   rows.push_back(uiDivider());
 
   switch (scanSetupStep_) {
@@ -283,9 +285,9 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
       break;
   }
 
-  return ftxui::window(styledText(" Scan R1 Setup Wizard ", uiAccentColor()),
-                       ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelLeftBg()) | ftxui::flex) |
-         ftxui::bgcolor(uiCanvasBg());
+  auto body = ftxui::vbox(move(rows)) | ftxui::bgcolor(setupBackground) | ftxui::flex;
+  if (onboardingTerminal) return body | ftxui::bgcolor(uiCanvasBg());
+  return ftxui::window(styledText(" Scan R1 Setup Wizard ", uiAccentColor()), body) | ftxui::bgcolor(uiCanvasBg());
 }
 
 ftxui::Element App::renderDeviceDebugConsoleUi() const {
@@ -323,7 +325,7 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
     inputBuffer_.clear();
     if (returnToOnboardingAfterScan_) {
       returnToOnboardingAfterScan_ = false;
-      onboardingStep_ = OnboardingStep::DigiKey;
+      onboardingStep_ = OnboardingStep::Complete;
       changePage(Page::Onboarding);
     } else {
       changePage(Page::Home);

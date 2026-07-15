@@ -69,7 +69,7 @@ class App {
     Complete,
   };
 
-  enum class OnboardingStep { Welcome, DataFolder, BackgroundService, Printer, ScanR1, DigiKey, Complete };
+  enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
   enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan, DigiKey };
 
