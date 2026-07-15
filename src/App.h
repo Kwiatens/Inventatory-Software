@@ -13,6 +13,7 @@
 #include "platform/BackgroundController.h"
 #include "platform/HttpServer.h"
 #include "platform/MdnsService.h"
+#include "platform/UpdateService.h"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/mouse.hpp>
@@ -24,6 +25,7 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -54,6 +56,7 @@ class App {
     Import,
     ScanSetup,
     Settings,
+    Onboarding,
   };
 
   enum class ScanSetupStep {
@@ -65,6 +68,8 @@ class App {
     Confirm,
     Complete,
   };
+
+  enum class OnboardingStep { Welcome, DataFolder, BackgroundService, Printer, ScanR1, DigiKey, Complete };
 
   enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan, DigiKey };
 
@@ -162,6 +167,7 @@ class App {
   void handleInventatoryScanSetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
+  void handleOnboardingKey(const KeyEvent& key);
   void handleSearchKey(const KeyEvent& key);
   void handleEditMenuKey(const KeyEvent& key);
   void handleEditValueKey(const KeyEvent& key);
@@ -177,6 +183,7 @@ class App {
   ftxui::Element renderInventatoryScanSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderSettingsUi() const;
+  ftxui::Element renderOnboardingUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
   std::string stockDateFilterName(StockDateFilter filter) const;
   bool stockDateFilterMatches(const InventoryItem& item) const;
@@ -202,6 +209,8 @@ class App {
   void clearMessageIfExpired();
   void requestUserExit();
   void processBackgroundWork();
+  void beginUpdateCheckIfDue();
+  void processUpdateCheck();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void markDirty();
@@ -219,6 +228,8 @@ class App {
   bool autoPrintScannedLabel(const std::string& itemId);
   std::string printerSummary() const;
   void openInventatoryScanSetup();
+  void advanceOnboarding();
+  void finishOnboarding();
   bool regenerateInventatoryScanToken();
   bool clearInventatoryScanPairing();
   bool copyInventatoryScanToken();
@@ -337,6 +348,9 @@ class App {
   std::filesystem::path activityPath_;
   std::filesystem::path inventatoryScanConfigPath_;
   Page page_ = Page::Home;
+  OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
+  bool onboardingActive_ = false;
+  bool returnToOnboardingAfterScan_ = false;
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
   std::string searchQueryBeforeEdit_;
@@ -429,6 +443,7 @@ class App {
   mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;
   time_t settingsConfirmUntil_ = 0;
+  std::future<UpdateCheckResult> updateCheckFuture_;
   mutable std::vector<UiTarget> uiTargets_;
   mutable std::string hoveredTargetId_;
   int focusedTarget_ = -1;

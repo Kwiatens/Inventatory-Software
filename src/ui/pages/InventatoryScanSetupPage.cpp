@@ -321,7 +321,13 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
     bleWifiPassword_.clear();
     blePairingCode_.clear();
     inputBuffer_.clear();
-    changePage(Page::Home);
+    if (returnToOnboardingAfterScan_) {
+      returnToOnboardingAfterScan_ = false;
+      onboardingStep_ = OnboardingStep::DigiKey;
+      changePage(Page::Onboarding);
+    } else {
+      changePage(Page::Home);
+    }
   };
 
   if (key.type == KeyType::Escape) {
