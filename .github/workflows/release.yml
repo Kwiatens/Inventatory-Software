@@ -36,7 +36,9 @@ jobs:
           Copy-Item build\Release\inventatory.exe dist\Inventatory\
           Copy-Item installer\Uninstall-Inventatory.cmd,installer\Uninstall-Inventatory.ps1 dist\Inventatory\
           Copy-Item README.md,THIRD_PARTY_NOTICES.md dist\Inventatory\
-          Invoke-WebRequest -Uri 'https://www.gnu.org/licenses/gpl-3.0.txt' -OutFile dist\Inventatory\LICENSE
+          # The complete GPL text is tracked with the release staging files so
+          # packaging does not depend on an external download being available.
+          if (-not (Test-Path dist\Inventatory\LICENSE)) { throw 'Vendored GPL license text is missing.' }
           Compress-Archive -Path dist\Inventatory -DestinationPath dist\Inventatory-win-x64.zip -Force
           $hash = (Get-FileHash dist\Inventatory-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -NoNewline -Path dist\SHA256SUMS.txt -Value "$hash  Inventatory-win-x64.zip"
