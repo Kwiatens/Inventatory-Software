@@ -326,10 +326,7 @@ ftxui::Element App::renderSearchBarUi() const {
   string contextText;
   if (inputMode_ == InputMode::Search) {
     contextTitle = "Search";
-    contextText = "/" + inputBuffer_ + "_";
-  } else if (inputMode_ == InputMode::StockFilter) {
-    contextTitle = "Filters";
-    contextText = "Choose a stock modification-date filter";
+    contextText = "/" + inputBuffer_ + "_  (filtering live)";
   } else if (showsPrompt) {
     contextText = activePrompt() + inputBuffer_ + "_";
   } else {
@@ -614,7 +611,7 @@ ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
   const bool hovered = hoveredTargetId_ == id;
   const bool focused = focusable && static_cast<int>(index) == focusedTarget_;
   if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
-  if (focused) element = element | ftxui::color(uiFocusColor()) | ftxui::bold;
+  if (focused) element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiSelectionBg()) | ftxui::bold;
   uiTargets_.push_back(UiTarget{move(id), kind, {}, enabled, focusable, move(activate)});
   return element | ftxui::reflect(uiTargets_.back().bounds);
 }
@@ -664,6 +661,16 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
 
 void App::moveUiFocus(int delta) {
   if (uiTargets_.empty()) return;
+  if (focusedTarget_ < 0 && page_ == Page::Import) {
+    const auto primary = find_if(uiTargets_.begin(), uiTargets_.end(), [](const UiTarget& target) {
+      return target.enabled && target.focusable && target.id == "import.choose";
+    });
+    if (primary != uiTargets_.end()) {
+      focusedTarget_ = static_cast<int>(distance(uiTargets_.begin(), primary));
+      dirty_ = true;
+      return;
+    }
+  }
   int next = focusedTarget_;
   for (size_t count = 0; count < uiTargets_.size(); ++count) {
     next = (next + delta + static_cast<int>(uiTargets_.size())) % static_cast<int>(uiTargets_.size());
@@ -687,6 +694,8 @@ bool App::activateFocusedTarget() {
 void App::handleSearchKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
     inputBuffer_.push_back(key.ch);
+    searchQuery_ = inputBuffer_;
+    syncSelectionToFilter();
     dirty_ = true;
     return;
   }
@@ -694,22 +703,25 @@ void App::handleSearchKey(const KeyEvent& key) {
   if (key.type == KeyType::Backspace) {
     if (!inputBuffer_.empty()) {
       inputBuffer_.pop_back();
+      searchQuery_ = inputBuffer_;
+      syncSelectionToFilter();
       dirty_ = true;
     }
     return;
   }
 
   if (key.type == KeyType::Enter) {
-    searchQuery_ = inputBuffer_;
     inputMode_ = InputMode::None;
     syncSelectionToFilter();
-    setMessage(searchQuery_.empty() ? "Filter cleared" : "Filter applied", 2);
+    setMessage(searchQuery_.empty() ? "Filter cleared" : "Filter kept", 2);
     return;
   }
 
   if (key.type == KeyType::Escape) {
+    searchQuery_ = searchQueryBeforeEdit_;
     inputBuffer_ = searchQuery_;
     inputMode_ = InputMode::None;
+    syncSelectionToFilter();
     setMessage("Search cancelled", 2);
   }
 }
