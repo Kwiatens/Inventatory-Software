@@ -49,6 +49,8 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
     istringstream value(line.substr(equals + 1));
     if (key == "schema_version") {
       value >> loaded.schemaVersion;
+    } else if (key == "completed_onboarding_version") {
+      value >> loaded.completedOnboardingVersion;
     } else if (key == "data_directory") {
       string decoded;
       value >> quoted(decoded);
@@ -67,6 +69,16 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       string decoded;
       value >> decoded;
       loaded.backgroundConsentAsked = parseBool(decoded, loaded.backgroundConsentAsked);
+    } else if (key == "update_checks_enabled") {
+      string decoded;
+      value >> decoded;
+      loaded.updateChecksEnabled = parseBool(decoded, loaded.updateChecksEnabled);
+    } else if (key == "last_update_check_unix_seconds") {
+      value >> loaded.lastUpdateCheckUnixSeconds;
+    } else if (key == "latest_available_version") {
+      value >> quoted(loaded.latestAvailableVersion);
+    } else if (key == "latest_release_url") {
+      value >> quoted(loaded.latestReleaseUrl);
     } else if (key == "device_service_port" || key == "bridge_port") {
       // bridge_port is the pre-v2 name and remains readable for migration.
       unsigned int port = loaded.deviceServicePort;
@@ -92,7 +104,10 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       if (revision > 0 && revision <= UINT32_MAX) loaded.quickLabelRevision = static_cast<uint32_t>(revision);
     }
   }
-  if (loaded.schemaVersion != 1) return false;
+  if (loaded.schemaVersion < 1 || loaded.schemaVersion > 2) return false;
+  if (loaded.schemaVersion == 1) {
+    loaded.schemaVersion = 2;
+  }
   settings = move(loaded);
   return true;
 }
@@ -106,11 +121,16 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
   ofstream output(temporary, ios::trunc);
   if (!output) return false;
   output << "schema_version=" << settings.schemaVersion << '\n'
+         << "completed_onboarding_version=" << settings.completedOnboardingVersion << '\n'
          << "data_directory=" << quoted(settings.dataDirectory.string()) << '\n'
          << "printer_queue=" << quoted(settings.printerQueue) << '\n'
          << "auto_print_scanned_labels=" << (settings.autoPrintScannedLabels ? "true" : "false") << '\n'
          << "background_service_enabled=" << (settings.backgroundServiceEnabled ? "true" : "false") << '\n'
          << "background_consent_asked=" << (settings.backgroundConsentAsked ? "true" : "false") << '\n'
+         << "update_checks_enabled=" << (settings.updateChecksEnabled ? "true" : "false") << '\n'
+         << "last_update_check_unix_seconds=" << settings.lastUpdateCheckUnixSeconds << '\n'
+         << "latest_available_version=" << quoted(settings.latestAvailableVersion) << '\n'
+         << "latest_release_url=" << quoted(settings.latestReleaseUrl) << '\n'
          << "device_service_port=" << settings.deviceServicePort << '\n'
          << "digikey_client_id=" << quoted(settings.digiKeyClientId) << '\n'
          << "digikey_account_id=" << quoted(settings.digiKeyAccountId) << '\n'
