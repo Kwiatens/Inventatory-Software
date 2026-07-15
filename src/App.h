@@ -201,6 +201,9 @@ class App {
   bool messageVisible() const;
   void clearMessageIfExpired();
   void requestUserExit();
+  void processBackgroundWork();
+  void runBackgroundLoop();
+  void runInteractiveLoop();
   void markDirty();
   void refreshPrinterState();
   void openPrinterSetup();
@@ -380,6 +383,7 @@ class App {
   bool deviceDebugFollow_ = true;
   bool running_ = true;
   std::atomic<bool> backgroundQuitRequested_{false};
+  std::atomic<bool> foregroundRequested_{false};
   bool dirty_ = true;
   WorkingCopy workingCopy_;
   UndoSnapshot undoSnapshot_;
