@@ -26,6 +26,13 @@ device service; UI copy calls this the R1 service rather than a generic bridge.
 The minimum supported terminal is 100 by 30 cells. Smaller terminals show a
 resize notice instead of a clipped interface.
 
+Fresh-install setup is the sole shell exception. It uses a full-window,
+command-style terminal flow with no navigation, operational status, search, or
+action sheet. It configures the data folder, optional background mode, and an
+optional physical Inventatory Scan R1 only; printer and vendor integrations
+remain later Settings tasks. The normal Scan R1 setup page remains available
+after onboarding.
+
 ## Graphite / Turquoise palette
 
 | Role | RGB / hex | Use |

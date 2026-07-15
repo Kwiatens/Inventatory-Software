@@ -17,6 +17,25 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments = '') {
   $shortcut.Save()
 }
 
+function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory) {
+  for ($remaining = 3; $remaining -gt 0; $remaining--) {
+    Write-Host -NoNewline ("`rLaunching Inventatory in {0}... Press any key to cancel. " -f $remaining)
+    $deadline = (Get-Date).AddSeconds(1)
+    do {
+      $keyAvailable = $false
+      try { $keyAvailable = [Console]::KeyAvailable } catch { }
+      if ($keyAvailable) {
+        [Console]::ReadKey($true) | Out-Null
+        Write-Host "`rInventatory launch cancelled. Run it later from the Start menu.        "
+        return
+      }
+      Start-Sleep -Milliseconds 50
+    } while ((Get-Date) -lt $deadline)
+  }
+  Write-Host "`rLaunching Inventatory now.                                      "
+  Start-Process -FilePath $exe -WorkingDirectory $workingDirectory
+}
+
 try {
   if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI is required for this private beta.' }
   & gh auth status -h github.com | Out-Null
@@ -62,7 +81,7 @@ try {
   if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $exe }
 
   Write-Host "Inventatory $tag installed for this Windows user."
-  if (-not $NoLaunch -and ((Read-Host 'Launch first-run setup now? [Y/n]') -notmatch '^[Nn]')) { Start-Process -FilePath $exe -WorkingDirectory $installRoot }
+  if (-not $NoLaunch) { Start-InventatoryAfterCountdown $exe $installRoot }
 } finally {
   Remove-Item -LiteralPath $downloadRoot -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
