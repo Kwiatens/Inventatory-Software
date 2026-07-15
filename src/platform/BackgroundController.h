@@ -21,12 +21,13 @@ class BackgroundController {
 
   bool acquireSingleInstance();
   bool signalExistingInstance() const;
-  bool start(bool enabled, bool hideInitially, Callback onQuit);
+  bool start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen = {});
   void stop();
   bool enabled() const;
   void hideConsole(bool notifyUser);
   void showConsole();
   void requestQuitFromTray();
+  void requestOpenFromTray();
 
   BackgroundController(const BackgroundController&) = delete;
   BackgroundController& operator=(const BackgroundController&) = delete;
@@ -39,6 +40,7 @@ class BackgroundController {
   std::thread trayThread_;
   mutable std::mutex callbackMutex_;
   Callback onQuit_;
+  Callback onOpen_;
 };
 
 }  // namespace inventatory
