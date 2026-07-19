@@ -17,7 +17,7 @@ The goals are:
 - The dashboard is the landing page.
 - The stock browser shows part name, category, and quantity in the list, with full details for the selected item.
 - Search should work by keyword, category, tag, parameter, location, SKU, status, and quantity filters.
-- Item details should include DigiKey links, datasheet links, and metadata sync status.
+- Item details should include the manufacturer part number, effective datasheet link, and IECD enrichment status.
 - The Inventatory Scan hardware device pushes scans and status reports to the local bridge, which passes them back to the terminal app.
 
 ## Design Principles
@@ -49,7 +49,7 @@ The goals are:
 - `src/ui/shared/` owns reusable terminal formatting and inventory detail helpers.
 - `src/core/` owns inventory domain logic, with the implementation split across focused files for helpers, query, serialization, history, storage, seed data, scan handling, and SQLite support.
 - `src/app/AppBootstrap.cpp` owns filesystem bootstrap helpers and database reuse paths.
-- `src/app/AppActions.cpp` owns shared app state helpers, import workflow, scan handling, and DigiKey sync helpers.
+- `src/app/AppActions.cpp` owns shared app state helpers, import workflow, scan handling, and IECD enrichment.
 - `src/app.cpp` owns live terminal render/input wiring.
 
 ## Data And Files

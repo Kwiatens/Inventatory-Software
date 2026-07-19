@@ -5,8 +5,9 @@
 
 #include "core/Inventory.h"
 #include "core/InventatoryScanProtocol.h"
+#include "core/IecdDatabase.h"
 #include "app/AppSettings.h"
-#include "import/DigiKeyCsvImport.h"
+#include "import/BomCsvImport.h"
 #include "label_printer/LabelPrinter.h"
 #include "platform/Console.h"
 #include "platform/BleProvisioningService.h"
@@ -14,6 +15,7 @@
 #include "platform/HttpServer.h"
 #include "platform/MdnsService.h"
 #include "platform/UpdateService.h"
+#include "platform/IecdUpdateService.h"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/mouse.hpp>
@@ -71,7 +73,7 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
-  enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan, DigiKey };
+  enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
@@ -123,11 +125,9 @@ class App {
     Tags,
     Parameters,
     Notes,
-    DigiKeyPart,
     DatasheetUrl,
-    ProductUrl,
-    Sku,
-    SyncStatus,
+    ManufacturerPartNumber,
+    EnrichmentStatus,
     RackLocation,
   };
 
@@ -211,6 +211,8 @@ class App {
   void processBackgroundWork();
   void beginUpdateCheckIfDue();
   void processUpdateCheck();
+  void beginIecdUpdateIfDue();
+  void processIecdUpdate();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void markDirty();
@@ -261,7 +263,6 @@ class App {
   void cancelSettingsDraft();
   bool stageInventatoryFolder();
   bool testStagedPrinter();
-  bool testStagedDigiKey();
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
   void armDeleteConfirmation();
@@ -317,8 +318,7 @@ class App {
   void acceptImportCandidate();
   void skipImportCandidate();
   void finishImportReview();
-  void finishCsvImport(bool syncWithDigiKey);
-  void syncAcceptedImports();
+  void finishCsvImport();
   CsvImportCandidate* currentImportCandidate();
   const CsvImportCandidate* currentImportCandidate() const;
   std::string importCompletionMessage() const;
@@ -347,6 +347,8 @@ class App {
   std::filesystem::path printerPath_;
   std::filesystem::path activityPath_;
   std::filesystem::path inventatoryScanConfigPath_;
+  std::filesystem::path iecdPath_;
+  IecdDatabase iecdDatabase_;
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
@@ -405,12 +407,9 @@ class App {
   bool editingImportCandidate_ = false;
   size_t importEditIndex_ = 0;
   size_t importSelection_ = 0;
-  bool importSyncPrompt_ = false;
   int importCreatedCount_ = 0;
   int importMergedCount_ = 0;
   int importSkippedCount_ = 0;
-  int importSyncedCount_ = 0;
-  int importSyncFailedCount_ = 0;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
   std::vector<Action> sheetActions_;
@@ -435,15 +434,13 @@ class App {
   int settingsField_ = 0;
   bool settingsDirty_ = false;
   bool settingsEditingField_ = false;
-  std::string stagedDigiKeySecret_;
-  bool stagedDigiKeySecretChanged_ = false;
-  bool hasStoredDigiKeySecret_ = false;
   std::unordered_map<std::string, DeviceQuickLabelPrintResult> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
+  std::future<IecdInstallResult> iecdUpdateFuture_;
   mutable std::vector<UiTarget> uiTargets_;
   mutable std::string hoveredTargetId_;
   int focusedTarget_ = -1;

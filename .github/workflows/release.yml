@@ -34,8 +34,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist\Inventatory | Out-Null
           Copy-Item build\Release\inventatory.exe dist\Inventatory\
+          New-Item -ItemType Directory -Force -Path dist\Inventatory\data | Out-Null
+          Copy-Item data\iecd.sqlite3,data\iecd-manifest.json dist\Inventatory\data\
           Copy-Item installer\Uninstall-Inventatory.cmd,installer\Uninstall-Inventatory.ps1 dist\Inventatory\
           Copy-Item README.md,THIRD_PARTY_NOTICES.md dist\Inventatory\
+          Copy-Item build\_deps\monocypher-src\LICENCE.md dist\Inventatory\MONOCYPHER-LICENSE.md
           # The complete GPL text is tracked with the release staging files so
           # packaging does not depend on an external download being available.
           if (-not (Test-Path dist\Inventatory\LICENSE)) { throw 'Vendored GPL license text is missing.' }

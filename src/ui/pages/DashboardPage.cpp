@@ -51,7 +51,7 @@ struct DashboardSnapshot {
   size_t outOfStockCount = 0;
   size_t dataErrorCount = 0;
   size_t missingMetadataCount = 0;
-  size_t unsyncedCount = 0;
+  size_t unenrichedCount = 0;
   vector<AttentionRow> attention;
   vector<DeviceStatus> devices;
   vector<ActivityEntry> recentEvents;
@@ -128,9 +128,9 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   for (const auto& item : items) {
     snapshot.totalQuantity += static_cast<size_t>(max(item.quantity, 0));
     const bool missingMetadata = item.hasMissingMetadata();
-    const bool unsynced = toLower(item.syncStatus) != "synced";
+    const bool unenriched = toLower(item.enrichmentStatus) != "matched";
     snapshot.missingMetadataCount += missingMetadata ? 1 : 0;
-    snapshot.unsyncedCount += unsynced ? 1 : 0;
+    snapshot.unenrichedCount += unenriched ? 1 : 0;
 
     const bool duplicateId = !seenIds.insert(item.id).second;
     const bool dataError = duplicateId || item.quantity < 0 || item.reorderThreshold < 0;
@@ -165,9 +165,9 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
       row.issue = "META";
       row.reason = "Complete part metadata";
       row.severity = AttentionSeverity::Metadata;
-    } else if (unsynced) {
-      row.issue = "SYNC";
-      row.reason = "Pending synchronization";
+    } else if (unenriched) {
+      row.issue = "IECD";
+      row.reason = item.enrichmentStatus == "database_unavailable" ? "Database unavailable" : "No reviewed match";
       row.severity = AttentionSeverity::Metadata;
     } else {
       continue;
@@ -294,7 +294,7 @@ ftxui::Element App::renderDashboardUi() const {
       uiDivider(),
       metricCard("OUT OF STOCK", snapshot.outOfStockCount, snapshot.outOfStockCount > 0 ? uiDangerColor() : uiSuccessColor()),
       uiDivider(),
-      metricCard("PENDING SYNC", snapshot.unsyncedCount, snapshot.unsyncedCount > 0 ? uiLinkColor() : uiSuccessColor()),
+      metricCard("NOT IN IECD", snapshot.unenrichedCount, snapshot.unenrichedCount > 0 ? uiLinkColor() : uiSuccessColor()),
   });
 
   const int alertWidth = max(50, (screenWidth - 1) / 2);

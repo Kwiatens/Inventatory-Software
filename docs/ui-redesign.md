@@ -29,7 +29,7 @@ resize notice instead of a clipped interface.
 Fresh-install setup is the sole shell exception. It uses a full-window,
 command-style terminal flow with no navigation, operational status, search, or
 action sheet. It configures the data folder, optional background mode, and an
-optional physical Inventatory Scan R1 only; printer and vendor integrations
+optional physical Inventatory Scan R1 only; printer integration
 remain later Settings tasks. The normal Scan R1 setup page remains available
 after onboarding.
 
@@ -107,15 +107,15 @@ Actions.
 ### Import
 
 The empty state starts file selection. Imported rows are reviewed beside their
-details, corrected inline, and accepted or skipped. DigiKey synchronization is
-offered after review with an explicit completion choice.
+details, corrected inline, and accepted or skipped. IECD enrichment runs locally
+for accepted rows and the completion summary reports created, merged, and skipped counts.
 
 ### Settings
 
-General/Data, Printer, Inventatory Scan, and DigiKey live in one category/detail
+General/Data, Printer, Quick Labels, and Inventatory Scan live in one category/detail
 workspace. Ordinary edits are staged and use Save/Cancel. Refresh, Test, Copy,
-Regenerate, and Clear are operational actions. DigiKey secrets are stored in
-Windows Credential Manager, never in `settings.conf`.
+Regenerate, and Clear are operational actions. IECD snapshot state and update
+controls live under General/Data; there are no database credentials.
 
 ## Reusable UI rules
 
