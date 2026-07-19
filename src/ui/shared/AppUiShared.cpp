@@ -420,7 +420,7 @@ optional<string> inferredInductanceValue(const InventoryItem& item) {
   if (const auto value = parameterValueMatching(item, {"Inductance", "Value"}, looksLikeInductanceValue)) {
     return value;
   }
-  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.sku);
+  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.manufacturerPartNumber);
 }
 
 optional<string> parameterValue(const InventoryItem& item, initializer_list<const char*> names) {
@@ -508,7 +508,6 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
       addField("Operating Voltage", parameterValue(item, {"Voltage - Supply", "Voltage - Supply (Min/Max)", "Voltage - Supply (Min)", "Voltage - Supply (Max)"}));
       addField("Operating Temperature", parameterValue(item, {"Operating Temperature"}));
       addField("Mounting Type", parameterValue(item, {"Mounting Type"}));
-      addField("DigiKey Programmable", parameterValue(item, {"DigiKey Programmable"}));
       return fields;
     }
 
@@ -530,7 +529,6 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
     addField("Operating Voltage", parameterValue(item, {"Voltage - Supply", "Voltage - Supply (Min/Max)"}));
     addField("Operating Temperature", parameterValue(item, {"Operating Temperature"}));
     addField("Mounting Type", parameterValue(item, {"Mounting Type"}));
-    addField("DigiKey Programmable", parameterValue(item, {"DigiKey Programmable"}));
     return fields;
   }
 

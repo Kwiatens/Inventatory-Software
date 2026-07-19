@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// Shared short part description classifier.
+// Shared access to reviewed IECD short part descriptions.
 
 #pragma once
 
