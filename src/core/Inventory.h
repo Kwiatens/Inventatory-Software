@@ -47,11 +47,16 @@ struct InventoryItem {
   vector<string> tags;
   vector<Parameter> parameters;
   string notes;
-  string digikeyPartNumber;
+  string manufacturerPartNumber;
   string datasheetUrl;
-  string productUrl;
-  string syncStatus = "synced";
-  string sku;
+  string enrichmentStatus = "not_in_iecd";
+  string iecdComponentId;
+  string iecdVersion;
+  string iecdCanonicalName;
+  string iecdPurposeLabel;
+  string iecdPrintLabel;
+  string iecdCategory;
+  string iecdDatasheetUrl;
   time_t lastUpdated = 0;
   string inventatoryId;
   time_t createdAt = 0;
@@ -65,6 +70,14 @@ struct InventoryItem {
   string searchableText() const;
 };
 
+enum class IecdMatchStatus {
+  ExactMatch,
+  UniqueMpnMatch,
+  Ambiguous,
+  NotFound,
+  DatabaseUnavailable,
+};
+
 struct ActivityEntry {
   time_t timestamp = 0;
   string kind;
@@ -76,7 +89,7 @@ struct Summary {
   size_t totalUnits = 0;
   size_t lowStockCount = 0;
   size_t missingMetadataCount = 0;
-  size_t unsyncedCount = 0;
+  size_t unenrichedCount = 0;
 };
 
 struct InventoryHistoryPoint {
@@ -96,6 +109,7 @@ struct DeviceEventCommit {
   string status;
   bool existing = false;
   string itemName;
+  string purposeLabel;
   int requestedDelta = 0;
   int appliedDelta = 0;
   int quantity = 0;
@@ -184,6 +198,8 @@ void appendActivity(vector<ActivityEntry>& activities, const ActivityEntry& entr
 ActivityEntry makeActivity(string kind, string message);
 
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
+ScanResolution resolveDecodedComponent(InventoryStore& store, const string& manufacturer,
+                                       const string& manufacturerPartNumber, const string& encodedPartName);
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);

@@ -64,7 +64,7 @@ ftxui::Element App::renderStockUi() const {
   listRows.push_back(ftxui::hbox({
                          fixedCell("Part", partWidth, uiMutedColor()),
                          ftxui::separator() | ftxui::color(uiDimColor()),
-                         fixedCell("Category", categoryWidth, uiMutedColor()),
+                         fixedCell("Purpose", categoryWidth, uiMutedColor()),
                          ftxui::separator() | ftxui::color(uiDimColor()),
                          ftxui::hbox({
                              ftxui::filler(),
@@ -88,11 +88,11 @@ ftxui::Element App::renderStockUi() const {
       const auto fg = selected ? uiFocusColor()
                       : outOfStock ? uiDangerColor()
                                    : (lowStock ? uiWarnColor() : uiPrimaryText());
-      const auto category = displayCategory(item.category);
+      const auto purpose = partShortDescription(item);
       auto row = ftxui::hbox({
                      fixedCell(" " + item.partName, partWidth, fg),
                      ftxui::separator() | ftxui::color(uiDimColor()),
-                     fixedCell(category, categoryWidth, selected ? uiTitleColor() : uiLabelColor()),
+                     fixedCell(purpose, categoryWidth, selected ? uiTitleColor() : uiLabelColor()),
                      ftxui::separator() | ftxui::color(uiDimColor()),
                      quantityCell(item.quantity, selected),
                  }) |
@@ -204,13 +204,13 @@ ftxui::Element App::renderStockUi() const {
                                     detailInnerWidth),
                     id, UiTargetKind::Link, move(activate), !trim(value).empty());
     };
-    detailRows.push_back(link("stock.link.datasheet", "Datasheet", item->datasheetUrl,
-                              [self] { if (const auto* value = self->selectedItem()) self->openCurrentUrl(value->datasheetUrl, "datasheet"); }));
-    detailRows.push_back(link("stock.link.product", "Product", item->productUrl,
-                              [self] { if (const auto* value = self->selectedItem()) self->openCurrentUrl(value->productUrl, "product"); }));
-    detailRows.push_back(detailFieldLine({"DigiKey: ", item->digikeyPartNumber, uiSecondaryText(), uiPrimaryText()},
-                                         detailInnerWidth));
-    detailRows.push_back(detailFieldLine({"SKU: ", item->sku, uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
+    const auto datasheet = effectiveDatasheetUrl(*item);
+    detailRows.push_back(link("stock.link.datasheet", "Datasheet", datasheet,
+                              [self] { if (const auto* value = self->selectedItem()) self->openCurrentUrl(effectiveDatasheetUrl(*value), "datasheet"); }));
+    detailRows.push_back(detailFieldLine({"Manufacturer part: ", item->manufacturerPartNumber,
+                                         uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
+    detailRows.push_back(detailFieldLine({"IECD status: ", item->enrichmentStatus,
+                                         uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Tags: ", renderTags(item->tags), uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
     const auto rack = rackLocation(*item, store_.racks());
     const auto quantityColor = item->quantity <= 0 ? uiDangerColor()
@@ -231,8 +231,8 @@ ftxui::Element App::renderStockUi() const {
                                           uiSecondaryText(), uiWarnColor()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Location: ", item->location, uiSecondaryText(), uiPrimaryText()},
                                          detailInnerWidth));
-    detailRows.push_back(detailFieldLine({"Sync: ", item->syncStatus, uiSecondaryText(),
-                                          toLower(item->syncStatus) == "synced" ? uiSuccessColor() : uiWarnColor()},
+    detailRows.push_back(detailFieldLine({"Sync: ", item->enrichmentStatus, uiSecondaryText(),
+                                          toLower(item->enrichmentStatus) == "matched" ? uiSuccessColor() : uiWarnColor()},
                                          detailInnerWidth));
     if (!trim(item->notes).empty()) {
       detailRows.push_back(uiDivider());
@@ -441,20 +441,7 @@ void App::handleStockKey(const KeyEvent& key) {
         break;
       case 'd':
         if (const auto* item = selectedItem()) {
-          openCurrentUrl(item->datasheetUrl, "datasheet");
-        }
-        break;
-      case 'o':
-        if (const auto* item = selectedItem()) {
-          openCurrentUrl(item->productUrl, "product");
-        }
-        break;
-      case 'g':
-        if (const auto* item = selectedItem()) {
-          const auto digiKeySearch = item->digikeyPartNumber.empty()
-                                         ? string()
-                                         : "https://www.digikey.com/en/products/result?keywords=" + item->digikeyPartNumber;
-          openCurrentUrl(digiKeySearch, "DigiKey");
+          openCurrentUrl(effectiveDatasheetUrl(*item), "datasheet");
         }
         break;
       case 'r':

@@ -3,7 +3,6 @@
 
 #include "App.h"
 
-#include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
 #include "platform/StartupRegistration.h"
 #include "platform/UpdateService.h"
@@ -30,6 +29,7 @@
 #include <utility>
 #include <thread>
 #include <future>
+#include <fstream>
 
 namespace inventatory {
 
@@ -103,8 +103,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       inventoryPath_(dataPath_ / "inventory.db"),
       printerPath_(dataPath_ / "printer.conf"),
       activityPath_(dataPath_ / "activity.tsv"),
-      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf") {
-  loadEnvironmentFile(locateDotEnvFile());
+      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
+      iecdPath_(dataPath_ / "iecd.sqlite3") {
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
     dataPath_ = settings_.dataDirectory;
@@ -112,24 +112,41 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+    iecdPath_ = dataPath_ / "iecd.sqlite3";
   } else {
     settings_.dataDirectory = dataPath_;
   }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
-  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
-                            !loadDigiKeyConfig().clientSecret.empty();
   ensureInventoryDatabaseCopied(inventoryPath_);
+  error_code iecdError;
+  const auto bundledIecd = root_ / "data" / "iecd.sqlite3";
+  const auto bundledManifest = root_ / "data" / "iecd-manifest.json";
+  const auto installBundledIecd = [&] {
+    if (!filesystem::exists(bundledIecd, iecdError) || !filesystem::exists(bundledManifest, iecdError)) return false;
+    ifstream input(bundledManifest, ios::binary);
+    const string manifest((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+    return !manifest.empty() && installIecdSnapshot(manifest, bundledIecd, iecdPath_).installed;
+  };
+  if (!filesystem::exists(iecdPath_, iecdError)) installBundledIecd();
+  if (!iecdDatabase_.open(iecdPath_)) {
+    const auto previousIecd = filesystem::path(iecdPath_.string() + ".previous");
+    if (filesystem::exists(previousIecd, iecdError)) {
+      filesystem::copy_file(previousIecd, iecdPath_, filesystem::copy_options::overwrite_existing, iecdError);
+      iecdDatabase_.open(iecdPath_);
+    }
+    if (!iecdDatabase_.available() && installBundledIecd()) iecdDatabase_.open(iecdPath_);
+  }
+  if (settings_.installedIecdVersion.empty() && iecdDatabase_.available()) {
+    settings_.installedIecdVersion = iecdDatabase_.version();
+    settingsDraft_ = settings_;
+    if (loadedSettings) saveAppSettings(settingsPath_, settings_);
+  }
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (!loadedSettings) {
     settings_.printerQueue = printerService_.configuredPrinter();
-    const auto environment = loadDigiKeyConfig();
-    settings_.digiKeyClientId = environment.clientId;
-    settings_.digiKeyAccountId = environment.accountId;
-    settings_.digiKeySite = environment.site;
-    settings_.digiKeyLanguage = environment.language;
-    settings_.digiKeyCurrency = environment.currency;
+    settings_.installedIecdVersion = iecdDatabase_.version();
     settingsDraft_ = settings_;
     saveAppSettings(settingsPath_, settings_);
   } else if (!settings_.printerQueue.empty()) {
@@ -162,6 +179,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     setMessage("Inventatory Scan R1 service ready", 5);
   }
   beginUpdateCheckIfDue();
+  beginIecdUpdateIfDue();
 }
 
 // The application frame: header, content, context/search-or-actions, message.
@@ -426,6 +444,7 @@ void App::processBackgroundWork() {
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();
+  processIecdUpdate();
 }
 
 void App::runBackgroundLoop() {

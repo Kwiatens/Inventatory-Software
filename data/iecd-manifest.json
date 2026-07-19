@@ -1,0 +1,10 @@
+{
+  "database_file": "iecd.sqlite3",
+  "database_version": "0.2.0-test.2",
+  "record_count": 309,
+  "schema_version": 1,
+  "sha256": "442581e47feadb43e523986bf19f9042e94e9ee10f2d0b0da5438b99e36c1063",
+  "signature": "btj87DDgmAlc9rlslScYvLUk2mAwpi+SSWTpHrHJ/dl4VxJCNQ3ezcUqAgnXsqhggavmFWYkgrLIl6sBOl7FCg==",
+  "signature_algorithm": "Ed25519",
+  "source_commit": "7b7c0fd6e0e2e1bac5c80d0d0b6557d101a9a5b2"
+}

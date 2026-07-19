@@ -40,35 +40,6 @@ ftxui::Element App::renderImportCsvUi() const {
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 40;
 
-  if (importSyncPrompt_) {
-    auto self = const_cast<App*>(this);
-    ftxui::Elements promptRows;
-    promptRows.push_back(fullLine("CSV review is complete.", uiTitleColor(), uiPanelRightBg()));
-    promptRows.push_back(uiDivider());
-    promptRows.push_back(fullLine("Sync accepted parts with DigiKey API?", uiAccentColor(), uiPanelRightBg()));
-    promptRows.push_back(fullLine("Highly recommended: this fills datasheets, product links, categories, and parameters.",
-                                  uiWarnColor(), uiPanelRightBg()));
-    promptRows.push_back(uiDivider());
-    promptRows.push_back(ftxui::hbox({
-        target(styledText(" Sync with DigiKey ", uiSuccessColor(), uiRaisedSurfaceBg()), "import.sync.yes",
-               UiTargetKind::Button, [self] { self->finishCsvImport(true); }),
-        ftxui::text("  "),
-        target(styledText(" Finish without sync ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.sync.no",
-               UiTargetKind::Button, [self] { self->finishCsvImport(false); }),
-    }));
-    promptRows.push_back(uiDivider());
-    promptRows.push_back(fullLine(importCompletionMessage(), uiInfoColor(), uiPanelRightBg()));
-
-    auto prompt = panel("DigiKey metadata sync", move(promptRows), uiAccentColor(), uiAccentColor()) |
-                  ftxui::bgcolor(uiPanelRightBg()) |
-                  ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, max(64, min(screenWidth - 8, 96)));
-    return ftxui::vbox({
-        ftxui::filler(),
-        ftxui::hbox({ftxui::filler(), prompt, ftxui::filler()}),
-        ftxui::filler(),
-    });
-  }
-
   if (importCandidates_.empty()) {
     auto self = const_cast<App*>(this);
     auto choose = target(styledText(" Choose CSV file ", uiInteractiveColor(), uiRaisedSurfaceBg()),
@@ -81,12 +52,12 @@ ftxui::Element App::renderImportCsvUi() const {
                      styledText("Review every incoming row before it changes inventory", uiSecondaryText()),
                      ftxui::filler()}),
         ftxui::text(""),
-        ftxui::hbox({ftxui::filler(), styledText("Accepts a DigiKey order CSV (Part #, Qty, Description, Manufacturer...)",
+        ftxui::hbox({ftxui::filler(), styledText("Accepts supplier-neutral BOM or order CSV files (MPN and quantity required)",
                                                  uiInfoColor()), ftxui::filler()}),
         ftxui::text(""),
         ftxui::hbox({ftxui::filler(), choose, ftxui::filler()}),
         ftxui::text(""),
-        ftxui::hbox({ftxui::filler(), styledText("DigiKey synchronization is offered after review", uiMutedText()),
+        ftxui::hbox({ftxui::filler(), styledText("Accepted rows are enriched from the installed IECD snapshot", uiMutedText()),
                      ftxui::filler()}),
         ftxui::filler(),
     });
@@ -99,7 +70,7 @@ ftxui::Element App::renderImportCsvUi() const {
   const int qtyWidth = 8;
   const int partWidth = clamp(listInnerWidth / 3, 22, 38);
   const int manufacturerWidth = clamp(listInnerWidth / 5, 14, 24);
-  const int skuWidth = max(14, listInnerWidth - statusWidth - qtyWidth - partWidth - manufacturerWidth - 10);
+  const int mpnWidth = max(14, listInnerWidth - statusWidth - qtyWidth - partWidth - manufacturerWidth - 10);
 
   ftxui::Elements listRows;
   listRows.push_back(ftxui::hbox({
@@ -109,7 +80,7 @@ ftxui::Element App::renderImportCsvUi() const {
       styledText(" | ", uiDimColor()),
       fixedCell("Manufacturer", manufacturerWidth, uiMutedColor()),
       styledText(" | ", uiDimColor()),
-      fixedCell("Mfr Part", skuWidth, uiMutedColor()),
+      fixedCell("Mfr Part", mpnWidth, uiMutedColor()),
       ftxui::filler(),
       fixedCell("Qty", qtyWidth, uiMutedColor(), true),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
@@ -136,7 +107,7 @@ ftxui::Element App::renderImportCsvUi() const {
           styledText(" | ", uiDimColor()),
           fixedCell(candidate.item.manufacturer, manufacturerWidth, selected ? uiTitleColor() : uiLabelColor()),
           styledText(" | ", uiDimColor()),
-          fixedCell(candidate.item.sku, skuWidth, selected ? uiTitleColor() : uiInfoColor()),
+          fixedCell(candidate.item.manufacturerPartNumber, mpnWidth, selected ? uiTitleColor() : uiInfoColor()),
           ftxui::filler(),
           fixedCell(to_string(candidate.item.quantity), qtyWidth, uiSuccessColor(), true),
       }) | ftxui::bgcolor(bg);
@@ -182,9 +153,14 @@ ftxui::Element App::renderImportCsvUi() const {
       detailRows.push_back(detailFieldLine(field, detailOuterWidth - 4));
     }
     detailRows.push_back(uiDivider());
-    detailRows.push_back(fullLine("DigiKey: " + renderUrl(candidate->item.digikeyPartNumber), uiLinkColor(), uiPanelRightBg()));
-    detailRows.push_back(fullLine("Product: " + renderUrl(candidate->item.productUrl), uiLinkColor(), uiPanelRightBg()));
+    detailRows.push_back(fullLine("Manufacturer part: " + candidate->item.manufacturerPartNumber,
+                                  uiInfoColor(), uiPanelRightBg()));
+    detailRows.push_back(fullLine("Datasheet: " + renderUrl(effectiveDatasheetUrl(candidate->item)),
+                                  uiLinkColor(), uiPanelRightBg()));
     detailRows.push_back(fullLine("Source row: " + to_string(candidate->sourceRow), uiMutedColor(), uiPanelRightBg()));
+    for (const auto& warning : candidate->warnings) {
+      detailRows.push_back(fullLine("Warning: " + warning, uiWarnColor(), uiPanelRightBg()));
+    }
     detailRows.push_back(uiDivider());
     detailRows.push_back(fullLine("Enter accept   e edit   Backspace skip", uiDimColor(), uiPanelRightBg()));
   } else {
@@ -207,26 +183,6 @@ ftxui::Element App::renderImportCsvUi() const {
 }
 
 void App::handleImportCsvKey(const KeyEvent& key) {
-  if (importSyncPrompt_) {
-    if (key.type == KeyType::Enter) {
-      finishCsvImport(true);
-      return;
-    }
-    if (key.type == KeyType::Escape) {
-      finishCsvImport(false);
-      return;
-    }
-    if (key.type == KeyType::Character) {
-      const auto ch = tolower(static_cast<unsigned char>(key.ch));
-      if (ch == 'y') {
-        finishCsvImport(true);
-      } else if (ch == 'n') {
-        finishCsvImport(false);
-      }
-    }
-    return;
-  }
-
   if (key.type == KeyType::Character) {
     const auto ch = tolower(static_cast<unsigned char>(key.ch));
     switch (ch) {

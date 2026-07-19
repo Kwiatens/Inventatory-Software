@@ -98,13 +98,13 @@ bool tokenMatchesStatus(const InventoryItem& item, const string& value) {
   if (lowerValue == "missing") {
     return item.hasMissingMetadata();
   }
-  if (lowerValue == "synced") {
-    return toLower(item.syncStatus) == "synced";
+  if (lowerValue == "matched") {
+    return toLower(item.enrichmentStatus) == "matched";
   }
-  if (lowerValue == "unsynced") {
-    return toLower(item.syncStatus) != "synced";
+  if (lowerValue == "unenriched") {
+    return toLower(item.enrichmentStatus) != "matched";
   }
-  return containsInsensitive(item.syncStatus, lowerValue);
+  return containsInsensitive(item.enrichmentStatus, lowerValue);
 }
 
 bool tokenMatchesCategory(const InventoryItem& item, const string& value) {
@@ -195,9 +195,9 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
       return false;
     }
 
-    if (token.rfind("sku:", 0) == 0) {
-      const auto value = token.substr(4);
-      if (tokenMatchesField(item.sku, value)) {
+    if (token.rfind("mpn:", 0) == 0 || token.rfind("part:", 0) == 0) {
+      const auto value = token.substr(token.find(':') + 1);
+      if (tokenMatchesField(item.manufacturerPartNumber, value)) {
         continue;
       }
       return false;
@@ -206,14 +206,6 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
     if (token.rfind("inventatory:", 0) == 0 || token.rfind("inventatoryid:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
       if (tokenMatchesField(item.inventatoryId, value)) {
-        continue;
-      }
-      return false;
-    }
-
-    if (token.rfind("dg:", 0) == 0 || token.rfind("digikey:", 0) == 0) {
-      const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesField(item.digikeyPartNumber, value)) {
         continue;
       }
       return false;
@@ -295,8 +287,8 @@ Summary summarize(const vector<InventoryItem>& items) {
     if (item.hasMissingMetadata()) {
       ++summary.missingMetadataCount;
     }
-    if (toLower(item.syncStatus) != "synced") {
-      ++summary.unsyncedCount;
+    if (toLower(item.enrichmentStatus) != "matched") {
+      ++summary.unenrichedCount;
     }
   }
 

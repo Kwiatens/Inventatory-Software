@@ -179,6 +179,17 @@ bool openDatabase(const filesystem::path& path, SqliteConnection& connection) {
   return true;
 }
 
+bool openReadOnlyDatabase(const filesystem::path& path, SqliteConnection& connection) {
+  const auto& api = sqliteApi();
+  if (api.open_v2 == nullptr) return false;
+  if (api.open_v2(path.string().c_str(), &connection.db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+    connection.db = nullptr;
+    return false;
+  }
+  api.busy_timeout(connection.db, 3000);
+  return true;
+}
+
 bool execSql(SqliteConnection& connection, const string& sql) {
   char* error = nullptr;
   const auto rc = sqliteApi().exec(connection.db, sql.c_str(), nullptr, nullptr, &error);
