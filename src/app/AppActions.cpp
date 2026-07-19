@@ -3,7 +3,6 @@
 
 #include "App.h"
 
-#include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -74,143 +73,16 @@ vector<Parameter> parseParameters(const string& text) {
   return values;
 }
 
-bool upsertParameter(vector<Parameter>& parameters, const string& name, const string& value) {
-  const auto trimmedValue = trim(value);
-  if (trimmedValue.empty()) {
-    return false;
-  }
-
-  for (auto& parameter : parameters) {
-    if (parameterLabelMatches(parameter.name, name)) {
-      if (parameter.name.empty()) {
-        parameter.name = name;
-      }
-      const bool changed = parameter.value != trimmedValue;
-      parameter.value = trimmedValue;
-      return changed;
-    }
-  }
-
-  parameters.push_back({name, trimmedValue});
-  return true;
-}
-
-bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetails& details) {
-  bool changed = false;
-
-  const auto normalizePackageLabels = [&]() {
-    for (auto& parameter : item.parameters) {
-      if (parameterLabelMatches(parameter.name, "Package") && looksLikePackagingValue(parameter.value)) {
-        parameter.name = "Packaging";
-        changed = true;
-      }
-    }
-  };
-  normalizePackageLabels();
-
-  const auto assignIfUseful = [&](string& target, const string& value, bool replaceUnknown = false) {
-    const auto trimmed = trim(value);
-    if (trimmed.empty()) {
-      return;
-    }
-    if (target.empty() || (replaceUnknown && (target == "Unknown" || target == "Unsorted" ||
-                                              target == "Scanned DigiKey Item"))) {
-      target = trimmed;
-      changed = true;
-    }
-  };
-
-  if ((item.partName.empty() || item.partName == "Scanned DigiKey Item") && !trim(details.productDescription).empty()) {
-    item.partName = trim(details.productDescription);
-    changed = true;
-  }
-
-  assignIfUseful(item.manufacturer, details.manufacturerName, true);
-  assignIfUseful(item.category, details.categoryName, true);
-  assignIfUseful(item.sku, details.manufacturerPartNumber);
-  assignIfUseful(item.productUrl, details.productUrl);
-  assignIfUseful(item.datasheetUrl, details.datasheetUrl);
-
-  for (const auto& parameter : details.parameters) {
-    if (upsertParameter(item.parameters, parameter.name, parameter.value)) {
-      changed = true;
-    }
-  }
-
-  if (!trim(details.packagingType).empty()) {
-    if (upsertParameter(item.parameters, "Packaging", details.packagingType)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.packageName).empty()) {
-    if (upsertParameter(item.parameters, "Package", details.packageName)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.rohsStatus).empty()) {
-    if (upsertParameter(item.parameters, "RoHS", details.rohsStatus)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.leadStatus).empty()) {
-    if (upsertParameter(item.parameters, "Lead Status", details.leadStatus)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.productStatus).empty()) {
-    if (upsertParameter(item.parameters, "Product Status", details.productStatus)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.manufacturerLeadWeeks).empty()) {
-    if (upsertParameter(item.parameters, "Lead Time", details.manufacturerLeadWeeks)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.quantityAvailable).empty()) {
-    if (upsertParameter(item.parameters, "Quantity Available", details.quantityAvailable)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.unitPrice).empty()) {
-    if (upsertParameter(item.parameters, "Unit Price", details.unitPrice)) {
-      changed = true;
-    }
-  }
-  if (!trim(details.detailedDescription).empty() && item.notes.empty()) {
-    item.notes = trim(details.detailedDescription);
-    changed = true;
-  }
-  if (!trim(details.lookupKey).empty()) {
-    assignIfUseful(item.digikeyPartNumber, details.lookupKey);
-  }
-
-  if (item.syncStatus != "synced") {
-    item.syncStatus = "synced";
-    changed = true;
-  }
-  item.lastUpdated = time(nullptr);
-  return changed;
-}
-
-struct DigiKeyApiHandle {
-  unique_ptr<DigiKeyApiClient> client;
-  string error;
-};
-
-DigiKeyApiHandle createDigiKeyApi() {
-  const auto config = loadDigiKeyConfig();
-  if (!config.valid()) {
-    return {nullptr, "DigiKey API credentials are not configured"};
-  }
-
-  return {make_unique<DigiKeyApiClient>(config), {}};
-}
-
 }  // namespace
 
 void App::loadState() {
   const bool inventoryLoaded = store_.load(inventoryPath_);
+  bool enrichmentChanged = false;
+  for (auto& item : store_.items()) {
+    enrichmentChanged = applyIecdEnrichment(
+                            item, iecdDatabase_.lookup(item.manufacturer, item.manufacturerPartNumber)) ||
+                        enrichmentChanged;
+  }
   loadActivities(activityPath_, activities_);
   printerService_.loadConfig(printerPath_);
   refreshPrinterState();
@@ -218,7 +90,7 @@ void App::loadState() {
     activities_.push_back(makeActivity("system", "Inventory loaded"));
     activities_.push_back(makeActivity("system", "Terminal dashboard initialized"));
   }
-  // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
+  if (inventoryLoaded && enrichmentChanged) store_.save(inventoryPath_);
 
   server_.setRecentActivity(activities_);
   if (trim(inventatoryScanConfig_.token).empty()) {
@@ -279,6 +151,8 @@ bool App::chooseInventatoryFolder() {
   printerPath_ = dataPath_ / "printer.conf";
   activityPath_ = dataPath_ / "activity.tsv";
   inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+  iecdPath_ = dataPath_ / "iecd.sqlite3";
+  iecdDatabase_.open(iecdPath_);
   ensureInventoryDatabaseCopied(inventoryPath_);
 
   printerQueues_.clear();
@@ -293,7 +167,6 @@ bool App::chooseInventatoryFolder() {
   editingImportCandidate_ = false;
   importEditIndex_ = 0;
   importSelection_ = 0;
-  importSyncPrompt_ = false;
   selectedPosition_ = 0;
   searchQuery_.clear();
   inputBuffer_.clear();
@@ -985,7 +858,7 @@ void App::beginEditCurrentItem(bool createNew) {
     workingCopy_.item.manufacturer = "Unknown";
     workingCopy_.item.category = "Unsorted";
     workingCopy_.item.location = "Unassigned";
-    workingCopy_.item.syncStatus = "needs_metadata";
+    workingCopy_.item.enrichmentStatus = "needs_metadata";
     workingCopy_.item.lastUpdated = time(nullptr);
     workingCopy_.item.createdAt = workingCopy_.item.lastUpdated;
     workingCopy_.originalIndex = store_.items().size();
@@ -1071,20 +944,14 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::Notes:
       workingCopy_.item.notes = trimmed;
       break;
-    case EditField::DigiKeyPart:
-      workingCopy_.item.digikeyPartNumber = trimmed;
-      break;
     case EditField::DatasheetUrl:
       workingCopy_.item.datasheetUrl = trimmed;
       break;
-    case EditField::ProductUrl:
-      workingCopy_.item.productUrl = trimmed;
+    case EditField::ManufacturerPartNumber:
+      workingCopy_.item.manufacturerPartNumber = trimmed;
       break;
-    case EditField::Sku:
-      workingCopy_.item.sku = trimmed;
-      break;
-    case EditField::SyncStatus:
-      workingCopy_.item.syncStatus = toLower(trimmed);
+    case EditField::EnrichmentStatus:
+      workingCopy_.item.enrichmentStatus = toLower(trimmed);
       break;
     case EditField::RackLocation: {
       string error;
@@ -1125,10 +992,16 @@ void App::saveWorkingCopy() {
   captureUndoSnapshot();
   if (workingCopy_.isNew) {
     store_.items().push_back(workingCopy_.item);
+    applyIecdEnrichment(store_.items().back(),
+                        iecdDatabase_.lookup(store_.items().back().manufacturer,
+                                             store_.items().back().manufacturerPartNumber));
     reconcileRackAssignment(store_, store_.items().back());
     selectedPosition_ = store_.items().empty() ? 0 : store_.items().size() - 1;
   } else if (workingCopy_.originalIndex < store_.items().size()) {
     store_.items()[workingCopy_.originalIndex] = workingCopy_.item;
+    applyIecdEnrichment(store_.items()[workingCopy_.originalIndex],
+                        iecdDatabase_.lookup(store_.items()[workingCopy_.originalIndex].manufacturer,
+                                             store_.items()[workingCopy_.originalIndex].manufacturerPartNumber));
     reconcileRackAssignment(store_, store_.items()[workingCopy_.originalIndex]);
   }
 
@@ -1209,28 +1082,22 @@ void App::processScans() {
   }
 
   for (const auto& request : pending) {
-    const auto& code = request.code;
+    const auto code = trim(request.manufacturerPartNumber).empty() ? request.code : request.manufacturerPartNumber;
     const auto resolution = resolveScanCode(store_, code);
     if (resolution.matched) {
-      bool syncedDigiKeyMetadata = false;
-      InventoryItem* syncedItem = nullptr;
       if (auto* item = store_.findById(resolution.itemId)) {
-        const auto shouldTrySync = resolution.created || trim(item->syncStatus) != "synced" ||
-                                   trim(item->partName) == "Scanned DigiKey Item";
-        if (shouldTrySync) {
-          const auto api = createDigiKeyApi();
-          if (api.client != nullptr) {
-            const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : code;
-            if (!trim(lookup).empty()) {
-              string error;
-              const auto details = api.client->fetchProductDetails(lookup, &error);
-              if (details && mergeDigiKeyMetadata(*item, *details)) {
-                syncedDigiKeyMetadata = true;
-                syncedItem = item;
-              }
-            }
-          }
+        if (!trim(request.manufacturer).empty()) item->manufacturer = trim(request.manufacturer);
+        if (!trim(request.manufacturerPartNumber).empty()) {
+          item->manufacturerPartNumber = trim(request.manufacturerPartNumber);
+        } else if (trim(request.encodedPartName).empty() && item->manufacturerPartNumber.empty()) {
+          item->manufacturerPartNumber = code;
+        } else if (resolution.created) {
+          item->manufacturerPartNumber.clear();
         }
+        if (!trim(request.encodedPartName).empty() && (resolution.created || item->partName.empty())) {
+          item->partName = trim(request.encodedPartName);
+        }
+        applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
       }
 
       if (resolution.created) {
@@ -1244,10 +1111,6 @@ void App::processScans() {
           reconcileRackAssignment(store_, *item);
         }
         logActivity("scan", "Matched existing item with code " + code);
-      }
-
-      if (syncedDigiKeyMetadata && syncedItem != nullptr) {
-        logActivity("scan", "Synced DigiKey metadata for " + syncedItem->partName);
       }
 
       if (const auto* item = store_.findById(resolution.itemId)) {
@@ -1492,7 +1355,7 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
   status.rssi = request.rssi;
-  status.debug = "protocol=v1 mode=" + request.mode + " queue=" + to_string(request.queueDepth);
+  status.debug = "protocol=v2 mode=" + request.mode + " queue=" + to_string(request.queueDepth);
   status.protocolVersion = request.protocolVersion;
   status.mode = request.mode;
   status.pendingEventCount = request.queueDepth;
@@ -1531,7 +1394,7 @@ void App::processDeviceSyncEvents() {
   string affectedItemId;
   bool created = false;
   if (event.type == "inventory.adjust") {
-    DeviceQuantityRequest request{"protocol-v1", event.eventId, event.code, event.value};
+    DeviceQuantityRequest request{"protocol-v2", event.eventId, event.code, event.value};
     const auto quantityResult = applyDeviceQuantity(candidate, request);
     result.requestedDelta = event.value;
     result.appliedDelta = quantityResult.appliedDelta;
@@ -1544,6 +1407,8 @@ void App::processDeviceSyncEvents() {
       if (const auto* item = candidate.findByMachineCode(event.code)) {
         affectedItemId = item->id;
         result.existing = true;
+        result.itemName = item->iecdCanonicalName.empty() ? item->partName : item->iecdCanonicalName;
+        result.purposeLabel = item->iecdPurposeLabel;
         result.location = rackLocation(*item, candidate.racks());
         if (result.location.empty()) result.location = item->location;
       }
@@ -1552,7 +1417,11 @@ void App::processDeviceSyncEvents() {
       result.message = quantityResult.error;
     }
   } else if (event.type == "inventory.receive" && event.value > 0) {
-    const auto resolution = resolveScanCode(candidate, event.code);
+    const auto legacyMpn = trim(event.manufacturerPartNumber).empty() && trim(event.encodedPartName).empty()
+                               ? event.code
+                               : event.manufacturerPartNumber;
+    const auto resolution = resolveDecodedComponent(candidate, event.manufacturer, legacyMpn,
+                                                    event.encodedPartName);
     if (!resolution.matched) {
       result.code = "scan_unresolved";
       result.message = resolution.message;
@@ -1568,27 +1437,15 @@ void App::processDeviceSyncEvents() {
       result.appliedDelta = item->quantity - oldQuantity;
       result.quantity = item->quantity;
 
-      string warning;
-      const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
-                                trim(item->partName) == "Scanned DigiKey Item";
-      if (shouldEnrich) {
-        const auto api = createDigiKeyApi();
-        if (api.client == nullptr) {
-          warning = api.error;
-        } else {
-          string lookupError;
-          const auto details = api.client->fetchProductDetails(event.code, &lookupError);
-          if (details) mergeDigiKeyMetadata(*item, *details);
-          else warning = lookupError.empty() ? "DigiKey metadata unavailable" : lookupError;
-        }
-      }
+      applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
       reconcileRackAssignment(candidate, *item);
-      result.itemName = item->partName;
+      result.itemName = item->iecdCanonicalName.empty() ? item->partName : item->iecdCanonicalName;
+      result.purposeLabel = item->iecdPurposeLabel;
       result.location = rackLocation(*item, candidate.racks());
       if (result.location.empty()) result.location = item->location.empty() ? "UNASSIGNED" : item->location;
-      result.status = warning.empty() ? "completed" : "completed_with_warning";
-      result.code = warning.empty() ? string() : "metadata_sync_failed";
-      result.message = warning.empty() ? (created ? "New item received" : "Existing item updated") : warning;
+      result.status = "completed";
+      result.code.clear();
+      result.message = created ? "New item received" : "Existing item updated";
     }
   } else if (event.type == "inventory.receive") {
     result.code = "invalid_quantity";
@@ -1734,7 +1591,7 @@ void App::beginCsvImport() {
     return;
   }
 
-  const auto result = loadDigiKeyCsvFile(selectedPath, store_.items());
+  const auto result = loadBomCsvFile(selectedPath, store_.items());
   if (!result.ok) {
     setMessage("CSV import failed: " + result.error, 6);
     return;
@@ -1744,12 +1601,9 @@ void App::beginCsvImport() {
   importAcceptedItemIds_.clear();
   importSourcePath_ = selectedPath;
   importSelection_ = 0;
-  importSyncPrompt_ = false;
   importCreatedCount_ = 0;
   importMergedCount_ = 0;
   importSkippedCount_ = 0;
-  importSyncedCount_ = 0;
-  importSyncFailedCount_ = 0;
   editingImportCandidate_ = false;
   inputMode_ = InputMode::None;
   page_ = Page::Import;
@@ -1819,6 +1673,11 @@ void App::acceptImportCandidate() {
     ++importCreatedCount_;
   }
 
+  if (auto* accepted = store_.findById(acceptedId)) {
+    applyIecdEnrichment(*accepted,
+                        iecdDatabase_.lookup(accepted->manufacturer, accepted->manufacturerPartNumber));
+  }
+
   importAcceptedItemIds_.push_back(acceptedId);
   importCandidates_.erase(importCandidates_.begin() + static_cast<ptrdiff_t>(importSelection_));
   if (importSelection_ >= importCandidates_.size() && !importCandidates_.empty()) {
@@ -1855,65 +1714,22 @@ void App::skipImportCandidate() {
 }
 
 void App::finishImportReview() {
-  importSyncPrompt_ = !importAcceptedItemIds_.empty();
-  page_ = Page::Import;
-  inputMode_ = InputMode::None;
-  dirty_ = true;
+  finishCsvImport();
 }
 
-void App::syncAcceptedImports() {
-  if (importAcceptedItemIds_.empty()) {
-    return;
-  }
-
-  const auto api = createDigiKeyApi();
-  if (api.client == nullptr) {
-    ++importSyncFailedCount_;
-    setMessage("DigiKey sync unavailable: " + api.error, 4);
-    return;
-  }
-
+void App::finishCsvImport() {
   for (const auto& itemId : importAcceptedItemIds_) {
-    auto* item = store_.findById(itemId);
-    if (item == nullptr) {
-      ++importSyncFailedCount_;
-      continue;
+    if (auto* item = store_.findById(itemId)) {
+      applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
     }
-
-    const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : item->sku;
-    if (trim(lookup).empty()) {
-      ++importSyncFailedCount_;
-      continue;
-    }
-
-    string error;
-    const auto details = api.client->fetchProductDetails(lookup, &error);
-    if (!details) {
-      ++importSyncFailedCount_;
-      continue;
-    }
-
-    mergeDigiKeyMetadata(*item, *details);
-    reconcileRackAssignment(store_, *item);
-    ++importSyncedCount_;
   }
-
   saveState();
-}
-
-void App::finishCsvImport(bool syncWithDigiKey) {
-  if (syncWithDigiKey) {
-    setMessage("Syncing accepted CSV rows with DigiKey API...", 3);
-    syncAcceptedImports();
-  }
-
   const auto summary = importCompletionMessage();
   logActivity("import", summary);
   importCandidates_.clear();
   importAcceptedItemIds_.clear();
   importSourcePath_.clear();
   importSelection_ = 0;
-  importSyncPrompt_ = false;
   editingImportCandidate_ = false;
   changePage(Page::Home);
   setMessage(summary, 8);
@@ -1921,8 +1737,7 @@ void App::finishCsvImport(bool syncWithDigiKey) {
 
 string App::importCompletionMessage() const {
   return "CSV import complete: " + to_string(importCreatedCount_) + " new, " +
-         to_string(importMergedCount_) + " merged, " + to_string(importSkippedCount_) + " skipped, " +
-         to_string(importSyncedCount_) + " synced, " + to_string(importSyncFailedCount_) + " sync failed";
+         to_string(importMergedCount_) + " merged, " + to_string(importSkippedCount_) + " skipped";
 }
 
 void App::openCurrentUrl(const string& url, const string& label) {
@@ -1957,16 +1772,12 @@ string App::fieldLabel(EditField field) const {
       return "Parameters";
     case EditField::Notes:
       return "Notes";
-    case EditField::DigiKeyPart:
-      return "DigiKey part";
     case EditField::DatasheetUrl:
       return "Datasheet URL";
-    case EditField::ProductUrl:
-      return "Product URL";
-    case EditField::Sku:
-      return "SKU";
-    case EditField::SyncStatus:
-      return "Sync status";
+    case EditField::ManufacturerPartNumber:
+      return "Manufacturer part number";
+    case EditField::EnrichmentStatus:
+      return "IECD status";
     case EditField::RackLocation:
       return "Rack location";
   }
@@ -2006,16 +1817,12 @@ string App::currentFieldValue(EditField field) const {
     }
     case EditField::Notes:
       return item->notes;
-    case EditField::DigiKeyPart:
-      return item->digikeyPartNumber;
     case EditField::DatasheetUrl:
       return item->datasheetUrl;
-    case EditField::ProductUrl:
-      return item->productUrl;
-    case EditField::Sku:
-      return item->sku;
-    case EditField::SyncStatus:
-      return item->syncStatus;
+    case EditField::ManufacturerPartNumber:
+      return item->manufacturerPartNumber;
+    case EditField::EnrichmentStatus:
+      return item->enrichmentStatus;
     case EditField::RackLocation: {
       const auto location = rackLocation(*item, store_.racks());
       return location.empty() ? (item->rackAssignment == RackAssignmentMode::Automatic ? "AUTO" : "") : location;
@@ -2037,11 +1844,9 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Tags", EditField::Tags},
       {"Parameters", EditField::Parameters},
       {"Notes", EditField::Notes},
-      {"DigiKey part", EditField::DigiKeyPart},
       {"Datasheet URL", EditField::DatasheetUrl},
-      {"Product URL", EditField::ProductUrl},
-      {"SKU", EditField::Sku},
-      {"Sync status", EditField::SyncStatus},
+      {"Manufacturer part number", EditField::ManufacturerPartNumber},
+      {"IECD status", EditField::EnrichmentStatus},
   };
 }
 
@@ -2073,7 +1878,7 @@ string App::summaryLine() const {
       << " | " << summary.totalUnits << " units"
       << " | " << summary.lowStockCount << " low"
       << " | " << summary.missingMetadataCount << " missing metadata"
-      << " | " << summary.unsyncedCount << " unsynced";
+      << " | " << summary.unenrichedCount << " not matched";
   return out.str();
 }
 
