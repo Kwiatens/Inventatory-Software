@@ -59,7 +59,7 @@ ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected) {
                         : item.quantity <= 0 ? ftxui::Color::RGB(47, 27, 27)
                         : item.lowStock() ? ftxui::Color::RGB(48, 39, 24)
                                           : uiRaisedSurfaceBg();
-  return styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background) | ftxui::bold;
+  return styledText(" " + to_string(item.quantity) + " pcs ", foreground, background) | ftxui::bold;
 }
 
 }  // namespace
@@ -129,9 +129,9 @@ ftxui::Element App::renderRackManagementUi() const {
     const int slotSpace = gridWidth - 4;
     const int slotWidth = max(7, slotSpace / 5);
     const int extraSlotColumns = max(0, slotSpace - slotWidth * 5);
-    // Expand the five rows into the otherwise unused grid workspace. Longer
-    // part names can still grow their cell and remain reachable by scrolling.
-    const int slotHeight = max(3, (screenHeight - 13) / 5);
+    // Expand the five rows into the otherwise unused grid workspace. Four
+    // lines keep the address, quantity, name, and package visually distinct.
+    const int slotHeight = max(4, (screenHeight - 13) / 5);
     for (int row = 0; row < 5; ++row) {
       ftxui::Elements rowCells;
       for (int column = 0; column < 5; ++column) {
@@ -141,21 +141,32 @@ ftxui::Element App::renderRackManagementUi() const {
         const bool movingSource = item != nullptr && item->id == movingRackItemId_;
         const auto bg = movingSource ? rackMovingSourceBg()
                         : selected ? uiSelectionBg()
-                                   : (item == nullptr ? uiCanvasBg() : uiSurfaceBg());
+                                   : (item == nullptr ? uiCanvasBg() : uiRaisedSurfaceBg());
         const auto titleColor = selected ? uiTitleColor() : (item == nullptr ? uiMutedColor() : uiAccentColor());
-        const auto itemText = item == nullptr ? string("[ empty ]") : item->partName;
+        const int cellWidth = slotWidth + (column < extraSlotColumns ? 1 : 0);
+        const bool showPackage = item != nullptr && cellWidth >= 16 && slotHeight >= 5;
         ftxui::Elements cellRows;
         cellRows.push_back(ftxui::hbox({
+            styledText(" " + slot + " ", titleColor) | ftxui::bold,
             ftxui::filler(),
-            styledText(slot, titleColor) | ftxui::bold,
-            ftxui::filler(),
+            item == nullptr ? ftxui::text("") : rackQuantityIndicator(*item, selected),
         }));
-        cellRows.push_back(item == nullptr
-                               ? styledText("available", uiDimColor())
-                               : ftxui::hbox({ftxui::filler(), rackQuantityIndicator(*item, selected), ftxui::filler()}));
-        cellRows.push_back(ftxui::paragraphAlignLeft(itemText) |
-                           ftxui::color(item == nullptr ? uiDimColor() : uiTitleColor()));
-        const int cellWidth = slotWidth + (column < extraSlotColumns ? 1 : 0);
+        if (item == nullptr) {
+          cellRows.push_back(ftxui::filler());
+          cellRows.push_back(ftxui::hbox({ftxui::filler(), styledText("empty", uiDimColor()), ftxui::filler()}));
+          cellRows.push_back(ftxui::filler());
+        } else {
+          // Keep the item identity in the visual center. The fixed two-line
+          // bound prevents one long description from overwhelming the grid.
+          const auto name = ellipsize(item->partName, static_cast<size_t>(max(8, cellWidth * 2 - 4)));
+          cellRows.push_back(ftxui::filler());
+          cellRows.push_back(ftxui::paragraphAlignLeft(name) | ftxui::color(uiTitleColor()) |
+                             ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 2));
+          cellRows.push_back(ftxui::filler());
+          if (showPackage) {
+            cellRows.push_back(styledText(" pkg " + packageSummary(*item) + " ", uiSecondaryText(), uiSurfaceBg()));
+          }
+        }
         auto cell = ftxui::vbox(move(cellRows)) | ftxui::bgcolor(bg) |
                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
                     ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, slotHeight);
