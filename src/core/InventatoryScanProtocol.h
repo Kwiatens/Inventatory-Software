@@ -36,6 +36,9 @@ struct DeviceScanRequest {
   std::string requestId;
   std::string code;
   int quantity = 1;
+  std::string manufacturer;
+  std::string manufacturerPartNumber;
+  std::string encodedPartName;
 };
 
 struct DeviceDebugReport {
@@ -70,6 +73,9 @@ struct DeviceSyncEvent {
   std::string type;
   std::string code;
   int value = 0;
+  std::string manufacturer;
+  std::string manufacturerPartNumber;
+  std::string encodedPartName;
 };
 
 struct DeviceLookupRequest {
@@ -81,6 +87,7 @@ struct DeviceLookupResult {
   std::string lookupId;
   std::string status;
   std::string itemName;
+  std::string purposeLabel;
 };
 
 constexpr std::size_t kQuickLabelPresetLimit = 12;
@@ -121,6 +128,7 @@ struct DeviceSyncResult {
   std::string status;
   bool existing = false;
   std::string itemName;
+  std::string purposeLabel;
   int requestedDelta = 0;
   int appliedDelta = 0;
   int quantity = 0;
@@ -130,7 +138,7 @@ struct DeviceSyncResult {
 };
 
 struct DeviceSyncResponse {
-  int protocolVersion = 1;
+  int protocolVersion = 2;
   std::string requestId;
   std::vector<std::string> acceptedEventIds;
   std::vector<DeviceSyncResult> results;

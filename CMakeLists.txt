@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(InventatorySoftware VERSION 0.1.0 LANGUAGES CXX)
+project(InventatorySoftware VERSION 0.1.0 LANGUAGES C CXX)
 
 set(INVENTATORY_VERSION "${PROJECT_VERSION}" CACHE STRING "Inventatory application version")
 
@@ -32,8 +32,22 @@ if(NOT ftxui_FOUND)
     # if its upstream tag is later moved.
     GIT_TAG 5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6
   )
-  FetchContent_MakeAvailable(ftxui)
+FetchContent_MakeAvailable(ftxui)
 endif()
+
+FetchContent_Declare(monocypher
+  GIT_REPOSITORY https://github.com/LoupVaillant/Monocypher.git
+  GIT_TAG 4.0.3
+)
+FetchContent_MakeAvailable(monocypher)
+add_library(iecd_ed25519 STATIC
+  ${monocypher_SOURCE_DIR}/src/monocypher.c
+  ${monocypher_SOURCE_DIR}/src/optional/monocypher-ed25519.c
+)
+target_include_directories(iecd_ed25519 PUBLIC
+  ${monocypher_SOURCE_DIR}/src
+  ${monocypher_SOURCE_DIR}/src/optional
+)
 
 add_executable(inventatory
   src/main.cpp
@@ -52,18 +66,19 @@ add_executable(inventatory
   src/core/InventoryStorage.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
+  src/core/IecdDatabase.cpp
   src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
-  src/import/DigiKeyCsvImport.cpp
+  src/import/BomCsvImport.cpp
   src/label_printer/LabelPrinter.cpp
   src/platform/HttpServer.cpp
   src/platform/MdnsService.cpp
-  src/platform/DigiKeyApi.cpp
   src/platform/Console.cpp
   src/platform/BackgroundController.cpp
   src/platform/CredentialStore.cpp
   src/platform/BleProvisioningService.cpp
   src/platform/UpdateService.cpp
+  src/platform/IecdUpdateService.cpp
   src/ui/shared/AppUiShared.cpp
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
@@ -87,14 +102,24 @@ if(WIN32)
   target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
 endif()
 
-target_link_libraries(inventatory PRIVATE ftxui::screen ftxui::dom ftxui::component)
+target_link_libraries(inventatory PRIVATE ftxui::screen ftxui::dom ftxui::component iecd_ed25519)
+
+add_custom_command(TARGET inventatory POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:inventatory>/data"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_CURRENT_SOURCE_DIR}/data/iecd.sqlite3"
+          "${CMAKE_CURRENT_SOURCE_DIR}/data/iecd-manifest.json"
+          "$<TARGET_FILE_DIR:inventatory>/data"
+  COMMENT "Copying signed IECD bootstrap snapshot"
+)
 
 add_executable(inventatory_tests
   tests/inventatory_tests.cpp
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
-  src/import/DigiKeyCsvImport.cpp
+  src/platform/IecdUpdateService.cpp
+  src/import/BomCsvImport.cpp
   src/ui/shared/AppUiShared.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
@@ -106,6 +131,7 @@ add_executable(inventatory_tests
   src/core/InventoryStorage.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
+  src/core/IecdDatabase.cpp
   src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
   src/label_printer/LabelPrinter.cpp
@@ -114,10 +140,10 @@ add_executable(inventatory_tests
 target_include_directories(inventatory_tests PRIVATE src)
 
 if(WIN32)
-  target_link_libraries(inventatory_tests PRIVATE winspool bcrypt advapi32)
+  target_link_libraries(inventatory_tests PRIVATE winspool bcrypt advapi32 winhttp)
 endif()
 
-target_link_libraries(inventatory_tests PRIVATE ftxui::screen ftxui::dom ftxui::component)
+target_link_libraries(inventatory_tests PRIVATE ftxui::screen ftxui::dom ftxui::component iecd_ed25519)
 
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)
