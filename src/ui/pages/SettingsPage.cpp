@@ -50,6 +50,7 @@ ftxui::Element printerQueueLine(const string& name, const string& status, int wi
 string App::settingsCategoryName(SettingsCategory category) const {
   switch (category) {
     case SettingsCategory::General: return "General / Data";
+    case SettingsCategory::Updates: return "Updates";
     case SettingsCategory::Printer: return "Printer";
     case SettingsCategory::QuickLabels: return "Quick Labels";
     case SettingsCategory::InventatoryScan: return "Inventatory Scan";
@@ -111,6 +112,9 @@ void App::beginSettingsFieldEdit(int field) {
   settingsEditingField_ = true;
   switch (settingsCategory_) {
     case SettingsCategory::General:
+      inputBuffer_.clear();
+      break;
+    case SettingsCategory::Updates:
       inputBuffer_.clear();
       break;
     case SettingsCategory::Printer:
@@ -278,6 +282,7 @@ ftxui::Element App::renderSettingsUi() const {
   };
   categories.push_back(styledText(" SYSTEM", uiDimColor()));
   addCategory(SettingsCategory::General);
+  addCategory(SettingsCategory::Updates);
   categories.push_back(styledText(" OUTPUT", uiDimColor()));
   addCategory(SettingsCategory::Printer);
   addCategory(SettingsCategory::QuickLabels);
@@ -311,17 +316,17 @@ ftxui::Element App::renderSettingsUi() const {
                           }));
     rows.push_back(styledText("When on, closing Inventatory keeps Scan R1 ready in the notification area and starts Inventatory at sign-in.",
                               uiMutedText()));
-    rows.push_back(uiDivider());
-    rows.push_back(styledText("PRIVATE BETA UPDATES", uiSecondaryText()) | ftxui::bold);
+  } else if (settingsCategory_ == SettingsCategory::Updates) {
+    rows.push_back(styledText("SOFTWARE UPDATES", uiSecondaryText()) | ftxui::bold);
     rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
-                          "settings.general.updates", UiTargetKind::Field, [self] {
+                          "settings.updates.software", UiTargetKind::Field, [self] {
                             self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
                             self->settingsDirty_ = true;
                             self->dirty_ = true;
                           }));
     const auto available = settings_.latestAvailableVersion.empty() ? "Up to date" : "Version " + settings_.latestAvailableVersion + " available";
     rows.push_back(settingLine("Release status", available, contentWidth));
-    rows.push_back(target(styledText(" Check now ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.general.check_updates",
+    rows.push_back(target(styledText(" Check now ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.updates.check_software",
                           UiTargetKind::Button, [self] {
                             self->settings_.lastUpdateCheckUnixSeconds = 0;
                             self->beginUpdateCheckIfDue();
@@ -329,9 +334,16 @@ ftxui::Element App::renderSettingsUi() const {
                           }));
     rows.push_back(styledText("Checks use your authenticated GitHub CLI session; no inventory or device data is sent.", uiMutedText()));
     rows.push_back(uiDivider());
+    rows.push_back(styledText("SCAN R1 FIRMWARE", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(settingLine("Paired device", inventatoryScanConfig_.deviceId.empty() ? "Not paired" : inventatoryScanConfig_.deviceId,
+                               contentWidth));
+    rows.push_back(settingLine("Installed version", deviceFirmwareVersion_.empty() ? "Unavailable" : deviceFirmwareVersion_,
+                               contentWidth));
+    rows.push_back(styledText("Installed firmware is reported by the paired Scan R1.", uiMutedText()));
+    rows.push_back(uiDivider());
     rows.push_back(styledText("COMPONENT DATABASE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(target(settingLine("Daily IECD check", settingsDraft_.iecdUpdateChecksEnabled ? "On" : "Off", contentWidth),
-                          "settings.general.iecd_updates", UiTargetKind::Field, [self] {
+                          "settings.updates.database", UiTargetKind::Field, [self] {
                             self->settingsDraft_.iecdUpdateChecksEnabled = !self->settingsDraft_.iecdUpdateChecksEnabled;
                             self->settingsDirty_ = true;
                             self->dirty_ = true;
@@ -340,7 +352,7 @@ ftxui::Element App::renderSettingsUi() const {
                                settings_.installedIecdVersion.empty() ? "Unavailable" : settings_.installedIecdVersion,
                                contentWidth));
     rows.push_back(target(styledText(" Check IECD now ", uiInteractiveColor(), uiRaisedSurfaceBg()),
-                          "settings.general.check_iecd", UiTargetKind::Button, [self] {
+                          "settings.updates.check_database", UiTargetKind::Button, [self] {
                             self->settings_.lastIecdUpdateCheckUnixSeconds = 0;
                             self->beginIecdUpdateIfDue();
                             self->setMessage("Checking for a signed IECD snapshot...", 4);
@@ -543,7 +555,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     settingsField_ = 0;
     dirty_ = true;
   } else if (key.type == KeyType::Right) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(3, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(4, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
@@ -553,7 +565,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Down) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(3, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(4, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
