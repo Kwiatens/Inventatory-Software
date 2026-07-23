@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <initializer_list>
 #include <limits>
 #include <optional>
@@ -277,6 +278,21 @@ string renderTags(const vector<string>& tags) {
   return ellipsize(joinTags(tags), 32);
 }
 
+string displayParameterValue(string value) {
+  auto lowered = value;
+  transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+    return static_cast<char>(tolower(ch));
+  });
+  for (const auto* suffix : {"ohms", "ohm"}) {
+    const size_t suffixLength = strlen(suffix);
+    if (lowered.size() >= suffixLength && lowered.compare(lowered.size() - suffixLength, suffixLength, suffix) == 0) {
+      value.erase(value.size() - suffixLength);
+      return trim(value) + u8"\u03A9";
+    }
+  }
+  return value;
+}
+
 string renderParameters(const vector<Parameter>& parameters) {
   if (parameters.empty()) {
     return "-";
@@ -287,7 +303,7 @@ string renderParameters(const vector<Parameter>& parameters) {
     if (index > 0) {
       out << "; ";
     }
-    out << parameters[index].name << '=' << parameters[index].value;
+    out << parameters[index].name << '=' << displayParameterValue(parameters[index].value);
   }
   return out.str();
 }
@@ -427,7 +443,7 @@ optional<string> parameterValue(const InventoryItem& item, initializer_list<cons
   if (const auto* parameter = findParameter(item.parameters, names); parameter != nullptr) {
     const auto value = trim(parameter->value);
     if (!value.empty() && !looksLikePackagingValue(value)) {
-      return value;
+      return displayParameterValue(value);
     }
   }
   return nullopt;
@@ -649,10 +665,10 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
     }
     if (!primaryValue) {
       primaryLabel = label;
-      primaryValue = trim(parameter.value);
+      primaryValue = displayParameterValue(trim(parameter.value));
       continue;
     }
-    addField(label, trim(parameter.value));
+    addField(label, displayParameterValue(trim(parameter.value)));
   }
 
   if (primaryValue && !primaryValue->empty()) {

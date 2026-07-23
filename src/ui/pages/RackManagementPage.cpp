@@ -73,6 +73,7 @@ ftxui::Element App::renderRackManagementUi() const {
   const bool compact = screenWidth < 100;
   const int listWidth = screenWidth < 118 ? 24 : 30;
   const int detailWidth = screenWidth < 118 ? 30 : 36;
+  const int rackTypeWidth = max(8, listWidth - 13);
   // In the horizontal layout, account for its two one-column separators. The
   // compact layout stacks the grid below the side panels, so it uses the full
   // screen width instead.
@@ -85,8 +86,8 @@ ftxui::Element App::renderRackManagementUi() const {
   ftxui::Elements rackRows;
   rackRows.push_back(ftxui::hbox({
       rackFixedCell("Rack", 6, uiMutedColor()),
-      rackFixedCell("Type", max(8, listWidth - 18), uiMutedColor()),
-      rackFixedCell("Used", 7, uiMutedColor()),
+      rackFixedCell("Type", rackTypeWidth, uiMutedColor()),
+      rackFixedCell("Used", 7, uiMutedColor(), true),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
   if (rackIndices.empty()) {
     rackRows.push_back(fullLine(rackFilter_.empty() ? "No racks yet." : "No racks match filter.", uiMutedColor(),
@@ -100,8 +101,8 @@ ftxui::Element App::renderRackManagementUi() const {
       const auto occupied = rackOccupiedSlotCount(store_, candidate);
       auto rackRow = ftxui::hbox({
           rackFixedCell(" " + candidate.code, 6, fg),
-          rackFixedCell(candidate.componentType, max(8, listWidth - 18), selected ? uiTitleColor() : uiLabelColor()),
-          rackFixedCell(to_string(occupied) + "/25", 7, occupied >= 25 ? uiWarnColor() : uiSuccessColor()),
+          rackFixedCell(candidate.componentType, rackTypeWidth, selected ? uiTitleColor() : uiLabelColor()),
+          rackFixedCell(to_string(occupied) + "/25", 7, occupied >= 25 ? uiWarnColor() : uiSuccessColor(), true),
       }) | ftxui::bgcolor(bg);
       auto self = const_cast<App*>(this);
       rackRows.push_back(target(rackRow, "racks.row." + candidate.id, UiTargetKind::Row, [self, visible] {
@@ -160,11 +161,13 @@ ftxui::Element App::renderRackManagementUi() const {
           // bound prevents one long description from overwhelming the grid.
           const auto name = ellipsize(item->partName, static_cast<size_t>(max(8, cellWidth * 2 - 4)));
           cellRows.push_back(ftxui::filler());
-          cellRows.push_back(ftxui::paragraphAlignLeft(name) | ftxui::color(uiTitleColor()) |
+          cellRows.push_back(ftxui::paragraphAlignCenter(name) | ftxui::color(uiTitleColor()) |
                              ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 2));
           cellRows.push_back(ftxui::filler());
           if (showPackage) {
-            cellRows.push_back(styledText(" pkg " + packageSummary(*item) + " ", uiSecondaryText(), uiSurfaceBg()));
+            cellRows.push_back(ftxui::hbox({ftxui::filler(),
+                                            styledText(" " + packageSummary(*item) + " ", uiSecondaryText(), uiSurfaceBg()),
+                                            ftxui::filler()}));
           }
         }
         auto cell = ftxui::vbox(move(cellRows)) | ftxui::bgcolor(bg) |
