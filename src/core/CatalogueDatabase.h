@@ -104,6 +104,8 @@ class CatalogueDatabase {
   std::size_t reprocessSource(const CatalogueProfile& profile);
   CatalogueImportStats importFile(const std::filesystem::path& path, const CatalogueProfile* profile = nullptr,
                                   const CatalogueImportOptions& options = {});
+  bool saveLocalMapping(const CatalogueProfile& profile);
+  std::optional<CatalogueProfile> localMapping(const std::string& profileId) const;
   bool removeSource(const std::string& sourceId);
   std::vector<CatalogueImportStats> snapshots() const;
  private:
