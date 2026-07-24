@@ -126,17 +126,22 @@ class CatalogueDatabase {
 // browser partial-file suffixes until size and modification time are stable.
 class CatalogueDownloadSession {
  public:
-  bool start(const ManufacturerSource& source, const std::filesystem::path& downloads = {});
+  bool start(const ManufacturerSource& source, const std::filesystem::path& downloads = {},
+             std::chrono::seconds timeout = std::chrono::minutes(10));
   std::optional<std::filesystem::path> poll();
   void cancel();
   bool active() const;
+  bool timedOut() const;
   const std::filesystem::path& watchedDirectory() const;
  private:
   ManufacturerSource source_;
   std::filesystem::path directory_;
   std::chrono::system_clock::time_point started_{};
+  std::chrono::steady_clock::time_point startedMonotonic_{};
+  std::chrono::seconds timeout_{std::chrono::minutes(10)};
   std::map<std::filesystem::path, std::pair<std::uintmax_t, int>> candidates_;
   bool active_ = false;
+  bool timedOut_ = false;
 };
 
 std::filesystem::path standardDownloadsFolder();

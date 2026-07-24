@@ -507,19 +507,28 @@ filesystem::path standardDownloadsFolder() {
   return {};
 }
 
-bool CatalogueDownloadSession::start(const ManufacturerSource& source, const filesystem::path& downloads) {
+bool CatalogueDownloadSession::start(const ManufacturerSource& source, const filesystem::path& downloads, const chrono::seconds timeout) {
   cancel();
   source_ = source;
   directory_ = downloads.empty() ? standardDownloadsFolder() : downloads;
   error_code error;
   if (directory_.empty() || !filesystem::is_directory(directory_, error)) return false;
   started_ = chrono::system_clock::now();
+  startedMonotonic_ = chrono::steady_clock::now();
+  timeout_ = timeout;
+  timedOut_ = false;
   active_ = true;
   return true;
 }
 
 optional<filesystem::path> CatalogueDownloadSession::poll() {
   if (!active_) return nullopt;
+  if (chrono::steady_clock::now() - startedMonotonic_ >= timeout_) {
+    active_ = false;
+    timedOut_ = true;
+    candidates_.clear();
+    return nullopt;
+  }
   error_code error;
   for (filesystem::directory_iterator it(directory_, error), end; !error && it != end; it.increment(error)) {
     if (!it->is_regular_file(error)) continue;
@@ -542,7 +551,8 @@ optional<filesystem::path> CatalogueDownloadSession::poll() {
   return nullopt;
 }
 
-void CatalogueDownloadSession::cancel() { active_ = false; candidates_.clear(); directory_.clear(); }
+void CatalogueDownloadSession::cancel() { active_ = false; timedOut_ = false; candidates_.clear(); directory_.clear(); }
 bool CatalogueDownloadSession::active() const { return active_; }
+bool CatalogueDownloadSession::timedOut() const { return timedOut_; }
 const filesystem::path& CatalogueDownloadSession::watchedDirectory() const { return directory_; }
 }  // namespace inventatory

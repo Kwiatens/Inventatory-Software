@@ -159,6 +159,10 @@ void App::pollCatalogueImport() {
       catalogueFlow_ = CatalogueFlow::Preview;
       setMessage("Catalogue detected. Review it before importing.", 5);
       dirty_ = true;
+    } else if (!catalogueDownloadSession_.active() && catalogueDownloadSession_.timedOut()) {
+      catalogueFlow_ = CatalogueFlow::Sources;
+      setMessage("Download detection timed out; choose the exported CSV or XLSX file manually", 7);
+      dirty_ = true;
     }
     return;
   }
@@ -307,7 +311,7 @@ ftxui::Element App::renderCatalogueUi() const {
     rows.push_back(styledText("   " + source.supportedCategories.front() + " · " + (isInstalled ? "G update  F different file  W warnings  R re-enrich  X remove" : "G get catalogue  F choose file"), uiMutedText()));
   }
   rows.push_back(ftxui::filler());
-  rows.push_back(styledText("↑↓ select   G open official selector   F choose CSV/XLSX   R re-enrich   X remove", uiInteractiveColor()));
+  rows.push_back(styledText("↑↓ select   G official selector   F file   M map unknown   W warnings   R re-enrich   X remove", uiInteractiveColor()));
   return ftxui::vbox(move(rows)) | ftxui::flex;
 }
 
