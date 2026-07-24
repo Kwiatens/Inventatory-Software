@@ -1669,6 +1669,7 @@ int main(int argc, char** argv) {
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
     const auto unknownPath = filesystem::temp_directory_path() / "unknown-supplier-table.csv";
     const auto vishayPath = filesystem::temp_directory_path() / "Vishay_series_synthetic.csv";
+    const auto vishayExactPath = filesystem::temp_directory_path() / "Vishay_orderable_synthetic.csv";
     error_code ignored;
     filesystem::remove(databasePath, ignored);
     ofstream csv(csvPath, ios::binary | ios::trunc);
@@ -1730,10 +1731,18 @@ int main(int argc, char** argv) {
     const auto vishayProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
       return candidate.id == "vishay-current-sense-v1";
     });
-    assert(vishayProfile != catalogueProfiles().end() && vishayProfile->seriesOnly);
+    assert(vishayProfile != catalogueProfiles().end() && !vishayProfile->seriesOnly && !vishayProfile->exactMpnColumns.empty());
     const auto vishayImported = database.importFile(vishayPath, &*vishayProfile);
     assert(vishayImported.error.empty() && vishayImported.parts == 2 && vishayImported.properties == 8);
     assert(database.lookup("Vishay", "WSL2512R0100FEA").status == CatalogueMatchStatus::NotFound);
+    {
+      ofstream vishay(vishayExactPath, ios::binary | ios::trunc);
+      vishay << "Orderable Part Number,Series,Case,Resistance,Tolerance,Power,TCR\n"
+                "WSL2512R0100FEA,WSL2512,2512,10 mOhm,1 %,1 W,75 ppm/C\n";
+    }
+    const auto vishayExactImported = database.importFile(vishayExactPath, &*vishayProfile);
+    assert(vishayExactImported.error.empty() && vishayExactImported.parts == 1);
+    assert(database.lookup("Vishay", "WSL2512R0100FEA").status == CatalogueMatchStatus::ExactMatch);
     const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
     assert(exact.status == CatalogueMatchStatus::ExactMatch);
     assert(exact.record.properties.size() >= 3);
@@ -1796,6 +1805,7 @@ int main(int argc, char** argv) {
     filesystem::remove(csvPath, ignored);
     filesystem::remove(unknownPath, ignored);
     filesystem::remove(vishayPath, ignored);
+    filesystem::remove(vishayExactPath, ignored);
     filesystem::remove(xlsxPath, ignored);
     filesystem::remove(databasePath, ignored);
   }
