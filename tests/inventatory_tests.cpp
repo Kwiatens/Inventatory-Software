@@ -1640,6 +1640,31 @@ int main(int argc, char** argv) {
     assert(tdkProfile != catalogueProfiles().end() && profileHasProperty(*tdkProfile, "packaging") && profileHasProperty(*tdkProfile, "insulation_resistance"));
     assert(nexperiaProfile != catalogueProfiles().end() && profileHasProperty(*nexperiaProfile, "reverse_recovery_time") && profileHasProperty(*nexperiaProfile, "dc_current_gain"));
 
+    {
+      const auto downloadsPath = filesystem::temp_directory_path() / "inventatory-catalogue-download-session";
+      error_code downloadIgnored;
+      filesystem::remove_all(downloadsPath, downloadIgnored);
+      filesystem::create_directories(downloadsPath);
+      const auto tiSource = find_if(manufacturerSources().begin(), manufacturerSources().end(), [](const ManufacturerSource& source) { return source.id == "ti"; });
+      assert(tiSource != manufacturerSources().end());
+      CatalogueDownloadSession downloadSession;
+      assert(downloadSession.start(*tiSource, downloadsPath));
+      { ofstream partial(downloadsPath / "ti-export.xlsx.crdownload", ios::binary); partial << "partial"; }
+      assert(!downloadSession.poll().has_value());
+      const auto completedPath = downloadsPath / "ti-export.xlsx";
+      { ofstream completed(completedPath, ios::binary); completed << "completed"; }
+      assert(!downloadSession.poll().has_value());
+      assert(!downloadSession.poll().has_value());
+      const auto detectedDownload = downloadSession.poll();
+      assert(detectedDownload.has_value() && *detectedDownload == completedPath);
+      assert(!downloadSession.active());
+      CatalogueDownloadSession timedOutSession;
+      assert(timedOutSession.start(*tiSource, downloadsPath, chrono::seconds::zero()));
+      assert(!timedOutSession.poll().has_value());
+      assert(!timedOutSession.active() && timedOutSession.timedOut());
+      filesystem::remove_all(downloadsPath, downloadIgnored);
+    }
+
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
     const auto unknownPath = filesystem::temp_directory_path() / "unknown-supplier-table.csv";
