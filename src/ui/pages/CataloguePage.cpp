@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 
 namespace inventatory {
 
@@ -40,6 +41,14 @@ const array<pair<string, string>, 6> kManualProperties = {{{"capacitance", "F"},
 
 string manualColumnLabel(const CatalogueImportPreview& preview, size_t selection) {
   return selection == 0 ? "Not mapped" : preview.headers[selection - 1];
+}
+
+string importedAtLabel(time_t value) {
+  if (value <= 0) return "date unavailable";
+  tm local{};
+  if (localtime_s(&local, &value) != 0) return "date unavailable";
+  char buffer[32]{};
+  return strftime(buffer, sizeof(buffer), "%d %b %Y %H:%M", &local) == 0 ? "date unavailable" : buffer;
 }
 }  // namespace
 
@@ -281,7 +290,7 @@ ftxui::Element App::renderCatalogueUi() const {
                              ftxui::filler(), styledText(status + "  ", isInstalled ? uiSuccessColor() : uiMutedColor())});
     rows.push_back(target(line, "catalogue.source." + source.id, UiTargetKind::Row, [self, index] { self->catalogueSourceSelection_ = index; self->dirty_ = true; }));
     if (selected && isInstalled) {
-      rows.push_back(styledText("   Last import: " + installed->filename + " · profile v" + installed->profileVersion +
+      rows.push_back(styledText("   Last import: " + importedAtLabel(installed->importedAt) + " · " + installed->filename + " · profile v" + installed->profileVersion +
                                 " · " + to_string(installed->properties) + " properties · " +
                                 to_string(installed->warnings) + " warnings", uiMutedText()));
     }
