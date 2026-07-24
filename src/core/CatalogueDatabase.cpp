@@ -523,7 +523,18 @@ bool CatalogueDownloadSession::start(const ManufacturerSource& source, const fil
   directory_ = downloads.empty() ? standardDownloadsFolder() : downloads;
   error_code error;
   if (directory_.empty() || !filesystem::is_directory(directory_, error)) return false;
-  started_ = chrono::system_clock::now();
+  for (filesystem::directory_iterator it(directory_, error), end; !error && it != end; it.increment(error)) {
+    if (!it->is_regular_file(error)) continue;
+    const auto path = it->path();
+    const auto extension = lower(path.extension().string());
+    if (extension == ".crdownload" || extension == ".part" || extension == ".tmp" ||
+        find(source_.supportedFormats.begin(), source_.supportedFormats.end(), extension) == source_.supportedFormats.end()) continue;
+    const auto writeTime = filesystem::last_write_time(path, error);
+    const auto size = filesystem::file_size(path, error);
+    if (!error) baselineFiles_[path] = {writeTime, size};
+    error.clear();
+  }
+  error.clear();
   startedMonotonic_ = chrono::steady_clock::now();
   timeout_ = timeout;
   timedOut_ = false;
@@ -546,13 +557,12 @@ optional<filesystem::path> CatalogueDownloadSession::poll() {
     const auto extension = lower(path.extension().string());
     if (extension == ".crdownload" || extension == ".part" || extension == ".tmp") continue;
     if (find(source_.supportedFormats.begin(), source_.supportedFormats.end(), extension) == source_.supportedFormats.end()) continue;
-    const auto writeTime = filesystem::last_write_time(path, error);
-    if (error) { error.clear(); continue; }
-    const auto sessionFileTime = filesystem::file_time_type::clock::now() +
-        chrono::duration_cast<filesystem::file_time_type::duration>(started_ - chrono::system_clock::now());
-    if (writeTime < sessionFileTime) continue;
     const auto size = filesystem::file_size(path, error);
     if (error || size == 0) { error.clear(); continue; }
+    const auto writeTime = filesystem::last_write_time(path, error);
+    if (error) { error.clear(); continue; }
+    const auto baseline = baselineFiles_.find(path);
+    if (baseline != baselineFiles_.end() && baseline->second.first == writeTime && baseline->second.second == size) continue;
     auto& observation = candidates_[path];
     if (observation.first == size) ++observation.second;
     else observation = {size, 0};
@@ -561,7 +571,7 @@ optional<filesystem::path> CatalogueDownloadSession::poll() {
   return nullopt;
 }
 
-void CatalogueDownloadSession::cancel() { active_ = false; timedOut_ = false; candidates_.clear(); directory_.clear(); }
+void CatalogueDownloadSession::cancel() { active_ = false; timedOut_ = false; baselineFiles_.clear(); candidates_.clear(); directory_.clear(); }
 bool CatalogueDownloadSession::active() const { return active_; }
 bool CatalogueDownloadSession::timedOut() const { return timedOut_; }
 const filesystem::path& CatalogueDownloadSession::watchedDirectory() const { return directory_; }
