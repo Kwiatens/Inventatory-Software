@@ -65,6 +65,15 @@ struct CatalogueImportStats {
   std::string profileId, fileHash, error;
 };
 
+struct CatalogueImportPreview {
+  std::string filename, format, sheetName, profileId, profileVersion, error;
+  std::size_t fileSize = 0, headerRow = 0, rows = 0;
+  char delimiter = ',';
+  std::vector<std::string> headers, mappedColumns, unmappedColumns, warnings;
+  std::vector<std::vector<std::string>> sampleRows;
+  bool valid() const { return error.empty(); }
+};
+
 struct CatalogueImportOptions {
   std::atomic_bool* cancel = nullptr;
   std::function<void(std::size_t, std::size_t, const std::string&)> progress;
@@ -83,6 +92,9 @@ class CatalogueDatabase {
   bool available() const;
   const std::string& version() const;
   CatalogueMatch lookup(const std::string& manufacturer, const std::string& manufacturerPartNumber) const;
+  CatalogueImportPreview previewFile(const std::filesystem::path& path, const CatalogueProfile* profile = nullptr,
+                                     std::atomic_bool* cancel = nullptr) const;
+  std::size_t reprocessSource(const CatalogueProfile& profile);
   CatalogueImportStats importFile(const std::filesystem::path& path, const CatalogueProfile* profile = nullptr,
                                   const CatalogueImportOptions& options = {});
   bool removeSource(const std::string& sourceId);

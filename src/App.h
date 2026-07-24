@@ -57,6 +57,7 @@ class App {
     Import,
     ScanSetup,
     Settings,
+    Catalogue,
     Onboarding,
   };
 
@@ -75,6 +76,7 @@ class App {
   enum class SettingsCategory { General, Updates, Printer, QuickLabels, InventatoryScan };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
+  enum class CatalogueFlow { Sources, WaitingForDownload, Preview, Importing, Results };
   enum class StockSortOrder { Az, Quantity, Za };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
@@ -166,6 +168,7 @@ class App {
   void handleInventatoryScanSetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
+  void handleCatalogueKey(const KeyEvent& key);
   void handleOnboardingKey(const KeyEvent& key);
   void handleSearchKey(const KeyEvent& key);
   void handleEditMenuKey(const KeyEvent& key);
@@ -182,6 +185,7 @@ class App {
   ftxui::Element renderInventatoryScanSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderSettingsUi() const;
+  ftxui::Element renderCatalogueUi() const;
   ftxui::Element renderOnboardingUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
   std::string stockDateFilterName(StockDateFilter filter) const;
@@ -311,6 +315,11 @@ class App {
   void pushScanCode(const DeviceScanRequest& request);
   void processScans();
   void beginCsvImport();
+  void beginCatalogueDownload();
+  void chooseCatalogueFile();
+  void beginCatalogueImport();
+  void pollCatalogueImport();
+  void reEnrichInventoryFromCatalogue();
   void moveImportSelection(int delta);
   void acceptImportCandidate();
   void skipImportCandidate();
@@ -346,6 +355,18 @@ class App {
   std::filesystem::path inventatoryScanConfigPath_;
   std::filesystem::path cataloguePath_;
   CatalogueDatabase catalogueDatabase_;
+  CatalogueDownloadSession catalogueDownloadSession_;
+  CatalogueFlow catalogueFlow_ = CatalogueFlow::Sources;
+  size_t catalogueSourceSelection_ = 0;
+  std::filesystem::path catalogueSelectedPath_;
+  CatalogueImportPreview cataloguePreview_;
+  bool catalogueRemovalConfirmation_ = false;
+  std::atomic_bool catalogueImportCancelled_{false};
+  std::future<CatalogueImportStats> catalogueImportFuture_;
+  CatalogueImportStats catalogueImportResult_;
+  struct CatalogueProgress { size_t completed = 0; size_t total = 0; std::string stage; };
+  mutable std::mutex catalogueProgressMutex_;
+  CatalogueProgress catalogueProgress_;
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
