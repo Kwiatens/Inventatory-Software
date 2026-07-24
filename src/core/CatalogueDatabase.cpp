@@ -37,7 +37,7 @@ const vector<CatalogueProfile> kProfiles = {
   {"murata-capacitors-v1","1","Murata","Capacitors","",{"murata"},{"Part Number","Product ID","MPN"},{"Series"},{"Alternate Part Number"},{"Case Code","Package"},{"Series"},{"Description"},{"Status"},{{{"Capacitance"},"capacitance","F",""},{{"Rated Voltage","Voltage"},"rated_voltage","V",""},{{"Tolerance"},"tolerance","%",""},{{"ESR"},"esr","Ohm",""},{{"Temperature Characteristic","Dielectric"},"dielectric","",""},{{"Dimensions","Size"},"dimensions","",""},{{"Operating Temperature Range","Temperature Range"},"operating_temperature","degC",""}},false},
   {"tdk-mlcc-v1","1","TDK","MLCC","",{"tdk","mlcc"},{"Part Number","Ordering Code","MPN"},{"Series"},{"Alternative"},{"Case Size","Package"},{"Series"},{"Description"},{"Status"},{{{"Capacitance"},"capacitance","F",""},{{"Rated Voltage"},"rated_voltage","V",""},{{"Tolerance"},"tolerance","%",""},{{"Temperature Characteristic"},"dielectric","",""},{{"Dissipation Factor"},"dissipation_factor","%",""},{{"Insulation Resistance"},"insulation_resistance","Ohm",""},{{"AEC-Q200"},"aec_q200","",""},{{"Dimensions","Size"},"dimensions","",""},{{"Operating Temperature Range"},"operating_temperature","degC",""},{{"Packaging"},"packaging","",""}},false},
   {"kemet-yageo-mlcc-v1","1","KEMET / Yageo","Capacitors","",{"kemet","yageo"},{"Part Number","MPN"},{"Series"},{"Alias"},{"Case","Package"},{"Series"},{"Description"},{"Status"},{{{"Capacitance"},"capacitance","F",""},{{"Voltage"},"rated_voltage","V",""},{{"Tolerance"},"tolerance","%",""},{{"Dielectric"},"dielectric","",""},{{"Dissipation Factor"},"dissipation_factor","%",""},{{"Insulation Resistance"},"insulation_resistance","Ohm",""},{{"Operating Temperature Range"},"operating_temperature","degC",""},{{"MSL"},"msl","",""},{{"AEC"},"aec_qualification","",""}},false},
-  {"vishay-current-sense-v1","1","Vishay","Current-sense resistors","",{"vishay"},{"Part Number","MPN"},{},{},{"Case","Package"},{"Series"},{"Description"},{"Status"},{{{"Resistance"},"resistance","Ohm",""},{{"Tolerance"},"tolerance","%",""},{{"Power"},"power","W",""},{{"TCR"},"temperature_coefficient","ppm/degC",""}},true},
+  {"vishay-current-sense-v1","1","Vishay","Current-sense resistors","",{"vishay"},{"Part Number","MPN","Orderable Part Number"},{},{},{"Case","Package"},{"Series"},{"Description"},{"Status"},{{{"Resistance"},"resistance","Ohm",""},{{"Tolerance"},"tolerance","%",""},{{"Power"},"power","W",""},{{"TCR"},"temperature_coefficient","ppm/degC",""}},false,{"Orderable Part Number","Orderable MPN"}},
   {"nexperia-discretes-v1","1","Nexperia","Diodes, BJTs and MOSFETs","",{"nexperia"},{"Type number","Orderable part number","MPN"},{"Type number"},{"Orderable part number"},{"Package"},{"Family"},{"Description"},{"Status"},{{{"VR","VCEO","VDS"},"voltage_rating","V",""},{{"IF","IC","ID"},"current_rating","A",""},{{"IFSM"},"surge_current","A",""},{{"VF"},"forward_voltage","V",""},{{"IR","Leakage current"},"leakage_current","A",""},{{"trr","Reverse recovery time"},"reverse_recovery_time","s",""},{{"Capacitance","Cd"},"capacitance","F",""},{{"VGS"},"gate_voltage","V",""},{{"RDS(on)"},"rds_on","Ohm",""},{{"VGS(th)","Threshold voltage"},"threshold_voltage","V",""},{{"hFE","DC current gain"},"dc_current_gain","",""},{{"fT","Transition frequency"},"transition_frequency","Hz",""},{{"Ptot","Power dissipation"},"power","W",""},{{"Automotive"},"automotive_qualification","",""}},false},
   {"ti-parametric-v1","1","Texas Instruments","Amplifiers, MOSFETs and timers","Products",{"ti_","texas","opamp","mosfet","timer"},{"Orderable Part Number","Part Number","MPN"},{"Generic Part Number","Device"},{"Orderable Part Number"},{"Package Group","Package"},{"Family"},{"Description"},{"Status"},{{{"Channels"},"channel_count","",""},{{"Supply voltage (min)"},"supply_voltage_min","V","min"},{{"Supply voltage (max)"},"supply_voltage_max","V","max"},{{"Offset voltage"},"offset_voltage","V",""},{{"Offset voltage drift"},"offset_voltage_drift","V/degC",""},{{"Input bias current"},"input_bias_current","A",""},{{"GBW","Bandwidth"},"bandwidth","Hz",""},{{"Slew rate"},"slew_rate","V/us",""},{{"Iq","Quiescent current"},"quiescent_current","A",""},{{"Input noise density","Noise"},"noise_density","V/sqrtHz",""},{{"CMRR"},"cmrr","dB",""},{{"PSRR"},"psrr","dB",""},{{"Output current"},"output_current","A",""},{{"Operating temperature (min)"},"operating_temperature_min","degC","min"},{{"Operating temperature (max)"},"operating_temperature_max","degC","max"},{{"VDS"},"vds","V",""},{{"VGS"},"vgs","V",""},{{"ID"},"drain_current","A",""},{{"RDS(on)"},"rds_on","Ohm",""},{{"Threshold voltage"},"threshold_voltage","V",""},{{"Total gate charge","Qg"},"gate_charge","C",""}},false},
   {"adi-amplifiers-v1","1","Analog Devices","Precision amplifiers","",{"analogdevices","analog_devices","adi_"},{"Orderable Part Number","Model","MPN"},{"Model"},{"Orderable Part Number"},{"Package"},{"Product Family"},{"Description"},{"Status"},{{{"Channels"},"channel_count","",""},{{"Supply Voltage Min"},"supply_voltage_min","V","min"},{{"Supply Voltage Max"},"supply_voltage_max","V","max"},{{"Offset Voltage"},"offset_voltage","V",""},{{"Offset Voltage Drift"},"offset_voltage_drift","V/degC",""},{{"Input Bias Current"},"input_bias_current","A",""},{{"Input Voltage Noise Density","Voltage Noise"},"noise_density","V/sqrtHz",""},{{"Bandwidth"},"bandwidth","Hz",""},{{"Quiescent Current","Supply Current"},"quiescent_current","A",""},{{"Slew Rate"},"slew_rate","V/us",""},{{"CMRR"},"cmrr","dB",""},{{"PSRR"},"psrr","dB",""},{{"Operating Temperature Min"},"operating_temperature_min","degC","min"},{{"Operating Temperature Max"},"operating_temperature_max","degC","max"}},false},
@@ -51,6 +51,9 @@ vector<string> parseCsvRow(const string& line, char delimiter, bool& malformed) 
 }
 string uniqueHeader(string h, map<string,int>& seen) { h=trim(h); int& n=seen[h]; ++n; return n==1?h:h+" ["+to_string(n)+"]"; }
 int findColumn(const vector<string>& headers, const vector<string>& candidates) { for (const auto& c:candidates) for(size_t i=0;i<headers.size();++i) if(lower(trim(headers[i]))==lower(trim(c))) return static_cast<int>(i); return -1; }
+bool isSeriesOnlyTable(const CatalogueProfile& profile, const vector<string>& headers) {
+  return profile.seriesOnly || (!profile.exactMpnColumns.empty() && findColumn(headers, profile.exactMpnColumns) < 0);
+}
 string cell(const vector<string>& row,int i) { return i>=0 && static_cast<size_t>(i)<row.size()?trim(row[i]):""; }
 string hashFile(const filesystem::path& p) { // Stable local identity; not a security primitive.
   ifstream in(p,ios::binary); uint64_t h=1469598103934665603ULL; char b[8192]; while(in.read(b,sizeof b)||in.gcount()) for(streamsize i=0;i<in.gcount();++i){h^=static_cast<unsigned char>(b[i]);h*=1099511628211ULL;} ostringstream out; out<<hex<<setfill('0')<<setw(16)<<h; return out.str();
@@ -231,8 +234,9 @@ CatalogueImportStats importCatalogueTable(const filesystem::path& databasePath, 
     return stats;
   }
   stats.profileId = profile->id;
-  const int mpnCol = findColumn(table.headers, profile->mpnColumns);
-  if (mpnCol < 0 && !profile->seriesOnly) {
+  const bool seriesOnly = isSeriesOnlyTable(*profile, table.headers);
+  const int mpnCol = findColumn(table.headers, profile->exactMpnColumns.empty() ? profile->mpnColumns : profile->exactMpnColumns);
+  if (mpnCol < 0 && !seriesOnly) {
     stats.error = "The expected MPN column is missing";
     return stats;
   }
@@ -288,11 +292,11 @@ CatalogueImportStats importCatalogueTable(const filesystem::path& databasePath, 
     ++stats.rows;
     const auto sourceRow = table.headerRow + index + 2;
     if (!row.empty() && row.back() == "\x1fMALFORMED") { ++stats.rejected; addWarning(sourceRow, "Malformed CSV row"); continue; }
-    const string mpn = profile->seriesOnly ? "" : cell(row, mpnCol);
-    if (mpn.empty() && !profile->seriesOnly) { ++stats.rejected; addWarning(sourceRow, "Missing manufacturer part number"); continue; }
+    const string mpn = seriesOnly ? "" : cell(row, mpnCol);
+    if (mpn.empty() && !seriesOnly) { ++stats.rejected; addWarning(sourceRow, "Missing manufacturer part number"); continue; }
     sqlite3_reset(part.value); sqlite3_clear_bindings(part.value);
     const string seriesIdentity = cell(row, seriesCol).empty() ? "row-" + to_string(sourceRow) : cell(row, seriesCol);
-    const string storageKey = profile->seriesOnly ? "series:" + normalizeMpn(seriesIdentity) + ":" + to_string(sourceRow) : normalizeMpn(mpn);
+    const string storageKey = seriesOnly ? "series:" + normalizeMpn(seriesIdentity) + ":" + to_string(sourceRow) : normalizeMpn(mpn);
     const vector<string> partValues = {profile->id, profile->manufacturer, normalizeMpn(profile->manufacturer), mpn, storageKey, cell(row, baseCol), cell(row, packageCol), cell(row, seriesCol), profile->category, cell(row, descriptionCol), cell(row, statusCol)};
     for (int bind = 0; bind < 11; ++bind) sqlite3_bind_text(part.value, bind + 1, partValues[bind].c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(part.value, 12, stats.snapshotId);
@@ -305,7 +309,7 @@ CatalogueImportStats importCatalogueTable(const filesystem::path& databasePath, 
       sqlite3_bind_text(alias.value, 3, key.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(alias.value, 4, kind, -1, SQLITE_TRANSIENT);
       if (sqlite3_step(alias.value) == SQLITE_DONE && sqlite3_changes(db.value) != 0) ++stats.aliases;
     };
-    if (!profile->seriesOnly) addAlias(cell(row, baseCol), "base");
+    if (!seriesOnly) addAlias(cell(row, baseCol), "base");
     for (const auto& [column, mapping] : mappings) {
       const auto raw = cell(row, column); if (raw.empty()) continue;
       const auto value = parseEngineeringValue(raw, mapping.unit);
@@ -413,7 +417,8 @@ CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& pa
   }
   preview.profileId = profile->id;
   preview.profileVersion = profile->version;
-  const set<int> structural = {findColumn(table.headers, profile->mpnColumns), findColumn(table.headers, profile->basePartColumns),
+  const int identityColumn = findColumn(table.headers, profile->exactMpnColumns.empty() ? profile->mpnColumns : profile->exactMpnColumns);
+  const set<int> structural = {identityColumn, findColumn(table.headers, profile->basePartColumns),
                                findColumn(table.headers, profile->packageColumns), findColumn(table.headers, profile->seriesColumns),
                                findColumn(table.headers, profile->descriptionColumns), findColumn(table.headers, profile->statusColumns)};
   set<int> mapped;
@@ -421,7 +426,7 @@ CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& pa
     const int column = findColumn(table.headers, mapping.columns);
     if (column >= 0) { mapped.insert(column); preview.mappedColumns.push_back(table.headers[column]); }
   }
-  if (findColumn(table.headers, profile->mpnColumns) < 0 && !profile->seriesOnly) preview.warnings.push_back("Expected MPN column is missing");
+  if (identityColumn < 0 && !isSeriesOnlyTable(*profile, table.headers)) preview.warnings.push_back("Expected MPN column is missing");
   for (size_t column = 0; column < table.headers.size(); ++column) {
     if (!mapped.count(static_cast<int>(column)) && !structural.count(static_cast<int>(column)) && preserveRawColumn(table.headers[column])) {
       preview.unmappedColumns.push_back(table.headers[column]);

@@ -21,7 +21,7 @@ Properties retain numeric nominal/minimum/typical/maximum/tolerance fields, cano
 | Murata | MLCC, polymer capacitors | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, tolerance, ESR, dielectric, dimensions, temperature |
 | TDK | MLCC | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, dielectric, DF, IR, AEC-Q200, dimensions, temperature, packaging |
 | KEMET/Yageo | capacitors/MLCC | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, tolerance, dielectric, DF, IR, temperature, MSL, AEC |
-| Vishay | current-sense resistors | CSV, XLSX | exact MPN only when exported; series remains series | resistance, power, tolerance, TCR |
+| Vishay | current-sense resistors | CSV, XLSX | an explicit orderable-MPN column enables exact matching; generic series tables remain series-only | resistance, power, tolerance, TCR |
 | Nexperia | diodes, BJTs, MOSFETs | CSV, XLSX | type/base plus explicit orderable variant | voltage/current/surge/leakage, VF, recovery, capacitance, RDS(on), hFE, fT, qualification |
 | Texas Instruments | amplifiers, MOSFETs, timers | CSV, XLSX | generic/base plus orderable MPN | supplies, offset/drift, bias/Iq, noise, GBW, slew, CMRR/PSRR, VDS/VGS/ID, RDS(on), threshold, gate charge |
 | Analog Devices | precision amplifiers | CSV, XLSX | model/base plus orderable variant | supplies, offset/drift, bias/current, noise, bandwidth, slew, CMRR/PSRR, temperature |
