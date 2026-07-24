@@ -57,7 +57,7 @@ ftxui::Element App::renderImportCsvUi() const {
         ftxui::text(""),
         ftxui::hbox({ftxui::filler(), choose, ftxui::filler()}),
         ftxui::text(""),
-        ftxui::hbox({ftxui::filler(), styledText("Accepted rows are enriched from the installed IECD snapshot", uiMutedText()),
+        ftxui::hbox({ftxui::filler(), styledText("Accepted rows are enriched from the installed catalogue snapshot", uiMutedText()),
                      ftxui::filler()}),
         ftxui::filler(),
     });

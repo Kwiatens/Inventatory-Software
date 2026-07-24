@@ -229,7 +229,7 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
 
   SqliteStatement statement;
   constexpr char kLookupSql[] =
-      "SELECT CASE WHEN iecd_canonical_name<>'' THEN iecd_canonical_name ELSE part_name END, iecd_purpose_label FROM inventatory_items "
+      "SELECT CASE WHEN catalogue_canonical_name<>'' THEN catalogue_canonical_name ELSE part_name END, catalogue_purpose_label FROM inventatory_items "
       "WHERE machine_code=? COLLATE NOCASE OR manufacturer_part_number=? COLLATE NOCASE LIMIT 1";
   if (sqliteApi().prepare_v2(connection.db, kLookupSql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
     result.status = "unavailable";

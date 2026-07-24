@@ -209,7 +209,7 @@ ftxui::Element App::renderStockUi() const {
                               [self] { if (const auto* value = self->selectedItem()) self->openCurrentUrl(effectiveDatasheetUrl(*value), "datasheet"); }));
     detailRows.push_back(detailFieldLine({"Manufacturer part: ", item->manufacturerPartNumber,
                                          uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
-    detailRows.push_back(detailFieldLine({"IECD status: ", item->enrichmentStatus,
+    detailRows.push_back(detailFieldLine({"Catalogue status: ", item->catalogueStatus,
                                          uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Tags: ", renderTags(item->tags), uiSecondaryText(), uiPrimaryText()}, detailInnerWidth));
     const auto rack = rackLocation(*item, store_.racks());
@@ -231,8 +231,8 @@ ftxui::Element App::renderStockUi() const {
                                           uiSecondaryText(), uiWarnColor()}, detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Location: ", item->location, uiSecondaryText(), uiPrimaryText()},
                                          detailInnerWidth));
-    detailRows.push_back(detailFieldLine({"Sync: ", item->enrichmentStatus, uiSecondaryText(),
-                                          toLower(item->enrichmentStatus) == "matched" ? uiSuccessColor() : uiWarnColor()},
+    detailRows.push_back(detailFieldLine({"Sync: ", item->catalogueStatus, uiSecondaryText(),
+                                          toLower(item->catalogueStatus) == "matched" ? uiSuccessColor() : uiWarnColor()},
                                          detailInnerWidth));
     if (!trim(item->notes).empty()) {
       detailRows.push_back(uiDivider());

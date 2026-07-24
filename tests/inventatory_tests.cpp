@@ -1,11 +1,10 @@
 #include "core/Inventory.h"
 #include "app/AppSettings.h"
 #include "platform/UpdateService.h"
-#include "platform/IecdUpdateService.h"
 #include "platform/StartupRegistration.h"
 #include "core/InventoryInternals.h"
 #include "core/InventorySqlite.h"
-#include "core/IecdDatabase.h"
+#include "core/CatalogueDatabase.h"
 #include "core/InventatoryScanProtocol.h"
 #include "core/PartDescriptor.h"
 #include "import/BomCsvImport.h"
@@ -51,7 +50,7 @@ vector<InventoryItem> makeSampleInventory() {
   resistor.notes = "General purpose pull-up and divider resistor.";
   resistor.manufacturerPartNumber = "RC0603FR-0710KL";
   resistor.datasheetUrl = "https://www.yageo.com/upload/media/product/productsearch/datasheet/rchip/PYu-RC_Group_51_RoHS_L_13.pdf";
-  resistor.enrichmentStatus = "not_in_iecd";
+  resistor.catalogueStatus = "not_in_catalogue";
   resistor.lastUpdated = 1710000000;
   items.push_back(resistor);
 
@@ -67,7 +66,7 @@ vector<InventoryItem> makeSampleInventory() {
   module.parameters = {{"Core", "Xtensa LX7"}, {"Flash", "16MB"}, {"Package", "Module"}};
   module.notes = "Used for integration prototypes and test rigs.";
   module.manufacturerPartNumber = "ESP32-S3-WROOM-1";
-  module.enrichmentStatus = "not_in_iecd";
+  module.catalogueStatus = "not_in_catalogue";
   module.lastUpdated = 1710000100;
   items.push_back(module);
 
@@ -460,7 +459,7 @@ int main(int argc, char** argv) {
     item.manufacturerPartNumber = "123";
     item.datasheetUrl = "https://example.com/datasheet";
     item.datasheetUrl = "https://example.com/product";
-    item.enrichmentStatus = "matched";
+    item.catalogueStatus = "matched";
     item.manufacturerPartNumber = "SKU-1";
     item.lastUpdated = 1710000000;
     item.machineCode = "0002";
@@ -479,7 +478,7 @@ int main(int argc, char** argv) {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-iecd-migration-test.db";
+    const auto path = filesystem::temp_directory_path() / "inventatory-catalogue-migration-test.db";
     filesystem::remove(path);
     {
       SqliteConnection connection;
@@ -511,7 +510,7 @@ int main(int argc, char** argv) {
     assert(migrated.findById("legacy-pdf")->notes == "keep note");
     assert(migrated.findById("legacy-page")->datasheetUrl.empty());
     assert(migrated.findById("legacy-page")->quantity == 3);
-    assert(migrated.findById("legacy-page")->enrichmentStatus == "not_in_iecd");
+    assert(migrated.findById("legacy-page")->catalogueStatus == "not_in_catalogue");
     {
       SqliteConnection connection;
       assert(openDatabase(path, connection));
@@ -614,11 +613,11 @@ int main(int argc, char** argv) {
     LabelPrinterService service(move(backend));
     service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
     const auto expectHeader = [&](InventoryItem& candidate, const string& expected) {
-      candidate.iecdPurposeLabel = expected;
-      candidate.iecdPrintLabel = expected.size() <= 16 ? expected : expected.substr(0, 16);
-      candidate.enrichmentStatus = "matched";
+      candidate.cataloguePurposeLabel = expected;
+      candidate.cataloguePrintLabel = expected.size() <= 16 ? expected : expected.substr(0, 16);
+      candidate.catalogueStatus = "matched";
       const auto plan = service.buildLabelPlan(candidate);
-      const auto expectedHeader = candidate.iecdPrintLabel;
+      const auto expectedHeader = candidate.cataloguePrintLabel;
       if (plan.categoryHeader != expectedHeader) {
         cerr << "Expected header '" << expectedHeader << "' but got '" << plan.categoryHeader << "' for "
              << candidate.id << '\n';
@@ -756,9 +755,9 @@ int main(int argc, char** argv) {
     item.inventatoryId = "Inventatory:R-00123";
     item.machineCode = "0002";
     item.manufacturerPartNumber = "RC0603FR-0710KL";
-    item.iecdPurposeLabel = "Resistor";
-    item.iecdPrintLabel = "Resistor";
-    item.enrichmentStatus = "matched";
+    item.cataloguePurposeLabel = "Resistor";
+    item.cataloguePrintLabel = "Resistor";
+    item.catalogueStatus = "matched";
     item.parameters = {{"Resistance", "10k Ohm"}, {"Tolerance", "1%"}, {"Power Dissipation", "0.125W"}};
 
     const auto plan = service.buildLabelPlan(item);
@@ -1072,7 +1071,7 @@ int main(int argc, char** argv) {
       genericIc.notes = "Operates from a single supply.";
       genericIc.parameters = {{"Function", "Controller"}, {"Package / Case", "SOIC-8"}};
       const auto genericPlan = expectHeader(genericIc, "Integrated Circuit");
-      assert(genericPlan.categoryHeader == genericIc.iecdPrintLabel);
+      assert(genericPlan.categoryHeader == genericIc.cataloguePrintLabel);
       assert(genericPlan.categoryHeader != "Memory IC");
     }
 
@@ -1515,110 +1514,54 @@ int main(int argc, char** argv) {
   }
 
   {
-    const auto sourceDatabase = filesystem::current_path() / "data" / "iecd.sqlite3";
-    IecdDatabase database;
-    assert(database.open(sourceDatabase));
-    const auto exact = database.lookup("TI", "TPS7A2033");
-    assert(exact.status == IecdMatchStatus::ExactMatch);
-    assert(exact.record.purposeLabel == "Linear Voltage Regulator");
-    const auto unique = database.lookup("", "NE555P");
-    assert(unique.status == IecdMatchStatus::UniqueMpnMatch);
-    assert(unique.record.printLabel == "Timer IC");
-    const auto wifiModule = database.lookup("Ai-Thinker", "ESP-12S");
-    assert(wifiModule.status == IecdMatchStatus::ExactMatch);
-    assert(wifiModule.record.purposeLabel == "Wi-Fi Module");
-    const auto environmentSensor = database.lookup("Sensirion", "SHTC3");
-    assert(environmentSensor.status == IecdMatchStatus::ExactMatch);
-    assert(environmentSensor.record.purposeLabel == "Temperature and Humidity Sensor");
-    const auto linearRegulator = database.lookup("Microchip Technology", "MCP1700-3002E/MAY");
-    assert(linearRegulator.status == IecdMatchStatus::ExactMatch);
-    assert(linearRegulator.record.printLabel == "Linear Regulator");
-    assert(database.lookup("", "NOT-A-REAL-MPN").status == IecdMatchStatus::NotFound);
-
-    InventoryItem enriched;
-    enriched.partName = "User's custom name";
-    enriched.notes = "Keep this note";
-    enriched.datasheetUrl = "https://example.test/user-override.pdf";
-    assert(applyIecdEnrichment(enriched, exact));
-    assert(enriched.partName == "User's custom name");
-    assert(enriched.notes == "Keep this note");
-    assert(effectiveDatasheetUrl(enriched) == "https://example.test/user-override.pdf");
-    assert(applyIecdEnrichment(enriched, {IecdMatchStatus::NotFound, {}}));
-    assert(enriched.enrichmentStatus == "stale");
-    IecdDatabase unavailable;
-    assert(!unavailable.open(filesystem::temp_directory_path() / "missing-iecd.sqlite3"));
-    InventoryItem offlineItem;
-    assert(applyIecdEnrichment(offlineItem, unavailable.lookup("Maker", "MPN")));
-    assert(offlineItem.enrichmentStatus == "database_unavailable");
-
-    const auto fixture = filesystem::temp_directory_path() / "inventatory-iecd-lookup-test.sqlite3";
-    filesystem::copy_file(sourceDatabase, fixture, filesystem::copy_options::overwrite_existing);
-    {
-      SqliteConnection connection;
-      assert(openDatabase(fixture, connection));
-      assert(execSql(connection,
-          "INSERT INTO mpn_aliases VALUES ('ti.tps7a2033','TPS7A2033PDBVR','TPS7A2033PDBVR')"));
-      assert(execSql(connection,
-          "INSERT INTO manufacturers VALUES ('test-maker','Test Maker','TEST MAKER')"));
-      assert(execSql(connection,
-          "INSERT INTO components VALUES ('test.ne555p','test-maker','NE555P','NE555P','NE555P clone',"
-          "'timers','Timer IC','Timer IC','','','original','test fixture','test','2026-07-16')"));
+    assert(manufacturerSources().size() == 8);
+    for (const auto& source : manufacturerSources()) {
+      assert(source.downloadMode == DownloadMode::BrowserGuided);
+      assert(!source.automaticFetchAllowed);
+      assert(!source.redistributionAllowed);
     }
-    IecdDatabase fixtureDatabase;
-    assert(fixtureDatabase.open(fixture));
-    assert(fixtureDatabase.lookup("Texas Instruments", "TPS7A2033PDBVR").status == IecdMatchStatus::ExactMatch);
-    assert(fixtureDatabase.lookup("", "NE555P").status == IecdMatchStatus::Ambiguous);
-    error_code removeError;
-    filesystem::remove(fixture, removeError);
+    auto microfarads = parseEngineeringValue("4.7 µF");
+    assert(microfarads.nominal.has_value());
+    assert(abs(*microfarads.nominal - 4.7e-6) < 1e-12);
+    assert(microfarads.unit == "F");
+    auto contextual = parseEngineeringValue("3 m", "Ohm");
+    assert(contextual.nominal.has_value() && abs(*contextual.nominal - 0.003) < 1e-12);
+    auto range = parseEngineeringValue("-55 to +125 °C");
+    assert(range.minimum == -55 && range.maximum == 125 && range.unit == "degC");
+    assert(parseEngineeringValue("10k").warning.size() > 0);
 
-    const auto incompatible = filesystem::temp_directory_path() / "inventatory-iecd-incompatible.sqlite3";
-    filesystem::copy_file(sourceDatabase, incompatible, filesystem::copy_options::overwrite_existing);
-    {
-      SqliteConnection connection;
-      assert(openDatabase(incompatible, connection));
-      assert(execSql(connection, "UPDATE metadata SET value='2' WHERE key='schema_version'"));
-    }
-    IecdDatabase incompatibleDatabase;
-    assert(!incompatibleDatabase.open(incompatible));
-    filesystem::remove(incompatible, removeError);
-  }
-
-  {
-    const auto sourceDatabase = filesystem::current_path() / "data" / "iecd.sqlite3";
-    const auto sourceManifest = filesystem::current_path() / "data" / "iecd-manifest.json";
-    ifstream manifestInput(sourceManifest, ios::binary);
-    const string manifest((istreambuf_iterator<char>(manifestInput)), istreambuf_iterator<char>());
-    assert(!manifest.empty());
-    IecdDatabase bundledDatabase;
-    assert(bundledDatabase.open(sourceDatabase));
-    const auto bundledVersion = bundledDatabase.version();
-    assert(!bundledVersion.empty());
-    const auto target = filesystem::temp_directory_path() / "inventatory-iecd-install-test.sqlite3";
+    const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
+    const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
     error_code ignored;
-    filesystem::remove(target, ignored);
-    filesystem::remove(filesystem::path(target.string() + ".previous"), ignored);
-    const auto installed = installIecdSnapshot(manifest, sourceDatabase, target);
-    assert(installed.completed);
-    assert(installed.installed);
-    assert(installed.databaseVersion == bundledVersion);
-
-    const auto corrupted = filesystem::temp_directory_path() / "inventatory-iecd-corrupted.sqlite3";
-    filesystem::copy_file(sourceDatabase, corrupted, filesystem::copy_options::overwrite_existing);
-    fstream corrupt(corrupted, ios::binary | ios::in | ios::out);
-    corrupt.seekp(32);
-    const char bad = '\x7f';
-    corrupt.write(&bad, 1);
-    corrupt.close();
-    const auto rejected = installIecdSnapshot(manifest, corrupted, target);
-    assert(rejected.completed);
-    assert(!rejected.installed);
-    assert(rejected.error.find("digest") != string::npos);
-    IecdDatabase retained;
-    assert(retained.open(target));
-    assert(retained.version() == bundledVersion);
-    filesystem::remove(corrupted, ignored);
-    filesystem::remove(target, ignored);
-    filesystem::remove(filesystem::path(target.string() + ".previous"), ignored);
+    filesystem::remove(databasePath, ignored);
+    ofstream csv(csvPath, ios::binary | ios::trunc);
+    csv << "\xEF\xBB\xBFOrderable Part Number,Generic Part Number,Package,Channels,Supply voltage (min),Supply voltage (max),Description\n"
+           "OPA333AIDBVR,OPA333,SOT-23,1,1.8 V,5.5 V,Zero-drift amplifier\n"
+           "\"OPA,QUOTED\",BASE2,0402,2,2.7 V,12 V,\"quoted, description\"\n"
+           "BROKEN\"ROW,BASE3,SOT-23,1,1 V,2 V,Bad row\n";
+    csv.close();
+    CatalogueDatabase database;
+    assert(database.open(databasePath));
+    const auto imported = database.importFile(csvPath);
+    assert(imported.error.empty());
+    assert(imported.parts == 2);
+    assert(imported.rejected == 1);
+    assert(imported.properties >= 6);
+    assert(database.importFile(csvPath).duplicate);
+    const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
+    assert(exact.status == CatalogueMatchStatus::ExactMatch);
+    const auto alias = database.lookup("Texas Instruments", "OPA333");
+    assert(alias.status == CatalogueMatchStatus::AliasMatch);
+    assert(database.lookup("Texas Instruments", "OPA-333").status == CatalogueMatchStatus::NotFound);
+    InventoryItem item;
+    item.partName = "Manual name";
+    assert(applyCatalogueEnrichment(item, exact));
+    assert(item.partName == "Manual name");
+    assert(item.catalogueStatus == "exact_match");
+    assert(database.removeSource("ti-parametric-v1"));
+    assert(database.lookup("Texas Instruments", "OPA333AIDBVR").status == CatalogueMatchStatus::NotFound);
+    filesystem::remove(csvPath, ignored);
+    filesystem::remove(databasePath, ignored);
   }
 
   {
@@ -1635,9 +1578,6 @@ int main(int argc, char** argv) {
     expected.latestAvailableVersion = "0.2.0";
     expected.latestReleaseUrl = "https://github.com/Kwiatens/Inventatory-Software/releases/tag/v0.2.0";
     expected.deviceServicePort = 8181;
-    expected.iecdUpdateChecksEnabled = false;
-    expected.lastIecdUpdateCheckUnixSeconds = 987654321;
-    expected.installedIecdVersion = "2026.07.16";
     expected.quickLabelPresets = {"5V", "GND", "12V"};
     expected.quickLabelRevision = 9;
     assert(saveAppSettings(path, expected));
@@ -1656,15 +1596,11 @@ int main(int argc, char** argv) {
     assert(loaded.latestAvailableVersion == "0.2.0");
     assert(loaded.latestReleaseUrl == expected.latestReleaseUrl);
     assert(loaded.deviceServicePort == 8181);
-    assert(!loaded.iecdUpdateChecksEnabled);
-    assert(loaded.lastIecdUpdateCheckUnixSeconds == 987654321);
-    assert(loaded.installedIecdVersion == "2026.07.16");
     assert(loaded.quickLabelPresets == expected.quickLabelPresets);
     assert(loaded.quickLabelRevision == 9);
 
     ifstream persisted(path);
     const string text((istreambuf_iterator<char>(persisted)), istreambuf_iterator<char>());
-    assert(text.find("installed_iecd_version=\"2026.07.16\"") != string::npos);
     assert(text.find("device_service_port=8181") != string::npos);
     assert(text.find("bridge_port") == string::npos);
     persisted.close();
@@ -1704,23 +1640,6 @@ int main(int argc, char** argv) {
     assert(!isUpdateCheckDue(false, 0, 100));
     assert(!isUpdateCheckDue(true, 100, 100 + 60));
     assert(isUpdateCheckDue(true, 100, 100 + 24 * 60 * 60));
-  }
-
-  if (argc > 1 && string(argv[1]) == "--iecd-network-test") {
-    const auto target = filesystem::temp_directory_path() / "inventatory-iecd-network-test.sqlite3";
-    error_code ignored;
-    filesystem::remove(target, ignored);
-    filesystem::remove(filesystem::path(target.string() + ".previous"), ignored);
-    const auto downloaded = downloadAndInstallLatestIecd(target);
-    assert(downloaded.completed);
-    assert(downloaded.installed);
-    assert(downloaded.databaseVersion == "0.2.0-test.2");
-    IecdDatabase downloadedDatabase;
-    assert(downloadedDatabase.open(target));
-    assert(downloadedDatabase.lookup("Ai-Thinker", "ESP-12S").record.purposeLabel == "Wi-Fi Module");
-    filesystem::remove(target, ignored);
-    filesystem::remove(filesystem::path(target.string() + ".previous"), ignored);
-    cout << "IECD network update test passed\n";
   }
 
   cout << "Inventatory core tests passed\n";
