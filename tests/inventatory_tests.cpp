@@ -1729,6 +1729,7 @@ int main(int argc, char** argv) {
     assert(xlsxImported.error.empty());
     assert(xlsxImported.parts == 2);
     assert(xlsxImported.properties >= 7);
+    assert(xlsxImported.unmappedProperties == 2);
     const auto xlsxExact = database.lookup("Texas Instruments", "OPA333AIDBVR");
     assert(any_of(xlsxExact.record.properties.begin(), xlsxExact.record.properties.end(), [](const CatalogueProperty& property) {
       return property.sourceColumn == "Shutdown current" && property.mappingStatus == "unmapped" && property.rawValue == "1 µA";

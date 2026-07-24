@@ -279,7 +279,7 @@ CatalogueImportStats importCatalogueTable(const filesystem::path& databasePath, 
     sqlite3_bind_text(property.value, 12, raw.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(property.value, 13, "", -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(property.value, 14, mappingStatus.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(property.value, 15, profile->id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(property.value, 16, profile->version.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_int64(property.value, 17, stats.snapshotId);
-    if (sqlite3_step(property.value) == SQLITE_DONE) ++stats.properties;
+    if (sqlite3_step(property.value) == SQLITE_DONE) { ++stats.properties; if (mappingStatus == "unmapped") ++stats.unmappedProperties; }
   };
   for (size_t index = 0; index < table.rows.size(); ++index) {
     if (options.cancel && options.cancel->load()) { stats.cancelled = true; break; }
