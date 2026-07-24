@@ -365,7 +365,7 @@ class App {
   CatalogueProfile catalogueManualProfile_;
   size_t catalogueManualMappingStep_ = 0;
   size_t catalogueManualColumnSelection_ = 0;
-  std::array<size_t, 4> catalogueManualColumns_{};
+  std::array<size_t, 10> catalogueManualColumns_{};
   bool catalogueRemovalConfirmation_ = false;
   std::atomic_bool catalogueImportCancelled_{false};
   std::future<CatalogueImportStats> catalogueImportFuture_;

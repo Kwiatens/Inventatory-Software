@@ -31,8 +31,12 @@ const CatalogueProfile* profileFor(const ManufacturerSource& source) {
   return nullptr;
 }
 
-const array<string, 4> kManualMappingLabels = {"Part number (required)", "Base part (optional)",
-                                                "Package (optional)", "Description (optional)"};
+const array<string, 10> kManualMappingLabels = {"Part number (required)", "Base part (optional)",
+    "Package (optional)", "Description (optional)", "Capacitance (F)", "Resistance (Ohm)",
+    "Voltage rating (V)", "Current rating (A)", "Power (W)", "Tolerance (%)"};
+
+const array<pair<string, string>, 6> kManualProperties = {{{"capacitance", "F"}, {"resistance", "Ohm"},
+    {"voltage_rating", "V"}, {"current_rating", "A"}, {"power", "W"}, {"tolerance", "%"}}};
 
 string manualColumnLabel(const CatalogueImportPreview& preview, size_t selection) {
   return selection == 0 ? "Not mapped" : preview.headers[selection - 1];
@@ -336,6 +340,11 @@ void App::handleCatalogueKey(const KeyEvent& key) {
         catalogueManualProfile_ = {source->profileId, "manual-v1", source->manufacturer,
                                    source->supportedCategories.empty() ? "Unspecified" : source->supportedCategories.front(),
                                    "", {}, column(0), column(1), {}, column(2), {}, column(3), {}, {}, false};
+        for (size_t index = 0; index < kManualProperties.size(); ++index) {
+          const auto selected = catalogueManualColumns_[index + 4];
+          if (selected != 0) catalogueManualProfile_.properties.push_back(
+              {{cataloguePreview_.headers[selected - 1]}, kManualProperties[index].first, kManualProperties[index].second, ""});
+        }
         cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, &catalogueManualProfile_);
         if (!cataloguePreview_.valid()) { setMessage(cataloguePreview_.error, 7); catalogueFlow_ = CatalogueFlow::Sources; return; }
         const bool saved = catalogueDatabase_.saveLocalMapping(catalogueManualProfile_);
