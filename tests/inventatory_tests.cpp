@@ -1645,10 +1645,12 @@ int main(int argc, char** argv) {
       error_code downloadIgnored;
       filesystem::remove_all(downloadsPath, downloadIgnored);
       filesystem::create_directories(downloadsPath);
+      { ofstream existing(downloadsPath / "older-export.csv", ios::binary); existing << "already present"; }
       const auto tiSource = find_if(manufacturerSources().begin(), manufacturerSources().end(), [](const ManufacturerSource& source) { return source.id == "ti"; });
       assert(tiSource != manufacturerSources().end());
       CatalogueDownloadSession downloadSession;
       assert(downloadSession.start(*tiSource, downloadsPath));
+      assert(!downloadSession.poll().has_value());
       { ofstream partial(downloadsPath / "ti-export.xlsx.crdownload", ios::binary); partial << "partial"; }
       assert(!downloadSession.poll().has_value());
       const auto completedPath = downloadsPath / "ti-export.xlsx";
