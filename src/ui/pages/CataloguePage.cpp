@@ -50,6 +50,15 @@ string importedAtLabel(time_t value) {
   char buffer[32]{};
   return strftime(buffer, sizeof(buffer), "%d %b %Y %H:%M", &local) == 0 ? "date unavailable" : buffer;
 }
+
+string sourceCategoriesLabel(const ManufacturerSource& source) {
+  string label;
+  for (const auto& category : source.supportedCategories) {
+    if (!label.empty()) label += " / ";
+    label += category;
+  }
+  return label.empty() ? "Unspecified" : label;
+}
 }  // namespace
 
 void App::beginCatalogueDownload() {
@@ -301,6 +310,7 @@ ftxui::Element App::renderCatalogueUi() const {
     auto line = ftxui::hbox({styledText(" " + source.displayName, selected ? uiTitleColor() : uiPrimaryText()) | ftxui::bold,
                              ftxui::filler(), styledText(status + "  ", isInstalled ? uiSuccessColor() : uiMutedColor())});
     rows.push_back(target(line, "catalogue.source." + source.id, UiTargetKind::Row, [self, index] { self->catalogueSourceSelection_ = index; self->dirty_ = true; }));
+    if (selected) rows.push_back(styledText("   Categories: " + sourceCategoriesLabel(source), uiMutedText()));
     if (selected && isInstalled) {
       const auto snapshotCount = count_if(snapshots.begin(), snapshots.end(), [&](const CatalogueImportStats& snapshot) { return snapshot.profileId == source.profileId; });
       rows.push_back(styledText("   Last import: " + importedAtLabel(installed->importedAt) + " · " + installed->filename + " · profile v" + installed->profileVersion +
