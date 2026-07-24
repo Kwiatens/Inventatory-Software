@@ -25,10 +25,31 @@ assignment, unassignment, filtering, and rack administration are in Actions.
 
 ## Import workflow
 
-Open Import and choose a CSV file. Review each candidate, correct it if needed,
-then Accept or Skip. After the final row, choose whether to enrich accepted
-parts with DigiKey metadata. Inventatory reports created, merged, skipped, and failed
-counts before returning to inventory.
+Open Import and choose a CSV file. The format is detected from its header: a
+DigiKey order CSV goes to the review list, a KiCad BOM goes to Projects.
+
+For a DigiKey order, review each candidate, correct it if needed, then Accept or
+Skip. After the final row, choose whether to enrich accepted parts with DigiKey
+metadata. Inventatory reports created, merged, skipped, and failed counts before
+returning to inventory.
+
+## Project workflow
+
+A KiCad BOM becomes a project on the Projects page. Every line is matched against
+stock by manufacturer part number, or by value and package for passives, and the
+result splits into what is pickable now and what has to be ordered. Shortages are
+looked up on DigiKey in the background; `o` writes them to a CSV beside the BOM.
+
+`+` and `-` change the board count and re-run the analysis. `a` cycles to the next
+matching part when one line has several candidates, and that choice is remembered.
+
+`b` starts the build walkthrough. It stops at one rack at a time, pulsing the slots
+holding parts this build needs, and lists what to take out of each. Enter advances,
+Backspace goes back. Parts that live outside a rack come last, grouped by location.
+At the end, answer whether to subtract the picked parts from stock; Ctrl+Z undoes it.
+
+Projects persist in the inventory database, so reopening the app restores the
+analysis against current stock with no re-upload. `d` forgets one.
 
 ## Settings workflow
 
