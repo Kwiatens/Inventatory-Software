@@ -1669,6 +1669,10 @@ int main(int argc, char** argv) {
     assert(imported.parts == 2);
     assert(imported.rejected == 1);
     assert(imported.properties >= 6);
+    const auto snapshots = database.snapshots();
+    assert(!snapshots.empty());
+    assert(snapshots.front().filename == "TI_opamps_synthetic.csv");
+    assert(snapshots.front().profileVersion == "1");
     assert(database.importFile(csvPath).duplicate);
     const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
     assert(exact.status == CatalogueMatchStatus::ExactMatch);
