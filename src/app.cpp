@@ -3,6 +3,7 @@
 
 #include "App.h"
 
+#include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
 #include "platform/StartupRegistration.h"
 #include "platform/UpdateService.h"
@@ -29,7 +30,6 @@
 #include <utility>
 #include <thread>
 #include <future>
-#include <fstream>
 
 namespace inventatory {
 
@@ -104,7 +104,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       printerPath_(dataPath_ / "printer.conf"),
       activityPath_(dataPath_ / "activity.tsv"),
       inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
-      iecdPath_(dataPath_ / "iecd.sqlite3") {
+      quickLabelsPath_(dataPath_ / "quick_labels.conf") {
+  loadEnvironmentFile(locateDotEnvFile());
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
     dataPath_ = settings_.dataDirectory;
@@ -112,41 +113,32 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
-    iecdPath_ = dataPath_ / "iecd.sqlite3";
+    quickLabelsPath_ = dataPath_ / "quick_labels.conf";
   } else {
     settings_.dataDirectory = dataPath_;
   }
+  if (!loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision)) {
+    // Legacy installs kept quick labels in the machine-local settings file;
+    // migrate them into the data folder so they travel with the user's data.
+    if (!settings_.quickLabelPresets.empty()) {
+      saveQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+    }
+  }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
+  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
+                            !loadDigiKeyConfig().clientSecret.empty();
   ensureInventoryDatabaseCopied(inventoryPath_);
-  error_code iecdError;
-  const auto bundledIecd = root_ / "data" / "iecd.sqlite3";
-  const auto bundledManifest = root_ / "data" / "iecd-manifest.json";
-  const auto installBundledIecd = [&] {
-    if (!filesystem::exists(bundledIecd, iecdError) || !filesystem::exists(bundledManifest, iecdError)) return false;
-    ifstream input(bundledManifest, ios::binary);
-    const string manifest((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
-    return !manifest.empty() && installIecdSnapshot(manifest, bundledIecd, iecdPath_).installed;
-  };
-  if (!filesystem::exists(iecdPath_, iecdError)) installBundledIecd();
-  if (!iecdDatabase_.open(iecdPath_)) {
-    const auto previousIecd = filesystem::path(iecdPath_.string() + ".previous");
-    if (filesystem::exists(previousIecd, iecdError)) {
-      filesystem::copy_file(previousIecd, iecdPath_, filesystem::copy_options::overwrite_existing, iecdError);
-      iecdDatabase_.open(iecdPath_);
-    }
-    if (!iecdDatabase_.available() && installBundledIecd()) iecdDatabase_.open(iecdPath_);
-  }
-  if (settings_.installedIecdVersion.empty() && iecdDatabase_.available()) {
-    settings_.installedIecdVersion = iecdDatabase_.version();
-    settingsDraft_ = settings_;
-    if (loadedSettings) saveAppSettings(settingsPath_, settings_);
-  }
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (!loadedSettings) {
     settings_.printerQueue = printerService_.configuredPrinter();
-    settings_.installedIecdVersion = iecdDatabase_.version();
+    const auto environment = loadDigiKeyConfig();
+    settings_.digiKeyClientId = environment.clientId;
+    settings_.digiKeyAccountId = environment.accountId;
+    settings_.digiKeySite = environment.site;
+    settings_.digiKeyLanguage = environment.language;
+    settings_.digiKeyCurrency = environment.currency;
     settingsDraft_ = settings_;
     saveAppSettings(settingsPath_, settings_);
   } else if (!settings_.printerQueue.empty()) {
@@ -179,7 +171,6 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     setMessage("Inventatory Scan R1 service ready", 5);
   }
   beginUpdateCheckIfDue();
-  beginIecdUpdateIfDue();
 }
 
 // The application frame: header, content, context/search-or-actions, message.
@@ -236,6 +227,8 @@ std::string App::pageName() const {
       return "Racks";
     case Page::Import:
       return "Import";
+    case Page::Projects:
+      return "Projects";
     case Page::ScanSetup:
       return "Scan R1 Setup";
     case Page::Settings:
@@ -280,27 +273,42 @@ ftxui::Element App::renderHeaderUi() const {
       nav(Page::Stock, "nav.stock", "2 Stock"),
       nav(Page::Racks, "nav.racks", "3 Racks"),
       nav(Page::Import, "nav.import", "4 Import"),
-      nav(Page::Settings, "nav.settings", "5 Settings"),
+      nav(Page::Projects, "nav.projects", "5 Projects"),
+      nav(Page::Settings, "nav.settings", "6 Settings"),
   });
 
   auto dotSep = [] { return styledText("   ", uiDimColor()); };
 
-  return ftxui::hbox({
-             navigation,
-             ftxui::filler(),
-             statusDot("scan", scanColor),
-             dotSep(),
-             statusDot("printer", printerColor),
-             dotSep(),
-             statusDot("device", deviceColor, deviceValue),
-             dotSep(),
-             statusDot(autoPrintScannedLabels_ ? "auto-label on" : "auto-label off", autoColor),
-             styledText("   ", uiDividerColor()),
-             target(styledText(" Actions  Space ", uiInteractiveColor(), uiRaisedSurfaceBg()), "shell.actions",
-                    UiTargetKind::Action, [self] { self->openActionSheet(); }),
-             ftxui::text(" "),
-         }) |
-         ftxui::bgcolor(uiSurfaceBg());
+  const auto* activeScreen = ftxui::ScreenInteractive::Active();
+  const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
+
+  ftxui::Elements header;
+  header.push_back(navigation);
+  header.push_back(ftxui::filler());
+  // Budget: 73 columns of nav + 17 for the Actions chip, leaving the status
+  // group 62 with labels and 10 as bare dots. Below that the header would clip
+  // mid-word, so it sheds the labels and then the dots on purpose.
+  if (screenWidth >= 152) {
+    header.push_back(statusDot("scan", scanColor));
+    header.push_back(dotSep());
+    header.push_back(statusDot("printer", printerColor));
+    header.push_back(dotSep());
+    header.push_back(statusDot("device", deviceColor, deviceValue));
+    header.push_back(dotSep());
+    header.push_back(statusDot(autoPrintScannedLabels_ ? "auto-label on" : "auto-label off", autoColor));
+    header.push_back(styledText("   ", uiDividerColor()));
+  } else if (screenWidth >= 100) {
+    header.push_back(statusDot("", scanColor));
+    header.push_back(statusDot("", printerColor));
+    header.push_back(statusDot("", deviceColor));
+    header.push_back(statusDot("", autoColor));
+    header.push_back(styledText("  ", uiDividerColor()));
+  }
+  header.push_back(target(styledText(" Actions  Space ", uiInteractiveColor(), uiRaisedSurfaceBg()),
+                          "shell.actions", UiTargetKind::Action, [self] { self->openActionSheet(); }));
+  header.push_back(ftxui::text(" "));
+
+  return ftxui::hbox(move(header)) | ftxui::bgcolor(uiSurfaceBg());
 }
 
 ftxui::Element App::renderPageUi() const {
@@ -313,6 +321,8 @@ ftxui::Element App::renderPageUi() const {
       return renderRackManagementUi();
     case Page::Import:
       return renderImportCsvUi();
+    case Page::Projects:
+      return renderBomProjectUi();
     case Page::ScanSetup:
       return renderInventatoryScanSetupUi();
     case Page::Settings:
@@ -365,6 +375,24 @@ ftxui::Element App::renderSearchBarUi() const {
                                                 : to_string(importSelection_ + 1) + " / " +
                                                       to_string(importCandidates_.size()) + " rows";
         break;
+      case Page::Projects:
+        contextTitle = "Project";
+        if (!bomAnalysisValid_) {
+          contextText = bomProjects_.empty()
+                            ? "Import a KiCad BOM to begin"
+                            : to_string(bomProjects_.size()) +
+                                  (bomProjects_.size() == 1 ? " project" : " projects");
+        } else if (bomView_ == BomView::Build) {
+          contextText = "build · " + to_string(bomBuildStep_ + 1) + " / " +
+                        to_string(bomBuildSteps().size()) + " stops";
+        } else {
+          contextText = to_string(bomAnalysis_.lines.size()) + " lines · " +
+                        to_string(bomAnalysis_.boards) +
+                        (bomAnalysis_.boards == 1 ? " board · " : " boards · ") +
+                        to_string(bomAnalysis_.readyCount) + " ready · " +
+                        to_string(bomAnalysis_.shortCount) + " short";
+        }
+        break;
       case Page::ScanSetup:
         contextTitle = "Setup wizard";
         contextText = "Guided Bluetooth provisioning for Inventatory Scan R1";
@@ -407,6 +435,21 @@ ftxui::Element App::renderSearchBarUi() const {
 }
 
 ftxui::Element App::renderMessageUi() const {
+  const bool enrichingBom = page_ == Page::Projects && bomEnrichmentTotal_ > 0 &&
+                            (!bomEnrichmentQueue_.empty() || bomEnrichmentFuture_.valid());
+  if (enrichingBom) {
+    const auto dispatched = bomEnrichmentTotal_ - bomEnrichmentQueue_.size();
+    const auto phase = static_cast<int>(chrono::duration_cast<chrono::milliseconds>(
+                         chrono::steady_clock::now().time_since_epoch()).count() / 350 % 4);
+    const string dots(static_cast<size_t>(phase), '.');
+    return ftxui::hbox({
+        styledText(" DigiKey lookup" + dots, uiLinkColor()),
+        styledText(string(3 - phase, ' '), uiLinkColor()),
+        uiProgressBar(static_cast<double>(dispatched) / static_cast<double>(bomEnrichmentTotal_), 28, uiLinkColor()),
+        styledText(" " + to_string(dispatched) + "/" + to_string(bomEnrichmentTotal_) + " suggestions", uiMutedColor()),
+        ftxui::filler(),
+    }) | ftxui::bgcolor(uiPanelLeftBg());
+  }
   if (!persistenceError_.empty()) {
     return fullLine(persistenceError_, uiDangerColor(), uiPanelLeftBg());
   }
@@ -444,7 +487,7 @@ void App::processBackgroundWork() {
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();
-  processIecdUpdate();
+  processBomEnrichment();
 }
 
 void App::runBackgroundLoop() {
@@ -589,7 +632,8 @@ void App::handleKey(const KeyEvent& key) {
       case '2': changePage(Page::Stock); return;
       case '3': changePage(Page::Racks); return;
       case '4': changePage(Page::Import); return;
-      case '5': changePage(Page::Settings); return;
+      case '5': changePage(Page::Projects); return;
+      case '6': changePage(Page::Settings); return;
       default: break;
     }
   }
@@ -616,6 +660,9 @@ void App::handleKey(const KeyEvent& key) {
       break;
     case Page::Import:
       handleImportCsvKey(key);
+      break;
+    case Page::Projects:
+      handleBomProjectKey(key);
       break;
     case Page::ScanSetup:
       handleInventatoryScanSetupKey(key);
@@ -658,6 +705,19 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
     const int delta = mouse.button == ftxui::Mouse::WheelUp ? -1 : 1;
     if (page_ == Page::Stock) moveSelection(delta);
     else if (page_ == Page::Import) moveImportSelection(delta);
+    else if (page_ == Page::Projects) {
+      if (bomView_ == BomView::Split) {
+        if (uiBoxContains(bomReadyPanelBounds_, mouse.x, mouse.y)) {
+          bomSplitShortFocused_ = false;
+          moveBomSelection(delta);
+        } else if (uiBoxContains(bomShortPanelBounds_, mouse.x, mouse.y)) {
+          bomSplitShortFocused_ = true;
+          moveBomSelection(delta);
+        }
+      } else {
+        moveBomSelection(delta);
+      }
+    }
     else if (page_ == Page::Settings && settingsCategory_ == SettingsCategory::Printer) {
       if (delta < 0 && printerSelection_ > 0) --printerSelection_;
       if (delta > 0 && printerSelection_ + 1 < printerQueues_.size()) ++printerSelection_;
@@ -855,5 +915,3 @@ void App::handleRackValueKey(const KeyEvent& key) {
 }
 
 }  // namespace inventatory
-
-

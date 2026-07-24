@@ -51,7 +51,7 @@ struct DashboardSnapshot {
   size_t outOfStockCount = 0;
   size_t dataErrorCount = 0;
   size_t missingMetadataCount = 0;
-  size_t unenrichedCount = 0;
+  size_t unsyncedCount = 0;
   vector<AttentionRow> attention;
   vector<DeviceStatus> devices;
   vector<ActivityEntry> recentEvents;
@@ -128,9 +128,9 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   for (const auto& item : items) {
     snapshot.totalQuantity += static_cast<size_t>(max(item.quantity, 0));
     const bool missingMetadata = item.hasMissingMetadata();
-    const bool unenriched = toLower(item.enrichmentStatus) != "matched";
+    const bool unsynced = toLower(item.syncStatus) != "synced";
     snapshot.missingMetadataCount += missingMetadata ? 1 : 0;
-    snapshot.unenrichedCount += unenriched ? 1 : 0;
+    snapshot.unsyncedCount += unsynced ? 1 : 0;
 
     const bool duplicateId = !seenIds.insert(item.id).second;
     const bool dataError = duplicateId || item.quantity < 0 || item.reorderThreshold < 0;
@@ -165,9 +165,9 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
       row.issue = "META";
       row.reason = "Complete part metadata";
       row.severity = AttentionSeverity::Metadata;
-    } else if (unenriched) {
-      row.issue = "IECD";
-      row.reason = item.enrichmentStatus == "database_unavailable" ? "Database unavailable" : "No reviewed match";
+    } else if (unsynced) {
+      row.issue = "SYNC";
+      row.reason = "Pending synchronization";
       row.severity = AttentionSeverity::Metadata;
     } else {
       continue;
@@ -203,9 +203,8 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
   // Keep the compact Home table visually centred inside its panel rather than
   // pinning all of its content against the application's left edge.
   const int contentWidth = max(30, width - 4);
-  const int issueWidth = 6;
   const int quantityWidth = 7;
-  const int partWidth = max(16, contentWidth - issueWidth - quantityWidth - 2);
+  const int partWidth = max(16, contentWidth - quantityWidth - 1);
   const auto centred = [&](ftxui::Element row) {
     return ftxui::hbox({
         ftxui::filler(),
@@ -216,8 +215,6 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
 
   ftxui::Elements rows;
   rows.push_back(centred(ftxui::hbox({
-      fixedCell("Status", issueWidth, uiMutedColor()),
-      ftxui::separator() | ftxui::color(uiDividerColor()),
       fixedCell("Part", partWidth, uiMutedColor()),
       ftxui::separator() | ftxui::color(uiDividerColor()),
       fixedCell("Qty", quantityWidth, uiMutedColor(), true),
@@ -237,8 +234,6 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
                                                            : ftxui::Color::RGB(58, 29, 27))
                                       : background;
       rows.push_back(centred(ftxui::hbox({
-          fixedCell(row.issue, issueWidth, accent) | ftxui::bold,
-          ftxui::separator() | ftxui::color(uiDividerColor()),
           fixedCell(row.partName, partWidth, outOfStock ? uiPrimaryText() : uiPrimaryText()) |
               ftxui::bgcolor(partBackground),
           ftxui::separator() | ftxui::color(uiDividerColor()),
@@ -294,7 +289,7 @@ ftxui::Element App::renderDashboardUi() const {
       uiDivider(),
       metricCard("OUT OF STOCK", snapshot.outOfStockCount, snapshot.outOfStockCount > 0 ? uiDangerColor() : uiSuccessColor()),
       uiDivider(),
-      metricCard("NOT IN IECD", snapshot.unenrichedCount, snapshot.unenrichedCount > 0 ? uiLinkColor() : uiSuccessColor()),
+      metricCard("PENDING SYNC", snapshot.unsyncedCount, snapshot.unsyncedCount > 0 ? uiLinkColor() : uiSuccessColor()),
   });
 
   const int alertWidth = max(50, (screenWidth - 1) / 2);

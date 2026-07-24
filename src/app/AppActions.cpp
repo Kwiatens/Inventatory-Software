@@ -3,12 +3,17 @@
 
 #include "App.h"
 
+#include "import/CsvFormat.h"
+#include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <ctime>
+#include <fstream>
+#include <future>
 #include <limits>
 #include <mutex>
 #include <memory>
@@ -73,24 +78,152 @@ vector<Parameter> parseParameters(const string& text) {
   return values;
 }
 
+bool upsertParameter(vector<Parameter>& parameters, const string& name, const string& value) {
+  const auto trimmedValue = trim(value);
+  if (trimmedValue.empty()) {
+    return false;
+  }
+
+  for (auto& parameter : parameters) {
+    if (parameterLabelMatches(parameter.name, name)) {
+      if (parameter.name.empty()) {
+        parameter.name = name;
+      }
+      const bool changed = parameter.value != trimmedValue;
+      parameter.value = trimmedValue;
+      return changed;
+    }
+  }
+
+  parameters.push_back({name, trimmedValue});
+  return true;
+}
+
+bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetails& details) {
+  bool changed = false;
+
+  const auto normalizePackageLabels = [&]() {
+    for (auto& parameter : item.parameters) {
+      if (parameterLabelMatches(parameter.name, "Package") && looksLikePackagingValue(parameter.value)) {
+        parameter.name = "Packaging";
+        changed = true;
+      }
+    }
+  };
+  normalizePackageLabels();
+
+  const auto assignIfUseful = [&](string& target, const string& value, bool replaceUnknown = false) {
+    const auto trimmed = trim(value);
+    if (trimmed.empty()) {
+      return;
+    }
+    if (target.empty() || (replaceUnknown && (target == "Unknown" || target == "Unsorted" ||
+                                              target == "Scanned DigiKey Item"))) {
+      target = trimmed;
+      changed = true;
+    }
+  };
+
+  if ((item.partName.empty() || item.partName == "Scanned DigiKey Item") && !trim(details.productDescription).empty()) {
+    item.partName = trim(details.productDescription);
+    changed = true;
+  }
+
+  assignIfUseful(item.manufacturer, details.manufacturerName, true);
+  assignIfUseful(item.category, details.categoryName, true);
+  assignIfUseful(item.sku, details.manufacturerPartNumber);
+  assignIfUseful(item.productUrl, details.productUrl);
+  assignIfUseful(item.datasheetUrl, details.datasheetUrl);
+
+  for (const auto& parameter : details.parameters) {
+    if (upsertParameter(item.parameters, parameter.name, parameter.value)) {
+      changed = true;
+    }
+  }
+
+  if (!trim(details.packagingType).empty()) {
+    if (upsertParameter(item.parameters, "Packaging", details.packagingType)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.packageName).empty()) {
+    if (upsertParameter(item.parameters, "Package", details.packageName)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.rohsStatus).empty()) {
+    if (upsertParameter(item.parameters, "RoHS", details.rohsStatus)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.leadStatus).empty()) {
+    if (upsertParameter(item.parameters, "Lead Status", details.leadStatus)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.productStatus).empty()) {
+    if (upsertParameter(item.parameters, "Product Status", details.productStatus)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.manufacturerLeadWeeks).empty()) {
+    if (upsertParameter(item.parameters, "Lead Time", details.manufacturerLeadWeeks)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.quantityAvailable).empty()) {
+    if (upsertParameter(item.parameters, "Quantity Available", details.quantityAvailable)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.unitPrice).empty()) {
+    if (upsertParameter(item.parameters, "Unit Price", details.unitPrice)) {
+      changed = true;
+    }
+  }
+  if (!trim(details.detailedDescription).empty() && item.notes.empty()) {
+    item.notes = trim(details.detailedDescription);
+    changed = true;
+  }
+  if (!trim(details.lookupKey).empty()) {
+    assignIfUseful(item.digikeyPartNumber, details.lookupKey);
+  }
+
+  if (item.syncStatus != "synced") {
+    item.syncStatus = "synced";
+    changed = true;
+  }
+  item.lastUpdated = time(nullptr);
+  return changed;
+}
+
+struct DigiKeyApiHandle {
+  unique_ptr<DigiKeyApiClient> client;
+  string error;
+};
+
+DigiKeyApiHandle createDigiKeyApi() {
+  const auto config = loadDigiKeyConfig();
+  if (!config.valid()) {
+    return {nullptr, "DigiKey API credentials are not configured"};
+  }
+
+  return {make_unique<DigiKeyApiClient>(config), {}};
+}
+
 }  // namespace
 
 void App::loadState() {
   const bool inventoryLoaded = store_.load(inventoryPath_);
-  bool enrichmentChanged = false;
-  for (auto& item : store_.items()) {
-    enrichmentChanged = applyIecdEnrichment(
-                            item, iecdDatabase_.lookup(item.manufacturer, item.manufacturerPartNumber)) ||
-                        enrichmentChanged;
-  }
   loadActivities(activityPath_, activities_);
+  inventatory::loadBomProjects(inventoryPath_, bomProjects_);
   printerService_.loadConfig(printerPath_);
   refreshPrinterState();
   if (activities_.empty()) {
     activities_.push_back(makeActivity("system", "Inventory loaded"));
     activities_.push_back(makeActivity("system", "Terminal dashboard initialized"));
   }
-  if (inventoryLoaded && enrichmentChanged) store_.save(inventoryPath_);
+  // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 
   server_.setRecentActivity(activities_);
   if (trim(inventatoryScanConfig_.token).empty()) {
@@ -151,8 +284,6 @@ bool App::chooseInventatoryFolder() {
   printerPath_ = dataPath_ / "printer.conf";
   activityPath_ = dataPath_ / "activity.tsv";
   inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
-  iecdPath_ = dataPath_ / "iecd.sqlite3";
-  iecdDatabase_.open(iecdPath_);
   ensureInventoryDatabaseCopied(inventoryPath_);
 
   printerQueues_.clear();
@@ -167,6 +298,27 @@ bool App::chooseInventatoryFolder() {
   editingImportCandidate_ = false;
   importEditIndex_ = 0;
   importSelection_ = 0;
+  importSyncPrompt_ = false;
+  bomProjects_.clear();
+  activeBomProjectId_.clear();
+  bomAnalysisValid_ = false;
+  bomAnalysis_ = {};
+  bomFile_ = {};
+  bomView_ = BomView::List;
+  bomProjectSelection_ = 0;
+  bomSplitSelection_ = 0;
+  bomSplitShortFocused_ = false;
+  bomBuildStep_ = 0;
+  bomDeductPrompt_ = false;
+  bomEnrichmentQueue_.clear();
+  bomEnrichmentTotal_ = 0;
+  bomEnrichmentActiveKey_.clear();
+  // Join any in-flight lookup before dropping the client it borrows.
+  if (bomEnrichmentFuture_.valid()) {
+    bomEnrichmentFuture_.wait();
+    bomEnrichmentFuture_ = {};
+  }
+  bomEnrichmentClient_.reset();
   selectedPosition_ = 0;
   searchQuery_.clear();
   inputBuffer_.clear();
@@ -423,6 +575,15 @@ void App::changePage(Page page) {
   if (page != Page::Racks) {
     movingRackItemId_.clear();
     movingRackSource_.clear();
+  }
+  if (page != Page::Projects) {
+    // Leaving the page abandons an in-progress walkthrough rather than letting
+    // a half-finished pick resume out of context later.
+    bomDeductPrompt_ = false;
+    if (bomView_ == BomView::Build) {
+      bomView_ = BomView::Split;
+      bomBuildStep_ = 0;
+    }
   }
   dirty_ = true;
 }
@@ -858,7 +1019,7 @@ void App::beginEditCurrentItem(bool createNew) {
     workingCopy_.item.manufacturer = "Unknown";
     workingCopy_.item.category = "Unsorted";
     workingCopy_.item.location = "Unassigned";
-    workingCopy_.item.enrichmentStatus = "needs_metadata";
+    workingCopy_.item.syncStatus = "needs_metadata";
     workingCopy_.item.lastUpdated = time(nullptr);
     workingCopy_.item.createdAt = workingCopy_.item.lastUpdated;
     workingCopy_.originalIndex = store_.items().size();
@@ -944,14 +1105,20 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::Notes:
       workingCopy_.item.notes = trimmed;
       break;
+    case EditField::DigiKeyPart:
+      workingCopy_.item.digikeyPartNumber = trimmed;
+      break;
     case EditField::DatasheetUrl:
       workingCopy_.item.datasheetUrl = trimmed;
       break;
-    case EditField::ManufacturerPartNumber:
-      workingCopy_.item.manufacturerPartNumber = trimmed;
+    case EditField::ProductUrl:
+      workingCopy_.item.productUrl = trimmed;
       break;
-    case EditField::EnrichmentStatus:
-      workingCopy_.item.enrichmentStatus = toLower(trimmed);
+    case EditField::Sku:
+      workingCopy_.item.sku = trimmed;
+      break;
+    case EditField::SyncStatus:
+      workingCopy_.item.syncStatus = toLower(trimmed);
       break;
     case EditField::RackLocation: {
       string error;
@@ -992,16 +1159,10 @@ void App::saveWorkingCopy() {
   captureUndoSnapshot();
   if (workingCopy_.isNew) {
     store_.items().push_back(workingCopy_.item);
-    applyIecdEnrichment(store_.items().back(),
-                        iecdDatabase_.lookup(store_.items().back().manufacturer,
-                                             store_.items().back().manufacturerPartNumber));
     reconcileRackAssignment(store_, store_.items().back());
     selectedPosition_ = store_.items().empty() ? 0 : store_.items().size() - 1;
   } else if (workingCopy_.originalIndex < store_.items().size()) {
     store_.items()[workingCopy_.originalIndex] = workingCopy_.item;
-    applyIecdEnrichment(store_.items()[workingCopy_.originalIndex],
-                        iecdDatabase_.lookup(store_.items()[workingCopy_.originalIndex].manufacturer,
-                                             store_.items()[workingCopy_.originalIndex].manufacturerPartNumber));
     reconcileRackAssignment(store_, store_.items()[workingCopy_.originalIndex]);
   }
 
@@ -1082,22 +1243,28 @@ void App::processScans() {
   }
 
   for (const auto& request : pending) {
-    const auto code = trim(request.manufacturerPartNumber).empty() ? request.code : request.manufacturerPartNumber;
+    const auto& code = request.code;
     const auto resolution = resolveScanCode(store_, code);
     if (resolution.matched) {
+      bool syncedDigiKeyMetadata = false;
+      InventoryItem* syncedItem = nullptr;
       if (auto* item = store_.findById(resolution.itemId)) {
-        if (!trim(request.manufacturer).empty()) item->manufacturer = trim(request.manufacturer);
-        if (!trim(request.manufacturerPartNumber).empty()) {
-          item->manufacturerPartNumber = trim(request.manufacturerPartNumber);
-        } else if (trim(request.encodedPartName).empty() && item->manufacturerPartNumber.empty()) {
-          item->manufacturerPartNumber = code;
-        } else if (resolution.created) {
-          item->manufacturerPartNumber.clear();
+        const auto shouldTrySync = resolution.created || trim(item->syncStatus) != "synced" ||
+                                   trim(item->partName) == "Scanned DigiKey Item";
+        if (shouldTrySync) {
+          const auto api = createDigiKeyApi();
+          if (api.client != nullptr) {
+            const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : code;
+            if (!trim(lookup).empty()) {
+              string error;
+              const auto details = api.client->fetchProductDetails(lookup, &error);
+              if (details && mergeDigiKeyMetadata(*item, *details)) {
+                syncedDigiKeyMetadata = true;
+                syncedItem = item;
+              }
+            }
+          }
         }
-        if (!trim(request.encodedPartName).empty() && (resolution.created || item->partName.empty())) {
-          item->partName = trim(request.encodedPartName);
-        }
-        applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
       }
 
       if (resolution.created) {
@@ -1111,6 +1278,10 @@ void App::processScans() {
           reconcileRackAssignment(store_, *item);
         }
         logActivity("scan", "Matched existing item with code " + code);
+      }
+
+      if (syncedDigiKeyMetadata && syncedItem != nullptr) {
+        logActivity("scan", "Synced DigiKey metadata for " + syncedItem->partName);
       }
 
       if (const auto* item = store_.findById(resolution.itemId)) {
@@ -1355,7 +1526,7 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
   status.rssi = request.rssi;
-  status.debug = "protocol=v2 mode=" + request.mode + " queue=" + to_string(request.queueDepth);
+  status.debug = "protocol=v1 mode=" + request.mode + " queue=" + to_string(request.queueDepth);
   status.protocolVersion = request.protocolVersion;
   status.mode = request.mode;
   status.pendingEventCount = request.queueDepth;
@@ -1394,7 +1565,7 @@ void App::processDeviceSyncEvents() {
   string affectedItemId;
   bool created = false;
   if (event.type == "inventory.adjust") {
-    DeviceQuantityRequest request{"protocol-v2", event.eventId, event.code, event.value};
+    DeviceQuantityRequest request{"protocol-v1", event.eventId, event.code, event.value};
     const auto quantityResult = applyDeviceQuantity(candidate, request);
     result.requestedDelta = event.value;
     result.appliedDelta = quantityResult.appliedDelta;
@@ -1407,8 +1578,6 @@ void App::processDeviceSyncEvents() {
       if (const auto* item = candidate.findByMachineCode(event.code)) {
         affectedItemId = item->id;
         result.existing = true;
-        result.itemName = item->iecdCanonicalName.empty() ? item->partName : item->iecdCanonicalName;
-        result.purposeLabel = item->iecdPurposeLabel;
         result.location = rackLocation(*item, candidate.racks());
         if (result.location.empty()) result.location = item->location;
       }
@@ -1417,11 +1586,7 @@ void App::processDeviceSyncEvents() {
       result.message = quantityResult.error;
     }
   } else if (event.type == "inventory.receive" && event.value > 0) {
-    const auto legacyMpn = trim(event.manufacturerPartNumber).empty() && trim(event.encodedPartName).empty()
-                               ? event.code
-                               : event.manufacturerPartNumber;
-    const auto resolution = resolveDecodedComponent(candidate, event.manufacturer, legacyMpn,
-                                                    event.encodedPartName);
+    const auto resolution = resolveScanCode(candidate, event.code);
     if (!resolution.matched) {
       result.code = "scan_unresolved";
       result.message = resolution.message;
@@ -1437,15 +1602,27 @@ void App::processDeviceSyncEvents() {
       result.appliedDelta = item->quantity - oldQuantity;
       result.quantity = item->quantity;
 
-      applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
+      string warning;
+      const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
+                                trim(item->partName) == "Scanned DigiKey Item";
+      if (shouldEnrich) {
+        const auto api = createDigiKeyApi();
+        if (api.client == nullptr) {
+          warning = api.error;
+        } else {
+          string lookupError;
+          const auto details = api.client->fetchProductDetails(event.code, &lookupError);
+          if (details) mergeDigiKeyMetadata(*item, *details);
+          else warning = lookupError.empty() ? "DigiKey metadata unavailable" : lookupError;
+        }
+      }
       reconcileRackAssignment(candidate, *item);
-      result.itemName = item->iecdCanonicalName.empty() ? item->partName : item->iecdCanonicalName;
-      result.purposeLabel = item->iecdPurposeLabel;
+      result.itemName = item->partName;
       result.location = rackLocation(*item, candidate.racks());
       if (result.location.empty()) result.location = item->location.empty() ? "UNASSIGNED" : item->location;
-      result.status = "completed";
-      result.code.clear();
-      result.message = created ? "New item received" : "Existing item updated";
+      result.status = warning.empty() ? "completed" : "completed_with_warning";
+      result.code = warning.empty() ? string() : "metadata_sync_failed";
+      result.message = warning.empty() ? (created ? "New item received" : "Existing item updated") : warning;
     }
   } else if (event.type == "inventory.receive") {
     result.code = "invalid_quantity";
@@ -1591,7 +1768,23 @@ void App::beginCsvImport() {
     return;
   }
 
-  const auto result = loadBomCsvFile(selectedPath, store_.items());
+  ifstream input(selectedPath, ios::binary);
+  if (!input) {
+    setMessage("Unable to open " + selectedPath.filename().string(), 6);
+    return;
+  }
+  ostringstream buffer;
+  buffer << input.rdbuf();
+  const auto text = buffer.str();
+
+  // The file picker is the only way in, so detection replaces asking the user
+  // which dialect they just chose.
+  if (detectCsvFormat(text) == CsvFormat::KicadBom) {
+    beginBomProject(text, projectNameFromPath(selectedPath), selectedPath);
+    return;
+  }
+
+  const auto result = parseDigiKeyCsvText(text, store_.items());
   if (!result.ok) {
     setMessage("CSV import failed: " + result.error, 6);
     return;
@@ -1601,14 +1794,21 @@ void App::beginCsvImport() {
   importAcceptedItemIds_.clear();
   importSourcePath_ = selectedPath;
   importSelection_ = 0;
+  importSyncPrompt_ = false;
   importCreatedCount_ = 0;
   importMergedCount_ = 0;
   importSkippedCount_ = 0;
+  importSyncedCount_ = 0;
+  importSyncFailedCount_ = 0;
   editingImportCandidate_ = false;
   inputMode_ = InputMode::None;
   page_ = Page::Import;
 
-  setMessage("Loaded " + to_string(importCandidates_.size()) + " CSV rows for review", 4);
+  string summary = "Loaded " + to_string(importCandidates_.size()) + " CSV rows for review";
+  if (!result.warnings.empty()) {
+    summary += " · " + to_string(result.warnings.size()) + " rows skipped";
+  }
+  setMessage(summary, 4);
 }
 
 CsvImportCandidate* App::currentImportCandidate() {
@@ -1673,11 +1873,6 @@ void App::acceptImportCandidate() {
     ++importCreatedCount_;
   }
 
-  if (auto* accepted = store_.findById(acceptedId)) {
-    applyIecdEnrichment(*accepted,
-                        iecdDatabase_.lookup(accepted->manufacturer, accepted->manufacturerPartNumber));
-  }
-
   importAcceptedItemIds_.push_back(acceptedId);
   importCandidates_.erase(importCandidates_.begin() + static_cast<ptrdiff_t>(importSelection_));
   if (importSelection_ >= importCandidates_.size() && !importCandidates_.empty()) {
@@ -1714,22 +1909,65 @@ void App::skipImportCandidate() {
 }
 
 void App::finishImportReview() {
-  finishCsvImport();
+  importSyncPrompt_ = !importAcceptedItemIds_.empty();
+  page_ = Page::Import;
+  inputMode_ = InputMode::None;
+  dirty_ = true;
 }
 
-void App::finishCsvImport() {
-  for (const auto& itemId : importAcceptedItemIds_) {
-    if (auto* item = store_.findById(itemId)) {
-      applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
-    }
+void App::syncAcceptedImports() {
+  if (importAcceptedItemIds_.empty()) {
+    return;
   }
+
+  const auto api = createDigiKeyApi();
+  if (api.client == nullptr) {
+    ++importSyncFailedCount_;
+    setMessage("DigiKey sync unavailable: " + api.error, 4);
+    return;
+  }
+
+  for (const auto& itemId : importAcceptedItemIds_) {
+    auto* item = store_.findById(itemId);
+    if (item == nullptr) {
+      ++importSyncFailedCount_;
+      continue;
+    }
+
+    const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : item->sku;
+    if (trim(lookup).empty()) {
+      ++importSyncFailedCount_;
+      continue;
+    }
+
+    string error;
+    const auto details = api.client->fetchProductDetails(lookup, &error);
+    if (!details) {
+      ++importSyncFailedCount_;
+      continue;
+    }
+
+    mergeDigiKeyMetadata(*item, *details);
+    reconcileRackAssignment(store_, *item);
+    ++importSyncedCount_;
+  }
+
   saveState();
+}
+
+void App::finishCsvImport(bool syncWithDigiKey) {
+  if (syncWithDigiKey) {
+    setMessage("Syncing accepted CSV rows with DigiKey API...", 3);
+    syncAcceptedImports();
+  }
+
   const auto summary = importCompletionMessage();
   logActivity("import", summary);
   importCandidates_.clear();
   importAcceptedItemIds_.clear();
   importSourcePath_.clear();
   importSelection_ = 0;
+  importSyncPrompt_ = false;
   editingImportCandidate_ = false;
   changePage(Page::Home);
   setMessage(summary, 8);
@@ -1737,7 +1975,527 @@ void App::finishCsvImport() {
 
 string App::importCompletionMessage() const {
   return "CSV import complete: " + to_string(importCreatedCount_) + " new, " +
-         to_string(importMergedCount_) + " merged, " + to_string(importSkippedCount_) + " skipped";
+         to_string(importMergedCount_) + " merged, " + to_string(importSkippedCount_) + " skipped, " +
+         to_string(importSyncedCount_) + " synced, " + to_string(importSyncFailedCount_) + " sync failed";
+}
+
+// ---------------------------------------------------------------------------
+// KiCad BOM projects
+// ---------------------------------------------------------------------------
+
+BomProject* App::activeBomProject() {
+  if (activeBomProjectId_.empty()) {
+    return nullptr;
+  }
+  const auto it = find_if(bomProjects_.begin(), bomProjects_.end(),
+                          [&](const BomProject& project) { return project.id == activeBomProjectId_; });
+  return it == bomProjects_.end() ? nullptr : &*it;
+}
+
+const BomProject* App::activeBomProject() const {
+  return const_cast<App*>(this)->activeBomProject();
+}
+
+bool App::saveBomProjects() {
+  return inventatory::saveBomProjects(inventoryPath_, bomProjects_);
+}
+
+void App::openBomProjects() {
+  bomView_ = BomView::List;
+  bomDeductPrompt_ = false;
+  bomProjectSelection_ = bomProjects_.empty() ? 0 : min(bomProjectSelection_, bomProjects_.size() - 1);
+  changePage(Page::Projects);
+}
+
+void App::beginBomProject(const string& bomText, const string& name, const filesystem::path& sourcePath) {
+  bomFile_ = parseKicadBomText(bomText, name);
+  if (!bomFile_.ok) {
+    setMessage("BOM import failed: " + bomFile_.error, 6);
+    return;
+  }
+
+  // A freshly imported project is held in memory until the user pins it, so a
+  // one-off analysis never clutters the list.
+  BomProject project;
+  project.id = "bom-" + makeId().substr(0, 12);
+  project.name = name;
+  project.sourcePath = sourcePath.string();
+  project.boards = 1;
+  project.createdAt = time(nullptr);
+  project.lastOpened = project.createdAt;
+  project.bomText = bomText;
+
+  // Replace an existing project built from the same file rather than stacking
+  // duplicates every time the user re-imports after a schematic change.
+  const auto existing = find_if(bomProjects_.begin(), bomProjects_.end(), [&](const BomProject& candidate) {
+    return !candidate.sourcePath.empty() && candidate.sourcePath == project.sourcePath;
+  });
+  if (existing != bomProjects_.end()) {
+    project.id = existing->id;
+    project.boards = existing->boards;
+    project.createdAt = existing->createdAt;
+    project.lastBuilt = existing->lastBuilt;
+    project.overrides = existing->overrides;
+    project.enrichment = existing->enrichment;
+    *existing = project;
+  } else {
+    bomProjects_.insert(bomProjects_.begin(), project);
+  }
+
+  activeBomProjectId_ = project.id;
+  bomProjectSelection_ = 0;
+  bomSplitSelection_ = 0;
+  bomSplitShortFocused_ = false;
+  bomBuildStep_ = 0;
+  bomDeductPrompt_ = false;
+  bomView_ = BomView::Split;
+  inputMode_ = InputMode::None;
+  refreshBomAnalysis();
+  queueBomEnrichment();
+  // Persist straight away: an imported BOM should survive a restart without the
+  // user having to ask for it.
+  saveBomProjects();
+  changePage(Page::Projects);
+
+  string summary = to_string(bomAnalysis_.readyCount) + " ready · " + to_string(bomAnalysis_.shortCount) + " short";
+  if (!bomFile_.warnings.empty()) {
+    summary += " · " + to_string(bomFile_.warnings.size()) + " rows not orderable";
+  }
+  setMessage(summary, 6);
+}
+
+void App::refreshBomAnalysis() {
+  auto* project = activeBomProject();
+  if (project == nullptr || !bomFile_.ok) {
+    bomAnalysisValid_ = false;
+    return;
+  }
+
+  bomAnalysis_ = analyzeBom(bomFile_, store_.items(), project->boards, project->overrides);
+  bomAnalysisValid_ = true;
+  if (!bomAnalysis_.matches.empty()) {
+    bomSplitSelection_ = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
+  } else {
+    bomSplitSelection_ = 0;
+  }
+  dirty_ = true;
+}
+
+void App::openSelectedBomProject() {
+  if (bomProjects_.empty()) {
+    return;
+  }
+  auto& project = bomProjects_[min(bomProjectSelection_, bomProjects_.size() - 1)];
+  bomFile_ = parseKicadBomText(project.bomText, project.name);
+  if (!bomFile_.ok) {
+    setMessage("Stored BOM could not be read: " + bomFile_.error, 6);
+    return;
+  }
+
+  project.lastOpened = time(nullptr);
+  activeBomProjectId_ = project.id;
+  bomSplitSelection_ = 0;
+  bomSplitShortFocused_ = false;
+  bomBuildStep_ = 0;
+  bomDeductPrompt_ = false;
+  bomView_ = BomView::Split;
+  refreshBomAnalysis();
+  queueBomEnrichment();
+  saveBomProjects();
+}
+
+void App::moveBomSelection(int delta) {
+  if (bomView_ == BomView::List) {
+    if (bomProjects_.empty()) {
+      bomProjectSelection_ = 0;
+      dirty_ = true;
+      return;
+    }
+    const auto current = static_cast<int>(min(bomProjectSelection_, bomProjects_.size() - 1));
+    bomProjectSelection_ =
+        static_cast<size_t>(clamp(current + delta, 0, static_cast<int>(bomProjects_.size() - 1)));
+  } else if (bomView_ == BomView::Split) {
+    if (!bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
+      bomSplitSelection_ = 0;
+      dirty_ = true;
+      return;
+    }
+    vector<size_t> visibleIndices;
+    for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
+      if (bomAnalysis_.matches[index].sufficient != bomSplitShortFocused_) {
+        visibleIndices.push_back(index);
+      }
+    }
+    if (visibleIndices.empty()) {
+      dirty_ = true;
+      return;
+    }
+    const auto selected = find(visibleIndices.begin(), visibleIndices.end(), bomSplitSelection_);
+    const int current = selected == visibleIndices.end() ? 0 : static_cast<int>(distance(visibleIndices.begin(), selected));
+    const auto next = clamp(current + delta, 0, static_cast<int>(visibleIndices.size() - 1));
+    bomSplitSelection_ = visibleIndices[static_cast<size_t>(next)];
+  }
+  dirty_ = true;
+}
+
+void App::adjustBomBoards(int delta) {
+  auto* project = activeBomProject();
+  if (project == nullptr) {
+    return;
+  }
+  const auto boards = clamp(project->boards + delta, 1, 999);
+  if (boards == project->boards) {
+    return;
+  }
+  project->boards = boards;
+  refreshBomAnalysis();
+  saveBomProjects();
+  setMessage(to_string(boards) + (boards == 1 ? " board" : " boards"), 2);
+}
+
+void App::cycleBomAlternate() {
+  auto* project = activeBomProject();
+  if (project == nullptr || !bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
+    return;
+  }
+
+  auto& match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
+  if (match.candidates.size() < 2) {
+    setMessage("No alternate match for this line", 2);
+    return;
+  }
+
+  match.chosen = (match.chosen + 1) % match.candidates.size();
+  project->overrides[bomLineKey(bomAnalysis_.lines[match.lineIndex])] = match.chosenItemId();
+  recomputeBomTotals(bomAnalysis_, store_.items());
+  saveBomProjects();
+
+  const auto* item = store_.findById(match.chosenItemId());
+  setMessage("Matched to " + (item == nullptr ? string("unknown part") : item->partName) + "  (" +
+                 to_string(match.chosen + 1) + "/" + to_string(match.candidates.size()) + ")",
+             3);
+}
+
+void App::deleteSelectedBomProject() {
+  if (bomProjects_.empty()) {
+    return;
+  }
+  const auto index = min(bomProjectSelection_, bomProjects_.size() - 1);
+  const auto name = bomProjects_[index].name;
+  if (bomProjects_[index].id == activeBomProjectId_) {
+    activeBomProjectId_.clear();
+    bomAnalysisValid_ = false;
+  }
+  bomProjects_.erase(bomProjects_.begin() + static_cast<long>(index));
+  bomProjectSelection_ = bomProjects_.empty() ? 0 : min(index, bomProjects_.size() - 1);
+  saveBomProjects();
+  setMessage(name + " forgotten", 3);
+}
+
+vector<App::BuildStep> App::bomBuildSteps() const {
+  vector<BuildStep> steps;
+  if (!bomAnalysisValid_) {
+    return steps;
+  }
+
+  // Rack stops come first in rack order so the shelf is walked once, then a
+  // single stop collects everything that lives outside a rack.
+  map<string, BuildStep> rackSteps;
+  BuildStep loose;
+  loose.title = "NOT IN A RACK";
+
+  for (const auto& match : bomAnalysis_.matches) {
+    const auto itemId = match.chosenItemId();
+    if (itemId.empty()) {
+      continue;
+    }
+    const auto* item = store_.findById(itemId);
+    if (item == nullptr) {
+      continue;
+    }
+
+    const auto& line = bomAnalysis_.lines[match.lineIndex];
+    BuildPick pick;
+    pick.itemId = itemId;
+    pick.slot = item->rackSlot;
+    pick.label = line.designation;
+    pick.detail = packageFromFootprint(line.footprint);
+    pick.quantity = match.needed;
+
+    if (item->rackId.empty() || item->rackSlot.empty()) {
+      pick.slot = item->location.empty() ? "Unfiled" : item->location;
+      loose.picks.push_back(move(pick));
+      continue;
+    }
+
+    auto& step = rackSteps[item->rackId];
+    step.rackId = item->rackId;
+    step.picks.push_back(move(pick));
+  }
+
+  vector<const InventatoryRack*> orderedRacks;
+  for (const auto& rack : store_.racks()) {
+    if (rackSteps.count(rack.id) != 0) {
+      orderedRacks.push_back(&rack);
+    }
+  }
+  sort(orderedRacks.begin(), orderedRacks.end(), [](const InventatoryRack* lhs, const InventatoryRack* rhs) {
+    const auto left = rackNumberFromCode(lhs->code);
+    const auto right = rackNumberFromCode(rhs->code);
+    return left != right ? left < right : lhs->code < rhs->code;
+  });
+
+  for (const auto* rack : orderedRacks) {
+    auto step = rackSteps[rack->id];
+    step.title = "RACK " + to_string(max(1, rackNumberFromCode(rack->code)));
+    step.subtitle = rack->componentType;
+    sort(step.picks.begin(), step.picks.end(),
+         [](const BuildPick& lhs, const BuildPick& rhs) { return lhs.slot < rhs.slot; });
+    steps.push_back(move(step));
+  }
+
+  if (!loose.picks.empty()) {
+    sort(loose.picks.begin(), loose.picks.end(),
+         [](const BuildPick& lhs, const BuildPick& rhs) { return lhs.slot < rhs.slot; });
+    steps.push_back(move(loose));
+  }
+  return steps;
+}
+
+void App::beginBomBuild() {
+  if (!bomAnalysisValid_) {
+    return;
+  }
+  if (bomBuildSteps().empty()) {
+    setMessage("Nothing to pick: no BOM line matched a part in stock", 4);
+    return;
+  }
+  bomBuildStep_ = 0;
+  bomDeductPrompt_ = false;
+  bomView_ = BomView::Build;
+  dirty_ = true;
+}
+
+void App::advanceBomBuild(int delta) {
+  const auto steps = bomBuildSteps();
+  if (steps.empty()) {
+    bomView_ = BomView::Split;
+    dirty_ = true;
+    return;
+  }
+
+  const auto next = static_cast<int>(bomBuildStep_) + delta;
+  if (next < 0) {
+    bomView_ = BomView::Split;
+    bomBuildStep_ = 0;
+    dirty_ = true;
+    return;
+  }
+  if (next >= static_cast<int>(steps.size())) {
+    // Past the last stop the walkthrough asks its one and only question.
+    bomDeductPrompt_ = true;
+    dirty_ = true;
+    return;
+  }
+
+  bomBuildStep_ = static_cast<size_t>(next);
+  dirty_ = true;
+}
+
+void App::finishBomBuild(bool subtractFromStock) {
+  const auto steps = bomBuildSteps();
+  int parts = 0;
+  int pieces = 0;
+
+  if (subtractFromStock) {
+    captureUndoSnapshot();
+    const auto now = time(nullptr);
+    for (const auto& step : steps) {
+      for (const auto& pick : step.picks) {
+        auto* item = store_.findById(pick.itemId);
+        if (item == nullptr) {
+          continue;
+        }
+        item->quantity = max(0, item->quantity - pick.quantity);
+        item->lastUpdated = now;
+        reconcileRackAssignment(store_, *item);
+        ++parts;
+        pieces += pick.quantity;
+      }
+    }
+    saveState();
+  }
+
+  auto* project = activeBomProject();
+  if (project != nullptr) {
+    project->lastBuilt = time(nullptr);
+    saveBomProjects();
+  }
+
+  const auto name = project == nullptr ? string("Project") : project->name;
+  if (subtractFromStock) {
+    logActivity("build", name + " · " + to_string(parts) + " parts · " + to_string(pieces) + " pieces · " +
+                             to_string(bomAnalysis_.boards) + " boards");
+  }
+
+  bomDeductPrompt_ = false;
+  bomBuildStep_ = 0;
+  bomView_ = BomView::Split;
+  refreshBomAnalysis();
+  setMessage(subtractFromStock ? "Build complete · stock updated · Ctrl+Z undoes it"
+                               : "Build complete · stock unchanged",
+             6);
+}
+
+bool App::exportBomShortages() {
+  if (!bomAnalysisValid_) {
+    return false;
+  }
+  const auto* project = activeBomProject();
+  if (project == nullptr) {
+    return false;
+  }
+
+  filesystem::path target = project->sourcePath.empty()
+                                ? dataPath_ / (project->name + " shortage.csv")
+                                : filesystem::path(project->sourcePath).parent_path() /
+                                      (filesystem::path(project->sourcePath).stem().string() + "-shortage.csv");
+
+  ofstream output(target, ios::binary);
+  if (!output) {
+    setMessage("Unable to write " + target.filename().string(), 5);
+    return false;
+  }
+
+  const auto quote = [](const string& value) {
+    string escaped;
+    escaped.reserve(value.size() + 2);
+    escaped.push_back('"');
+    for (const char ch : value) {
+      if (ch == '"') {
+        escaped.push_back('"');
+      }
+      escaped.push_back(ch);
+    }
+    escaped.push_back('"');
+    return escaped;
+  };
+
+  output << "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n";
+  size_t rows = 0;
+  for (const auto& match : bomAnalysis_.matches) {
+    if (match.sufficient) {
+      continue;
+    }
+    const auto& line = bomAnalysis_.lines[match.lineIndex];
+    const auto suggestion = project->enrichment.find(bomLineKey(line));
+    output << quote(line.designation) << ',' << quote(line.footprint) << ','
+           << quote(packageFromFootprint(line.footprint)) << ',' << quote(join(line.designators, ' ')) << ','
+           << match.needed << ',' << match.available << ','
+           << quote(suggestion == project->enrichment.end() ? string() : suggestion->second) << "\r\n";
+    ++rows;
+  }
+
+  setMessage("Wrote " + to_string(rows) + " shortages to " + target.filename().string(), 6);
+  return true;
+}
+
+void App::queueBomEnrichment() {
+  bomEnrichmentQueue_.clear();
+  bomEnrichmentTotal_ = 0;
+  bomEnrichmentActiveKey_.clear();
+  const auto* project = activeBomProject();
+  if (project == nullptr || !bomAnalysisValid_) {
+    return;
+  }
+  // Silently skipped without credentials, so an offline user never sees an
+  // error they cannot act on.
+  if (!loadDigiKeyConfig().valid()) {
+    return;
+  }
+
+  for (const auto& match : bomAnalysis_.matches) {
+    if (match.sufficient) {
+      continue;
+    }
+    const auto key = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
+    if (project->enrichment.count(key) != 0) {
+      continue;  // cached with the pinned project
+    }
+    if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), key) == bomEnrichmentQueue_.end()) {
+      bomEnrichmentQueue_.push_back(key);
+    }
+  }
+  bomEnrichmentTotal_ = bomEnrichmentQueue_.size();
+}
+
+void App::processBomEnrichment() {
+  auto* project = activeBomProject();
+  if (project == nullptr || !bomAnalysisValid_) {
+    bomEnrichmentQueue_.clear();
+    bomEnrichmentTotal_ = 0;
+    bomEnrichmentActiveKey_.clear();
+    return;
+  }
+
+  // Collect a finished lookup first, then start the next one. Only ever one
+  // request is outstanding, so the shared client's cached token is safe.
+  if (bomEnrichmentFuture_.valid()) {
+    if (bomEnrichmentFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
+      return;
+    }
+    const auto result = bomEnrichmentFuture_.get();
+    bomEnrichmentActiveKey_.clear();
+    if (!result.first.empty()) {
+      project->enrichment[result.first] = result.second;
+      dirty_ = true;
+    }
+    if (bomEnrichmentQueue_.empty()) {
+      bomEnrichmentClient_.reset();
+      saveBomProjects();
+      return;
+    }
+  }
+
+  if (bomEnrichmentQueue_.empty()) {
+    return;
+  }
+
+  if (bomEnrichmentClient_ == nullptr) {
+    const auto config = loadDigiKeyConfig();
+    if (!config.valid()) {
+      bomEnrichmentQueue_.clear();
+      bomEnrichmentTotal_ = 0;
+      bomEnrichmentActiveKey_.clear();
+      return;
+    }
+    bomEnrichmentClient_ = make_unique<DigiKeyApiClient>(config);
+  }
+
+  const auto key = bomEnrichmentQueue_.front();
+  bomEnrichmentQueue_.erase(bomEnrichmentQueue_.begin());
+  bomEnrichmentActiveKey_ = key;
+
+  const auto line = find_if(bomAnalysis_.lines.begin(), bomAnalysis_.lines.end(),
+                            [&](const BomLine& candidate) { return bomLineKey(candidate) == key; });
+  if (line == bomAnalysis_.lines.end()) {
+    return;
+  }
+
+  // fetchProductDetails falls back to a keyword search, so a free-form value
+  // such as "470uF Radial 8.0mm" resolves as well as a real part number.
+  const auto keywords = trim(line->designation + " " + packageFromFootprint(line->footprint));
+  auto* client = bomEnrichmentClient_.get();
+  bomEnrichmentFuture_ = async(launch::async, [client, key, keywords] {
+    string error;
+    if (const auto details = client->fetchProductDetails(keywords, &error)) {
+      const auto suggestion =
+          details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
+      return make_pair(key, suggestion.empty() ? string("-") : suggestion);
+    }
+    return make_pair(key, string("-"));  // remembered so the lookup is not retried
+  });
+  dirty_ = true;
 }
 
 void App::openCurrentUrl(const string& url, const string& label) {
@@ -1772,12 +2530,16 @@ string App::fieldLabel(EditField field) const {
       return "Parameters";
     case EditField::Notes:
       return "Notes";
+    case EditField::DigiKeyPart:
+      return "DigiKey part";
     case EditField::DatasheetUrl:
       return "Datasheet URL";
-    case EditField::ManufacturerPartNumber:
-      return "Manufacturer part number";
-    case EditField::EnrichmentStatus:
-      return "IECD status";
+    case EditField::ProductUrl:
+      return "Product URL";
+    case EditField::Sku:
+      return "SKU";
+    case EditField::SyncStatus:
+      return "Sync status";
     case EditField::RackLocation:
       return "Rack location";
   }
@@ -1817,12 +2579,16 @@ string App::currentFieldValue(EditField field) const {
     }
     case EditField::Notes:
       return item->notes;
+    case EditField::DigiKeyPart:
+      return item->digikeyPartNumber;
     case EditField::DatasheetUrl:
       return item->datasheetUrl;
-    case EditField::ManufacturerPartNumber:
-      return item->manufacturerPartNumber;
-    case EditField::EnrichmentStatus:
-      return item->enrichmentStatus;
+    case EditField::ProductUrl:
+      return item->productUrl;
+    case EditField::Sku:
+      return item->sku;
+    case EditField::SyncStatus:
+      return item->syncStatus;
     case EditField::RackLocation: {
       const auto location = rackLocation(*item, store_.racks());
       return location.empty() ? (item->rackAssignment == RackAssignmentMode::Automatic ? "AUTO" : "") : location;
@@ -1844,9 +2610,11 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Tags", EditField::Tags},
       {"Parameters", EditField::Parameters},
       {"Notes", EditField::Notes},
+      {"DigiKey part", EditField::DigiKeyPart},
       {"Datasheet URL", EditField::DatasheetUrl},
-      {"Manufacturer part number", EditField::ManufacturerPartNumber},
-      {"IECD status", EditField::EnrichmentStatus},
+      {"Product URL", EditField::ProductUrl},
+      {"SKU", EditField::Sku},
+      {"Sync status", EditField::SyncStatus},
   };
 }
 
@@ -1878,7 +2646,7 @@ string App::summaryLine() const {
       << " | " << summary.totalUnits << " units"
       << " | " << summary.lowStockCount << " low"
       << " | " << summary.missingMetadataCount << " missing metadata"
-      << " | " << summary.unenrichedCount << " not matched";
+      << " | " << summary.unsyncedCount << " unsynced";
   return out.str();
 }
 

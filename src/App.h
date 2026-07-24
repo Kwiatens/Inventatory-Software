@@ -5,9 +5,12 @@
 
 #include "core/Inventory.h"
 #include "core/InventatoryScanProtocol.h"
-#include "core/IecdDatabase.h"
+#include "core/BomMatch.h"
+#include "core/BomProjectStore.h"
 #include "app/AppSettings.h"
-#include "import/BomCsvImport.h"
+#include "import/DigiKeyCsvImport.h"
+#include "import/KicadBom.h"
+#include "platform/DigiKeyApi.h"
 #include "label_printer/LabelPrinter.h"
 #include "platform/Console.h"
 #include "platform/BleProvisioningService.h"
@@ -15,7 +18,6 @@
 #include "platform/HttpServer.h"
 #include "platform/MdnsService.h"
 #include "platform/UpdateService.h"
-#include "platform/IecdUpdateService.h"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/mouse.hpp>
@@ -31,6 +33,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <utility>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -56,10 +59,15 @@ class App {
     Stock,
     Racks,
     Import,
+    Projects,
     ScanSetup,
     Settings,
     Onboarding,
   };
+
+  // The Projects page hosts three surfaces: the pinned list, the have/need
+  // split, and the rack-by-rack build walkthrough.
+  enum class BomView { List, Split, Build };
 
   enum class ScanSetupStep {
     Introduction,
@@ -73,7 +81,7 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
-  enum class SettingsCategory { General, Updates, Printer, QuickLabels, InventatoryScan };
+  enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan, DigiKey };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
@@ -125,9 +133,11 @@ class App {
     Tags,
     Parameters,
     Notes,
+    DigiKeyPart,
     DatasheetUrl,
-    ManufacturerPartNumber,
-    EnrichmentStatus,
+    ProductUrl,
+    Sku,
+    SyncStatus,
     RackLocation,
   };
 
@@ -140,6 +150,23 @@ class App {
     InventoryItem item;
     bool isNew = false;
     size_t originalIndex = 0;
+  };
+
+  // One part to pull during the build walkthrough.
+  struct BuildPick {
+    std::string itemId;
+    std::string slot;  // rack slot such as "B3"; empty for loose parts
+    std::string label;
+    std::string detail;
+    int quantity = 0;
+  };
+
+  // One stop on the walkthrough: a rack, or the final loose-parts screen.
+  struct BuildStep {
+    std::string rackId;  // empty on the loose-parts step
+    std::string title;
+    std::string subtitle;
+    std::vector<BuildPick> picks;
   };
 
   struct UndoSnapshot {
@@ -166,6 +193,7 @@ class App {
   void handleRackManagementKey(const KeyEvent& key);
   void handleInventatoryScanSetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
+  void handleBomProjectKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
   void handleOnboardingKey(const KeyEvent& key);
   void handleSearchKey(const KeyEvent& key);
@@ -182,6 +210,7 @@ class App {
   ftxui::Element renderRackManagementUi() const;
   ftxui::Element renderInventatoryScanSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
+  ftxui::Element renderBomProjectUi() const;
   ftxui::Element renderSettingsUi() const;
   ftxui::Element renderOnboardingUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
@@ -211,8 +240,6 @@ class App {
   void processBackgroundWork();
   void beginUpdateCheckIfDue();
   void processUpdateCheck();
-  void beginIecdUpdateIfDue();
-  void processIecdUpdate();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void markDirty();
@@ -263,6 +290,7 @@ class App {
   void cancelSettingsDraft();
   bool stageInventatoryFolder();
   bool testStagedPrinter();
+  bool testStagedDigiKey();
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
   void armDeleteConfirmation();
@@ -318,10 +346,34 @@ class App {
   void acceptImportCandidate();
   void skipImportCandidate();
   void finishImportReview();
-  void finishCsvImport();
+  void finishCsvImport(bool syncWithDigiKey);
+  void syncAcceptedImports();
   CsvImportCandidate* currentImportCandidate();
   const CsvImportCandidate* currentImportCandidate() const;
   std::string importCompletionMessage() const;
+
+  // KiCad BOM workflow. Analysis always runs against live stock, so a pinned
+  // project stays accurate as inventory changes.
+  void openBomProjects();
+  void beginBomProject(const std::string& bomText, const std::string& name,
+                       const std::filesystem::path& sourcePath);
+  void refreshBomAnalysis();
+  void adjustBomBoards(int delta);
+  void cycleBomAlternate();
+  void deleteSelectedBomProject();
+  void openSelectedBomProject();
+  void moveBomSelection(int delta);
+  void beginBomBuild();
+  void advanceBomBuild(int delta);
+  void finishBomBuild(bool subtractFromStock);
+  bool exportBomShortages();
+  void queueBomEnrichment();
+  void processBomEnrichment();
+  bool saveBomProjects();
+  std::vector<BuildStep> bomBuildSteps() const;
+  BomProject* activeBomProject();
+  const BomProject* activeBomProject() const;
+
   void openCurrentUrl(const std::string& url, const std::string& label);
   std::string fieldLabel(EditField field) const;
   std::string currentFieldValue(EditField field) const;
@@ -347,8 +399,7 @@ class App {
   std::filesystem::path printerPath_;
   std::filesystem::path activityPath_;
   std::filesystem::path inventatoryScanConfigPath_;
-  std::filesystem::path iecdPath_;
-  IecdDatabase iecdDatabase_;
+  std::filesystem::path quickLabelsPath_;
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
@@ -407,9 +458,37 @@ class App {
   bool editingImportCandidate_ = false;
   size_t importEditIndex_ = 0;
   size_t importSelection_ = 0;
+  bool importSyncPrompt_ = false;
   int importCreatedCount_ = 0;
   int importMergedCount_ = 0;
   int importSkippedCount_ = 0;
+  int importSyncedCount_ = 0;
+  int importSyncFailedCount_ = 0;
+  std::vector<BomProject> bomProjects_;
+  std::string activeBomProjectId_;
+  size_t bomProjectSelection_ = 0;
+  BomView bomView_ = BomView::List;
+  bool bomAnalysisValid_ = false;
+  BomAnalysis bomAnalysis_;
+  KicadBomFile bomFile_;
+  size_t bomSplitSelection_ = 0;
+  // Keep wheel/key navigation within the active half of the BOM split view.
+  bool bomSplitShortFocused_ = false;
+  mutable ftxui::Box bomReadyPanelBounds_;
+  mutable ftxui::Box bomShortPanelBounds_;
+  size_t bomBuildStep_ = 0;
+  bool bomDeductPrompt_ = false;
+  // Line keys still awaiting a DigiKey suggestion; drained one per tick so the
+  // terminal stays responsive while lookups run.
+  std::vector<std::string> bomEnrichmentQueue_;
+  size_t bomEnrichmentTotal_ = 0;
+  std::string bomEnrichmentActiveKey_;
+  // One lookup in flight at a time, off the render thread. A DigiKey call takes
+  // seconds and would otherwise freeze the terminal for the whole shortage run.
+  // The client is declared first on purpose: members are destroyed in reverse,
+  // so the future (which joins its task) must outlive the client it borrows.
+  std::unique_ptr<DigiKeyApiClient> bomEnrichmentClient_;
+  std::future<std::pair<std::string, std::string>> bomEnrichmentFuture_;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
   std::vector<Action> sheetActions_;
@@ -434,13 +513,15 @@ class App {
   int settingsField_ = 0;
   bool settingsDirty_ = false;
   bool settingsEditingField_ = false;
+  std::string stagedDigiKeySecret_;
+  bool stagedDigiKeySecretChanged_ = false;
+  bool hasStoredDigiKeySecret_ = false;
   std::unordered_map<std::string, DeviceQuickLabelPrintResult> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
-  std::future<IecdInstallResult> iecdUpdateFuture_;
   mutable std::vector<UiTarget> uiTargets_;
   mutable std::string hoveredTargetId_;
   int focusedTarget_ = -1;

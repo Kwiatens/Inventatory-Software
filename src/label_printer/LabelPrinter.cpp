@@ -118,16 +118,6 @@ string shortCode(const string& value, size_t maxLength = 14) {
   return ellipsize(trim(value), maxLength);
 }
 
-string labelIdWithoutProductName(const string& value) {
-  constexpr const char* kProductPrefix = "Inventatory:";
-  const auto cleaned = trim(value);
-  const string prefix(kProductPrefix);
-  if (cleaned.compare(0, prefix.size(), prefix) == 0) {
-    return cleaned.substr(prefix.size());
-  }
-  return cleaned;
-}
-
 string fieldOrBlank(const string& value, size_t maxLength);
 
 string shortParameterLabel(const string& label) {
@@ -553,7 +543,7 @@ optional<string> firstInductanceParameter(const InventoryItem& item) {
   if (const auto value = parameterValueMatching(item, {"Inductance", "Value"}, looksLikeInductanceValue)) {
     return value;
   }
-  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.manufacturerPartNumber);
+  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.sku);
 }
 
 bool itemTextContains(const InventoryItem& item, initializer_list<const char*> needles) {
@@ -568,7 +558,7 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
 
   if (textMatches(item.category) || textMatches(displayCategory(item.category)) || textMatches(item.partName) ||
       textMatches(item.manufacturer) || textMatches(item.location) || textMatches(item.notes) ||
-      textMatches(item.manufacturerPartNumber) || textMatches(item.iecdPurposeLabel)) {
+      textMatches(item.digikeyPartNumber) || textMatches(item.sku)) {
     return true;
   }
 
@@ -589,8 +579,8 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
 
 vector<string> itemTextTokens(const InventoryItem& item) {
   string text = item.category + " " + displayCategory(item.category) + " " + item.partName + " " +
-                item.manufacturer + " " + item.location + " " + item.notes + " " +
-                item.manufacturerPartNumber + " " + item.iecdPurposeLabel;
+                item.manufacturer + " " + item.location + " " + item.notes + " " + item.digikeyPartNumber +
+                " " + item.sku;
   for (const auto& tag : item.tags) text += " " + tag;
   for (const auto& parameter : item.parameters) text += " " + parameter.name + " " + parameter.value;
 
@@ -697,13 +687,23 @@ bool startsWithInsensitive(const string& value, const string& prefix) {
 }
 
 string diodeMainLabelValue(const InventoryItem& item) {
-  const auto partName = trim(item.partName);
-  const auto mpn = trim(item.manufacturerPartNumber);
+  // The diode type (Zener/Schottky/TVS/Rectifier) is already printed in the
+  // header bar via diodeContextHeader, so the main line should carry the
+  // actual part identifier instead of the catalog description, which often
+  // repeats the type ("DIODE ZENER 4.7V ..."). Prefer the concrete
+  // manufacturer/vendor part number over the descriptive part name.
+  const auto sku = trim(item.sku);
+  if (!sku.empty()) {
+    return sku;
+  }
 
+  const auto digikeyPartNumber = trim(item.digikeyPartNumber);
+  if (!digikeyPartNumber.empty()) {
+    return digikeyPartNumber;
+  }
+
+  const auto partName = trim(item.partName);
   if (partName.empty()) {
-    if (!mpn.empty()) {
-      return mpn;
-    }
     return item.category;
   }
 
@@ -719,8 +719,11 @@ string diodeMainLabelValue(const InventoryItem& item) {
   if (const auto stripped = cleaned("diode tvs "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("transient voltage suppressor diode "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("schottky diode "); !stripped.empty()) return stripped;
+  if (const auto stripped = cleaned("diode schottky "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("rectifier diode "); !stripped.empty()) return stripped;
+  if (const auto stripped = cleaned("diode rectifier "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("zener diode "); !stripped.empty()) return stripped;
+  if (const auto stripped = cleaned("diode zener "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("diode "); !stripped.empty()) return stripped;
 
   return partName;
@@ -991,8 +994,8 @@ string fallbackContextHeader(const InventoryItem& item) {
   if (!trim(item.partName).empty()) {
     return trim(item.partName);
   }
-  if (!trim(item.manufacturerPartNumber).empty()) {
-    return trim(item.manufacturerPartNumber);
+  if (!trim(item.sku).empty()) {
+    return trim(item.sku);
   }
   return "Part";
 }
@@ -1022,8 +1025,8 @@ string mainLabelValue(const InventoryItem& item) {
   if (!trim(item.partName).empty()) {
     return item.partName;
   }
-  if (!trim(item.manufacturerPartNumber).empty()) {
-    return item.manufacturerPartNumber;
+  if (!trim(item.sku).empty()) {
+    return item.sku;
   }
   return item.category;
 }
@@ -1049,8 +1052,8 @@ string manufacturerLine(const InventoryItem& item) {
   if (!trim(item.partName).empty()) {
     return fitSingleLineLabel(item.partName, 20);
   }
-  if (!trim(item.manufacturerPartNumber).empty()) {
-    return fitSingleLineLabel(item.manufacturerPartNumber, 20);
+  if (!trim(item.sku).empty()) {
+    return fitSingleLineLabel(item.sku, 20);
   }
   return fitSingleLineLabel(displayCategory(item.category), 20);
 }
@@ -1611,7 +1614,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
 #endif
 
 string partContextHeader(const InventoryItem& item) {
-  return !trim(item.iecdPrintLabel).empty() ? trim(item.iecdPrintLabel) : partShortDescription(item);
+  return partShortDescription(item);
 }
 
 }  // namespace
@@ -1727,13 +1730,12 @@ InventatoryLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& it
 string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocation) const {
   const auto plan = buildLabelPlan(item, move(rackLocation));
   const auto categoryHeader = fitSingleLineLabel(plan.categoryHeader, 16);
-  const auto mainValue = fitSingleLineLabel(plan.mainValue, 14);
+  const auto mainValue = fitSingleLineLabel(plan.mainValue, 13);
   const auto packageLine = fitSingleLineLabel(plan.packageLine, 24);
   const auto manufacturerLine = fitSingleLineLabel(plan.manufacturerLine, 20);
   const auto parameterLine1 = fitSingleLineLabel(plan.parameterLine1, 24);
   const auto parameterLine2 = fitSingleLineLabel(plan.parameterLine2, 24);
   const auto parameterLine3 = fitSingleLineLabel(plan.parameterLine3, 24);
-  const auto scannerHint = fitSingleLineLabel(labelIdWithoutProductName(plan.scannerHint), 12);
   const auto barcodeHint = fitSingleLineLabel(plan.barcodeHint, 14);
   const auto rackHint = fitSingleLineLabel(plan.rackLocation, 12);
   ostringstream out;
@@ -1747,7 +1749,7 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "\r\n";
 
   out << "^FX --- Header ---\r\n";
-  out << "^FO5,0^GB251,24,24,B,6^FS\r\n";
+  out << "^FO5,0^GB246,24,24,B,6^FS\r\n";
   out << "^FO12,6^A0N,17,17^FR^FD" << sanitizeLabelText(categoryHeader) << "^FS\r\n";
   out << "\r\n";
 
@@ -1785,16 +1787,10 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "^FO170,60^BQN,2,3^FDLA," << sanitizeLabelText(barcodeHint) << "^FS\r\n";
   out << "\r\n";
 
-  out << "^FX --- Human readable ID ---\r\n";
-  out << "^FO166,136^A0N,10,10^FB76,1,0,C^FD" << sanitizeLabelText(scannerHint) << "\\&^FS\r\n";
-
   if (!rackHint.empty()) {
     out << "^FX --- Inventatory rack location ---\r\n";
-    out << "^FO10,173^A0N,13,13^FD" << sanitizeLabelText(rackHint) << "^FS\r\n";
+    out << "^FO10,173^A0N,18,18^FD" << sanitizeLabelText(rackHint) << "^FS\r\n";
   }
-
-  out << "^FX --- Product mark ---\r\n";
-  out << "^FO171,190^A0N,8,8^FB80,1,0,R^FDInventatory\\&^FS\r\n";
 
   out << "^XZ\r\n";
   return out.str();

@@ -208,15 +208,15 @@ bool InventoryItem::lowStock() const {
 }
 
 bool InventoryItem::hasMissingMetadata() const {
-  return partName.empty() || manufacturerPartNumber.empty() || enrichmentStatus != "matched";
+  return partName.empty() || manufacturer.empty() || category.empty() || digikeyPartNumber.empty() ||
+         datasheetUrl.empty() || productUrl.empty();
 }
 
 string InventoryItem::searchableText() const {
   ostringstream out;
   out << partName << ' ' << manufacturer << ' ' << category << ' ' << location << ' ' << notes << ' '
-      << manufacturerPartNumber << ' ' << datasheetUrl << ' ' << iecdDatasheetUrl << ' ' << machineCode << ' '
-      << inventatoryId << ' ' << enrichmentStatus << ' ' << iecdCanonicalName << ' ' << iecdPurposeLabel << ' '
-      << iecdCategory;
+      << digikeyPartNumber << ' ' << datasheetUrl << ' ' << productUrl << ' ' << sku << ' ' << machineCode << ' '
+      << inventatoryId << ' ' << syncStatus;
 
   for (const auto& tag : tags) {
     out << ' ' << tag;
@@ -319,7 +319,7 @@ string buildVisibleInventatoryId(const InventoryItem& item) {
     return trim(item.inventatoryId);
   }
 
-  return "Inventatory:" + prefix + '-' + code;
+  return prefix + '-' + code;
 }
 
 string compactInventatoryDisplayCode(const string& inventatoryId) {

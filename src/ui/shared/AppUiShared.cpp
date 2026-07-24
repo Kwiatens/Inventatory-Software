@@ -7,7 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstring>
+#include <chrono>
 #include <initializer_list>
 #include <limits>
 #include <optional>
@@ -209,6 +209,70 @@ ftxui::Element quantityBadge(int quantity, bool selected) {
   return ftxui::text(" " + to_string(quantity) + " ") | ftxui::bold | ftxui::color(fg) | ftxui::bgcolor(bg);
 }
 
+long long uiAnimationTicks() {
+  static const auto start = chrono::steady_clock::now();
+  return chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - start).count();
+}
+
+bool uiBlinkOn(int periodMs) {
+  const auto period = max(1, periodMs);
+  return (uiAnimationTicks() / period) % 2 == 0;
+}
+
+namespace {
+
+// Repeats a full block so bars render identically in every terminal font.
+string blockRun(int cells) {
+  string run;
+  for (int index = 0; index < max(0, cells); ++index) {
+    run += "\xE2\x96\x88";  // U+2588 FULL BLOCK
+  }
+  return run;
+}
+
+string shadeRun(int cells) {
+  string run;
+  for (int index = 0; index < max(0, cells); ++index) {
+    run += "\xE2\x96\x91";  // U+2591 LIGHT SHADE
+  }
+  return run;
+}
+
+}  // namespace
+
+ftxui::Element uiProgressBar(double fraction, int width, ftxui::Color fill) {
+  return uiSplitProgressBar(fraction, 0.0, width, fill, fill);
+}
+
+ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui::Color firstFill,
+                                  ftxui::Color secondFill) {
+  const int total = max(1, width);
+  const double clampedFirst = clamp(first, 0.0, 1.0);
+  const double clampedSecond = clamp(second, 0.0, 1.0 - clampedFirst);
+
+  int firstCells = static_cast<int>(clampedFirst * total + 0.5);
+  int secondCells = static_cast<int>(clampedSecond * total + 0.5);
+  // Never let rounding claim a cell that the value did not earn, and never let
+  // a non-zero fraction round away to an empty bar.
+  if (firstCells + secondCells > total) {
+    secondCells = total - firstCells;
+  }
+  if (firstCells == 0 && clampedFirst > 0.0) {
+    firstCells = 1;
+  }
+  if (secondCells == 0 && clampedSecond > 0.0 && firstCells < total) {
+    secondCells = 1;
+  }
+  firstCells = clamp(firstCells, 0, total);
+  secondCells = clamp(secondCells, 0, total - firstCells);
+
+  return ftxui::hbox({
+      ftxui::text(blockRun(firstCells)) | ftxui::color(firstFill),
+      ftxui::text(blockRun(secondCells)) | ftxui::color(secondFill),
+      ftxui::text(shadeRun(total - firstCells - secondCells)) | ftxui::color(uiDividerColor()),
+  });
+}
+
 string displayCategory(const string& category) {
   auto value = trim(category);
   const auto slash = value.find(" / ");
@@ -278,21 +342,6 @@ string renderTags(const vector<string>& tags) {
   return ellipsize(joinTags(tags), 32);
 }
 
-string displayParameterValue(string value) {
-  auto lowered = value;
-  transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
-  for (const auto* suffix : {"ohms", "ohm"}) {
-    const size_t suffixLength = strlen(suffix);
-    if (lowered.size() >= suffixLength && lowered.compare(lowered.size() - suffixLength, suffixLength, suffix) == 0) {
-      value.erase(value.size() - suffixLength);
-      return trim(value) + u8"\u03A9";
-    }
-  }
-  return value;
-}
-
 string renderParameters(const vector<Parameter>& parameters) {
   if (parameters.empty()) {
     return "-";
@@ -303,7 +352,7 @@ string renderParameters(const vector<Parameter>& parameters) {
     if (index > 0) {
       out << "; ";
     }
-    out << parameters[index].name << '=' << displayParameterValue(parameters[index].value);
+    out << parameters[index].name << '=' << parameters[index].value;
   }
   return out.str();
 }
@@ -436,14 +485,14 @@ optional<string> inferredInductanceValue(const InventoryItem& item) {
   if (const auto value = parameterValueMatching(item, {"Inductance", "Value"}, looksLikeInductanceValue)) {
     return value;
   }
-  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.manufacturerPartNumber);
+  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.sku);
 }
 
 optional<string> parameterValue(const InventoryItem& item, initializer_list<const char*> names) {
   if (const auto* parameter = findParameter(item.parameters, names); parameter != nullptr) {
     const auto value = trim(parameter->value);
     if (!value.empty() && !looksLikePackagingValue(value)) {
-      return displayParameterValue(value);
+      return value;
     }
   }
   return nullopt;
@@ -524,6 +573,7 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
       addField("Operating Voltage", parameterValue(item, {"Voltage - Supply", "Voltage - Supply (Min/Max)", "Voltage - Supply (Min)", "Voltage - Supply (Max)"}));
       addField("Operating Temperature", parameterValue(item, {"Operating Temperature"}));
       addField("Mounting Type", parameterValue(item, {"Mounting Type"}));
+      addField("DigiKey Programmable", parameterValue(item, {"DigiKey Programmable"}));
       return fields;
     }
 
@@ -545,6 +595,7 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
     addField("Operating Voltage", parameterValue(item, {"Voltage - Supply", "Voltage - Supply (Min/Max)"}));
     addField("Operating Temperature", parameterValue(item, {"Operating Temperature"}));
     addField("Mounting Type", parameterValue(item, {"Mounting Type"}));
+    addField("DigiKey Programmable", parameterValue(item, {"DigiKey Programmable"}));
     return fields;
   }
 
@@ -665,10 +716,10 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
     }
     if (!primaryValue) {
       primaryLabel = label;
-      primaryValue = displayParameterValue(trim(parameter.value));
+      primaryValue = trim(parameter.value);
       continue;
     }
-    addField(label, displayParameterValue(trim(parameter.value)));
+    addField(label, trim(parameter.value));
   }
 
   if (primaryValue && !primaryValue->empty()) {
