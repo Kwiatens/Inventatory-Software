@@ -96,7 +96,7 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
   dialog.lpstrFilter = "CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0";
   dialog.lpstrFile = fileName;
   dialog.nMaxFile = MAX_PATH;
-  dialog.lpstrTitle = "Select DigiKey order CSV";
+  dialog.lpstrTitle = "Select a DigiKey order CSV or KiCad BOM";
   dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
   dialog.lpstrDefExt = "csv";
 
