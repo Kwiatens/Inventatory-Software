@@ -1672,6 +1672,7 @@ int main(int argc, char** argv) {
     const auto unknownPath = filesystem::temp_directory_path() / "unknown-supplier-table.csv";
     const auto vishayPath = filesystem::temp_directory_path() / "Vishay_series_synthetic.csv";
     const auto vishayExactPath = filesystem::temp_directory_path() / "Vishay_orderable_synthetic.csv";
+    const auto nexperiaPath = filesystem::temp_directory_path() / "Nexperia_discrete_synthetic.csv";
     error_code ignored;
     filesystem::remove(databasePath, ignored);
     ofstream csv(csvPath, ios::binary | ios::trunc);
@@ -1724,6 +1725,23 @@ int main(int argc, char** argv) {
     assert(importWarnings.size() == imported.warnings);
     assert(any_of(importWarnings.begin(), importWarnings.end(), [](const CatalogueWarning& warning) { return warning.message == "Malformed CSV row"; }));
     assert(database.importFile(csvPath).duplicate);
+    {
+      ofstream nexperia(nexperiaPath, ios::binary | ios::trunc);
+      nexperia << "Type number,Orderable part number,Package,VR,IF,VF,trr,Automotive\n"
+                  "BAS16,BAS16-215,SOT-23,75 V,200 mA,1 V,6 ns,Yes\n";
+    }
+    const auto nexperiaImportProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
+      return candidate.id == "nexperia-discretes-v1";
+    });
+    assert(nexperiaImportProfile != catalogueProfiles().end());
+    const auto nexperiaImported = database.importFile(nexperiaPath, &*nexperiaImportProfile);
+    assert(nexperiaImported.error.empty() && nexperiaImported.parts == 1 && nexperiaImported.aliases == 1);
+    const auto nexperiaExact = database.lookup("Nexperia", "BAS16-215");
+    assert(nexperiaExact.status == CatalogueMatchStatus::ExactMatch);
+    assert(database.lookup("Nexperia", "BAS16").status == CatalogueMatchStatus::AliasMatch);
+    assert(any_of(nexperiaExact.record.properties.begin(), nexperiaExact.record.properties.end(), [](const CatalogueProperty& property) {
+      return property.name == "reverse_recovery_time" && property.rawValue == "6 ns";
+    }));
     {
       ofstream vishay(vishayPath, ios::binary | ios::trunc);
       vishay << "Part Number,Series,Case,Resistance,Tolerance,Power,TCR\n"
@@ -1808,6 +1826,7 @@ int main(int argc, char** argv) {
     filesystem::remove(unknownPath, ignored);
     filesystem::remove(vishayPath, ignored);
     filesystem::remove(vishayExactPath, ignored);
+    filesystem::remove(nexperiaPath, ignored);
     filesystem::remove(xlsxPath, ignored);
     filesystem::remove(databasePath, ignored);
   }
