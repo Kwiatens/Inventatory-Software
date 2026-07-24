@@ -8,16 +8,21 @@
 #include "core/InventatoryScanProtocol.h"
 #include "core/PartDescriptor.h"
 #include "import/BomCsvImport.h"
+#include "import/XlsxWorkbookReader.h"
 #include "label_printer/LabelPrinter.h"
 #include "ui/shared/AppUiShared.h"
 
+#include <miniz.h>
+
 #include <cstdlib>
+#include <algorithm>
 #include <cassert>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <atomic>
 #include <unordered_map>
 
 #undef assert
@@ -33,6 +38,22 @@ using namespace inventatory;
 using namespace std;
 
 namespace {
+
+bool writeSyntheticXlsx(const filesystem::path& path) {
+  mz_zip_archive archive{};
+  if (!mz_zip_writer_init_file(&archive, path.string().c_str(), 0)) return false;
+  const auto add = [&](const char* name, const string& content) {
+    return mz_zip_writer_add_mem(&archive, name, content.data(), content.size(), MZ_BEST_COMPRESSION) != 0;
+  };
+  const bool written =
+      add("[Content_Types].xml", R"xml(<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>)xml") &&
+      add("xl/workbook.xml", R"xml(<?xml version="1.0"?><workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Cover" sheetId="1" r:id="rId1"/><sheet name="Products" sheetId="2" r:id="rId2"/></sheets></workbook>)xml") &&
+      add("xl/_rels/workbook.xml.rels", R"xml(<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/cover.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/><Relationship Id="rId2" Target="worksheets/products.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/></Relationships>)xml") &&
+      add("xl/styles.xml", R"xml(<?xml version="1.0"?><styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="0000"/></numFmts><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>)xml") &&
+      add("xl/worksheets/cover.xml", R"xml(<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Catalogue export</t></is></c></row></sheetData></worksheet>)xml") &&
+      add("xl/worksheets/products.xml", R"xml(<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Orderable Part Number</t></is></c><c r="B1" t="inlineStr"><is><t>Generic Part Number</t></is></c><c r="C1" t="inlineStr"><is><t>Package</t></is></c><c r="D1" t="inlineStr"><is><t>Channels</t></is></c><c r="E1" t="inlineStr"><is><t>Supply voltage (min)</t></is></c><c r="F1" t="inlineStr"><is><t>Supply voltage (max)</t></is></c><c r="G1" t="inlineStr"><is><t>Shutdown current</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>OPA333AIDBVR</t></is></c><c r="B2" t="inlineStr"><is><t>OPA333</t></is></c><c r="C2" s="1"><v>402</v></c><c r="D2"><f>1+1</f><v>2</v></c><c r="E2" t="inlineStr"><is><t>1.8 V</t></is></c><c r="F2" t="inlineStr"><is><t>5.5 V</t></is></c><c r="G2" t="inlineStr"><is><t>1 µA</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>OPA333AIDBVR-REEL</t></is></c><c r="B3" t="inlineStr"><is><t>OPA333</t></is></c><c r="C3" s="1"><v>201</v></c><c r="E3" t="inlineStr"><is><t>1.8 V</t></is></c><c r="F3" t="inlineStr"><is><t>5.5 V</t></is></c><c r="G3" t="inlineStr"><is><t>1 µA</t></is></c></row></sheetData></worksheet>)xml");
+  return written && mz_zip_writer_finalize_archive(&archive) != 0 && mz_zip_writer_end(&archive) != 0;
+}
 
 vector<InventoryItem> makeSampleInventory() {
   vector<InventoryItem> items;
@@ -1514,6 +1535,28 @@ int main(int argc, char** argv) {
   }
 
   {
+    const auto xlsxPath = filesystem::temp_directory_path() / "ti-products-synthetic.xlsx";
+    error_code ignored;
+    filesystem::remove(xlsxPath, ignored);
+    assert(writeSyntheticXlsx(xlsxPath));
+    CatalogueTable table;
+    string xlsxError;
+    assert(readXlsxCatalogueTable(xlsxPath, "products", table, xlsxError));
+    assert(table.sheetName == "Products");
+    assert(table.headers.size() == 7);
+    assert(table.rows.size() == 2);
+    assert(table.rows[0][0] == "OPA333AIDBVR");
+    assert(table.rows[0][2] == "0402");
+    assert(table.rows[0][3] == "2");
+    assert(table.rows[1][3].empty());
+    atomic_bool cancelled = true;
+    assert(!readXlsxCatalogueTable(xlsxPath, "products", table, xlsxError, &cancelled));
+    assert(xlsxError == "Workbook import cancelled");
+    assert(!readXlsxCatalogueTable(xlsxPath.string() + ".missing", "products", table, xlsxError));
+    filesystem::remove(xlsxPath, ignored);
+  }
+
+  {
     assert(manufacturerSources().size() == 8);
     for (const auto& source : manufacturerSources()) {
       assert(source.downloadMode == DownloadMode::BrowserGuided);
@@ -1529,6 +1572,8 @@ int main(int argc, char** argv) {
     auto range = parseEngineeringValue("-55 to +125 °C");
     assert(range.minimum == -55 && range.maximum == 125 && range.unit == "degC");
     assert(parseEngineeringValue("10k").warning.size() > 0);
+    assert(detectCatalogueProfile("unrecognised-export.csv", {"Part Number", "Description"}) == nullptr);
+    assert(detectCatalogueProfile("TI_opamps_synthetic.csv", {"Orderable Part Number", "Channels", "Supply voltage (min)"}) != nullptr);
 
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
@@ -1550,6 +1595,7 @@ int main(int argc, char** argv) {
     assert(database.importFile(csvPath).duplicate);
     const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
     assert(exact.status == CatalogueMatchStatus::ExactMatch);
+    assert(exact.record.properties.size() >= 3);
     const auto alias = database.lookup("Texas Instruments", "OPA333");
     assert(alias.status == CatalogueMatchStatus::AliasMatch);
     assert(database.lookup("Texas Instruments", "OPA-333").status == CatalogueMatchStatus::NotFound);
@@ -1558,9 +1604,44 @@ int main(int argc, char** argv) {
     assert(applyCatalogueEnrichment(item, exact));
     assert(item.partName == "Manual name");
     assert(item.catalogueStatus == "exact_match");
-    assert(database.removeSource("ti-parametric-v1"));
-    assert(database.lookup("Texas Instruments", "OPA333AIDBVR").status == CatalogueMatchStatus::NotFound);
+    const auto xlsxPath = filesystem::temp_directory_path() / "ti-products-synthetic.xlsx";
+    assert(writeSyntheticXlsx(xlsxPath));
+    const auto profile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
+      return candidate.id == "ti-parametric-v1";
+    });
+    assert(profile != catalogueProfiles().end());
+    const auto preview = database.previewFile(xlsxPath, &*profile);
+    assert(preview.valid());
+    assert(preview.sheetName == "Products");
+    assert(preview.rows == 2);
+    assert(find(preview.unmappedColumns.begin(), preview.unmappedColumns.end(), "Shutdown current") != preview.unmappedColumns.end());
+    const auto xlsxImported = database.importFile(xlsxPath, &*profile);
+    assert(xlsxImported.error.empty());
+    assert(xlsxImported.parts == 2);
+    assert(xlsxImported.properties >= 7);
+    const auto xlsxExact = database.lookup("Texas Instruments", "OPA333AIDBVR");
+    assert(any_of(xlsxExact.record.properties.begin(), xlsxExact.record.properties.end(), [](const CatalogueProperty& property) {
+      return property.sourceColumn == "Shutdown current" && property.mappingStatus == "unmapped" && property.rawValue == "1 µA";
+    }));
+    auto newerTiProfile = *profile;
+    newerTiProfile.version = "2";
+    newerTiProfile.properties.push_back({{"Shutdown current"}, "shutdown_current", "A", ""});
+    assert(database.reprocessSource(newerTiProfile) == 2);
+    const auto remapped = database.lookup("Texas Instruments", "OPA333AIDBVR");
+    assert(any_of(remapped.record.properties.begin(), remapped.record.properties.end(), [](const CatalogueProperty& property) {
+      return property.name == "shutdown_current" && property.mappingStatus == "mapped" && property.value.rawValue == "1 µA";
+    }));
+    assert(database.lookup("Texas Instruments", "OPA333AIDBVR-REEL").matched());
+    assert(database.removeSource("ti"));
+    const auto removed = database.lookup("Texas Instruments", "OPA333AIDBVR");
+    assert(removed.status == CatalogueMatchStatus::NotFound);
+    assert(applyCatalogueEnrichment(item, removed));
+    assert(item.cataloguePartId.empty());
+    assert(item.catalogueName.empty());
+    assert(item.catalogueStatus == "not_in_catalogue");
+    assert(item.partName == "Manual name");
     filesystem::remove(csvPath, ignored);
+    filesystem::remove(xlsxPath, ignored);
     filesystem::remove(databasePath, ignored);
   }
 
