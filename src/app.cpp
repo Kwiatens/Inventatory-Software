@@ -173,7 +173,11 @@ ftxui::Element App::renderUi() const {
   // Individual pages already collapse or scroll their secondary content. Keep
   // the whole application usable in the common 80 x 24 terminal instead of
   // blocking the catalogue workflow before it can render.
-  if (active != nullptr && (active->dimx() < 80 || active->dimy() < 24)) {
+  // FTXUI reports 0 x 0 briefly while its interactive screen is attaching.
+  // Treat that as an unknown size, not a genuinely narrow terminal, so the
+  // user does not see a misleading warning flash during startup.
+  if (active != nullptr && active->dimx() > 0 && active->dimy() > 0 &&
+      (active->dimx() < 80 || active->dimy() < 24)) {
     return ftxui::vbox({
                ftxui::filler(),
                ftxui::hbox({ftxui::filler(),
