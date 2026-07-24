@@ -1450,6 +1450,9 @@ int main(int argc, char** argv) {
     const auto quickLabelJson = deviceSyncResponseJson(quickLabelResponse);
     assert(quickLabelJson.find("\"quickLabels\":{\"revision\":3") != string::npos);
     assert(quickLabelJson.find("\"quickLabelPrintResult\":{\"requestId\":\"r1-a-label-1\"") != string::npos);
+    assert(quickLabelJson.find("catalogue") == string::npos);
+    assert(quickLabelJson.find("properties") == string::npos);
+    assert(quickLabelJson.find("rawValue") == string::npos);
     quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
     quickLabelResponse.hasLookupResult = true;
     assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
@@ -1659,7 +1662,7 @@ int main(int argc, char** argv) {
     const auto manualMatch = database.lookup("Texas Instruments", "ABC-001");
     assert(manualMatch.matched());
     assert(any_of(manualMatch.record.properties.begin(), manualMatch.record.properties.end(), [](const CatalogueProperty& property) {
-      return property.sourceColumn == "Selection flag" && property.name == "automotive_qualification" && property.mappingStatus == "mapped";
+      return property.sourceColumn == "Selection flag" && property.name == "automotive_qualification" && property.mappingStatus == "warning";
     }));
     const auto imported = database.importFile(csvPath);
     assert(imported.error.empty());
@@ -1675,8 +1678,11 @@ int main(int argc, char** argv) {
     assert(database.lookup("Texas Instruments", "OPA-333").status == CatalogueMatchStatus::NotFound);
     InventoryItem item;
     item.partName = "Manual name";
+    item.parameters = {{"Manual property", "keep me"}};
     assert(applyCatalogueEnrichment(item, exact));
     assert(item.partName == "Manual name");
+    assert(item.parameters.size() == 1 && item.parameters.front().name == "Manual property" && item.parameters.front().value == "keep me");
+    assert(serializeItem(item).find("Shutdown current") == string::npos);
     assert(item.catalogueStatus == "exact_match");
     const auto xlsxPath = filesystem::temp_directory_path() / "ti-products-synthetic.xlsx";
     assert(writeSyntheticXlsx(xlsxPath));
