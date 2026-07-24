@@ -65,6 +65,7 @@ void setConsoleTitle(const string& title);
 bool openUrl(const string& url);
 bool copyToClipboard(const string& text);
 bool openCsvFileDialog(filesystem::path& selectedPath);
+bool openCatalogueFileDialog(filesystem::path& selectedPath);
 bool openFolderDialog(filesystem::path& selectedPath, const string& title);
 vector<string> localAddresses();
 bool controlModifierPressed();

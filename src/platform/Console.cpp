@@ -108,6 +108,21 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
   return true;
 }
 
+bool openCatalogueFileDialog(filesystem::path& selectedPath) {
+  char fileName[MAX_PATH] = {};
+  OPENFILENAMEA dialog{};
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = nullptr;
+  dialog.lpstrFilter = "Catalogue files (*.csv;*.xlsx)\0*.csv;*.xlsx\0CSV files (*.csv)\0*.csv\0Excel workbooks (*.xlsx)\0*.xlsx\0All files (*.*)\0*.*\0";
+  dialog.lpstrFile = fileName;
+  dialog.nMaxFile = MAX_PATH;
+  dialog.lpstrTitle = "Select manufacturer catalogue";
+  dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+  if (GetOpenFileNameA(&dialog) == 0) return false;
+  selectedPath = filesystem::path(fileName);
+  return true;
+}
+
 bool openFolderDialog(filesystem::path& selectedPath, const string& title) {
   BROWSEINFOA browse{};
   browse.hwndOwner = nullptr;

@@ -1,5 +1,6 @@
 // Inventatory - local manufacturer parametric catalogue storage and lookup.
 #include "core/CatalogueDatabase.h"
+#include "import/XlsxWorkbookReader.h"
 
 #include <sqlite3.h>
 
@@ -11,6 +12,7 @@
 #include <iomanip>
 #include <map>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <unordered_map>
 
@@ -36,7 +38,7 @@ const vector<CatalogueProfile> kProfiles = {
   {"kemet-yageo-mlcc-v1","1","KEMET / Yageo","Capacitors","",{"kemet","yageo"},{"Part Number","MPN"},{"Series"},{"Alias"},{"Case","Package"},{"Series"},{"Description"},{"Status"},{{{"Capacitance"},"capacitance","F",""},{{"Voltage"},"rated_voltage","V",""},{{"Tolerance"},"tolerance","%",""},{{"Dielectric"},"dielectric","",""},{{"MSL"},"msl","",""},{{"AEC"},"aec_qualification","",""}},false},
   {"vishay-current-sense-v1","1","Vishay","Current-sense resistors","",{"vishay"},{"Part Number","MPN"},{},{},{"Case","Package"},{"Series"},{"Description"},{"Status"},{{{"Resistance"},"resistance","Ohm",""},{{"Tolerance"},"tolerance","%",""},{{"Power"},"power","W",""},{{"TCR"},"temperature_coefficient","ppm/degC",""}},false},
   {"nexperia-discretes-v1","1","Nexperia","Diodes, BJTs and MOSFETs","",{"nexperia"},{"Type number","Orderable part number","MPN"},{"Type number"},{"Orderable part number"},{"Package"},{"Family"},{"Description"},{"Status"},{{{"VR","VCEO","VDS"},"voltage_rating","V",""},{{"IF","IC","ID"},"current_rating","A",""},{{"VF"},"forward_voltage","V",""},{{"RDS(on)"},"rds_on","Ohm",""},{{"Automotive"},"automotive_qualification","",""}},false},
-  {"ti-parametric-v1","1","Texas Instruments","Amplifiers, MOSFETs and timers","",{"ti_","texas","opamp","mosfet","timer"},{"Orderable Part Number","Part Number","MPN"},{"Generic Part Number","Device"},{"Orderable Part Number"},{"Package Group","Package"},{"Family"},{"Description"},{"Status"},{{{"Channels"},"channel_count","",""},{{"Supply voltage (min)"},"supply_voltage_min","V","min"},{{"Supply voltage (max)"},"supply_voltage_max","V","max"},{{"Offset voltage"},"offset_voltage","V",""},{{"GBW","Bandwidth"},"bandwidth","Hz",""},{{"Slew rate"},"slew_rate","V/us",""},{{"VDS"},"vds","V",""},{{"RDS(on)"},"rds_on","Ohm",""}},false},
+  {"ti-parametric-v1","1","Texas Instruments","Amplifiers, MOSFETs and timers","Products",{"ti_","texas","opamp","mosfet","timer"},{"Orderable Part Number","Part Number","MPN"},{"Generic Part Number","Device"},{"Orderable Part Number"},{"Package Group","Package"},{"Family"},{"Description"},{"Status"},{{{"Channels"},"channel_count","",""},{{"Supply voltage (min)"},"supply_voltage_min","V","min"},{{"Supply voltage (max)"},"supply_voltage_max","V","max"},{{"Offset voltage"},"offset_voltage","V",""},{{"GBW","Bandwidth"},"bandwidth","Hz",""},{{"Slew rate"},"slew_rate","V/us",""},{{"VDS"},"vds","V",""},{{"RDS(on)"},"rds_on","Ohm",""}},false},
   {"adi-amplifiers-v1","1","Analog Devices","Precision amplifiers","",{"analogdevices","analog_devices","adi_"},{"Orderable Part Number","Model","MPN"},{"Model"},{"Orderable Part Number"},{"Package"},{"Product Family"},{"Description"},{"Status"},{{{"Channels"},"channel_count","",""},{{"Supply Voltage Min"},"supply_voltage_min","V","min"},{{"Supply Voltage Max"},"supply_voltage_max","V","max"},{{"Offset Voltage"},"offset_voltage","V",""},{{"Input Bias Current"},"input_bias_current","A",""},{{"Bandwidth"},"bandwidth","Hz",""}},false},
   {"microchip-parametric-v1","1","Microchip","MCUs and amplifiers","",{"microchip"},{"Part Number","Device","MPN"},{"Device"},{"Orderable Part Number"},{"Package"},{"Family"},{"Description"},{"Status"},{{{"Program Memory"},"program_memory","B",""},{{"RAM"},"ram","B",""},{{"EEPROM"},"eeprom","B",""},{{"Pin Count"},"pin_count","",""},{{"Operating Voltage"},"operating_voltage","V",""},{{"Max Clock"},"clock","Hz",""},{{"ADC Resolution"},"adc_resolution","bit",""}},false}
 };
@@ -64,6 +66,52 @@ CREATE INDEX IF NOT EXISTS idx_alias_exact ON aliases(alias_key);
 CREATE TABLE IF NOT EXISTS properties(id INTEGER PRIMARY KEY,part_id INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,name TEXT NOT NULL,nominal REAL,min_value REAL,typical REAL,max_value REAL,tolerance REAL,unit TEXT,condition TEXT,qualifier TEXT,source_column TEXT NOT NULL,raw_value TEXT,raw_unit TEXT,mapping_status TEXT NOT NULL,profile_id TEXT NOT NULL,profile_version TEXT NOT NULL,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS import_warnings(id INTEGER PRIMARY KEY,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,row_number INTEGER,message TEXT NOT NULL);
 )SQL"; }
+
+bool readCsvCatalogueTable(const filesystem::path& path, CatalogueTable& table, string& error,
+                           atomic_bool* cancel, const function<void(size_t, size_t, const string&)>& progress) {
+  ifstream input(path, ios::binary);
+  if (!input) {
+    error = "Unable to open catalogue file";
+    return false;
+  }
+  string line;
+  if (!getline(input, line)) {
+    error = "The CSV file is empty";
+    return false;
+  }
+  if (line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3);
+  table.delimiter = count(line.begin(), line.end(), ';') > count(line.begin(), line.end(), ',') ? ';' : ',';
+  bool malformed = false;
+  table.headers = parseCsvRow(line, table.delimiter, malformed);
+  if (malformed || table.headers.empty()) {
+    error = "The CSV header row is malformed";
+    return false;
+  }
+  map<string, int> seen;
+  for (auto& header : table.headers) header = uniqueHeader(header, seen);
+  size_t row = 1;
+  while (getline(input, line)) {
+    if (cancel && cancel->load()) {
+      error = "CSV import cancelled";
+      return false;
+    }
+    ++row;
+    bool rowMalformed = false;
+    table.rows.push_back(parseCsvRow(line, table.delimiter, rowMalformed));
+    if (rowMalformed) table.rows.back().push_back("\x1fMALFORMED");
+    if (progress && row % 1000 == 0) progress(row, 0, "Reading CSV");
+  }
+  table.sourceRowCount = row;
+  return true;
+}
+
+bool preserveRawColumn(const string& header) {
+  const auto value = lower(trim(header));
+  if (value.empty()) return false;
+  const string ignored[] = {"image", "thumbnail", "photo", "export timestamp", "exported at", "generated at",
+                            "table number", "row number", "navigation", "product url", "datasheet url"};
+  return none_of(begin(ignored), end(ignored), [&](const string& token) { return value.find(token) != string::npos; });
+}
 }
 
 const vector<ManufacturerSource>& manufacturerSources() { static const vector<ManufacturerSource> sources={
@@ -79,7 +127,24 @@ const vector<ManufacturerSource>& manufacturerSources() { static const vector<Ma
 const vector<CatalogueProfile>& catalogueProfiles(){return kProfiles;}
 
 string normalizeMpn(const string& input) { string out=trim(input); for(char& c:out) if(static_cast<unsigned char>(c)<128)c=static_cast<char>(toupper(static_cast<unsigned char>(c))); return out; }
-const CatalogueProfile* detectCatalogueProfile(const filesystem::path& file,const vector<string>& headers){ string n=lower(file.filename().string()); for(const auto& p:kProfiles) for(const auto& pattern:p.filenamePatterns) if(n.find(lower(pattern))!=string::npos)return &p; for(const auto& p:kProfiles) if(findColumn(headers,p.mpnColumns)>=0) return &p; return nullptr; }
+const CatalogueProfile* detectCatalogueProfile(const filesystem::path& file,const vector<string>& headers){
+  const string filename=lower(file.filename().string());
+  const CatalogueProfile* best=nullptr; int bestScore=0; bool tie=false;
+  for(const auto& profile:kProfiles){
+    int score=0;
+    for(const auto& pattern:profile.filenamePatterns) if(filename.find(lower(pattern))!=string::npos){score+=20;break;}
+    if(findColumn(headers,profile.mpnColumns)>=0) score+=4;
+    if(findColumn(headers,profile.basePartColumns)>=0) score+=2;
+    if(findColumn(headers,profile.packageColumns)>=0) score+=1;
+    for(const auto& mapping:profile.properties) if(findColumn(headers,mapping.columns)>=0) score+=2;
+    if(score>bestScore){best=&profile;bestScore=score;tie=false;} else if(score==bestScore&&score>0){tie=true;}
+  }
+  // A generic MPN column alone is not sufficient evidence. File names may be
+  // trusted, otherwise require at least an identity column plus one profile
+  // specific signal and reject ties for the manual mapping path.
+  if(!best || tie || (bestScore<20 && bestScore<6)) return nullptr;
+  return best;
+}
 
 EngineeringValue parseEngineeringValue(const string& input,const string& contextUnit) {
   EngineeringValue out; out.rawValue=input; out.originalText=input; out.rawUnit=contextUnit; string s=trim(input); if(s.empty()) return out;
@@ -93,6 +158,7 @@ EngineeringValue parseEngineeringValue(const string& input,const string& context
   else { regex scalar(R"(^\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*([^\s]*)\s*$)"); if(!regex_match(s,m,scalar)){out.warning="Ambiguous engineering value";return out;} out.nominal=stod(m[1]); unit=trim(m[2]); }
   if(unit.empty()) unit=contextUnit; if(unit=="VDC")unit="V"; if(unit=="Ω")unit="Ohm"; if(unit=="°C")unit="degC";
   static const map<string,double> prefixes={{"p",1e-12},{"n",1e-9},{"u",1e-6},{"m",1e-3},{"k",1e3},{"K",1e3},{"M",1e6},{"G",1e9}};
+  if(unit.size()==1 && prefixes.count(unit) && contextUnit.empty()){out.warning="Unit prefix has no base unit";return out;}
   string base=unit; double factor=1; for(const auto& [prefix,f]:prefixes) if(unit.size()>prefix.size() && unit.rfind(prefix,0)==0){base=unit.substr(prefix.size());factor=f;break;}
   if(unit.size()==1 && prefixes.count(unit) && !contextUnit.empty()){factor=prefixes.at(unit);base=contextUnit;}
   if(base.empty()){out.warning="Unit is ambiguous without column context";return out;} out.unit=base;
@@ -106,24 +172,269 @@ bool CatalogueDatabase::available()const{return available_;} const string& Catal
 CatalogueMatch CatalogueDatabase::lookup(const string& manufacturer,const string& mpn)const {
   if(!available_)return {CatalogueMatchStatus::DatabaseUnavailable,{}}; Db db;if(sqlite3_open_v2(path_.string().c_str(),&db.value,SQLITE_OPEN_READONLY,nullptr)!=SQLITE_OK)return {CatalogueMatchStatus::DatabaseUnavailable,{}};
   const string mk=normalizeMpn(manufacturer), pk=normalizeMpn(mpn); if(pk.empty())return {};
+  const auto loadProperties = [&](CatalogueRecord& record) {
+    Statement properties;
+    sqlite3_prepare_v2(db.value, "SELECT name,nominal,min_value,typical,max_value,tolerance,unit,condition,qualifier,source_column,raw_value,raw_unit,mapping_status FROM properties WHERE part_id=? ORDER BY mapping_status,name", -1, &properties.value, nullptr);
+    sqlite3_bind_int64(properties.value, 1, stoll(record.componentId));
+    while (sqlite3_step(properties.value) == SQLITE_ROW) {
+      CatalogueProperty property;
+      property.name = text(properties.value, 0);
+      const auto optionalNumber = [&](int column) -> optional<double> {
+        return sqlite3_column_type(properties.value, column) == SQLITE_NULL ? nullopt : optional<double>(sqlite3_column_double(properties.value, column));
+      };
+      property.value.nominal = optionalNumber(1); property.value.minimum = optionalNumber(2); property.value.typical = optionalNumber(3);
+      property.value.maximum = optionalNumber(4); property.value.tolerance = optionalNumber(5); property.value.unit = text(properties.value, 6);
+      property.condition = property.value.condition = text(properties.value, 7); property.qualifier = property.value.qualifier = text(properties.value, 8);
+      property.sourceColumn = text(properties.value, 9); property.rawValue = property.value.rawValue = text(properties.value, 10);
+      property.originalUnit = property.value.rawUnit = text(properties.value, 11); property.mappingStatus = text(properties.value, 12);
+      record.properties.push_back(move(property));
+    }
+  };
   auto run=[&](bool alias)->CatalogueMatch { Statement s; string sql=alias?"SELECT p.id,p.manufacturer,p.exact_mpn,p.base_part,p.description,p.category,p.package_variant,p.packaging_variant,p.series,p.snapshot_id FROM aliases a JOIN parts p ON p.id=a.part_id WHERE a.alias_key=? AND (?='' OR p.manufacturer_key=?) AND p.snapshot_id=(SELECT max(s2.id) FROM snapshots s2 WHERE s2.source_id=p.source_id) ORDER BY p.snapshot_id DESC LIMIT 2":"SELECT id,manufacturer,exact_mpn,base_part,description,category,package_variant,packaging_variant,series,snapshot_id FROM parts WHERE mpn_key=? AND (?='' OR manufacturer_key=?) AND snapshot_id=(SELECT max(s2.id) FROM snapshots s2 WHERE s2.source_id=parts.source_id) ORDER BY snapshot_id DESC LIMIT 2"; sqlite3_prepare_v2(db.value,sql.c_str(),-1,&s.value,nullptr);sqlite3_bind_text(s.value,1,pk.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(s.value,2,mk.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(s.value,3,mk.c_str(),-1,SQLITE_TRANSIENT);if(sqlite3_step(s.value)!=SQLITE_ROW)return {};CatalogueRecord r;r.componentId=to_string(sqlite3_column_int64(s.value,0));r.manufacturer=text(s.value,1);r.manufacturerPartNumber=text(s.value,2);r.basePart=text(s.value,3);r.canonicalName=text(s.value,4);r.category=text(s.value,5);r.packageVariant=text(s.value,6);r.packagingVariant=text(s.value,7);r.series=text(s.value,8);r.databaseVersion=to_string(sqlite3_column_int64(s.value,9));if(sqlite3_step(s.value)==SQLITE_ROW)return {CatalogueMatchStatus::Ambiguous,{}};return {alias?CatalogueMatchStatus::AliasMatch:CatalogueMatchStatus::ExactMatch,r};};
-  auto exact=run(false);return exact.status==CatalogueMatchStatus::NotFound?run(true):exact;
+  auto result = run(false);
+  if (result.status == CatalogueMatchStatus::NotFound) result = run(true);
+  if (result.matched()) loadProperties(result.record);
+  return result;
 }
 
-CatalogueImportStats CatalogueDatabase::importFile(const filesystem::path& path,const CatalogueProfile* selected,const CatalogueImportOptions& options){CatalogueImportStats stats;if(!available_){stats.error="Catalogue database is unavailable";return stats;}if(lower(path.extension().string())!=".csv"){stats.error="XLSX workbook support is unavailable in this build; choose the manufacturer's CSV export";return stats;}ifstream in(path,ios::binary);if(!in){stats.error="Unable to open catalogue file";return stats;}string first;getline(in,first);if(first.rfind("\xEF\xBB\xBF",0)==0)first.erase(0,3);char delimiter=count(first.begin(),first.end(),';')>count(first.begin(),first.end(),',')?';':',';bool malformed=false;auto headers=parseCsvRow(first,delimiter,malformed);map<string,int> seen;for(auto& h:headers)h=uniqueHeader(h,seen);const auto* profile=selected?selected:detectCatalogueProfile(path,headers);if(!profile){stats.error="No manufacturer profile matches this file";return stats;}stats.profileId=profile->id;int mpnCol=findColumn(headers,profile->mpnColumns);if(mpnCol<0&&!profile->seriesOnly){stats.error="The expected MPN column is missing";return stats;}int baseCol=findColumn(headers,profile->basePartColumns),packageCol=findColumn(headers,profile->packageColumns),seriesCol=findColumn(headers,profile->seriesColumns),descriptionCol=findColumn(headers,profile->descriptionColumns),statusCol=findColumn(headers,profile->statusColumns);vector<pair<int,PropertyMapping>> mappings;for(const auto& m:profile->properties){int c=findColumn(headers,m.columns);if(c>=0)mappings.push_back({c,m});}
-  Db db;if(sqlite3_open(path_.string().c_str(),&db.value)!=SQLITE_OK){stats.error="Unable to open catalogue database";return stats;}sqlite3_busy_timeout(db.value,5000);if(!exec(db.value,"BEGIN IMMEDIATE")){stats.error="Catalogue database is busy";return stats;}const string hash=hashFile(path);stats.fileHash=hash;Statement duplicate;sqlite3_prepare_v2(db.value,"SELECT id FROM snapshots WHERE file_hash=?",-1,&duplicate.value,nullptr);sqlite3_bind_text(duplicate.value,1,hash.c_str(),-1,SQLITE_TRANSIENT);if(sqlite3_step(duplicate.value)==SQLITE_ROW){exec(db.value,"ROLLBACK");stats.duplicate=true;stats.snapshotId=sqlite3_column_int64(duplicate.value,0);return stats;}
+CatalogueImportStats importCatalogueTable(const filesystem::path& databasePath, const filesystem::path& path,
+                                          const CatalogueProfile* selected, const CatalogueImportOptions& options) {
+  CatalogueImportStats stats;
+  CatalogueTable table;
+  const auto extension = lower(path.extension().string());
+  string readError;
+  const bool loaded = extension == ".csv"
+                          ? readCsvCatalogueTable(path, table, readError, options.cancel, options.progress)
+                          : extension == ".xlsx"
+                                ? readXlsxCatalogueTable(path, selected ? selected->worksheetPattern : "", table, readError,
+                                                         options.cancel, options.progress)
+                                : false;
+  if (!loaded) {
+    stats.error = readError.empty() ? "Only CSV and XLSX catalogue files are supported" : readError;
+    stats.cancelled = options.cancel && options.cancel->load();
+    return stats;
+  }
+  map<string, int> seen;
+  for (auto& header : table.headers) header = uniqueHeader(header, seen);
+  const auto* profile = selected ? selected : detectCatalogueProfile(path, table.headers);
+  if (!profile) {
+    stats.error = "No manufacturer profile matches this file";
+    return stats;
+  }
+  stats.profileId = profile->id;
+  const int mpnCol = findColumn(table.headers, profile->mpnColumns);
+  if (mpnCol < 0 && !profile->seriesOnly) {
+    stats.error = "The expected MPN column is missing";
+    return stats;
+  }
+  const int baseCol = findColumn(table.headers, profile->basePartColumns);
+  const int packageCol = findColumn(table.headers, profile->packageColumns);
+  const int seriesCol = findColumn(table.headers, profile->seriesColumns);
+  const int descriptionCol = findColumn(table.headers, profile->descriptionColumns);
+  const int statusCol = findColumn(table.headers, profile->statusColumns);
+  vector<pair<int, PropertyMapping>> mappings;
+  set<int> mappedColumns;
+  for (const auto& mapping : profile->properties) {
+    const int column = findColumn(table.headers, mapping.columns);
+    if (column >= 0) {
+      mappings.emplace_back(column, mapping);
+      mappedColumns.insert(column);
+    }
+  }
+  const set<int> structuralColumns = {mpnCol, baseCol, packageCol, seriesCol, descriptionCol, statusCol};
+  Db db;if(sqlite3_open(databasePath.string().c_str(),&db.value)!=SQLITE_OK){stats.error="Unable to open catalogue database";return stats;}sqlite3_busy_timeout(db.value,5000);if(!exec(db.value,"BEGIN IMMEDIATE")){stats.error="Catalogue database is busy";return stats;}const string hash=hashFile(path);stats.fileHash=hash;Statement duplicate;sqlite3_prepare_v2(db.value,"SELECT id FROM snapshots WHERE file_hash=?",-1,&duplicate.value,nullptr);sqlite3_bind_text(duplicate.value,1,hash.c_str(),-1,SQLITE_TRANSIENT);if(sqlite3_step(duplicate.value)==SQLITE_ROW){exec(db.value,"ROLLBACK");stats.duplicate=true;stats.snapshotId=sqlite3_column_int64(duplicate.value,0);return stats;}
   Statement snap;sqlite3_prepare_v2(db.value,"INSERT INTO snapshots(source_id,manufacturer,profile_id,profile_version,filename,file_hash,imported_at) VALUES(?,?,?,?,?,?,?)",-1,&snap.value,nullptr);vector<string> sv={profile->id,profile->manufacturer,profile->id,profile->version,path.filename().string(),hash};for(int i=0;i<6;++i)sqlite3_bind_text(snap.value,i+1,sv[i].c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_int64(snap.value,7,time(nullptr));if(sqlite3_step(snap.value)!=SQLITE_DONE){exec(db.value,"ROLLBACK");stats.error="Unable to create catalogue snapshot";return stats;}stats.snapshotId=sqlite3_last_insert_rowid(db.value);
-  string line;size_t rowNo=1;while(getline(in,line)){++rowNo;if(options.cancel&&options.cancel->load()){stats.cancelled=true;break;}if(trim(line).empty())continue;++stats.rows;bool bad=false;auto row=parseCsvRow(line,delimiter,bad);string mpn=cell(row,mpnCol);if(bad||mpn.empty()){++stats.rejected;++stats.warnings;continue;}Statement part;sqlite3_prepare_v2(db.value,"INSERT OR IGNORE INTO parts(source_id,manufacturer,manufacturer_key,exact_mpn,mpn_key,base_part,package_variant,series,category,description,status,snapshot_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",-1,&part.value,nullptr);vector<string> pv={profile->id,profile->manufacturer,normalizeMpn(profile->manufacturer),mpn,normalizeMpn(mpn),cell(row,baseCol),cell(row,packageCol),cell(row,seriesCol),profile->category,cell(row,descriptionCol),cell(row,statusCol)};for(int i=0;i<11;++i)sqlite3_bind_text(part.value,i+1,pv[i].c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_int64(part.value,12,stats.snapshotId);if(sqlite3_step(part.value)!=SQLITE_DONE){++stats.rejected;continue;}auto partId=sqlite3_last_insert_rowid(db.value);if(!partId)continue;++stats.parts;
-    if(baseCol>=0&&!cell(row,baseCol).empty()&&normalizeMpn(cell(row,baseCol))!=normalizeMpn(mpn)){Statement a;sqlite3_prepare_v2(db.value,"INSERT OR IGNORE INTO aliases(part_id,alias,alias_key,kind) VALUES(?,?,?,'base')",-1,&a.value,nullptr);sqlite3_bind_int64(a.value,1,partId);auto v=cell(row,baseCol);auto k=normalizeMpn(v);sqlite3_bind_text(a.value,2,v.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(a.value,3,k.c_str(),-1,SQLITE_TRANSIENT);if(sqlite3_step(a.value)==SQLITE_DONE)++stats.aliases;}
-    for(const auto& [column,mapping]:mappings){auto raw=cell(row,column);if(raw.empty())continue;auto value=parseEngineeringValue(raw,mapping.unit);if(!value.warning.empty())++stats.warnings;Statement prop;sqlite3_prepare_v2(db.value,"INSERT INTO properties(part_id,name,nominal,min_value,max_value,tolerance,unit,condition,qualifier,source_column,raw_value,raw_unit,mapping_status,profile_id,profile_version,snapshot_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",-1,&prop.value,nullptr);sqlite3_bind_int64(prop.value,1,partId);sqlite3_bind_text(prop.value,2,mapping.canonicalName.c_str(),-1,SQLITE_TRANSIENT);auto bindOptional=[&](int i,const optional<double>& v){if(v)sqlite3_bind_double(prop.value,i,*v);else sqlite3_bind_null(prop.value,i);};bindOptional(3,value.nominal);bindOptional(4,value.minimum);bindOptional(5,value.maximum);bindOptional(6,value.tolerance);vector<string> q={value.unit,value.condition,mapping.qualifier,headers[column],raw,mapping.unit,value.warning.empty()?"mapped":"warning",profile->id,profile->version};for(int i=0;i<9;++i)sqlite3_bind_text(prop.value,7+i,q[i].c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_int64(prop.value,16,stats.snapshotId);if(sqlite3_step(prop.value)==SQLITE_DONE)++stats.properties;}
-    if(options.progress&&stats.rows%500==0)options.progress(stats.rows,0,"Normalizing and indexing");
+  Statement part, alias, property, warning;
+  sqlite3_prepare_v2(db.value, "INSERT OR IGNORE INTO parts(source_id,manufacturer,manufacturer_key,exact_mpn,mpn_key,base_part,package_variant,series,category,description,status,snapshot_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", -1, &part.value, nullptr);
+  sqlite3_prepare_v2(db.value, "INSERT OR IGNORE INTO aliases(part_id,alias,alias_key,kind) VALUES(?,?,?,?)", -1, &alias.value, nullptr);
+  sqlite3_prepare_v2(db.value, "INSERT INTO properties(part_id,name,nominal,min_value,typical,max_value,tolerance,unit,condition,qualifier,source_column,raw_value,raw_unit,mapping_status,profile_id,profile_version,snapshot_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", -1, &property.value, nullptr);
+  sqlite3_prepare_v2(db.value, "INSERT INTO import_warnings(snapshot_id,row_number,message) VALUES(?,?,?)", -1, &warning.value, nullptr);
+  const auto bindOptional = [&](int index, const optional<double>& value) {
+    if (value) sqlite3_bind_double(property.value, index, *value); else sqlite3_bind_null(property.value, index);
+  };
+  const auto addWarning = [&](size_t row, const string& message) {
+    sqlite3_reset(warning.value); sqlite3_clear_bindings(warning.value);
+    sqlite3_bind_int64(warning.value, 1, stats.snapshotId); sqlite3_bind_int64(warning.value, 2, static_cast<sqlite3_int64>(row));
+    sqlite3_bind_text(warning.value, 3, message.c_str(), -1, SQLITE_TRANSIENT); sqlite3_step(warning.value);
+    ++stats.warnings;
+  };
+  const auto addProperty = [&](sqlite3_int64 partId, const string& name, const string& sourceColumn, const string& raw,
+                               const EngineeringValue* value, const string& mappingStatus, const string& qualifier) {
+    sqlite3_reset(property.value); sqlite3_clear_bindings(property.value);
+    sqlite3_bind_int64(property.value, 1, partId); sqlite3_bind_text(property.value, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+    if (value) { bindOptional(3, value->nominal); bindOptional(4, value->minimum); bindOptional(5, value->typical); bindOptional(6, value->maximum); bindOptional(7, value->tolerance); }
+    else for (int index = 3; index <= 7; ++index) sqlite3_bind_null(property.value, index);
+    const string unit = value ? value->unit : ""; const string condition = value ? value->condition : "";
+    sqlite3_bind_text(property.value, 8, unit.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(property.value, 9, condition.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 10, qualifier.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(property.value, 11, sourceColumn.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 12, raw.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(property.value, 13, "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 14, mappingStatus.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(property.value, 15, profile->id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 16, profile->version.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_int64(property.value, 17, stats.snapshotId);
+    if (sqlite3_step(property.value) == SQLITE_DONE) ++stats.properties;
+  };
+  for (size_t index = 0; index < table.rows.size(); ++index) {
+    if (options.cancel && options.cancel->load()) { stats.cancelled = true; break; }
+    const auto& row = table.rows[index];
+    if (row.empty() || all_of(row.begin(), row.end(), [](const string& value) { return trim(value).empty(); })) continue;
+    ++stats.rows;
+    const auto sourceRow = table.headerRow + index + 2;
+    if (!row.empty() && row.back() == "\x1fMALFORMED") { ++stats.rejected; addWarning(sourceRow, "Malformed CSV row"); continue; }
+    const string mpn = cell(row, mpnCol);
+    if (mpn.empty() && !profile->seriesOnly) { ++stats.rejected; addWarning(sourceRow, "Missing manufacturer part number"); continue; }
+    sqlite3_reset(part.value); sqlite3_clear_bindings(part.value);
+    const vector<string> partValues = {profile->id, profile->manufacturer, normalizeMpn(profile->manufacturer), mpn, normalizeMpn(mpn), cell(row, baseCol), cell(row, packageCol), cell(row, seriesCol), profile->category, cell(row, descriptionCol), cell(row, statusCol)};
+    for (int bind = 0; bind < 11; ++bind) sqlite3_bind_text(part.value, bind + 1, partValues[bind].c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(part.value, 12, stats.snapshotId);
+    if (sqlite3_step(part.value) != SQLITE_DONE || sqlite3_changes(db.value) == 0) { ++stats.rejected; addWarning(sourceRow, "Duplicate or invalid catalogue part"); continue; }
+    const auto partId = sqlite3_last_insert_rowid(db.value); ++stats.parts;
+    const auto addAlias = [&](const string& aliasValue, const char* kind) {
+      if (aliasValue.empty() || normalizeMpn(aliasValue) == normalizeMpn(mpn)) return;
+      sqlite3_reset(alias.value); sqlite3_clear_bindings(alias.value); const auto key = normalizeMpn(aliasValue);
+      sqlite3_bind_int64(alias.value, 1, partId); sqlite3_bind_text(alias.value, 2, aliasValue.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(alias.value, 3, key.c_str(), -1, SQLITE_TRANSIENT); sqlite3_bind_text(alias.value, 4, kind, -1, SQLITE_TRANSIENT);
+      if (sqlite3_step(alias.value) == SQLITE_DONE && sqlite3_changes(db.value) != 0) ++stats.aliases;
+    };
+    if (!profile->seriesOnly) addAlias(cell(row, baseCol), "base");
+    for (const auto& [column, mapping] : mappings) {
+      const auto raw = cell(row, column); if (raw.empty()) continue;
+      const auto value = parseEngineeringValue(raw, mapping.unit);
+      addProperty(partId, mapping.canonicalName, table.headers[column], raw, &value, value.warning.empty() ? "mapped" : "warning", mapping.qualifier);
+      if (!value.warning.empty()) addWarning(sourceRow, table.headers[column] + ": " + value.warning);
+    }
+    for (size_t column = 0; column < table.headers.size(); ++column) {
+      if (mappedColumns.count(static_cast<int>(column)) || structuralColumns.count(static_cast<int>(column)) || !preserveRawColumn(table.headers[column])) continue;
+      const auto raw = cell(row, static_cast<int>(column)); if (!raw.empty()) addProperty(partId, table.headers[column], table.headers[column], raw, nullptr, "unmapped", "");
+    }
+    if (options.progress && stats.rows % 500 == 0) options.progress(stats.rows, table.rows.size(), "Normalizing and indexing");
   }
   if(stats.cancelled){exec(db.value,"ROLLBACK");return stats;}Statement update;sqlite3_prepare_v2(db.value,"UPDATE snapshots SET rows_count=?,parts_count=?,aliases_count=?,properties_count=?,warnings_count=? WHERE id=?",-1,&update.value,nullptr);sqlite3_bind_int64(update.value,1,stats.rows);sqlite3_bind_int64(update.value,2,stats.parts);sqlite3_bind_int64(update.value,3,stats.aliases);sqlite3_bind_int64(update.value,4,stats.properties);sqlite3_bind_int64(update.value,5,stats.warnings);sqlite3_bind_int64(update.value,6,stats.snapshotId);sqlite3_step(update.value);if(!exec(db.value,"COMMIT")){exec(db.value,"ROLLBACK");stats.error="Catalogue transaction could not be committed";}return stats;
 }
-bool CatalogueDatabase::removeSource(const string& id){Db db;if(sqlite3_open(path_.string().c_str(),&db.value)!=SQLITE_OK)return false;Statement s;sqlite3_prepare_v2(db.value,"DELETE FROM snapshots WHERE source_id=?",-1,&s.value,nullptr);sqlite3_bind_text(s.value,1,id.c_str(),-1,SQLITE_TRANSIENT);return sqlite3_step(s.value)==SQLITE_DONE;}
+
+CatalogueImportStats CatalogueDatabase::importFile(const filesystem::path& path, const CatalogueProfile* profile,
+                                                    const CatalogueImportOptions& options) {
+  if (!available_) {
+    CatalogueImportStats stats;
+    stats.error = "Catalogue database is unavailable";
+    return stats;
+  }
+  return importCatalogueTable(path_, path, profile, options);
+}
+
+CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& path, const CatalogueProfile* selected,
+                                                       atomic_bool* cancel) const {
+  CatalogueImportPreview preview;
+  preview.filename = path.filename().string();
+  preview.format = lower(path.extension().string());
+  error_code sizeError;
+  preview.fileSize = filesystem::file_size(path, sizeError);
+  CatalogueTable table;
+  const auto loaded = preview.format == ".csv"
+                          ? readCsvCatalogueTable(path, table, preview.error, cancel, {})
+                          : preview.format == ".xlsx"
+                                ? readXlsxCatalogueTable(path, selected ? selected->worksheetPattern : "", table, preview.error,
+                                                         cancel, {})
+                                : false;
+  if (!loaded) {
+    if (preview.error.empty()) preview.error = "Only CSV and XLSX catalogue files are supported";
+    return preview;
+  }
+  map<string, int> seen;
+  for (auto& header : table.headers) header = uniqueHeader(header, seen);
+  const auto* profile = selected ? selected : detectCatalogueProfile(path, table.headers);
+  if (!profile) {
+    preview.error = "No manufacturer profile matches this file";
+    return preview;
+  }
+  preview.profileId = profile->id;
+  preview.profileVersion = profile->version;
+  preview.sheetName = table.sheetName;
+  preview.headerRow = table.headerRow;
+  preview.rows = table.rows.size();
+  preview.delimiter = table.delimiter;
+  preview.headers = table.headers;
+  const set<int> structural = {findColumn(table.headers, profile->mpnColumns), findColumn(table.headers, profile->basePartColumns),
+                               findColumn(table.headers, profile->packageColumns), findColumn(table.headers, profile->seriesColumns),
+                               findColumn(table.headers, profile->descriptionColumns), findColumn(table.headers, profile->statusColumns)};
+  set<int> mapped;
+  for (const auto& mapping : profile->properties) {
+    const int column = findColumn(table.headers, mapping.columns);
+    if (column >= 0) { mapped.insert(column); preview.mappedColumns.push_back(table.headers[column]); }
+  }
+  if (findColumn(table.headers, profile->mpnColumns) < 0 && !profile->seriesOnly) preview.warnings.push_back("Expected MPN column is missing");
+  for (size_t column = 0; column < table.headers.size(); ++column) {
+    if (!mapped.count(static_cast<int>(column)) && !structural.count(static_cast<int>(column)) && preserveRawColumn(table.headers[column])) {
+      preview.unmappedColumns.push_back(table.headers[column]);
+    }
+  }
+  preview.sampleRows.assign(table.rows.begin(), table.rows.begin() + min<size_t>(10, table.rows.size()));
+  return preview;
+}
+
+size_t CatalogueDatabase::reprocessSource(const CatalogueProfile& profile) {
+  if (!available_) return 0;
+  Db db;
+  if (sqlite3_open(path_.string().c_str(), &db.value) != SQLITE_OK || !exec(db.value, "BEGIN IMMEDIATE")) return 0;
+  Statement select;
+  sqlite3_prepare_v2(db.value, R"SQL(
+    SELECT properties.id, properties.source_column, properties.raw_value
+    FROM properties JOIN snapshots ON snapshots.id=properties.snapshot_id
+    WHERE snapshots.source_id=? AND properties.mapping_status='unmapped'
+  )SQL", -1, &select.value, nullptr);
+  sqlite3_bind_text(select.value, 1, profile.id.c_str(), -1, SQLITE_TRANSIENT);
+  Statement update;
+  sqlite3_prepare_v2(db.value, R"SQL(
+    UPDATE properties SET name=?,nominal=?,min_value=?,typical=?,max_value=?,tolerance=?,unit=?,condition=?,qualifier=?,
+      raw_unit=?,mapping_status='mapped',profile_id=?,profile_version=? WHERE id=?
+  )SQL", -1, &update.value, nullptr);
+  const auto bindOptional = [&](int index, const optional<double>& value) {
+    if (value) sqlite3_bind_double(update.value, index, *value); else sqlite3_bind_null(update.value, index);
+  };
+  size_t remapped = 0;
+  while (sqlite3_step(select.value) == SQLITE_ROW) {
+    const auto sourceColumn = text(select.value, 1);
+    const auto found = find_if(profile.properties.begin(), profile.properties.end(), [&](const PropertyMapping& mapping) {
+      return any_of(mapping.columns.begin(), mapping.columns.end(), [&](const string& column) {
+        return lower(trim(column)) == lower(trim(sourceColumn));
+      });
+    });
+    if (found == profile.properties.end()) continue;
+    const auto value = parseEngineeringValue(text(select.value, 2), found->unit);
+    if (!value.warning.empty()) continue;
+    sqlite3_reset(update.value); sqlite3_clear_bindings(update.value);
+    sqlite3_bind_text(update.value, 1, found->canonicalName.c_str(), -1, SQLITE_TRANSIENT);
+    bindOptional(2, value.nominal); bindOptional(3, value.minimum); bindOptional(4, value.typical);
+    bindOptional(5, value.maximum); bindOptional(6, value.tolerance);
+    sqlite3_bind_text(update.value, 7, value.unit.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(update.value, 8, value.condition.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(update.value, 9, found->qualifier.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(update.value, 10, found->unit.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(update.value, 11, profile.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(update.value, 12, profile.version.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(update.value, 13, sqlite3_column_int64(select.value, 0));
+    if (sqlite3_step(update.value) == SQLITE_DONE && sqlite3_changes(db.value) != 0) ++remapped;
+  }
+  if (!exec(db.value, "COMMIT")) { exec(db.value, "ROLLBACK"); return 0; }
+  return remapped;
+}
+
+bool CatalogueDatabase::removeSource(const string& id) {
+  Db db;
+  if (sqlite3_open(path_.string().c_str(), &db.value) != SQLITE_OK) return false;
+  string profileId = id;
+  for (const auto& source : manufacturerSources()) {
+    if (source.id == id) {
+      profileId = source.profileId;
+      break;
+    }
+  }
+  Statement statement;
+  sqlite3_prepare_v2(db.value, "DELETE FROM snapshots WHERE source_id=?", -1, &statement.value, nullptr);
+  sqlite3_bind_text(statement.value, 1, profileId.c_str(), -1, SQLITE_TRANSIENT);
+  return sqlite3_step(statement.value) == SQLITE_DONE;
+}
 vector<CatalogueImportStats> CatalogueDatabase::snapshots()const{vector<CatalogueImportStats> out;Db db;if(sqlite3_open_v2(path_.string().c_str(),&db.value,SQLITE_OPEN_READONLY,nullptr)!=SQLITE_OK)return out;Statement s;sqlite3_prepare_v2(db.value,"SELECT id,profile_id,file_hash,rows_count,parts_count,aliases_count,properties_count,warnings_count FROM snapshots ORDER BY imported_at DESC",-1,&s.value,nullptr);while(sqlite3_step(s.value)==SQLITE_ROW){CatalogueImportStats v;v.snapshotId=sqlite3_column_int64(s.value,0);v.profileId=text(s.value,1);v.fileHash=text(s.value,2);v.rows=sqlite3_column_int64(s.value,3);v.parts=sqlite3_column_int64(s.value,4);v.aliases=sqlite3_column_int64(s.value,5);v.properties=sqlite3_column_int64(s.value,6);v.warnings=sqlite3_column_int64(s.value,7);out.push_back(v);}return out;}
 
-bool applyCatalogueEnrichment(InventoryItem& item,const CatalogueMatch& match){if(!match.matched()){string next=match.status==CatalogueMatchStatus::DatabaseUnavailable?"database_unavailable":(item.cataloguePartId.empty()?"not_in_catalogue":"stale");if(item.catalogueStatus==next)return false;item.catalogueStatus=next;return true;}string before=item.cataloguePartId+item.catalogueSnapshot+item.catalogueName+item.catalogueCategory+item.catalogueStatus;item.cataloguePartId=match.record.componentId;item.catalogueSnapshot=match.record.databaseVersion;item.catalogueName=match.record.canonicalName;item.cataloguePurposeLabel=match.record.category;item.cataloguePrintLabel=match.record.canonicalName.substr(0,16);item.catalogueCategory=match.record.category;item.catalogueDatasheetUrl=match.record.datasheetUrl;item.catalogueStatus=match.status==CatalogueMatchStatus::ExactMatch?"exact_match":"alias_match";return before!=item.cataloguePartId+item.catalogueSnapshot+item.catalogueName+item.catalogueCategory+item.catalogueStatus;}
+bool applyCatalogueEnrichment(InventoryItem& item,const CatalogueMatch& match){if(!match.matched()){const string before=item.cataloguePartId+item.catalogueSnapshot+item.catalogueName+item.cataloguePurposeLabel+item.cataloguePrintLabel+item.catalogueCategory+item.catalogueDatasheetUrl+item.catalogueStatus;item.cataloguePartId.clear();item.catalogueSnapshot.clear();item.catalogueName.clear();item.cataloguePurposeLabel.clear();item.cataloguePrintLabel.clear();item.catalogueCategory.clear();item.catalogueDatasheetUrl.clear();item.catalogueStatus=match.status==CatalogueMatchStatus::DatabaseUnavailable?"database_unavailable":"not_in_catalogue";return before!=item.cataloguePartId+item.catalogueSnapshot+item.catalogueName+item.cataloguePurposeLabel+item.cataloguePrintLabel+item.catalogueCategory+item.catalogueDatasheetUrl+item.catalogueStatus;}string before=item.cataloguePartId+item.catalogueSnapshot+item.catalogueName+item.catalogueCategory+item.catalogueStatus;item.cataloguePartId=match.record.componentId;item.catalogueSnapshot=match.record.databaseVersion;item.catalogueName=match.record.canonicalName;item.cataloguePurposeLabel=match.record.category;item.cataloguePrintLabel=match.record.canonicalName.substr(0,16);item.catalogueCategory=match.record.category;item.catalogueDatasheetUrl=match.record.datasheetUrl;item.catalogueStatus=match.status==CatalogueMatchStatus::ExactMatch?"exact_match":"alias_match";return before!=item.cataloguePartId+item.catalogueSnapshot+item.catalogueName+item.catalogueCategory+item.catalogueStatus;}
 string effectiveDatasheetUrl(const InventoryItem& item){return trim(item.datasheetUrl).empty()?item.catalogueDatasheetUrl:item.datasheetUrl;}
 
 filesystem::path standardDownloadsFolder() {

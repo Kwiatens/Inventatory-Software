@@ -184,6 +184,17 @@ vector<App::Action> App::currentActions() const {
         self->setMessage("CSV import cancelled", 3);
       });
       break;
+
+    case Page::Catalogue:
+      add("get catalogue", "Source", "g", chr('g'), [self] { self->beginCatalogueDownload(); });
+      add("choose file", "Source", "f", chr('f'), [self] { self->chooseCatalogueFile(); });
+      add("re-enrich inventory", "Source", "r", chr('r'), [self] { self->reEnrichInventoryFromCatalogue(); });
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
+      break;
+
+    case Page::ScanSetup:
+    case Page::Onboarding:
+      break;
   }
 
   return actions;

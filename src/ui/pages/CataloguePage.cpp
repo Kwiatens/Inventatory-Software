@@ -1,0 +1,279 @@
+// Inventatory - local manufacturer catalogue management screen.
+#include "App.h"
+
+#include "ui/shared/AppUiShared.h"
+
+#include <algorithm>
+#include <chrono>
+
+namespace inventatory {
+
+using namespace std;
+
+namespace {
+ftxui::Element settingLine(const string& label, const string& value, int width) {
+  const int labelWidth = min(22, max(14, width / 3));
+  return ftxui::hbox({
+             styledText(" " + label, uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
+             styledText(ellipsize(value, static_cast<size_t>(max(8, width - labelWidth - 2))), uiPrimaryText()),
+             ftxui::filler(),
+         }) |
+         ftxui::bgcolor(uiSurfaceBg());
+}
+
+const ManufacturerSource* selectedSource(const size_t selection) {
+  const auto& sources = manufacturerSources();
+  return selection < sources.size() ? &sources[selection] : nullptr;
+}
+
+const CatalogueProfile* profileFor(const ManufacturerSource& source) {
+  for (const auto& profile : catalogueProfiles()) if (profile.id == source.profileId) return &profile;
+  return nullptr;
+}
+}  // namespace
+
+void App::beginCatalogueDownload() {
+  const auto* source = selectedSource(catalogueSourceSelection_);
+  if (!source) return;
+  if (!catalogueDownloadSession_.start(*source)) {
+    setMessage("Downloads folder is unavailable; choose the exported CSV or XLSX file manually", 6);
+    return;
+  }
+  if (!openUrl(source->officialDownloadPage)) {
+    catalogueDownloadSession_.cancel();
+    setMessage("Could not open the official selector; choose the exported file manually", 6);
+    return;
+  }
+  catalogueFlow_ = CatalogueFlow::WaitingForDownload;
+  setMessage("Official selector opened. Waiting only for a new local download.", 6);
+  dirty_ = true;
+}
+
+void App::chooseCatalogueFile() {
+  filesystem::path selected;
+  if (!openCatalogueFileDialog(selected)) return;
+  catalogueDownloadSession_.cancel();
+  catalogueSelectedPath_ = move(selected);
+  const auto* source = selectedSource(catalogueSourceSelection_);
+  cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, source ? profileFor(*source) : nullptr);
+  if (!cataloguePreview_.valid()) {
+    setMessage(cataloguePreview_.error, 7);
+    return;
+  }
+  catalogueFlow_ = CatalogueFlow::Preview;
+  setMessage("Catalogue selected. Review the source and press Enter to import.", 5);
+  dirty_ = true;
+}
+
+void App::beginCatalogueImport() {
+  const auto* source = selectedSource(catalogueSourceSelection_);
+  const auto* profile = source ? profileFor(*source) : nullptr;
+  if (catalogueSelectedPath_.empty() || !profile) {
+    setMessage("Select a manufacturer source and a CSV or XLSX file first", 4);
+    return;
+  }
+  catalogueImportCancelled_.store(false);
+  {
+    lock_guard<mutex> lock(catalogueProgressMutex_);
+    catalogueProgress_ = {0, 0, "Preparing import"};
+  }
+  const auto path = catalogueSelectedPath_;
+  catalogueFlow_ = CatalogueFlow::Importing;
+  catalogueImportFuture_ = async(launch::async, [this, path, profile] {
+    CatalogueImportOptions options;
+    options.cancel = &catalogueImportCancelled_;
+    options.progress = [this](size_t completed, size_t total, const string& stage) {
+      lock_guard<mutex> lock(catalogueProgressMutex_);
+      catalogueProgress_ = {completed, total, stage};
+    };
+    return catalogueDatabase_.importFile(path, profile, options);
+  });
+  dirty_ = true;
+}
+
+void App::pollCatalogueImport() {
+  if (catalogueFlow_ == CatalogueFlow::WaitingForDownload) {
+    if (const auto detected = catalogueDownloadSession_.poll()) {
+      catalogueSelectedPath_ = *detected;
+      const auto* source = selectedSource(catalogueSourceSelection_);
+      cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, source ? profileFor(*source) : nullptr);
+      if (!cataloguePreview_.valid()) {
+        catalogueFlow_ = CatalogueFlow::Sources;
+        setMessage(cataloguePreview_.error, 7);
+        dirty_ = true;
+        return;
+      }
+      catalogueFlow_ = CatalogueFlow::Preview;
+      setMessage("Catalogue detected. Review it before importing.", 5);
+      dirty_ = true;
+    }
+    return;
+  }
+  if (catalogueFlow_ != CatalogueFlow::Importing || !catalogueImportFuture_.valid() ||
+      catalogueImportFuture_.wait_for(chrono::milliseconds(0)) != future_status::ready) return;
+  catalogueImportResult_ = catalogueImportFuture_.get();
+  catalogueFlow_ = CatalogueFlow::Results;
+  if (!catalogueImportResult_.error.empty()) setMessage(catalogueImportResult_.error, 8);
+  else if (catalogueImportResult_.cancelled) setMessage("Catalogue import cancelled; the previous snapshot is unchanged", 6);
+  else if (catalogueImportResult_.duplicate) setMessage("This exact catalogue snapshot is already installed", 5);
+  else setMessage("Catalogue import completed", 5);
+  dirty_ = true;
+}
+
+void App::reEnrichInventoryFromCatalogue() {
+  size_t changed = 0;
+  for (auto& item : store_.items()) {
+    if (applyCatalogueEnrichment(item, catalogueDatabase_.lookup(item.manufacturer, item.manufacturerPartNumber))) ++changed;
+  }
+  if (changed != 0 && !saveState()) return;
+  setMessage(to_string(changed) + " inventory item" + (changed == 1 ? " was" : "s were") + " re-enriched", 5);
+}
+
+ftxui::Element App::renderCatalogueUi() const {
+  auto self = const_cast<App*>(this);
+  const auto& sources = manufacturerSources();
+  const auto snapshots = catalogueDatabase_.snapshots();
+  ftxui::Elements rows;
+  rows.push_back(styledText("ELECTRICAL DATA SOURCES", uiPrimaryText()) | ftxui::bold);
+  rows.push_back(styledText("Local-only manufacturer parametric catalogues. Inventatory never fetches or redistributes them.", uiMutedText()));
+  rows.push_back(uiDivider());
+
+  if (catalogueRemovalConfirmation_) {
+    const auto* source = selectedSource(catalogueSourceSelection_);
+    rows.push_back(styledText("REMOVE LOCAL CATALOGUE?", uiDangerColor()) | ftxui::bold);
+    rows.push_back(styledText(source ? source->displayName : "Selected source", uiPrimaryText()));
+    rows.push_back(styledText("Catalogue rows and their local indexes will be removed. Inventory quantities, locations, labels, notes, and manual fields are preserved.", uiMutedText()));
+    rows.push_back(styledText("Enter remove   Esc keep catalogue", uiDangerColor()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
+
+  if (catalogueFlow_ == CatalogueFlow::WaitingForDownload) {
+    const auto* source = selectedSource(catalogueSourceSelection_);
+    rows.push_back(styledText("WAITING FOR CATALOGUE", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(styledText(source ? source->displayName : "Selected manufacturer", uiTitleColor()));
+    rows.push_back(styledText("Watching: " + catalogueDownloadSession_.watchedDirectory().string(), uiMutedText()));
+    rows.push_back(styledText("Waiting for a newly downloaded CSV or XLSX file. Partial browser files are ignored.", uiMutedText()));
+    rows.push_back(styledText("O open official page again   F choose file manually   C cancel", uiInteractiveColor()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
+  if (catalogueFlow_ == CatalogueFlow::Preview) {
+    const auto* source = selectedSource(catalogueSourceSelection_);
+    const auto& preview = cataloguePreview_;
+    rows.push_back(styledText("CATALOGUE READY TO IMPORT", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(settingLine("Manufacturer", source ? source->displayName : "Unknown", 70));
+    rows.push_back(settingLine("File", catalogueSelectedPath_.filename().string(), 70));
+    rows.push_back(settingLine("Format", preview.format, 70));
+    rows.push_back(settingLine("Size", to_string(preview.fileSize / 1024) + " KB", 70));
+    rows.push_back(settingLine("Profile", preview.profileId + " v" + preview.profileVersion, 70));
+    if (!preview.sheetName.empty()) rows.push_back(settingLine("Worksheet", preview.sheetName + " · header row " + to_string(preview.headerRow + 1), 70));
+    else rows.push_back(settingLine("CSV", string("delimiter ") + preview.delimiter + " · " + to_string(preview.rows) + " rows", 70));
+    rows.push_back(styledText("Mapped: " + to_string(preview.mappedColumns.size()) + " properties · preserved unmapped: " + to_string(preview.unmappedColumns.size()), uiSuccessColor()));
+    for (const auto& warning : preview.warnings) rows.push_back(styledText("Warning: " + warning, uiWarnColor()));
+    if (!preview.sampleRows.empty()) {
+      rows.push_back(styledText("FIRST ROWS", uiSecondaryText()) | ftxui::bold);
+      for (size_t row = 0; row < min<size_t>(3, preview.sampleRows.size()); ++row) {
+        string line;
+        for (size_t column = 0; column < min<size_t>(3, preview.sampleRows[row].size()); ++column) {
+          if (!line.empty()) line += " · ";
+          line += ellipsize(preview.sampleRows[row][column], 24);
+        }
+        rows.push_back(styledText("  " + line, uiMutedText()));
+      }
+    }
+    rows.push_back(styledText("The validated source is committed only after you press Import.", uiMutedText()));
+    rows.push_back(styledText("Enter import   F choose another file   Esc cancel", uiInteractiveColor()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
+  if (catalogueFlow_ == CatalogueFlow::Importing) {
+    CatalogueProgress progress;
+    { lock_guard<mutex> lock(catalogueProgressMutex_); progress = catalogueProgress_; }
+    rows.push_back(styledText("IMPORTING CATALOGUE", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(styledText(progress.stage.empty() ? "Working locally..." : progress.stage, uiTitleColor()));
+    rows.push_back(styledText(progress.total ? to_string(progress.completed) + " / " + to_string(progress.total) + " rows"
+                                           : to_string(progress.completed) + " rows processed", uiMutedText()));
+    rows.push_back(styledText("Esc cancels safely; no partial snapshot becomes active.", uiMutedText()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
+  if (catalogueFlow_ == CatalogueFlow::Results) {
+    const auto& result = catalogueImportResult_;
+    rows.push_back(styledText(result.error.empty() ? "CATALOGUE IMPORT RESULT" : "CATALOGUE IMPORT FAILED", result.error.empty() ? uiSuccessColor() : uiDangerColor()) | ftxui::bold);
+    rows.push_back(settingLine("Parts", to_string(result.parts), 70));
+    rows.push_back(settingLine("Aliases", to_string(result.aliases), 70));
+    rows.push_back(settingLine("Properties", to_string(result.properties), 70));
+    rows.push_back(settingLine("Warnings", to_string(result.warnings), 70));
+    rows.push_back(settingLine("Rejected rows", to_string(result.rejected), 70));
+    rows.push_back(styledText("R re-enrich inventory   Esc return to sources", uiInteractiveColor()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
+
+  string lastGroup;
+  for (size_t index = 0; index < sources.size(); ++index) {
+    const auto& source = sources[index];
+    const string group = index < 4 ? "PASSIVES" : index == 4 ? "ACTIVE COMPONENTS" : "INTEGRATED CIRCUITS";
+    if (group != lastGroup) { rows.push_back(styledText(group, uiSecondaryText()) | ftxui::bold); lastGroup = group; }
+    const auto installed = find_if(snapshots.begin(), snapshots.end(), [&](const CatalogueImportStats& snapshot) { return snapshot.profileId == source.profileId; });
+    const bool isInstalled = installed != snapshots.end();
+    string status = isInstalled ? "Installed · " + to_string(installed->parts) + " parts" : "Not installed";
+    const bool selected = index == catalogueSourceSelection_;
+    auto line = ftxui::hbox({styledText(" " + source.displayName, selected ? uiTitleColor() : uiPrimaryText()) | ftxui::bold,
+                             ftxui::filler(), styledText(status + "  ", isInstalled ? uiSuccessColor() : uiMutedColor())});
+    rows.push_back(target(line, "catalogue.source." + source.id, UiTargetKind::Row, [self, index] { self->catalogueSourceSelection_ = index; self->dirty_ = true; }));
+    rows.push_back(styledText("   " + source.supportedCategories.front() + " · " + (isInstalled ? "G update  F different file  R re-enrich  X remove" : "G get catalogue  F choose file"), uiMutedText()));
+  }
+  rows.push_back(ftxui::filler());
+  rows.push_back(styledText("↑↓ select   G open official selector   F choose CSV/XLSX   R re-enrich   X remove", uiInteractiveColor()));
+  return ftxui::vbox(move(rows)) | ftxui::flex;
+}
+
+void App::handleCatalogueKey(const KeyEvent& key) {
+  if (catalogueRemovalConfirmation_) {
+    if (key.type == KeyType::Enter) {
+      const auto* source = selectedSource(catalogueSourceSelection_);
+      if (source && catalogueDatabase_.removeSource(source->id)) {
+        catalogueRemovalConfirmation_ = false;
+        reEnrichInventoryFromCatalogue();
+        setMessage(source->displayName + " catalogue removed; inventory remains intact", 6);
+      } else {
+        catalogueRemovalConfirmation_ = false;
+        setMessage("Could not remove the local catalogue", 5);
+      }
+      dirty_ = true;
+    } else if (key.type == KeyType::Escape) {
+      catalogueRemovalConfirmation_ = false;
+      dirty_ = true;
+    }
+    return;
+  }
+  if (catalogueFlow_ == CatalogueFlow::WaitingForDownload) {
+    if (key.type == KeyType::Character && (key.ch == 'c' || key.ch == 'C')) { catalogueDownloadSession_.cancel(); catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; }
+    else if (key.type == KeyType::Character && (key.ch == 'f' || key.ch == 'F')) chooseCatalogueFile();
+    else if (key.type == KeyType::Character && (key.ch == 'o' || key.ch == 'O')) beginCatalogueDownload();
+    return;
+  }
+  if (catalogueFlow_ == CatalogueFlow::Preview) {
+    if (key.type == KeyType::Enter) beginCatalogueImport();
+    else if (key.type == KeyType::Escape) { catalogueSelectedPath_.clear(); catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; }
+    else if (key.type == KeyType::Character && (key.ch == 'f' || key.ch == 'F')) chooseCatalogueFile();
+    return;
+  }
+  if (catalogueFlow_ == CatalogueFlow::Importing) { if (key.type == KeyType::Escape) catalogueImportCancelled_.store(true); return; }
+  if (catalogueFlow_ == CatalogueFlow::Results) { if (key.type == KeyType::Escape) { catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; } else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue(); return; }
+  if (key.type == KeyType::Up && catalogueSourceSelection_ > 0) --catalogueSourceSelection_;
+  else if (key.type == KeyType::Down && catalogueSourceSelection_ + 1 < manufacturerSources().size()) ++catalogueSourceSelection_;
+  else if (key.type == KeyType::Enter || (key.type == KeyType::Character && (key.ch == 'g' || key.ch == 'G'))) beginCatalogueDownload();
+  else if (key.type == KeyType::Character && (key.ch == 'f' || key.ch == 'F')) chooseCatalogueFile();
+  else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue();
+  else if (key.type == KeyType::Character && (key.ch == 'x' || key.ch == 'X')) {
+    const auto* source = selectedSource(catalogueSourceSelection_);
+    const auto snapshots = catalogueDatabase_.snapshots();
+    if (source && any_of(snapshots.begin(), snapshots.end(), [&](const CatalogueImportStats& snapshot) { return snapshot.profileId == source->profileId; })) {
+      catalogueRemovalConfirmation_ = true;
+    } else {
+      setMessage("No installed catalogue exists for this source", 4);
+    }
+  }
+  else if (key.type == KeyType::Escape) changePage(Page::Home);
+  dirty_ = true;
+}
+
+}  // namespace inventatory

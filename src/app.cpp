@@ -216,6 +216,8 @@ std::string App::pageName() const {
       return "Scan R1 Setup";
     case Page::Settings:
       return "Settings";
+    case Page::Catalogue:
+      return "Electrical data sources";
     case Page::Onboarding:
       return "First-time setup";
   }
@@ -257,6 +259,7 @@ ftxui::Element App::renderHeaderUi() const {
       nav(Page::Racks, "nav.racks", "3 Racks"),
       nav(Page::Import, "nav.import", "4 Import"),
       nav(Page::Settings, "nav.settings", "5 Settings"),
+      nav(Page::Catalogue, "nav.catalogues", "6 Sources"),
   });
 
   auto dotSep = [] { return styledText("   ", uiDimColor()); };
@@ -293,6 +296,8 @@ ftxui::Element App::renderPageUi() const {
       return renderInventatoryScanSetupUi();
     case Page::Settings:
       return renderSettingsUi();
+    case Page::Catalogue:
+      return renderCatalogueUi();
     case Page::Onboarding:
       return renderOnboardingUi();
   }
@@ -349,6 +354,13 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Settings";
         contextText = settingsCategoryName(settingsCategory_) +
                       (settingsDirty_ ? " · unsaved changes" : " · saved");
+        break;
+      case Page::Catalogue:
+        contextTitle = "Electrical data";
+        contextText = catalogueFlow_ == CatalogueFlow::WaitingForDownload ? "Waiting for a browser download"
+                      : catalogueFlow_ == CatalogueFlow::Preview ? "Preview ready: Enter imports, Esc cancels"
+                      : catalogueFlow_ == CatalogueFlow::Importing ? "Import in progress"
+                      : "Choose a manufacturer source";
         break;
     }
   }
@@ -420,6 +432,7 @@ void App::processBackgroundWork() {
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();
+  pollCatalogueImport();
 }
 
 void App::runBackgroundLoop() {
@@ -565,6 +578,7 @@ void App::handleKey(const KeyEvent& key) {
       case '3': changePage(Page::Racks); return;
       case '4': changePage(Page::Import); return;
       case '5': changePage(Page::Settings); return;
+      case '6': changePage(Page::Catalogue); return;
       default: break;
     }
   }
@@ -597,6 +611,12 @@ void App::handleKey(const KeyEvent& key) {
       break;
     case Page::Settings:
       handleSettingsKey(key);
+      break;
+    case Page::Catalogue:
+      handleCatalogueKey(key);
+      break;
+    case Page::Onboarding:
+      handleOnboardingKey(key);
       break;
   }
 }
