@@ -23,6 +23,7 @@
 #include <iostream>
 #include <iterator>
 #include <atomic>
+#include <chrono>
 #include <unordered_map>
 
 #undef assert
@@ -53,6 +54,49 @@ bool writeSyntheticXlsx(const filesystem::path& path) {
       add("xl/worksheets/cover.xml", R"xml(<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Catalogue export</t></is></c></row></sheetData></worksheet>)xml") &&
       add("xl/worksheets/products.xml", R"xml(<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Orderable Part Number</t></is></c><c r="B1" t="inlineStr"><is><t>Generic Part Number</t></is></c><c r="C1" t="inlineStr"><is><t>Package</t></is></c><c r="D1" t="inlineStr"><is><t>Channels</t></is></c><c r="E1" t="inlineStr"><is><t>Supply voltage (min)</t></is></c><c r="F1" t="inlineStr"><is><t>Supply voltage (max)</t></is></c><c r="G1" t="inlineStr"><is><t>Shutdown current</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>OPA333AIDBVR</t></is></c><c r="B2" t="inlineStr"><is><t>OPA333</t></is></c><c r="C2" s="1"><v>402</v></c><c r="D2"><f>1+1</f><v>2</v></c><c r="E2" t="inlineStr"><is><t>1.8 V</t></is></c><c r="F2" t="inlineStr"><is><t>5.5 V</t></is></c><c r="G2" t="inlineStr"><is><t>1 µA</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>OPA333AIDBVR-REEL</t></is></c><c r="B3" t="inlineStr"><is><t>OPA333</t></is></c><c r="C3" s="1"><v>201</v></c><c r="E3" t="inlineStr"><is><t>1.8 V</t></is></c><c r="F3" t="inlineStr"><is><t>5.5 V</t></is></c><c r="G3" t="inlineStr"><is><t>1 µA</t></is></c></row></sheetData></worksheet>)xml");
   return written && mz_zip_writer_finalize_archive(&archive) != 0 && mz_zip_writer_end(&archive) != 0;
+}
+
+int runCatalogueBenchmark(size_t requestedRows = 0) {
+  using clock = chrono::steady_clock;
+  const vector<size_t> sizes = {10000, 100000, 500000};
+  for (const auto rows : sizes) {
+    if (requestedRows != 0 && rows != requestedRows) continue;
+    const auto databasePath = filesystem::temp_directory_path() / ("inventatory-catalogue-benchmark-" + to_string(rows) + ".db");
+    const auto csvPath = filesystem::temp_directory_path() / ("TI_catalogue_benchmark_" + to_string(rows) + ".csv");
+    error_code ignored;
+    filesystem::remove(databasePath, ignored);
+    filesystem::remove(csvPath, ignored);
+    {
+      ofstream csv(csvPath, ios::binary | ios::trunc);
+      csv << "Orderable Part Number,Generic Part Number,Package,Channels,Supply voltage (min),Supply voltage (max),Shutdown current\n";
+      for (size_t row = 0; row < rows; ++row) {
+        const auto identifier = "BENCH" + to_string(row);
+        csv << identifier << ",BASE" << row << ",0402,2,1.8 V,5.5 V,1 uA\n";
+      }
+    }
+    {
+      CatalogueDatabase database;
+      if (!database.open(databasePath)) return 2;
+      const auto importStart = clock::now();
+      const auto imported = database.importFile(csvPath);
+      const auto importElapsed = chrono::duration_cast<chrono::milliseconds>(clock::now() - importStart).count();
+      if (!imported.error.empty() || imported.parts != rows) return 3;
+      const auto lookupStart = clock::now();
+      for (size_t lookup = 0; lookup < 100; ++lookup) {
+        const auto result = database.lookup("Texas Instruments", "BENCH" + to_string((lookup * 7919) % rows));
+        if (!result.matched()) return 4;
+      }
+      const auto lookupElapsed = chrono::duration_cast<chrono::microseconds>(clock::now() - lookupStart).count();
+      cout << "catalogue benchmark rows=" << rows << " import_ms=" << importElapsed
+           << " db_bytes=" << filesystem::file_size(databasePath)
+           << " lookup_avg_us=" << (lookupElapsed / 100) << endl;
+    }
+    filesystem::remove(csvPath, ignored);
+    filesystem::remove(databasePath, ignored);
+    filesystem::remove(databasePath.string() + "-shm", ignored);
+    filesystem::remove(databasePath.string() + "-wal", ignored);
+  }
+  return 0;
 }
 
 vector<InventoryItem> makeSampleInventory() {
@@ -134,6 +178,9 @@ class MockPrinterBackend final : public PrinterBackend {
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc >= 2 && string(argv[1]) == "--catalogue-benchmark") {
+    return runCatalogueBenchmark(argc == 3 ? stoull(argv[2]) : 0);
+  }
   {
     auto items = makeSampleInventory();
     assert(!items.empty());
