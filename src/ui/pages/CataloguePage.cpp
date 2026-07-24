@@ -279,6 +279,11 @@ ftxui::Element App::renderCatalogueUi() const {
     auto line = ftxui::hbox({styledText(" " + source.displayName, selected ? uiTitleColor() : uiPrimaryText()) | ftxui::bold,
                              ftxui::filler(), styledText(status + "  ", isInstalled ? uiSuccessColor() : uiMutedColor())});
     rows.push_back(target(line, "catalogue.source." + source.id, UiTargetKind::Row, [self, index] { self->catalogueSourceSelection_ = index; self->dirty_ = true; }));
+    if (selected && isInstalled) {
+      rows.push_back(styledText("   Last import: " + installed->filename + " · profile v" + installed->profileVersion +
+                                " · " + to_string(installed->properties) + " properties · " +
+                                to_string(installed->warnings) + " warnings", uiMutedText()));
+    }
     rows.push_back(styledText("   " + source.supportedCategories.front() + " · " + (isInstalled ? "G update  F different file  R re-enrich  X remove" : "G get catalogue  F choose file"), uiMutedText()));
   }
   rows.push_back(ftxui::filler());
