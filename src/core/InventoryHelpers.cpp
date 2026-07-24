@@ -208,15 +208,15 @@ bool InventoryItem::lowStock() const {
 }
 
 bool InventoryItem::hasMissingMetadata() const {
-  return partName.empty() || manufacturerPartNumber.empty() || enrichmentStatus != "matched";
+  return partName.empty() || manufacturerPartNumber.empty() || catalogueStatus != "matched";
 }
 
 string InventoryItem::searchableText() const {
   ostringstream out;
   out << partName << ' ' << manufacturer << ' ' << category << ' ' << location << ' ' << notes << ' '
-      << manufacturerPartNumber << ' ' << datasheetUrl << ' ' << iecdDatasheetUrl << ' ' << machineCode << ' '
-      << inventatoryId << ' ' << enrichmentStatus << ' ' << iecdCanonicalName << ' ' << iecdPurposeLabel << ' '
-      << iecdCategory;
+      << manufacturerPartNumber << ' ' << datasheetUrl << ' ' << catalogueDatasheetUrl << ' ' << machineCode << ' '
+      << inventatoryId << ' ' << catalogueStatus << ' ' << catalogueName << ' ' << cataloguePurposeLabel << ' '
+      << catalogueCategory;
 
   for (const auto& tag : tags) {
     out << ' ' << tag;

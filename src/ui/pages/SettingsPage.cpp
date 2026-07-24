@@ -218,8 +218,8 @@ bool App::saveSettingsDraft() {
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
-    iecdPath_ = dataPath_ / "iecd.sqlite3";
-    iecdDatabase_.open(iecdPath_);
+    cataloguePath_ = dataPath_ / "catalogues.db";
+    catalogueDatabase_.open(cataloguePath_);
     ensureInventoryDatabaseCopied(inventoryPath_);
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     loadState();
@@ -341,24 +341,13 @@ ftxui::Element App::renderSettingsUi() const {
                                contentWidth));
     rows.push_back(styledText("Installed firmware is reported by the paired Scan R1.", uiMutedText()));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("COMPONENT DATABASE", uiSecondaryText()) | ftxui::bold);
-    rows.push_back(target(settingLine("Daily IECD check", settingsDraft_.iecdUpdateChecksEnabled ? "On" : "Off", contentWidth),
-                          "settings.updates.database", UiTargetKind::Field, [self] {
-                            self->settingsDraft_.iecdUpdateChecksEnabled = !self->settingsDraft_.iecdUpdateChecksEnabled;
-                            self->settingsDirty_ = true;
-                            self->dirty_ = true;
-                          }));
-    rows.push_back(settingLine("Installed snapshot",
-                               settings_.installedIecdVersion.empty() ? "Unavailable" : settings_.installedIecdVersion,
-                               contentWidth));
-    rows.push_back(target(styledText(" Check IECD now ", uiInteractiveColor(), uiRaisedSurfaceBg()),
-                          "settings.updates.check_database", UiTargetKind::Button, [self] {
-                            self->settings_.lastIecdUpdateCheckUnixSeconds = 0;
-                            self->beginIecdUpdateIfDue();
-                            self->setMessage("Checking for a signed IECD snapshot...", 4);
-                          }));
-    rows.push_back(styledText("Updates are signature-checked, installed atomically, and keep the previous valid snapshot.",
-                              uiMutedText()));
+    rows.push_back(styledText("ELECTRICAL DATA SOURCES", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(settingLine("Storage", "Local only · catalogues.db", contentWidth));
+    rows.push_back(styledText("Manufacturer catalogues are imported from files you obtain; no catalogue data is uploaded.", uiMutedText()));
+    rows.push_back(styledText("Murata · TDK · KEMET/Yageo · Vishay", uiSecondaryText()));
+    rows.push_back(styledText("Nexperia · Texas Instruments · Analog Devices · Microchip", uiSecondaryText()));
+    rows.push_back(styledText("All current sources: Browser-guided · automatic download disabled", uiMutedText()));
+    rows.push_back(styledText("Use the official selector, export CSV/XLSX, then choose the downloaded file.", uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Configured queue",
