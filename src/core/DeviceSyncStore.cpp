@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// Durable inbox and result delivery for Inventatory Scan protocol v2.
+// Durable inbox and result delivery for Inventatory Scan protocol v1.
 
 #include "core/InventatoryScanProtocol.h"
 
@@ -17,22 +17,18 @@ using namespace std;
 namespace {
 
 bool ensureDeviceSyncSchema(SqliteConnection& connection) {
-  if (!execSql(connection, R"SQL(
+  return execSql(connection, R"SQL(
     CREATE TABLE IF NOT EXISTS inventatory_device_events (
       event_id TEXT PRIMARY KEY,
       device_id TEXT NOT NULL,
       event_type TEXT NOT NULL,
       event_code TEXT NOT NULL,
       event_value INTEGER NOT NULL,
-      component_manufacturer TEXT NOT NULL DEFAULT '',
-      component_mpn TEXT NOT NULL DEFAULT '',
-      component_name TEXT NOT NULL DEFAULT '',
       state TEXT NOT NULL DEFAULT 'received',
       result_id TEXT NOT NULL DEFAULT '',
       result_status TEXT NOT NULL DEFAULT '',
       result_existing INTEGER NOT NULL DEFAULT 0,
       result_item_name TEXT NOT NULL DEFAULT '',
-      result_purpose_label TEXT NOT NULL DEFAULT '',
       result_requested_delta INTEGER NOT NULL DEFAULT 0,
       result_applied_delta INTEGER NOT NULL DEFAULT 0,
       result_quantity INTEGER NOT NULL DEFAULT 0,
@@ -43,16 +39,7 @@ bool ensureDeviceSyncSchema(SqliteConnection& connection) {
       received_at INTEGER NOT NULL DEFAULT 0,
       completed_at INTEGER NOT NULL DEFAULT 0
     )
-  )SQL")) return false;
-  if (!tableColumnExists(connection, "inventatory_device_events", "component_manufacturer") &&
-      !execSql(connection, "ALTER TABLE inventatory_device_events ADD COLUMN component_manufacturer TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_device_events", "component_mpn") &&
-      !execSql(connection, "ALTER TABLE inventatory_device_events ADD COLUMN component_mpn TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_device_events", "component_name") &&
-      !execSql(connection, "ALTER TABLE inventatory_device_events ADD COLUMN component_name TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_device_events", "result_purpose_label") &&
-      !execSql(connection, "ALTER TABLE inventatory_device_events ADD COLUMN result_purpose_label TEXT NOT NULL DEFAULT ''")) return false;
-  return execSql(connection,
+  )SQL") && execSql(connection,
       "CREATE INDEX IF NOT EXISTS idx_inventatory_device_events_delivery "
       "ON inventatory_device_events(device_id, state, result_acknowledged, completed_at)");
 }
@@ -71,9 +58,8 @@ bool insertEvent(SqliteConnection& connection, const string& deviceId, const Dev
   SqliteStatement statement;
   const char* sql = R"SQL(
     INSERT OR IGNORE INTO inventatory_device_events
-      (event_id, device_id, event_type, event_code, event_value,
-       component_manufacturer, component_mpn, component_name, received_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (event_id, device_id, event_type, event_code, event_value, received_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
   sqliteApi().bind_text(statement.stmt, 1, event.eventId.c_str(), -1, SQLITE_TRANSIENT);
@@ -81,10 +67,7 @@ bool insertEvent(SqliteConnection& connection, const string& deviceId, const Dev
   sqliteApi().bind_text(statement.stmt, 3, event.type.c_str(), -1, SQLITE_TRANSIENT);
   sqliteApi().bind_text(statement.stmt, 4, event.code.c_str(), -1, SQLITE_TRANSIENT);
   sqliteApi().bind_int(statement.stmt, 5, event.value);
-  sqliteApi().bind_text(statement.stmt, 6, event.manufacturer.c_str(), -1, SQLITE_TRANSIENT);
-  sqliteApi().bind_text(statement.stmt, 7, event.manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
-  sqliteApi().bind_text(statement.stmt, 8, event.encodedPartName.c_str(), -1, SQLITE_TRANSIENT);
-  sqliteApi().bind_int64(statement.stmt, 9, static_cast<sqlite3_int64>(time(nullptr)));
+  sqliteApi().bind_int64(statement.stmt, 6, static_cast<sqlite3_int64>(time(nullptr)));
   return sqliteApi().step(statement.stmt) == SQLITE_DONE;
 }
 
@@ -118,7 +101,7 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
   vector<DeviceSyncResult> results;
   SqliteStatement statement;
   const char* sql = R"SQL(
-    SELECT result_id, event_id, result_status, result_existing, result_item_name, result_purpose_label,
+    SELECT result_id, event_id, result_status, result_existing, result_item_name,
            result_requested_delta, result_applied_delta, result_quantity, result_location,
            result_code, result_message
     FROM inventatory_device_events
@@ -135,13 +118,12 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
     result.status = sqliteText(statement.stmt, 2);
     result.existing = sqliteApi().column_int(statement.stmt, 3) != 0;
     result.itemName = sqliteText(statement.stmt, 4);
-    result.purposeLabel = sqliteText(statement.stmt, 5);
-    result.requestedDelta = sqliteApi().column_int(statement.stmt, 6);
-    result.appliedDelta = sqliteApi().column_int(statement.stmt, 7);
-    result.quantity = sqliteApi().column_int(statement.stmt, 8);
-    result.location = sqliteText(statement.stmt, 9);
-    result.code = sqliteText(statement.stmt, 10);
-    result.message = sqliteText(statement.stmt, 11);
+    result.requestedDelta = sqliteApi().column_int(statement.stmt, 5);
+    result.appliedDelta = sqliteApi().column_int(statement.stmt, 6);
+    result.quantity = sqliteApi().column_int(statement.stmt, 7);
+    result.location = sqliteText(statement.stmt, 8);
+    result.code = sqliteText(statement.stmt, 9);
+    result.message = sqliteText(statement.stmt, 10);
     results.push_back(move(result));
   }
   return results;
@@ -180,7 +162,7 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
 #else
   (void)databasePath;
   (void)request;
-  error = "Protocol v2 persistence requires SQLite";
+  error = "Protocol v1 persistence requires SQLite";
   return false;
 #endif
 }
@@ -192,17 +174,14 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return events;
   SqliteStatement statement;
   const char* sql = R"SQL(
-    SELECT event_id, event_type, event_code, event_value,
-           component_manufacturer, component_mpn, component_name
+    SELECT event_id, event_type, event_code, event_value
     FROM inventatory_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return events;
   sqliteApi().bind_int(statement.stmt, 1, static_cast<int>(limit));
   while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
     events.push_back({sqliteText(statement.stmt, 0), sqliteText(statement.stmt, 1),
-                      sqliteText(statement.stmt, 2), sqliteApi().column_int(statement.stmt, 3),
-                      sqliteText(statement.stmt, 4), sqliteText(statement.stmt, 5),
-                      sqliteText(statement.stmt, 6)});
+                      sqliteText(statement.stmt, 2), sqliteApi().column_int(statement.stmt, 3)});
   }
 #else
   (void)databasePath;
@@ -229,18 +208,19 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
 
   SqliteStatement statement;
   constexpr char kLookupSql[] =
-      "SELECT CASE WHEN catalogue_canonical_name<>'' THEN catalogue_canonical_name ELSE part_name END, catalogue_purpose_label FROM inventatory_items "
-      "WHERE machine_code=? COLLATE NOCASE OR manufacturer_part_number=? COLLATE NOCASE LIMIT 1";
+      "SELECT part_name FROM inventatory_items "
+      "WHERE machine_code=? COLLATE NOCASE OR digikey_part_number=? COLLATE NOCASE "
+      "OR sku=? COLLATE NOCASE LIMIT 1";
   if (sqliteApi().prepare_v2(connection.db, kLookupSql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
     result.status = "unavailable";
     return result;
   }
   sqliteApi().bind_text(statement.stmt, 1, code.c_str(), -1, SQLITE_TRANSIENT);
   sqliteApi().bind_text(statement.stmt, 2, code.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 3, code.c_str(), -1, SQLITE_TRANSIENT);
   if (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
     result.status = "found";
     result.itemName = sqliteText(statement.stmt, 0);
-    result.purposeLabel = sqliteText(statement.stmt, 1);
     return result;
   }
   result.status = "not_found";
@@ -267,7 +247,6 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   commit.status = result.status;
   commit.existing = result.existing;
   commit.itemName = result.itemName;
-  commit.purposeLabel = result.purposeLabel;
   commit.requestedDelta = result.requestedDelta;
   commit.appliedDelta = result.appliedDelta;
   commit.quantity = result.quantity;
