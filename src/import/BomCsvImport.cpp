@@ -179,7 +179,7 @@ CsvImportResult parseBomCsvText(const string& text, const vector<InventoryItem>&
     candidate.item.tags = splitTags(cell(rows[index], columns.tags));
     candidate.item.tags.push_back("csv-import");
     candidate.item.datasheetUrl = cell(rows[index], columns.datasheet);
-    candidate.item.enrichmentStatus = "not_in_iecd";
+    candidate.item.catalogueStatus = "not_in_catalogue";
     candidate.item.createdAt = candidate.item.lastUpdated = time(nullptr);
     detectConflict(candidate, existingItems);
     result.candidates.push_back(move(candidate));

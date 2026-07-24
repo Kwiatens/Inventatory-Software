@@ -162,10 +162,10 @@ string serializeItem(const InventoryItem& item) {
        << quoted(item.location) << '\t' << quoted(serializeTagsForStorage(item.tags)) << '\t'
        << quoted(serializeParametersForStorage(item.parameters))
       << '\t' << quoted(item.notes) << '\t' << quoted(item.manufacturerPartNumber) << '\t' << quoted(item.datasheetUrl)
-      << '\t' << quoted(item.enrichmentStatus) << '\t' << quoted(item.iecdComponentId) << '\t'
-      << quoted(item.iecdVersion) << '\t' << quoted(item.iecdCanonicalName) << '\t'
-      << quoted(item.iecdPurposeLabel) << '\t' << quoted(item.iecdPrintLabel) << '\t'
-      << quoted(item.iecdCategory) << '\t' << quoted(item.iecdDatasheetUrl) << '\t'
+      << '\t' << quoted(item.catalogueStatus) << '\t' << quoted(item.cataloguePartId) << '\t'
+      << quoted(item.catalogueSnapshot) << '\t' << quoted(item.catalogueName) << '\t'
+      << quoted(item.cataloguePurposeLabel) << '\t' << quoted(item.cataloguePrintLabel) << '\t'
+      << quoted(item.catalogueCategory) << '\t' << quoted(item.catalogueDatasheetUrl) << '\t'
       << item.lastUpdated << '\t' << quoted(item.inventatoryId) << '\t' << item.createdAt << '\t'
       << quoted(item.machineCode) << '\t' << quoted(item.rackId) << '\t' << quoted(item.rackSlot) << '\t'
       << quoted(rackAssignmentModeName(item.rackAssignment));
@@ -179,9 +179,9 @@ bool deserializeItem(const string& line, InventoryItem& item) {
   if (!(input >> quoted(item.id) >> quoted(item.partName) >> quoted(item.manufacturer) >> quoted(item.category) >>
         item.quantity >> item.reorderThreshold >> quoted(item.location) >> quoted(tags) >> quoted(parameters) >>
         quoted(item.notes) >> quoted(item.manufacturerPartNumber) >> quoted(item.datasheetUrl) >>
-        quoted(item.enrichmentStatus) >> quoted(item.iecdComponentId) >> quoted(item.iecdVersion) >>
-        quoted(item.iecdCanonicalName) >> quoted(item.iecdPurposeLabel) >> quoted(item.iecdPrintLabel) >>
-        quoted(item.iecdCategory) >> quoted(item.iecdDatasheetUrl) >> item.lastUpdated)) {
+        quoted(item.catalogueStatus) >> quoted(item.cataloguePartId) >> quoted(item.catalogueSnapshot) >>
+        quoted(item.catalogueName) >> quoted(item.cataloguePurposeLabel) >> quoted(item.cataloguePrintLabel) >>
+        quoted(item.catalogueCategory) >> quoted(item.catalogueDatasheetUrl) >> item.lastUpdated)) {
     return false;
   }
 
