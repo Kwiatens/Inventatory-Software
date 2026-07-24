@@ -3,6 +3,8 @@
 
 #include "import/DigiKeyCsvImport.h"
 
+#include "import/CsvReader.h"
+
 #include <algorithm>
 #include <cctype>
 #include <ctime>
@@ -29,81 +31,6 @@ struct ColumnMap {
   int unitPrice = -1;
   int lineValue = -1;
 };
-
-string normalizeHeader(string value) {
-  value = toLower(trim(value));
-  string normalized;
-  normalized.reserve(value.size());
-  for (unsigned char ch : value) {
-    if (isalnum(ch)) {
-      normalized.push_back(static_cast<char>(ch));
-    }
-  }
-  return normalized;
-}
-
-bool anyHeaderMatches(const string& header, initializer_list<const char*> aliases) {
-  const auto normalized = normalizeHeader(header);
-  for (const auto* alias : aliases) {
-    if (normalized == normalizeHeader(alias)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-vector<vector<string>> parseCsv(const string& text, string& error) {
-  vector<vector<string>> rows;
-  vector<string> row;
-  string field;
-  bool inQuotes = false;
-
-  for (size_t index = 0; index < text.size(); ++index) {
-    const char ch = text[index];
-
-    if (inQuotes) {
-      if (ch == '"') {
-        if (index + 1 < text.size() && text[index + 1] == '"') {
-          field.push_back('"');
-          ++index;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field.push_back(ch);
-      }
-      continue;
-    }
-
-    if (ch == '"') {
-      inQuotes = true;
-    } else if (ch == ',') {
-      row.push_back(trim(field));
-      field.clear();
-    } else if (ch == '\n') {
-      row.push_back(trim(field));
-      field.clear();
-      if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
-        rows.push_back(move(row));
-      }
-      row.clear();
-    } else if (ch != '\r') {
-      field.push_back(ch);
-    }
-  }
-
-  if (inQuotes) {
-    error = "CSV has an unterminated quoted field";
-    return {};
-  }
-
-  row.push_back(trim(field));
-  if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
-    rows.push_back(move(row));
-  }
-
-  return rows;
-}
 
 optional<int> parsePositiveInt(const string& value) {
   const auto trimmed = trim(value);
@@ -140,15 +67,6 @@ bool looksLikeManufacturerPart(const string& value) {
   });
 }
 
-int findColumn(const vector<string>& headers, initializer_list<const char*> aliases) {
-  for (size_t index = 0; index < headers.size(); ++index) {
-    if (anyHeaderMatches(headers[index], aliases)) {
-      return static_cast<int>(index);
-    }
-  }
-  return -1;
-}
-
 ColumnMap mapColumns(const vector<string>& headers) {
   ColumnMap columns;
   columns.digikeyPart = findColumn(headers, {"Digi-Key Part Number", "DigiKey Part Number", "DigiKey Part",
@@ -165,13 +83,6 @@ ColumnMap mapColumns(const vector<string>& headers) {
   columns.unitPrice = findColumn(headers, {"Unit Price", "Cena jednostkowa"});
   columns.lineValue = findColumn(headers, {"Extended Price", "Line Value", "Wartość", "Wartosc"});
   return columns;
-}
-
-string cell(const vector<string>& row, int index) {
-  if (index < 0 || static_cast<size_t>(index) >= row.size()) {
-    return {};
-  }
-  return trim(row[static_cast<size_t>(index)]);
 }
 
 string inferCategory(const string& description) {
@@ -223,15 +134,15 @@ bool isRequiredColumnSetPresent(const ColumnMap& columns) {
 }
 
 bool rowLooksLikeDigiKeyOrderLine(const vector<string>& row, const ColumnMap& columns) {
-  const auto quantity = parsePositiveInt(cell(row, columns.quantity));
+  const auto quantity = parsePositiveInt(csvCell(row, columns.quantity));
   if (!quantity || *quantity == 0) {
     return false;
   }
 
-  return looksLikeDigiKeyPart(cell(row, columns.digikeyPart)) &&
-         looksLikeManufacturerPart(cell(row, columns.manufacturerPart)) &&
-         !cell(row, columns.manufacturer).empty() &&
-         !cell(row, columns.description).empty();
+  return looksLikeDigiKeyPart(csvCell(row, columns.digikeyPart)) &&
+         looksLikeManufacturerPart(csvCell(row, columns.manufacturerPart)) &&
+         !csvCell(row, columns.manufacturer).empty() &&
+         !csvCell(row, columns.description).empty();
 }
 
 string makeImportedId(const string& digikeyPart, const string& manufacturerPart) {
@@ -294,14 +205,14 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
   CsvImportCandidate candidate;
   candidate.sourceRow = sourceRow;
 
-  const auto digikeyPart = cell(row, columns.digikeyPart);
-  const auto manufacturerPart = cell(row, columns.manufacturerPart);
-  const auto description = cell(row, columns.description);
-  const auto quantity = parsePositiveInt(cell(row, columns.quantity)).value_or(0);
+  const auto digikeyPart = csvCell(row, columns.digikeyPart);
+  const auto manufacturerPart = csvCell(row, columns.manufacturerPart);
+  const auto description = csvCell(row, columns.description);
+  const auto quantity = parsePositiveInt(csvCell(row, columns.quantity)).value_or(0);
 
   candidate.item.id = makeImportedId(digikeyPart, manufacturerPart);
   candidate.item.partName = description;
-  candidate.item.manufacturer = cell(row, columns.manufacturer);
+  candidate.item.manufacturer = csvCell(row, columns.manufacturer);
   candidate.item.category = inferCategory(description);
   candidate.item.quantity = quantity;
   candidate.item.reorderThreshold = categoryLowStockThreshold(candidate.item.category);
@@ -315,10 +226,10 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
   candidate.item.lastUpdated = time(nullptr);
   candidate.item.createdAt = candidate.item.lastUpdated;
 
-  addOptionalParameter(candidate.item.parameters, "Customer Reference", cell(row, columns.customerReference));
-  addOptionalParameter(candidate.item.parameters, "Backorder Quantity", cell(row, columns.backorderQuantity));
-  addOptionalParameter(candidate.item.parameters, "Unit Price", cell(row, columns.unitPrice));
-  addOptionalParameter(candidate.item.parameters, "Line Value", cell(row, columns.lineValue));
+  addOptionalParameter(candidate.item.parameters, "Customer Reference", csvCell(row, columns.customerReference));
+  addOptionalParameter(candidate.item.parameters, "Backorder Quantity", csvCell(row, columns.backorderQuantity));
+  addOptionalParameter(candidate.item.parameters, "Unit Price", csvCell(row, columns.unitPrice));
+  addOptionalParameter(candidate.item.parameters, "Line Value", csvCell(row, columns.lineValue));
   addOptionalParameter(candidate.item.parameters, "Source Row", to_string(sourceRow));
 
   detectConflict(candidate, existingItems);
@@ -330,7 +241,8 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
 CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryItem>& existingItems) {
   CsvImportResult result;
   string parseError;
-  const auto rows = parseCsv(text, parseError);
+  const auto cleaned = stripByteOrderMark(text);
+  const auto rows = parseCsv(cleaned, sniffDelimiter(cleaned), parseError);
   if (!parseError.empty()) {
     result.error = parseError;
     return result;

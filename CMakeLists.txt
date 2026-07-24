@@ -54,6 +54,11 @@ add_executable(inventatory
   src/core/InventorySqlite.cpp
   src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
+  src/core/BomMatch.cpp
+  src/core/BomProjectStore.cpp
+  src/import/CsvReader.cpp
+  src/import/CsvFormat.cpp
+  src/import/KicadBom.cpp
   src/import/DigiKeyCsvImport.cpp
   src/label_printer/LabelPrinter.cpp
   src/platform/HttpServer.cpp
@@ -73,6 +78,7 @@ add_executable(inventatory
   src/ui/pages/InventatoryScanSetupPage.cpp
   src/ui/pages/OnboardingPage.cpp
   src/ui/pages/ImportCsvPage.cpp
+  src/ui/pages/BomProjectPage.cpp
   src/ui/pages/SettingsPage.cpp
 )
 
@@ -94,7 +100,12 @@ add_executable(inventatory_tests
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
+  src/import/CsvReader.cpp
+  src/import/CsvFormat.cpp
+  src/import/KicadBom.cpp
   src/import/DigiKeyCsvImport.cpp
+  src/core/BomMatch.cpp
+  src/core/BomProjectStore.cpp
   src/ui/shared/AppUiShared.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp

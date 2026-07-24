@@ -66,7 +66,8 @@ vector<App::Action> App::currentActions() const {
     case Page::Home:
       add("stock", "Go", "2", chr('2'), [self] { self->changePage(Page::Stock); });
       add("racks", "Go", "3", chr('3'), [self] { self->openRackManagement(); });
-      add("settings", "Go", "5", chr('5'), [self] { self->openSettings(); });
+      add("projects", "Go", "5", chr('5'), [self] { self->openBomProjects(); });
+      add("settings", "Go", "6", chr('6'), [self] { self->openSettings(); });
       add("add part", "Create", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
       add("import CSV", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
@@ -205,6 +206,34 @@ vector<App::Action> App::currentActions() const {
           self->setMessage("CSV import cancelled", 3);
         });
       }
+      break;
+
+    case Page::Projects:
+      // The build walkthrough owns the keyboard while it runs, so only the
+      // split and list views expose project commands here.
+      if (bomDeductPrompt_) {
+        add("subtract from stock", "Finish", "y", chr('y'), [self] { self->finishBomBuild(true); });
+        add("keep stock", "Finish", "n", chr('n'), [self] { self->finishBomBuild(false); });
+      } else if (bomView_ == BomView::Build) {
+        add("next rack", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
+        add("previous rack", "Build", "Bksp", special(KeyType::Backspace), [self] { self->advanceBomBuild(-1); });
+      } else if (bomView_ == BomView::Split && bomAnalysisValid_) {
+        add("build", "Project", "b", chr('b'), [self] { self->beginBomBuild(); });
+        add("more boards", "Project", "+", chr('+'), [self] { self->adjustBomBoards(1); });
+        add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
+        add("alternate match", "Match", "a", chr('a'), [self] { self->cycleBomAlternate(); });
+        add("export shortages", "Order", "o", chr('o'), [self] { self->exportBomShortages(); });
+        add("all projects", "Go", "Esc", special(KeyType::Escape), [self] {
+          self->bomView_ = BomView::List;
+          self->dirty_ = true;
+        });
+      } else {
+        add("open project", "Project", "Enter", special(KeyType::Enter),
+            [self] { self->openSelectedBomProject(); });
+        add("forget project", "Project", "d", chr('d'), [self] { self->deleteSelectedBomProject(); });
+        add("import a BOM", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
+      }
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
   }
 

@@ -19,6 +19,7 @@ The goals are:
 - Search should work by keyword, category, tag, parameter, location, SKU, status, and quantity filters.
 - Item details should include the manufacturer part number, effective datasheet link, and IECD enrichment status.
 - The Inventatory Scan hardware device pushes scans and status reports to the local bridge, which passes them back to the terminal app.
+- The importer accepts DigiKey order CSVs and KiCad BOMs, detecting the format from the header. A BOM becomes a project on the Projects page: matched against stock, split into pickable and orderable, and walked rack by rack during a build.
 
 ## Design Principles
 
@@ -28,6 +29,8 @@ The goals are:
 - Avoid adding unnecessary layers or frameworks.
 - Favor clear data flow and simple state handling.
 - Keep each page's render logic and key handling together under `src/ui/pages/`.
+- Keep CSV format detection and per-format parsing under `src/import/`, with the shared delimiter-agnostic scanner in `CsvReader`.
+- Never call the DigiKey API from render or from `processBackgroundWork` directly; dispatch it through a `std::future` so the terminal never blocks.
 - Keep shared UI formatting and detail helpers under `src/ui/shared/`.
 - Keep inventory implementation split across focused files under `src/core/`, with string/id helpers, query logic, serialization, history, storage, seed data, scan handling, and SQLite glue separated instead of recombined into one file.
 - Keep startup/bootstrap path helpers in `src/app/AppBootstrap.cpp`, shared app workflows and state helpers in `src/app/AppActions.cpp`, and controller wiring in `src/app.cpp`.
