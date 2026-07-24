@@ -319,7 +319,7 @@ string buildVisibleInventatoryId(const InventoryItem& item) {
     return trim(item.inventatoryId);
   }
 
-  return "Inventatory:" + prefix + '-' + code;
+  return prefix + '-' + code;
 }
 
 string compactInventatoryDisplayCode(const string& inventatoryId) {
