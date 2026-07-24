@@ -290,9 +290,11 @@ ftxui::Element App::renderCatalogueUi() const {
                              ftxui::filler(), styledText(status + "  ", isInstalled ? uiSuccessColor() : uiMutedColor())});
     rows.push_back(target(line, "catalogue.source." + source.id, UiTargetKind::Row, [self, index] { self->catalogueSourceSelection_ = index; self->dirty_ = true; }));
     if (selected && isInstalled) {
+      const auto snapshotCount = count_if(snapshots.begin(), snapshots.end(), [&](const CatalogueImportStats& snapshot) { return snapshot.profileId == source.profileId; });
       rows.push_back(styledText("   Last import: " + importedAtLabel(installed->importedAt) + " · " + installed->filename + " · profile v" + installed->profileVersion +
                                 " · " + to_string(installed->properties) + " properties · " +
                                 to_string(installed->warnings) + " warnings", uiMutedText()));
+      rows.push_back(styledText("   Local snapshot history: " + to_string(snapshotCount) + " retained import" + (snapshotCount == 1 ? "" : "s"), uiMutedText()));
     }
     rows.push_back(styledText("   " + source.supportedCategories.front() + " · " + (isInstalled ? "G update  F different file  R re-enrich  X remove" : "G get catalogue  F choose file"), uiMutedText()));
   }
