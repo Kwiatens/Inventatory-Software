@@ -84,14 +84,6 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       unsigned int port = loaded.deviceServicePort;
       value >> port;
       if (port >= 1 && port <= 65535) loaded.deviceServicePort = static_cast<uint16_t>(port);
-    } else if (key == "iecd_update_checks_enabled") {
-      string decoded;
-      value >> decoded;
-      loaded.iecdUpdateChecksEnabled = parseBool(decoded, loaded.iecdUpdateChecksEnabled);
-    } else if (key == "last_iecd_update_check_unix_seconds") {
-      value >> loaded.lastIecdUpdateCheckUnixSeconds;
-    } else if (key == "installed_iecd_version") {
-      value >> quoted(loaded.installedIecdVersion);
     } else if (key == "quick_label") {
       string preset;
       value >> quoted(preset);
@@ -128,9 +120,6 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "latest_available_version=" << quoted(settings.latestAvailableVersion) << '\n'
          << "latest_release_url=" << quoted(settings.latestReleaseUrl) << '\n'
          << "device_service_port=" << settings.deviceServicePort << '\n'
-         << "iecd_update_checks_enabled=" << (settings.iecdUpdateChecksEnabled ? "true" : "false") << '\n'
-         << "last_iecd_update_check_unix_seconds=" << settings.lastIecdUpdateCheckUnixSeconds << '\n'
-         << "installed_iecd_version=" << quoted(settings.installedIecdVersion) << '\n'
          << "quick_label_revision=" << settings.quickLabelRevision << '\n';
   for (const auto& preset : settings.quickLabelPresets) {
     output << "quick_label=" << quoted(preset) << '\n';

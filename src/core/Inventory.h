@@ -49,14 +49,14 @@ struct InventoryItem {
   string notes;
   string manufacturerPartNumber;
   string datasheetUrl;
-  string enrichmentStatus = "not_in_iecd";
-  string iecdComponentId;
-  string iecdVersion;
-  string iecdCanonicalName;
-  string iecdPurposeLabel;
-  string iecdPrintLabel;
-  string iecdCategory;
-  string iecdDatasheetUrl;
+  string catalogueStatus = "not_in_catalogue";
+  string cataloguePartId;
+  string catalogueSnapshot;
+  string catalogueName;
+  string cataloguePurposeLabel;
+  string cataloguePrintLabel;
+  string catalogueCategory;
+  string catalogueDatasheetUrl;
   time_t lastUpdated = 0;
   string inventatoryId;
   time_t createdAt = 0;
@@ -70,13 +70,6 @@ struct InventoryItem {
   string searchableText() const;
 };
 
-enum class IecdMatchStatus {
-  ExactMatch,
-  UniqueMpnMatch,
-  Ambiguous,
-  NotFound,
-  DatabaseUnavailable,
-};
 
 struct ActivityEntry {
   time_t timestamp = 0;

@@ -40,7 +40,7 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode) {
   item.location = "Scan Inbox";
   item.tags = {"scanned"};
   item.notes = "Created from a standards-based component scan.";
-  item.enrichmentStatus = "not_in_iecd";
+  item.catalogueStatus = "not_in_catalogue";
   item.manufacturerPartNumber = code;
   item.lastUpdated = nowEpoch();
   item.createdAt = item.lastUpdated;
@@ -74,7 +74,7 @@ ScanResolution resolveDecodedComponent(InventoryStore& store, const string& manu
   item.location = "Scan Inbox";
   item.tags = {"scanned", "unidentifiable"};
   item.notes = "No usable manufacturer part number was encoded in the scan.";
-  item.enrichmentStatus = "not_in_iecd";
+  item.catalogueStatus = "not_in_catalogue";
   item.lastUpdated = nowEpoch();
   item.createdAt = item.lastUpdated;
   store.items().push_back(move(item));
