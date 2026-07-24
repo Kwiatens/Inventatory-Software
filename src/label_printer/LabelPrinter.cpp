@@ -687,13 +687,23 @@ bool startsWithInsensitive(const string& value, const string& prefix) {
 }
 
 string diodeMainLabelValue(const InventoryItem& item) {
-  const auto partName = trim(item.partName);
+  // The diode type (Zener/Schottky/TVS/Rectifier) is already printed in the
+  // header bar via diodeContextHeader, so the main line should carry the
+  // actual part identifier instead of the catalog description, which often
+  // repeats the type ("DIODE ZENER 4.7V ..."). Prefer the concrete
+  // manufacturer/vendor part number over the descriptive part name.
   const auto sku = trim(item.sku);
+  if (!sku.empty()) {
+    return sku;
+  }
 
+  const auto digikeyPartNumber = trim(item.digikeyPartNumber);
+  if (!digikeyPartNumber.empty()) {
+    return digikeyPartNumber;
+  }
+
+  const auto partName = trim(item.partName);
   if (partName.empty()) {
-    if (!sku.empty()) {
-      return sku;
-    }
     return item.category;
   }
 
@@ -709,8 +719,11 @@ string diodeMainLabelValue(const InventoryItem& item) {
   if (const auto stripped = cleaned("diode tvs "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("transient voltage suppressor diode "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("schottky diode "); !stripped.empty()) return stripped;
+  if (const auto stripped = cleaned("diode schottky "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("rectifier diode "); !stripped.empty()) return stripped;
+  if (const auto stripped = cleaned("diode rectifier "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("zener diode "); !stripped.empty()) return stripped;
+  if (const auto stripped = cleaned("diode zener "); !stripped.empty()) return stripped;
   if (const auto stripped = cleaned("diode "); !stripped.empty()) return stripped;
 
   return partName;
@@ -1737,9 +1750,8 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "\r\n";
 
   out << "^FX --- Header ---\r\n";
-  out << "^FO5,0^GB180,24,24,B,6^FS\r\n";
+  out << "^FO5,0^GB246,24,24,B,6^FS\r\n";
   out << "^FO12,6^A0N,17,17^FR^FD" << sanitizeLabelText(categoryHeader) << "^FS\r\n";
-  out << "^FO200,6^A0N,17,17^FR^FDInventatory^FS\r\n";
   out << "\r\n";
 
   out << "^FX --- Main value ---\r\n";
@@ -1776,8 +1788,8 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "^FO170,60^BQN,2,3^FDLA," << sanitizeLabelText(barcodeHint) << "^FS\r\n";
   out << "\r\n";
 
-  out << "^FX --- Human readable Inventatory ID ---\r\n";
-  out << "^FO56,173^A0N,10,10^FD" << sanitizeLabelText(scannerHint) << "^FS\r\n";
+  out << "^FX --- Human readable Inventatory ID, centred under the QR code ---\r\n";
+  out << "^FO170,175^A0N,9,9^FB80,1,0,C^FD" << sanitizeLabelText(scannerHint) << "^FS\r\n";
 
   if (!rackHint.empty()) {
     out << "^FX --- Inventatory rack location ---\r\n";
