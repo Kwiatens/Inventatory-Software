@@ -1668,6 +1668,7 @@ int main(int argc, char** argv) {
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
     const auto unknownPath = filesystem::temp_directory_path() / "unknown-supplier-table.csv";
+    const auto vishayPath = filesystem::temp_directory_path() / "Vishay_series_synthetic.csv";
     error_code ignored;
     filesystem::remove(databasePath, ignored);
     ofstream csv(csvPath, ios::binary | ios::trunc);
@@ -1720,6 +1721,19 @@ int main(int argc, char** argv) {
     assert(importWarnings.size() == imported.warnings);
     assert(any_of(importWarnings.begin(), importWarnings.end(), [](const CatalogueWarning& warning) { return warning.message == "Malformed CSV row"; }));
     assert(database.importFile(csvPath).duplicate);
+    {
+      ofstream vishay(vishayPath, ios::binary | ios::trunc);
+      vishay << "Part Number,Series,Case,Resistance,Tolerance,Power,TCR\n"
+                "WSL2512R0100FEA,WSL2512,2512,10 mOhm,1 %,1 W,75 ppm/C\n"
+                "WSL2512R0200FEA,WSL2512,2512,20 mOhm,1 %,1 W,75 ppm/C\n";
+    }
+    const auto vishayProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
+      return candidate.id == "vishay-current-sense-v1";
+    });
+    assert(vishayProfile != catalogueProfiles().end() && vishayProfile->seriesOnly);
+    const auto vishayImported = database.importFile(vishayPath, &*vishayProfile);
+    assert(vishayImported.error.empty() && vishayImported.parts == 2 && vishayImported.properties == 8);
+    assert(database.lookup("Vishay", "WSL2512R0100FEA").status == CatalogueMatchStatus::NotFound);
     const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
     assert(exact.status == CatalogueMatchStatus::ExactMatch);
     assert(exact.record.properties.size() >= 3);
@@ -1781,6 +1795,7 @@ int main(int argc, char** argv) {
     assert(item.partName == "Manual name");
     filesystem::remove(csvPath, ignored);
     filesystem::remove(unknownPath, ignored);
+    filesystem::remove(vishayPath, ignored);
     filesystem::remove(xlsxPath, ignored);
     filesystem::remove(databasePath, ignored);
   }
