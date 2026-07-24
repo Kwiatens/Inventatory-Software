@@ -3,6 +3,8 @@
 
 #include "ui/shared/AppUiShared.h"
 
+#include <ftxui/component/screen_interactive.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -58,6 +60,14 @@ string sourceCategoriesLabel(const ManufacturerSource& source) {
     label += category;
   }
   return label.empty() ? "Unspecified" : label;
+}
+
+string resolvedHeader(const CatalogueImportPreview& preview, const vector<string>& candidates) {
+  for (const auto& candidate : candidates) {
+    const auto found = find(preview.headers.begin(), preview.headers.end(), candidate);
+    if (found != preview.headers.end()) return *found;
+  }
+  return "Not detected";
 }
 }  // namespace
 
@@ -226,19 +236,29 @@ ftxui::Element App::renderCatalogueUi() const {
   if (catalogueFlow_ == CatalogueFlow::Preview) {
     const auto* source = selectedSource(catalogueSourceSelection_);
     const auto& preview = cataloguePreview_;
+    const auto* profile = !catalogueManualProfile_.id.empty() ? &catalogueManualProfile_ : source ? profileFor(*source) : nullptr;
     rows.push_back(styledText("CATALOGUE READY TO IMPORT", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Manufacturer", source ? source->displayName : "Unknown", 70));
     rows.push_back(settingLine("File", catalogueSelectedPath_.filename().string(), 70));
     rows.push_back(settingLine("Format", preview.format, 70));
     rows.push_back(settingLine("Size", to_string(preview.fileSize / 1024) + " KB", 70));
     rows.push_back(settingLine("Profile", preview.profileId + " v" + preview.profileVersion, 70));
+    if (source) rows.push_back(settingLine("Categories", sourceCategoriesLabel(*source), 70));
+    if (profile) {
+      rows.push_back(settingLine("Part number", resolvedHeader(preview, profile->mpnColumns), 70));
+      rows.push_back(settingLine("Base part", resolvedHeader(preview, profile->basePartColumns), 70));
+      if (!profile->aliasColumns.empty()) rows.push_back(settingLine("Orderable / alias", resolvedHeader(preview, profile->aliasColumns), 70));
+    }
     if (!preview.sheetName.empty()) rows.push_back(settingLine("Worksheet", preview.sheetName + " · header row " + to_string(preview.headerRow + 1), 70));
     else rows.push_back(settingLine("CSV", string("delimiter ") + preview.delimiter + " · " + to_string(preview.rows) + " rows", 70));
     rows.push_back(styledText("Mapped: " + to_string(preview.mappedColumns.size()) + " properties · preserved unmapped: " + to_string(preview.unmappedColumns.size()), uiSuccessColor()));
     for (const auto& warning : preview.warnings) rows.push_back(styledText("Warning: " + warning, uiWarnColor()));
     if (!preview.sampleRows.empty()) {
       rows.push_back(styledText("FIRST ROWS", uiSecondaryText()) | ftxui::bold);
-      for (size_t row = 0; row < min<size_t>(10, preview.sampleRows.size()); ++row) {
+      const auto* activeScreen = ftxui::ScreenInteractive::Active();
+      const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 40;
+      const size_t sampleLimit = min<size_t>(10, static_cast<size_t>(max(2, screenHeight - 19)));
+      for (size_t row = 0; row < min(sampleLimit, preview.sampleRows.size()); ++row) {
         string line;
         for (size_t column = 0; column < min<size_t>(3, preview.sampleRows[row].size()); ++column) {
           if (!line.empty()) line += " · ";
