@@ -261,6 +261,7 @@ ftxui::Element App::renderCatalogueUi() const {
     rows.push_back(settingLine("Parts", to_string(result.parts), 70));
     rows.push_back(settingLine("Aliases", to_string(result.aliases), 70));
     rows.push_back(settingLine("Properties", to_string(result.properties), 70));
+    rows.push_back(settingLine("Preserved unmapped", to_string(result.unmappedProperties), 70));
     rows.push_back(settingLine("Warnings", to_string(result.warnings), 70));
     rows.push_back(settingLine("Rejected rows", to_string(result.rejected), 70));
     rows.push_back(styledText("R re-enrich inventory   Esc return to sources", uiInteractiveColor()));
