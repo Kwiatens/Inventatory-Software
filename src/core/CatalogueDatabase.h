@@ -139,9 +139,9 @@ class CatalogueDownloadSession {
  private:
   ManufacturerSource source_;
   std::filesystem::path directory_;
-  std::chrono::system_clock::time_point started_{};
   std::chrono::steady_clock::time_point startedMonotonic_{};
   std::chrono::seconds timeout_{std::chrono::minutes(10)};
+  std::map<std::filesystem::path, std::pair<std::filesystem::file_time_type, std::uintmax_t>> baselineFiles_;
   std::map<std::filesystem::path, std::pair<std::uintmax_t, int>> candidates_;
   bool active_ = false;
   bool timedOut_ = false;

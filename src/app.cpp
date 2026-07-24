@@ -170,11 +170,14 @@ ftxui::Element App::renderUi() const {
     return renderPageUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
   const auto* active = ftxui::ScreenInteractive::Active();
-  if (active != nullptr && (active->dimx() < 100 || active->dimy() < 30)) {
+  // Individual pages already collapse or scroll their secondary content. Keep
+  // the whole application usable in the common 80 x 24 terminal instead of
+  // blocking the catalogue workflow before it can render.
+  if (active != nullptr && (active->dimx() < 80 || active->dimy() < 24)) {
     return ftxui::vbox({
                ftxui::filler(),
                ftxui::hbox({ftxui::filler(),
-                            styledText("Inventatory needs a terminal of at least 100 x 30", uiWarnColor()),
+                            styledText("Inventatory needs a terminal of at least 80 x 24", uiWarnColor()),
                             ftxui::filler()}),
                ftxui::hbox({ftxui::filler(),
                             styledText("Current: " + to_string(active->dimx()) + " x " +
