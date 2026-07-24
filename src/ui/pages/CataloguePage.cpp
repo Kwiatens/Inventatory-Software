@@ -120,6 +120,7 @@ void App::chooseManualCatalogueFile() {
     return;
   }
   catalogueManualMappingStep_ = 0;
+  catalogueManualCategorySelection_ = 0;
   catalogueManualColumns_.fill(0);
   catalogueManualColumnSelection_ = cataloguePreview_.headers.empty() ? 0 : 1;
   catalogueFlow_ = CatalogueFlow::ManualMapping;
@@ -254,7 +255,9 @@ ftxui::Element App::renderCatalogueUi() const {
     rows.push_back(styledText("MAP THIS CATALOGUE", uiSecondaryText()) | ftxui::bold);
     const auto* source = selectedSource(catalogueSourceSelection_);
     rows.push_back(styledText("Manufacturer: " + string(source ? source->displayName : "Selected source"), uiPrimaryText()));
-    rows.push_back(styledText("Category: " + string(source && !source->supportedCategories.empty() ? source->supportedCategories.front() : "Unspecified"), uiMutedText()));
+    const string category = source && catalogueManualCategorySelection_ < source->supportedCategories.size()
+                                ? source->supportedCategories[catalogueManualCategorySelection_] : "Unspecified";
+    rows.push_back(styledText("Category: " + category, uiMutedText()));
     rows.push_back(styledText("Map identity fields. All other useful scalar columns are retained locally for future mapping.", uiMutedText()));
     rows.push_back(uiDivider());
     for (size_t index = 0; index < kManualMappingLabels.size(); ++index) {
@@ -264,7 +267,7 @@ ftxui::Element App::renderCatalogueUi() const {
                                 selected ? uiTitleColor() : uiPrimaryText()));
     }
     rows.push_back(uiDivider());
-    rows.push_back(styledText("Up/Down choose column   Enter next field   Esc cancel", uiInteractiveColor()));
+    rows.push_back(styledText("Left/Right choose category   Up/Down choose column   Enter next field   Esc cancel", uiInteractiveColor()));
     return ftxui::vbox(move(rows)) | ftxui::flex;
   }
   if (catalogueFlow_ == CatalogueFlow::Importing) {
@@ -358,7 +361,10 @@ void App::handleCatalogueKey(const KeyEvent& key) {
   }
   if (catalogueFlow_ == CatalogueFlow::ManualMapping) {
     const size_t optionCount = cataloguePreview_.headers.size() + 1;
-    if (key.type == KeyType::Up && catalogueManualColumnSelection_ > 0) --catalogueManualColumnSelection_;
+    const auto* source = selectedSource(catalogueSourceSelection_);
+    if (key.type == KeyType::Left && source && catalogueManualCategorySelection_ > 0) --catalogueManualCategorySelection_;
+    else if (key.type == KeyType::Right && source && catalogueManualCategorySelection_ + 1 < source->supportedCategories.size()) ++catalogueManualCategorySelection_;
+    else if (key.type == KeyType::Up && catalogueManualColumnSelection_ > 0) --catalogueManualColumnSelection_;
     else if (key.type == KeyType::Down && catalogueManualColumnSelection_ + 1 < optionCount) ++catalogueManualColumnSelection_;
     else if (key.type == KeyType::Escape) { catalogueSelectedPath_.clear(); catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; }
     else if (key.type == KeyType::Enter) {
@@ -370,14 +376,13 @@ void App::handleCatalogueKey(const KeyEvent& key) {
       if (++catalogueManualMappingStep_ < kManualMappingLabels.size()) {
         catalogueManualColumnSelection_ = catalogueManualColumns_[catalogueManualMappingStep_];
       } else {
-        const auto* source = selectedSource(catalogueSourceSelection_);
         if (!source) return;
         const auto column = [&](size_t index) -> vector<string> {
           const auto selected = catalogueManualColumns_[index];
           return selected == 0 ? vector<string>{} : vector<string>{cataloguePreview_.headers[selected - 1]};
         };
         catalogueManualProfile_ = {source->profileId, "manual-v1", source->manufacturer,
-                                   source->supportedCategories.empty() ? "Unspecified" : source->supportedCategories.front(),
+                                   source->supportedCategories.empty() ? "Unspecified" : source->supportedCategories[min(catalogueManualCategorySelection_, source->supportedCategories.size() - 1)],
                                    "", {}, column(0), column(1), {}, column(2), {}, column(3), {}, {}, false};
         for (size_t index = 0; index < kManualProperties.size(); ++index) {
           const auto selected = catalogueManualColumns_[index + 4];
