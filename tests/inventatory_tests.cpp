@@ -1624,6 +1624,15 @@ int main(int argc, char** argv) {
     assert(parseEngineeringValue("10k").warning.size() > 0);
     assert(detectCatalogueProfile("unrecognised-export.csv", {"Part Number", "Description"}) == nullptr);
     assert(detectCatalogueProfile("TI_opamps_synthetic.csv", {"Orderable Part Number", "Channels", "Supply voltage (min)"}) != nullptr);
+    const auto profileHasProperty = [](const CatalogueProfile& profile, const string& name) {
+      return any_of(profile.properties.begin(), profile.properties.end(), [&](const PropertyMapping& property) { return property.canonicalName == name; });
+    };
+    const auto tiProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "ti-parametric-v1"; });
+    const auto adiProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "adi-amplifiers-v1"; });
+    const auto microchipProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "microchip-parametric-v1"; });
+    assert(tiProfile != catalogueProfiles().end() && profileHasProperty(*tiProfile, "quiescent_current") && profileHasProperty(*tiProfile, "gate_charge"));
+    assert(adiProfile != catalogueProfiles().end() && profileHasProperty(*adiProfile, "noise_density") && profileHasProperty(*adiProfile, "slew_rate"));
+    assert(microchipProfile != catalogueProfiles().end() && profileHasProperty(*microchipProfile, "dac_resolution") && profileHasProperty(*microchipProfile, "usb_interfaces"));
 
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
