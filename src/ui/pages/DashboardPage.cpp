@@ -128,7 +128,7 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   for (const auto& item : items) {
     snapshot.totalQuantity += static_cast<size_t>(max(item.quantity, 0));
     const bool missingMetadata = item.hasMissingMetadata();
-    const bool unenriched = toLower(item.catalogueStatus) != "matched";
+    const bool unenriched = !item.catalogueMatched();
     snapshot.missingMetadataCount += missingMetadata ? 1 : 0;
     snapshot.unenrichedCount += unenriched ? 1 : 0;
 

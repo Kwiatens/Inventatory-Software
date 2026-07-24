@@ -207,8 +207,13 @@ bool InventoryItem::lowStock() const {
   return quantity <= reorderThreshold;
 }
 
+bool InventoryItem::catalogueMatched() const {
+  const auto status = toLower(catalogueStatus);
+  return status == "matched" || status == "exact_match" || status == "alias_match";
+}
+
 bool InventoryItem::hasMissingMetadata() const {
-  return partName.empty() || manufacturerPartNumber.empty() || catalogueStatus != "matched";
+  return partName.empty() || manufacturerPartNumber.empty() || !catalogueMatched();
 }
 
 string InventoryItem::searchableText() const {
