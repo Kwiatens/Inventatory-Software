@@ -224,7 +224,7 @@ ftxui::Element App::renderCatalogueUi() const {
     for (const auto& warning : preview.warnings) rows.push_back(styledText("Warning: " + warning, uiWarnColor()));
     if (!preview.sampleRows.empty()) {
       rows.push_back(styledText("FIRST ROWS", uiSecondaryText()) | ftxui::bold);
-      for (size_t row = 0; row < min<size_t>(3, preview.sampleRows.size()); ++row) {
+      for (size_t row = 0; row < min<size_t>(10, preview.sampleRows.size()); ++row) {
         string line;
         for (size_t column = 0; column < min<size_t>(3, preview.sampleRows[row].size()); ++column) {
           if (!line.empty()) line += " · ";
