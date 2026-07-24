@@ -18,14 +18,14 @@ Properties retain numeric nominal/minimum/typical/maximum/tolerance fields, cano
 
 | Profile | Categories | Formats advertised | Identity | Initial mapped focus |
 |---|---|---|---|---|
-| Murata | MLCC, polymer capacitors | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, tolerance, ESR, dielectric |
-| TDK | MLCC | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, dielectric, DF, IR, AEC-Q200 |
-| KEMET/Yageo | capacitors/MLCC | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, tolerance, dielectric, MSL, AEC |
+| Murata | MLCC, polymer capacitors | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, tolerance, ESR, dielectric, dimensions, temperature |
+| TDK | MLCC | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, dielectric, DF, IR, AEC-Q200, dimensions, temperature, packaging |
+| KEMET/Yageo | capacitors/MLCC | CSV, XLSX | exact MPN, series/base alias | capacitance, voltage, tolerance, dielectric, DF, IR, temperature, MSL, AEC |
 | Vishay | current-sense resistors | CSV, XLSX | exact MPN only when exported; series remains series | resistance, power, tolerance, TCR |
-| Nexperia | diodes, BJTs, MOSFETs | CSV, XLSX | type/base plus explicit orderable variant | voltage/current ratings, VF, RDS(on), qualification |
-| Texas Instruments | amplifiers, MOSFETs, timers | CSV, XLSX | generic/base plus orderable MPN | supplies, offset, bandwidth, slew, VDS, RDS(on) |
-| Analog Devices | precision amplifiers | CSV, XLSX | model/base plus orderable variant | supplies, offset, bias, bandwidth |
-| Microchip | MCUs, amplifiers | CSV, XLSX | device/base plus orderable variant | memories, pins, supply, clock, ADC |
+| Nexperia | diodes, BJTs, MOSFETs | CSV, XLSX | type/base plus explicit orderable variant | voltage/current/surge/leakage, VF, recovery, capacitance, RDS(on), hFE, fT, qualification |
+| Texas Instruments | amplifiers, MOSFETs, timers | CSV, XLSX | generic/base plus orderable MPN | supplies, offset/drift, bias/Iq, noise, GBW, slew, CMRR/PSRR, VDS/VGS/ID, RDS(on), threshold, gate charge |
+| Analog Devices | precision amplifiers | CSV, XLSX | model/base plus orderable variant | supplies, offset/drift, bias/current, noise, bandwidth, slew, CMRR/PSRR, temperature |
+| Microchip | MCUs, amplifiers | CSV, XLSX | device/base plus orderable variant | flash/RAM/EEPROM, pins, supply, clock, ADC/DAC, comparators, serial/CAN/USB interfaces, timers/PWM |
 
 ## Installing a catalogue
 
