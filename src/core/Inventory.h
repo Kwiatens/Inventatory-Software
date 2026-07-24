@@ -66,6 +66,7 @@ struct InventoryItem {
   RackAssignmentMode rackAssignment = RackAssignmentMode::Automatic;
 
   bool lowStock() const;
+  bool catalogueMatched() const;
   bool hasMissingMetadata() const;
   string searchableText() const;
 };
