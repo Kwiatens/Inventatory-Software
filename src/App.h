@@ -347,6 +347,7 @@ class App {
   std::filesystem::path printerPath_;
   std::filesystem::path activityPath_;
   std::filesystem::path inventatoryScanConfigPath_;
+  std::filesystem::path quickLabelsPath_;
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;

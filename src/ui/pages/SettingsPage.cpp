@@ -276,10 +276,15 @@ bool App::saveSettingsDraft() {
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+    quickLabelsPath_ = dataPath_ / "quick_labels.conf";
     ensureInventoryDatabaseCopied(inventoryPath_);
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     loadState();
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  }
+
+  if (quickLabelsChanged || dataChanged) {
+    saveQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision);
   }
 
   {
