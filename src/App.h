@@ -363,6 +363,7 @@ class App {
   std::filesystem::path catalogueSelectedPath_;
   CatalogueImportPreview cataloguePreview_;
   CatalogueProfile catalogueManualProfile_;
+  size_t catalogueManualCategorySelection_ = 0;
   size_t catalogueManualMappingStep_ = 0;
   size_t catalogueManualColumnSelection_ = 0;
   std::array<size_t, 10> catalogueManualColumns_{};

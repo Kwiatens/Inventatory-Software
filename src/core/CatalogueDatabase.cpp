@@ -235,8 +235,9 @@ CatalogueImportStats importCatalogueTable(const filesystem::path& databasePath, 
   }
   stats.profileId = profile->id;
   const bool seriesOnly = isSeriesOnlyTable(*profile, table.headers);
-  const int mpnCol = findColumn(table.headers, profile->exactMpnColumns.empty() ? profile->mpnColumns : profile->exactMpnColumns);
-  if (mpnCol < 0 && !seriesOnly) {
+  const int exactMpnCol = findColumn(table.headers, profile->exactMpnColumns.empty() ? profile->mpnColumns : profile->exactMpnColumns);
+  const int mpnCol = seriesOnly ? findColumn(table.headers, profile->mpnColumns) : exactMpnCol;
+  if (exactMpnCol < 0 && !seriesOnly) {
     stats.error = "The expected MPN column is missing";
     return stats;
   }
@@ -417,7 +418,9 @@ CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& pa
   }
   preview.profileId = profile->id;
   preview.profileVersion = profile->version;
-  const int identityColumn = findColumn(table.headers, profile->exactMpnColumns.empty() ? profile->mpnColumns : profile->exactMpnColumns);
+  const bool seriesOnly = isSeriesOnlyTable(*profile, table.headers);
+  const int exactMpnColumn = findColumn(table.headers, profile->exactMpnColumns.empty() ? profile->mpnColumns : profile->exactMpnColumns);
+  const int identityColumn = seriesOnly ? findColumn(table.headers, profile->mpnColumns) : exactMpnColumn;
   const set<int> structural = {identityColumn, findColumn(table.headers, profile->basePartColumns),
                                findColumn(table.headers, profile->packageColumns), findColumn(table.headers, profile->seriesColumns),
                                findColumn(table.headers, profile->descriptionColumns), findColumn(table.headers, profile->statusColumns)};
@@ -426,7 +429,7 @@ CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& pa
     const int column = findColumn(table.headers, mapping.columns);
     if (column >= 0) { mapped.insert(column); preview.mappedColumns.push_back(table.headers[column]); }
   }
-  if (identityColumn < 0 && !isSeriesOnlyTable(*profile, table.headers)) preview.warnings.push_back("Expected MPN column is missing");
+  if (exactMpnColumn < 0 && !seriesOnly) preview.warnings.push_back("Expected MPN column is missing");
   for (size_t column = 0; column < table.headers.size(); ++column) {
     if (!mapped.count(static_cast<int>(column)) && !structural.count(static_cast<int>(column)) && preserveRawColumn(table.headers[column])) {
       preview.unmappedColumns.push_back(table.headers[column]);
