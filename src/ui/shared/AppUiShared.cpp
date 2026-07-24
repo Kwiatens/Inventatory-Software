@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <initializer_list>
 #include <limits>
 #include <optional>
@@ -206,6 +207,70 @@ ftxui::Element quantityBadge(int quantity, bool selected) {
                                             : (quantity <= 5 ? ftxui::Color::RGB(48, 39, 24)
                                                              : uiRaisedSurfaceBg()));
   return ftxui::text(" " + to_string(quantity) + " ") | ftxui::bold | ftxui::color(fg) | ftxui::bgcolor(bg);
+}
+
+long long uiAnimationTicks() {
+  static const auto start = chrono::steady_clock::now();
+  return chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - start).count();
+}
+
+bool uiBlinkOn(int periodMs) {
+  const auto period = max(1, periodMs);
+  return (uiAnimationTicks() / period) % 2 == 0;
+}
+
+namespace {
+
+// Repeats a full block so bars render identically in every terminal font.
+string blockRun(int cells) {
+  string run;
+  for (int index = 0; index < max(0, cells); ++index) {
+    run += "\xE2\x96\x88";  // U+2588 FULL BLOCK
+  }
+  return run;
+}
+
+string shadeRun(int cells) {
+  string run;
+  for (int index = 0; index < max(0, cells); ++index) {
+    run += "\xE2\x96\x91";  // U+2591 LIGHT SHADE
+  }
+  return run;
+}
+
+}  // namespace
+
+ftxui::Element uiProgressBar(double fraction, int width, ftxui::Color fill) {
+  return uiSplitProgressBar(fraction, 0.0, width, fill, fill);
+}
+
+ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui::Color firstFill,
+                                  ftxui::Color secondFill) {
+  const int total = max(1, width);
+  const double clampedFirst = clamp(first, 0.0, 1.0);
+  const double clampedSecond = clamp(second, 0.0, 1.0 - clampedFirst);
+
+  int firstCells = static_cast<int>(clampedFirst * total + 0.5);
+  int secondCells = static_cast<int>(clampedSecond * total + 0.5);
+  // Never let rounding claim a cell that the value did not earn, and never let
+  // a non-zero fraction round away to an empty bar.
+  if (firstCells + secondCells > total) {
+    secondCells = total - firstCells;
+  }
+  if (firstCells == 0 && clampedFirst > 0.0) {
+    firstCells = 1;
+  }
+  if (secondCells == 0 && clampedSecond > 0.0 && firstCells < total) {
+    secondCells = 1;
+  }
+  firstCells = clamp(firstCells, 0, total);
+  secondCells = clamp(secondCells, 0, total - firstCells);
+
+  return ftxui::hbox({
+      ftxui::text(blockRun(firstCells)) | ftxui::color(firstFill),
+      ftxui::text(blockRun(secondCells)) | ftxui::color(secondFill),
+      ftxui::text(shadeRun(total - firstCells - secondCells)) | ftxui::color(uiDividerColor()),
+  });
 }
 
 string displayCategory(const string& category) {
