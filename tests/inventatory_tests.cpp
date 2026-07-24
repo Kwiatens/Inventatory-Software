@@ -1673,6 +1673,7 @@ int main(int argc, char** argv) {
     const auto vishayPath = filesystem::temp_directory_path() / "Vishay_series_synthetic.csv";
     const auto vishayExactPath = filesystem::temp_directory_path() / "Vishay_orderable_synthetic.csv";
     const auto nexperiaPath = filesystem::temp_directory_path() / "Nexperia_discrete_synthetic.csv";
+    const auto murataPath = filesystem::temp_directory_path() / "Murata_capacitor_synthetic.csv";
     error_code ignored;
     filesystem::remove(databasePath, ignored);
     ofstream csv(csvPath, ios::binary | ios::trunc);
@@ -1725,6 +1726,22 @@ int main(int argc, char** argv) {
     assert(importWarnings.size() == imported.warnings);
     assert(any_of(importWarnings.begin(), importWarnings.end(), [](const CatalogueWarning& warning) { return warning.message == "Malformed CSV row"; }));
     assert(database.importFile(csvPath).duplicate);
+    {
+      ofstream murata(murataPath, ios::binary | ios::trunc);
+      murata << "Part Number,Series,Case Code,Capacitance,Rated Voltage,Tolerance,Temperature Characteristic,ESR\n"
+                "GRM188R61C106KAALD,GRM,0603,10 uF,16 V,10 %,X5R,12 mOhm\n";
+    }
+    const auto murataImportProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
+      return candidate.id == "murata-capacitors-v1";
+    });
+    assert(murataImportProfile != catalogueProfiles().end());
+    const auto murataImported = database.importFile(murataPath, &*murataImportProfile);
+    assert(murataImported.error.empty() && murataImported.parts == 1);
+    const auto murataExact = database.lookup("Murata", "GRM188R61C106KAALD");
+    assert(murataExact.status == CatalogueMatchStatus::ExactMatch);
+    assert(any_of(murataExact.record.properties.begin(), murataExact.record.properties.end(), [](const CatalogueProperty& property) {
+      return property.name == "capacitance" && property.rawValue == "10 uF";
+    }));
     {
       ofstream nexperia(nexperiaPath, ios::binary | ios::trunc);
       nexperia << "Type number,Orderable part number,Package,VR,IF,VF,trr,Automotive\n"
@@ -1827,6 +1844,7 @@ int main(int argc, char** argv) {
     filesystem::remove(vishayPath, ignored);
     filesystem::remove(vishayExactPath, ignored);
     filesystem::remove(nexperiaPath, ignored);
+    filesystem::remove(murataPath, ignored);
     filesystem::remove(xlsxPath, ignored);
     filesystem::remove(databasePath, ignored);
   }
