@@ -5,6 +5,7 @@
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -67,6 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_alias_exact ON aliases(alias_key);
 CREATE TABLE IF NOT EXISTS properties(id INTEGER PRIMARY KEY,part_id INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,name TEXT NOT NULL,nominal REAL,min_value REAL,typical REAL,max_value REAL,tolerance REAL,unit TEXT,condition TEXT,qualifier TEXT,source_column TEXT NOT NULL,raw_value TEXT,raw_unit TEXT,mapping_status TEXT NOT NULL,profile_id TEXT NOT NULL,profile_version TEXT NOT NULL,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS idx_properties_part ON properties(part_id);
 CREATE TABLE IF NOT EXISTS import_warnings(id INTEGER PRIMARY KEY,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,row_number INTEGER,message TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS local_catalogue_mappings(profile_id TEXT PRIMARY KEY,profile_version TEXT NOT NULL,manufacturer TEXT NOT NULL,category TEXT NOT NULL,mpn_column TEXT NOT NULL,base_column TEXT,package_column TEXT,description_column TEXT,saved_at INTEGER NOT NULL);
 )SQL"; }
 
 bool readCsvCatalogueTable(const filesystem::path& path, CatalogueTable& table, string& error,
@@ -325,6 +327,32 @@ CatalogueImportStats CatalogueDatabase::importFile(const filesystem::path& path,
   }
   closeReadConnection();
   return importCatalogueTable(path_, path, profile, options);
+}
+
+bool CatalogueDatabase::saveLocalMapping(const CatalogueProfile& profile) {
+  if (!available_ || profile.id.empty() || profile.mpnColumns.empty()) return false;
+  Db db;
+  if (sqlite3_open(path_.string().c_str(), &db.value) != SQLITE_OK) return false;
+  Statement statement;
+  sqlite3_prepare_v2(db.value, "INSERT INTO local_catalogue_mappings(profile_id,profile_version,manufacturer,category,mpn_column,base_column,package_column,description_column,saved_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(profile_id) DO UPDATE SET profile_version=excluded.profile_version,manufacturer=excluded.manufacturer,category=excluded.category,mpn_column=excluded.mpn_column,base_column=excluded.base_column,package_column=excluded.package_column,description_column=excluded.description_column,saved_at=excluded.saved_at", -1, &statement.value, nullptr);
+  const auto column = [](const vector<string>& values) { return values.empty() ? string{} : values.front(); };
+  const array<string, 8> values = {profile.id, profile.version, profile.manufacturer, profile.category, column(profile.mpnColumns), column(profile.basePartColumns), column(profile.packageColumns), column(profile.descriptionColumns)};
+  for (int index = 0; index < 8; ++index) sqlite3_bind_text(statement.value, index + 1, values[index].c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(statement.value, 9, time(nullptr));
+  return sqlite3_step(statement.value) == SQLITE_DONE;
+}
+
+optional<CatalogueProfile> CatalogueDatabase::localMapping(const string& profileId) const {
+  if (!available_) return nullopt;
+  Db db;
+  if (sqlite3_open_v2(path_.string().c_str(), &db.value, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) return nullopt;
+  Statement statement;
+  sqlite3_prepare_v2(db.value, "SELECT profile_version,manufacturer,category,mpn_column,base_column,package_column,description_column FROM local_catalogue_mappings WHERE profile_id=?", -1, &statement.value, nullptr);
+  sqlite3_bind_text(statement.value, 1, profileId.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqlite3_step(statement.value) != SQLITE_ROW) return nullopt;
+  const auto optionalColumn = [&](int index) { const auto value = text(statement.value, index); return value.empty() ? vector<string>{} : vector<string>{value}; };
+  return CatalogueProfile{profileId, text(statement.value, 0), text(statement.value, 1), text(statement.value, 2), "", {},
+                          optionalColumn(3), optionalColumn(4), {}, optionalColumn(5), {}, optionalColumn(6), {}, {}, false};
 }
 
 CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& path, const CatalogueProfile* selected,
