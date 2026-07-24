@@ -30,6 +30,13 @@ const CatalogueProfile* profileFor(const ManufacturerSource& source) {
   for (const auto& profile : catalogueProfiles()) if (profile.id == source.profileId) return &profile;
   return nullptr;
 }
+
+const array<string, 4> kManualMappingLabels = {"Part number (required)", "Base part (optional)",
+                                                "Package (optional)", "Description (optional)"};
+
+string manualColumnLabel(const CatalogueImportPreview& preview, size_t selection) {
+  return selection == 0 ? "Not mapped" : preview.headers[selection - 1];
+}
 }  // namespace
 
 void App::beginCatalogueDownload() {
@@ -53,6 +60,7 @@ void App::chooseCatalogueFile() {
   filesystem::path selected;
   if (!openCatalogueFileDialog(selected)) return;
   catalogueDownloadSession_.cancel();
+  catalogueManualProfile_ = {};
   catalogueSelectedPath_ = move(selected);
   const auto* source = selectedSource(catalogueSourceSelection_);
   cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, source ? profileFor(*source) : nullptr);
@@ -65,9 +73,28 @@ void App::chooseCatalogueFile() {
   dirty_ = true;
 }
 
+void App::chooseManualCatalogueFile() {
+  filesystem::path selected;
+  if (!openCatalogueFileDialog(selected)) return;
+  catalogueDownloadSession_.cancel();
+  catalogueManualProfile_ = {};
+  catalogueSelectedPath_ = move(selected);
+  cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_);
+  if (!cataloguePreview_.valid()) {
+    setMessage(cataloguePreview_.error, 7);
+    return;
+  }
+  catalogueManualMappingStep_ = 0;
+  catalogueManualColumns_.fill(0);
+  catalogueManualColumnSelection_ = cataloguePreview_.headers.empty() ? 0 : 1;
+  catalogueFlow_ = CatalogueFlow::ManualMapping;
+  setMessage("Choose identity columns; other useful scalar columns remain local raw properties.", 7);
+  dirty_ = true;
+}
+
 void App::beginCatalogueImport() {
   const auto* source = selectedSource(catalogueSourceSelection_);
-  const auto* profile = source ? profileFor(*source) : nullptr;
+  const auto* profile = !catalogueManualProfile_.id.empty() ? &catalogueManualProfile_ : source ? profileFor(*source) : nullptr;
   if (catalogueSelectedPath_.empty() || !profile) {
     setMessage("Select a manufacturer source and a CSV or XLSX file first", 4);
     return;
@@ -184,6 +211,23 @@ ftxui::Element App::renderCatalogueUi() const {
     rows.push_back(styledText("Enter import   F choose another file   Esc cancel", uiInteractiveColor()));
     return ftxui::vbox(move(rows)) | ftxui::flex;
   }
+  if (catalogueFlow_ == CatalogueFlow::ManualMapping) {
+    rows.push_back(styledText("MAP THIS CATALOGUE", uiSecondaryText()) | ftxui::bold);
+    const auto* source = selectedSource(catalogueSourceSelection_);
+    rows.push_back(styledText("Manufacturer: " + string(source ? source->displayName : "Selected source"), uiPrimaryText()));
+    rows.push_back(styledText("Category: " + string(source && !source->supportedCategories.empty() ? source->supportedCategories.front() : "Unspecified"), uiMutedText()));
+    rows.push_back(styledText("Map identity fields. All other useful scalar columns are retained locally for future mapping.", uiMutedText()));
+    rows.push_back(uiDivider());
+    for (size_t index = 0; index < kManualMappingLabels.size(); ++index) {
+      const bool selected = index == catalogueManualMappingStep_;
+      rows.push_back(styledText(string(selected ? "> " : "  ") + kManualMappingLabels[index] + ": " +
+                                manualColumnLabel(cataloguePreview_, catalogueManualColumns_[index]),
+                                selected ? uiTitleColor() : uiPrimaryText()));
+    }
+    rows.push_back(uiDivider());
+    rows.push_back(styledText("Up/Down choose column   Enter next field   Esc cancel", uiInteractiveColor()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
   if (catalogueFlow_ == CatalogueFlow::Importing) {
     CatalogueProgress progress;
     { lock_guard<mutex> lock(catalogueProgressMutex_); progress = catalogueProgress_; }
@@ -256,12 +300,45 @@ void App::handleCatalogueKey(const KeyEvent& key) {
     else if (key.type == KeyType::Character && (key.ch == 'f' || key.ch == 'F')) chooseCatalogueFile();
     return;
   }
+  if (catalogueFlow_ == CatalogueFlow::ManualMapping) {
+    const size_t optionCount = cataloguePreview_.headers.size() + 1;
+    if (key.type == KeyType::Up && catalogueManualColumnSelection_ > 0) --catalogueManualColumnSelection_;
+    else if (key.type == KeyType::Down && catalogueManualColumnSelection_ + 1 < optionCount) ++catalogueManualColumnSelection_;
+    else if (key.type == KeyType::Escape) { catalogueSelectedPath_.clear(); catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; }
+    else if (key.type == KeyType::Enter) {
+      if (catalogueManualMappingStep_ == 0 && catalogueManualColumnSelection_ == 0) {
+        setMessage("A part-number column is required for exact catalogue import", 5);
+        return;
+      }
+      catalogueManualColumns_[catalogueManualMappingStep_] = catalogueManualColumnSelection_;
+      if (++catalogueManualMappingStep_ < kManualMappingLabels.size()) {
+        catalogueManualColumnSelection_ = catalogueManualColumns_[catalogueManualMappingStep_];
+      } else {
+        const auto* source = selectedSource(catalogueSourceSelection_);
+        if (!source) return;
+        const auto column = [&](size_t index) -> vector<string> {
+          const auto selected = catalogueManualColumns_[index];
+          return selected == 0 ? vector<string>{} : vector<string>{cataloguePreview_.headers[selected - 1]};
+        };
+        catalogueManualProfile_ = {source->profileId, "manual-v1", source->manufacturer,
+                                   source->supportedCategories.empty() ? "Unspecified" : source->supportedCategories.front(),
+                                   "", {}, column(0), column(1), {}, column(2), {}, column(3), {}, {}, false};
+        cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, &catalogueManualProfile_);
+        if (!cataloguePreview_.valid()) { setMessage(cataloguePreview_.error, 7); catalogueFlow_ = CatalogueFlow::Sources; return; }
+        catalogueFlow_ = CatalogueFlow::Preview;
+        setMessage("Manual mapping is ready. Review it before importing.", 5);
+      }
+      dirty_ = true;
+    }
+    return;
+  }
   if (catalogueFlow_ == CatalogueFlow::Importing) { if (key.type == KeyType::Escape) catalogueImportCancelled_.store(true); return; }
   if (catalogueFlow_ == CatalogueFlow::Results) { if (key.type == KeyType::Escape) { catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; } else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue(); return; }
   if (key.type == KeyType::Up && catalogueSourceSelection_ > 0) --catalogueSourceSelection_;
   else if (key.type == KeyType::Down && catalogueSourceSelection_ + 1 < manufacturerSources().size()) ++catalogueSourceSelection_;
   else if (key.type == KeyType::Enter || (key.type == KeyType::Character && (key.ch == 'g' || key.ch == 'G'))) beginCatalogueDownload();
   else if (key.type == KeyType::Character && (key.ch == 'f' || key.ch == 'F')) chooseCatalogueFile();
+  else if (key.type == KeyType::Character && (key.ch == 'm' || key.ch == 'M')) chooseManualCatalogueFile();
   else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue();
   else if (key.type == KeyType::Character && (key.ch == 'x' || key.ch == 'X')) {
     const auto* source = selectedSource(catalogueSourceSelection_);

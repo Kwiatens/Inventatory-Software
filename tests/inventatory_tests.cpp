@@ -1624,6 +1624,7 @@ int main(int argc, char** argv) {
 
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
+    const auto unknownPath = filesystem::temp_directory_path() / "unknown-supplier-table.csv";
     error_code ignored;
     filesystem::remove(databasePath, ignored);
     ofstream csv(csvPath, ios::binary | ios::trunc);
@@ -1634,6 +1635,24 @@ int main(int argc, char** argv) {
     csv.close();
     CatalogueDatabase database;
     assert(database.open(databasePath));
+    {
+      ofstream unknown(unknownPath, ios::binary | ios::trunc);
+      unknown << "Supplier code,Case,Selection flag\nABC-001,0402,Preferred\n";
+    }
+    const auto unknownPreview = database.previewFile(unknownPath);
+    assert(unknownPreview.valid());
+    assert(unknownPreview.profileId.empty());
+    assert(unknownPreview.headers.size() == 3);
+    assert(!unknownPreview.warnings.empty());
+    CatalogueProfile manualProfile{"ti-parametric-v1", "manual-v1", "Texas Instruments", "Custom", "", {},
+                                   {"Supplier code"}, {}, {}, {"Case"}, {}, {}, {}, {}, false};
+    const auto manuallyImported = database.importFile(unknownPath, &manualProfile);
+    assert(manuallyImported.error.empty());
+    const auto manualMatch = database.lookup("Texas Instruments", "ABC-001");
+    assert(manualMatch.matched());
+    assert(any_of(manualMatch.record.properties.begin(), manualMatch.record.properties.end(), [](const CatalogueProperty& property) {
+      return property.sourceColumn == "Selection flag" && property.mappingStatus == "unmapped";
+    }));
     const auto imported = database.importFile(csvPath);
     assert(imported.error.empty());
     assert(imported.parts == 2);
@@ -1688,6 +1707,7 @@ int main(int argc, char** argv) {
     assert(item.catalogueStatus == "not_in_catalogue");
     assert(item.partName == "Manual name");
     filesystem::remove(csvPath, ignored);
+    filesystem::remove(unknownPath, ignored);
     filesystem::remove(xlsxPath, ignored);
     filesystem::remove(databasePath, ignored);
   }
