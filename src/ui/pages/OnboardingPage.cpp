@@ -143,5 +143,4 @@ void App::processUpdateCheck() {
   if (result.updateAvailable) setMessage("Inventatory " + result.latestVersion + " is available in Settings", 6);
 }
 
-
 }  // namespace inventatory

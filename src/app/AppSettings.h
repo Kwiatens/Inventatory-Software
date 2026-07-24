@@ -11,7 +11,7 @@
 namespace inventatory {
 
 struct AppSettings {
-  int schemaVersion = 3;
+  int schemaVersion = 2;
   int completedOnboardingVersion = 0;
   std::filesystem::path dataDirectory;
   std::string printerQueue;
@@ -23,6 +23,11 @@ struct AppSettings {
   std::string latestAvailableVersion;
   std::string latestReleaseUrl;
   std::uint16_t deviceServicePort = 8080;
+  std::string digiKeyClientId;
+  std::string digiKeyAccountId;
+  std::string digiKeySite = "US";
+  std::string digiKeyLanguage = "en";
+  std::string digiKeyCurrency = "USD";
   // Shared wire-label shortcuts published to the paired Scan R1.
   std::vector<std::string> quickLabelPresets;
   std::uint32_t quickLabelRevision = 1;

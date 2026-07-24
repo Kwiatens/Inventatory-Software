@@ -31,8 +31,7 @@ bool migrateLegacySchema(SqliteConnection& connection) {
 
 bool ensureInventatoryTableSchema(SqliteConnection& connection) {
   if (!migrateLegacySchema(connection)) return false;
-  const auto createCurrentTable = [&]() {
-    return execSql(connection, R"SQL(
+  if (!execSql(connection, R"SQL(
     CREATE TABLE IF NOT EXISTS inventatory_items (
       id TEXT PRIMARY KEY,
       part_name TEXT NOT NULL,
@@ -44,16 +43,11 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
       tags TEXT NOT NULL,
       parameters TEXT NOT NULL,
       notes TEXT NOT NULL,
-      manufacturer_part_number TEXT NOT NULL,
+      digikey_part_number TEXT NOT NULL,
       datasheet_url TEXT NOT NULL,
-      enrichment_status TEXT NOT NULL,
-      catalogue_component_id TEXT NOT NULL DEFAULT '',
-      catalogue_version TEXT NOT NULL DEFAULT '',
-      catalogue_canonical_name TEXT NOT NULL DEFAULT '',
-      catalogue_purpose_label TEXT NOT NULL DEFAULT '',
-      catalogue_print_label TEXT NOT NULL DEFAULT '',
-      catalogue_category TEXT NOT NULL DEFAULT '',
-      catalogue_datasheet_url TEXT NOT NULL DEFAULT '',
+      product_url TEXT NOT NULL,
+      sync_status TEXT NOT NULL,
+      sku TEXT NOT NULL,
       last_updated INTEGER NOT NULL,
       inventatory_id TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL DEFAULT 0,
@@ -62,61 +56,9 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
       rack_slot TEXT NOT NULL DEFAULT '',
       rack_assignment TEXT NOT NULL DEFAULT 'automatic'
     )
-  )SQL");
-  };
-
-  // The retired enrichment overlay lived in the inventory table. Rebuild the
-  // table once, copying only user-owned inventory fields. Catalogue data now
-  // lives in catalogues.db and can be removed without touching inventory.
-  const string retiredPrefix = "ie" "cd_";
-  if (tableExists(connection, "inventatory_items") &&
-      tableColumnExists(connection, "inventatory_items", retiredPrefix + "component_id")) {
-    if (!execSql(connection, "BEGIN IMMEDIATE") ||
-        !execSql(connection, "ALTER TABLE inventatory_items RENAME TO inventatory_items_retired_enrichment") ||
-        !createCurrentTable() ||
-        !execSql(connection, R"SQL(
-          INSERT INTO inventatory_items (
-            id, part_name, manufacturer, category, quantity, reorder_threshold, location,
-            tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
-            last_updated, inventatory_id, created_at, machine_code, rack_id, rack_slot, rack_assignment
-          )
-          SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
-                 tags, parameters, notes, manufacturer_part_number, datasheet_url, 'not_in_catalogue',
-                 last_updated, inventatory_id, created_at, machine_code, rack_id, rack_slot, rack_assignment
-          FROM inventatory_items_retired_enrichment
-        )SQL") ||
-        !execSql(connection, "DROP TABLE inventatory_items_retired_enrichment") ||
-        !execSql(connection, "COMMIT")) {
-      execSql(connection, "ROLLBACK");
-      return false;
-    }
+  )SQL")) {
+    return false;
   }
-
-  if (tableExists(connection, "inventatory_items") &&
-      !tableColumnExists(connection, "inventatory_items", "manufacturer_part_number")) {
-    if (!execSql(connection, "BEGIN IMMEDIATE") ||
-        !execSql(connection, "ALTER TABLE inventatory_items RENAME TO inventatory_items_pre_catalogue") ||
-        !createCurrentTable() ||
-        !execSql(connection, R"SQL(
-          INSERT INTO inventatory_items (
-            id, part_name, manufacturer, category, quantity, reorder_threshold, location,
-            tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
-            last_updated, inventatory_id, created_at, machine_code, rack_id, rack_slot, rack_assignment
-          )
-          SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
-                 tags, parameters, notes, sku,
-                 CASE WHEN lower(datasheet_url) LIKE '%.pdf%' THEN datasheet_url ELSE '' END,
-                 'not_in_catalogue', last_updated, inventatory_id, created_at, machine_code,
-                 rack_id, rack_slot, rack_assignment
-          FROM inventatory_items_pre_catalogue
-        )SQL") ||
-        !execSql(connection, "DROP TABLE inventatory_items_pre_catalogue") ||
-        !execSql(connection, "COMMIT")) {
-      execSql(connection, "ROLLBACK");
-      return false;
-    }
-  }
-  if (!createCurrentTable()) return false;
 
   if (!tableColumnExists(connection, "inventatory_items", "inventatory_id")) {
     if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN inventatory_id TEXT NOT NULL DEFAULT ''")) {
@@ -139,6 +81,20 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
       !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_slot TEXT NOT NULL DEFAULT ''")) return false;
   if (!tableColumnExists(connection, "inventatory_items", "rack_assignment") &&
       !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_assignment TEXT NOT NULL DEFAULT 'automatic'")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "manufacturer_part_number") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN manufacturer_part_number TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "enrichment_status") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN enrichment_status TEXT NOT NULL DEFAULT ''")) return false;
+  // Keep the direct DigiKey fields alongside the newer local-enrichment
+  // columns so established SQLite inventories remain readable.
+  if (!tableColumnExists(connection, "inventatory_items", "digikey_part_number") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN digikey_part_number TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "product_url") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN product_url TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "sync_status") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN sync_status TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "sku") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN sku TEXT NOT NULL DEFAULT ''")) return false;
   if (!execSql(connection, R"SQL(
     CREATE TABLE IF NOT EXISTS inventatory_racks (
       id TEXT PRIMARY KEY,
@@ -175,14 +131,96 @@ bool loadRacks(SqliteConnection& connection, vector<InventatoryRack>& racks) {
   return true;
 }
 
+InventoryItem legacyRowToItem(sqlite3_stmt* stmt) {
+  InventoryItem item;
+  const auto legacyId = sqliteApi().column_int64(stmt, 0);
+  const auto partNumber = sqliteText(stmt, 1);
+  const auto partNumberNormalized = sqliteText(stmt, 2);
+  const auto quantity = sqliteApi().column_int(stmt, 3);
+  const auto location = sqliteText(stmt, 4);
+  const auto manufacturer = sqliteText(stmt, 5);
+  const auto packageName = sqliteText(stmt, 6);
+  const auto description = sqliteText(stmt, 7);
+  const auto notes = sqliteText(stmt, 8);
+  const auto updatedAt = sqliteText(stmt, 10);
+  const auto digikeyPartNumber = sqliteText(stmt, 11);
+  const auto category = sqliteText(stmt, 12);
+  const auto subcategory = sqliteText(stmt, 13);
+  const auto productUrl = sqliteText(stmt, 14);
+  const auto datasheetUrl = sqliteText(stmt, 15);
+  const auto searchText = sqliteText(stmt, 18);
+  const auto enrichmentStatus = sqliteText(stmt, 19);
+  const auto inventoryArea = sqliteText(stmt, 22);
+  const auto reorderOverride = sqliteApi().column_int(stmt, 23);
+  const auto hardwareType = sqliteText(stmt, 24);
+  const auto hardwareSize = sqliteText(stmt, 25);
+  const auto hardwareLength = sqliteText(stmt, 26);
+  const auto filamentMaterial = sqliteText(stmt, 28);
+  const auto filamentColor = sqliteText(stmt, 29);
+  const auto filamentDiameterMm = sqliteText(stmt, 30);
+
+  item.id = to_string(legacyId);
+  item.partName = partNumber.empty() ? description : partNumber;
+  item.manufacturer = manufacturer;
+  item.category = category.empty() ? subcategory : (subcategory.empty() ? category : category + " / " + subcategory);
+  item.quantity = quantity;
+  item.reorderThreshold = reorderOverride >= 0 ? reorderOverride : 0;
+  item.location = location;
+  if (!inventoryArea.empty()) {
+    item.tags.push_back(inventoryArea);
+  }
+  if (!packageName.empty()) {
+    item.tags.push_back(packageName);
+  }
+  if (!subcategory.empty()) {
+    item.tags.push_back(subcategory);
+  }
+  if (!packageName.empty()) {
+    item.parameters.push_back({"Package", packageName});
+  }
+  if (!inventoryArea.empty()) {
+    item.parameters.push_back({"Inventory Area", inventoryArea});
+  }
+  if (!hardwareType.empty()) {
+    item.parameters.push_back({"Hardware Type", hardwareType});
+  }
+  if (!hardwareSize.empty()) {
+    item.parameters.push_back({"Hardware Size", hardwareSize});
+  }
+  if (!hardwareLength.empty()) {
+    item.parameters.push_back({"Hardware Length", hardwareLength});
+  }
+  if (!filamentMaterial.empty()) {
+    item.parameters.push_back({"Filament Material", filamentMaterial});
+  }
+  if (!filamentColor.empty()) {
+    item.parameters.push_back({"Filament Color", filamentColor});
+  }
+  if (!filamentDiameterMm.empty()) {
+    item.parameters.push_back({"Filament Diameter", filamentDiameterMm});
+  }
+  item.notes = description.empty() ? notes : (notes.empty() ? description : description + " | " + notes);
+  item.digikeyPartNumber = digikeyPartNumber;
+  item.datasheetUrl = datasheetUrl;
+  item.productUrl = productUrl;
+  item.syncStatus = enrichmentStatus.empty() ? "needs_metadata" : toLower(enrichmentStatus);
+  item.sku = partNumberNormalized.empty() ? partNumber : partNumberNormalized;
+  item.lastUpdated = nowEpoch();
+  if (!updatedAt.empty()) {
+    item.lastUpdated = nowEpoch();
+  }
+  if (!searchText.empty() && item.notes.empty()) {
+    item.notes = searchText;
+  }
+  return item;
+}
+
 bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<InventoryItem>& items) {
   SqliteStatement statement;
   const char* sql = R"SQL(
     SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
-           tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
-           catalogue_component_id, catalogue_version, catalogue_canonical_name, catalogue_purpose_label,
-           catalogue_print_label, catalogue_category, catalogue_datasheet_url,
-           last_updated, inventatory_id, created_at, machine_code,
+           tags, parameters, notes, COALESCE(NULLIF(digikey_part_number, ''), manufacturer_part_number), datasheet_url, product_url,
+           COALESCE(NULLIF(sync_status, ''), enrichment_status), COALESCE(NULLIF(sku, ''), manufacturer_part_number), last_updated, inventatory_id, created_at, machine_code,
            rack_id, rack_slot, rack_assignment
     FROM inventatory_items
     ORDER BY part_name COLLATE NOCASE ASC
@@ -204,49 +242,62 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     item.tags = deserializeTagsFromStorage(sqliteText(statement.stmt, 7));
     item.parameters = deserializeParametersFromStorage(sqliteText(statement.stmt, 8));
     item.notes = sqliteText(statement.stmt, 9);
-    item.manufacturerPartNumber = sqliteText(statement.stmt, 10);
+    item.digikeyPartNumber = sqliteText(statement.stmt, 10);
     item.datasheetUrl = sqliteText(statement.stmt, 11);
-    item.catalogueStatus = sqliteText(statement.stmt, 12);
-    item.cataloguePartId = sqliteText(statement.stmt, 13);
-    item.catalogueSnapshot = sqliteText(statement.stmt, 14);
-    item.catalogueName = sqliteText(statement.stmt, 15);
-    item.cataloguePurposeLabel = sqliteText(statement.stmt, 16);
-    item.cataloguePrintLabel = sqliteText(statement.stmt, 17);
-    item.catalogueCategory = sqliteText(statement.stmt, 18);
-    item.catalogueDatasheetUrl = sqliteText(statement.stmt, 19);
-    item.lastUpdated = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 20));
-    item.inventatoryId = sqliteText(statement.stmt, 21);
-    item.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 22));
-    item.machineCode = sqliteText(statement.stmt, 23);
-    item.rackId = sqliteText(statement.stmt, 24);
-    item.rackSlot = sqliteText(statement.stmt, 25);
-    item.rackAssignment = parseRackAssignmentMode(sqliteText(statement.stmt, 26));
+    item.productUrl = sqliteText(statement.stmt, 12);
+    item.syncStatus = sqliteText(statement.stmt, 13);
+    item.sku = sqliteText(statement.stmt, 14);
+    item.lastUpdated = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 15));
+    item.inventatoryId = sqliteText(statement.stmt, 16);
+    item.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 17));
+    item.machineCode = sqliteText(statement.stmt, 18);
+    item.rackId = sqliteText(statement.stmt, 19);
+    item.rackSlot = sqliteText(statement.stmt, 20);
+    item.rackAssignment = parseRackAssignmentMode(sqliteText(statement.stmt, 21));
     items.push_back(move(item));
   }
 
   return true;
 }
 
+bool importLegacyItems(SqliteConnection& connection, vector<InventoryItem>& items) {
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    SELECT id, part_number, part_number_normalized, quantity, location, manufacturer, package, description,
+           notes, created_at, updated_at, digikey_part_number, category, subcategory, product_url, datasheet_url,
+           image_url, specs_json, search_text, enrichment_status, enrichment_error, last_enriched_at,
+           inventory_area, reorder_point_override, hardware_type, hardware_size, hardware_length,
+           hardware_material_finish, filament_material, filament_color, filament_diameter_mm,
+           filament_spool_weight_g, filament_remaining_weight_g
+    FROM items
+    ORDER BY part_number COLLATE NOCASE ASC
+  )SQL";
+
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+
+  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+    items.push_back(legacyRowToItem(statement.stmt));
+  }
+
+  return true;
+}
+
 bool ensureDeviceEventCommitSchema(SqliteConnection& connection) {
-  if (!execSql(connection, R"SQL(
+  return execSql(connection, R"SQL(
     CREATE TABLE IF NOT EXISTS inventatory_device_events (
       event_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, event_type TEXT NOT NULL,
       event_code TEXT NOT NULL, event_value INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'received',
       result_id TEXT NOT NULL DEFAULT '', result_status TEXT NOT NULL DEFAULT '',
       result_existing INTEGER NOT NULL DEFAULT 0, result_item_name TEXT NOT NULL DEFAULT '',
-      result_purpose_label TEXT NOT NULL DEFAULT '',
       result_requested_delta INTEGER NOT NULL DEFAULT 0, result_applied_delta INTEGER NOT NULL DEFAULT 0,
       result_quantity INTEGER NOT NULL DEFAULT 0, result_location TEXT NOT NULL DEFAULT '',
       result_code TEXT NOT NULL DEFAULT '', result_message TEXT NOT NULL DEFAULT '',
       result_acknowledged INTEGER NOT NULL DEFAULT 0, received_at INTEGER NOT NULL DEFAULT 0,
       completed_at INTEGER NOT NULL DEFAULT 0
     )
-  )SQL")) return false;
-  if (!tableColumnExists(connection, "inventatory_device_events", "result_purpose_label")) {
-    return execSql(connection,
-                   "ALTER TABLE inventatory_device_events ADD COLUMN result_purpose_label TEXT NOT NULL DEFAULT ''");
-  }
-  return true;
+  )SQL");
 }
 
 bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<InventoryItem>& items,
@@ -295,11 +346,9 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     INSERT OR REPLACE INTO inventatory_items (
       id, part_name, manufacturer, category, quantity, reorder_threshold, location,
       tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
-      catalogue_component_id, catalogue_version, catalogue_canonical_name, catalogue_purpose_label,
-      catalogue_print_label, catalogue_category, catalogue_datasheet_url,
-      last_updated, inventatory_id, created_at, machine_code,
+      digikey_part_number, product_url, sync_status, sku, last_updated, inventatory_id, created_at, machine_code,
       rack_id, rack_slot, rack_assignment
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )SQL";
 
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
@@ -320,24 +369,22 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     const auto parameters = serializeParametersForStorage(item.parameters);
     sqliteApi().bind_text(statement.stmt, 9, parameters.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 10, item.notes.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 11, item.manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
+    const auto manufacturerPartNumber = item.sku.empty() ? item.digikeyPartNumber : item.sku;
+    sqliteApi().bind_text(statement.stmt, 11, manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 12, item.datasheetUrl.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 13, item.catalogueStatus.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 14, item.cataloguePartId.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 15, item.catalogueSnapshot.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 16, item.catalogueName.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 17, item.cataloguePurposeLabel.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 18, item.cataloguePrintLabel.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 19, item.catalogueCategory.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 20, item.catalogueDatasheetUrl.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_int64(statement.stmt, 21, static_cast<sqlite3_int64>(item.lastUpdated));
-    sqliteApi().bind_text(statement.stmt, 22, item.inventatoryId.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_int64(statement.stmt, 23, static_cast<sqlite3_int64>(item.createdAt));
-    sqliteApi().bind_text(statement.stmt, 24, item.machineCode.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 25, item.rackId.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 26, item.rackSlot.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 13, item.syncStatus.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 14, item.digikeyPartNumber.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 15, item.productUrl.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 16, item.syncStatus.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 17, item.sku.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_int64(statement.stmt, 18, static_cast<sqlite3_int64>(item.lastUpdated));
+    sqliteApi().bind_text(statement.stmt, 19, item.inventatoryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_int64(statement.stmt, 20, static_cast<sqlite3_int64>(item.createdAt));
+    sqliteApi().bind_text(statement.stmt, 21, item.machineCode.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 22, item.rackId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 23, item.rackSlot.c_str(), -1, SQLITE_TRANSIENT);
     const auto assignment = rackAssignmentModeName(item.rackAssignment);
-    sqliteApi().bind_text(statement.stmt, 27, assignment.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 24, assignment.c_str(), -1, SQLITE_TRANSIENT);
 
     if (sqliteApi().step(statement.stmt) != SQLITE_DONE) {
       execSql(connection, "ROLLBACK");
@@ -353,7 +400,7 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     const char* eventSql = R"SQL(
       UPDATE inventatory_device_events SET
         state='completed', result_id=?, result_status=?, result_existing=?, result_item_name=?,
-        result_purpose_label=?, result_requested_delta=?, result_applied_delta=?, result_quantity=?, result_location=?,
+        result_requested_delta=?, result_applied_delta=?, result_quantity=?, result_location=?,
         result_code=?, result_message=?, completed_at=?
       WHERE event_id=? AND state='received'
     )SQL";
@@ -365,15 +412,14 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     sqliteApi().bind_text(eventStatement.stmt, 2, deviceEvent->status.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_int(eventStatement.stmt, 3, deviceEvent->existing ? 1 : 0);
     sqliteApi().bind_text(eventStatement.stmt, 4, deviceEvent->itemName.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(eventStatement.stmt, 5, deviceEvent->purposeLabel.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_int(eventStatement.stmt, 6, deviceEvent->requestedDelta);
-    sqliteApi().bind_int(eventStatement.stmt, 7, deviceEvent->appliedDelta);
-    sqliteApi().bind_int(eventStatement.stmt, 8, deviceEvent->quantity);
-    sqliteApi().bind_text(eventStatement.stmt, 9, deviceEvent->location.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(eventStatement.stmt, 10, deviceEvent->code.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(eventStatement.stmt, 11, deviceEvent->message.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_int64(eventStatement.stmt, 12, static_cast<sqlite3_int64>(deviceEvent->completedAt));
-    sqliteApi().bind_text(eventStatement.stmt, 13, deviceEvent->eventId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_int(eventStatement.stmt, 5, deviceEvent->requestedDelta);
+    sqliteApi().bind_int(eventStatement.stmt, 6, deviceEvent->appliedDelta);
+    sqliteApi().bind_int(eventStatement.stmt, 7, deviceEvent->quantity);
+    sqliteApi().bind_text(eventStatement.stmt, 8, deviceEvent->location.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(eventStatement.stmt, 9, deviceEvent->code.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(eventStatement.stmt, 10, deviceEvent->message.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_int64(eventStatement.stmt, 11, static_cast<sqlite3_int64>(deviceEvent->completedAt));
+    sqliteApi().bind_text(eventStatement.stmt, 12, deviceEvent->eventId.c_str(), -1, SQLITE_TRANSIENT);
     if (sqliteApi().step(eventStatement.stmt) != SQLITE_DONE) {
       execSql(connection, "ROLLBACK");
       return false;
@@ -418,9 +464,38 @@ bool InventoryStore::load(const filesystem::path& path) {
   }
   loadRacks(connection, racks_);
 
+  const bool hasInventatoryTable = tableExists(connection, "inventatory_items");
+  const bool hasLegacyTable = tableExists(connection, "items");
+
   vector<InventoryItem> inventatoryItems;
-  const bool loaded = loadItemsFromInventatoryTable(connection, inventatoryItems);
-  if (loaded) items_ = move(inventatoryItems);
+  bool loaded = false;
+  if (hasInventatoryTable) {
+    loaded = loadItemsFromInventatoryTable(connection, inventatoryItems);
+  }
+
+  vector<InventoryItem> legacyItems;
+  if (hasLegacyTable) {
+    importLegacyItems(connection, legacyItems);
+  }
+
+  if (!legacyItems.empty() && (inventatoryItems.empty() || legacyItems.size() > inventatoryItems.size())) {
+    items_ = move(legacyItems);
+    loaded = true;
+    ensureInventoryIdentifiers(items_);
+    writeItemsToInventatoryTable(connection, items_, racks_);
+  } else if (loaded && !inventatoryItems.empty()) {
+    items_ = move(inventatoryItems);
+  } else if (!loaded || items_.empty()) {
+    if (!inventatoryItems.empty()) {
+      items_ = move(inventatoryItems);
+      loaded = true;
+    } else if (!legacyItems.empty()) {
+      items_ = move(legacyItems);
+      loaded = true;
+      ensureInventoryIdentifiers(items_);
+      writeItemsToInventatoryTable(connection, items_, racks_);
+    }
+  }
 
   ensureInventoryIdentifiers(items_);
   reconcileRackAssignments(*this);
@@ -509,9 +584,9 @@ const InventoryItem* InventoryStore::findById(const string& id) const {
 InventoryItem* InventoryStore::findByCode(const string& code) {
   const auto needle = toLower(trim(code));
   const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.manufacturerPartNumber) == needle ||
-           toLower(item.machineCode) == needle || containsInsensitive(item.datasheetUrl, needle) ||
-           containsInsensitive(item.catalogueDatasheetUrl, needle);
+    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
+           toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
+           containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
   });
   return it == items_.end() ? nullptr : &(*it);
 }
@@ -519,9 +594,9 @@ InventoryItem* InventoryStore::findByCode(const string& code) {
 const InventoryItem* InventoryStore::findByCode(const string& code) const {
   const auto needle = toLower(trim(code));
   const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.manufacturerPartNumber) == needle ||
-           toLower(item.machineCode) == needle || containsInsensitive(item.datasheetUrl, needle) ||
-           containsInsensitive(item.catalogueDatasheetUrl, needle);
+    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
+           toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
+           containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
   });
   return it == items_.end() ? nullptr : &(*it);
 }

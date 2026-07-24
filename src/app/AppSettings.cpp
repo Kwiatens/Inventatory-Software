@@ -84,6 +84,16 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       unsigned int port = loaded.deviceServicePort;
       value >> port;
       if (port >= 1 && port <= 65535) loaded.deviceServicePort = static_cast<uint16_t>(port);
+    } else if (key == "digikey_client_id") {
+      value >> quoted(loaded.digiKeyClientId);
+    } else if (key == "digikey_account_id") {
+      value >> quoted(loaded.digiKeyAccountId);
+    } else if (key == "digikey_site") {
+      value >> quoted(loaded.digiKeySite);
+    } else if (key == "digikey_language") {
+      value >> quoted(loaded.digiKeyLanguage);
+    } else if (key == "digikey_currency") {
+      value >> quoted(loaded.digiKeyCurrency);
     } else if (key == "quick_label") {
       string preset;
       value >> quoted(preset);
@@ -94,8 +104,10 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       if (revision > 0 && revision <= UINT32_MAX) loaded.quickLabelRevision = static_cast<uint32_t>(revision);
     }
   }
-  if (loaded.schemaVersion < 1 || loaded.schemaVersion > 3) return false;
-  loaded.schemaVersion = 3;
+  if (loaded.schemaVersion < 1 || loaded.schemaVersion > 2) return false;
+  if (loaded.schemaVersion == 1) {
+    loaded.schemaVersion = 2;
+  }
   settings = move(loaded);
   return true;
 }
@@ -120,6 +132,11 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "latest_available_version=" << quoted(settings.latestAvailableVersion) << '\n'
          << "latest_release_url=" << quoted(settings.latestReleaseUrl) << '\n'
          << "device_service_port=" << settings.deviceServicePort << '\n'
+         << "digikey_client_id=" << quoted(settings.digiKeyClientId) << '\n'
+         << "digikey_account_id=" << quoted(settings.digiKeyAccountId) << '\n'
+         << "digikey_site=" << quoted(settings.digiKeySite) << '\n'
+         << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
+         << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n'
          << "quick_label_revision=" << settings.quickLabelRevision << '\n';
   for (const auto& preset : settings.quickLabelPresets) {
     output << "quick_label=" << quoted(preset) << '\n';

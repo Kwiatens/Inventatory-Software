@@ -47,16 +47,11 @@ struct InventoryItem {
   vector<string> tags;
   vector<Parameter> parameters;
   string notes;
-  string manufacturerPartNumber;
+  string digikeyPartNumber;
   string datasheetUrl;
-  string catalogueStatus = "not_in_catalogue";
-  string cataloguePartId;
-  string catalogueSnapshot;
-  string catalogueName;
-  string cataloguePurposeLabel;
-  string cataloguePrintLabel;
-  string catalogueCategory;
-  string catalogueDatasheetUrl;
+  string productUrl;
+  string syncStatus = "synced";
+  string sku;
   time_t lastUpdated = 0;
   string inventatoryId;
   time_t createdAt = 0;
@@ -66,11 +61,9 @@ struct InventoryItem {
   RackAssignmentMode rackAssignment = RackAssignmentMode::Automatic;
 
   bool lowStock() const;
-  bool catalogueMatched() const;
   bool hasMissingMetadata() const;
   string searchableText() const;
 };
-
 
 struct ActivityEntry {
   time_t timestamp = 0;
@@ -83,7 +76,7 @@ struct Summary {
   size_t totalUnits = 0;
   size_t lowStockCount = 0;
   size_t missingMetadataCount = 0;
-  size_t unenrichedCount = 0;
+  size_t unsyncedCount = 0;
 };
 
 struct InventoryHistoryPoint {
@@ -103,7 +96,6 @@ struct DeviceEventCommit {
   string status;
   bool existing = false;
   string itemName;
-  string purposeLabel;
   int requestedDelta = 0;
   int appliedDelta = 0;
   int quantity = 0;
@@ -192,8 +184,6 @@ void appendActivity(vector<ActivityEntry>& activities, const ActivityEntry& entr
 ActivityEntry makeActivity(string kind, string message);
 
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
-ScanResolution resolveDecodedComponent(InventoryStore& store, const string& manufacturer,
-                                       const string& manufacturerPartNumber, const string& encodedPartName);
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);

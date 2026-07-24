@@ -3,27 +3,19 @@
 #include "platform/UpdateService.h"
 #include "platform/StartupRegistration.h"
 #include "core/InventoryInternals.h"
-#include "core/InventorySqlite.h"
-#include "core/CatalogueDatabase.h"
 #include "core/InventatoryScanProtocol.h"
 #include "core/PartDescriptor.h"
-#include "import/BomCsvImport.h"
-#include "import/XlsxWorkbookReader.h"
+#include "import/DigiKeyCsvImport.h"
 #include "label_printer/LabelPrinter.h"
 #include "ui/shared/AppUiShared.h"
 
-#include <miniz.h>
-
 #include <cstdlib>
-#include <algorithm>
 #include <cassert>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
-#include <atomic>
-#include <chrono>
 #include <unordered_map>
 
 #undef assert
@@ -40,100 +32,46 @@ using namespace std;
 
 namespace {
 
-bool writeSyntheticXlsx(const filesystem::path& path) {
-  mz_zip_archive archive{};
-  if (!mz_zip_writer_init_file(&archive, path.string().c_str(), 0)) return false;
-  const auto add = [&](const char* name, const string& content) {
-    return mz_zip_writer_add_mem(&archive, name, content.data(), content.size(), MZ_BEST_COMPRESSION) != 0;
-  };
-  const bool written =
-      add("[Content_Types].xml", R"xml(<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>)xml") &&
-      add("xl/workbook.xml", R"xml(<?xml version="1.0"?><workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Cover" sheetId="1" r:id="rId1"/><sheet name="Products" sheetId="2" r:id="rId2"/></sheets></workbook>)xml") &&
-      add("xl/_rels/workbook.xml.rels", R"xml(<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/cover.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/><Relationship Id="rId2" Target="worksheets/products.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/></Relationships>)xml") &&
-      add("xl/styles.xml", R"xml(<?xml version="1.0"?><styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="0000"/></numFmts><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>)xml") &&
-      add("xl/worksheets/cover.xml", R"xml(<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Catalogue export</t></is></c></row></sheetData></worksheet>)xml") &&
-      add("xl/worksheets/products.xml", R"xml(<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Orderable Part Number</t></is></c><c r="B1" t="inlineStr"><is><t>Generic Part Number</t></is></c><c r="C1" t="inlineStr"><is><t>Package</t></is></c><c r="D1" t="inlineStr"><is><t>Channels</t></is></c><c r="E1" t="inlineStr"><is><t>Supply voltage (min)</t></is></c><c r="F1" t="inlineStr"><is><t>Supply voltage (max)</t></is></c><c r="G1" t="inlineStr"><is><t>Shutdown current</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>OPA333AIDBVR</t></is></c><c r="B2" t="inlineStr"><is><t>OPA333</t></is></c><c r="C2" s="1"><v>402</v></c><c r="D2"><f>1+1</f><v>2</v></c><c r="E2" t="inlineStr"><is><t>1.8 V</t></is></c><c r="F2" t="inlineStr"><is><t>5.5 V</t></is></c><c r="G2" t="inlineStr"><is><t>1 µA</t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>OPA333AIDBVR-REEL</t></is></c><c r="B3" t="inlineStr"><is><t>OPA333</t></is></c><c r="C3" s="1"><v>201</v></c><c r="E3" t="inlineStr"><is><t>1.8 V</t></is></c><c r="F3" t="inlineStr"><is><t>5.5 V</t></is></c><c r="G3" t="inlineStr"><is><t>1 µA</t></is></c></row></sheetData></worksheet>)xml");
-  return written && mz_zip_writer_finalize_archive(&archive) != 0 && mz_zip_writer_end(&archive) != 0;
-}
-
-int runCatalogueBenchmark(size_t requestedRows = 0) {
-  using clock = chrono::steady_clock;
-  const vector<size_t> sizes = {10000, 100000, 500000};
-  for (const auto rows : sizes) {
-    if (requestedRows != 0 && rows != requestedRows) continue;
-    const auto databasePath = filesystem::temp_directory_path() / ("inventatory-catalogue-benchmark-" + to_string(rows) + ".db");
-    const auto csvPath = filesystem::temp_directory_path() / ("TI_catalogue_benchmark_" + to_string(rows) + ".csv");
-    error_code ignored;
-    filesystem::remove(databasePath, ignored);
-    filesystem::remove(csvPath, ignored);
-    {
-      ofstream csv(csvPath, ios::binary | ios::trunc);
-      csv << "Orderable Part Number,Generic Part Number,Package,Channels,Supply voltage (min),Supply voltage (max),Shutdown current\n";
-      for (size_t row = 0; row < rows; ++row) {
-        const auto identifier = "BENCH" + to_string(row);
-        csv << identifier << ",BASE" << row << ",0402,2,1.8 V,5.5 V,1 uA\n";
-      }
-    }
-    {
-      CatalogueDatabase database;
-      if (!database.open(databasePath)) return 2;
-      const auto importStart = clock::now();
-      const auto imported = database.importFile(csvPath);
-      const auto importElapsed = chrono::duration_cast<chrono::milliseconds>(clock::now() - importStart).count();
-      if (!imported.error.empty() || imported.parts != rows) return 3;
-      const auto lookupStart = clock::now();
-      for (size_t lookup = 0; lookup < 100; ++lookup) {
-        const auto result = database.lookup("Texas Instruments", "BENCH" + to_string((lookup * 7919) % rows));
-        if (!result.matched()) return 4;
-      }
-      const auto lookupElapsed = chrono::duration_cast<chrono::microseconds>(clock::now() - lookupStart).count();
-      cout << "catalogue benchmark rows=" << rows << " import_ms=" << importElapsed
-           << " db_bytes=" << filesystem::file_size(databasePath)
-           << " lookup_avg_us=" << (lookupElapsed / 100) << endl;
-    }
-    filesystem::remove(csvPath, ignored);
-    filesystem::remove(databasePath, ignored);
-    filesystem::remove(databasePath.string() + "-shm", ignored);
-    filesystem::remove(databasePath.string() + "-wal", ignored);
-  }
-  return 0;
-}
-
 vector<InventoryItem> makeSampleInventory() {
   vector<InventoryItem> items;
 
-  InventoryItem resistor;
-  resistor.id = "res-0603-10k";
-  resistor.partName = "10k Resistor 0603";
-  resistor.manufacturer = "Yageo";
-  resistor.category = "Resistors";
-  resistor.quantity = 180;
-  resistor.reorderThreshold = 50;
-  resistor.location = "Shelf A3";
-  resistor.tags = {"0603", "1%", "rohs"};
-  resistor.parameters = {{"Resistance", "10k Ohm"}, {"Power", "0.1W"}, {"Package", "0603"}};
-  resistor.notes = "General purpose pull-up and divider resistor.";
-  resistor.manufacturerPartNumber = "RC0603FR-0710KL";
-  resistor.datasheetUrl = "https://www.yageo.com/upload/media/product/productsearch/datasheet/rchip/PYu-RC_Group_51_RoHS_L_13.pdf";
-  resistor.catalogueStatus = "not_in_catalogue";
-  resistor.lastUpdated = 1710000000;
-  items.push_back(resistor);
+  items.push_back({
+      "res-0603-10k",
+      "10k Resistor 0603",
+      "Yageo",
+      "Resistors",
+      180,
+      50,
+      "Shelf A3",
+      {"0603", "1%", "rohs"},
+      {{"Resistance", "10k Ohm"}, {"Power", "0.1W"}, {"Package", "0603"}},
+      "General purpose pull-up and divider resistor.",
+      "311-10.0KHRCT-ND",
+      "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604",
+      "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604",
+      "synced",
+      "RC0603FR-0710KL",
+      1710000000,
+  });
 
-  InventoryItem module;
-  module.id = "esp32-s3-module";
-  module.partName = "ESP32-S3 Module";
-  module.manufacturer = "Espressif";
-  module.category = "MCUs";
-  module.quantity = 4;
-  module.reorderThreshold = 10;
-  module.location = "ESD Drawer";
-  module.tags = {"wifi", "bluetooth", "module"};
-  module.parameters = {{"Core", "Xtensa LX7"}, {"Flash", "16MB"}, {"Package", "Module"}};
-  module.notes = "Used for integration prototypes and test rigs.";
-  module.manufacturerPartNumber = "ESP32-S3-WROOM-1";
-  module.catalogueStatus = "not_in_catalogue";
-  module.lastUpdated = 1710000100;
-  items.push_back(module);
+  items.push_back({
+      "esp32-s3-module",
+      "ESP32-S3 Module",
+      "Espressif",
+      "MCUs",
+      4,
+      10,
+      "ESD Drawer",
+      {"wifi", "bluetooth", "module"},
+      {{"Core", "Xtensa LX7"}, {"Flash", "16MB"}, {"Package", "Module"}},
+      "Used for integration prototypes and test rigs.",
+      "1965-ESP32-S3-MODULE-ND",
+      "https://www.digikey.com/en/products/detail/espressif-systems/ESP32-S3/15240400",
+      "https://www.digikey.com/en/products/detail/espressif-systems/ESP32-S3/15240400",
+      "synced",
+      "ESP32-S3-WROOM-1",
+      1710000100,
+  });
 
   ensureInventoryIdentifiers(items);
   return items;
@@ -177,10 +115,7 @@ class MockPrinterBackend final : public PrinterBackend {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  if (argc >= 2 && string(argv[1]) == "--catalogue-benchmark") {
-    return runCatalogueBenchmark(argc == 3 ? stoull(argv[2]) : 0);
-  }
+int main() {
   {
     auto items = makeSampleInventory();
     assert(!items.empty());
@@ -206,7 +141,7 @@ int main(int argc, char** argv) {
     InventoryStore store;
     store.items() = items;
 
-    const auto resolution = resolveScanCode(store, "RC0603FR-0710KL");
+    const auto resolution = resolveScanCode(store, "311-10.0KHRCT-ND");
     assert(resolution.matched);
     assert(!resolution.created);
     assert(resolution.itemId == "res-0603-10k");
@@ -224,20 +159,10 @@ int main(int argc, char** argv) {
     assert(!unknownMachine.matched);
     assert(unknownMachine.message == "Unknown machine code");
 
-    const auto created = resolveScanCode(store, "new-supplier-code");
+    const auto created = resolveScanCode(store, "new-digikey-code");
     assert(created.matched);
     assert(created.created);
     assert(store.findById(created.itemId) != nullptr);
-
-    const auto unidentified = resolveDecodedComponent(store, "", "", "Unidentified sensor");
-    assert(unidentified.matched);
-    assert(unidentified.created);
-    const auto* unidentifiedItem = store.findById(unidentified.itemId);
-    assert(unidentifiedItem != nullptr);
-    assert(unidentifiedItem->manufacturerPartNumber.empty());
-    assert(unidentifiedItem->partName == "Unidentified sensor");
-    assert(find(unidentifiedItem->tags.begin(), unidentifiedItem->tags.end(), "unidentifiable") !=
-           unidentifiedItem->tags.end());
   }
 
   {
@@ -524,11 +449,11 @@ int main(int argc, char** argv) {
     item.tags = {"alpha|beta", R"(path\\value)"};
     item.parameters = {{"Voltage=nominal", "5V; tolerance=1%"}, {"Package", R"(0805\\metric)"}};
     item.notes = "Roundtrip test";
-    item.manufacturerPartNumber = "123";
+    item.digikeyPartNumber = "123";
     item.datasheetUrl = "https://example.com/datasheet";
-    item.datasheetUrl = "https://example.com/product";
-    item.catalogueStatus = "matched";
-    item.manufacturerPartNumber = "SKU-1";
+    item.productUrl = "https://example.com/product";
+    item.syncStatus = "synced";
+    item.sku = "SKU-1";
     item.lastUpdated = 1710000000;
     item.machineCode = "0002";
 
@@ -543,52 +468,6 @@ int main(int argc, char** argv) {
     assert(restored.parameters[0].value == item.parameters[0].value);
     assert(restored.inventatoryId == item.inventatoryId);
     assert(restored.machineCode == item.machineCode);
-  }
-
-  {
-    const auto path = filesystem::temp_directory_path() / "inventatory-catalogue-migration-test.db";
-    filesystem::remove(path);
-    {
-      SqliteConnection connection;
-      assert(openDatabase(path, connection));
-      assert(execSql(connection, R"SQL(
-        CREATE TABLE inventatory_items (
-          id TEXT PRIMARY KEY, part_name TEXT NOT NULL, manufacturer TEXT NOT NULL, category TEXT NOT NULL,
-          quantity INTEGER NOT NULL, reorder_threshold INTEGER NOT NULL, location TEXT NOT NULL,
-          tags TEXT NOT NULL, parameters TEXT NOT NULL, notes TEXT NOT NULL,
-          supplier_code TEXT NOT NULL, datasheet_url TEXT NOT NULL, product_url TEXT NOT NULL,
-          sync_state TEXT NOT NULL, sku TEXT NOT NULL, last_updated INTEGER NOT NULL,
-          inventatory_id TEXT NOT NULL, created_at INTEGER NOT NULL, machine_code TEXT NOT NULL,
-          rack_id TEXT NOT NULL, rack_slot TEXT NOT NULL, rack_assignment TEXT NOT NULL
-        );
-        INSERT INTO inventatory_items VALUES
-          ('legacy-pdf','Legacy PDF','Maker','ICs',7,2,'A1','','','keep note','drop-me',
-           'https://maker.example/direct.pdf','https://catalog.example/product','synced','MPN-1',100,
-           'Inventatory:I-1',90,'0002','','','automatic'),
-          ('legacy-page','Legacy Page','Maker','ICs',3,1,'A2','','','','drop-me-too',
-           'https://catalog.example/product','https://catalog.example/search','synced','MPN-2',101,
-           'Inventatory:I-2',91,'0003','','','automatic');
-      )SQL"));
-    }
-    InventoryStore migrated;
-    assert(migrated.load(path));
-    assert(migrated.items().size() == 2);
-    assert(migrated.findById("legacy-pdf")->manufacturerPartNumber == "MPN-1");
-    assert(migrated.findById("legacy-pdf")->datasheetUrl == "https://maker.example/direct.pdf");
-    assert(migrated.findById("legacy-pdf")->notes == "keep note");
-    assert(migrated.findById("legacy-page")->datasheetUrl.empty());
-    assert(migrated.findById("legacy-page")->quantity == 3);
-    assert(migrated.findById("legacy-page")->catalogueStatus == "not_in_catalogue");
-    {
-      SqliteConnection connection;
-      assert(openDatabase(path, connection));
-      assert(tableColumnExists(connection, "inventatory_items", "manufacturer_part_number"));
-      assert(!tableColumnExists(connection, "inventatory_items", "supplier_code"));
-      assert(!tableColumnExists(connection, "inventatory_items", "product_url"));
-      assert(!tableColumnExists(connection, "inventatory_items", "sync_state"));
-      assert(!tableColumnExists(connection, "inventatory_items", "sku"));
-    }
-    filesystem::remove(path);
   }
 
   {
@@ -620,23 +499,28 @@ int main(int argc, char** argv) {
 
   {
     const string csv =
-        "Manufacturer Part Number,Manufacturer,Part Name,Quantity,Datasheet URL,Location,Notes,Tags\n"
-        "CDMC6D28NP-4R7MC,Sumida,Shielded power inductor,10,https://example.test/part.pdf,Drawer A,For power rails,power;inductor\n";
-    const auto result = parseBomCsvText(csv, {});
+        "Indeks,Nr kat. DigiKey,Manufacturer Part Number,Producent,Opis,Numer referencyjny klienta,Ilość,"
+        "Niezrealizowana pozycja zamówienia,Cena jednostkowa,Wartość\n"
+        "1,308-1571-1-ND,CDMC6D28NP-4R7MC,Sumida America Components Inc.,FIXED IND 4.7UH 3.7A 46.4 MOHM,,10,0,"
+        "\"2,62800 zł\",\"26,28 zł\"\n";
+
+    const auto result = parseDigiKeyCsvText(csv, {});
     assert(result.ok);
     assert(result.candidates.size() == 1);
     const auto& candidate = result.candidates.front();
-    assert(candidate.item.manufacturerPartNumber == "CDMC6D28NP-4R7MC");
-    assert(candidate.item.manufacturer == "Sumida");
+    assert(candidate.item.digikeyPartNumber == "308-1571-1-ND");
+    assert(candidate.item.sku == "CDMC6D28NP-4R7MC");
+    assert(candidate.item.manufacturer == "Sumida America Components Inc.");
     assert(candidate.item.quantity == 10);
-    assert(candidate.item.datasheetUrl == "https://example.test/part.pdf");
-    assert(candidate.item.tags.size() == 3);
+    assert(candidate.item.category == "Inductors");
+    assert(candidate.item.parameters.size() == 4);
   }
 
   {
     const string csv =
-        "Manufacturer Part Number,Manufacturer,Description,Quantity\n"
-        "C0603C105K4RACTU,KEMET,CAP CER 1UF 16V X7R 0603,50\n";
+        "Index,Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity,Unit Price,Extended Price\n"
+        "1,399-C0603C105K4RACTUCT-ND,C0603C105K4RACTU,KEMET,CAP CER 1UF 16V X7R 0603,50,\"0,13420 zł\",\"6,71 zł\"\n";
+
     auto existing = makeSampleInventory();
     InventoryItem duplicate;
     duplicate.id = "existing-cap";
@@ -644,35 +528,20 @@ int main(int argc, char** argv) {
     duplicate.manufacturer = "KEMET";
     duplicate.category = "Capacitors";
     duplicate.quantity = 7;
-    duplicate.manufacturerPartNumber = "C0603C105K4RACTU";
+    duplicate.digikeyPartNumber = "399-C0603C105K4RACTUCT-ND";
+    duplicate.sku = "C0603C105K4RACTU";
     existing.push_back(duplicate);
-    const auto result = parseBomCsvText(csv, existing);
+
+    const auto result = parseDigiKeyCsvText(csv, existing);
     assert(result.ok);
     assert(result.candidates.size() == 1);
     assert(result.candidates.front().hasConflict);
     assert(result.candidates.front().existingItemId == "existing-cap");
-    assert(result.candidates.front().matchedField == "Manufacturer and part number");
+    assert(result.candidates.front().matchedField == "DigiKey part");
+
     mergeImportedMetadata(duplicate, result.candidates.front().item);
     duplicate.quantity += result.candidates.front().item.quantity;
     assert(duplicate.quantity == 57);
-  }
-
-  {
-    const string csv = "Manufacturer Part Number,Quantity\nSHARED-1,4\n";
-    InventoryItem first;
-    first.id = "maker-a-shared";
-    first.partName = "Maker A part";
-    first.manufacturer = "Maker A";
-    first.manufacturerPartNumber = "SHARED-1";
-    InventoryItem second = first;
-    second.id = "maker-b-shared";
-    second.partName = "Maker B part";
-    second.manufacturer = "Maker B";
-    const auto result = parseBomCsvText(csv, {first, second});
-    assert(result.ok);
-    assert(result.candidates.front().hasConflict);
-    assert(result.candidates.front().existingItemId.empty());
-    assert(result.candidates.front().matchedField.find("Ambiguous") != string::npos);
   }
 
   {
@@ -680,18 +549,16 @@ int main(int argc, char** argv) {
     auto* backendPtr = backend.get();
     LabelPrinterService service(move(backend));
     service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
-    const auto expectHeader = [&](InventoryItem& candidate, const string& expected) {
-      candidate.cataloguePurposeLabel = expected;
-      candidate.cataloguePrintLabel = expected.size() <= 16 ? expected : expected.substr(0, 16);
-      candidate.catalogueStatus = "matched";
+    const auto expectHeader = [&](const InventoryItem& candidate, const string& expected) {
       const auto plan = service.buildLabelPlan(candidate);
-      const auto expectedHeader = candidate.cataloguePrintLabel;
-      if (plan.categoryHeader != expectedHeader) {
-        cerr << "Expected header '" << expectedHeader << "' but got '" << plan.categoryHeader << "' for "
+      if (plan.categoryHeader != expected) {
+        cerr << "Expected header '" << expected << "' but got '" << plan.categoryHeader << "' for "
              << candidate.id << '\n';
       }
-      assert(plan.categoryHeader == expectedHeader);
-      assert(service.buildZpl(candidate).find("^FD" + expectedHeader + "^FS") != string::npos);
+      assert(plan.categoryHeader == expected);
+      if (expected.size() <= 16) {
+        assert(service.buildZpl(candidate).find("^FD" + expected + "^FS") != string::npos);
+      }
       return plan;
     };
 
@@ -713,7 +580,7 @@ int main(int argc, char** argv) {
           {"Voltage - Supply", "4.5V ~ 16V"},
           {"Operating Temperature", "0C ~ 70C"},
           {"Package / Case", "8-SOIC"}},
-         "Created from a supplier code scan.", "Timer IC"},
+         "Created from a DigiKey code scan.", "Timer IC"},
         {"golden-voltage-ref", "Precision voltage reference", "Microchip", "Integrated Circuits",
          {{"Voltage Reference Type", "Shunt"}, {"Package / Case", "SOT-23"}}, {}, "Voltage Ref."},
         {"golden-buck", "IC REG BUCK 3.3V 2A TSOT23-6", "Monolithic Power", "Integrated Circuits",
@@ -822,10 +689,8 @@ int main(int argc, char** argv) {
     item.createdAt = 1710000000;
     item.inventatoryId = "Inventatory:R-00123";
     item.machineCode = "0002";
-    item.manufacturerPartNumber = "RC0603FR-0710KL";
-    item.cataloguePurposeLabel = "Resistor";
-    item.cataloguePrintLabel = "Resistor";
-    item.catalogueStatus = "matched";
+    item.sku = "RC0603FR-0710KL";
+    item.digikeyPartNumber = "311-10.0KHRCT-ND";
     item.parameters = {{"Resistance", "10k Ohm"}, {"Tolerance", "1%"}, {"Power Dissipation", "0.125W"}};
 
     const auto plan = service.buildLabelPlan(item);
@@ -853,13 +718,9 @@ int main(int argc, char** argv) {
     const auto rackPlan = service.buildLabelPlan(item, "R3-E3");
     assert(rackPlan.rackLocation == "R3-E3");
     const auto rackZpl = service.buildZpl(item, "R3-E3");
-    assert(rackZpl.find("^FO10,173^A0N,13,13^FDR3-E3^FS") != string::npos);
+    assert(rackZpl.find("^FO10,173^A0N,18,18^FDR3-E3^FS") != string::npos);
     assert(zpl.find("^FDLA,0002^FS") != string::npos);
-    assert(zpl.find("^FO200,6^A0N,17,17^FR^FDInventatory^FS") == string::npos);
-    assert(zpl.find("^FDInventatory:R-0002^FS") == string::npos);
-    assert(zpl.find("^FO166,136^A0N,10,10^FB76,1,0,C^FDR-0002\\&^FS") != string::npos);
-    assert(zpl.find("^FO5,0^GB251,24,24,B,6^FS") != string::npos);
-    assert(zpl.find("^FO171,190^A0N,8,8^FB80,1,0,R^FDInventatory\\&^FS") != string::npos);
+    assert(zpl.find("^FO56,173^A0N,10,10^FDInventatory:R-0002^FS") != string::npos);
     assert(zpl.find("^BC") == string::npos);
 
     string error;
@@ -924,9 +785,15 @@ int main(int argc, char** argv) {
                            {"Voltage - Clamping (Max) @ Ipp", "26V"},
                            {"Current - Peak Pulse (10/1000µs)", "23.1A"},
                            {"Power - Peak Pulse", "600W"}};
-    const auto tvsPlan = expectHeader(tvsDiode, "TVS Diode");
+    const auto tvsPlan = service.buildLabelPlan(tvsDiode);
     assert(tvsPlan.categoryHeader == "TVS Diode");
+    assert(tvsPlan.parameterLine1.find("Vst") != string::npos);
+    assert(tvsPlan.parameterLine2.find("Vc") != string::npos);
+    assert(tvsPlan.parameterLine3.find("Ipp") != string::npos);
     assert(service.buildZpl(tvsDiode).find("^FDTVS Diode^FS") != string::npos);
+    assert(service.buildZpl(tvsDiode).find("^FDVst 16V^FS") != string::npos);
+    assert(service.buildZpl(tvsDiode).find("^FDVc 26V^FS") != string::npos);
+    assert(service.buildZpl(tvsDiode).find("^FDIpp 23.1A^FS") != string::npos);
 
     InventoryItem protectionIc;
     protectionIc.id = "prot-ic-1";
@@ -934,7 +801,7 @@ int main(int argc, char** argv) {
     protectionIc.manufacturer = "Nexperia";
     protectionIc.category = "Integrated Circuits";
     protectionIc.parameters = {{"Function", "Protection"}, {"Type", "ESD"}};
-    const auto protectionPlan = expectHeader(protectionIc, "Protection IC");
+    const auto protectionPlan = service.buildLabelPlan(protectionIc);
     assert(protectionPlan.categoryHeader == "Protection IC");
     assert(service.buildZpl(protectionIc).find("^FDProtection IC^FS") != string::npos);
 
@@ -1062,7 +929,7 @@ int main(int argc, char** argv) {
       precisionTimer.category = "Clock/Timing - Programmable Timers and Oscillators";
       precisionTimer.parameters = {{"Type", "555 Type, Timer/Oscillator (Single)"},
                                    {"Frequency", "100kHz"},
-                                   {"supplier Programmable", "Not Verified"},
+                                   {"DigiKey Programmable", "Not Verified"},
                                    {"Package / Case", "8-DIP"}};
       expectHeader(precisionTimer, "Timer IC");
     }
@@ -1095,7 +962,7 @@ int main(int argc, char** argv) {
     opAmp.manufacturer = "Texas Instruments";
     opAmp.category = "Integrated Circuits";
     opAmp.parameters = {{"Gain Bandwidth", "10MHz"}, {"Slew Rate", "5V/us"}};
-    const auto opAmpPlan = expectHeader(opAmp, "OP-AMP");
+    const auto opAmpPlan = service.buildLabelPlan(opAmp);
     assert(opAmpPlan.categoryHeader == "OP-AMP");
     assert(service.buildZpl(opAmp).find("^FDOP-AMP^FS") != string::npos);
 
@@ -1108,7 +975,7 @@ int main(int argc, char** argv) {
                       {"Output", "I2C"},
                       {"Voltage - Supply", "1.8V"},
                       {"Resolution", "16bit"}};
-    const auto imuPlan = expectHeader(imu, "3 Axis IMU");
+    const auto imuPlan = service.buildLabelPlan(imu);
     assert(imuPlan.categoryHeader == "3 Axis IMU");
     assert(imuPlan.parameterLine1.find("Type") != string::npos);
     assert(imuPlan.parameterLine2.find("Out") != string::npos);
@@ -1138,8 +1005,8 @@ int main(int argc, char** argv) {
       genericIc.category = "Integrated Circuits";
       genericIc.notes = "Operates from a single supply.";
       genericIc.parameters = {{"Function", "Controller"}, {"Package / Case", "SOIC-8"}};
-      const auto genericPlan = expectHeader(genericIc, "Integrated Circuit");
-      assert(genericPlan.categoryHeader == genericIc.cataloguePrintLabel);
+      const auto genericPlan = service.buildLabelPlan(genericIc);
+      assert(genericPlan.categoryHeader == "Integrated Circuit");
       assert(genericPlan.categoryHeader != "Memory IC");
     }
 
@@ -1148,7 +1015,7 @@ int main(int argc, char** argv) {
     fallback.partName = "Prototype module";
     fallback.manufacturer = "Acme";
     fallback.category = "Misc / Prototype";
-    const auto fallbackPlan = expectHeader(fallback, "Misc");
+    const auto fallbackPlan = service.buildLabelPlan(fallback);
     assert(fallbackPlan.categoryHeader == "Misc");
     assert(service.buildZpl(fallback).find("^FDMisc^FS") != string::npos);
 
@@ -1157,7 +1024,7 @@ int main(int argc, char** argv) {
     inductor.partName = "RF inductor";
     inductor.manufacturer = "Murata";
     inductor.category = "Inductors";
-    inductor.notes = "FIXED IND 27NH 350MA 460 MOHM";
+    inductor.notes = "FIXED IND 27NH 350MA 460 MOHM | DigiKey PN: 490-2628-1-ND";
     inductor.parameters = {{"Value", "100MHz"}, {"Current Rating", "350mA"}, {"Frequency - Self Resonant", "1.7GHz"}};
     const auto inductorFields = electricalFieldsForItem(inductor);
     bool foundInductance = false;
@@ -1290,16 +1157,16 @@ int main(int argc, char** argv) {
   }
 
   {
-    const string csv = "Catalog Number,Manufacturer,Description,Quantity\n"
-                       "CAT-123,Acme,Missing manufacturer part,3\n";
-    const auto result = parseBomCsvText(csv, {});
+    const string csv = "Digi-Key Part Number,Manufacturer,Description,Quantity\n"
+                       "123-ND,Acme,Missing manufacturer part,3\n";
+    const auto result = parseDigiKeyCsvText(csv, {});
     assert(!result.ok);
   }
 
   {
-    const string csv = "Manufacturer Part Number,Manufacturer,Description,Quantity\n"
-                       "ABC-123,Acme,Overflow quantity,2147483648\n";
-    const auto result = parseBomCsvText(csv, {});
+    const string csv = "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+                       "123-ND,ABC-123,Acme,Overflow quantity,2147483648\n";
+    const auto result = parseDigiKeyCsvText(csv, {});
     assert(!result.ok);
   }
 
@@ -1338,10 +1205,10 @@ int main(int argc, char** argv) {
     DeviceScanRequest request;
     string error;
     assert(parseScanRequestJson(
-        R"({"deviceId":"r1-a","requestId":"req-1","code":"[)>\u001e06\u001dPRC0603FR-0710KL\u001dQ2\u001e\u0004","quantity":2})",
+        R"({"deviceId":"r1-a","requestId":"req-1","code":"[)>\u001e06\u001dP718-2362-1-ND\u001dQ2\u001e\u0004","quantity":2})",
         request, error));
     assert(request.quantity == 2);
-    assert(request.code == string("[)>") + '\x1e' + "06" + '\x1d' + "PRC0603FR-0710KL" + '\x1d' + "Q2" + '\x1e' + '\x04');
+    assert(request.code == string("[)>") + '\x1e' + "06" + '\x1d' + "P718-2362-1-ND" + '\x1d' + "Q2" + '\x1e' + '\x04');
 
     assert(parseScanRequestJson(R"({"deviceId":"r1-a","requestId":"req-2","code":"ABC123"})", request, error));
     assert(request.quantity == 1);
@@ -1396,48 +1263,32 @@ int main(int argc, char** argv) {
     DeviceSyncRequest request;
     string error;
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
+        R"({"protocolVersion":1,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
         request, error));
-    assert(request.protocolVersion == 2);
+    assert(request.protocolVersion == 1);
     assert(request.events.size() == 1);
     assert(request.events.front().value == 2);
     assert(request.resultAcks.size() == 1);
     assert(!request.hasLookup);
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-component","deviceId":"r1-a","firmwareVersion":"0.6.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-78","type":"inventory.receive","code":"TPS7A2033PDBVR","value":5,"component":{"manufacturer":"Texas Instruments","manufacturerPartNumber":"TPS7A2033PDBVR","encodedPartName":"TPS7A20 LDO"}}],"resultAcks":[]})",
-        request, error));
-    assert(request.events.size() == 1);
-    assert(request.events.front().manufacturer == "Texas Instruments");
-    assert(request.events.front().manufacturerPartNumber == "TPS7A2033PDBVR");
-    assert(request.events.front().encodedPartName == "TPS7A20 LDO");
-    assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-name-only","deviceId":"r1-a","firmwareVersion":"0.6.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-79","type":"inventory.receive","code":"","value":1,"component":{"manufacturer":"","manufacturerPartNumber":"","encodedPartName":"Unidentified sensor"}}],"resultAcks":[]})",
-        request, error));
-    assert(request.events.front().manufacturerPartNumber.empty());
-    assert(request.events.front().encodedPartName == "Unidentified sensor");
-    assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
+        R"({"protocolVersion":1,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.lookupId == "lookup-9");
     assert(request.lookup.code == "0002");
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-mpn-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-mpn-1","code":"RC0603FR-0710KL"}})",
+        R"({"protocolVersion":1,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
         request, error));
     assert(request.hasLookup);
-    assert(request.lookup.code == "RC0603FR-0710KL");
+    assert(request.lookup.code == "718-2362-1-ND");
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-special-mpn","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-mpn-2","code":"DS3231S#T&R"}})",
-        request, error));
-    assert(request.lookup.code == "DS3231S#T&R");
-    assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
+        R"({"protocolVersion":1,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
         request, error));
     assert(request.hasQuickLabelPrint);
     assert(request.quickLabelPrint.presetIndex == 2);
     assert(request.quickLabelPrint.revision == 3);
     assert(!parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"bad:code"}})",
+        R"({"protocolVersion":1,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"ABC"}})",
         request, error));
 
     DeviceSyncResponse quickLabelResponse;
@@ -1450,13 +1301,10 @@ int main(int argc, char** argv) {
     const auto quickLabelJson = deviceSyncResponseJson(quickLabelResponse);
     assert(quickLabelJson.find("\"quickLabels\":{\"revision\":3") != string::npos);
     assert(quickLabelJson.find("\"quickLabelPrintResult\":{\"requestId\":\"r1-a-label-1\"") != string::npos);
-    assert(quickLabelJson.find("catalogue") == string::npos);
-    assert(quickLabelJson.find("properties") == string::npos);
-    assert(quickLabelJson.find("rawValue") == string::npos);
     quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
     quickLabelResponse.hasLookupResult = true;
     assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
-    assert(parseDeviceSyncRequestJson(
+    assert(!parseDeviceSyncRequestJson(
         R"({"protocolVersion":2,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
 
@@ -1467,7 +1315,7 @@ int main(int argc, char** argv) {
     item.id = "sync-item";
     item.machineCode = "0002";
     item.partName = "10k resistor";
-    item.manufacturerPartNumber = "RC0603FR-0710KL";
+    item.digikeyPartNumber = "718-2362-1-ND";
     item.quantity = 5;
     item.location = "R1-A1";
     store.items().push_back(item);
@@ -1483,13 +1331,13 @@ int main(int argc, char** argv) {
     const auto databaseFoundLookup = lookupDeviceItem(databasePath, {"lookup-9-db", "0002"});
     assert(databaseFoundLookup.status == "found");
     assert(databaseFoundLookup.itemName == "10k resistor");
-    const auto mpnLookup = lookupDeviceItem(lookupSnapshot, {"lookup-mpn-1", "RC0603FR-0710KL"});
-    assert(mpnLookup.status == "found");
-    assert(mpnLookup.itemName == "10k resistor");
-    const auto databaseMpnLookup =
-        lookupDeviceItem(databasePath, {"lookup-mpn-1-db", "RC0603FR-0710KL"});
-    assert(databaseMpnLookup.status == "found");
-    assert(databaseMpnLookup.itemName == "10k resistor");
+    const auto digiKeyLookup = lookupDeviceItem(lookupSnapshot, {"lookup-dk-1", "718-2362-1-ND"});
+    assert(digiKeyLookup.status == "found");
+    assert(digiKeyLookup.itemName == "10k resistor");
+    const auto databaseDigiKeyLookup =
+        lookupDeviceItem(databasePath, {"lookup-dk-1-db", "718-2362-1-ND"});
+    assert(databaseDigiKeyLookup.status == "found");
+    assert(databaseDigiKeyLookup.itemName == "10k resistor");
     const auto missingLookup = lookupDeviceItem(lookupSnapshot, {"lookup-10", "9999"});
     assert(missingLookup.status == "not_found");
     const auto databaseMissingLookup = lookupDeviceItem(databasePath, {"lookup-10-db", "9999"});
@@ -1512,7 +1360,7 @@ int main(int argc, char** argv) {
 
     request = {};
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
+        R"({"protocolVersion":1,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
         request, error));
     DeviceSyncResponse response;
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));
@@ -1538,7 +1386,7 @@ int main(int argc, char** argv) {
     result.location = "R1-A1";
     result.message = "Quantity updated";
 
-    // A new protocol-v2 receive is auto-printed immediately after its event is
+    // A new protocol-v1 receive is auto-printed immediately after its event is
     // committed. Its live item must receive the same identifiers as the SQLite
     // snapshot; otherwise the label has blank Inventatory text and an empty QR field.
     InventoryItem autoLabelItem;
@@ -1585,290 +1433,6 @@ int main(int argc, char** argv) {
   }
 
   {
-    const auto xlsxPath = filesystem::temp_directory_path() / "ti-products-synthetic.xlsx";
-    error_code ignored;
-    filesystem::remove(xlsxPath, ignored);
-    assert(writeSyntheticXlsx(xlsxPath));
-    CatalogueTable table;
-    string xlsxError;
-    assert(readXlsxCatalogueTable(xlsxPath, "products", table, xlsxError));
-    assert(table.sheetName == "Products");
-    assert(table.headers.size() == 7);
-    assert(table.rows.size() == 2);
-    assert(table.rows[0][0] == "OPA333AIDBVR");
-    assert(table.rows[0][2] == "0402");
-    assert(table.rows[0][3] == "2");
-    assert(table.rows[1][3].empty());
-    atomic_bool cancelled = true;
-    assert(!readXlsxCatalogueTable(xlsxPath, "products", table, xlsxError, &cancelled));
-    assert(xlsxError == "Workbook import cancelled");
-    assert(!readXlsxCatalogueTable(xlsxPath.string() + ".missing", "products", table, xlsxError));
-    filesystem::remove(xlsxPath, ignored);
-  }
-
-  {
-    assert(manufacturerSources().size() == 8);
-    for (const auto& source : manufacturerSources()) {
-      assert(source.downloadMode == DownloadMode::BrowserGuided);
-      assert(!source.automaticFetchAllowed);
-      assert(!source.redistributionAllowed);
-    }
-    auto microfarads = parseEngineeringValue("4.7 µF");
-    assert(microfarads.nominal.has_value());
-    assert(abs(*microfarads.nominal - 4.7e-6) < 1e-12);
-    assert(microfarads.unit == "F");
-    auto contextual = parseEngineeringValue("3 m", "Ohm");
-    assert(contextual.nominal.has_value() && abs(*contextual.nominal - 0.003) < 1e-12);
-    auto range = parseEngineeringValue("-55 to +125 °C");
-    assert(range.minimum == -55 && range.maximum == 125 && range.unit == "degC");
-    assert(parseEngineeringValue("10k").warning.size() > 0);
-    assert(detectCatalogueProfile("unrecognised-export.csv", {"Part Number", "Description"}) == nullptr);
-    assert(detectCatalogueProfile("TI_opamps_synthetic.csv", {"Orderable Part Number", "Channels", "Supply voltage (min)"}) != nullptr);
-    const auto profileHasProperty = [](const CatalogueProfile& profile, const string& name) {
-      return any_of(profile.properties.begin(), profile.properties.end(), [&](const PropertyMapping& property) { return property.canonicalName == name; });
-    };
-    const auto tiProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "ti-parametric-v1"; });
-    const auto adiProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "adi-amplifiers-v1"; });
-    const auto microchipProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "microchip-parametric-v1"; });
-    const auto murataProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "murata-capacitors-v1"; });
-    const auto tdkProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "tdk-mlcc-v1"; });
-    const auto kemetProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "kemet-yageo-mlcc-v1"; });
-    const auto vishayContractProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "vishay-current-sense-v1"; });
-    const auto nexperiaProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "nexperia-discretes-v1"; });
-    assert(tiProfile != catalogueProfiles().end() && profileHasProperty(*tiProfile, "quiescent_current") && profileHasProperty(*tiProfile, "gate_charge"));
-    assert(adiProfile != catalogueProfiles().end() && profileHasProperty(*adiProfile, "noise_density") && profileHasProperty(*adiProfile, "slew_rate"));
-    assert(microchipProfile != catalogueProfiles().end() && profileHasProperty(*microchipProfile, "dac_resolution") && profileHasProperty(*microchipProfile, "usb_interfaces"));
-    assert(murataProfile != catalogueProfiles().end() && profileHasProperty(*murataProfile, "dimensions") && profileHasProperty(*murataProfile, "operating_temperature"));
-    assert(tdkProfile != catalogueProfiles().end() && profileHasProperty(*tdkProfile, "packaging") && profileHasProperty(*tdkProfile, "insulation_resistance"));
-    assert(kemetProfile != catalogueProfiles().end() && profileHasProperty(*kemetProfile, "msl") && profileHasProperty(*kemetProfile, "aec_qualification"));
-    assert(vishayContractProfile != catalogueProfiles().end() && profileHasProperty(*vishayContractProfile, "resistance") && profileHasProperty(*vishayContractProfile, "temperature_coefficient"));
-    assert(nexperiaProfile != catalogueProfiles().end() && profileHasProperty(*nexperiaProfile, "reverse_recovery_time") && profileHasProperty(*nexperiaProfile, "dc_current_gain"));
-
-    {
-      const auto downloadsPath = filesystem::temp_directory_path() / "inventatory-catalogue-download-session";
-      error_code downloadIgnored;
-      filesystem::remove_all(downloadsPath, downloadIgnored);
-      filesystem::create_directories(downloadsPath);
-      { ofstream existing(downloadsPath / "older-export.csv", ios::binary); existing << "already present"; }
-      const auto tiSource = find_if(manufacturerSources().begin(), manufacturerSources().end(), [](const ManufacturerSource& source) { return source.id == "ti"; });
-      assert(tiSource != manufacturerSources().end());
-      CatalogueDownloadSession downloadSession;
-      assert(downloadSession.start(*tiSource, downloadsPath));
-      assert(!downloadSession.poll().has_value());
-      { ofstream partial(downloadsPath / "ti-export.xlsx.crdownload", ios::binary); partial << "partial"; }
-      assert(!downloadSession.poll().has_value());
-      const auto completedPath = downloadsPath / "ti-export.xlsx";
-      { ofstream completed(completedPath, ios::binary); completed << "completed"; }
-      assert(!downloadSession.poll().has_value());
-      assert(!downloadSession.poll().has_value());
-      const auto detectedDownload = downloadSession.poll();
-      assert(detectedDownload.has_value() && *detectedDownload == completedPath);
-      assert(!downloadSession.active());
-      CatalogueDownloadSession timedOutSession;
-      assert(timedOutSession.start(*tiSource, downloadsPath, chrono::seconds::zero()));
-      assert(!timedOutSession.poll().has_value());
-      assert(!timedOutSession.active() && timedOutSession.timedOut());
-      filesystem::remove_all(downloadsPath, downloadIgnored);
-    }
-
-    const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
-    const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
-    const auto unknownPath = filesystem::temp_directory_path() / "unknown-supplier-table.csv";
-    const auto customUnknownPath = filesystem::temp_directory_path() / "unknown-custom-supplier-table.csv";
-    const auto vishayPath = filesystem::temp_directory_path() / "Vishay_series_synthetic.csv";
-    const auto vishayExactPath = filesystem::temp_directory_path() / "Vishay_orderable_synthetic.csv";
-    const auto nexperiaPath = filesystem::temp_directory_path() / "Nexperia_discrete_synthetic.csv";
-    const auto murataPath = filesystem::temp_directory_path() / "Murata_capacitor_synthetic.csv";
-    error_code ignored;
-    filesystem::remove(databasePath, ignored);
-    ofstream csv(csvPath, ios::binary | ios::trunc);
-    csv << "\xEF\xBB\xBFOrderable Part Number,Generic Part Number,Package,Channels,Supply voltage (min),Supply voltage (max),Description\n"
-           "OPA333AIDBVR,OPA333,SOT-23,1,1.8 V,5.5 V,Zero-drift amplifier\n"
-           "\"OPA,QUOTED\",BASE2,0402,2,2.7 V,12 V,\"quoted, description\"\n"
-           "BROKEN\"ROW,BASE3,SOT-23,1,1 V,2 V,Bad row\n";
-    csv.close();
-    CatalogueDatabase database;
-    assert(database.open(databasePath));
-    {
-      ofstream unknown(unknownPath, ios::binary | ios::trunc);
-      unknown << "Supplier code,Case,Selection flag\nABC-001,0402,Preferred\n";
-    }
-    {
-      ofstream unknown(customUnknownPath, ios::binary | ios::trunc);
-      unknown << "Supplier code,Case,Selection flag\nACME-001,0603,Preferred\n";
-    }
-    const auto unknownPreview = database.previewFile(unknownPath);
-    assert(unknownPreview.valid());
-    assert(unknownPreview.profileId.empty());
-    assert(unknownPreview.headers.size() == 3);
-    assert(!unknownPreview.warnings.empty());
-    CatalogueProfile manualProfile{"ti-parametric-v1", "manual-v1", "Texas Instruments", "Custom", "", {},
-                                   {"Supplier code"}, {}, {}, {"Case"}, {}, {}, {}, {}, false};
-    manualProfile.properties.push_back({{"Selection flag"}, "automotive_qualification", "", ""});
-    assert(database.saveLocalMapping(manualProfile));
-    const auto savedManualProfile = database.localMapping("ti-parametric-v1");
-    assert(savedManualProfile.has_value());
-    assert(savedManualProfile->mpnColumns == vector<string>{"Supplier code"});
-    assert(savedManualProfile->packageColumns == vector<string>{"Case"});
-    assert(savedManualProfile->properties.size() == 1);
-    assert(savedManualProfile->properties.front().canonicalName == "automotive_qualification");
-    const auto manuallyImported = database.importFile(unknownPath, &manualProfile);
-    assert(manuallyImported.error.empty());
-    const auto manualMatch = database.lookup("Texas Instruments", "ABC-001");
-    assert(manualMatch.matched());
-    assert(any_of(manualMatch.record.properties.begin(), manualMatch.record.properties.end(), [](const CatalogueProperty& property) {
-      return property.sourceColumn == "Selection flag" && property.name == "automotive_qualification" && property.mappingStatus == "warning";
-    }));
-    CatalogueProfile customManualProfile{"manual-acme-components", "manual-v1", "Acme Components", "Custom", "", {},
-                                         {"Supplier code"}, {}, {}, {"Case"}, {}, {}, {}, {}, false};
-    assert(database.saveLocalMapping(customManualProfile));
-    const auto savedCustomManualProfile = database.localMapping("manual-acme-components");
-    assert(savedCustomManualProfile.has_value());
-    assert(savedCustomManualProfile->manufacturer == "Acme Components");
-    const auto customManualImport = database.importFile(customUnknownPath, &customManualProfile);
-    assert(customManualImport.error.empty());
-    assert(database.lookup("Acme Components", "ACME-001").status == CatalogueMatchStatus::ExactMatch);
-    const auto imported = database.importFile(csvPath);
-    assert(imported.error.empty());
-    assert(imported.parts == 2);
-    assert(imported.rejected == 1);
-    assert(imported.properties >= 6);
-    const auto snapshots = database.snapshots();
-    assert(!snapshots.empty());
-    const auto importedSnapshot = find_if(snapshots.begin(), snapshots.end(), [](const CatalogueImportStats& snapshot) {
-      return snapshot.filename == "TI_opamps_synthetic.csv";
-    });
-    assert(importedSnapshot != snapshots.end());
-    assert(importedSnapshot->profileVersion == "1");
-    const auto importWarnings = database.warningsForSnapshot(imported.snapshotId);
-    assert(importWarnings.size() == imported.warnings);
-    assert(any_of(importWarnings.begin(), importWarnings.end(), [](const CatalogueWarning& warning) { return warning.message == "Malformed CSV row"; }));
-    assert(database.importFile(csvPath).duplicate);
-    {
-      ofstream murata(murataPath, ios::binary | ios::trunc);
-      murata << "Part Number,Series,Case Code,Capacitance,Rated Voltage,Tolerance,Temperature Characteristic,ESR\n"
-                "GRM188R61C106KAALD,GRM,0603,10 uF,16 V,10 %,X5R,12 mOhm\n";
-    }
-    const auto murataImportProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
-      return candidate.id == "murata-capacitors-v1";
-    });
-    assert(murataImportProfile != catalogueProfiles().end());
-    const auto murataImported = database.importFile(murataPath, &*murataImportProfile);
-    assert(murataImported.error.empty() && murataImported.parts == 1);
-    const auto murataExact = database.lookup("Murata", "GRM188R61C106KAALD");
-    assert(murataExact.status == CatalogueMatchStatus::ExactMatch);
-    assert(any_of(murataExact.record.properties.begin(), murataExact.record.properties.end(), [](const CatalogueProperty& property) {
-      return property.name == "capacitance" && property.rawValue == "10 uF";
-    }));
-    {
-      ofstream nexperia(nexperiaPath, ios::binary | ios::trunc);
-      nexperia << "Type number,Orderable part number,Package,VR,IF,VF,trr,Automotive\n"
-                  "BAS16,BAS16-215,SOT-23,75 V,200 mA,1 V,6 ns,Yes\n";
-    }
-    const auto nexperiaImportProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
-      return candidate.id == "nexperia-discretes-v1";
-    });
-    assert(nexperiaImportProfile != catalogueProfiles().end());
-    const auto nexperiaImported = database.importFile(nexperiaPath, &*nexperiaImportProfile);
-    assert(nexperiaImported.error.empty() && nexperiaImported.parts == 1 && nexperiaImported.aliases == 1);
-    const auto nexperiaExact = database.lookup("Nexperia", "BAS16-215");
-    assert(nexperiaExact.status == CatalogueMatchStatus::ExactMatch);
-    assert(database.lookup("Nexperia", "BAS16").status == CatalogueMatchStatus::AliasMatch);
-    assert(any_of(nexperiaExact.record.properties.begin(), nexperiaExact.record.properties.end(), [](const CatalogueProperty& property) {
-      return property.name == "reverse_recovery_time" && property.rawValue == "6 ns";
-    }));
-    {
-      ofstream vishay(vishayPath, ios::binary | ios::trunc);
-      vishay << "Part Number,Series,Case,Resistance,Tolerance,Power,TCR\n"
-                "WSL2512R0100FEA,WSL2512,2512,10 mOhm,1 %,1 W,75 ppm/C\n"
-                "WSL2512R0200FEA,WSL2512,2512,20 mOhm,1 %,1 W,75 ppm/C\n";
-    }
-    const auto vishayProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
-      return candidate.id == "vishay-current-sense-v1";
-    });
-    assert(vishayProfile != catalogueProfiles().end() && !vishayProfile->seriesOnly && !vishayProfile->exactMpnColumns.empty());
-    const auto vishayImported = database.importFile(vishayPath, &*vishayProfile);
-    assert(vishayImported.error.empty() && vishayImported.parts == 2 && vishayImported.properties == 8);
-    assert(database.lookup("Vishay", "WSL2512R0100FEA").status == CatalogueMatchStatus::NotFound);
-    {
-      ofstream vishay(vishayExactPath, ios::binary | ios::trunc);
-      vishay << "Orderable Part Number,Series,Case,Resistance,Tolerance,Power,TCR\n"
-                "WSL2512R0100FEA,WSL2512,2512,10 mOhm,1 %,1 W,75 ppm/C\n";
-    }
-    const auto vishayExactImported = database.importFile(vishayExactPath, &*vishayProfile);
-    assert(vishayExactImported.error.empty() && vishayExactImported.parts == 1);
-    assert(database.lookup("Vishay", "WSL2512R0100FEA").status == CatalogueMatchStatus::ExactMatch);
-    const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
-    assert(exact.status == CatalogueMatchStatus::ExactMatch);
-    assert(exact.record.properties.size() >= 3);
-    const auto alias = database.lookup("Texas Instruments", "OPA333");
-    assert(alias.status == CatalogueMatchStatus::AliasMatch);
-    assert(database.lookup("Texas Instruments", "OPA-333").status == CatalogueMatchStatus::NotFound);
-    InventoryItem item;
-    item.partName = "Manual name";
-    item.manufacturerPartNumber = "OPA333AIDBVR";
-    item.parameters = {{"Manual property", "keep me"}};
-    assert(applyCatalogueEnrichment(item, exact));
-    assert(item.partName == "Manual name");
-    assert(item.parameters.size() == 1 && item.parameters.front().name == "Manual property" && item.parameters.front().value == "keep me");
-    assert(serializeItem(item).find("Shutdown current") == string::npos);
-    assert(item.catalogueStatus == "exact_match");
-    assert(item.catalogueMatched());
-    assert(!item.hasMissingMetadata());
-    item.catalogueStatus = "alias_match";
-    assert(item.catalogueMatched());
-    item.catalogueStatus = "not_in_catalogue";
-    assert(!item.catalogueMatched());
-    item.catalogueStatus = "exact_match";
-    const auto xlsxPath = filesystem::temp_directory_path() / "ti-products-synthetic.xlsx";
-    assert(writeSyntheticXlsx(xlsxPath));
-    const auto profile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {
-      return candidate.id == "ti-parametric-v1";
-    });
-    assert(profile != catalogueProfiles().end());
-    const auto preview = database.previewFile(xlsxPath, &*profile);
-    assert(preview.valid());
-    assert(preview.sheetName == "Products");
-    assert(preview.rows == 2);
-    assert(find(preview.unmappedColumns.begin(), preview.unmappedColumns.end(), "Shutdown current") != preview.unmappedColumns.end());
-    const auto xlsxImported = database.importFile(xlsxPath, &*profile);
-    assert(xlsxImported.error.empty());
-    assert(xlsxImported.parts == 2);
-    assert(xlsxImported.properties >= 7);
-    assert(xlsxImported.unmappedProperties == 2);
-    const auto xlsxExact = database.lookup("Texas Instruments", "OPA333AIDBVR");
-    assert(any_of(xlsxExact.record.properties.begin(), xlsxExact.record.properties.end(), [](const CatalogueProperty& property) {
-      return property.sourceColumn == "Shutdown current" && property.mappingStatus == "unmapped" && property.rawValue == "1 µA";
-    }));
-    auto newerTiProfile = *profile;
-    newerTiProfile.version = "2";
-    newerTiProfile.properties.push_back({{"Shutdown current"}, "shutdown_current", "A", ""});
-    assert(database.reprocessSource(newerTiProfile) == 2);
-    const auto remapped = database.lookup("Texas Instruments", "OPA333AIDBVR");
-    assert(any_of(remapped.record.properties.begin(), remapped.record.properties.end(), [](const CatalogueProperty& property) {
-      return property.name == "shutdown_current" && property.mappingStatus == "mapped" && property.value.rawValue == "1 µA";
-    }));
-    assert(database.lookup("Texas Instruments", "OPA333AIDBVR-REEL").matched());
-    assert(database.removeSource("ti"));
-    const auto removed = database.lookup("Texas Instruments", "OPA333AIDBVR");
-    assert(removed.status == CatalogueMatchStatus::NotFound);
-    assert(applyCatalogueEnrichment(item, removed));
-    assert(item.cataloguePartId.empty());
-    assert(item.catalogueName.empty());
-    assert(item.catalogueStatus == "not_in_catalogue");
-    assert(item.partName == "Manual name");
-    filesystem::remove(csvPath, ignored);
-    filesystem::remove(unknownPath, ignored);
-    filesystem::remove(customUnknownPath, ignored);
-    filesystem::remove(vishayPath, ignored);
-    filesystem::remove(vishayExactPath, ignored);
-    filesystem::remove(nexperiaPath, ignored);
-    filesystem::remove(murataPath, ignored);
-    filesystem::remove(xlsxPath, ignored);
-    filesystem::remove(databasePath, ignored);
-  }
-
-  {
     const auto path = filesystem::temp_directory_path() / "inventatory-app-settings-test.conf";
     AppSettings expected;
     expected.dataDirectory = filesystem::temp_directory_path() / "Inventatory test data";
@@ -1882,13 +1446,18 @@ int main(int argc, char** argv) {
     expected.latestAvailableVersion = "0.2.0";
     expected.latestReleaseUrl = "https://github.com/Kwiatens/Inventatory-Software/releases/tag/v0.2.0";
     expected.deviceServicePort = 8181;
+    expected.digiKeyClientId = "client-id";
+    expected.digiKeyAccountId = "account-id";
+    expected.digiKeySite = "PL";
+    expected.digiKeyLanguage = "pl";
+    expected.digiKeyCurrency = "PLN";
     expected.quickLabelPresets = {"5V", "GND", "12V"};
     expected.quickLabelRevision = 9;
     assert(saveAppSettings(path, expected));
 
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
-    assert(loaded.schemaVersion == 3);
+    assert(loaded.schemaVersion == 2);
     assert(loaded.completedOnboardingVersion == 1);
     assert(loaded.dataDirectory == expected.dataDirectory);
     assert(loaded.printerQueue == expected.printerQueue);
@@ -1900,11 +1469,18 @@ int main(int argc, char** argv) {
     assert(loaded.latestAvailableVersion == "0.2.0");
     assert(loaded.latestReleaseUrl == expected.latestReleaseUrl);
     assert(loaded.deviceServicePort == 8181);
+    assert(loaded.digiKeyClientId == "client-id");
+    assert(loaded.digiKeyAccountId == "account-id");
+    assert(loaded.digiKeySite == "PL");
+    assert(loaded.digiKeyLanguage == "pl");
+    assert(loaded.digiKeyCurrency == "PLN");
     assert(loaded.quickLabelPresets == expected.quickLabelPresets);
     assert(loaded.quickLabelRevision == 9);
 
     ifstream persisted(path);
     const string text((istreambuf_iterator<char>(persisted)), istreambuf_iterator<char>());
+    assert(text.find("client_secret") == string::npos);
+    assert(text.find("secret") == string::npos);
     assert(text.find("device_service_port=8181") != string::npos);
     assert(text.find("bridge_port") == string::npos);
     persisted.close();
@@ -1926,7 +1502,7 @@ int main(int argc, char** argv) {
     legacy.close();
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
-    assert(loaded.schemaVersion == 3);
+    assert(loaded.schemaVersion == 2);
     assert(loaded.deviceServicePort == 8182);
     assert(!loaded.backgroundServiceEnabled);
     assert(!loaded.backgroundConsentAsked);

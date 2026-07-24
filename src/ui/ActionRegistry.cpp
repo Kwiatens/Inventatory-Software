@@ -5,6 +5,7 @@
 
 #include "App.h"
 
+#include "platform/DigiKeyApi.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/dom/elements.hpp>
@@ -48,7 +49,18 @@ vector<App::Action> App::currentActions() const {
     saveInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
   };
   auto openDatasheet = [self] {
-    if (const auto* item = self->selectedItem()) self->openCurrentUrl(effectiveDatasheetUrl(*item), "datasheet");
+    if (const auto* item = self->selectedItem()) self->openCurrentUrl(item->datasheetUrl, "datasheet");
+  };
+  auto openProduct = [self] {
+    if (const auto* item = self->selectedItem()) self->openCurrentUrl(item->productUrl, "product");
+  };
+  auto openDigiKey = [self] {
+    if (const auto* item = self->selectedItem()) {
+      const auto url = item->digikeyPartNumber.empty()
+                           ? string()
+                           : "https://www.digikey.com/en/products/result?keywords=" + item->digikeyPartNumber;
+      self->openCurrentUrl(url, "DigiKey");
+    }
   };
   switch (page_) {
     case Page::Home:
@@ -71,6 +83,8 @@ vector<App::Action> App::currentActions() const {
       if (hasItem) add("add one", "Edit", "+", chr('+'), [self] { self->adjustQuantity(1); });
       if (hasItem) add("remove one", "Edit", "-", chr('-'), [self] { self->adjustQuantity(-1); });
       if (hasItem) add("datasheet", "Links", "d", chr('d'), openDatasheet);
+      if (hasItem) add("product", "Links", "o", chr('o'), openProduct);
+      if (hasItem) add("DigiKey", "Links", "g", chr('g'), openDigiKey);
       if (hasItem) add("print label", "Print", "p", chr('p'), [self] { self->printSelectedLabel(); });
       add(autoPrintScannedLabels_ ? "auto-label off" : "auto-label on", "Print", "P", chr('P'),
           [self] { self->toggleAutoPrintScannedLabels(); });
@@ -170,6 +184,9 @@ vector<App::Action> App::currentActions() const {
         add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateInventatoryScanToken(); });
         add("clear device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });
       }
+      if (settingsCategory_ == SettingsCategory::DigiKey) {
+        add("test credentials", "DigiKey", "t", chr('t'), [self] { self->testStagedDigiKey(); });
+      }
       if (settingsDirty_) {
         add("save settings", "Changes", "s", chr('s'), [self] { self->saveSettingsDraft(); });
         add("discard changes", "Changes", "Esc", special(KeyType::Escape), [self] { self->cancelSettingsDraft(); });
@@ -178,23 +195,16 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Import:
-      add("edit row", "Review", "e", chr('e'), [self] { self->beginEditImportCandidate(); });
-      add("cancel import", "Review", "q", chr('q'), [self] {
-        self->changePage(Page::Home);
-        self->setMessage("CSV import cancelled", 3);
-      });
-      break;
-
-    case Page::Catalogue:
-      add("get catalogue", "Source", "g", chr('g'), [self] { self->beginCatalogueDownload(); });
-      add("choose file", "Source", "f", chr('f'), [self] { self->chooseCatalogueFile(); });
-      add("map unknown file", "Source", "m", chr('m'), [self] { self->chooseManualCatalogueFile(); });
-      add("re-enrich inventory", "Source", "r", chr('r'), [self] { self->reEnrichInventoryFromCatalogue(); });
-      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
-      break;
-
-    case Page::ScanSetup:
-    case Page::Onboarding:
+      if (importSyncPrompt_) {
+        add("sync with DigiKey", "Finish", "y", chr('y'), [self] { self->finishCsvImport(true); });
+        add("finish without sync", "Finish", "n", chr('n'), [self] { self->finishCsvImport(false); });
+      } else {
+        add("edit row", "Review", "e", chr('e'), [self] { self->beginEditImportCandidate(); });
+        add("cancel import", "Review", "q", chr('q'), [self] {
+          self->changePage(Page::Home);
+          self->setMessage("CSV import cancelled", 3);
+        });
+      }
       break;
   }
 

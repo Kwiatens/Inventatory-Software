@@ -354,14 +354,14 @@ bool looksLikeSupportedInventatoryScanCode(const string& code) {
 bool looksLikeSupportedLookupCode(const string& code) {
   const auto trimmed = trim(code);
   if (looksLikeSupportedInventatoryScanCode(trimmed)) return true;
-  if (trimmed.size() < 2 || trimmed.size() > 64) return false;
-  bool hasAlphanumeric = false;
+  if (trimmed.size() < 5 || trimmed.size() > 64) return false;
+  bool hasDigit = false;
   for (const unsigned char ch : trimmed) {
-    if (isalnum(ch) != 0) hasAlphanumeric = true;
-    if (isalnum(ch) == 0 && ch != '-' && ch != '.' && ch != '_' && ch != '/' && ch != '+' &&
-        ch != '#' && ch != '&' && ch != ',' && ch != '(' && ch != ')' && ch != ' ') return false;
+    if (isdigit(ch) != 0) hasDigit = true;
+    if (isalnum(ch) == 0 && ch != '-' && ch != '.' && ch != '_') return false;
   }
-  return hasAlphanumeric;
+  const auto suffix = trimmed.substr(trimmed.size() - 3);
+  return hasDigit && (suffix == "-ND" || suffix == "-nd");
 }
 
 }  // namespace
@@ -452,9 +452,6 @@ bool parseScanRequestJson(const string& body, DeviceScanRequest& request, string
   const auto requestId = jsonString(body, "requestId");
   const auto code = jsonString(body, "code");
   const auto quantity = jsonInt(body, "quantity");
-  const auto manufacturer = jsonString(body, "manufacturer");
-  const auto mpn = jsonString(body, "manufacturerPartNumber");
-  const auto encodedName = jsonString(body, "encodedPartName");
   if (!deviceId || trim(*deviceId).empty() || !requestId || trim(*requestId).empty() || !code ||
       trim(*code).empty()) {
     error = "Missing or invalid deviceId, requestId, or code";
@@ -468,8 +465,7 @@ bool parseScanRequestJson(const string& body, DeviceScanRequest& request, string
     error = "Quantity must be positive";
     return false;
   }
-  request = {*deviceId, *requestId, *code, quantity ? *quantity : 1,
-             manufacturer.value_or(string()), mpn.value_or(string()), encodedName.value_or(string())};
+  request = {*deviceId, *requestId, *code, quantity ? *quantity : 1};
   return true;
 }
 
@@ -529,7 +525,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
     error = "Missing or invalid sync envelope field";
     return false;
   }
-  if (*protocolVersion != 2) {
+  if (*protocolVersion != 1) {
     error = "Unsupported protocol version";
     return false;
   }
@@ -558,22 +554,12 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
     const auto type = jsonString(object, "type");
     const auto code = jsonString(object, "code");
     const auto value = jsonInt(object, "value");
-    const auto component = jsonObjectBody(object, "component");
-    const auto manufacturer = component ? jsonString(*component, "manufacturer") : optional<string>{};
-    const auto mpn = component ? jsonString(*component, "manufacturerPartNumber") : optional<string>{};
-    const auto encodedName = component ? jsonString(*component, "encodedPartName") : optional<string>{};
-    const auto hasMpn = mpn && !trim(*mpn).empty();
-    const auto hasEncodedName = encodedName && !trim(*encodedName).empty();
-    if (!eventId || trim(*eventId).empty() || !type || !code ||
-        (trim(*code).empty() && !hasMpn && !hasEncodedName) || !value ||
-        eventId->size() > 96 || type->size() > 32 || code->size() > 128 ||
-        (manufacturer && manufacturer->size() > 128) || (mpn && mpn->size() > 64) ||
-        (encodedName && encodedName->size() > 128)) {
+    if (!eventId || trim(*eventId).empty() || !type || !code || trim(*code).empty() || !value ||
+        eventId->size() > 96 || code->size() > 128) {
       error = "Invalid sync event";
       return false;
     }
-    parsed.events.push_back({*eventId, *type, *code, *value, manufacturer.value_or(string()),
-                             mpn.value_or(string()), encodedName.value_or(string())});
+    parsed.events.push_back({*eventId, *type, *code, *value});
   }
   if (parsed.events.size() > 4) {
     error = "Too many sync events";
@@ -608,7 +594,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
 
 string deviceSyncResponseJson(const DeviceSyncResponse& response) {
   ostringstream out;
-  out << "{\"protocolVersion\":2,\"requestId\":\"" << jsonEscape(response.requestId)
+  out << "{\"protocolVersion\":1,\"requestId\":\"" << jsonEscape(response.requestId)
       << "\",\"acceptedEventIds\":[";
   for (size_t index = 0; index < response.acceptedEventIds.size(); ++index) {
     if (index != 0) out << ',';
@@ -623,7 +609,6 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
         << "\",\"status\":\"" << jsonEscape(result.status)
         << "\",\"existing\":" << (result.existing ? "true" : "false")
         << ",\"itemName\":\"" << jsonEscape(result.itemName)
-        << "\",\"purposeLabel\":\"" << jsonEscape(result.purposeLabel)
         << "\",\"requestedDelta\":" << result.requestedDelta
         << ",\"appliedDelta\":" << result.appliedDelta
         << ",\"quantity\":" << result.quantity
@@ -635,8 +620,7 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
   if (response.hasLookupResult) {
     out << ",\"lookupResult\":{\"lookupId\":\"" << jsonEscape(response.lookupResult.lookupId)
         << "\",\"status\":\"" << jsonEscape(response.lookupResult.status)
-        << "\",\"itemName\":\"" << jsonEscape(response.lookupResult.itemName)
-        << "\",\"purposeLabel\":\"" << jsonEscape(response.lookupResult.purposeLabel) << "\"}";
+        << "\",\"itemName\":\"" << jsonEscape(response.lookupResult.itemName) << "\"}";
   }
   if (response.hasQuickLabels) {
     out << ",\"quickLabels\":{\"revision\":" << response.quickLabelRevision << ",\"presets\":[";
@@ -681,7 +665,7 @@ DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLoo
                   [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
         return value == foldedCode;
       };
-      return equalsCode(candidate.manufacturerPartNumber);
+      return equalsCode(candidate.digikeyPartNumber) || equalsCode(candidate.sku);
     });
     if (match != store.items().end()) item = &(*match);
   }
@@ -690,8 +674,7 @@ DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLoo
     return result;
   }
   result.status = "found";
-  result.itemName = item->catalogueName.empty() ? item->partName : item->catalogueName;
-  result.purposeLabel = item->cataloguePurposeLabel;
+  result.itemName = item->partName;
   return result;
 }
 
