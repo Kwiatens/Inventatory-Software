@@ -128,7 +128,7 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   for (const auto& item : items) {
     snapshot.totalQuantity += static_cast<size_t>(max(item.quantity, 0));
     const bool missingMetadata = item.hasMissingMetadata();
-    const bool unenriched = toLower(item.enrichmentStatus) != "matched";
+    const bool unenriched = toLower(item.catalogueStatus) != "matched";
     snapshot.missingMetadataCount += missingMetadata ? 1 : 0;
     snapshot.unenrichedCount += unenriched ? 1 : 0;
 
@@ -166,8 +166,8 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
       row.reason = "Complete part metadata";
       row.severity = AttentionSeverity::Metadata;
     } else if (unenriched) {
-      row.issue = "IECD";
-      row.reason = item.enrichmentStatus == "database_unavailable" ? "Database unavailable" : "No reviewed match";
+      row.issue = "catalogue";
+      row.reason = item.catalogueStatus == "database_unavailable" ? "Database unavailable" : "No reviewed match";
       row.severity = AttentionSeverity::Metadata;
     } else {
       continue;
@@ -294,7 +294,7 @@ ftxui::Element App::renderDashboardUi() const {
       uiDivider(),
       metricCard("OUT OF STOCK", snapshot.outOfStockCount, snapshot.outOfStockCount > 0 ? uiDangerColor() : uiSuccessColor()),
       uiDivider(),
-      metricCard("NOT IN IECD", snapshot.unenrichedCount, snapshot.unenrichedCount > 0 ? uiLinkColor() : uiSuccessColor()),
+      metricCard("NOT IN catalogue", snapshot.unenrichedCount, snapshot.unenrichedCount > 0 ? uiLinkColor() : uiSuccessColor()),
   });
 
   const int alertWidth = max(50, (screenWidth - 1) / 2);
