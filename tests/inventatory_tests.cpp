@@ -1691,6 +1691,9 @@ int main(int argc, char** argv) {
     });
     assert(importedSnapshot != snapshots.end());
     assert(importedSnapshot->profileVersion == "1");
+    const auto importWarnings = database.warningsForSnapshot(imported.snapshotId);
+    assert(importWarnings.size() == imported.warnings);
+    assert(any_of(importWarnings.begin(), importWarnings.end(), [](const CatalogueWarning& warning) { return warning.message == "Malformed CSV row"; }));
     assert(database.importFile(csvPath).duplicate);
     const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
     assert(exact.status == CatalogueMatchStatus::ExactMatch);
