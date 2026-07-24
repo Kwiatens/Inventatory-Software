@@ -188,6 +188,7 @@ vector<App::Action> App::currentActions() const {
     case Page::Catalogue:
       add("get catalogue", "Source", "g", chr('g'), [self] { self->beginCatalogueDownload(); });
       add("choose file", "Source", "f", chr('f'), [self] { self->chooseCatalogueFile(); });
+      add("map unknown file", "Source", "m", chr('m'), [self] { self->chooseManualCatalogueFile(); });
       add("re-enrich inventory", "Source", "r", chr('r'), [self] { self->reEnrichInventoryFromCatalogue(); });
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
