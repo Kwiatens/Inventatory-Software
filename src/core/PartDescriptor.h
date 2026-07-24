@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// Shared access to reviewed catalogue short part descriptions.
+// Shared short part description classifier.
 
 #pragma once
 

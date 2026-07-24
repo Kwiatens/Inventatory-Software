@@ -207,21 +207,16 @@ bool InventoryItem::lowStock() const {
   return quantity <= reorderThreshold;
 }
 
-bool InventoryItem::catalogueMatched() const {
-  const auto status = toLower(catalogueStatus);
-  return status == "matched" || status == "exact_match" || status == "alias_match";
-}
-
 bool InventoryItem::hasMissingMetadata() const {
-  return partName.empty() || manufacturerPartNumber.empty() || !catalogueMatched();
+  return partName.empty() || manufacturer.empty() || category.empty() || digikeyPartNumber.empty() ||
+         datasheetUrl.empty() || productUrl.empty();
 }
 
 string InventoryItem::searchableText() const {
   ostringstream out;
   out << partName << ' ' << manufacturer << ' ' << category << ' ' << location << ' ' << notes << ' '
-      << manufacturerPartNumber << ' ' << datasheetUrl << ' ' << catalogueDatasheetUrl << ' ' << machineCode << ' '
-      << inventatoryId << ' ' << catalogueStatus << ' ' << catalogueName << ' ' << cataloguePurposeLabel << ' '
-      << catalogueCategory;
+      << digikeyPartNumber << ' ' << datasheetUrl << ' ' << productUrl << ' ' << sku << ' ' << machineCode << ' '
+      << inventatoryId << ' ' << syncStatus;
 
   for (const auto& tag : tags) {
     out << ' ' << tag;

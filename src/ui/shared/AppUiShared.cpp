@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstring>
 #include <initializer_list>
 #include <limits>
 #include <optional>
@@ -278,21 +277,6 @@ string renderTags(const vector<string>& tags) {
   return ellipsize(joinTags(tags), 32);
 }
 
-string displayParameterValue(string value) {
-  auto lowered = value;
-  transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
-  for (const auto* suffix : {"ohms", "ohm"}) {
-    const size_t suffixLength = strlen(suffix);
-    if (lowered.size() >= suffixLength && lowered.compare(lowered.size() - suffixLength, suffixLength, suffix) == 0) {
-      value.erase(value.size() - suffixLength);
-      return trim(value) + u8"\u03A9";
-    }
-  }
-  return value;
-}
-
 string renderParameters(const vector<Parameter>& parameters) {
   if (parameters.empty()) {
     return "-";
@@ -303,7 +287,7 @@ string renderParameters(const vector<Parameter>& parameters) {
     if (index > 0) {
       out << "; ";
     }
-    out << parameters[index].name << '=' << displayParameterValue(parameters[index].value);
+    out << parameters[index].name << '=' << parameters[index].value;
   }
   return out.str();
 }
@@ -436,14 +420,14 @@ optional<string> inferredInductanceValue(const InventoryItem& item) {
   if (const auto value = parameterValueMatching(item, {"Inductance", "Value"}, looksLikeInductanceValue)) {
     return value;
   }
-  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.manufacturerPartNumber);
+  return extractInductanceFromText(item.notes + " " + item.partName + " " + item.sku);
 }
 
 optional<string> parameterValue(const InventoryItem& item, initializer_list<const char*> names) {
   if (const auto* parameter = findParameter(item.parameters, names); parameter != nullptr) {
     const auto value = trim(parameter->value);
     if (!value.empty() && !looksLikePackagingValue(value)) {
-      return displayParameterValue(value);
+      return value;
     }
   }
   return nullopt;
@@ -524,6 +508,7 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
       addField("Operating Voltage", parameterValue(item, {"Voltage - Supply", "Voltage - Supply (Min/Max)", "Voltage - Supply (Min)", "Voltage - Supply (Max)"}));
       addField("Operating Temperature", parameterValue(item, {"Operating Temperature"}));
       addField("Mounting Type", parameterValue(item, {"Mounting Type"}));
+      addField("DigiKey Programmable", parameterValue(item, {"DigiKey Programmable"}));
       return fields;
     }
 
@@ -545,6 +530,7 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
     addField("Operating Voltage", parameterValue(item, {"Voltage - Supply", "Voltage - Supply (Min/Max)"}));
     addField("Operating Temperature", parameterValue(item, {"Operating Temperature"}));
     addField("Mounting Type", parameterValue(item, {"Mounting Type"}));
+    addField("DigiKey Programmable", parameterValue(item, {"DigiKey Programmable"}));
     return fields;
   }
 
@@ -665,10 +651,10 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
     }
     if (!primaryValue) {
       primaryLabel = label;
-      primaryValue = displayParameterValue(trim(parameter.value));
+      primaryValue = trim(parameter.value);
       continue;
     }
-    addField(label, displayParameterValue(trim(parameter.value)));
+    addField(label, trim(parameter.value));
   }
 
   if (primaryValue && !primaryValue->empty()) {

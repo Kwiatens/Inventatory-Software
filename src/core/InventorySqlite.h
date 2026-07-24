@@ -23,7 +23,6 @@ extern const sqlite3_destructor_type SQLITE_TRANSIENT;
 constexpr int SQLITE_OK = 0;
 constexpr int SQLITE_ROW = 100;
 constexpr int SQLITE_DONE = 101;
-constexpr int SQLITE_OPEN_READONLY = 0x00000001;
 constexpr int SQLITE_OPEN_READWRITE = 0x00000002;
 constexpr int SQLITE_OPEN_CREATE = 0x00000004;
 
@@ -93,7 +92,6 @@ struct SqliteStatement {
 
 string sqliteText(sqlite3_stmt* stmt, int column);
 bool openDatabase(const filesystem::path& path, SqliteConnection& connection);
-bool openReadOnlyDatabase(const filesystem::path& path, SqliteConnection& connection);
 bool execSql(SqliteConnection& connection, const string& sql);
 bool tableExists(SqliteConnection& connection, const string& tableName);
 bool tableColumnExists(SqliteConnection& connection, const string& tableName, const string& columnName);

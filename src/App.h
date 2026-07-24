@@ -5,9 +5,8 @@
 
 #include "core/Inventory.h"
 #include "core/InventatoryScanProtocol.h"
-#include "core/CatalogueDatabase.h"
 #include "app/AppSettings.h"
-#include "import/BomCsvImport.h"
+#include "import/DigiKeyCsvImport.h"
 #include "label_printer/LabelPrinter.h"
 #include "platform/Console.h"
 #include "platform/BleProvisioningService.h"
@@ -21,7 +20,6 @@
 #include <ftxui/screen/box.hpp>
 
 #include <cstddef>
-#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -58,7 +56,6 @@ class App {
     Import,
     ScanSetup,
     Settings,
-    Catalogue,
     Onboarding,
   };
 
@@ -74,10 +71,9 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
-  enum class SettingsCategory { General, Updates, Printer, QuickLabels, InventatoryScan };
+  enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan, DigiKey };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
-  enum class CatalogueFlow { Sources, WaitingForDownload, ManualManufacturer, ManualMapping, Preview, Importing, Results, Details, Warnings };
   enum class StockSortOrder { Az, Quantity, Za };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
@@ -127,9 +123,11 @@ class App {
     Tags,
     Parameters,
     Notes,
+    DigiKeyPart,
     DatasheetUrl,
-    ManufacturerPartNumber,
-    EnrichmentStatus,
+    ProductUrl,
+    Sku,
+    SyncStatus,
     RackLocation,
   };
 
@@ -169,7 +167,6 @@ class App {
   void handleInventatoryScanSetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
-  void handleCatalogueKey(const KeyEvent& key);
   void handleOnboardingKey(const KeyEvent& key);
   void handleSearchKey(const KeyEvent& key);
   void handleEditMenuKey(const KeyEvent& key);
@@ -186,7 +183,6 @@ class App {
   ftxui::Element renderInventatoryScanSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderSettingsUi() const;
-  ftxui::Element renderCatalogueUi() const;
   ftxui::Element renderOnboardingUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
   std::string stockDateFilterName(StockDateFilter filter) const;
@@ -265,6 +261,7 @@ class App {
   void cancelSettingsDraft();
   bool stageInventatoryFolder();
   bool testStagedPrinter();
+  bool testStagedDigiKey();
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
   void armDeleteConfirmation();
@@ -316,17 +313,12 @@ class App {
   void pushScanCode(const DeviceScanRequest& request);
   void processScans();
   void beginCsvImport();
-  void beginCatalogueDownload();
-  void chooseCatalogueFile();
-  void chooseManualCatalogueFile();
-  void beginCatalogueImport();
-  void pollCatalogueImport();
-  void reEnrichInventoryFromCatalogue();
   void moveImportSelection(int delta);
   void acceptImportCandidate();
   void skipImportCandidate();
   void finishImportReview();
-  void finishCsvImport();
+  void finishCsvImport(bool syncWithDigiKey);
+  void syncAcceptedImports();
   CsvImportCandidate* currentImportCandidate();
   const CsvImportCandidate* currentImportCandidate() const;
   std::string importCompletionMessage() const;
@@ -355,28 +347,6 @@ class App {
   std::filesystem::path printerPath_;
   std::filesystem::path activityPath_;
   std::filesystem::path inventatoryScanConfigPath_;
-  std::filesystem::path cataloguePath_;
-  CatalogueDatabase catalogueDatabase_;
-  CatalogueDownloadSession catalogueDownloadSession_;
-  CatalogueFlow catalogueFlow_ = CatalogueFlow::Sources;
-  size_t catalogueSourceSelection_ = 0;
-  std::filesystem::path catalogueSelectedPath_;
-  CatalogueImportPreview cataloguePreview_;
-  std::string catalogueManualManufacturer_;
-  CatalogueProfile catalogueManualProfile_;
-  size_t catalogueManualCategorySelection_ = 0;
-  size_t catalogueManualMappingStep_ = 0;
-  size_t catalogueManualColumnSelection_ = 0;
-  std::array<size_t, 10> catalogueManualColumns_{};
-  bool catalogueRemovalConfirmation_ = false;
-  std::atomic_bool catalogueImportCancelled_{false};
-  std::future<CatalogueImportStats> catalogueImportFuture_;
-  CatalogueImportStats catalogueImportResult_;
-  std::vector<CatalogueImportStats> catalogueDetails_;
-  std::vector<CatalogueWarning> catalogueWarnings_;
-  struct CatalogueProgress { size_t completed = 0; size_t total = 0; std::string stage; };
-  mutable std::mutex catalogueProgressMutex_;
-  CatalogueProgress catalogueProgress_;
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
@@ -435,9 +405,12 @@ class App {
   bool editingImportCandidate_ = false;
   size_t importEditIndex_ = 0;
   size_t importSelection_ = 0;
+  bool importSyncPrompt_ = false;
   int importCreatedCount_ = 0;
   int importMergedCount_ = 0;
   int importSkippedCount_ = 0;
+  int importSyncedCount_ = 0;
+  int importSyncFailedCount_ = 0;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
   std::vector<Action> sheetActions_;
@@ -462,6 +435,9 @@ class App {
   int settingsField_ = 0;
   bool settingsDirty_ = false;
   bool settingsEditingField_ = false;
+  std::string stagedDigiKeySecret_;
+  bool stagedDigiKeySecretChanged_ = false;
+  bool hasStoredDigiKeySecret_ = false;
   std::unordered_map<std::string, DeviceQuickLabelPrintResult> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   mutable std::mutex quickLabelMutex_;

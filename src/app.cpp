@@ -3,6 +3,7 @@
 
 #include "App.h"
 
+#include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
 #include "platform/StartupRegistration.h"
 #include "platform/UpdateService.h"
@@ -29,7 +30,6 @@
 #include <utility>
 #include <thread>
 #include <future>
-#include <fstream>
 
 namespace inventatory {
 
@@ -103,8 +103,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       inventoryPath_(dataPath_ / "inventory.db"),
       printerPath_(dataPath_ / "printer.conf"),
       activityPath_(dataPath_ / "activity.tsv"),
-      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
-      cataloguePath_(dataPath_ / "catalogues.db") {
+      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf") {
+  loadEnvironmentFile(locateDotEnvFile());
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
     dataPath_ = settings_.dataDirectory;
@@ -112,18 +112,24 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
-    cataloguePath_ = dataPath_ / "catalogues.db";
   } else {
     settings_.dataDirectory = dataPath_;
   }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
+  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
+                            !loadDigiKeyConfig().clientSecret.empty();
   ensureInventoryDatabaseCopied(inventoryPath_);
-  catalogueDatabase_.open(cataloguePath_);
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (!loadedSettings) {
     settings_.printerQueue = printerService_.configuredPrinter();
+    const auto environment = loadDigiKeyConfig();
+    settings_.digiKeyClientId = environment.clientId;
+    settings_.digiKeyAccountId = environment.accountId;
+    settings_.digiKeySite = environment.site;
+    settings_.digiKeyLanguage = environment.language;
+    settings_.digiKeyCurrency = environment.currency;
     settingsDraft_ = settings_;
     saveAppSettings(settingsPath_, settings_);
   } else if (!settings_.printerQueue.empty()) {
@@ -170,18 +176,11 @@ ftxui::Element App::renderUi() const {
     return renderPageUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
   const auto* active = ftxui::ScreenInteractive::Active();
-  // Individual pages already collapse or scroll their secondary content. Keep
-  // the whole application usable in the common 80 x 24 terminal instead of
-  // blocking the catalogue workflow before it can render.
-  // FTXUI reports 0 x 0 briefly while its interactive screen is attaching.
-  // Treat that as an unknown size, not a genuinely narrow terminal, so the
-  // user does not see a misleading warning flash during startup.
-  if (active != nullptr && active->dimx() > 0 && active->dimy() > 0 &&
-      (active->dimx() < 80 || active->dimy() < 24)) {
+  if (active != nullptr && (active->dimx() < 100 || active->dimy() < 30)) {
     return ftxui::vbox({
                ftxui::filler(),
                ftxui::hbox({ftxui::filler(),
-                            styledText("Inventatory needs a terminal of at least 80 x 24", uiWarnColor()),
+                            styledText("Inventatory needs a terminal of at least 100 x 30", uiWarnColor()),
                             ftxui::filler()}),
                ftxui::hbox({ftxui::filler(),
                             styledText("Current: " + to_string(active->dimx()) + " x " +
@@ -223,8 +222,6 @@ std::string App::pageName() const {
       return "Scan R1 Setup";
     case Page::Settings:
       return "Settings";
-    case Page::Catalogue:
-      return "Electrical data sources";
     case Page::Onboarding:
       return "First-time setup";
   }
@@ -266,7 +263,6 @@ ftxui::Element App::renderHeaderUi() const {
       nav(Page::Racks, "nav.racks", "3 Racks"),
       nav(Page::Import, "nav.import", "4 Import"),
       nav(Page::Settings, "nav.settings", "5 Settings"),
-      nav(Page::Catalogue, "nav.catalogues", "6 Sources"),
   });
 
   auto dotSep = [] { return styledText("   ", uiDimColor()); };
@@ -303,8 +299,6 @@ ftxui::Element App::renderPageUi() const {
       return renderInventatoryScanSetupUi();
     case Page::Settings:
       return renderSettingsUi();
-    case Page::Catalogue:
-      return renderCatalogueUi();
     case Page::Onboarding:
       return renderOnboardingUi();
   }
@@ -361,13 +355,6 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Settings";
         contextText = settingsCategoryName(settingsCategory_) +
                       (settingsDirty_ ? " · unsaved changes" : " · saved");
-        break;
-      case Page::Catalogue:
-        contextTitle = "Electrical data";
-        contextText = catalogueFlow_ == CatalogueFlow::WaitingForDownload ? "Waiting for a browser download"
-                      : catalogueFlow_ == CatalogueFlow::Preview ? "Preview ready: Enter imports, Esc cancels"
-                      : catalogueFlow_ == CatalogueFlow::Importing ? "Import in progress"
-                      : "Choose a manufacturer source";
         break;
     }
   }
@@ -439,7 +426,6 @@ void App::processBackgroundWork() {
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();
-  pollCatalogueImport();
 }
 
 void App::runBackgroundLoop() {
@@ -585,7 +571,6 @@ void App::handleKey(const KeyEvent& key) {
       case '3': changePage(Page::Racks); return;
       case '4': changePage(Page::Import); return;
       case '5': changePage(Page::Settings); return;
-      case '6': changePage(Page::Catalogue); return;
       default: break;
     }
   }
@@ -618,12 +603,6 @@ void App::handleKey(const KeyEvent& key) {
       break;
     case Page::Settings:
       handleSettingsKey(key);
-      break;
-    case Page::Catalogue:
-      handleCatalogueKey(key);
-      break;
-    case Page::Onboarding:
-      handleOnboardingKey(key);
       break;
   }
 }
