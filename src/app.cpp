@@ -103,7 +103,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       inventoryPath_(dataPath_ / "inventory.db"),
       printerPath_(dataPath_ / "printer.conf"),
       activityPath_(dataPath_ / "activity.tsv"),
-      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf") {
+      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
+      quickLabelsPath_(dataPath_ / "quick_labels.conf") {
   loadEnvironmentFile(locateDotEnvFile());
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
@@ -112,8 +113,16 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+    quickLabelsPath_ = dataPath_ / "quick_labels.conf";
   } else {
     settings_.dataDirectory = dataPath_;
+  }
+  if (!loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision)) {
+    // Legacy installs kept quick labels in the machine-local settings file;
+    // migrate them into the data folder so they travel with the user's data.
+    if (!settings_.quickLabelPresets.empty()) {
+      saveQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+    }
   }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;

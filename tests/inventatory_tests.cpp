@@ -199,7 +199,7 @@ int main() {
     assert(items[0].machineCode == "0001");
     assert(items[1].machineCode == "0002");
     assert(items[2].machineCode == "0003");
-    assert(buildVisibleInventatoryId(items[1]) == "Inventatory:C-0002");
+    assert(buildVisibleInventatoryId(items[1]) == "C-0002");
   }
 
   {
@@ -704,7 +704,7 @@ int main() {
     assert(plan.parameterLine2.find("Pwr") != string::npos);
     assert(plan.parameterLine3.empty());
     assert(plan.inventatoryId == "Inventatory:R-00123");
-    assert(plan.scannerHint == "Inventatory:R-0002");
+    assert(plan.scannerHint == "R-0002");
     assert(plan.barcodeHint == "0002");
     const auto zpl = service.buildZpl(item);
     assert(!zpl.empty());
@@ -720,7 +720,9 @@ int main() {
     const auto rackZpl = service.buildZpl(item, "R3-E3");
     assert(rackZpl.find("^FO10,173^A0N,18,18^FDR3-E3^FS") != string::npos);
     assert(zpl.find("^FDLA,0002^FS") != string::npos);
-    assert(zpl.find("^FO56,173^A0N,10,10^FDInventatory:R-0002^FS") != string::npos);
+    assert(zpl.find("^FO170,175^A0N,9,9^FB80,1,0,C^FDR-0002^FS") != string::npos);
+    assert(zpl.find("^FDInventatory^FS") == string::npos);
+    assert(zpl.find("^FO5,0^GB246,24,24,B,6^FS") != string::npos);
     assert(zpl.find("^BC") == string::npos);
 
     string error;
@@ -1451,8 +1453,6 @@ int main() {
     expected.digiKeySite = "PL";
     expected.digiKeyLanguage = "pl";
     expected.digiKeyCurrency = "PLN";
-    expected.quickLabelPresets = {"5V", "GND", "12V"};
-    expected.quickLabelRevision = 9;
     assert(saveAppSettings(path, expected));
 
     AppSettings loaded;
@@ -1474,8 +1474,6 @@ int main() {
     assert(loaded.digiKeySite == "PL");
     assert(loaded.digiKeyLanguage == "pl");
     assert(loaded.digiKeyCurrency == "PLN");
-    assert(loaded.quickLabelPresets == expected.quickLabelPresets);
-    assert(loaded.quickLabelRevision == 9);
 
     ifstream persisted(path);
     const string text((istreambuf_iterator<char>(persisted)), istreambuf_iterator<char>());
@@ -1483,8 +1481,34 @@ int main() {
     assert(text.find("secret") == string::npos);
     assert(text.find("device_service_port=8181") != string::npos);
     assert(text.find("bridge_port") == string::npos);
+    assert(text.find("quick_label") == string::npos);
     persisted.close();
     error_code removeError;
+    filesystem::remove(path, removeError);
+    assert(!removeError);
+  }
+
+  {
+    // Quick label presets travel with the Inventatory data folder rather than
+    // the machine-local settings file, so they survive a restart even if the
+    // data folder is the thing the user backs up or moves.
+    const auto path = filesystem::temp_directory_path() / "inventatory-quick-labels-test.conf";
+    error_code removeError;
+    filesystem::remove(path, removeError);
+
+    vector<string> missingPresets;
+    uint32_t missingRevision = 1;
+    assert(!loadQuickLabels(path, missingPresets, missingRevision));
+
+    const vector<string> presets = {"5V", "GND", "12V"};
+    assert(saveQuickLabels(path, presets, 9));
+
+    vector<string> loadedPresets;
+    uint32_t loadedRevision = 1;
+    assert(loadQuickLabels(path, loadedPresets, loadedRevision));
+    assert(loadedPresets == presets);
+    assert(loadedRevision == 9);
+
     filesystem::remove(path, removeError);
     assert(!removeError);
   }
