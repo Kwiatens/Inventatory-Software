@@ -6,9 +6,16 @@
 #include "core/InventatoryScanProtocol.h"
 #include "core/PartDescriptor.h"
 #include "import/DigiKeyCsvImport.h"
+#include "import/CsvFormat.h"
+#include "import/CsvReader.h"
+#include "import/KicadBom.h"
+#include "core/BomMatch.h"
+#include "core/BomProjectStore.h"
 #include "label_printer/LabelPrinter.h"
 #include "ui/shared/AppUiShared.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cassert>
 #include <deque>
@@ -720,7 +727,8 @@ int main() {
     const auto rackZpl = service.buildZpl(item, "R3-E3");
     assert(rackZpl.find("^FO10,173^A0N,18,18^FDR3-E3^FS") != string::npos);
     assert(zpl.find("^FDLA,0002^FS") != string::npos);
-    assert(zpl.find("^FO170,175^A0N,9,9^FB80,1,0,C^FDR-0002^FS") != string::npos);
+    assert(zpl.find("^FO170,175") == string::npos);
+    assert(zpl.find("^FDR-0002^FS") == string::npos);
     assert(zpl.find("^FDInventatory^FS") == string::npos);
     assert(zpl.find("^FO5,0^GB246,24,24,B,6^FS") != string::npos);
     assert(zpl.find("^BC") == string::npos);
@@ -1544,6 +1552,262 @@ int main() {
     assert(!isUpdateCheckDue(false, 0, 100));
     assert(!isUpdateCheckDue(true, 100, 100 + 60));
     assert(isUpdateCheckDue(true, 100, 100 + 24 * 60 * 60));
+  }
+
+  // --- KiCad BOM integration -----------------------------------------------
+
+  // A trimmed copy of a real KiCad grouped export: semicolon delimited, a
+  // non-orderable REF** row, and an unescaped inch mark in "2.13" ePaper".
+  const string kicadBom =
+      "\"Id\";\"Designator\";\"Footprint\";\"Quantity\";\"Designation\";\"Supplier and ref\";\n"
+      "1;\"C1, C15, C16, C22, C23, C25\";\"C_0603_1608Metric\";6;\"1uF\";;;\n"
+      "2;\"C2, C4\";\"C_0603_1608Metric\";2;\"100nF\";;;\n"
+      "3;\"C9\";\"C_0603_1608Metric\";1;\"0.01uF\";;;\n"
+      "4;\"C19, C30\";\"CP_Radial_D5.0mm_P2.50mm\";2;\"100uF\";;;\n"
+      "5;\"R1\";\"R_0603_1608Metric\";1;\"10K\";;;\n"
+      "6;\"REF**, REF**, REF**, REF**\";\"TestPoint_Bridge_Pitch2.0mm_Drill0.7mm\";4;"
+      "\"TestPoint_Bridge_Pitch2.0mm_Drill0.7mm\";;;\n"
+      "7;\"U2\";\"JST_PH_B8B-PH-K_1x08_P2.00mm_Vertical\";1;\"2.13\" ePaper\";;;\n"
+      "8;\"U3\";\"ESP32-S3-WROOM-1\";1;\"ESP32-S3-WROOM-1\";;;\n";
+
+  {
+    assert(sniffDelimiter(kicadBom) == ';');
+    assert(sniffDelimiter("Digi-Key Part Number,Quantity\n1276-1000-1-ND,25\n") == ',');
+    // A quoted comma inside a semicolon file must not swing the vote.
+    assert(sniffDelimiter("\"a;b\";\"2,62800\";\"c\"\n") == ';');
+    assert(stripByteOrderMark("\xEF\xBB\xBFId") == "Id");
+  }
+
+  {
+    assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);
+    assert(detectCsvFormat(
+               "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+               "1276-1000-1-ND,CL10B104KB8NNNC,Samsung,CAP CER 100NF 50V X7R 0603,25\n") ==
+           CsvFormat::DigiKeyOrder);
+    assert(detectCsvFormat("alpha,beta\n1,2\n") == CsvFormat::Unknown);
+    assert(detectCsvFormat("") == CsvFormat::Unknown);
+  }
+
+  {
+    const auto bom = parseKicadBomText(kicadBom, "Astro Arrow");
+    assert(bom.ok);
+    assert(bom.projectName == "Astro Arrow");
+    // Seven orderable rows: the REF** test-point row is excluded.
+    assert(bom.lines.size() == 7);
+    assert(bom.warnings.size() == 1);
+    assert(bom.lines.front().designators.size() == 6);
+    assert(bom.lines.front().designators.front() == "C1");
+    assert(bom.lines.front().designators.back() == "C25");
+    assert(bom.lines.front().quantityPerBoard == 6);
+    assert(bom.lines.front().designation == "1uF");
+    assert(bom.lines.front().footprint == "C_0603_1608Metric");
+    // Lenient quote recovery keeps the display row intact instead of swallowing
+    // the rest of the file.
+    const auto epaper = find_if(bom.lines.begin(), bom.lines.end(), [](const BomLine& line) {
+      return !line.designators.empty() && line.designators.front() == "U2";
+    });
+    assert(epaper != bom.lines.end());
+    assert(epaper->designation == "2.13\" ePaper");
+    assert(epaper->quantityPerBoard == 1);
+
+    assert(isNonOrderableDesignator("REF**", "TestPoint_Bridge"));
+    assert(isNonOrderableDesignator("H1", "MountingHole_3.2mm"));
+    assert(isNonOrderableDesignator("TP4", ""));
+    assert(!isNonOrderableDesignator("U3", "ESP32-S3-WROOM-1"));
+    assert(!isNonOrderableDesignator("HDR1", "PinHeader_1x04"));
+
+    assert(projectNameFromPath("C:/tmp/Astro_Arrow_PCB_R1_2.1.csv") == "Astro Arrow PCB R1 2.1");
+  }
+
+  {
+    const auto value = [](const string& text, ValueKind expected) {
+      ValueKind kind = ValueKind::None;
+      const auto parsed = parseElectricalValue(text, kind);
+      assert(parsed.has_value());
+      assert(kind == expected);
+      return *parsed;
+    };
+    const auto near = [](double lhs, double rhs) { return fabs(lhs - rhs) <= fabs(rhs) * 1e-9 + 1e-18; };
+
+    assert(near(value("1uF", ValueKind::Capacitance), 1e-6));
+    assert(near(value("100nF", ValueKind::Capacitance), 1e-7));
+    assert(near(value("0.01uF", ValueKind::Capacitance), 1e-8));
+    assert(near(value("330nF", ValueKind::Capacitance), 3.3e-7));
+    assert(near(value("0.47uF", ValueKind::Capacitance), 4.7e-7));
+    assert(near(value("22uF", ValueKind::Capacitance), 2.2e-5));
+    assert(near(value("10K", ValueKind::Resistance), 1e4));
+    assert(near(value("500k", ValueKind::Resistance), 5e5));
+    assert(near(value("2M", ValueKind::Resistance), 2e6));
+    assert(near(value("280R", ValueKind::Resistance), 280.0));
+    assert(near(value("270 ohm", ValueKind::Resistance), 270.0));
+    // Leading R is RKM notation for a sub-ohm value.
+    assert(near(value("R280", ValueKind::Resistance), 0.28));
+    assert(near(value("4R7", ValueKind::Resistance), 4.7));
+    assert(near(value("4.7uH", ValueKind::Inductance), 4.7e-6));
+    assert(near(value("32.768KHz", ValueKind::Frequency), 32768.0));
+
+    ValueKind kind = ValueKind::None;
+    assert(!parseElectricalValue("ESP32-S3-WROOM-1", kind).has_value());
+    assert(!parseElectricalValue("RGBW_Strip", kind).has_value());
+    assert(!parseElectricalValue("", kind).has_value());
+
+    assert(looksLikePartNumber("ESP32-S3-WROOM-1"));
+    assert(looksLikePartNumber("AP63203WU"));
+    assert(!looksLikePartNumber("100nF"));
+    assert(!looksLikePartNumber("10K"));
+  }
+
+  {
+    assert(packageFromFootprint("C_0603_1608Metric") == "0603");
+    assert(packageFromFootprint("R_0603_1608Metric") == "0603");
+    assert(packageFromFootprint("LED_0603_1608Metric_Pad1.05x0.95mm_HandSolder") == "0603");
+    assert(packageFromFootprint("Fuse_1206_3216Metric") == "1206");
+    assert(packageFromFootprint("TSOT-23-6") == "TSOT-23-6");
+    assert(packageFromFootprint("SOIC-8_3.9x4.9mm_P1.27mm") == "SOIC-8");
+    assert(packageFromFootprint("HTSSOP-16-1EP_4.4x5mm_P0.65mm_EP3.4x5mm") == "HTSSOP-16-1EP");
+    assert(packageFromFootprint("CP_Radial_D5.0mm_P2.50mm") == "Radial 5.0mm");
+    assert(packageFromFootprint("JST_PH_B3B-PH-K_1x03_P2.00mm_Vertical") == "JST PH 3");
+    assert(packageFromFootprint("") == "");
+
+    assert(packageMatches("0603", "0603 (1608 Metric)"));
+    assert(!packageMatches("0603", "0805"));
+    assert(packageMatches("SOT-23-6", "SOT-23-6"));
+    // Short tokens must not match by substring, or "TO" would swallow the world.
+    assert(!packageMatches("TO", "TO-220-3"));
+    assert(!packageMatches("0603", ""));
+  }
+
+  {
+    vector<InventoryItem> items;
+
+    InventoryItem cap;
+    cap.id = "cap-100nf-0603";
+    cap.partName = "CAP CER 100NF 50V X7R 0603";
+    cap.category = "Capacitors";
+    cap.quantity = 340;
+    cap.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0603 (1608 Metric)"}};
+    items.push_back(cap);
+
+    InventoryItem wrongPackage = cap;
+    wrongPackage.id = "cap-100nf-0805";
+    wrongPackage.partName = "CAP CER 100NF 50V X7R 0805";
+    wrongPackage.quantity = 9000;
+    wrongPackage.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0805 (2012 Metric)"}};
+    items.push_back(wrongPackage);
+
+    InventoryItem noPackage = cap;
+    noPackage.id = "cap-100nf-unknown";
+    noPackage.partName = "Bulk 100nF";
+    noPackage.quantity = 5;
+    noPackage.parameters = {{"Capacitance", "100 nF"}};
+    items.push_back(noPackage);
+
+    InventoryItem module;
+    module.id = "esp32-module";
+    module.partName = "IC RF TXRX+MCU MODULE";
+    module.category = "Integrated Circuits";
+    module.quantity = 7;
+    module.sku = "ESP32-S3-WROOM-1-N16R8";
+    items.push_back(module);
+
+    InventoryItem exactModule;
+    exactModule.id = "esp32-exact";
+    exactModule.partName = "Espressif module";
+    exactModule.category = "Integrated Circuits";
+    exactModule.quantity = 1;
+    exactModule.sku = "ESP32-S3-WROOM-1";
+    items.push_back(exactModule);
+
+    const auto bom = parseKicadBomText(kicadBom, "Astro Arrow");
+    auto analysis = analyzeBom(bom, items, 1, {});
+    assert(analysis.lines.size() == analysis.matches.size());
+
+    const auto lineIndexOf = [&](const string& designation) {
+      for (size_t index = 0; index < analysis.lines.size(); ++index) {
+        if (analysis.lines[index].designation == designation) return index;
+      }
+      assert(false);
+      return size_t{0};
+    };
+
+    // Value plus package beats value alone, even though the 0805 reel is far
+    // larger and would otherwise win the tie-break.
+    const auto capIndex = lineIndexOf("100nF");
+    assert(analysis.matches[capIndex].chosenItemId() == "cap-100nf-0603");
+    assert(analysis.matches[capIndex].needed == 2);
+    assert(analysis.matches[capIndex].available == 340);
+    assert(analysis.matches[capIndex].sufficient);
+    // The 0805 part is rejected outright; only the 0603 and the package-less
+    // fallback are offered as alternates.
+    assert(analysis.matches[capIndex].candidates.size() == 2);
+
+    // An exact SKU match outranks a substring hit on a bigger reel.
+    const auto moduleIndex = lineIndexOf("ESP32-S3-WROOM-1");
+    assert(analysis.matches[moduleIndex].chosenItemId() == "esp32-exact");
+
+    // Nothing in stock is a 100uF radial, so that line is a shortage.
+    const auto radialIndex = lineIndexOf("100uF");
+    assert(analysis.matches[radialIndex].candidates.empty());
+    assert(!analysis.matches[radialIndex].sufficient);
+    assert(analysis.shortCount > 0);
+
+    // A line needing more than the shelf holds is short.
+    const auto oneMicroIndex = lineIndexOf("1uF");
+    assert(!analysis.matches[oneMicroIndex].sufficient);
+
+    // Overrides pin the alternate across a re-analysis.
+    map<string, string> overrides;
+    overrides[bomLineKey(analysis.lines[capIndex])] = "cap-100nf-unknown";
+    const auto pinned = analyzeBom(bom, items, 1, overrides);
+    assert(pinned.matches[capIndex].chosenItemId() == "cap-100nf-unknown");
+
+    // Board count scales every requirement and can flip a line into shortage.
+    const auto doubled = analyzeBom(bom, items, 2, {});
+    assert(doubled.boards == 2);
+    for (size_t index = 0; index < doubled.matches.size(); ++index) {
+      assert(doubled.matches[index].needed == analysis.matches[index].needed * 2);
+    }
+    const auto exactIndex = lineIndexOf("ESP32-S3-WROOM-1");
+    assert(analysis.matches[exactIndex].sufficient);   // 1 needed, 1 in stock
+    assert(!doubled.matches[exactIndex].sufficient);   // 2 needed, 1 in stock
+  }
+
+  {
+    const auto path = filesystem::temp_directory_path() / "inventatory-bom-projects-test.db";
+    error_code cleanupError;
+    filesystem::remove(path, cleanupError);
+
+    BomProject project;
+    project.id = "bom-roundtrip";
+    project.name = "Astro Arrow PCB R1 2.1";
+    project.sourcePath = "C:/tmp/Astro_Arrow_PCB_R1_2.1.csv";
+    project.boards = 3;
+    project.createdAt = 1710000000;
+    project.lastOpened = 1710000100;
+    project.lastBuilt = 1710000200;
+    project.bomText = kicadBom;  // multi-line, quoted, semicolon delimited
+    project.overrides = {{"100nf|c06031608metric", "cap-100nf-0603"}, {"a=b;c", "weird|id"}};
+    project.enrichment = {{"100uf|cpradiald50mmp250mm", "493-13399-ND"}};
+
+    assert(saveBomProjects(path, {project}));
+    vector<BomProject> loaded;
+    assert(loadBomProjects(path, loaded));
+    assert(loaded.size() == 1);
+    assert(loaded.front().id == project.id);
+    assert(loaded.front().name == project.name);
+    assert(loaded.front().boards == 3);
+    assert(loaded.front().lastBuilt == 1710000200);
+    assert(loaded.front().bomText == kicadBom);
+    assert(loaded.front().overrides == project.overrides);
+    assert(loaded.front().enrichment == project.enrichment);
+
+    // Saving is a full snapshot, so an empty list clears the table.
+    assert(saveBomProjects(path, {}));
+    vector<BomProject> empty;
+    assert(loadBomProjects(path, empty));
+    assert(empty.empty());
+
+    filesystem::remove(path, cleanupError);
   }
 
   cout << "Inventatory core tests passed\n";
