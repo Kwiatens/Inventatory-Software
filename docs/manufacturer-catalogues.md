@@ -39,4 +39,30 @@ Every path stops at a preview before writing a snapshot. The preview shows the s
 
 CSV and XLSX use the same table-to-profile-to-normalization pipeline. XLSX is read locally with `miniz` (MIT licence); Inventatory never starts Excel, LibreOffice, COM automation, or a spreadsheet conversion process. The reader selects a profile-named worksheet when available, detects a useful header row, handles shared/inline text, cached formula results, blank cells and Unicode, and retains zero-padded numeric identifiers when the worksheet provides an all-zero number format (for example `0402`). Unsupported, encrypted, or malformed workbooks fail before any catalogue snapshot is created.
 
+## Manufacturer download guide (verified 2026-07-24)
+
+The import accepts local `.csv` and `.xlsx` files, but that does **not** mean every manufacturer currently offers a full catalogue download. The button shown by Inventatory opens the verified starting page below; it never downloads or redistributes manufacturer data itself.
+
+| Manufacturer | Verified starting page | How to obtain a usable file | Current result |
+|---|---|---|---|
+| Murata | [Product Search](https://www.murata.com/en-global/search/productsearch) | Accept Murata's usage notice, choose **Capacitors**, then use the product-search results. Murata exposes category and part searches; use **Choose file** only when the selected Murata tool supplies a CSV/XLSX. | No general catalogue-export control was visible on the public product-search landing page. |
+| TDK | [MLCC product page](https://product.tdk.com/en/products/capacitor/ceramic/mlcc/index.html) | Select **Search by Characteristics** or **Part Number List**. TDK provides catalogues and part-number lists, but do not download a PDF: Inventatory cannot import it. | The former link was a 404. No general CSV/XLSX product-table export was visible on the public MLCC pages. |
+| KEMET / Yageo | [Ceramic capacitors](https://www.kemet.com/en/us/capacitors/ceramic.html) | Use **Browse Ceramic** or a part-number search. Import a manufacturer-provided CSV/XLSX only; datasheets and K-SIM exports are not catalogue imports. | The former capacitors landing link was a 404. No general public catalogue-export control was visible. |
+| Vishay | [Current sensing resistors](https://www.vishay.com/en/resistors-fixed/current-sensing/) | Filter the parametric table if needed, then press **Export as CSV** (preferred) or **Export as MS Excel** above the table. | Works. The former `/en/resistors/` link was a 404. The displayed table is primarily a series table, so exact matching requires an export that includes an explicit orderable part-number column. |
+| Nexperia | [Products](https://www.nexperia.com/products) | Open a supported product family (diodes, BJTs, or MOSFETs), enter its parametric table, apply filters, then press **Download Excel**. | Works; Nexperia documents that the button exports the filtered selection. |
+| Texas Instruments | [Amplifiers](https://www.ti.com/amplifiers) | Choose the component family, then **View all products** and use its parametric filters. Save only a CSV/XLSX if the current family table exposes one. | The former global parametric-search URL was a 404. TI's current public experience is family-specific; a universal Download/Excel control was not visible in this verification. |
+| Analog Devices | [Product categories](https://www.analog.com/en/parametricsearch.html) | Choose **Amplifiers**, select a family, open its selection table, then use the Excel-download icon above the table. | Works; the starting page is now a category chooser rather than a single global table. |
+| Microchip | [Products](https://www.microchip.com/en-us/products) | Select a product family or **product selection tools**, open a parametric chart, then use **Download Chart**. Select **All Data** when a complete chart is wanted; Microchip downloads `.xlsx`. | Works; Microchip's official guide confirms the chart-download control. |
+
+### What to tell users
+
+1. Select a source and press **Get catalogue**. Complete the manufacturer's own selection/export in the browser.
+2. Prefer CSV where it is offered; otherwise use the manufacturer's `.xlsx`. Do not rename a PDF, HTML page, ZIP file, simulator result, or individual datasheet as a catalogue.
+3. When the browser finishes the download, return to Inventatory. It detects a newly completed file in the watched Downloads folder. If the file was saved elsewhere or was downloaded earlier, press **F** and select it manually.
+4. Check the preview's **Part number** field. For exact enrichment it must be an orderable manufacturer part number, not merely a series name. If the file is not recognised, press **M** and map its real part-number column before importing.
+
+### Availability note
+
+Manufacturer websites change frequently and several public sites no longer provide a general bulk export. Inventatory must describe those sources truthfully: a browser-guided entry point is not a promise that a downloadable whole-catalogue spreadsheet exists. The supported manual mapping path is the correct fallback for an official local CSV/XLSX whose headers do not match a built-in profile.
+
 Every non-structural scalar column is retained even when it has no current canonical mapping. Those rows have `mapping_status = unmapped` together with their source column, raw value, profile/version and snapshot provenance. `reprocessSource()` applies a newer profile mapping directly to those retained local rows, without downloading the manufacturer export again. Navigation/image/export-metadata columns are deliberately ignored.
