@@ -78,6 +78,8 @@ struct CatalogueImportPreview {
   bool valid() const { return error.empty(); }
 };
 
+struct CatalogueWarning { std::int64_t snapshotId = 0; std::size_t row = 0; std::string message; };
+
 struct CatalogueImportOptions {
   std::atomic_bool* cancel = nullptr;
   std::function<void(std::size_t, std::size_t, const std::string&)> progress;
@@ -109,6 +111,7 @@ class CatalogueDatabase {
   std::optional<CatalogueProfile> localMapping(const std::string& profileId) const;
   bool removeSource(const std::string& sourceId);
   std::vector<CatalogueImportStats> snapshots() const;
+  std::vector<CatalogueWarning> warningsForSnapshot(std::int64_t snapshotId) const;
  private:
   void closeReadConnection() const;
   std::filesystem::path path_;

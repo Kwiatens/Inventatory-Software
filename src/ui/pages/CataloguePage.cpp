@@ -273,7 +273,15 @@ ftxui::Element App::renderCatalogueUi() const {
     rows.push_back(settingLine("Preserved unmapped", to_string(result.unmappedProperties), 70));
     rows.push_back(settingLine("Warnings", to_string(result.warnings), 70));
     rows.push_back(settingLine("Rejected rows", to_string(result.rejected), 70));
-    rows.push_back(styledText("R re-enrich inventory   Esc return to sources", uiInteractiveColor()));
+    rows.push_back(styledText("W view warnings   R re-enrich inventory   Esc return to sources", uiInteractiveColor()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
+  if (catalogueFlow_ == CatalogueFlow::Warnings) {
+    rows.push_back(styledText("CATALOGUE IMPORT WARNINGS", uiWarnColor()) | ftxui::bold);
+    if (catalogueWarnings_.empty()) rows.push_back(styledText("This snapshot has no import warnings.", uiSuccessColor()));
+    for (const auto& warning : catalogueWarnings_) rows.push_back(styledText("Row " + to_string(warning.row) + ": " + warning.message, uiWarnColor()));
+    rows.push_back(ftxui::filler());
+    rows.push_back(styledText("Esc return to sources", uiInteractiveColor()));
     return ftxui::vbox(move(rows)) | ftxui::flex;
   }
 
@@ -296,7 +304,7 @@ ftxui::Element App::renderCatalogueUi() const {
                                 to_string(installed->warnings) + " warnings", uiMutedText()));
       rows.push_back(styledText("   Local snapshot history: " + to_string(snapshotCount) + " retained import" + (snapshotCount == 1 ? "" : "s"), uiMutedText()));
     }
-    rows.push_back(styledText("   " + source.supportedCategories.front() + " · " + (isInstalled ? "G update  F different file  R re-enrich  X remove" : "G get catalogue  F choose file"), uiMutedText()));
+    rows.push_back(styledText("   " + source.supportedCategories.front() + " · " + (isInstalled ? "G update  F different file  W warnings  R re-enrich  X remove" : "G get catalogue  F choose file"), uiMutedText()));
   }
   rows.push_back(ftxui::filler());
   rows.push_back(styledText("↑↓ select   G open official selector   F choose CSV/XLSX   R re-enrich   X remove", uiInteractiveColor()));
@@ -374,13 +382,19 @@ void App::handleCatalogueKey(const KeyEvent& key) {
     return;
   }
   if (catalogueFlow_ == CatalogueFlow::Importing) { if (key.type == KeyType::Escape) catalogueImportCancelled_.store(true); return; }
-  if (catalogueFlow_ == CatalogueFlow::Results) { if (key.type == KeyType::Escape) { catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; } else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue(); return; }
+  if (catalogueFlow_ == CatalogueFlow::Results) { if (key.type == KeyType::Escape) { catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; } else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue(); else if (key.type == KeyType::Character && (key.ch == 'w' || key.ch == 'W')) { catalogueWarnings_ = catalogueDatabase_.warningsForSnapshot(catalogueImportResult_.snapshotId); catalogueFlow_ = CatalogueFlow::Warnings; dirty_ = true; } return; }
+  if (catalogueFlow_ == CatalogueFlow::Warnings) { if (key.type == KeyType::Escape) { catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; } return; }
   if (key.type == KeyType::Up && catalogueSourceSelection_ > 0) --catalogueSourceSelection_;
   else if (key.type == KeyType::Down && catalogueSourceSelection_ + 1 < manufacturerSources().size()) ++catalogueSourceSelection_;
   else if (key.type == KeyType::Enter || (key.type == KeyType::Character && (key.ch == 'g' || key.ch == 'G'))) beginCatalogueDownload();
   else if (key.type == KeyType::Character && (key.ch == 'f' || key.ch == 'F')) chooseCatalogueFile();
   else if (key.type == KeyType::Character && (key.ch == 'm' || key.ch == 'M')) chooseManualCatalogueFile();
   else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue();
+  else if (key.type == KeyType::Character && (key.ch == 'w' || key.ch == 'W')) {
+    const auto* source = selectedSource(catalogueSourceSelection_); const auto snapshots = catalogueDatabase_.snapshots();
+    const auto snapshot = source ? find_if(snapshots.begin(), snapshots.end(), [&](const CatalogueImportStats& value) { return value.profileId == source->profileId; }) : snapshots.end();
+    if (snapshot == snapshots.end()) setMessage("No installed catalogue exists for this source", 4); else { catalogueWarnings_ = catalogueDatabase_.warningsForSnapshot(snapshot->snapshotId); catalogueFlow_ = CatalogueFlow::Warnings; }
+  }
   else if (key.type == KeyType::Character && (key.ch == 'x' || key.ch == 'X')) {
     const auto* source = selectedSource(catalogueSourceSelection_);
     const auto snapshots = catalogueDatabase_.snapshots();
