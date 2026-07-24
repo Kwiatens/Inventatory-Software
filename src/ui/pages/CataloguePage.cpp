@@ -79,6 +79,19 @@ void App::chooseManualCatalogueFile() {
   catalogueDownloadSession_.cancel();
   catalogueManualProfile_ = {};
   catalogueSelectedPath_ = move(selected);
+  const auto* source = selectedSource(catalogueSourceSelection_);
+  if (source) {
+    if (const auto saved = catalogueDatabase_.localMapping(source->profileId)) {
+      cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, &*saved);
+      if (cataloguePreview_.valid() && find(cataloguePreview_.headers.begin(), cataloguePreview_.headers.end(), saved->mpnColumns.front()) != cataloguePreview_.headers.end()) {
+        catalogueManualProfile_ = *saved;
+        catalogueFlow_ = CatalogueFlow::Preview;
+        setMessage("Saved local mapping applied. Review the import before committing it.", 6);
+        dirty_ = true;
+        return;
+      }
+    }
+  }
   cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_);
   if (!cataloguePreview_.valid()) {
     setMessage(cataloguePreview_.error, 7);
@@ -325,8 +338,10 @@ void App::handleCatalogueKey(const KeyEvent& key) {
                                    "", {}, column(0), column(1), {}, column(2), {}, column(3), {}, {}, false};
         cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, &catalogueManualProfile_);
         if (!cataloguePreview_.valid()) { setMessage(cataloguePreview_.error, 7); catalogueFlow_ = CatalogueFlow::Sources; return; }
+        const bool saved = catalogueDatabase_.saveLocalMapping(catalogueManualProfile_);
         catalogueFlow_ = CatalogueFlow::Preview;
-        setMessage("Manual mapping is ready. Review it before importing.", 5);
+        setMessage(saved ? "Manual mapping saved locally. Review it before importing."
+                         : "Manual mapping is ready, but could not be saved locally.", saved ? 5 : 7);
       }
       dirty_ = true;
     }

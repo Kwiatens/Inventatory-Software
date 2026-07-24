@@ -1646,6 +1646,11 @@ int main(int argc, char** argv) {
     assert(!unknownPreview.warnings.empty());
     CatalogueProfile manualProfile{"ti-parametric-v1", "manual-v1", "Texas Instruments", "Custom", "", {},
                                    {"Supplier code"}, {}, {}, {"Case"}, {}, {}, {}, {}, false};
+    assert(database.saveLocalMapping(manualProfile));
+    const auto savedManualProfile = database.localMapping("ti-parametric-v1");
+    assert(savedManualProfile.has_value());
+    assert(savedManualProfile->mpnColumns == vector<string>{"Supplier code"});
+    assert(savedManualProfile->packageColumns == vector<string>{"Case"});
     const auto manuallyImported = database.importFile(unknownPath, &manualProfile);
     assert(manuallyImported.error.empty());
     const auto manualMatch = database.lookup("Texas Instruments", "ABC-001");
