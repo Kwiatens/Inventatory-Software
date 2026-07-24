@@ -61,9 +61,11 @@ INSERT OR IGNORE INTO catalogue_metadata VALUES('schema_version','1');
 CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY,source_id TEXT NOT NULL,manufacturer TEXT NOT NULL,profile_id TEXT NOT NULL,profile_version TEXT NOT NULL,filename TEXT NOT NULL,file_hash TEXT NOT NULL UNIQUE,imported_at INTEGER NOT NULL,rows_count INTEGER NOT NULL DEFAULT 0,parts_count INTEGER NOT NULL DEFAULT 0,aliases_count INTEGER NOT NULL DEFAULT 0,properties_count INTEGER NOT NULL DEFAULT 0,warnings_count INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS parts(id INTEGER PRIMARY KEY,source_id TEXT NOT NULL,manufacturer TEXT NOT NULL,manufacturer_key TEXT NOT NULL,exact_mpn TEXT,mpn_key TEXT,base_part TEXT,package_variant TEXT,packaging_variant TEXT,series TEXT,category TEXT,description TEXT,status TEXT,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,UNIQUE(source_id,mpn_key,snapshot_id));
 CREATE INDEX IF NOT EXISTS idx_parts_exact ON parts(manufacturer_key,mpn_key);
+CREATE INDEX IF NOT EXISTS idx_parts_current_lookup ON parts(mpn_key,manufacturer_key,source_id,snapshot_id);
 CREATE TABLE IF NOT EXISTS aliases(id INTEGER PRIMARY KEY,part_id INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,alias TEXT NOT NULL,alias_key TEXT NOT NULL,kind TEXT NOT NULL,UNIQUE(part_id,alias_key));
 CREATE INDEX IF NOT EXISTS idx_alias_exact ON aliases(alias_key);
 CREATE TABLE IF NOT EXISTS properties(id INTEGER PRIMARY KEY,part_id INTEGER NOT NULL REFERENCES parts(id) ON DELETE CASCADE,name TEXT NOT NULL,nominal REAL,min_value REAL,typical REAL,max_value REAL,tolerance REAL,unit TEXT,condition TEXT,qualifier TEXT,source_column TEXT NOT NULL,raw_value TEXT,raw_unit TEXT,mapping_status TEXT NOT NULL,profile_id TEXT NOT NULL,profile_version TEXT NOT NULL,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_properties_part ON properties(part_id);
 CREATE TABLE IF NOT EXISTS import_warnings(id INTEGER PRIMARY KEY,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,row_number INTEGER,message TEXT NOT NULL);
 )SQL"; }
 
@@ -150,12 +152,12 @@ EngineeringValue parseEngineeringValue(const string& input,const string& context
   EngineeringValue out; out.rawValue=input; out.originalText=input; out.rawUnit=contextUnit; string s=trim(input); if(s.empty()) return out;
   for(const string micro : {"µ", "μ"}) for(size_t p;(p=s.find(micro))!=string::npos;) s.replace(p,micro.size(),"u");
   for(const string dash : {"–", "—"}) for(size_t p;(p=s.find(dash))!=string::npos;) s.replace(p,dash.size(),"-");
-  smatch m; regex range(R"(^\s*([+-]?\d+(?:\.\d+)?)\s*(?:to|-)\s*([+-]?\d+(?:\.\d+)?)\s*(.*)$)",regex::icase);
+  smatch m; static const regex range(R"(^\s*([+-]?\d+(?:\.\d+)?)\s*(?:to|-)\s*([+-]?\d+(?:\.\d+)?)\s*(.*)$)",regex::icase);
   regex tolerance(R"(^\s*[+\-±]\s*(\d+(?:\.\d+)?)\s*%\s*$)");
   if(regex_match(s,m,tolerance)){out.tolerance=stod(m[1]);out.unit="%";return out;}
   string number,unit;
   if(regex_match(s,m,range)){out.minimum=stod(m[1]);out.maximum=stod(m[2]);unit=trim(m[3]);}
-  else { regex scalar(R"(^\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*([^\s]*)\s*$)"); if(!regex_match(s,m,scalar)){out.warning="Ambiguous engineering value";return out;} out.nominal=stod(m[1]); unit=trim(m[2]); }
+  else { static const regex scalar(R"(^\s*([+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*([^\s]*)\s*$)"); if(!regex_match(s,m,scalar)){out.warning="Ambiguous engineering value";return out;} out.nominal=stod(m[1]); unit=trim(m[2]); }
   if(unit.empty()) unit=contextUnit; if(unit=="VDC")unit="V"; if(unit=="Ω")unit="Ohm"; if(unit=="°C")unit="degC";
   static const map<string,double> prefixes={{"p",1e-12},{"n",1e-9},{"u",1e-6},{"m",1e-3},{"k",1e3},{"K",1e3},{"M",1e6},{"G",1e9}};
   if(unit.size()==1 && prefixes.count(unit) && contextUnit.empty()){out.warning="Unit prefix has no base unit";return out;}
@@ -166,15 +168,19 @@ EngineeringValue parseEngineeringValue(const string& input,const string& context
 }
 
 bool CatalogueMatch::matched() const{return status==CatalogueMatchStatus::ExactMatch||status==CatalogueMatchStatus::AliasMatch;}
-bool CatalogueDatabase::open(const filesystem::path& path){path_=path;filesystem::create_directories(path.parent_path());Db db;if(sqlite3_open(path.string().c_str(),&db.value)!=SQLITE_OK)return false;sqlite3_busy_timeout(db.value,5000);available_=exec(db.value,schema());version_="1";return available_;}
+CatalogueDatabase::~CatalogueDatabase() { closeReadConnection(); }
+void CatalogueDatabase::closeReadConnection() const { lock_guard<mutex> lock(readMutex_); if (readDb_) { sqlite3_close(readDb_); readDb_ = nullptr; } }
+bool CatalogueDatabase::open(const filesystem::path& path){closeReadConnection();path_=path;filesystem::create_directories(path.parent_path());Db db;if(sqlite3_open(path.string().c_str(),&db.value)!=SQLITE_OK)return false;sqlite3_busy_timeout(db.value,5000);available_=exec(db.value,schema());version_="1";return available_;}
 bool CatalogueDatabase::available()const{return available_;} const string& CatalogueDatabase::version()const{return version_;}
 
 CatalogueMatch CatalogueDatabase::lookup(const string& manufacturer,const string& mpn)const {
-  if(!available_)return {CatalogueMatchStatus::DatabaseUnavailable,{}}; Db db;if(sqlite3_open_v2(path_.string().c_str(),&db.value,SQLITE_OPEN_READONLY,nullptr)!=SQLITE_OK)return {CatalogueMatchStatus::DatabaseUnavailable,{}};
+  if(!available_)return {CatalogueMatchStatus::DatabaseUnavailable,{}}; lock_guard<mutex> lock(readMutex_);
+  if (!readDb_) { sqlite3* connection = nullptr; if (sqlite3_open_v2(path_.string().c_str(), &connection, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nullptr) == SQLITE_OK) { readDb_ = connection; sqlite3_busy_timeout(readDb_, 5000); } else if (connection) sqlite3_close(connection); }
+  sqlite3* db = readDb_; if(!db)return {CatalogueMatchStatus::DatabaseUnavailable,{}};
   const string mk=normalizeMpn(manufacturer), pk=normalizeMpn(mpn); if(pk.empty())return {};
   const auto loadProperties = [&](CatalogueRecord& record) {
     Statement properties;
-    sqlite3_prepare_v2(db.value, "SELECT name,nominal,min_value,typical,max_value,tolerance,unit,condition,qualifier,source_column,raw_value,raw_unit,mapping_status FROM properties WHERE part_id=? ORDER BY mapping_status,name", -1, &properties.value, nullptr);
+    sqlite3_prepare_v2(db, "SELECT name,nominal,min_value,typical,max_value,tolerance,unit,condition,qualifier,source_column,raw_value,raw_unit,mapping_status FROM properties WHERE part_id=? ORDER BY mapping_status,name", -1, &properties.value, nullptr);
     sqlite3_bind_int64(properties.value, 1, stoll(record.componentId));
     while (sqlite3_step(properties.value) == SQLITE_ROW) {
       CatalogueProperty property;
@@ -190,7 +196,7 @@ CatalogueMatch CatalogueDatabase::lookup(const string& manufacturer,const string
       record.properties.push_back(move(property));
     }
   };
-  auto run=[&](bool alias)->CatalogueMatch { Statement s; string sql=alias?"SELECT p.id,p.manufacturer,p.exact_mpn,p.base_part,p.description,p.category,p.package_variant,p.packaging_variant,p.series,p.snapshot_id FROM aliases a JOIN parts p ON p.id=a.part_id WHERE a.alias_key=? AND (?='' OR p.manufacturer_key=?) AND p.snapshot_id=(SELECT max(s2.id) FROM snapshots s2 WHERE s2.source_id=p.source_id) ORDER BY p.snapshot_id DESC LIMIT 2":"SELECT id,manufacturer,exact_mpn,base_part,description,category,package_variant,packaging_variant,series,snapshot_id FROM parts WHERE mpn_key=? AND (?='' OR manufacturer_key=?) AND snapshot_id=(SELECT max(s2.id) FROM snapshots s2 WHERE s2.source_id=parts.source_id) ORDER BY snapshot_id DESC LIMIT 2"; sqlite3_prepare_v2(db.value,sql.c_str(),-1,&s.value,nullptr);sqlite3_bind_text(s.value,1,pk.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(s.value,2,mk.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(s.value,3,mk.c_str(),-1,SQLITE_TRANSIENT);if(sqlite3_step(s.value)!=SQLITE_ROW)return {};CatalogueRecord r;r.componentId=to_string(sqlite3_column_int64(s.value,0));r.manufacturer=text(s.value,1);r.manufacturerPartNumber=text(s.value,2);r.basePart=text(s.value,3);r.canonicalName=text(s.value,4);r.category=text(s.value,5);r.packageVariant=text(s.value,6);r.packagingVariant=text(s.value,7);r.series=text(s.value,8);r.databaseVersion=to_string(sqlite3_column_int64(s.value,9));if(sqlite3_step(s.value)==SQLITE_ROW)return {CatalogueMatchStatus::Ambiguous,{}};return {alias?CatalogueMatchStatus::AliasMatch:CatalogueMatchStatus::ExactMatch,r};};
+  auto run=[&](bool alias)->CatalogueMatch { Statement s; string sql=alias?"SELECT p.id,p.manufacturer,p.exact_mpn,p.base_part,p.description,p.category,p.package_variant,p.packaging_variant,p.series,p.snapshot_id FROM aliases a JOIN parts p ON p.id=a.part_id WHERE a.alias_key=? AND (?='' OR p.manufacturer_key=?) AND p.snapshot_id=(SELECT max(s2.id) FROM snapshots s2 WHERE s2.source_id=p.source_id) ORDER BY p.snapshot_id DESC LIMIT 2":"SELECT id,manufacturer,exact_mpn,base_part,description,category,package_variant,packaging_variant,series,snapshot_id FROM parts WHERE mpn_key=? AND (?='' OR manufacturer_key=?) AND snapshot_id=(SELECT max(s2.id) FROM snapshots s2 WHERE s2.source_id=parts.source_id) ORDER BY snapshot_id DESC LIMIT 2"; sqlite3_prepare_v2(db,sql.c_str(),-1,&s.value,nullptr);sqlite3_bind_text(s.value,1,pk.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(s.value,2,mk.c_str(),-1,SQLITE_TRANSIENT);sqlite3_bind_text(s.value,3,mk.c_str(),-1,SQLITE_TRANSIENT);if(sqlite3_step(s.value)!=SQLITE_ROW)return {};CatalogueRecord r;r.componentId=to_string(sqlite3_column_int64(s.value,0));r.manufacturer=text(s.value,1);r.manufacturerPartNumber=text(s.value,2);r.basePart=text(s.value,3);r.canonicalName=text(s.value,4);r.category=text(s.value,5);r.packageVariant=text(s.value,6);r.packagingVariant=text(s.value,7);r.series=text(s.value,8);r.databaseVersion=to_string(sqlite3_column_int64(s.value,9));if(sqlite3_step(s.value)==SQLITE_ROW)return {CatalogueMatchStatus::Ambiguous,{}};return {alias?CatalogueMatchStatus::AliasMatch:CatalogueMatchStatus::ExactMatch,r};};
   auto result = run(false);
   if (result.status == CatalogueMatchStatus::NotFound) result = run(true);
   if (result.matched()) loadProperties(result.record);
@@ -317,6 +323,7 @@ CatalogueImportStats CatalogueDatabase::importFile(const filesystem::path& path,
     stats.error = "Catalogue database is unavailable";
     return stats;
   }
+  closeReadConnection();
   return importCatalogueTable(path_, path, profile, options);
 }
 
@@ -372,6 +379,7 @@ CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& pa
 
 size_t CatalogueDatabase::reprocessSource(const CatalogueProfile& profile) {
   if (!available_) return 0;
+  closeReadConnection();
   Db db;
   if (sqlite3_open(path_.string().c_str(), &db.value) != SQLITE_OK || !exec(db.value, "BEGIN IMMEDIATE")) return 0;
   Statement select;
@@ -418,6 +426,7 @@ size_t CatalogueDatabase::reprocessSource(const CatalogueProfile& profile) {
 }
 
 bool CatalogueDatabase::removeSource(const string& id) {
+  closeReadConnection();
   Db db;
   if (sqlite3_open(path_.string().c_str(), &db.value) != SQLITE_OK) return false;
   string profileId = id;
