@@ -1674,6 +1674,7 @@ int main(int argc, char** argv) {
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
     const auto unknownPath = filesystem::temp_directory_path() / "unknown-supplier-table.csv";
+    const auto customUnknownPath = filesystem::temp_directory_path() / "unknown-custom-supplier-table.csv";
     const auto vishayPath = filesystem::temp_directory_path() / "Vishay_series_synthetic.csv";
     const auto vishayExactPath = filesystem::temp_directory_path() / "Vishay_orderable_synthetic.csv";
     const auto nexperiaPath = filesystem::temp_directory_path() / "Nexperia_discrete_synthetic.csv";
@@ -1691,6 +1692,10 @@ int main(int argc, char** argv) {
     {
       ofstream unknown(unknownPath, ios::binary | ios::trunc);
       unknown << "Supplier code,Case,Selection flag\nABC-001,0402,Preferred\n";
+    }
+    {
+      ofstream unknown(customUnknownPath, ios::binary | ios::trunc);
+      unknown << "Supplier code,Case,Selection flag\nACME-001,0603,Preferred\n";
     }
     const auto unknownPreview = database.previewFile(unknownPath);
     assert(unknownPreview.valid());
@@ -1714,6 +1719,15 @@ int main(int argc, char** argv) {
     assert(any_of(manualMatch.record.properties.begin(), manualMatch.record.properties.end(), [](const CatalogueProperty& property) {
       return property.sourceColumn == "Selection flag" && property.name == "automotive_qualification" && property.mappingStatus == "warning";
     }));
+    CatalogueProfile customManualProfile{"manual-acme-components", "manual-v1", "Acme Components", "Custom", "", {},
+                                         {"Supplier code"}, {}, {}, {"Case"}, {}, {}, {}, {}, false};
+    assert(database.saveLocalMapping(customManualProfile));
+    const auto savedCustomManualProfile = database.localMapping("manual-acme-components");
+    assert(savedCustomManualProfile.has_value());
+    assert(savedCustomManualProfile->manufacturer == "Acme Components");
+    const auto customManualImport = database.importFile(customUnknownPath, &customManualProfile);
+    assert(customManualImport.error.empty());
+    assert(database.lookup("Acme Components", "ACME-001").status == CatalogueMatchStatus::ExactMatch);
     const auto imported = database.importFile(csvPath);
     assert(imported.error.empty());
     assert(imported.parts == 2);
@@ -1845,6 +1859,7 @@ int main(int argc, char** argv) {
     assert(item.partName == "Manual name");
     filesystem::remove(csvPath, ignored);
     filesystem::remove(unknownPath, ignored);
+    filesystem::remove(customUnknownPath, ignored);
     filesystem::remove(vishayPath, ignored);
     filesystem::remove(vishayExactPath, ignored);
     filesystem::remove(nexperiaPath, ignored);

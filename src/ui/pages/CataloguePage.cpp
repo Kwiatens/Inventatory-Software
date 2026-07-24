@@ -6,6 +6,7 @@
 #include <ftxui/component/screen_interactive.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <ctime>
 
@@ -69,6 +70,21 @@ string resolvedHeader(const CatalogueImportPreview& preview, const vector<string
   }
   return "Not detected";
 }
+
+string manualProfileId(const string& manufacturer) {
+  string id = "manual-";
+  bool pendingDash = false;
+  for (const unsigned char ch : manufacturer) {
+    if (isalnum(ch)) {
+      if (pendingDash && id.size() > 7) id += '-';
+      id += static_cast<char>(tolower(ch));
+      pendingDash = false;
+    } else {
+      pendingDash = true;
+    }
+  }
+  return id.size() > 7 ? id : "manual-catalogue";
+}
 }  // namespace
 
 void App::beginCatalogueDownload() {
@@ -112,8 +128,11 @@ void App::chooseManualCatalogueFile() {
   catalogueManualProfile_ = {};
   catalogueSelectedPath_ = move(selected);
   const auto* source = selectedSource(catalogueSourceSelection_);
-  if (source) {
-    if (const auto saved = catalogueDatabase_.localMapping(source->profileId)) {
+  const string mappingId = catalogueManualManufacturer_.empty()
+                               ? (source ? source->profileId : string())
+                               : manualProfileId(catalogueManualManufacturer_);
+  if (!mappingId.empty()) {
+    if (const auto saved = catalogueDatabase_.localMapping(mappingId)) {
       cataloguePreview_ = catalogueDatabase_.previewFile(catalogueSelectedPath_, &*saved);
       if (cataloguePreview_.valid() && find(cataloguePreview_.headers.begin(), cataloguePreview_.headers.end(), saved->mpnColumns.front()) != cataloguePreview_.headers.end()) {
         catalogueManualProfile_ = *saved;
@@ -233,17 +252,28 @@ ftxui::Element App::renderCatalogueUi() const {
     rows.push_back(styledText("O open official page again   F choose file manually   C cancel", uiInteractiveColor()));
     return ftxui::vbox(move(rows)) | ftxui::flex;
   }
+  if (catalogueFlow_ == CatalogueFlow::ManualManufacturer) {
+    const auto* source = selectedSource(catalogueSourceSelection_);
+    const string selectedName = source ? source->manufacturer : "manufacturer";
+    rows.push_back(styledText("UNKNOWN CATALOGUE FORMAT", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(styledText("Manufacturer: " + (catalogueManualManufacturer_.empty() ? selectedName : catalogueManualManufacturer_) + "_", uiTitleColor()));
+    rows.push_back(styledText("Type a manufacturer name, or press Enter to use the selected source.", uiMutedText()));
+    rows.push_back(styledText("This local mapping is never uploaded or used for automatic downloads.", uiMutedText()));
+    rows.push_back(styledText("Enter choose file   Backspace edit   Esc cancel", uiInteractiveColor()));
+    return ftxui::vbox(move(rows)) | ftxui::flex;
+  }
   if (catalogueFlow_ == CatalogueFlow::Preview) {
     const auto* source = selectedSource(catalogueSourceSelection_);
     const auto& preview = cataloguePreview_;
     const auto* profile = !catalogueManualProfile_.id.empty() ? &catalogueManualProfile_ : source ? profileFor(*source) : nullptr;
     rows.push_back(styledText("CATALOGUE READY TO IMPORT", uiSecondaryText()) | ftxui::bold);
-    rows.push_back(settingLine("Manufacturer", source ? source->displayName : "Unknown", 70));
+    rows.push_back(settingLine("Manufacturer", profile ? profile->manufacturer : source ? source->displayName : "Unknown", 70));
     rows.push_back(settingLine("File", catalogueSelectedPath_.filename().string(), 70));
     rows.push_back(settingLine("Format", preview.format, 70));
     rows.push_back(settingLine("Size", to_string(preview.fileSize / 1024) + " KB", 70));
     rows.push_back(settingLine("Profile", preview.profileId + " v" + preview.profileVersion, 70));
-    if (source) rows.push_back(settingLine("Categories", sourceCategoriesLabel(*source), 70));
+    if (profile) rows.push_back(settingLine("Categories", profile->category, 70));
+    else if (source) rows.push_back(settingLine("Categories", sourceCategoriesLabel(*source), 70));
     if (profile) {
       rows.push_back(settingLine("Part number", resolvedHeader(preview, profile->mpnColumns), 70));
       rows.push_back(settingLine("Base part", resolvedHeader(preview, profile->basePartColumns), 70));
@@ -274,8 +304,9 @@ ftxui::Element App::renderCatalogueUi() const {
   if (catalogueFlow_ == CatalogueFlow::ManualMapping) {
     rows.push_back(styledText("MAP THIS CATALOGUE", uiSecondaryText()) | ftxui::bold);
     const auto* source = selectedSource(catalogueSourceSelection_);
-    rows.push_back(styledText("Manufacturer: " + string(source ? source->displayName : "Selected source"), uiPrimaryText()));
-    const string category = source && catalogueManualCategorySelection_ < source->supportedCategories.size()
+    rows.push_back(styledText("Manufacturer: " + (!catalogueManualManufacturer_.empty() ? catalogueManualManufacturer_ : string(source ? source->displayName : "Selected source")), uiPrimaryText()));
+    const string category = !catalogueManualManufacturer_.empty() ? "Custom"
+                                : source && catalogueManualCategorySelection_ < source->supportedCategories.size()
                                 ? source->supportedCategories[catalogueManualCategorySelection_] : "Unspecified";
     rows.push_back(styledText("Category: " + category, uiMutedText()));
     rows.push_back(styledText("Map identity fields. All other useful scalar columns are retained locally for future mapping.", uiMutedText()));
@@ -391,6 +422,16 @@ void App::handleCatalogueKey(const KeyEvent& key) {
     else if (key.type == KeyType::Character && (key.ch == 'o' || key.ch == 'O')) beginCatalogueDownload();
     return;
   }
+  if (catalogueFlow_ == CatalogueFlow::ManualManufacturer) {
+    if (key.type == KeyType::Character) catalogueManualManufacturer_.push_back(key.ch);
+    else if (key.type == KeyType::Backspace && !catalogueManualManufacturer_.empty()) catalogueManualManufacturer_.pop_back();
+    else if (key.type == KeyType::Escape) { catalogueManualManufacturer_.clear(); catalogueFlow_ = CatalogueFlow::Sources; }
+    else if (key.type == KeyType::Enter) {
+      chooseManualCatalogueFile();
+    }
+    dirty_ = true;
+    return;
+  }
   if (catalogueFlow_ == CatalogueFlow::Preview) {
     if (key.type == KeyType::Enter) beginCatalogueImport();
     else if (key.type == KeyType::Escape) { catalogueSelectedPath_.clear(); catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; }
@@ -400,8 +441,8 @@ void App::handleCatalogueKey(const KeyEvent& key) {
   if (catalogueFlow_ == CatalogueFlow::ManualMapping) {
     const size_t optionCount = cataloguePreview_.headers.size() + 1;
     const auto* source = selectedSource(catalogueSourceSelection_);
-    if (key.type == KeyType::Left && source && catalogueManualCategorySelection_ > 0) --catalogueManualCategorySelection_;
-    else if (key.type == KeyType::Right && source && catalogueManualCategorySelection_ + 1 < source->supportedCategories.size()) ++catalogueManualCategorySelection_;
+    if (key.type == KeyType::Left && catalogueManualManufacturer_.empty() && source && catalogueManualCategorySelection_ > 0) --catalogueManualCategorySelection_;
+    else if (key.type == KeyType::Right && catalogueManualManufacturer_.empty() && source && catalogueManualCategorySelection_ + 1 < source->supportedCategories.size()) ++catalogueManualCategorySelection_;
     else if (key.type == KeyType::Up && catalogueManualColumnSelection_ > 0) --catalogueManualColumnSelection_;
     else if (key.type == KeyType::Down && catalogueManualColumnSelection_ + 1 < optionCount) ++catalogueManualColumnSelection_;
     else if (key.type == KeyType::Escape) { catalogueSelectedPath_.clear(); catalogueFlow_ = CatalogueFlow::Sources; dirty_ = true; }
@@ -414,13 +455,16 @@ void App::handleCatalogueKey(const KeyEvent& key) {
       if (++catalogueManualMappingStep_ < kManualMappingLabels.size()) {
         catalogueManualColumnSelection_ = catalogueManualColumns_[catalogueManualMappingStep_];
       } else {
-        if (!source) return;
+        if (!source && catalogueManualManufacturer_.empty()) return;
         const auto column = [&](size_t index) -> vector<string> {
           const auto selected = catalogueManualColumns_[index];
           return selected == 0 ? vector<string>{} : vector<string>{cataloguePreview_.headers[selected - 1]};
         };
-        catalogueManualProfile_ = {source->profileId, "manual-v1", source->manufacturer,
-                                   source->supportedCategories.empty() ? "Unspecified" : source->supportedCategories[min(catalogueManualCategorySelection_, source->supportedCategories.size() - 1)],
+        const string manufacturer = catalogueManualManufacturer_.empty() ? source->manufacturer : catalogueManualManufacturer_;
+        const string category = catalogueManualManufacturer_.empty()
+                                    ? (source->supportedCategories.empty() ? "Unspecified" : source->supportedCategories[min(catalogueManualCategorySelection_, source->supportedCategories.size() - 1)])
+                                    : "Custom";
+        catalogueManualProfile_ = {catalogueManualManufacturer_.empty() ? source->profileId : manualProfileId(manufacturer), "manual-v1", manufacturer, category,
                                    "", {}, column(0), column(1), {}, column(2), {}, column(3), {}, {}, false};
         for (size_t index = 0; index < kManualProperties.size(); ++index) {
           const auto selected = catalogueManualColumns_[index + 4];
@@ -445,7 +489,7 @@ void App::handleCatalogueKey(const KeyEvent& key) {
   else if (key.type == KeyType::Down && catalogueSourceSelection_ + 1 < manufacturerSources().size()) ++catalogueSourceSelection_;
   else if (key.type == KeyType::Enter || (key.type == KeyType::Character && (key.ch == 'g' || key.ch == 'G'))) beginCatalogueDownload();
   else if (key.type == KeyType::Character && (key.ch == 'f' || key.ch == 'F')) chooseCatalogueFile();
-  else if (key.type == KeyType::Character && (key.ch == 'm' || key.ch == 'M')) chooseManualCatalogueFile();
+  else if (key.type == KeyType::Character && (key.ch == 'm' || key.ch == 'M')) { catalogueManualManufacturer_.clear(); catalogueFlow_ = CatalogueFlow::ManualManufacturer; }
   else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) reEnrichInventoryFromCatalogue();
   else if (key.type == KeyType::Character && (key.ch == 'w' || key.ch == 'W')) {
     const auto* source = selectedSource(catalogueSourceSelection_); const auto snapshots = catalogueDatabase_.snapshots();

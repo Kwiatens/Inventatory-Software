@@ -77,7 +77,7 @@ class App {
   enum class SettingsCategory { General, Updates, Printer, QuickLabels, InventatoryScan };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
-  enum class CatalogueFlow { Sources, WaitingForDownload, ManualMapping, Preview, Importing, Results, Details, Warnings };
+  enum class CatalogueFlow { Sources, WaitingForDownload, ManualManufacturer, ManualMapping, Preview, Importing, Results, Details, Warnings };
   enum class StockSortOrder { Az, Quantity, Za };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
@@ -362,6 +362,7 @@ class App {
   size_t catalogueSourceSelection_ = 0;
   std::filesystem::path catalogueSelectedPath_;
   CatalogueImportPreview cataloguePreview_;
+  std::string catalogueManualManufacturer_;
   CatalogueProfile catalogueManualProfile_;
   size_t catalogueManualCategorySelection_ = 0;
   size_t catalogueManualMappingStep_ = 0;
