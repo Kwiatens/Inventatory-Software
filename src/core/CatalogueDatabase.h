@@ -65,7 +65,8 @@ struct CatalogueImportStats {
   std::int64_t snapshotId = 0;
   std::size_t rows = 0, parts = 0, aliases = 0, properties = 0, warnings = 0, rejected = 0;
   bool duplicate = false, cancelled = false;
-  std::string profileId, fileHash, error;
+  std::string profileId, profileVersion, filename, fileHash, error;
+  std::time_t importedAt = 0;
 };
 
 struct CatalogueImportPreview {
