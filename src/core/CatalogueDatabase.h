@@ -8,9 +8,12 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
+
+struct sqlite3;
 
 namespace inventatory {
 
@@ -88,6 +91,10 @@ std::string normalizeMpn(const std::string& value);
 
 class CatalogueDatabase {
  public:
+  CatalogueDatabase() = default;
+  ~CatalogueDatabase();
+  CatalogueDatabase(const CatalogueDatabase&) = delete;
+  CatalogueDatabase& operator=(const CatalogueDatabase&) = delete;
   bool open(const std::filesystem::path& path);
   bool available() const;
   const std::string& version() const;
@@ -100,9 +107,12 @@ class CatalogueDatabase {
   bool removeSource(const std::string& sourceId);
   std::vector<CatalogueImportStats> snapshots() const;
  private:
+  void closeReadConnection() const;
   std::filesystem::path path_;
   std::string version_;
   bool available_ = false;
+  mutable std::mutex readMutex_;
+  mutable sqlite3* readDb_ = nullptr;
 };
 
 // A detector exists only for the lifetime of a user-started guided session.
