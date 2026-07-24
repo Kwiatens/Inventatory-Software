@@ -107,14 +107,14 @@ Actions.
 ### Import
 
 The empty state starts file selection. Imported rows are reviewed beside their
-details, corrected inline, and accepted or skipped. IECD enrichment runs locally
+details, corrected inline, and accepted or skipped. catalogue enrichment runs locally
 for accepted rows and the completion summary reports created, merged, and skipped counts.
 
 ### Settings
 
 General/Data, Printer, Quick Labels, and Inventatory Scan live in one category/detail
 workspace. Ordinary edits are staged and use Save/Cancel. Refresh, Test, Copy,
-Regenerate, and Clear are operational actions. IECD snapshot state and update
+Regenerate, and Clear are operational actions. catalogue snapshot state and update
 controls live under General/Data; there are no database credentials.
 
 ## Reusable UI rules
