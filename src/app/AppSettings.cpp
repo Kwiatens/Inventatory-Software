@@ -136,9 +136,56 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "digikey_account_id=" << quoted(settings.digiKeyAccountId) << '\n'
          << "digikey_site=" << quoted(settings.digiKeySite) << '\n'
          << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
-         << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n'
-         << "quick_label_revision=" << settings.quickLabelRevision << '\n';
-  for (const auto& preset : settings.quickLabelPresets) {
+         << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n';
+  output.close();
+  if (!output) return false;
+  filesystem::remove(path, error);
+  error.clear();
+  filesystem::rename(temporary, path, error);
+  return !error;
+}
+
+filesystem::path quickLabelsPath(const filesystem::path& dataDirectory) {
+  return dataDirectory / "quick_labels.conf";
+}
+
+bool loadQuickLabels(const filesystem::path& path, vector<string>& presets, uint32_t& revision) {
+  ifstream input(path);
+  if (!input) return false;
+
+  vector<string> loadedPresets;
+  uint32_t loadedRevision = revision;
+  string line;
+  while (getline(input, line)) {
+    const auto equals = line.find('=');
+    if (equals == string::npos) continue;
+    const auto key = line.substr(0, equals);
+    istringstream value(line.substr(equals + 1));
+    if (key == "quick_label") {
+      string preset;
+      value >> quoted(preset);
+      if (!preset.empty() && loadedPresets.size() < 12) loadedPresets.push_back(preset);
+    } else if (key == "quick_label_revision") {
+      unsigned long parsedRevision = loadedRevision;
+      value >> parsedRevision;
+      if (parsedRevision > 0 && parsedRevision <= UINT32_MAX) loadedRevision = static_cast<uint32_t>(parsedRevision);
+    }
+  }
+  presets = move(loadedPresets);
+  revision = loadedRevision;
+  return true;
+}
+
+bool saveQuickLabels(const filesystem::path& path, const vector<string>& presets, uint32_t revision) {
+  error_code error;
+  filesystem::create_directories(path.parent_path(), error);
+  if (error) return false;
+
+  const auto temporary = filesystem::path(path.string() + ".tmp");
+  ofstream output(temporary, ios::trunc);
+  if (!output) return false;
+  output << "quick_label_revision=" << revision << '\n';
+  for (const auto& preset : presets) {
     output << "quick_label=" << quoted(preset) << '\n';
   }
   output.close();
