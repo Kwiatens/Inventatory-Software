@@ -143,34 +143,5 @@ void App::processUpdateCheck() {
   if (result.updateAvailable) setMessage("Inventatory " + result.latestVersion + " is available in Settings", 6);
 }
 
-void App::beginIecdUpdateIfDue() {
-  const auto now = static_cast<int64_t>(time(nullptr));
-  if (!isUpdateCheckDue(settings_.iecdUpdateChecksEnabled, settings_.lastIecdUpdateCheckUnixSeconds, now)) return;
-  iecdUpdateFuture_ = async(launch::async, [path = iecdPath_] { return downloadAndInstallLatestIecd(path); });
-}
-
-void App::processIecdUpdate() {
-  if (!iecdUpdateFuture_.valid() || iecdUpdateFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
-  const auto result = iecdUpdateFuture_.get();
-  if (!result.completed) {
-    setMessage("IECD update did not complete", 6);
-    return;
-  }
-  settings_.lastIecdUpdateCheckUnixSeconds = static_cast<int64_t>(time(nullptr));
-  if (!result.installed) {
-    setMessage(result.error.empty() ? "IECD update failed" : "IECD update failed: " + result.error, 8);
-  } else if (iecdDatabase_.open(iecdPath_)) {
-    settings_.installedIecdVersion = iecdDatabase_.version();
-    for (auto& item : store_.items()) {
-      applyIecdEnrichment(item, iecdDatabase_.lookup(item.manufacturer, item.manufacturerPartNumber));
-    }
-    saveState();
-    setMessage("IECD " + settings_.installedIecdVersion + " installed", 5);
-  } else {
-    setMessage("IECD update installed but the database could not be opened", 8);
-  }
-  settingsDraft_ = settings_;
-  saveAppSettings(settingsPath_, settings_);
-}
 
 }  // namespace inventatory
