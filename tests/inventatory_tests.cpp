@@ -1632,12 +1632,16 @@ int main(int argc, char** argv) {
     const auto microchipProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "microchip-parametric-v1"; });
     const auto murataProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "murata-capacitors-v1"; });
     const auto tdkProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "tdk-mlcc-v1"; });
+    const auto kemetProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "kemet-yageo-mlcc-v1"; });
+    const auto vishayContractProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "vishay-current-sense-v1"; });
     const auto nexperiaProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "nexperia-discretes-v1"; });
     assert(tiProfile != catalogueProfiles().end() && profileHasProperty(*tiProfile, "quiescent_current") && profileHasProperty(*tiProfile, "gate_charge"));
     assert(adiProfile != catalogueProfiles().end() && profileHasProperty(*adiProfile, "noise_density") && profileHasProperty(*adiProfile, "slew_rate"));
     assert(microchipProfile != catalogueProfiles().end() && profileHasProperty(*microchipProfile, "dac_resolution") && profileHasProperty(*microchipProfile, "usb_interfaces"));
     assert(murataProfile != catalogueProfiles().end() && profileHasProperty(*murataProfile, "dimensions") && profileHasProperty(*murataProfile, "operating_temperature"));
     assert(tdkProfile != catalogueProfiles().end() && profileHasProperty(*tdkProfile, "packaging") && profileHasProperty(*tdkProfile, "insulation_resistance"));
+    assert(kemetProfile != catalogueProfiles().end() && profileHasProperty(*kemetProfile, "msl") && profileHasProperty(*kemetProfile, "aec_qualification"));
+    assert(vishayContractProfile != catalogueProfiles().end() && profileHasProperty(*vishayContractProfile, "resistance") && profileHasProperty(*vishayContractProfile, "temperature_coefficient"));
     assert(nexperiaProfile != catalogueProfiles().end() && profileHasProperty(*nexperiaProfile, "reverse_recovery_time") && profileHasProperty(*nexperiaProfile, "dc_current_gain"));
 
     {
