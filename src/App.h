@@ -77,7 +77,7 @@ class App {
   enum class SettingsCategory { General, Updates, Printer, QuickLabels, InventatoryScan };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
-  enum class CatalogueFlow { Sources, WaitingForDownload, ManualMapping, Preview, Importing, Results, Warnings };
+  enum class CatalogueFlow { Sources, WaitingForDownload, ManualMapping, Preview, Importing, Results, Details, Warnings };
   enum class StockSortOrder { Az, Quantity, Za };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
@@ -371,6 +371,7 @@ class App {
   std::atomic_bool catalogueImportCancelled_{false};
   std::future<CatalogueImportStats> catalogueImportFuture_;
   CatalogueImportStats catalogueImportResult_;
+  std::vector<CatalogueImportStats> catalogueDetails_;
   std::vector<CatalogueWarning> catalogueWarnings_;
   struct CatalogueProgress { size_t completed = 0; size_t total = 0; std::string stage; };
   mutable std::mutex catalogueProgressMutex_;
