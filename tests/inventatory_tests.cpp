@@ -1671,8 +1671,11 @@ int main(int argc, char** argv) {
     assert(imported.properties >= 6);
     const auto snapshots = database.snapshots();
     assert(!snapshots.empty());
-    assert(snapshots.front().filename == "TI_opamps_synthetic.csv");
-    assert(snapshots.front().profileVersion == "1");
+    const auto importedSnapshot = find_if(snapshots.begin(), snapshots.end(), [](const CatalogueImportStats& snapshot) {
+      return snapshot.filename == "TI_opamps_synthetic.csv";
+    });
+    assert(importedSnapshot != snapshots.end());
+    assert(importedSnapshot->profileVersion == "1");
     assert(database.importFile(csvPath).duplicate);
     const auto exact = database.lookup("Texas Instruments", " opa333aidbvr ");
     assert(exact.status == CatalogueMatchStatus::ExactMatch);
@@ -1682,12 +1685,20 @@ int main(int argc, char** argv) {
     assert(database.lookup("Texas Instruments", "OPA-333").status == CatalogueMatchStatus::NotFound);
     InventoryItem item;
     item.partName = "Manual name";
+    item.manufacturerPartNumber = "OPA333AIDBVR";
     item.parameters = {{"Manual property", "keep me"}};
     assert(applyCatalogueEnrichment(item, exact));
     assert(item.partName == "Manual name");
     assert(item.parameters.size() == 1 && item.parameters.front().name == "Manual property" && item.parameters.front().value == "keep me");
     assert(serializeItem(item).find("Shutdown current") == string::npos);
     assert(item.catalogueStatus == "exact_match");
+    assert(item.catalogueMatched());
+    assert(!item.hasMissingMetadata());
+    item.catalogueStatus = "alias_match";
+    assert(item.catalogueMatched());
+    item.catalogueStatus = "not_in_catalogue";
+    assert(!item.catalogueMatched());
+    item.catalogueStatus = "exact_match";
     const auto xlsxPath = filesystem::temp_directory_path() / "ti-products-synthetic.xlsx";
     assert(writeSyntheticXlsx(xlsxPath));
     const auto profile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& candidate) {

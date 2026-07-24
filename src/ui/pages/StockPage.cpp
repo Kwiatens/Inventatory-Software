@@ -232,7 +232,7 @@ ftxui::Element App::renderStockUi() const {
     detailRows.push_back(detailFieldLine({"Location: ", item->location, uiSecondaryText(), uiPrimaryText()},
                                          detailInnerWidth));
     detailRows.push_back(detailFieldLine({"Sync: ", item->catalogueStatus, uiSecondaryText(),
-                                          toLower(item->catalogueStatus) == "matched" ? uiSuccessColor() : uiWarnColor()},
+                                          item->catalogueMatched() ? uiSuccessColor() : uiWarnColor()},
                                          detailInnerWidth));
     if (!trim(item->notes).empty()) {
       detailRows.push_back(uiDivider());
