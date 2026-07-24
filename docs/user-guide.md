@@ -10,7 +10,7 @@ focus and `Enter` activates it.
 ## Stock workflow
 
 Open Stock and type `/` to filter by part, category, tag, parameter, location,
-manufacturer part number, enrichment status, or quantity expression. Select a row to see its complete details.
+SKU, status, or quantity expression. Select a row to see its complete details.
 Use New, Edit, `-`, `+`, or Print for frequent work; links and administrative
 commands are available through Actions.
 
@@ -26,15 +26,15 @@ assignment, unassignment, filtering, and rack administration are in Actions.
 ## Import workflow
 
 Open Import and choose a CSV file. Review each candidate, correct it if needed,
-then Accept or Skip. Accepted rows are enriched locally from catalogue without an
-online supplier synchronization step. Inventatory reports created, merged, and skipped
+then Accept or Skip. After the final row, choose whether to enrich accepted
+parts with DigiKey metadata. Inventatory reports created, merged, skipped, and failed
 counts before returning to inventory.
 
 ## Settings workflow
 
-Settings has four categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
-R1 service port, auto-label behavior, and catalogue update preference are staged until Save. Cancel
-restores the saved values. Manufacturer catalogue files remain local and are managed from Electrical Data Sources.
+Settings has five categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
+R1 service port, auto-label behavior, and DigiKey configuration are staged until Save. Cancel
+restores the saved values. Printer and DigiKey tests use the staged values.
 
 The Quick Labels category owns up to twelve shared cable-flag texts. Add, edit, remove, reorder, test-print, then Save;
 the paired R1 receives the saved list during its next sync. Selecting a preset on the R1 prints immediately through the
@@ -43,7 +43,7 @@ Failed/offline device requests are not queued.
 
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
-next launch. catalogue snapshots are stored in the configured data directory.
+next launch. DigiKey secrets are stored in Windows Credential Manager.
 
 In **Settings -> General / Data**, **Background & startup** controls whether Inventatory remains available for Scan R1 after
 the terminal is closed. The first normal launch asks for permission and defaults to Off. When enabled, Inventatory starts for

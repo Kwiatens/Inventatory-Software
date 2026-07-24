@@ -161,11 +161,8 @@ string serializeItem(const InventoryItem& item) {
        << quoted(item.category) << '\t' << item.quantity << '\t' << item.reorderThreshold << '\t'
        << quoted(item.location) << '\t' << quoted(serializeTagsForStorage(item.tags)) << '\t'
        << quoted(serializeParametersForStorage(item.parameters))
-      << '\t' << quoted(item.notes) << '\t' << quoted(item.manufacturerPartNumber) << '\t' << quoted(item.datasheetUrl)
-      << '\t' << quoted(item.catalogueStatus) << '\t' << quoted(item.cataloguePartId) << '\t'
-      << quoted(item.catalogueSnapshot) << '\t' << quoted(item.catalogueName) << '\t'
-      << quoted(item.cataloguePurposeLabel) << '\t' << quoted(item.cataloguePrintLabel) << '\t'
-      << quoted(item.catalogueCategory) << '\t' << quoted(item.catalogueDatasheetUrl) << '\t'
+      << '\t' << quoted(item.notes) << '\t' << quoted(item.digikeyPartNumber) << '\t' << quoted(item.datasheetUrl)
+      << '\t' << quoted(item.productUrl) << '\t' << quoted(item.syncStatus) << '\t' << quoted(item.sku) << '\t'
       << item.lastUpdated << '\t' << quoted(item.inventatoryId) << '\t' << item.createdAt << '\t'
       << quoted(item.machineCode) << '\t' << quoted(item.rackId) << '\t' << quoted(item.rackSlot) << '\t'
       << quoted(rackAssignmentModeName(item.rackAssignment));
@@ -178,10 +175,8 @@ bool deserializeItem(const string& line, InventoryItem& item) {
   string parameters;
   if (!(input >> quoted(item.id) >> quoted(item.partName) >> quoted(item.manufacturer) >> quoted(item.category) >>
         item.quantity >> item.reorderThreshold >> quoted(item.location) >> quoted(tags) >> quoted(parameters) >>
-        quoted(item.notes) >> quoted(item.manufacturerPartNumber) >> quoted(item.datasheetUrl) >>
-        quoted(item.catalogueStatus) >> quoted(item.cataloguePartId) >> quoted(item.catalogueSnapshot) >>
-        quoted(item.catalogueName) >> quoted(item.cataloguePurposeLabel) >> quoted(item.cataloguePrintLabel) >>
-        quoted(item.catalogueCategory) >> quoted(item.catalogueDatasheetUrl) >> item.lastUpdated)) {
+        quoted(item.notes) >> quoted(item.digikeyPartNumber) >> quoted(item.datasheetUrl) >>
+        quoted(item.productUrl) >> quoted(item.syncStatus) >> quoted(item.sku) >> item.lastUpdated)) {
     return false;
   }
 

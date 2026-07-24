@@ -3,6 +3,8 @@
 
 #include "App.h"
 
+#include "platform/CredentialStore.h"
+#include "platform/DigiKeyApi.h"
 #include "platform/StartupRegistration.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -18,6 +20,8 @@ namespace inventatory {
 using namespace std;
 
 namespace {
+
+constexpr const char* kDigiKeySecretName = "digikey-client-secret";
 
 ftxui::Element settingLine(const string& label, const string& value, int width, bool selected = false) {
   const int labelWidth = min(22, max(14, width / 3));
@@ -50,10 +54,10 @@ ftxui::Element printerQueueLine(const string& name, const string& status, int wi
 string App::settingsCategoryName(SettingsCategory category) const {
   switch (category) {
     case SettingsCategory::General: return "General / Data";
-    case SettingsCategory::Updates: return "Updates";
     case SettingsCategory::Printer: return "Printer";
     case SettingsCategory::QuickLabels: return "Quick Labels";
     case SettingsCategory::InventatoryScan: return "Inventatory Scan";
+    case SettingsCategory::DigiKey: return "DigiKey";
   }
   return {};
 }
@@ -64,8 +68,12 @@ void App::openSettings(SettingsCategory category) {
   settingsDraft_.printerQueue = printerService_.configuredPrinter();
   settingsDirty_ = false;
   settingsEditingField_ = false;
+  stagedDigiKeySecret_.clear();
+  stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
+  hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value() ||
+                            !loadDigiKeyConfig().clientSecret.empty();
   inputBuffer_.clear();
   changePage(Page::Settings);
   if (category == SettingsCategory::Printer) refreshPrinterState();
@@ -106,15 +114,37 @@ bool App::testStagedPrinter() {
   return printerCheck_.ok;
 }
 
+bool App::testStagedDigiKey() {
+  DigiKeyConfig config;
+  config.clientId = settingsDraft_.digiKeyClientId;
+  config.accountId = settingsDraft_.digiKeyAccountId;
+  config.site = settingsDraft_.digiKeySite;
+  config.language = settingsDraft_.digiKeyLanguage;
+  config.currency = settingsDraft_.digiKeyCurrency;
+  if (stagedDigiKeySecretChanged_) {
+    config.clientSecret = stagedDigiKeySecret_;
+  } else if (const auto secret = CredentialStore::read(kDigiKeySecretName); secret.has_value()) {
+    config.clientSecret = *secret;
+  } else {
+    config.clientSecret = loadDigiKeyConfig().clientSecret;
+  }
+  if (!config.valid()) {
+    setMessage("Client ID and client secret are required", 4);
+    return false;
+  }
+  string error;
+  DigiKeyApiClient client(move(config));
+  const bool ok = client.testConnection(&error);
+  setMessage(ok ? "DigiKey credentials are valid" : "DigiKey test failed: " + error, 5);
+  return ok;
+}
+
 void App::beginSettingsFieldEdit(int field) {
   if (settingsCategory_ == SettingsCategory::General) return;
   settingsField_ = field;
   settingsEditingField_ = true;
   switch (settingsCategory_) {
     case SettingsCategory::General:
-      inputBuffer_.clear();
-      break;
-    case SettingsCategory::Updates:
       inputBuffer_.clear();
       break;
     case SettingsCategory::Printer:
@@ -127,6 +157,17 @@ void App::beginSettingsFieldEdit(int field) {
       break;
     case SettingsCategory::InventatoryScan:
       inputBuffer_ = field == 0 ? to_string(settingsDraft_.deviceServicePort) : string();
+      break;
+    case SettingsCategory::DigiKey:
+      switch (field) {
+        case 0: inputBuffer_ = settingsDraft_.digiKeyClientId; break;
+        case 1: inputBuffer_.clear(); break;
+        case 2: inputBuffer_ = settingsDraft_.digiKeyAccountId; break;
+        case 3: inputBuffer_ = settingsDraft_.digiKeySite; break;
+        case 4: inputBuffer_ = settingsDraft_.digiKeyLanguage; break;
+        case 5: inputBuffer_ = settingsDraft_.digiKeyCurrency; break;
+        default: inputBuffer_.clear(); break;
+      }
       break;
   }
   dirty_ = true;
@@ -155,6 +196,19 @@ void App::commitSettingsFieldEdit() {
         setMessage("Device service port must be between 1 and 65535", 4);
         return;
       }
+    }
+  } else if (settingsCategory_ == SettingsCategory::DigiKey) {
+    switch (settingsField_) {
+      case 0: settingsDraft_.digiKeyClientId = trim(inputBuffer_); break;
+      case 1:
+        stagedDigiKeySecret_ = inputBuffer_;
+        stagedDigiKeySecretChanged_ = true;
+        break;
+      case 2: settingsDraft_.digiKeyAccountId = trim(inputBuffer_); break;
+      case 3: settingsDraft_.digiKeySite = trim(inputBuffer_); break;
+      case 4: settingsDraft_.digiKeyLanguage = trim(inputBuffer_); break;
+      case 5: settingsDraft_.digiKeyCurrency = trim(inputBuffer_); break;
+      default: break;
     }
   }
   settingsEditingField_ = false;
@@ -194,6 +248,10 @@ bool App::saveSettingsDraft() {
       }
     }
   }
+  if (stagedDigiKeySecretChanged_ && !CredentialStore::write(kDigiKeySecretName, stagedDigiKeySecret_)) {
+    setMessage("Unable to save the DigiKey secret securely", 5);
+    return false;
+  }
   if (backgroundChanged) {
     string startupError;
     if (!setBackgroundStartupEnabled(settingsDraft_.backgroundServiceEnabled, startupError)) {
@@ -218,8 +276,6 @@ bool App::saveSettingsDraft() {
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
-    cataloguePath_ = dataPath_ / "catalogues.db";
-    catalogueDatabase_.open(cataloguePath_);
     ensureInventoryDatabaseCopied(inventoryPath_);
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     loadState();
@@ -230,6 +286,7 @@ bool App::saveSettingsDraft() {
     lock_guard<mutex> lock(quickLabelMutex_);
     settings_ = settingsDraft_;
   }
+  if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   if (backgroundChanged) {
     if (settings_.backgroundServiceEnabled) {
@@ -244,6 +301,8 @@ bool App::saveSettingsDraft() {
     printerService_.saveConfig(printerPath_);
   }
   settingsDirty_ = false;
+  stagedDigiKeySecret_.clear();
+  stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   setMessage(portChanged ? "Settings saved; restart Inventatory to apply the device service port" : "Settings saved", 4);
@@ -254,6 +313,8 @@ void App::cancelSettingsDraft() {
   settingsDraft_ = settings_;
   settingsDirty_ = false;
   settingsEditingField_ = false;
+  stagedDigiKeySecret_.clear();
+  stagedDigiKeySecretChanged_ = false;
   inputBuffer_.clear();
   setMessage("Settings changes discarded", 3);
 }
@@ -282,12 +343,13 @@ ftxui::Element App::renderSettingsUi() const {
   };
   categories.push_back(styledText(" SYSTEM", uiDimColor()));
   addCategory(SettingsCategory::General);
-  addCategory(SettingsCategory::Updates);
   categories.push_back(styledText(" OUTPUT", uiDimColor()));
   addCategory(SettingsCategory::Printer);
   addCategory(SettingsCategory::QuickLabels);
   categories.push_back(styledText(" DEVICES", uiDimColor()));
   addCategory(SettingsCategory::InventatoryScan);
+  categories.push_back(styledText(" INTEGRATIONS", uiDimColor()));
+  addCategory(SettingsCategory::DigiKey);
 
   ftxui::Elements rows;
   rows.push_back(ftxui::hbox({
@@ -316,38 +378,23 @@ ftxui::Element App::renderSettingsUi() const {
                           }));
     rows.push_back(styledText("When on, closing Inventatory keeps Scan R1 ready in the notification area and starts Inventatory at sign-in.",
                               uiMutedText()));
-  } else if (settingsCategory_ == SettingsCategory::Updates) {
-    rows.push_back(styledText("SOFTWARE UPDATES", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiDivider());
+    rows.push_back(styledText("PRIVATE BETA UPDATES", uiSecondaryText()) | ftxui::bold);
     rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
-                          "settings.updates.software", UiTargetKind::Field, [self] {
+                          "settings.general.updates", UiTargetKind::Field, [self] {
                             self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
                             self->settingsDirty_ = true;
                             self->dirty_ = true;
                           }));
     const auto available = settings_.latestAvailableVersion.empty() ? "Up to date" : "Version " + settings_.latestAvailableVersion + " available";
     rows.push_back(settingLine("Release status", available, contentWidth));
-    rows.push_back(target(styledText(" Check now ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.updates.check_software",
+    rows.push_back(target(styledText(" Check now ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.general.check_updates",
                           UiTargetKind::Button, [self] {
                             self->settings_.lastUpdateCheckUnixSeconds = 0;
                             self->beginUpdateCheckIfDue();
                             self->setMessage("Checking the private beta release...", 4);
                           }));
     rows.push_back(styledText("Checks use your authenticated GitHub CLI session; no inventory or device data is sent.", uiMutedText()));
-    rows.push_back(uiDivider());
-    rows.push_back(styledText("SCAN R1 FIRMWARE", uiSecondaryText()) | ftxui::bold);
-    rows.push_back(settingLine("Paired device", inventatoryScanConfig_.deviceId.empty() ? "Not paired" : inventatoryScanConfig_.deviceId,
-                               contentWidth));
-    rows.push_back(settingLine("Installed version", deviceFirmwareVersion_.empty() ? "Unavailable" : deviceFirmwareVersion_,
-                               contentWidth));
-    rows.push_back(styledText("Installed firmware is reported by the paired Scan R1.", uiMutedText()));
-    rows.push_back(uiDivider());
-    rows.push_back(styledText("ELECTRICAL DATA SOURCES", uiSecondaryText()) | ftxui::bold);
-    rows.push_back(settingLine("Storage", "Local only · catalogues.db", contentWidth));
-    rows.push_back(styledText("Manufacturer catalogues are imported from files you obtain; no catalogue data is uploaded.", uiMutedText()));
-    rows.push_back(styledText("Murata · TDK · KEMET/Yageo · Vishay", uiSecondaryText()));
-    rows.push_back(styledText("Nexperia · Texas Instruments · Analog Devices · Microchip", uiSecondaryText()));
-    rows.push_back(styledText("All current sources: Browser-guided · automatic download disabled", uiMutedText()));
-    rows.push_back(styledText("Use the official selector, export CSV/XLSX, then choose the downloaded file.", uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Configured queue",
@@ -475,6 +522,29 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(styledText(ellipsize(deviceDebugLog_[index], static_cast<size_t>(contentWidth)), uiMutedText()));
     }
     if (deviceDebugLog_.empty()) rows.push_back(styledText("Waiting for device messages", uiMutedText()));
+  } else {
+    rows.push_back(styledText("DIGIKEY API CREDENTIALS", uiSecondaryText()) | ftxui::bold);
+    const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
+    const vector<pair<string, string>> fields = {
+        {"Client ID", settingsDraft_.digiKeyClientId},
+        {"Client secret", hasSecret ? "••••••••" : "Not configured"},
+        {"Account ID", settingsDraft_.digiKeyAccountId},
+        {"Site", settingsDraft_.digiKeySite},
+        {"Language", settingsDraft_.digiKeyLanguage},
+        {"Currency", settingsDraft_.digiKeyCurrency},
+    };
+    for (size_t index = 0; index < fields.size(); ++index) {
+      const bool editing = settingsEditingField_ && settingsField_ == static_cast<int>(index);
+      const auto value = editing ? (index == 1 ? string(inputBuffer_.size(), '*') : inputBuffer_) + "_"
+                                 : fields[index].second;
+      rows.push_back(target(settingLine(fields[index].first, value, contentWidth, editing),
+                            "settings.digikey." + to_string(index), UiTargetKind::Field,
+                            [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
+    }
+    rows.push_back(target(styledText(" Test credentials ", uiInteractiveColor(), uiRaisedSurfaceBg()),
+                          "settings.digikey.test", UiTargetKind::Button,
+                          [self] { self->testStagedDigiKey(); }));
+    rows.push_back(styledText("Secrets are stored in Windows Credential Manager", uiMutedText()));
   }
 
   rows.push_back(ftxui::filler());
@@ -525,7 +595,9 @@ void App::handleSettingsKey(const KeyEvent& key) {
     else if (ch == '[' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(-1);
     else if (ch == ']' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(1);
     else if (ch == 't' && settingsCategory_ == SettingsCategory::QuickLabels) testQuickLabelPreset();
-    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::QuickLabels || settingsCategory_ == SettingsCategory::InventatoryScan)) beginSettingsFieldEdit(settingsField_);
+    else if (ch == 't' && settingsCategory_ == SettingsCategory::DigiKey) testStagedDigiKey();
+    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::QuickLabels || settingsCategory_ == SettingsCategory::InventatoryScan ||
+                           settingsCategory_ == SettingsCategory::DigiKey)) beginSettingsFieldEdit(settingsField_);
     if (ch != 'j' && ch != 'k') return;
     if (settingsCategory_ == SettingsCategory::QuickLabels) {
       if (ch == 'j' && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())) ++settingsField_;
