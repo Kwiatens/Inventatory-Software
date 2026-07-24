@@ -47,13 +47,13 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
       manufacturer_part_number TEXT NOT NULL,
       datasheet_url TEXT NOT NULL,
       enrichment_status TEXT NOT NULL,
-      iecd_component_id TEXT NOT NULL DEFAULT '',
-      iecd_version TEXT NOT NULL DEFAULT '',
-      iecd_canonical_name TEXT NOT NULL DEFAULT '',
-      iecd_purpose_label TEXT NOT NULL DEFAULT '',
-      iecd_print_label TEXT NOT NULL DEFAULT '',
-      iecd_category TEXT NOT NULL DEFAULT '',
-      iecd_datasheet_url TEXT NOT NULL DEFAULT '',
+      catalogue_component_id TEXT NOT NULL DEFAULT '',
+      catalogue_version TEXT NOT NULL DEFAULT '',
+      catalogue_canonical_name TEXT NOT NULL DEFAULT '',
+      catalogue_purpose_label TEXT NOT NULL DEFAULT '',
+      catalogue_print_label TEXT NOT NULL DEFAULT '',
+      catalogue_category TEXT NOT NULL DEFAULT '',
+      catalogue_datasheet_url TEXT NOT NULL DEFAULT '',
       last_updated INTEGER NOT NULL,
       inventatory_id TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL DEFAULT 0,
@@ -65,10 +65,37 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
   )SQL");
   };
 
+  // The retired enrichment overlay lived in the inventory table. Rebuild the
+  // table once, copying only user-owned inventory fields. Catalogue data now
+  // lives in catalogues.db and can be removed without touching inventory.
+  const string retiredPrefix = "ie" "cd_";
+  if (tableExists(connection, "inventatory_items") &&
+      tableColumnExists(connection, "inventatory_items", retiredPrefix + "component_id")) {
+    if (!execSql(connection, "BEGIN IMMEDIATE") ||
+        !execSql(connection, "ALTER TABLE inventatory_items RENAME TO inventatory_items_retired_enrichment") ||
+        !createCurrentTable() ||
+        !execSql(connection, R"SQL(
+          INSERT INTO inventatory_items (
+            id, part_name, manufacturer, category, quantity, reorder_threshold, location,
+            tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
+            last_updated, inventatory_id, created_at, machine_code, rack_id, rack_slot, rack_assignment
+          )
+          SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
+                 tags, parameters, notes, manufacturer_part_number, datasheet_url, 'not_in_catalogue',
+                 last_updated, inventatory_id, created_at, machine_code, rack_id, rack_slot, rack_assignment
+          FROM inventatory_items_retired_enrichment
+        )SQL") ||
+        !execSql(connection, "DROP TABLE inventatory_items_retired_enrichment") ||
+        !execSql(connection, "COMMIT")) {
+      execSql(connection, "ROLLBACK");
+      return false;
+    }
+  }
+
   if (tableExists(connection, "inventatory_items") &&
       !tableColumnExists(connection, "inventatory_items", "manufacturer_part_number")) {
     if (!execSql(connection, "BEGIN IMMEDIATE") ||
-        !execSql(connection, "ALTER TABLE inventatory_items RENAME TO inventatory_items_pre_iecd") ||
+        !execSql(connection, "ALTER TABLE inventatory_items RENAME TO inventatory_items_pre_catalogue") ||
         !createCurrentTable() ||
         !execSql(connection, R"SQL(
           INSERT INTO inventatory_items (
@@ -79,11 +106,11 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
           SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
                  tags, parameters, notes, sku,
                  CASE WHEN lower(datasheet_url) LIKE '%.pdf%' THEN datasheet_url ELSE '' END,
-                 'not_in_iecd', last_updated, inventatory_id, created_at, machine_code,
+                 'not_in_catalogue', last_updated, inventatory_id, created_at, machine_code,
                  rack_id, rack_slot, rack_assignment
-          FROM inventatory_items_pre_iecd
+          FROM inventatory_items_pre_catalogue
         )SQL") ||
-        !execSql(connection, "DROP TABLE inventatory_items_pre_iecd") ||
+        !execSql(connection, "DROP TABLE inventatory_items_pre_catalogue") ||
         !execSql(connection, "COMMIT")) {
       execSql(connection, "ROLLBACK");
       return false;
@@ -153,8 +180,8 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
   const char* sql = R"SQL(
     SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
            tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
-           iecd_component_id, iecd_version, iecd_canonical_name, iecd_purpose_label,
-           iecd_print_label, iecd_category, iecd_datasheet_url,
+           catalogue_component_id, catalogue_version, catalogue_canonical_name, catalogue_purpose_label,
+           catalogue_print_label, catalogue_category, catalogue_datasheet_url,
            last_updated, inventatory_id, created_at, machine_code,
            rack_id, rack_slot, rack_assignment
     FROM inventatory_items
@@ -179,14 +206,14 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     item.notes = sqliteText(statement.stmt, 9);
     item.manufacturerPartNumber = sqliteText(statement.stmt, 10);
     item.datasheetUrl = sqliteText(statement.stmt, 11);
-    item.enrichmentStatus = sqliteText(statement.stmt, 12);
-    item.iecdComponentId = sqliteText(statement.stmt, 13);
-    item.iecdVersion = sqliteText(statement.stmt, 14);
-    item.iecdCanonicalName = sqliteText(statement.stmt, 15);
-    item.iecdPurposeLabel = sqliteText(statement.stmt, 16);
-    item.iecdPrintLabel = sqliteText(statement.stmt, 17);
-    item.iecdCategory = sqliteText(statement.stmt, 18);
-    item.iecdDatasheetUrl = sqliteText(statement.stmt, 19);
+    item.catalogueStatus = sqliteText(statement.stmt, 12);
+    item.cataloguePartId = sqliteText(statement.stmt, 13);
+    item.catalogueSnapshot = sqliteText(statement.stmt, 14);
+    item.catalogueName = sqliteText(statement.stmt, 15);
+    item.cataloguePurposeLabel = sqliteText(statement.stmt, 16);
+    item.cataloguePrintLabel = sqliteText(statement.stmt, 17);
+    item.catalogueCategory = sqliteText(statement.stmt, 18);
+    item.catalogueDatasheetUrl = sqliteText(statement.stmt, 19);
     item.lastUpdated = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 20));
     item.inventatoryId = sqliteText(statement.stmt, 21);
     item.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 22));
@@ -268,8 +295,8 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     INSERT OR REPLACE INTO inventatory_items (
       id, part_name, manufacturer, category, quantity, reorder_threshold, location,
       tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
-      iecd_component_id, iecd_version, iecd_canonical_name, iecd_purpose_label,
-      iecd_print_label, iecd_category, iecd_datasheet_url,
+      catalogue_component_id, catalogue_version, catalogue_canonical_name, catalogue_purpose_label,
+      catalogue_print_label, catalogue_category, catalogue_datasheet_url,
       last_updated, inventatory_id, created_at, machine_code,
       rack_id, rack_slot, rack_assignment
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -295,14 +322,14 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     sqliteApi().bind_text(statement.stmt, 10, item.notes.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 11, item.manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 12, item.datasheetUrl.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 13, item.enrichmentStatus.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 14, item.iecdComponentId.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 15, item.iecdVersion.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 16, item.iecdCanonicalName.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 17, item.iecdPurposeLabel.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 18, item.iecdPrintLabel.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 19, item.iecdCategory.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 20, item.iecdDatasheetUrl.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 13, item.catalogueStatus.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 14, item.cataloguePartId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 15, item.catalogueSnapshot.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 16, item.catalogueName.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 17, item.cataloguePurposeLabel.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 18, item.cataloguePrintLabel.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 19, item.catalogueCategory.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 20, item.catalogueDatasheetUrl.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_int64(statement.stmt, 21, static_cast<sqlite3_int64>(item.lastUpdated));
     sqliteApi().bind_text(statement.stmt, 22, item.inventatoryId.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_int64(statement.stmt, 23, static_cast<sqlite3_int64>(item.createdAt));
@@ -484,7 +511,7 @@ InventoryItem* InventoryStore::findByCode(const string& code) {
   const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
     return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.manufacturerPartNumber) == needle ||
            toLower(item.machineCode) == needle || containsInsensitive(item.datasheetUrl, needle) ||
-           containsInsensitive(item.iecdDatasheetUrl, needle);
+           containsInsensitive(item.catalogueDatasheetUrl, needle);
   });
   return it == items_.end() ? nullptr : &(*it);
 }
@@ -494,7 +521,7 @@ const InventoryItem* InventoryStore::findByCode(const string& code) const {
   const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
     return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.manufacturerPartNumber) == needle ||
            toLower(item.machineCode) == needle || containsInsensitive(item.datasheetUrl, needle) ||
-           containsInsensitive(item.iecdDatasheetUrl, needle);
+           containsInsensitive(item.catalogueDatasheetUrl, needle);
   });
   return it == items_.end() ? nullptr : &(*it);
 }

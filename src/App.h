@@ -5,7 +5,7 @@
 
 #include "core/Inventory.h"
 #include "core/InventatoryScanProtocol.h"
-#include "core/IecdDatabase.h"
+#include "core/CatalogueDatabase.h"
 #include "app/AppSettings.h"
 #include "import/BomCsvImport.h"
 #include "label_printer/LabelPrinter.h"
@@ -15,7 +15,6 @@
 #include "platform/HttpServer.h"
 #include "platform/MdnsService.h"
 #include "platform/UpdateService.h"
-#include "platform/IecdUpdateService.h"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/mouse.hpp>
@@ -211,8 +210,6 @@ class App {
   void processBackgroundWork();
   void beginUpdateCheckIfDue();
   void processUpdateCheck();
-  void beginIecdUpdateIfDue();
-  void processIecdUpdate();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void markDirty();
@@ -347,8 +344,8 @@ class App {
   std::filesystem::path printerPath_;
   std::filesystem::path activityPath_;
   std::filesystem::path inventatoryScanConfigPath_;
-  std::filesystem::path iecdPath_;
-  IecdDatabase iecdDatabase_;
+  std::filesystem::path cataloguePath_;
+  CatalogueDatabase catalogueDatabase_;
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
@@ -440,7 +437,6 @@ class App {
   std::string settingsConfirmAction_;
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
-  std::future<IecdInstallResult> iecdUpdateFuture_;
   mutable std::vector<UiTarget> uiTargets_;
   mutable std::string hoveredTargetId_;
   int focusedTarget_ = -1;

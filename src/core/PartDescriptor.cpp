@@ -1,13 +1,13 @@
 // Inventatory - Hardware Inventory Management System
-// Shared access to reviewed IECD short part descriptions.
+// Shared access to reviewed catalogue short part descriptions.
 
 #include "core/PartDescriptor.h"
 
 namespace inventatory {
 
 PartDescriptor describePart(const InventoryItem& item) {
-  if (!trim(item.iecdPurposeLabel).empty()) return {trim(item.iecdPurposeLabel)};
-  return {"Not in IECD"};
+  if (!trim(item.cataloguePurposeLabel).empty()) return {trim(item.cataloguePurposeLabel)};
+  return {"Not in catalogue"};
 }
 
 string partShortDescription(const InventoryItem& item) {
