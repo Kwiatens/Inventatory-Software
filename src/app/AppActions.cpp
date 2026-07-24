@@ -79,8 +79,8 @@ void App::loadState() {
   const bool inventoryLoaded = store_.load(inventoryPath_);
   bool enrichmentChanged = false;
   for (auto& item : store_.items()) {
-    enrichmentChanged = applyIecdEnrichment(
-                            item, iecdDatabase_.lookup(item.manufacturer, item.manufacturerPartNumber)) ||
+    enrichmentChanged = applyCatalogueEnrichment(
+                            item, catalogueDatabase_.lookup(item.manufacturer, item.manufacturerPartNumber)) ||
                         enrichmentChanged;
   }
   loadActivities(activityPath_, activities_);
@@ -151,8 +151,8 @@ bool App::chooseInventatoryFolder() {
   printerPath_ = dataPath_ / "printer.conf";
   activityPath_ = dataPath_ / "activity.tsv";
   inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
-  iecdPath_ = dataPath_ / "iecd.sqlite3";
-  iecdDatabase_.open(iecdPath_);
+  cataloguePath_ = dataPath_ / "catalogues.db";
+  catalogueDatabase_.open(cataloguePath_);
   ensureInventoryDatabaseCopied(inventoryPath_);
 
   printerQueues_.clear();
@@ -858,7 +858,7 @@ void App::beginEditCurrentItem(bool createNew) {
     workingCopy_.item.manufacturer = "Unknown";
     workingCopy_.item.category = "Unsorted";
     workingCopy_.item.location = "Unassigned";
-    workingCopy_.item.enrichmentStatus = "needs_metadata";
+    workingCopy_.item.catalogueStatus = "needs_metadata";
     workingCopy_.item.lastUpdated = time(nullptr);
     workingCopy_.item.createdAt = workingCopy_.item.lastUpdated;
     workingCopy_.originalIndex = store_.items().size();
@@ -951,7 +951,7 @@ void App::commitEditField(EditField field, const string& value) {
       workingCopy_.item.manufacturerPartNumber = trimmed;
       break;
     case EditField::EnrichmentStatus:
-      workingCopy_.item.enrichmentStatus = toLower(trimmed);
+      workingCopy_.item.catalogueStatus = toLower(trimmed);
       break;
     case EditField::RackLocation: {
       string error;
@@ -992,15 +992,15 @@ void App::saveWorkingCopy() {
   captureUndoSnapshot();
   if (workingCopy_.isNew) {
     store_.items().push_back(workingCopy_.item);
-    applyIecdEnrichment(store_.items().back(),
-                        iecdDatabase_.lookup(store_.items().back().manufacturer,
+    applyCatalogueEnrichment(store_.items().back(),
+                        catalogueDatabase_.lookup(store_.items().back().manufacturer,
                                              store_.items().back().manufacturerPartNumber));
     reconcileRackAssignment(store_, store_.items().back());
     selectedPosition_ = store_.items().empty() ? 0 : store_.items().size() - 1;
   } else if (workingCopy_.originalIndex < store_.items().size()) {
     store_.items()[workingCopy_.originalIndex] = workingCopy_.item;
-    applyIecdEnrichment(store_.items()[workingCopy_.originalIndex],
-                        iecdDatabase_.lookup(store_.items()[workingCopy_.originalIndex].manufacturer,
+    applyCatalogueEnrichment(store_.items()[workingCopy_.originalIndex],
+                        catalogueDatabase_.lookup(store_.items()[workingCopy_.originalIndex].manufacturer,
                                              store_.items()[workingCopy_.originalIndex].manufacturerPartNumber));
     reconcileRackAssignment(store_, store_.items()[workingCopy_.originalIndex]);
   }
@@ -1097,7 +1097,7 @@ void App::processScans() {
         if (!trim(request.encodedPartName).empty() && (resolution.created || item->partName.empty())) {
           item->partName = trim(request.encodedPartName);
         }
-        applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
+        applyCatalogueEnrichment(*item, catalogueDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
       }
 
       if (resolution.created) {
@@ -1407,8 +1407,8 @@ void App::processDeviceSyncEvents() {
       if (const auto* item = candidate.findByMachineCode(event.code)) {
         affectedItemId = item->id;
         result.existing = true;
-        result.itemName = item->iecdCanonicalName.empty() ? item->partName : item->iecdCanonicalName;
-        result.purposeLabel = item->iecdPurposeLabel;
+        result.itemName = item->catalogueName.empty() ? item->partName : item->catalogueName;
+        result.purposeLabel = item->cataloguePurposeLabel;
         result.location = rackLocation(*item, candidate.racks());
         if (result.location.empty()) result.location = item->location;
       }
@@ -1437,10 +1437,10 @@ void App::processDeviceSyncEvents() {
       result.appliedDelta = item->quantity - oldQuantity;
       result.quantity = item->quantity;
 
-      applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
+      applyCatalogueEnrichment(*item, catalogueDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
       reconcileRackAssignment(candidate, *item);
-      result.itemName = item->iecdCanonicalName.empty() ? item->partName : item->iecdCanonicalName;
-      result.purposeLabel = item->iecdPurposeLabel;
+      result.itemName = item->catalogueName.empty() ? item->partName : item->catalogueName;
+      result.purposeLabel = item->cataloguePurposeLabel;
       result.location = rackLocation(*item, candidate.racks());
       if (result.location.empty()) result.location = item->location.empty() ? "UNASSIGNED" : item->location;
       result.status = "completed";
@@ -1674,8 +1674,8 @@ void App::acceptImportCandidate() {
   }
 
   if (auto* accepted = store_.findById(acceptedId)) {
-    applyIecdEnrichment(*accepted,
-                        iecdDatabase_.lookup(accepted->manufacturer, accepted->manufacturerPartNumber));
+    applyCatalogueEnrichment(*accepted,
+                        catalogueDatabase_.lookup(accepted->manufacturer, accepted->manufacturerPartNumber));
   }
 
   importAcceptedItemIds_.push_back(acceptedId);
@@ -1720,7 +1720,7 @@ void App::finishImportReview() {
 void App::finishCsvImport() {
   for (const auto& itemId : importAcceptedItemIds_) {
     if (auto* item = store_.findById(itemId)) {
-      applyIecdEnrichment(*item, iecdDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
+      applyCatalogueEnrichment(*item, catalogueDatabase_.lookup(item->manufacturer, item->manufacturerPartNumber));
     }
   }
   saveState();
@@ -1777,7 +1777,7 @@ string App::fieldLabel(EditField field) const {
     case EditField::ManufacturerPartNumber:
       return "Manufacturer part number";
     case EditField::EnrichmentStatus:
-      return "IECD status";
+      return "Catalogue status";
     case EditField::RackLocation:
       return "Rack location";
   }
@@ -1822,7 +1822,7 @@ string App::currentFieldValue(EditField field) const {
     case EditField::ManufacturerPartNumber:
       return item->manufacturerPartNumber;
     case EditField::EnrichmentStatus:
-      return item->enrichmentStatus;
+      return item->catalogueStatus;
     case EditField::RackLocation: {
       const auto location = rackLocation(*item, store_.racks());
       return location.empty() ? (item->rackAssignment == RackAssignmentMode::Automatic ? "AUTO" : "") : location;
@@ -1846,7 +1846,7 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Notes", EditField::Notes},
       {"Datasheet URL", EditField::DatasheetUrl},
       {"Manufacturer part number", EditField::ManufacturerPartNumber},
-      {"IECD status", EditField::EnrichmentStatus},
+      {"Catalogue status", EditField::EnrichmentStatus},
   };
 }
 

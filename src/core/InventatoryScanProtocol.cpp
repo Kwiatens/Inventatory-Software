@@ -690,8 +690,8 @@ DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLoo
     return result;
   }
   result.status = "found";
-  result.itemName = item->iecdCanonicalName.empty() ? item->partName : item->iecdCanonicalName;
-  result.purposeLabel = item->iecdPurposeLabel;
+  result.itemName = item->catalogueName.empty() ? item->partName : item->catalogueName;
+  result.purposeLabel = item->cataloguePurposeLabel;
   return result;
 }
 
