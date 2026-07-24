@@ -568,7 +568,7 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
 
   if (textMatches(item.category) || textMatches(displayCategory(item.category)) || textMatches(item.partName) ||
       textMatches(item.manufacturer) || textMatches(item.location) || textMatches(item.notes) ||
-      textMatches(item.manufacturerPartNumber) || textMatches(item.iecdPurposeLabel)) {
+      textMatches(item.manufacturerPartNumber) || textMatches(item.cataloguePurposeLabel)) {
     return true;
   }
 
@@ -590,7 +590,7 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
 vector<string> itemTextTokens(const InventoryItem& item) {
   string text = item.category + " " + displayCategory(item.category) + " " + item.partName + " " +
                 item.manufacturer + " " + item.location + " " + item.notes + " " +
-                item.manufacturerPartNumber + " " + item.iecdPurposeLabel;
+                item.manufacturerPartNumber + " " + item.cataloguePurposeLabel;
   for (const auto& tag : item.tags) text += " " + tag;
   for (const auto& parameter : item.parameters) text += " " + parameter.name + " " + parameter.value;
 
@@ -1611,7 +1611,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
 #endif
 
 string partContextHeader(const InventoryItem& item) {
-  return !trim(item.iecdPrintLabel).empty() ? trim(item.iecdPrintLabel) : partShortDescription(item);
+  return !trim(item.cataloguePrintLabel).empty() ? trim(item.cataloguePrintLabel) : partShortDescription(item);
 }
 
 }  // namespace

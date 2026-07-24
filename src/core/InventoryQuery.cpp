@@ -99,12 +99,12 @@ bool tokenMatchesStatus(const InventoryItem& item, const string& value) {
     return item.hasMissingMetadata();
   }
   if (lowerValue == "matched") {
-    return toLower(item.enrichmentStatus) == "matched";
+    return toLower(item.catalogueStatus) == "matched";
   }
   if (lowerValue == "unenriched") {
-    return toLower(item.enrichmentStatus) != "matched";
+    return toLower(item.catalogueStatus) != "matched";
   }
-  return containsInsensitive(item.enrichmentStatus, lowerValue);
+  return containsInsensitive(item.catalogueStatus, lowerValue);
 }
 
 bool tokenMatchesCategory(const InventoryItem& item, const string& value) {
@@ -287,7 +287,7 @@ Summary summarize(const vector<InventoryItem>& items) {
     if (item.hasMissingMetadata()) {
       ++summary.missingMetadataCount;
     }
-    if (toLower(item.enrichmentStatus) != "matched") {
+    if (toLower(item.catalogueStatus) != "matched") {
       ++summary.unenrichedCount;
     }
   }

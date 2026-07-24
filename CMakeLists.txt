@@ -23,6 +23,7 @@ else()
 endif()
 
 include(FetchContent)
+find_package(SQLite3 REQUIRED)
 
 find_package(ftxui CONFIG QUIET)
 if(NOT ftxui_FOUND)
@@ -34,20 +35,6 @@ if(NOT ftxui_FOUND)
   )
 FetchContent_MakeAvailable(ftxui)
 endif()
-
-FetchContent_Declare(monocypher
-  GIT_REPOSITORY https://github.com/LoupVaillant/Monocypher.git
-  GIT_TAG 4.0.3
-)
-FetchContent_MakeAvailable(monocypher)
-add_library(iecd_ed25519 STATIC
-  ${monocypher_SOURCE_DIR}/src/monocypher.c
-  ${monocypher_SOURCE_DIR}/src/optional/monocypher-ed25519.c
-)
-target_include_directories(iecd_ed25519 PUBLIC
-  ${monocypher_SOURCE_DIR}/src
-  ${monocypher_SOURCE_DIR}/src/optional
-)
 
 add_executable(inventatory
   src/main.cpp
@@ -66,7 +53,7 @@ add_executable(inventatory
   src/core/InventoryStorage.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
-  src/core/IecdDatabase.cpp
+  src/core/CatalogueDatabase.cpp
   src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
   src/import/BomCsvImport.cpp
@@ -78,7 +65,6 @@ add_executable(inventatory
   src/platform/CredentialStore.cpp
   src/platform/BleProvisioningService.cpp
   src/platform/UpdateService.cpp
-  src/platform/IecdUpdateService.cpp
   src/ui/shared/AppUiShared.cpp
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
@@ -102,23 +88,13 @@ if(WIN32)
   target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
 endif()
 
-target_link_libraries(inventatory PRIVATE ftxui::screen ftxui::dom ftxui::component iecd_ed25519)
-
-add_custom_command(TARGET inventatory POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:inventatory>/data"
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${CMAKE_CURRENT_SOURCE_DIR}/data/iecd.sqlite3"
-          "${CMAKE_CURRENT_SOURCE_DIR}/data/iecd-manifest.json"
-          "$<TARGET_FILE_DIR:inventatory>/data"
-  COMMENT "Copying signed IECD bootstrap snapshot"
-)
+target_link_libraries(inventatory PRIVATE ftxui::screen ftxui::dom ftxui::component SQLite::SQLite3)
 
 add_executable(inventatory_tests
   tests/inventatory_tests.cpp
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
-  src/platform/IecdUpdateService.cpp
   src/import/BomCsvImport.cpp
   src/ui/shared/AppUiShared.cpp
   src/core/Inventory.cpp
@@ -131,7 +107,7 @@ add_executable(inventatory_tests
   src/core/InventoryStorage.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
-  src/core/IecdDatabase.cpp
+  src/core/CatalogueDatabase.cpp
   src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
   src/label_printer/LabelPrinter.cpp
@@ -143,7 +119,7 @@ if(WIN32)
   target_link_libraries(inventatory_tests PRIVATE winspool bcrypt advapi32 winhttp)
 endif()
 
-target_link_libraries(inventatory_tests PRIVATE ftxui::screen ftxui::dom ftxui::component iecd_ed25519)
+target_link_libraries(inventatory_tests PRIVATE ftxui::screen ftxui::dom ftxui::component SQLite::SQLite3)
 
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)

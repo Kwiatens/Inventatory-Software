@@ -23,9 +23,6 @@ struct AppSettings {
   std::string latestAvailableVersion;
   std::string latestReleaseUrl;
   std::uint16_t deviceServicePort = 8080;
-  bool iecdUpdateChecksEnabled = true;
-  std::int64_t lastIecdUpdateCheckUnixSeconds = 0;
-  std::string installedIecdVersion;
   // Shared wire-label shortcuts published to the paired Scan R1.
   std::vector<std::string> quickLabelPresets;
   std::uint32_t quickLabelRevision = 1;
