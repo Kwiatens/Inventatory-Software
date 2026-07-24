@@ -1730,13 +1730,12 @@ InventatoryLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& it
 string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocation) const {
   const auto plan = buildLabelPlan(item, move(rackLocation));
   const auto categoryHeader = fitSingleLineLabel(plan.categoryHeader, 16);
-  const auto mainValue = fitSingleLineLabel(plan.mainValue, 14);
+  const auto mainValue = fitSingleLineLabel(plan.mainValue, 13);
   const auto packageLine = fitSingleLineLabel(plan.packageLine, 24);
   const auto manufacturerLine = fitSingleLineLabel(plan.manufacturerLine, 20);
   const auto parameterLine1 = fitSingleLineLabel(plan.parameterLine1, 24);
   const auto parameterLine2 = fitSingleLineLabel(plan.parameterLine2, 24);
   const auto parameterLine3 = fitSingleLineLabel(plan.parameterLine3, 24);
-  const auto scannerHint = fitSingleLineLabel(plan.scannerHint, 22);
   const auto barcodeHint = fitSingleLineLabel(plan.barcodeHint, 14);
   const auto rackHint = fitSingleLineLabel(plan.rackLocation, 12);
   ostringstream out;
@@ -1787,9 +1786,6 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   // Keep the QR symbol compact so it wraps less on curved labels.
   out << "^FO170,60^BQN,2,3^FDLA," << sanitizeLabelText(barcodeHint) << "^FS\r\n";
   out << "\r\n";
-
-  out << "^FX --- Human readable Inventatory ID, centred under the QR code ---\r\n";
-  out << "^FO170,175^A0N,9,9^FB80,1,0,C^FD" << sanitizeLabelText(scannerHint) << "^FS\r\n";
 
   if (!rackHint.empty()) {
     out << "^FX --- Inventatory rack location ---\r\n";

@@ -79,6 +79,18 @@ ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ft
                              ftxui::Color activeBg, ftxui::Color flashingBg, ftxui::Color inactiveBg);
 ftxui::Element quantityBadge(int quantity, bool selected = false);
 
+// Milliseconds since the app started. The 100 ms redraw ticker means render
+// code can derive sub-second animation phase from this without its own timer;
+// time(nullptr) is too coarse to pulse against.
+long long uiAnimationTicks();
+bool uiBlinkOn(int periodMs = 900);
+
+// Block-character progress bars. uiSplitProgressBar draws two adjacent
+// segments, used for the ready-versus-short project gauge.
+ftxui::Element uiProgressBar(double fraction, int width, ftxui::Color fill);
+ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui::Color firstFill,
+                                  ftxui::Color secondFill);
+
 // A compact status indicator: a colored dot, a muted label, and an optional
 // trailing value (e.g. statusDot("device", green, "12s")). Used in the header.
 ftxui::Element statusDot(const string& label, ftxui::Color color, const string& value = {});
