@@ -1630,9 +1630,15 @@ int main(int argc, char** argv) {
     const auto tiProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "ti-parametric-v1"; });
     const auto adiProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "adi-amplifiers-v1"; });
     const auto microchipProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "microchip-parametric-v1"; });
+    const auto murataProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "murata-capacitors-v1"; });
+    const auto tdkProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "tdk-mlcc-v1"; });
+    const auto nexperiaProfile = find_if(catalogueProfiles().begin(), catalogueProfiles().end(), [](const CatalogueProfile& profile) { return profile.id == "nexperia-discretes-v1"; });
     assert(tiProfile != catalogueProfiles().end() && profileHasProperty(*tiProfile, "quiescent_current") && profileHasProperty(*tiProfile, "gate_charge"));
     assert(adiProfile != catalogueProfiles().end() && profileHasProperty(*adiProfile, "noise_density") && profileHasProperty(*adiProfile, "slew_rate"));
     assert(microchipProfile != catalogueProfiles().end() && profileHasProperty(*microchipProfile, "dac_resolution") && profileHasProperty(*microchipProfile, "usb_interfaces"));
+    assert(murataProfile != catalogueProfiles().end() && profileHasProperty(*murataProfile, "dimensions") && profileHasProperty(*murataProfile, "operating_temperature"));
+    assert(tdkProfile != catalogueProfiles().end() && profileHasProperty(*tdkProfile, "packaging") && profileHasProperty(*tdkProfile, "insulation_resistance"));
+    assert(nexperiaProfile != catalogueProfiles().end() && profileHasProperty(*nexperiaProfile, "reverse_recovery_time") && profileHasProperty(*nexperiaProfile, "dc_current_gain"));
 
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-catalogues-test.db";
     const auto csvPath = filesystem::temp_directory_path() / "TI_opamps_synthetic.csv";
