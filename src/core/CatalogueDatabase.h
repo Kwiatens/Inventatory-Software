@@ -36,6 +36,9 @@ struct CatalogueProfile {
       seriesColumns, descriptionColumns, statusColumns;
   std::vector<PropertyMapping> properties;
   bool seriesOnly = false;
+  // When supplied, this column is the evidence required to treat an export as
+  // orderable-part data. A table without it remains a series catalogue.
+  std::vector<std::string> exactMpnColumns;
 };
 
 struct EngineeringValue {
