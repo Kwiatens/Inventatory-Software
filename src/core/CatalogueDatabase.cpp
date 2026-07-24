@@ -348,17 +348,18 @@ CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& pa
   map<string, int> seen;
   for (auto& header : table.headers) header = uniqueHeader(header, seen);
   const auto* profile = selected ? selected : detectCatalogueProfile(path, table.headers);
-  if (!profile) {
-    preview.error = "No manufacturer profile matches this file";
-    return preview;
-  }
-  preview.profileId = profile->id;
-  preview.profileVersion = profile->version;
   preview.sheetName = table.sheetName;
   preview.headerRow = table.headerRow;
   preview.rows = table.rows.size();
   preview.delimiter = table.delimiter;
   preview.headers = table.headers;
+  preview.sampleRows.assign(table.rows.begin(), table.rows.begin() + min<size_t>(10, table.rows.size()));
+  if (!profile) {
+    preview.warnings.push_back("No known manufacturer profile matched this table; map its identity columns before importing.");
+    return preview;
+  }
+  preview.profileId = profile->id;
+  preview.profileVersion = profile->version;
   const set<int> structural = {findColumn(table.headers, profile->mpnColumns), findColumn(table.headers, profile->basePartColumns),
                                findColumn(table.headers, profile->packageColumns), findColumn(table.headers, profile->seriesColumns),
                                findColumn(table.headers, profile->descriptionColumns), findColumn(table.headers, profile->statusColumns)};
@@ -373,7 +374,6 @@ CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& pa
       preview.unmappedColumns.push_back(table.headers[column]);
     }
   }
-  preview.sampleRows.assign(table.rows.begin(), table.rows.begin() + min<size_t>(10, table.rows.size()));
   return preview;
 }
 
