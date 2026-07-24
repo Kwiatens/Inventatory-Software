@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS properties(id INTEGER PRIMARY KEY,part_id INTEGER NOT
 CREATE INDEX IF NOT EXISTS idx_properties_part ON properties(part_id);
 CREATE TABLE IF NOT EXISTS import_warnings(id INTEGER PRIMARY KEY,snapshot_id INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,row_number INTEGER,message TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS local_catalogue_mappings(profile_id TEXT PRIMARY KEY,profile_version TEXT NOT NULL,manufacturer TEXT NOT NULL,category TEXT NOT NULL,mpn_column TEXT NOT NULL,base_column TEXT,package_column TEXT,description_column TEXT,saved_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS local_catalogue_mapping_properties(profile_id TEXT NOT NULL REFERENCES local_catalogue_mappings(profile_id) ON DELETE CASCADE,source_column TEXT NOT NULL,canonical_name TEXT NOT NULL,unit TEXT,qualifier TEXT,PRIMARY KEY(profile_id,source_column));
 )SQL"; }
 
 bool readCsvCatalogueTable(const filesystem::path& path, CatalogueTable& table, string& error,
@@ -339,7 +340,24 @@ bool CatalogueDatabase::saveLocalMapping(const CatalogueProfile& profile) {
   const array<string, 8> values = {profile.id, profile.version, profile.manufacturer, profile.category, column(profile.mpnColumns), column(profile.basePartColumns), column(profile.packageColumns), column(profile.descriptionColumns)};
   for (int index = 0; index < 8; ++index) sqlite3_bind_text(statement.value, index + 1, values[index].c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_int64(statement.value, 9, time(nullptr));
-  return sqlite3_step(statement.value) == SQLITE_DONE;
+  if (sqlite3_step(statement.value) != SQLITE_DONE) return false;
+  Statement remove;
+  sqlite3_prepare_v2(db.value, "DELETE FROM local_catalogue_mapping_properties WHERE profile_id=?", -1, &remove.value, nullptr);
+  sqlite3_bind_text(remove.value, 1, profile.id.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqlite3_step(remove.value) != SQLITE_DONE) return false;
+  Statement property;
+  sqlite3_prepare_v2(db.value, "INSERT INTO local_catalogue_mapping_properties(profile_id,source_column,canonical_name,unit,qualifier) VALUES(?,?,?,?,?)", -1, &property.value, nullptr);
+  for (const auto& mapping : profile.properties) {
+    if (mapping.columns.empty()) continue;
+    sqlite3_reset(property.value); sqlite3_clear_bindings(property.value);
+    sqlite3_bind_text(property.value, 1, profile.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 2, mapping.columns.front().c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 3, mapping.canonicalName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 4, mapping.unit.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(property.value, 5, mapping.qualifier.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(property.value) != SQLITE_DONE) return false;
+  }
+  return true;
 }
 
 optional<CatalogueProfile> CatalogueDatabase::localMapping(const string& profileId) const {
@@ -351,8 +369,13 @@ optional<CatalogueProfile> CatalogueDatabase::localMapping(const string& profile
   sqlite3_bind_text(statement.value, 1, profileId.c_str(), -1, SQLITE_TRANSIENT);
   if (sqlite3_step(statement.value) != SQLITE_ROW) return nullopt;
   const auto optionalColumn = [&](int index) { const auto value = text(statement.value, index); return value.empty() ? vector<string>{} : vector<string>{value}; };
-  return CatalogueProfile{profileId, text(statement.value, 0), text(statement.value, 1), text(statement.value, 2), "", {},
-                          optionalColumn(3), optionalColumn(4), {}, optionalColumn(5), {}, optionalColumn(6), {}, {}, false};
+  CatalogueProfile profile{profileId, text(statement.value, 0), text(statement.value, 1), text(statement.value, 2), "", {},
+                           optionalColumn(3), optionalColumn(4), {}, optionalColumn(5), {}, optionalColumn(6), {}, {}, false};
+  Statement properties;
+  sqlite3_prepare_v2(db.value, "SELECT source_column,canonical_name,unit,qualifier FROM local_catalogue_mapping_properties WHERE profile_id=? ORDER BY source_column", -1, &properties.value, nullptr);
+  sqlite3_bind_text(properties.value, 1, profileId.c_str(), -1, SQLITE_TRANSIENT);
+  while (sqlite3_step(properties.value) == SQLITE_ROW) profile.properties.push_back({{text(properties.value, 0)}, text(properties.value, 1), text(properties.value, 2), text(properties.value, 3)});
+  return profile;
 }
 
 CatalogueImportPreview CatalogueDatabase::previewFile(const filesystem::path& path, const CatalogueProfile* selected,

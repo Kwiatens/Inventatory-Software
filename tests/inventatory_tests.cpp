@@ -1646,17 +1646,20 @@ int main(int argc, char** argv) {
     assert(!unknownPreview.warnings.empty());
     CatalogueProfile manualProfile{"ti-parametric-v1", "manual-v1", "Texas Instruments", "Custom", "", {},
                                    {"Supplier code"}, {}, {}, {"Case"}, {}, {}, {}, {}, false};
+    manualProfile.properties.push_back({{"Selection flag"}, "automotive_qualification", "", ""});
     assert(database.saveLocalMapping(manualProfile));
     const auto savedManualProfile = database.localMapping("ti-parametric-v1");
     assert(savedManualProfile.has_value());
     assert(savedManualProfile->mpnColumns == vector<string>{"Supplier code"});
     assert(savedManualProfile->packageColumns == vector<string>{"Case"});
+    assert(savedManualProfile->properties.size() == 1);
+    assert(savedManualProfile->properties.front().canonicalName == "automotive_qualification");
     const auto manuallyImported = database.importFile(unknownPath, &manualProfile);
     assert(manuallyImported.error.empty());
     const auto manualMatch = database.lookup("Texas Instruments", "ABC-001");
     assert(manualMatch.matched());
     assert(any_of(manualMatch.record.properties.begin(), manualMatch.record.properties.end(), [](const CatalogueProperty& property) {
-      return property.sourceColumn == "Selection flag" && property.mappingStatus == "unmapped";
+      return property.sourceColumn == "Selection flag" && property.name == "automotive_qualification" && property.mappingStatus == "mapped";
     }));
     const auto imported = database.importFile(csvPath);
     assert(imported.error.empty());
