@@ -1526,7 +1526,7 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
   status.rssi = request.rssi;
-  status.debug = "protocol=v1 mode=" + request.mode + " queue=" + to_string(request.queueDepth);
+  status.debug = "protocol=v2 mode=" + request.mode + " queue=" + to_string(request.queueDepth);
   status.protocolVersion = request.protocolVersion;
   status.mode = request.mode;
   status.pendingEventCount = request.queueDepth;
