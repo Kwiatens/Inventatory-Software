@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// Durable inbox and result delivery for Inventatory Scan protocol v1.
+// Durable inbox and result delivery for Inventatory Scan protocol v2.
 
 #include "core/InventatoryScanProtocol.h"
 
@@ -162,7 +162,7 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
 #else
   (void)databasePath;
   (void)request;
-  error = "Protocol v1 persistence requires SQLite";
+  error = "Protocol v2 persistence requires SQLite";
   return false;
 #endif
 }

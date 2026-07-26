@@ -525,7 +525,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
     error = "Missing or invalid sync envelope field";
     return false;
   }
-  if (*protocolVersion != 1) {
+  if (*protocolVersion != 2) {
     error = "Unsupported protocol version";
     return false;
   }
@@ -594,7 +594,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
 
 string deviceSyncResponseJson(const DeviceSyncResponse& response) {
   ostringstream out;
-  out << "{\"protocolVersion\":1,\"requestId\":\"" << jsonEscape(response.requestId)
+  out << "{\"protocolVersion\":2,\"requestId\":\"" << jsonEscape(response.requestId)
       << "\",\"acceptedEventIds\":[";
   for (size_t index = 0; index < response.acceptedEventIds.size(); ++index) {
     if (index != 0) out << ',';
