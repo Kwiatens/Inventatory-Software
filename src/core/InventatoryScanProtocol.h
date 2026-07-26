@@ -130,7 +130,7 @@ struct DeviceSyncResult {
 };
 
 struct DeviceSyncResponse {
-  int protocolVersion = 1;
+  int protocolVersion = 2;
   std::string requestId;
   std::vector<std::string> acceptedEventIds;
   std::vector<DeviceSyncResult> results;
