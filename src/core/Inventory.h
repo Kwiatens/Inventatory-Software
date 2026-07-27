@@ -21,6 +21,22 @@ struct Parameter {
   string value;
 };
 
+// Provider-neutral catalog metadata retained with an inventory item.  Provider
+// adapters populate this shape; label resolution never depends on vendor prose
+// outside the provider category and structured parameters.
+struct VendorProductMetadata {
+  string provider;
+  string providerProductNumber;
+  string manufacturerPartNumber;
+  string categoryId;
+  vector<string> categoryPath;
+  string title;
+  string detailedDescription;
+  vector<Parameter> parameters;
+  string productUrl;
+  string locale;
+};
+
 enum class RackAssignmentMode {
   Automatic,
   Manual,
@@ -59,6 +75,10 @@ struct InventoryItem {
   string rackId;
   string rackSlot;
   RackAssignmentMode rackAssignment = RackAssignmentMode::Automatic;
+  // Trailing fields preserve compatibility with existing aggregate-initialized
+  // inventory fixtures and callers.
+  string labelOverride;
+  VendorProductMetadata vendorMetadata;
 
   bool lowStock() const;
   bool hasMissingMetadata() const;
@@ -195,4 +215,3 @@ string serializeActivity(const ActivityEntry& entry);
 bool deserializeActivity(const string& line, ActivityEntry& entry);
 
 }  // namespace inventatory
-
