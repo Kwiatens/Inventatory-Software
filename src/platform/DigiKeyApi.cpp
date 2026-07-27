@@ -644,25 +644,30 @@ optional<string> readFirstMember(const JsonPtr& root, initializer_list<const cha
   return nullopt;
 }
 
-optional<string> categoryNameFromNode(const JsonPtr& node) {
+void appendCategoryPathFromNode(const JsonPtr& node, vector<string>& path) {
   if (node == nullptr) {
-    return nullopt;
+    return;
   }
   if (const auto name = readFirstMember(node, {"Name", "CategoryName"}); name.has_value()) {
-    return name;
+    if (path.empty() || path.back() != *name) {
+      path.push_back(*name);
+    }
   }
   if (const auto* children = asArray(findMember(node, "Children") == nullptr ? nullptr : *findMember(node, "Children"));
-      children != nullptr && !children->empty()) {
-    return categoryNameFromNode(children->back());
+      children != nullptr) {
+    for (const auto& child : *children) {
+      appendCategoryPathFromNode(child, path);
+    }
   }
-  return nullopt;
 }
 
-optional<string> extractCategoryName(const JsonPtr& product) {
+vector<string> extractCategoryPath(const JsonPtr& product) {
   for (const auto* key : {"Category", "ProductCategory"}) {
     if (const auto* node = findMember(product, key); node != nullptr) {
-      if (const auto category = categoryNameFromNode(*node); category.has_value()) {
-        return category;
+      vector<string> path;
+      appendCategoryPathFromNode(*node, path);
+      if (!path.empty()) {
+        return path;
       }
     }
   }
@@ -671,17 +676,29 @@ optional<string> extractCategoryName(const JsonPtr& product) {
                                         ? nullptr
                                         : *findMember(product, "LimitedTaxonomy"));
       taxonomy != nullptr && !taxonomy->empty()) {
-    return categoryNameFromNode(taxonomy->back());
+    vector<string> path;
+    for (const auto& node : *taxonomy) {
+      appendCategoryPathFromNode(node, path);
+    }
+    if (!path.empty()) {
+      return path;
+    }
   }
 
   if (const auto* classifications = asArray(findMember(product, "Classifications") == nullptr
                                                ? nullptr
                                                : *findMember(product, "Classifications"));
       classifications != nullptr && !classifications->empty()) {
-    return categoryNameFromNode(classifications->back());
+    vector<string> path;
+    for (const auto& node : *classifications) {
+      appendCategoryPathFromNode(node, path);
+    }
+    if (!path.empty()) {
+      return path;
+    }
   }
 
-  return nullopt;
+  return {};
 }
 
 string normalizeParameterKey(const string& value) {
@@ -1137,11 +1154,12 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
 
   const auto* product = findMember(root, "Product");
   const JsonPtr productNode = product != nullptr ? *product : root;
+  const auto categoryPath = extractCategoryPath(productNode);
 
   details.manufacturerName = readPath(productNode, {"Manufacturer", "Name"}).value_or("");
   details.manufacturerPartNumber = readPath(productNode, {"ManufacturerProductNumber"}).value_or("");
-  if (const auto category = extractCategoryName(productNode); category.has_value()) {
-    details.categoryName = *category;
+  if (!categoryPath.empty()) {
+    details.categoryName = categoryPath.back();
   }
   details.productDescription = readPath(productNode, {"Description", "ProductDescription"}).value_or("");
   details.detailedDescription = readPath(productNode, {"Description", "DetailedDescription"}).value_or("");
@@ -1188,6 +1206,18 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
       details.parameters.push_back({"Package", details.packageName});
     }
   }
+
+  // Keep the catalog response in the common provider shape.  The category ID
+  // is optional here because older DigiKey responses do not always expose it.
+  details.vendorMetadata.provider = "digikey";
+  details.vendorMetadata.providerProductNumber = lookupKey;
+  details.vendorMetadata.manufacturerPartNumber = details.manufacturerPartNumber;
+  details.vendorMetadata.categoryId = details.categoryName;
+  details.vendorMetadata.categoryPath = categoryPath;
+  details.vendorMetadata.title = details.productDescription;
+  details.vendorMetadata.detailedDescription = details.detailedDescription;
+  details.vendorMetadata.parameters = details.parameters;
+  details.vendorMetadata.productUrl = details.productUrl;
 
   return details;
 }
@@ -1427,7 +1457,7 @@ optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, 
 
 optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const string& productNumber,
                                                                            string* error) {
-  const auto parseDetails = [](const string& lookupKey, const string& bodyText, string* parseError) {
+  const auto parseDetails = [this](const string& lookupKey, const string& bodyText, string* parseError) {
     string bodyParseError;
     const auto root = parseJson(bodyText, &bodyParseError);
     if (!root.has_value()) {
@@ -1438,6 +1468,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
     }
 
     auto details = parseProductDetails(lookupKey, *root);
+    details.vendorMetadata.locale = config_.language;
     if (details.productDescription.empty() && details.parameters.empty()) {
       if (parseError != nullptr) {
         *parseError = "DigiKey returned an empty details payload";
@@ -1532,4 +1563,3 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
 }  // namespace inventatory
 
 #endif
-
