@@ -163,9 +163,15 @@ string serializeItem(const InventoryItem& item) {
        << quoted(serializeParametersForStorage(item.parameters))
       << '\t' << quoted(item.notes) << '\t' << quoted(item.digikeyPartNumber) << '\t' << quoted(item.datasheetUrl)
       << '\t' << quoted(item.productUrl) << '\t' << quoted(item.syncStatus) << '\t' << quoted(item.sku) << '\t'
-      << item.lastUpdated << '\t' << quoted(item.inventatoryId) << '\t' << item.createdAt << '\t'
-      << quoted(item.machineCode) << '\t' << quoted(item.rackId) << '\t' << quoted(item.rackSlot) << '\t'
-      << quoted(rackAssignmentModeName(item.rackAssignment));
+       << item.lastUpdated << '\t' << quoted(item.inventatoryId) << '\t' << item.createdAt << '\t'
+       << quoted(item.machineCode) << '\t' << quoted(item.rackId) << '\t' << quoted(item.rackSlot) << '\t'
+       << quoted(rackAssignmentModeName(item.rackAssignment)) << '\t' << quoted(item.labelOverride) << '\t'
+       << quoted(item.vendorMetadata.provider) << '\t' << quoted(item.vendorMetadata.providerProductNumber) << '\t'
+       << quoted(item.vendorMetadata.manufacturerPartNumber) << '\t' << quoted(item.vendorMetadata.categoryId) << '\t'
+       << quoted(serializeTagsForStorage(item.vendorMetadata.categoryPath)) << '\t'
+       << quoted(item.vendorMetadata.title) << '\t' << quoted(item.vendorMetadata.detailedDescription) << '\t'
+       << quoted(serializeParametersForStorage(item.vendorMetadata.parameters)) << '\t'
+       << quoted(item.vendorMetadata.productUrl) << '\t' << quoted(item.vendorMetadata.locale);
   return out.str();
 }
 
@@ -198,6 +204,15 @@ bool deserializeItem(const string& line, InventoryItem& item) {
     string rackMode;
     if (input >> quoted(item.rackId) >> quoted(item.rackSlot) >> quoted(rackMode)) {
       item.rackAssignment = parseRackAssignmentMode(rackMode);
+    }
+    string categoryPath;
+    string vendorParameters;
+    if (input >> quoted(item.labelOverride) >> quoted(item.vendorMetadata.provider) >> quoted(item.vendorMetadata.providerProductNumber) >>
+        quoted(item.vendorMetadata.manufacturerPartNumber) >> quoted(item.vendorMetadata.categoryId) >> quoted(categoryPath) >>
+        quoted(item.vendorMetadata.title) >> quoted(item.vendorMetadata.detailedDescription) >> quoted(vendorParameters) >>
+        quoted(item.vendorMetadata.productUrl) >> quoted(item.vendorMetadata.locale)) {
+      item.vendorMetadata.categoryPath = deserializeTagsFromStorage(categoryPath);
+      item.vendorMetadata.parameters = deserializeParametersFromStorage(vendorParameters);
     }
   }
 

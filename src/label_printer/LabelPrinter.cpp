@@ -997,7 +997,7 @@ string fallbackContextHeader(const InventoryItem& item) {
   if (!trim(item.sku).empty()) {
     return trim(item.sku);
   }
-  return "Part";
+  return "Unclassified Component";
 }
 
 string mainLabelValue(const InventoryItem& item) {

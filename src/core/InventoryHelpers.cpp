@@ -216,13 +216,22 @@ string InventoryItem::searchableText() const {
   ostringstream out;
   out << partName << ' ' << manufacturer << ' ' << category << ' ' << location << ' ' << notes << ' '
       << digikeyPartNumber << ' ' << datasheetUrl << ' ' << productUrl << ' ' << sku << ' ' << machineCode << ' '
-      << inventatoryId << ' ' << syncStatus;
+      << inventatoryId << ' ' << syncStatus << ' ' << labelOverride << ' ' << vendorMetadata.provider << ' '
+      << vendorMetadata.providerProductNumber << ' ' << vendorMetadata.manufacturerPartNumber << ' '
+      << vendorMetadata.title << ' ' << vendorMetadata.detailedDescription;
 
   for (const auto& tag : tags) {
     out << ' ' << tag;
   }
 
   for (const auto& parameter : parameters) {
+    out << ' ' << parameter.name << ':' << parameter.value;
+  }
+
+  for (const auto& vendorCategory : vendorMetadata.categoryPath) {
+    out << ' ' << vendorCategory;
+  }
+  for (const auto& parameter : vendorMetadata.parameters) {
     out << ' ' << parameter.name << ':' << parameter.value;
   }
 

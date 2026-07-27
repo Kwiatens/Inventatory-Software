@@ -43,6 +43,17 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
       tags TEXT NOT NULL,
       parameters TEXT NOT NULL,
       notes TEXT NOT NULL,
+      label_override TEXT NOT NULL DEFAULT '',
+      vendor_provider TEXT NOT NULL DEFAULT '',
+      vendor_product_number TEXT NOT NULL DEFAULT '',
+      vendor_manufacturer_part_number TEXT NOT NULL DEFAULT '',
+      vendor_category_id TEXT NOT NULL DEFAULT '',
+      vendor_category_path TEXT NOT NULL DEFAULT '',
+      vendor_title TEXT NOT NULL DEFAULT '',
+      vendor_detailed_description TEXT NOT NULL DEFAULT '',
+      vendor_parameters TEXT NOT NULL DEFAULT '',
+      vendor_product_url TEXT NOT NULL DEFAULT '',
+      vendor_locale TEXT NOT NULL DEFAULT '',
       digikey_part_number TEXT NOT NULL,
       datasheet_url TEXT NOT NULL,
       product_url TEXT NOT NULL,
@@ -95,6 +106,28 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
       !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN sync_status TEXT NOT NULL DEFAULT ''")) return false;
   if (!tableColumnExists(connection, "inventatory_items", "sku") &&
       !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN sku TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "label_override") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN label_override TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_provider") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_provider TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_product_number") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_product_number TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_manufacturer_part_number") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_manufacturer_part_number TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_category_id") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_category_id TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_category_path") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_category_path TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_title") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_title TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_detailed_description") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_detailed_description TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_parameters") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_parameters TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_product_url") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_product_url TEXT NOT NULL DEFAULT ''")) return false;
+  if (!tableColumnExists(connection, "inventatory_items", "vendor_locale") &&
+      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_locale TEXT NOT NULL DEFAULT ''")) return false;
   if (!execSql(connection, R"SQL(
     CREATE TABLE IF NOT EXISTS inventatory_racks (
       id TEXT PRIMARY KEY,
@@ -221,7 +254,10 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
            tags, parameters, notes, COALESCE(NULLIF(digikey_part_number, ''), manufacturer_part_number), datasheet_url, product_url,
            COALESCE(NULLIF(sync_status, ''), enrichment_status), COALESCE(NULLIF(sku, ''), manufacturer_part_number), last_updated, inventatory_id, created_at, machine_code,
-           rack_id, rack_slot, rack_assignment
+           rack_id, rack_slot, rack_assignment,
+           label_override, vendor_provider, vendor_product_number, vendor_manufacturer_part_number,
+           vendor_category_id, vendor_category_path, vendor_title, vendor_detailed_description,
+           vendor_parameters, vendor_product_url, vendor_locale
     FROM inventatory_items
     ORDER BY part_name COLLATE NOCASE ASC
   )SQL";
@@ -254,6 +290,17 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     item.rackId = sqliteText(statement.stmt, 19);
     item.rackSlot = sqliteText(statement.stmt, 20);
     item.rackAssignment = parseRackAssignmentMode(sqliteText(statement.stmt, 21));
+    item.labelOverride = sqliteText(statement.stmt, 22);
+    item.vendorMetadata.provider = sqliteText(statement.stmt, 23);
+    item.vendorMetadata.providerProductNumber = sqliteText(statement.stmt, 24);
+    item.vendorMetadata.manufacturerPartNumber = sqliteText(statement.stmt, 25);
+    item.vendorMetadata.categoryId = sqliteText(statement.stmt, 26);
+    item.vendorMetadata.categoryPath = deserializeTagsFromStorage(sqliteText(statement.stmt, 27));
+    item.vendorMetadata.title = sqliteText(statement.stmt, 28);
+    item.vendorMetadata.detailedDescription = sqliteText(statement.stmt, 29);
+    item.vendorMetadata.parameters = deserializeParametersFromStorage(sqliteText(statement.stmt, 30));
+    item.vendorMetadata.productUrl = sqliteText(statement.stmt, 31);
+    item.vendorMetadata.locale = sqliteText(statement.stmt, 32);
     items.push_back(move(item));
   }
 
@@ -347,8 +394,11 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
       id, part_name, manufacturer, category, quantity, reorder_threshold, location,
       tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
       digikey_part_number, product_url, sync_status, sku, last_updated, inventatory_id, created_at, machine_code,
-      rack_id, rack_slot, rack_assignment
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      rack_id, rack_slot, rack_assignment,
+      label_override, vendor_provider, vendor_product_number, vendor_manufacturer_part_number,
+      vendor_category_id, vendor_category_path, vendor_title, vendor_detailed_description,
+      vendor_parameters, vendor_product_url, vendor_locale
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )SQL";
 
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
@@ -385,6 +435,19 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     sqliteApi().bind_text(statement.stmt, 23, item.rackSlot.c_str(), -1, SQLITE_TRANSIENT);
     const auto assignment = rackAssignmentModeName(item.rackAssignment);
     sqliteApi().bind_text(statement.stmt, 24, assignment.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 25, item.labelOverride.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 26, item.vendorMetadata.provider.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 27, item.vendorMetadata.providerProductNumber.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 28, item.vendorMetadata.manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 29, item.vendorMetadata.categoryId.c_str(), -1, SQLITE_TRANSIENT);
+    const auto vendorCategoryPath = serializeTagsForStorage(item.vendorMetadata.categoryPath);
+    sqliteApi().bind_text(statement.stmt, 30, vendorCategoryPath.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 31, item.vendorMetadata.title.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 32, item.vendorMetadata.detailedDescription.c_str(), -1, SQLITE_TRANSIENT);
+    const auto vendorParameters = serializeParametersForStorage(item.vendorMetadata.parameters);
+    sqliteApi().bind_text(statement.stmt, 33, vendorParameters.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 34, item.vendorMetadata.productUrl.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 35, item.vendorMetadata.locale.c_str(), -1, SQLITE_TRANSIENT);
 
     if (sqliteApi().step(statement.stmt) != SQLITE_DONE) {
       execSql(connection, "ROLLBACK");

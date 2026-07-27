@@ -133,6 +133,7 @@ class App {
     Tags,
     Parameters,
     Notes,
+    LabelOverride,
     DigiKeyPart,
     DatasheetUrl,
     ProductUrl,

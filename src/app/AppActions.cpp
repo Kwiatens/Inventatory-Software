@@ -135,6 +135,11 @@ bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetails& deta
   assignIfUseful(item.productUrl, details.productUrl);
   assignIfUseful(item.datasheetUrl, details.datasheetUrl);
 
+  // The retained provider record is the sole input for deterministic vendor
+  // label resolution; legacy item fields remain available for compatibility.
+  item.vendorMetadata = details.vendorMetadata;
+  changed = true;
+
   for (const auto& parameter : details.parameters) {
     if (upsertParameter(item.parameters, parameter.name, parameter.value)) {
       changed = true;
@@ -1104,6 +1109,9 @@ void App::commitEditField(EditField field, const string& value) {
       break;
     case EditField::Notes:
       workingCopy_.item.notes = trimmed;
+      break;
+    case EditField::LabelOverride:
+      workingCopy_.item.labelOverride = trimmed;
       break;
     case EditField::DigiKeyPart:
       workingCopy_.item.digikeyPartNumber = trimmed;
@@ -2530,6 +2538,8 @@ string App::fieldLabel(EditField field) const {
       return "Parameters";
     case EditField::Notes:
       return "Notes";
+    case EditField::LabelOverride:
+      return "Label override";
     case EditField::DigiKeyPart:
       return "DigiKey part";
     case EditField::DatasheetUrl:
@@ -2579,6 +2589,8 @@ string App::currentFieldValue(EditField field) const {
     }
     case EditField::Notes:
       return item->notes;
+    case EditField::LabelOverride:
+      return item->labelOverride;
     case EditField::DigiKeyPart:
       return item->digikeyPartNumber;
     case EditField::DatasheetUrl:
@@ -2610,6 +2622,7 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Tags", EditField::Tags},
       {"Parameters", EditField::Parameters},
       {"Notes", EditField::Notes},
+      {"Label override", EditField::LabelOverride},
       {"DigiKey part", EditField::DigiKeyPart},
       {"Datasheet URL", EditField::DatasheetUrl},
       {"Product URL", EditField::ProductUrl},

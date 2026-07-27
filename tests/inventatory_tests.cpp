@@ -456,6 +456,17 @@ int main() {
     item.tags = {"alpha|beta", R"(path\\value)"};
     item.parameters = {{"Voltage=nominal", "5V; tolerance=1%"}, {"Package", R"(0805\\metric)"}};
     item.notes = "Roundtrip test";
+    item.labelOverride = "Bench part";
+    item.vendorMetadata.provider = "digikey";
+    item.vendorMetadata.providerProductNumber = "123-ND";
+    item.vendorMetadata.manufacturerPartNumber = "SKU-1";
+    item.vendorMetadata.categoryId = "capacitors";
+    item.vendorMetadata.categoryPath = {"Passive Components", "Capacitors"};
+    item.vendorMetadata.title = "CAP CER 1UF";
+    item.vendorMetadata.detailedDescription = "Ceramic capacitor";
+    item.vendorMetadata.parameters = {{"Capacitance", "1uF"}};
+    item.vendorMetadata.productUrl = "https://example.com/vendor-product";
+    item.vendorMetadata.locale = "en";
     item.digikeyPartNumber = "123";
     item.datasheetUrl = "https://example.com/datasheet";
     item.productUrl = "https://example.com/product";
@@ -475,6 +486,12 @@ int main() {
     assert(restored.parameters[0].value == item.parameters[0].value);
     assert(restored.inventatoryId == item.inventatoryId);
     assert(restored.machineCode == item.machineCode);
+    assert(restored.labelOverride == item.labelOverride);
+    assert(restored.vendorMetadata.provider == item.vendorMetadata.provider);
+    assert(restored.vendorMetadata.categoryPath == item.vendorMetadata.categoryPath);
+    assert(restored.vendorMetadata.parameters.size() == 1);
+    assert(restored.vendorMetadata.parameters.front().name == "Capacitance");
+    assert(restored.vendorMetadata.parameters.front().value == "1uF");
   }
 
   {
@@ -490,6 +507,11 @@ int main() {
     item.machineCode = "0002";
     item.tags = {"lab|bench", R"(path\fixture)"};
     item.parameters = {{"Test=Point", "A;B=C"}};
+    item.labelOverride = "Bench diode";
+    item.vendorMetadata.provider = "digikey";
+    item.vendorMetadata.categoryPath = {"Diodes"};
+    item.vendorMetadata.title = "General purpose diode";
+    item.vendorMetadata.parameters = {{"Reverse Voltage", "40V"}};
     store.items().push_back(item);
 
     assert(store.save(tempPath));
@@ -501,6 +523,10 @@ int main() {
     assert(loaded.items().front().parameters.size() == 1);
     assert(loaded.items().front().parameters.front().name == "Test=Point");
     assert(loaded.items().front().parameters.front().value == "A;B=C");
+    assert(loaded.items().front().labelOverride == "Bench diode");
+    assert(loaded.items().front().vendorMetadata.provider == "digikey");
+    assert(loaded.items().front().vendorMetadata.categoryPath == vector<string>({"Diodes"}));
+    assert(loaded.items().front().vendorMetadata.parameters.size() == 1);
     filesystem::remove(tempPath);
   }
 
@@ -597,13 +623,13 @@ int main() {
         {"golden-buck-boost", "Buck-boost converter", "Texas Instruments", "Power Management ICs",
          {{"Function", "DC-DC converter"}, {"Topology", "Buck-Boost"}}, {}, "Buck-Boost Conv."},
         {"golden-ldo", "Low dropout linear regulator", "Microchip", "Voltage Regulators",
-         {{"Output Voltage", "3.3V"}, {"Type", "LDO"}}, {}, "Regulator"},
+         {{"Output Voltage", "3.3V"}, {"Type", "LDO"}}, {}, "Linear Regulator"},
         {"golden-charger", "Li-ion battery charger", "Microchip", "Power Management ICs",
          {{"Function", "Battery Charger"}}, {}, "Battery Charger"},
         {"golden-load-switch", "Power distribution load switch", "Texas Instruments", "Power Management ICs",
          {{"Function", "Load Switch"}}, {}, "Load Switch"},
         {"golden-supervisor", "Voltage supervisor reset IC", "onsemi", "Power Management ICs",
-         {{"Type", "Voltage Supervisor"}}, {}, "Voltage Supervisor"},
+         {{"Type", "Voltage Supervisor"}}, {}, "Volt Supervisor"},
         {"golden-protection", "ESD protection array", "Nexperia", "Integrated Circuits",
          {{"Function", "Protection"}, {"Type", "ESD"}}, {}, "Protection IC"},
         {"golden-opamp", "Dual operational amplifier", "Texas Instruments", "Linear - Amplifiers",
@@ -645,7 +671,7 @@ int main() {
         {"golden-current-sensor", "Current monitor sensor", "Allegro", "Sensors",
          {{"Function", "Current Monitor"}, {"Output", "Analog"}}, {}, "Current Sensor"},
         {"golden-mcu", "STM32G0 microcontroller", "STMicroelectronics", "MCUs",
-         {{"Core Processor", "ARM Cortex-M0+"}, {"Program Memory Size", "128KB"}}, {}, "MCU"},
+         {{"Core Processor", "ARM Cortex-M0+"}, {"Program Memory Size", "128KB"}}, {}, "Microcontroller"},
         {"golden-mosfet", "N-channel MOSFET", "Alpha & Omega", "MOSFETs",
          {{"Drain-Source Voltage", "30V"}, {"Rds On", "12mOhm"}}, {}, "MOSFET"},
         {"golden-bjt", "NPN transistor", "onsemi", "Transistors",
@@ -677,6 +703,88 @@ int main() {
       expectHeader(candidate, golden.expected);
       assert(partShortDescription(candidate) == golden.expected);
     }
+
+    const auto vendorFixture = [&](const string& provider, const string& category, const string& title,
+                                   vector<Parameter> parameters, const string& purpose, const string& print,
+                                   PartLabelSource source) {
+      InventoryItem candidate;
+      candidate.vendorMetadata.provider = provider;
+      candidate.vendorMetadata.categoryPath = {category};
+      candidate.vendorMetadata.title = title;
+      candidate.vendorMetadata.parameters = move(parameters);
+      const auto descriptor = describePart(candidate);
+      assert(descriptor.purposeLabel == purpose);
+      assert(descriptor.printLabel == print);
+      assert(descriptor.source == source);
+      assert(descriptor.printLabel.size() <= 16);
+    };
+
+    // Each future adapter supplies the same metadata contract, so category
+    // meaning is verified without any live supplier credentials.
+    vendorFixture("digikey", "Fuses", "Fuse with ADC monitoring", {{"Resolution", "12 bit"}},
+                  "Fuse", "Fuse", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Circuit Protection - Fuses", "FUSE GLASS 1A 250VAC", {},
+                  "Fuse", "Fuse", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Inductors, Coils, Chokes - Fixed Inductors", "FIXED IND 4.7UH", {},
+                  "Inductor", "Inductor", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Diodes - Rectifiers - Single", "DIODE SCHOTTKY 40V", {},
+                  "Diode", "Diode", PartLabelSource::VendorCategory);
+    vendorFixture("mouser", "Data Acquisition", "12-bit analog-to-digital converter", {{"Resolution", "12 bit"}},
+                  "Analog-to-Digital Converter", "ADC", PartLabelSource::VendorRule);
+    vendorFixture("tme", "Memory", "EEPROM timing controller", {{"Function", "Timer"}},
+                  "Memory IC", "Memory IC", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Clock/Timing", "Single timer oscillator", {},
+                  "Timer IC", "Timer IC", PartLabelSource::VendorRule);
+    vendorFixture("mouser", "Voltage Regulators", "LDO regulator", {{"Type", "LDO"}},
+                  "Linear Voltage Regulator", "Linear Regulator", PartLabelSource::VendorRule);
+    vendorFixture("tme", "Connectors", "Header", {{"Number of Positions", "8"}},
+                  "Connector", "Connector", PartLabelSource::VendorCategory);
+
+    // Broad vendor-taxonomy coverage: categories, rather than loose words in
+    // the product title, decide the printed family.
+    vendorFixture("digikey", "Switches - Tactile Switches", "TACTILE SWITCH", {},
+                  "Switch", "Switch", PartLabelSource::VendorCategory);
+    vendorFixture("mouser", "Pushbutton Switches", "Illuminated pushbutton", {},
+                  "Switch", "Switch", PartLabelSource::VendorCategory);
+    vendorFixture("tme", "Diodes - Zener Diodes", "Zener diode 5.1V", {},
+                  "Zener Diode", "Zener Diode", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Circuit Protection - Varistors, MOVs", "MOV 275VAC", {},
+                  "Varistor", "Varistor", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Resistors - Chip Resistor - Surface Mount", "RES 10K", {},
+                  "Resistor", "Resistor", PartLabelSource::VendorCategory);
+    vendorFixture("mouser", "Capacitors - Ceramic Capacitors", "CAP CER 1UF", {},
+                  "Capacitor", "Capacitor", PartLabelSource::VendorCategory);
+    vendorFixture("tme", "Inductors, Coils, Chokes - Ferrite Beads and Chips", "FERRITE BEAD", {},
+                  "Ferrite Bead", "Ferrite Bead", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Connectors, Interconnects - USB, DVI, HDMI Connectors", "USB TYPE-C", {},
+                  "Connector", "Connector", PartLabelSource::VendorCategory);
+    vendorFixture("mouser", "Optocouplers", "Phototransistor output", {},
+                  "Optocoupler", "Optocoupler", PartLabelSource::VendorCategory);
+    vendorFixture("tme", "Relays - Signal Relays", "SIGNAL RELAY", {},
+                  "Relay", "Relay", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Sensors, Transducers - Temperature Sensors - Analog and Digital Output", "I2C SENSOR", {},
+                  "Temperature Sensor", "Temp Sensor", PartLabelSource::VendorCategory);
+    vendorFixture("mouser", "Power Supplies - Board Mount - DC DC Converters", "DC/DC MODULE", {},
+                  "Power Supply", "Power Supply", PartLabelSource::VendorCategory);
+    vendorFixture("tme", "PMIC - Voltage Regulators - DC DC Switching Regulators", "BUCK REGULATOR", {},
+                  "Switching Regulator", "Switch Regulator", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "RF and Wireless - RF Transceiver Modules and Modems", "WIRELESS MODULE", {},
+                  "RF Module", "RF Module", PartLabelSource::VendorCategory);
+    vendorFixture("mouser", "Development Boards, Kits, Programmers", "EVALUATION BOARD", {},
+                  "Development Board", "Dev Board", PartLabelSource::VendorCategory);
+
+    InventoryItem genericConverter;
+    genericConverter.vendorMetadata.provider = "digikey";
+    genericConverter.vendorMetadata.categoryPath = {"Data Acquisition"};
+    genericConverter.vendorMetadata.parameters = {{"Resolution", "12 bit"}};
+    assert(describePart(genericConverter).printLabel == "Data Converter");
+
+    InventoryItem overrideItem;
+    overrideItem.labelOverride = "Workshop custom fuse";
+    const auto overridden = describePart(overrideItem);
+    assert(overridden.purposeLabel == "Workshop custom fuse");
+    assert(overridden.printLabel == "Workshop custom ");
+    assert(overridden.source == PartLabelSource::ManualOverride);
 
     const auto info = service.configuredPrinterInfo();
     assert(info.has_value());
@@ -952,8 +1060,8 @@ int main() {
       hostileTimer.category = "Memory";
       hostileTimer.notes = "Timer/Oscillator IC imported with an incorrect broad category.";
       hostileTimer.parameters = {{"Type", "Programmable Timer"}, {"Package / Case", "SOIC-8"}};
-      const auto hostileTimerPlan = expectHeader(hostileTimer, "Timer IC");
-      assert(hostileTimerPlan.categoryHeader != "Memory IC");
+      const auto hostileTimerPlan = expectHeader(hostileTimer, "Memory IC");
+      assert(hostileTimerPlan.categoryHeader != "Timer IC");
     }
 
     {
@@ -1000,10 +1108,9 @@ int main() {
       buckFalsePositive.category = "Memory";
       buckFalsePositive.notes = "Integrated circuit with diode clamp, memory-mode setup bits, and rectifier-style flyback protection.";
       buckFalsePositive.parameters = {{"Function", "DC-DC converter"}, {"Topology", "Buck"}, {"Package / Case", "QFN-16"}};
-      const auto falsePositivePlan = expectHeader(buckFalsePositive, "Buck Converter");
+      const auto falsePositivePlan = expectHeader(buckFalsePositive, "Memory IC");
       assert(service.buildZpl(buckFalsePositive).find("Rectifier Diode") == string::npos);
-      assert(service.buildZpl(buckFalsePositive).find("Memory IC") == string::npos);
-      assert(service.buildZpl(buckFalsePositive).find("^FDBuck Converter^FS") != string::npos);
+      assert(service.buildZpl(buckFalsePositive).find("^FDMemory IC^FS") != string::npos);
       assert(falsePositivePlan.packageLine.find("QFN-16") != string::npos);
     }
 
@@ -1016,7 +1123,7 @@ int main() {
       genericIc.notes = "Operates from a single supply.";
       genericIc.parameters = {{"Function", "Controller"}, {"Package / Case", "SOIC-8"}};
       const auto genericPlan = service.buildLabelPlan(genericIc);
-      assert(genericPlan.categoryHeader == "Integrated Circuit");
+      assert(genericPlan.categoryHeader == "IC");
       assert(genericPlan.categoryHeader != "Memory IC");
     }
 
@@ -1026,8 +1133,13 @@ int main() {
     fallback.manufacturer = "Acme";
     fallback.category = "Misc / Prototype";
     const auto fallbackPlan = service.buildLabelPlan(fallback);
-    assert(fallbackPlan.categoryHeader == "Misc");
-    assert(service.buildZpl(fallback).find("^FDMisc^FS") != string::npos);
+    assert(fallbackPlan.categoryHeader == "Prototype");
+    assert(service.buildZpl(fallback).find("^FDPrototype^FS") != string::npos);
+
+    InventoryItem unclassified;
+    unclassified.partName = "Uncatalogued item";
+    assert(describePart(unclassified).printLabel == "Unclassified Com");
+    assert(describePart(unclassified).printLabel != "Part");
 
     InventoryItem inductor;
     inductor.id = "ind-1";
