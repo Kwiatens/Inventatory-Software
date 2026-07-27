@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <fstream>
 #include <limits>
 #include <optional>
@@ -351,17 +352,27 @@ bool looksLikeSupportedInventatoryScanCode(const string& code) {
          all_of(trimmed.begin(), trimmed.end(), [](unsigned char ch) { return isdigit(ch) != 0; });
 }
 
+// Mirrors isStandardManufacturerPartNumber() in the R1 firmware. A component
+// Data Matrix carries the manufacturer part number, which is what protocol v2
+// puts in `code`, so the desktop must accept the same shape the device does.
+bool looksLikeManufacturerPartNumber(const string& code) {
+  const auto trimmed = trim(code);
+  if (trimmed.size() < 2 || trimmed.size() > 64) return false;
+  bool hasAlphanumeric = false;
+  for (const unsigned char ch : trimmed) {
+    if (isalnum(ch) != 0) {
+      hasAlphanumeric = true;
+      continue;
+    }
+    if (strchr("-._/+#&,() ", ch) == nullptr) return false;
+  }
+  return hasAlphanumeric;
+}
+
 bool looksLikeSupportedLookupCode(const string& code) {
   const auto trimmed = trim(code);
   if (looksLikeSupportedInventatoryScanCode(trimmed)) return true;
-  if (trimmed.size() < 5 || trimmed.size() > 64) return false;
-  bool hasDigit = false;
-  for (const unsigned char ch : trimmed) {
-    if (isdigit(ch) != 0) hasDigit = true;
-    if (isalnum(ch) == 0 && ch != '-' && ch != '.' && ch != '_') return false;
-  }
-  const auto suffix = trimmed.substr(trimmed.size() - 3);
-  return hasDigit && (suffix == "-ND" || suffix == "-nd");
+  return looksLikeManufacturerPartNumber(trimmed);
 }
 
 }  // namespace
@@ -568,13 +579,17 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
   if (const auto lookup = jsonObjectBody(body, "lookup")) {
     const auto lookupId = jsonString(*lookup, "lookupId");
     const auto code = jsonString(*lookup, "code");
-    if (!lookupId || trim(*lookupId).empty() || !code || !looksLikeSupportedLookupCode(*code) ||
-        lookupId->size() > 96 || code->size() > 128) {
+    if (!lookupId || trim(*lookupId).empty() || !code || lookupId->size() > 96 || code->size() > 128) {
       error = "Invalid sync lookup";
       return false;
     }
-    parsed.hasLookup = true;
-    parsed.lookup = {*lookupId, *code};
+    // A lookup is informational and never changes inventory, so a code this
+    // build cannot resolve is dropped instead of failing the envelope. The
+    // queued inventory events travelling with it must still be delivered.
+    if (looksLikeSupportedLookupCode(*code)) {
+      parsed.hasLookup = true;
+      parsed.lookup = {*lookupId, *code};
+    }
   }
   if (const auto print = jsonObjectBody(body, "quickLabelPrint")) {
     const auto printId = jsonString(*print, "requestId");
