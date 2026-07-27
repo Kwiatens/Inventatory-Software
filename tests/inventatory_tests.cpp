@@ -1,4 +1,4 @@
-#include "core/Inventory.h"
+﻿#include "core/Inventory.h"
 #include "app/AppSettings.h"
 #include "platform/UpdateService.h"
 #include "platform/StartupRegistration.h"
@@ -506,10 +506,10 @@ int main() {
 
   {
     const string csv =
-        "Indeks,Nr kat. DigiKey,Manufacturer Part Number,Producent,Opis,Numer referencyjny klienta,Ilość,"
-        "Niezrealizowana pozycja zamówienia,Cena jednostkowa,Wartość\n"
+        "Indeks,Nr kat. DigiKey,Manufacturer Part Number,Producent,Opis,Numer referencyjny klienta,IloĹ›Ä‡,"
+        "Niezrealizowana pozycja zamĂłwienia,Cena jednostkowa,WartoĹ›Ä‡\n"
         "1,308-1571-1-ND,CDMC6D28NP-4R7MC,Sumida America Components Inc.,FIXED IND 4.7UH 3.7A 46.4 MOHM,,10,0,"
-        "\"2,62800 zł\",\"26,28 zł\"\n";
+        "\"2,62800 zĹ‚\",\"26,28 zĹ‚\"\n";
 
     const auto result = parseDigiKeyCsvText(csv, {});
     assert(result.ok);
@@ -526,7 +526,7 @@ int main() {
   {
     const string csv =
         "Index,Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity,Unit Price,Extended Price\n"
-        "1,399-C0603C105K4RACTUCT-ND,C0603C105K4RACTU,KEMET,CAP CER 1UF 16V X7R 0603,50,\"0,13420 zł\",\"6,71 zł\"\n";
+        "1,399-C0603C105K4RACTUCT-ND,C0603C105K4RACTU,KEMET,CAP CER 1UF 16V X7R 0603,50,\"0,13420 zĹ‚\",\"6,71 zĹ‚\"\n";
 
     auto existing = makeSampleInventory();
     InventoryItem duplicate;
@@ -793,7 +793,7 @@ int main() {
     tvsDiode.category = "Transient Voltage Suppressors";
     tvsDiode.parameters = {{"Voltage - Reverse Standoff (Typ)", "16V"},
                            {"Voltage - Clamping (Max) @ Ipp", "26V"},
-                           {"Current - Peak Pulse (10/1000µs)", "23.1A"},
+                           {"Current - Peak Pulse (10/1000Âµs)", "23.1A"},
                            {"Power - Peak Pulse", "600W"}};
     const auto tvsPlan = service.buildLabelPlan(tvsDiode);
     assert(tvsPlan.categoryHeader == "TVS Diode");
@@ -1273,32 +1273,45 @@ int main() {
     DeviceSyncRequest request;
     string error;
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":1,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
+        R"({"protocolVersion":2,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
         request, error));
-    assert(request.protocolVersion == 1);
+    assert(request.protocolVersion == 2);
     assert(request.events.size() == 1);
     assert(request.events.front().value == 2);
     assert(request.resultAcks.size() == 1);
     assert(!request.hasLookup);
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":1,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
+        R"({"protocolVersion":2,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.lookupId == "lookup-9");
     assert(request.lookup.code == "0002");
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":1,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
+        R"({"protocolVersion":2,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.code == "718-2362-1-ND");
+    // A component Data Matrix carries the manufacturer part number, spaces and all.
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":1,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
+        R"({"protocolVersion":2,"requestId":"sync-mpn-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-mpn-1","code":"C1F 500"}})",
+        request, error));
+    assert(request.hasLookup);
+    assert(request.lookup.code == "C1F 500");
+    assert(parseDeviceSyncRequestJson(
+        R"({"protocolVersion":2,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
         request, error));
     assert(request.hasQuickLabelPrint);
     assert(request.quickLabelPrint.presetIndex == 2);
     assert(request.quickLabelPrint.revision == 3);
+    // An unresolvable lookup code is dropped so the events it travels with are
+    // still delivered; only a structurally broken lookup rejects the envelope.
+    assert(parseDeviceSyncRequestJson(
+        R"({"protocolVersion":2,"requestId":"sync-odd-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[{"eventId":"r1-a-7","type":"inventory.receive","code":"C1F 500","value":5}],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"AB*C"}})",
+        request, error));
+    assert(!request.hasLookup);
+    assert(request.events.size() == 1);
     assert(!parseDeviceSyncRequestJson(
-        R"({"protocolVersion":1,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"ABC"}})",
+        R"({"protocolVersion":2,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"","code":"0002"}})",
         request, error));
 
     DeviceSyncResponse quickLabelResponse;
@@ -1314,9 +1327,11 @@ int main() {
     quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
     quickLabelResponse.hasLookupResult = true;
     assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
+    // Protocol v1 envelopes are answered with 426 Upgrade Required.
     assert(!parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
+        R"({"protocolVersion":1,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
+    assert(error == "Unsupported protocol version");
 
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-device-sync-v1-test.db";
     filesystem::remove(databasePath);
@@ -1370,7 +1385,7 @@ int main() {
 
     request = {};
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":1,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
+        R"({"protocolVersion":2,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
         request, error));
     DeviceSyncResponse response;
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));
