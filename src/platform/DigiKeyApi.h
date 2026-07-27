@@ -46,6 +46,7 @@ struct DigiKeyProductDetails {
   string quantityAvailable;
   string unitPrice;
   vector<Parameter> parameters;
+  VendorProductMetadata vendorMetadata;
 };
 
 bool loadEnvironmentFile(const filesystem::path& path);
@@ -73,4 +74,3 @@ class DigiKeyApiClient {
 };
 
 }  // namespace inventatory
-
