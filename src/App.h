@@ -241,6 +241,9 @@ class App {
   void processBackgroundWork();
   void beginUpdateCheckIfDue();
   void processUpdateCheck();
+  void beginScanFirmwareCheck();
+  void processScanFirmwareCheck();
+  std::string scanFirmwareStatus() const;
   void runBackgroundLoop();
   void runInteractiveLoop();
   void markDirty();
@@ -523,6 +526,10 @@ class App {
   std::string settingsConfirmAction_;
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
+  std::future<UpdateCheckResult> scanFirmwareFuture_;
+  std::string scanFirmwareLatestVersion_;
+  bool scanFirmwareChecked_ = false;
+  bool scanFirmwareCheckFailed_ = false;
   mutable std::vector<UiTarget> uiTargets_;
   mutable std::string hoveredTargetId_;
   int focusedTarget_ = -1;

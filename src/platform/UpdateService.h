@@ -18,4 +18,9 @@ bool isUpdateCheckDue(bool enabled, std::int64_t lastCheckUnixSeconds, std::int6
 bool isVersionNewer(const std::string& candidate, const std::string& installed);
 UpdateCheckResult checkLatestPrivateBetaRelease(const std::string& installedVersion);
 
+// Latest published Scan R1 firmware. `installedVersion` is the version the
+// paired device last reported; an empty value still returns the latest release
+// with `updateAvailable` false, because nothing is known to compare against.
+UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion);
+
 }  // namespace inventatory
