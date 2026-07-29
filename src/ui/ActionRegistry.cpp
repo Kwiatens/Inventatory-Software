@@ -181,6 +181,8 @@ vector<App::Action> App::currentActions() const {
       }
       }
       if (settingsCategory_ == SettingsCategory::InventatoryScan) {
+        add("pair new device", "Device", "p", chr('p'), [self] { self->openInventatoryScanSetup(); });
+        add("check firmware", "Device", "f", chr('f'), [self] { self->beginScanFirmwareCheck(); });
         add("copy token", "Device", "t", chr('t'), [self] { self->copyInventatoryScanToken(); });
         add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateInventatoryScanToken(); });
         add("clear device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });

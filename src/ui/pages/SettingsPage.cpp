@@ -23,8 +23,14 @@ namespace {
 
 constexpr const char* kDigiKeySecretName = "digikey-client-secret";
 
+// Every label/value row in Settings shares one label column so values align
+// down the panel regardless of which row rendered them.
+int settingsLabelWidth(int width) {
+  return min(22, max(14, width / 3));
+}
+
 ftxui::Element settingLine(const string& label, const string& value, int width, bool selected = false) {
-  const int labelWidth = min(22, max(14, width / 3));
+  const int labelWidth = settingsLabelWidth(width);
   return ftxui::hbox({
              styledText(" " + label, selected ? uiFocusColor() : uiSecondaryText()) |
                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
@@ -381,8 +387,6 @@ ftxui::Element App::renderSettingsUi() const {
                             self->settingsDirty_ = true;
                             self->dirty_ = true;
                           }));
-    rows.push_back(styledText("When on, closing Inventatory keeps Scan R1 ready in the notification area and starts Inventatory at sign-in.",
-                              uiMutedText()));
     rows.push_back(uiDivider());
     rows.push_back(styledText("PRIVATE BETA UPDATES", uiSecondaryText()) | ftxui::bold);
     rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
@@ -393,13 +397,12 @@ ftxui::Element App::renderSettingsUi() const {
                           }));
     const auto available = settings_.latestAvailableVersion.empty() ? "Up to date" : "Version " + settings_.latestAvailableVersion + " available";
     rows.push_back(settingLine("Release status", available, contentWidth));
-    rows.push_back(target(styledText(" Check now ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.general.check_updates",
-                          UiTargetKind::Button, [self] {
+    rows.push_back(target(uiSecondaryButton("Check now"), "settings.general.check_updates", UiTargetKind::Button,
+                          [self] {
                             self->settings_.lastUpdateCheckUnixSeconds = 0;
                             self->beginUpdateCheckIfDue();
                             self->setMessage("Checking the private beta release...", 4);
                           }));
-    rows.push_back(styledText("Checks use your authenticated GitHub CLI session; no inventory or device data is sent.", uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Configured queue",
@@ -429,34 +432,27 @@ ftxui::Element App::renderSettingsUi() const {
       }
     }
     rows.push_back(ftxui::hbox({
-        target(styledText(" Refresh ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.refresh",
-               UiTargetKind::Button, [self] { self->refreshPrinterState(); }),
+        target(uiSecondaryButton("Refresh"), "settings.printer.refresh", UiTargetKind::Button,
+               [self] { self->refreshPrinterState(); }),
         ftxui::text("  "),
-        target(styledText(" Test selected ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.printer.test",
-               UiTargetKind::Button, [self] { self->testStagedPrinter(); }),
+        target(uiSecondaryButton("Test selected"), "settings.printer.test", UiTargetKind::Button,
+               [self] { self->testStagedPrinter(); }),
     }));
     rows.push_back(uiDivider());
-    rows.push_back(target(settingLine("Quick label presets", "Open editor...", contentWidth),
-                          "settings.printer.quick_labels", UiTargetKind::Button, [self] {
-                            self->settingsCategory_ = SettingsCategory::QuickLabels;
-                            self->settingsField_ = 0;
-                            self->settingsEditingField_ = false;
-                            self->dirty_ = true;
-                          }));
-    rows.push_back(styledText("Create and order the labels available on Scan R1", uiMutedText()));
-    rows.push_back(uiDivider());
+    rows.push_back(styledText("CUSTOM LABEL", uiSecondaryText()) | ftxui::bold);
     const auto wireValue = settingsEditingField_ && settingsField_ == 50 ? inputBuffer_ + "_"
                                                                            : wireLabelText_.empty() ? "Enter custom wire text" : wireLabelText_;
     rows.push_back(target(settingLine("Wire label", wireValue, contentWidth, settingsEditingField_ && settingsField_ == 50),
                           "settings.printer.wire", UiTargetKind::Field,
                           [self] { self->beginSettingsFieldEdit(50); }));
-    rows.push_back(target(styledText(" Print custom ", uiFocusColor(), uiRaisedSurfaceBg()),
+    rows.push_back(ftxui::text(""));
+    rows.push_back(target(uiPrimaryButton("Print custom label", !wireLabelText_.empty()),
                           "settings.printer.wire.custom", UiTargetKind::Button,
                           [self] { self->printWireLabel(self->wireLabelText_); }, !wireLabelText_.empty()));
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
-    rows.push_back(styledText("QUICK LABELS / PRESETS", uiPrimaryText()) | ftxui::bold);
-    rows.push_back(styledText("Saved labels sync to Scan R1 automatically", uiSecondaryText()));
-    rows.push_back(target(styledText(" + Add quick label ", uiFocusColor(), uiRaisedSurfaceBg()),
+    rows.push_back(styledText("QUICK LABELS / PRESETS", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(target(uiPrimaryButton("+ Add quick label",
+                                          settingsDraft_.quickLabelPresets.size() < kQuickLabelPresetLimit),
                           "settings.quick_label.add.primary", UiTargetKind::Button,
                           [self] { self->addQuickLabelPreset(); },
                           settingsDraft_.quickLabelPresets.size() < kQuickLabelPresetLimit));
@@ -472,61 +468,60 @@ ftxui::Element App::renderSettingsUi() const {
                             "settings.quick_label." + to_string(index), UiTargetKind::Field,
                             [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
     }
+    const bool presetSelected =
+        settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size());
     rows.push_back(ftxui::hbox({
-        target(styledText(" Test ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.quick_label.test",
-               UiTargetKind::Button, [self] { self->testQuickLabelPreset(); },
-               settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
+        target(uiSecondaryButton("Test", nullopt, presetSelected), "settings.quick_label.test", UiTargetKind::Button,
+               [self] { self->testQuickLabelPreset(); }, presetSelected),
         ftxui::text("  "),
-        target(styledText(" Remove ", uiWarnColor(), uiRaisedSurfaceBg()), "settings.quick_label.remove",
-               UiTargetKind::Button, [self] { self->deleteQuickLabelPreset(); },
-               settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
+        target(uiSecondaryButton("Remove", uiWarnColor(), presetSelected), "settings.quick_label.remove",
+               UiTargetKind::Button, [self] { self->deleteQuickLabelPreset(); }, presetSelected),
         ftxui::text("  "),
-        target(styledText(" Up ", uiSecondaryText(), uiRaisedSurfaceBg()), "settings.quick_label.up",
+        target(uiSecondaryButton("Up", uiSecondaryText(), settingsField_ > 0), "settings.quick_label.up",
                UiTargetKind::Button, [self] { self->moveQuickLabelPreset(-1); }, settingsField_ > 0),
         ftxui::text("  "),
-        target(styledText(" Down ", uiSecondaryText(), uiRaisedSurfaceBg()), "settings.quick_label.down",
-               UiTargetKind::Button, [self] { self->moveQuickLabelPreset(1); },
+        target(uiSecondaryButton("Down", uiSecondaryText(),
+                                 settingsField_ >= 0 &&
+                                     settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
+               "settings.quick_label.down", UiTargetKind::Button, [self] { self->moveQuickLabelPreset(1); },
                settingsField_ >= 0 && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
     }));
-    rows.push_back(styledText("Select a label to edit. A adds; X removes; [ ] changes order; T test-prints.", uiMutedText()));
   } else if (settingsCategory_ == SettingsCategory::InventatoryScan) {
-    rows.push_back(styledText("SCAN R1 SERVICE", uiSecondaryText()) | ftxui::bold);
+    // Pairing is the reason this panel exists, so it leads. Token and
+    // diagnostics operations stay on the Actions sheet.
+    rows.push_back(styledText("DEVICE", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(target(uiPrimaryButton("Pair new device"), "settings.scan.pair", UiTargetKind::Button,
+                          [self] { self->openInventatoryScanSetup(); }));
+    rows.push_back(ftxui::text(""));
     const auto now = time(nullptr);
+    const bool paired = !inventatoryScanConfig_.deviceId.empty();
     const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
+    const auto stateColor = !paired ? uiMutedText() : online ? uiSuccessColor() : uiWarnColor();
+    const auto stateWord = !paired ? "No device paired" : online ? "Online" : "Offline";
+    rows.push_back(ftxui::hbox({
+        styledText(" Status", uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
+        styledText(string("\xE2\x97\x8F ") + stateWord, stateColor),
+        ftxui::filler(),
+    }));
+    if (paired) {
+      const auto seenAgo = deviceLastSeen_ > 0 ? to_string(static_cast<long long>(now - deviceLastSeen_)) + "s ago"
+                                               : string("never");
+      rows.push_back(ftxui::hbox({
+          styledText(" Device", uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
+          styledText(ellipsize(inventatoryScanConfig_.deviceId + "  \xC2\xB7  " + to_string(deviceRssi_) + " dBm  \xC2\xB7  seen " + seenAgo,
+                               static_cast<size_t>(max(8, contentWidth - settingsLabelWidth(contentWidth) - 2))),
+                     uiPrimaryText()),
+          ftxui::filler(),
+      }));
+    }
+    rows.push_back(uiDivider());
     const auto portValue = settingsEditingField_ ? inputBuffer_ + "_" : to_string(settingsDraft_.deviceServicePort);
-    rows.push_back(settingLine("R1 service", server_.running() ? "● ready" : "× unavailable", contentWidth));
-    rows.push_back(settingLine("PC endpoint", server_.running() ? server_.baseUrl() : "Unavailable", contentWidth));
     rows.push_back(target(settingLine("Service port", portValue, contentWidth, settingsEditingField_),
                           "settings.scan.port", UiTargetKind::Field,
                           [self] { self->beginSettingsFieldEdit(0); }));
-    rows.push_back(settingLine("Device", inventatoryScanConfig_.deviceId.empty() ? "Not paired" : inventatoryScanConfig_.deviceId,
-                               contentWidth));
-    rows.push_back(settingLine("Status", online ? "● online" : "× offline", contentWidth));
-    rows.push_back(settingLine("Firmware", deviceFirmwareVersion_.empty() ? "n/a" : deviceFirmwareVersion_, contentWidth));
-    rows.push_back(settingLine("RSSI", deviceLastSeen_ == 0 ? "n/a" : to_string(deviceRssi_) + " dBm", contentWidth));
-    rows.push_back(settingLine("Last result", deviceLastResult_.empty() ? "n/a" : deviceLastResult_, contentWidth));
-    rows.push_back(settingLine("Pairing token", inventatoryScanConfig_.token.empty() ? "Not configured"
-                                                                              : "Configured · use Copy token",
-                               contentWidth));
-    rows.push_back(ftxui::hbox({
-        target(styledText(" Copy token ", uiInteractiveColor(), uiRaisedSurfaceBg()), "settings.scan.copy",
-               UiTargetKind::Button, [self] { self->copyInventatoryScanToken(); }),
-        ftxui::text("  "),
-        target(styledText(" Regenerate ", uiWarnColor(), uiRaisedSurfaceBg()), "settings.scan.regenerate",
-               UiTargetKind::Button, [self] { self->regenerateInventatoryScanToken(); }),
-        ftxui::text("  "),
-        target(styledText(" Clear device ", uiDangerColor(), uiRaisedSurfaceBg()), "settings.scan.clear",
-               UiTargetKind::Button, [self] { self->clearInventatoryScanPairing(); }),
-    }));
-    rows.push_back(uiDivider());
-    rows.push_back(styledText("First-use connection is available from Home > Operations > Set up Scan R1.", uiMutedText()));
-    rows.push_back(uiDivider());
-    rows.push_back(styledText("RECENT DEVICE DIAGNOSTICS", uiSecondaryText()) | ftxui::bold);
-    const size_t start = deviceDebugLog_.size() > 10 ? deviceDebugLog_.size() - 10 : 0;
-    for (size_t index = start; index < deviceDebugLog_.size(); ++index) {
-      rows.push_back(styledText(ellipsize(deviceDebugLog_[index], static_cast<size_t>(contentWidth)), uiMutedText()));
-    }
-    if (deviceDebugLog_.empty()) rows.push_back(styledText("Waiting for device messages", uiMutedText()));
+    rows.push_back(settingLine("Firmware", scanFirmwareStatus(), contentWidth));
+    rows.push_back(target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware",
+                          UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); }));
   } else {
     rows.push_back(styledText("DIGIKEY API CREDENTIALS", uiSecondaryText()) | ftxui::bold);
     const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
@@ -546,20 +541,18 @@ ftxui::Element App::renderSettingsUi() const {
                             "settings.digikey." + to_string(index), UiTargetKind::Field,
                             [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
     }
-    rows.push_back(target(styledText(" Test credentials ", uiInteractiveColor(), uiRaisedSurfaceBg()),
-                          "settings.digikey.test", UiTargetKind::Button,
+    rows.push_back(target(uiSecondaryButton("Test credentials"), "settings.digikey.test", UiTargetKind::Button,
                           [self] { self->testStagedDigiKey(); }));
-    rows.push_back(styledText("Secrets are stored in Windows Credential Manager", uiMutedText()));
   }
 
   rows.push_back(ftxui::filler());
   rows.push_back(uiDivider());
   rows.push_back(ftxui::hbox({
-      target(styledText(" Save ", settingsDirty_ ? uiFocusColor() : uiMutedText(), uiRaisedSurfaceBg()),
-             "settings.save", UiTargetKind::Button, [self] { self->saveSettingsDraft(); }, settingsDirty_),
+      target(uiPrimaryButton("Save", settingsDirty_), "settings.save", UiTargetKind::Button,
+             [self] { self->saveSettingsDraft(); }, settingsDirty_),
       ftxui::text("  "),
-      target(styledText(" Cancel ", settingsDirty_ ? uiSecondaryText() : uiMutedText(), uiRaisedSurfaceBg()),
-             "settings.cancel", UiTargetKind::Button, [self] { self->cancelSettingsDraft(); }, settingsDirty_),
+      target(uiSecondaryButton("Cancel", uiSecondaryText(), settingsDirty_), "settings.cancel", UiTargetKind::Button,
+             [self] { self->cancelSettingsDraft(); }, settingsDirty_),
       ftxui::filler(),
       styledText("↑↓ categories  j/k lists  Tab focus  Enter activate", uiMutedText()),
   }));
