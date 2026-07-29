@@ -60,7 +60,7 @@ std::string jsonStringValue(const std::string& json, const std::string& key) {
   return {};
 }
 
-std::string fetchLatestReleaseJson() {
+std::string fetchLatestReleaseJson(const wchar_t* repository) {
   SECURITY_ATTRIBUTES security{};
   security.nLength = sizeof(security);
   security.bInheritHandle = TRUE;
@@ -79,8 +79,10 @@ std::string fetchLatestReleaseJson() {
   startup.hStdError = writePipe;
   startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
   PROCESS_INFORMATION process{};
-  wchar_t command[] = L"gh api repos/Kwiatens/Inventatory-Software/releases/latest";
-  if (!CreateProcessW(nullptr, command, nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
+  // CreateProcessW may modify the command line in place, so keep it writable.
+  std::wstring command = std::wstring(L"gh api repos/") + repository + L"/releases/latest";
+  if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup,
+                      &process)) {
     CloseHandle(readPipe);
     CloseHandle(writePipe);
     return {};
@@ -112,6 +114,15 @@ std::string fetchLatestReleaseJson() {
   return body;
 }
 
+UpdateCheckResult latestRelease(const wchar_t* repository, const std::string& installedVersion) {
+  const auto body = fetchLatestReleaseJson(repository);
+  if (body.empty()) return {};
+  const auto latestVersion = jsonStringValue(body, "tag_name");
+  const auto releaseUrl = jsonStringValue(body, "html_url");
+  if (latestVersion.empty() || releaseUrl.empty()) return {};
+  return {true, isVersionNewer(latestVersion, installedVersion), latestVersion, releaseUrl};
+}
+
 }  // namespace
 
 bool isUpdateCheckDue(bool enabled, std::int64_t lastCheckUnixSeconds, std::int64_t nowUnixSeconds) {
@@ -132,12 +143,11 @@ bool isVersionNewer(const std::string& candidate, const std::string& installed) 
 }
 
 UpdateCheckResult checkLatestPrivateBetaRelease(const std::string& installedVersion) {
-  const auto body = fetchLatestReleaseJson();
-  if (body.empty()) return {};
-  const auto latestVersion = jsonStringValue(body, "tag_name");
-  const auto releaseUrl = jsonStringValue(body, "html_url");
-  if (latestVersion.empty() || releaseUrl.empty()) return {};
-  return {true, isVersionNewer(latestVersion, installedVersion), latestVersion, releaseUrl};
+  return latestRelease(L"Kwiatens/Inventatory-Software", installedVersion);
+}
+
+UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion) {
+  return latestRelease(L"Kwiatens/Inventatory-Hardware", installedVersion);
 }
 
 }  // namespace inventatory

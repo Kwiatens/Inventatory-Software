@@ -132,12 +132,16 @@ ftxui::Element App::renderRackManagementUi() const {
     // Expand the five rows into the otherwise unused grid workspace. Longer
     // part names can still grow their cell and remain reachable by scrolling.
     const int slotHeight = max(3, (screenHeight - 13) / 5);
-    for (int row = 0; row < 5; ++row) {
+    // Display the rack like the physical unit: slot numbers run downward
+    // within each lettered column, while letters advance from left to right.
+    // Keep the existing rackRow_/rackColumn_ state and slot lookup untouched
+    // by translating the visual coordinates back to storage coordinates here.
+    for (int displayRow = 0; displayRow < 5; ++displayRow) {
       ftxui::Elements rowCells;
-      for (int column = 0; column < 5; ++column) {
-        const auto slot = rackSlotLabel(row, column);
+      for (int displayColumn = 0; displayColumn < 5; ++displayColumn) {
+        const auto slot = rackSlotLabel(displayColumn, displayRow);
         const auto* item = itemAtRackSlot(store_, rack->id, slot);
-        const bool selected = row == rackRow_ && column == rackColumn_;
+        const bool selected = displayColumn == rackRow_ && displayRow == rackColumn_;
         const bool movingSource = item != nullptr && item->id == movingRackItemId_;
         const auto bg = movingSource ? rackMovingSourceBg()
                         : selected ? uiSelectionBg()
@@ -155,7 +159,7 @@ ftxui::Element App::renderRackManagementUi() const {
                                : ftxui::hbox({ftxui::filler(), rackQuantityIndicator(*item, selected), ftxui::filler()}));
         cellRows.push_back(ftxui::paragraphAlignLeft(itemText) |
                            ftxui::color(item == nullptr ? uiDimColor() : uiTitleColor()));
-        const int cellWidth = slotWidth + (column < extraSlotColumns ? 1 : 0);
+        const int cellWidth = slotWidth + (displayColumn < extraSlotColumns ? 1 : 0);
         auto cell = ftxui::vbox(move(cellRows)) | ftxui::bgcolor(bg) |
                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
                     ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, slotHeight);
@@ -163,17 +167,17 @@ ftxui::Element App::renderRackManagementUi() const {
           cell = cell | ftxui::select;
         }
         auto self = const_cast<App*>(this);
-        rowCells.push_back(target(cell, "racks.cell." + slot, UiTargetKind::Cell, [self, row, column] {
-          self->rackRow_ = row;
-          self->rackColumn_ = column;
+        rowCells.push_back(target(cell, "racks.cell." + slot, UiTargetKind::Cell, [self, displayColumn, displayRow] {
+          self->rackRow_ = displayColumn;
+          self->rackColumn_ = displayRow;
           self->dirty_ = true;
         }));
-        if (column < 4) {
+        if (displayColumn < 4) {
           rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
         }
       }
       gridRows.push_back(ftxui::hbox(move(rowCells)));
-      if (row < 4) {
+      if (displayRow < 4) {
         gridRows.push_back(uiDivider());
       }
     }
@@ -303,13 +307,13 @@ void App::handleRackManagementKey(const KeyEvent& key) {
   }
 
   if (key.type == KeyType::Up) {
-    moveRackSlot(-1, 0);
-  } else if (key.type == KeyType::Down) {
-    moveRackSlot(1, 0);
-  } else if (key.type == KeyType::Left) {
     moveRackSlot(0, -1);
-  } else if (key.type == KeyType::Right) {
+  } else if (key.type == KeyType::Down) {
     moveRackSlot(0, 1);
+  } else if (key.type == KeyType::Left) {
+    moveRackSlot(-1, 0);
+  } else if (key.type == KeyType::Right) {
+    moveRackSlot(1, 0);
   } else if (key.type == KeyType::Character) {
     // Every other command on this screen (jump, filter, move/place, print,
     // rename, create/delete rack, quit, ...) is a registered action in
@@ -317,16 +321,16 @@ void App::handleRackManagementKey(const KeyEvent& key) {
     // only vim-style slot movement lives here.
     switch (tolower(static_cast<unsigned char>(key.ch))) {
       case 'h':
-        moveRackSlot(0, -1);
-        break;
-      case 'j':
-        moveRackSlot(1, 0);
-        break;
-      case 'k':
         moveRackSlot(-1, 0);
         break;
-      case 'l':
+      case 'j':
         moveRackSlot(0, 1);
+        break;
+      case 'k':
+        moveRackSlot(0, -1);
+        break;
+      case 'l':
+        moveRackSlot(1, 0);
         break;
       default:
         break;

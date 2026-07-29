@@ -79,6 +79,13 @@ ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ft
                              ftxui::Color activeBg, ftxui::Color flashingBg, ftxui::Color inactiveBg);
 ftxui::Element quantityBadge(int quantity, bool selected = false);
 
+// Button roles. uiSecondaryButton is the ordinary raised text control used for
+// operational actions; uiPrimaryButton is the filled turquoise control that
+// marks the one action a panel exists for, so it reads as a control rather
+// than as another line of text.
+ftxui::Element uiPrimaryButton(const string& label, bool enabled = true);
+ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg = nullopt, bool enabled = true);
+
 // Milliseconds since the app started. The 100 ms redraw ticker means render
 // code can derive sub-second animation phase from this without its own timer;
 // time(nullptr) is too coarse to pulse against.
