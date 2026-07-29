@@ -180,6 +180,18 @@ ftxui::Element footerField(const string& title, const string& body, ftxui::Color
          ftxui::bgcolor(fill);
 }
 
+ftxui::Element uiPrimaryButton(const string& label, bool enabled) {
+  // Filled turquoise on canvas-dark text. The inversion is what separates a
+  // primary control from the surrounding label/value lines at a glance.
+  if (!enabled) return styledText("  " + label + "  ", uiMutedText(), uiRaisedSurfaceBg());
+  return styledText("  " + label + "  ", uiCanvasBg(), uiInteractiveColor()) | ftxui::bold;
+}
+
+ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg, bool enabled) {
+  return styledText(" " + label + " ", enabled ? fg.value_or(uiInteractiveColor()) : uiMutedText(),
+                    uiRaisedSurfaceBg());
+}
+
 ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ftxui::Color fg,
                              ftxui::Color activeBg, ftxui::Color flashingBg, ftxui::Color inactiveBg) {
   const auto fill = flashing ? flashingBg : (active ? activeBg : inactiveBg);

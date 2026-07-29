@@ -119,6 +119,7 @@ string shortCode(const string& value, size_t maxLength = 14) {
 }
 
 string fieldOrBlank(const string& value, size_t maxLength);
+string sanitiseZplFragment(const string& value);
 
 string shortParameterLabel(const string& label) {
   const auto key = normalizeKey(label);
@@ -359,6 +360,25 @@ struct CableFlagFont {
   int height;
   int width;
 };
+
+struct SingleLineFont {
+  int height;
+  int width;
+};
+
+bool isCompactManufacturerPartNumber(const string& value) {
+  const auto text = trim(value);
+  if (text.empty() || text.size() > 18 || text.find_first_of(" \t") != string::npos) return false;
+  bool hasLetter = false;
+  bool hasDigit = false;
+  for (const auto character : text) {
+    const auto ch = static_cast<unsigned char>(character);
+    if (isalpha(ch)) hasLetter = true;
+    else if (isdigit(ch)) hasDigit = true;
+    else if (character != '-' && character != '_' && character != '.' && character != '+') return false;
+  }
+  return hasLetter && hasDigit;
+}
 
 CableFlagFont cableFlagFont(const string& text) {
   const auto length = text.size();
@@ -1020,6 +1040,15 @@ string mainLabelValue(const InventoryItem& item) {
   if (categoryContains(item, {"diode", "rectifier", "schottky", "transient voltage suppressor"}) ||
       itemTextContains(item, {"diode", "rectifier", "schottky", "zener"})) {
     return diodeMainLabelValue(item);
+  }
+
+  // Distributor descriptions such as "MOSFET N-CH 30V 5A" explain a part,
+  // but are not its printable name. For discrete transistors, preserve the
+  // manufacturer's actual part number when DigiKey supplied one.
+  if (categoryContains(item, {"transistor", "mosfet", "fet", "discrete semiconductor"}) ||
+      itemTextContains(item, {"mosfet", "trans npn", "trans pnp", "bjt transistor"})) {
+    if (!trim(item.vendorMetadata.manufacturerPartNumber).empty()) return trim(item.vendorMetadata.manufacturerPartNumber);
+    if (!trim(item.sku).empty()) return trim(item.sku);
   }
 
   if (!trim(item.partName).empty()) {
@@ -1729,8 +1758,18 @@ InventatoryLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& it
 
 string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocation) const {
   const auto plan = buildLabelPlan(item, move(rackLocation));
-  const auto categoryHeader = fitSingleLineLabel(plan.categoryHeader, 16);
-  const auto mainValue = fitSingleLineLabel(plan.mainValue, 13);
+  const auto categoryHeader = sanitiseZplFragment(plan.categoryHeader);
+  const auto mainValue = sanitiseZplFragment(plan.mainValue);
+  const auto categoryHeaderFont = SingleLineFont{17, 17};
+  // Preserve the original large title treatment. Only longer titles step
+  // down, rather than shrinking all label typography to fit every case.
+  const auto mainValueLength = mainValue.size();
+  const auto mainValueFont = isCompactManufacturerPartNumber(mainValue) || mainValueLength <= 14
+                                 ? SingleLineFont{34, 31}
+                                 : mainValueLength <= 18 ? SingleLineFont{30, 25}
+                                 : mainValueLength <= 22 ? SingleLineFont{26, 21}
+                                 : mainValueLength <= 26 ? SingleLineFont{22, 17}
+                                                         : SingleLineFont{18, 14};
   const auto packageLine = fitSingleLineLabel(plan.packageLine, 24);
   const auto manufacturerLine = fitSingleLineLabel(plan.manufacturerLine, 20);
   const auto parameterLine1 = fitSingleLineLabel(plan.parameterLine1, 24);
@@ -1749,12 +1788,15 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "\r\n";
 
   out << "^FX --- Header ---\r\n";
-  out << "^FO5,0^GB246,24,24,B,6^FS\r\n";
-  out << "^FO12,6^A0N,17,17^FR^FD" << sanitizeLabelText(categoryHeader) << "^FS\r\n";
+  // The bar uses equal ten-dot margins on both sides of the 256-dot label.
+  out << "^FO10,0^GB236,24,24,B,6^FS\r\n";
+  out << "^FO12,6^A0N," << categoryHeaderFont.height << ',' << categoryHeaderFont.width << "^FR^FD"
+      << sanitizeLabelText(categoryHeader) << "^FS\r\n";
   out << "\r\n";
 
   out << "^FX --- Main value ---\r\n";
-  out << "^FO10,33^A0N,34,31^FD" << sanitizeLabelText(mainValue) << "^FS\r\n";
+  out << "^FO10,33^A0N," << mainValueFont.height << ',' << mainValueFont.width << "^FD"
+      << sanitizeLabelText(mainValue) << "^FS\r\n";
   out << "\r\n";
 
   out << "^FX --- Package ---\r\n";
