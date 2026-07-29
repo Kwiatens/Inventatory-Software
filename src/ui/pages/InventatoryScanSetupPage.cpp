@@ -4,9 +4,12 @@
 #include "App.h"
 
 #include "platform/CredentialStore.h"
+#include "platform/UpdateService.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
+#include <chrono>
+#include <future>
 #include <string>
 
 namespace inventatory {
@@ -107,6 +110,48 @@ bool App::copyInventatoryScanToken() {
 
   setMessage("Copied the pairing token to the clipboard", 3);
   return true;
+}
+
+void App::beginScanFirmwareCheck() {
+  if (scanFirmwareFuture_.valid()) {
+    setMessage("Already checking for Scan R1 firmware updates", 3);
+    return;
+  }
+  scanFirmwareFuture_ = async(launch::async, [installed = deviceFirmwareVersion_] {
+    return checkLatestScanFirmwareRelease(installed);
+  });
+  setMessage("Checking for Scan R1 firmware updates...", 4);
+  dirty_ = true;
+}
+
+void App::processScanFirmwareCheck() {
+  if (!scanFirmwareFuture_.valid() || scanFirmwareFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
+  const auto result = scanFirmwareFuture_.get();
+  scanFirmwareChecked_ = true;
+  scanFirmwareCheckFailed_ = !result.completed;
+  scanFirmwareLatestVersion_ = result.completed ? result.latestVersion : string();
+  if (!result.completed) {
+    setMessage("Could not reach the firmware release channel", 4);
+  } else if (result.updateAvailable) {
+    setMessage("Scan R1 firmware " + result.latestVersion + " is available", 6);
+  } else {
+    setMessage("Scan R1 firmware is up to date", 4);
+  }
+  dirty_ = true;
+}
+
+// One short line for the Scan settings panel, so the firmware row reads as a
+// value rather than as instructions.
+string App::scanFirmwareStatus() const {
+  const auto installed = deviceFirmwareVersion_.empty() ? string("unknown") : deviceFirmwareVersion_;
+  if (scanFirmwareFuture_.valid()) return "Checking... (device " + installed + ")";
+  if (!scanFirmwareChecked_) return "Device " + installed;
+  if (scanFirmwareCheckFailed_) return "Check failed (device " + installed + ")";
+  if (scanFirmwareLatestVersion_.empty()) return "Device " + installed;
+  if (isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_)) {
+    return scanFirmwareLatestVersion_ + " available (device " + installed + ")";
+  }
+  return "Up to date (device " + installed + ")";
 }
 
 void App::openInventatoryScanSetup() {
