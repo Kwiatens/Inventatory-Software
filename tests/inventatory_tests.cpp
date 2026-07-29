@@ -589,9 +589,7 @@ int main() {
              << candidate.id << '\n';
       }
       assert(plan.categoryHeader == expected);
-      if (expected.size() <= 16) {
-        assert(service.buildZpl(candidate).find("^FD" + expected + "^FS") != string::npos);
-      }
+      assert(service.buildZpl(candidate).find("^FD" + expected + "^FS") != string::npos);
       return plan;
     };
 
@@ -645,7 +643,7 @@ int main() {
         {"golden-clock-gen", "Clock generator PLL", "Skyworks", "Clock/Timing",
          {{"Frequency", "100MHz"}}, {}, "Clock Gen."},
         {"golden-memory", "Serial EEPROM memory", "Microchip", "Memory",
-         {{"Memory Type", "EEPROM"}, {"Memory Size", "256Kbit"}, {"Memory Interface", "I2C"}}, {}, "Memory IC"},
+         {{"Memory Type", "EEPROM"}, {"Memory Size", "256Kbit"}, {"Memory Interface", "I2C"}}, {}, "EEPROM"},
         {"golden-logic-gate", "Quad NAND gate", "Texas Instruments", "Logic",
          {{"Function", "Logic Gate"}}, {}, "Logic Gate"},
         {"golden-logic-buffer", "Tri-state bus buffer", "Nexperia", "Logic",
@@ -673,9 +671,9 @@ int main() {
         {"golden-mcu", "STM32G0 microcontroller", "STMicroelectronics", "MCUs",
          {{"Core Processor", "ARM Cortex-M0+"}, {"Program Memory Size", "128KB"}}, {}, "Microcontroller"},
         {"golden-mosfet", "N-channel MOSFET", "Alpha & Omega", "MOSFETs",
-         {{"Drain-Source Voltage", "30V"}, {"Rds On", "12mOhm"}}, {}, "MOSFET"},
+         {{"FET Type", "N-Channel"}, {"Drain-Source Voltage", "30V"}, {"Rds On", "12mOhm"}}, {}, "N-MOSFET"},
         {"golden-bjt", "NPN transistor", "onsemi", "Transistors",
-         {{"Collector Current", "600mA"}}, {}, "Transistor"},
+         {{"Transistor Type", "NPN"}, {"Collector Current", "600mA"}}, {}, "BJT NPN"},
         {"golden-tvs", "ESD TVS diode", "Littelfuse", "Transient Voltage Suppressors",
          {{"Voltage - Reverse Standoff (Typ)", "16V"}}, {}, "TVS Diode"},
         {"golden-schottky", "Schottky rectifier diode", "Diodes Inc.", "Schottky Diodes",
@@ -713,10 +711,13 @@ int main() {
       candidate.vendorMetadata.title = title;
       candidate.vendorMetadata.parameters = move(parameters);
       const auto descriptor = describePart(candidate);
+      if (descriptor.purposeLabel != purpose || descriptor.printLabel != print || descriptor.source != source) {
+        cerr << "Descriptor mismatch for category '" << category << "': expected '" << purpose << "' / '" << print
+             << "', got '" << descriptor.purposeLabel << "' / '" << descriptor.printLabel << "'\n";
+      }
       assert(descriptor.purposeLabel == purpose);
       assert(descriptor.printLabel == print);
       assert(descriptor.source == source);
-      assert(descriptor.printLabel.size() <= 16);
     };
 
     // Each future adapter supplies the same metadata contract, so category
@@ -726,13 +727,13 @@ int main() {
     vendorFixture("digikey", "Circuit Protection - Fuses", "FUSE GLASS 1A 250VAC", {},
                   "Fuse", "Fuse", PartLabelSource::VendorCategory);
     vendorFixture("digikey", "Inductors, Coils, Chokes - Fixed Inductors", "FIXED IND 4.7UH", {},
-                  "Inductor", "Inductor", PartLabelSource::VendorCategory);
+                  "Fixed Inductor", "Fixed Inductor", PartLabelSource::VendorCategory);
     vendorFixture("digikey", "Diodes - Rectifiers - Single", "DIODE SCHOTTKY 40V", {},
-                  "Diode", "Diode", PartLabelSource::VendorCategory);
+                  "Schottky Diode", "Schottky Diode", PartLabelSource::VendorCategory);
     vendorFixture("mouser", "Data Acquisition", "12-bit analog-to-digital converter", {{"Resolution", "12 bit"}},
                   "Analog-to-Digital Converter", "ADC", PartLabelSource::VendorRule);
     vendorFixture("tme", "Memory", "EEPROM timing controller", {{"Function", "Timer"}},
-                  "Memory IC", "Memory IC", PartLabelSource::VendorCategory);
+                  "EEPROM", "EEPROM", PartLabelSource::VendorRule);
     vendorFixture("digikey", "Clock/Timing", "Single timer oscillator", {},
                   "Timer IC", "Timer IC", PartLabelSource::VendorRule);
     vendorFixture("mouser", "Voltage Regulators", "LDO regulator", {{"Type", "LDO"}},
@@ -740,32 +741,69 @@ int main() {
     vendorFixture("tme", "Connectors", "Header", {{"Number of Positions", "8"}},
                   "Connector", "Connector", PartLabelSource::VendorCategory);
 
+    // DigiKey discrete leaves are frequently represented by a broad path plus
+    // a terminal taxonomy segment and structured electrical type.  The label
+    // must preserve that concrete subtype rather than collapsing to a generic
+    // semiconductor family.
+    vendorFixture("digikey", "Transistors - Bipolar (BJT) - Single", "TRANS NPN 40V 0.2A SOT-23",
+                  {{"Transistor Type", "NPN"}}, "NPN BJT Transistor", "BJT NPN", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Transistors - FETs, MOSFETs - Single", "MOSFET P-CH 30V 4A SOT-23",
+                  {{"FET Type", "P-Channel"}}, "P-Channel MOSFET", "P-MOSFET", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Diodes - Zener - Single", "DIODE ZENER 5.1V 500MW SOD-123",
+                  {{"Diode Type", "Zener"}}, "Zener Diode", "Zener Diode", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Diodes - TVS - Single", "TVS DIODE 24VWM 38.9VC SMA",
+                  {{"Type", "Zener"}}, "TVS Diode", "TVS Diode", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Discrete Semiconductor Products", "DIODE SCHOTTKY 40V 3A DO214AC",
+                  {{"Technology", "Schottky"}}, "Schottky Diode", "Schottky Diode", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Discrete Semiconductor Products", "TRANS PNP 40V 0.6A SOT23-3", {},
+                  "PNP BJT Transistor", "BJT PNP", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Thyristors - TRIACs", "TRIAC 600V 4A TO-220", {},
+                  "TRIAC", "TRIAC", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Capacitors - Ceramic Capacitors", "CAP CER 1UF 16V X7R 0603", {},
+                  "Ceramic Capacitor", "Ceramic Cap", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Switches - Tactile Switches", "SWITCH TACTILE SPST-NO 0.05A 12V", {},
+                  "Tactile Switch", "Tactile Switch", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Connectors, Interconnects - USB, DVI, HDMI Connectors", "CONN USB TYPE-C", {},
+                  "USB Connector", "USB Connector", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Power Supplies - Board Mount - AC DC Converters", "AC/DC CONVERTER 5V 5W", {},
+                  "AC-DC Converter", "AC-DC Converter", PartLabelSource::VendorCategory);
+    vendorFixture("digikey", "Integrated Circuits (ICs)", "IC REG BUCK 3.3V 2A TSOT23-6",
+                  {{"Topology", "Buck"}}, "Buck Converter", "Buck Converter", PartLabelSource::VendorRule);
+    vendorFixture("digikey", "Integrated Circuits (ICs)", "IC EEPROM 32KBIT I2C 8SOIC",
+                  {{"Memory Type", "EEPROM"}}, "EEPROM", "EEPROM", PartLabelSource::VendorRule);
+    vendorFixture("digikey", "Integrated Circuits (ICs)", "IC USB TO UART BRIDGE SSOP-28",
+                  {{"Function", "USB to UART"}}, "USB-UART Bridge", "USB-UART Bridge", PartLabelSource::VendorRule);
+    vendorFixture("digikey", "Logic", "IC 8-BIT SHIFT REGISTER SOIC-16",
+                  {{"Function", "Shift Register"}}, "Shift Register", "Shift Register", PartLabelSource::VendorRule);
+    vendorFixture("digikey", "Clock/Timing", "IC RTC I2C 8SOIC",
+                  {{"Function", "Real Time Clock"}}, "Real-Time Clock", "RTC", PartLabelSource::VendorRule);
+
     // Broad vendor-taxonomy coverage: categories, rather than loose words in
-    // the product title, decide the printed family.
+    // the product title, decide the concrete printed type.
     vendorFixture("digikey", "Switches - Tactile Switches", "TACTILE SWITCH", {},
-                  "Switch", "Switch", PartLabelSource::VendorCategory);
+                  "Tactile Switch", "Tactile Switch", PartLabelSource::VendorCategory);
     vendorFixture("mouser", "Pushbutton Switches", "Illuminated pushbutton", {},
-                  "Switch", "Switch", PartLabelSource::VendorCategory);
+                  "Pushbutton Switch", "Pushbutton", PartLabelSource::VendorCategory);
     vendorFixture("tme", "Diodes - Zener Diodes", "Zener diode 5.1V", {},
                   "Zener Diode", "Zener Diode", PartLabelSource::VendorCategory);
     vendorFixture("digikey", "Circuit Protection - Varistors, MOVs", "MOV 275VAC", {},
                   "Varistor", "Varistor", PartLabelSource::VendorCategory);
     vendorFixture("digikey", "Resistors - Chip Resistor - Surface Mount", "RES 10K", {},
-                  "Resistor", "Resistor", PartLabelSource::VendorCategory);
+                  "Surface-Mount Resistor", "SMD Resistor", PartLabelSource::VendorCategory);
     vendorFixture("mouser", "Capacitors - Ceramic Capacitors", "CAP CER 1UF", {},
-                  "Capacitor", "Capacitor", PartLabelSource::VendorCategory);
+                  "Ceramic Capacitor", "Ceramic Cap", PartLabelSource::VendorCategory);
     vendorFixture("tme", "Inductors, Coils, Chokes - Ferrite Beads and Chips", "FERRITE BEAD", {},
                   "Ferrite Bead", "Ferrite Bead", PartLabelSource::VendorCategory);
     vendorFixture("digikey", "Connectors, Interconnects - USB, DVI, HDMI Connectors", "USB TYPE-C", {},
-                  "Connector", "Connector", PartLabelSource::VendorCategory);
+                  "USB Connector", "USB Connector", PartLabelSource::VendorCategory);
     vendorFixture("mouser", "Optocouplers", "Phototransistor output", {},
                   "Optocoupler", "Optocoupler", PartLabelSource::VendorCategory);
     vendorFixture("tme", "Relays - Signal Relays", "SIGNAL RELAY", {},
-                  "Relay", "Relay", PartLabelSource::VendorCategory);
+                  "Signal Relay", "Signal Relay", PartLabelSource::VendorCategory);
     vendorFixture("digikey", "Sensors, Transducers - Temperature Sensors - Analog and Digital Output", "I2C SENSOR", {},
                   "Temperature Sensor", "Temp Sensor", PartLabelSource::VendorCategory);
     vendorFixture("mouser", "Power Supplies - Board Mount - DC DC Converters", "DC/DC MODULE", {},
-                  "Power Supply", "Power Supply", PartLabelSource::VendorCategory);
+                  "DC-DC Converter", "DC-DC Converter", PartLabelSource::VendorCategory);
     vendorFixture("tme", "PMIC - Voltage Regulators - DC DC Switching Regulators", "BUCK REGULATOR", {},
                   "Switching Regulator", "Switch Regulator", PartLabelSource::VendorCategory);
     vendorFixture("digikey", "RF and Wireless - RF Transceiver Modules and Modems", "WIRELESS MODULE", {},
@@ -783,7 +821,7 @@ int main() {
     overrideItem.labelOverride = "Workshop custom fuse";
     const auto overridden = describePart(overrideItem);
     assert(overridden.purposeLabel == "Workshop custom fuse");
-    assert(overridden.printLabel == "Workshop custom ");
+    assert(overridden.printLabel == "Workshop custom fuse");
     assert(overridden.source == PartLabelSource::ManualOverride);
 
     const auto info = service.configuredPrinterInfo();
@@ -838,7 +876,7 @@ int main() {
     assert(zpl.find("^FO170,175") == string::npos);
     assert(zpl.find("^FDR-0002^FS") == string::npos);
     assert(zpl.find("^FDInventatory^FS") == string::npos);
-    assert(zpl.find("^FO5,0^GB246,24,24,B,6^FS") != string::npos);
+    assert(zpl.find("^FO10,0^GB236,24,24,B,6^FS") != string::npos);
     assert(zpl.find("^BC") == string::npos);
 
     string error;
@@ -912,6 +950,12 @@ int main() {
     assert(service.buildZpl(tvsDiode).find("^FDVst 16V^FS") != string::npos);
     assert(service.buildZpl(tvsDiode).find("^FDVc 26V^FS") != string::npos);
     assert(service.buildZpl(tvsDiode).find("^FDIpp 23.1A^FS") != string::npos);
+
+    InventoryItem legacyTvsDiode;
+    legacyTvsDiode.partName = "SURGE SUPPRESSOR 24V";
+    legacyTvsDiode.category = "Circuit Protection";
+    legacyTvsDiode.parameters = {{"Technology", "TVS"}};
+    assert(service.buildLabelPlan(legacyTvsDiode).categoryHeader == "TVS Diode");
 
     InventoryItem protectionIc;
     protectionIc.id = "prot-ic-1";
@@ -1138,7 +1182,7 @@ int main() {
 
     InventoryItem unclassified;
     unclassified.partName = "Uncatalogued item";
-    assert(describePart(unclassified).printLabel == "Unclassified Com");
+    assert(describePart(unclassified).printLabel == "Unclassified Component");
     assert(describePart(unclassified).printLabel != "Part");
 
     InventoryItem inductor;
@@ -1205,6 +1249,7 @@ int main() {
     item.partName = "N-channel MOSFET";
     item.manufacturer = "Alpha & Omega";
     item.category = "MOSFETs";
+    item.sku = "IRLML6344TRPBF";
     item.inventatoryId = "Inventatory:T-00012";
     item.parameters = {
         {"Package / Case", "TO-263-3, D2PAK (2 Leads + Tab)"},
@@ -1214,6 +1259,8 @@ int main() {
     };
 
     const auto plan = service.buildLabelPlan(item);
+    assert(plan.categoryHeader == "N-MOSFET");
+    assert(plan.mainValue == "IRLML6344TRPBF");
     assert(plan.packageLine == "TO-263-3");
     assert(plan.parameterLine1.find("Vds") != string::npos);
     assert(plan.parameterLine1.find("30V") != string::npos);
@@ -1222,11 +1269,25 @@ int main() {
     assert(plan.parameterLine3.empty());
 
     const auto zpl = service.buildZpl(item);
+    assert(zpl.find("^FDN-MOSFET^FS") != string::npos);
+    assert(zpl.find("^FDIRLML6344TRPBF^FS") != string::npos);
     assert(zpl.find("2W (Ta)") == string::npos);
     assert(zpl.find("TO-263-3,") == string::npos);
+    assert(zpl.find("^FO10,33^A0N,34,31^FDIRLML6344TRPBF^FS") != string::npos);
     assert(zpl.find("^FO10,70^A0N,14,14^FDTO-263-3^FS") != string::npos);
     assert(zpl.find("^FDVds 30V^FS") != string::npos);
     assert(zpl.find("^FDId 12A^FS") != string::npos);
+  }
+
+  {
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+    InventoryItem longHeader;
+    longHeader.partName = "Part number retained as the main value";
+    longHeader.labelOverride = "Custom label beyond sixteen";
+    const auto zpl = service.buildZpl(longHeader);
+    assert(partShortDescription(longHeader) == "Custom label beyond sixteen");
+    assert(zpl.find("^FDCustom label beyond sixteen^FS") != string::npos);
+    assert(zpl.find("^FO10,0^GB236,24,24,B,6^FS") != string::npos);
   }
 
   {

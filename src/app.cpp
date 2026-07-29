@@ -487,6 +487,7 @@ void App::processBackgroundWork() {
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();
+  processScanFirmwareCheck();
   processBomEnrichment();
 }
 
