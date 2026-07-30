@@ -90,6 +90,10 @@ vector<App::Action> App::currentActions() const {
       add(autoPrintScannedLabels_ ? "auto-label off" : "auto-label on", "Print", "P", chr('P'),
           [self] { self->toggleAutoPrintScannedLabels(); });
       add("racks", "Go", "m", chr('m'), [self] { self->openRackManagement(); });
+      add(stockIdentityExpanded_ ? "hide identity" : "show identity", "View", "i", chr('i'), [self] {
+        self->stockIdentityExpanded_ = !self->stockIdentityExpanded_;
+        self->dirty_ = true;
+      });
       add("filters", "View", "f", chr('f'), [self] { self->openStockFilterPanel(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
       add("reload", "System", "r", chr('r'), [self, reloadInventory] {
