@@ -416,6 +416,9 @@ class App {
   StockSortOrder stockSortOrder_ = StockSortOrder::Az;
   int stockFilterSelection_ = 0;
   bool stockDateFilterSubmenuOpen_ = false;
+  // Vendor/catalogue identifiers are reference data, not what the page is for,
+  // so the identity block starts collapsed.
+  bool stockIdentityExpanded_ = false;
   std::string message_;
   std::string persistenceError_;
   time_t messageUntil_ = 0;
