@@ -260,6 +260,13 @@ string toLower(string value) {
   return value;
 }
 
+string toUpper(string value) {
+  transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+    return static_cast<char>(toupper(ch));
+  });
+  return value;
+}
+
 string nowTimestampString(time_t value) {
   tm tm{};
 #ifdef _WIN32

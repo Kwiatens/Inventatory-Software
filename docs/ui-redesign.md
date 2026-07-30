@@ -95,6 +95,26 @@ full electrical parameters, inventory identity, references, then notes. The
 inventory list remains visible while editing. Save commits the entire working
 copy; Escape cancels it.
 
+The detail panel header and its action row sit outside the scrolling body, so
+New/Edit/-/+/Print stay reachable at the bottom of the panel however long the
+selected part is. Quantity and rack are a compact strip directly under the
+summary, next to the buttons that change them, and are not repeated in the
+identity block where the list columns already show them. Vendor and catalogue
+identifiers sit in a collapsed IDENTITY disclosure whose heading states how many
+fields are hidden. Fields with no value are omitted, including vendor
+placeholders such as a lone dash or "N/A"; the package value appears once in the
+passive summary line rather than again in the parameter list.
+
+Name sorting orders by category then part name, so the list renders one
+contiguous run per category behind a single group header on a raised grey band,
+and the part column takes the width a repeated category column would waste. Every
+list row - item, group header, and group spacer - carries the part/quantity
+separator at the same column so that vertical rule runs unbroken down the panel.
+Quantity sorting interleaves categories, so it falls back to a per-row
+category column sized to its longest value and placed beside the part name, with
+the leftover width as one gutter before the right-anchored quantity. No layout
+pads a category cell out to absorb slack.
+
 ### Racks
 
 Rack list, 5x5 grid, and slot detail share one surface with subtle dividers.
@@ -116,6 +136,13 @@ General/Data, Printer, Inventatory Scan, and DigiKey live in one category/detail
 workspace. Ordinary edits are staged and use Save/Cancel. Refresh, Test, Copy,
 Regenerate, and Clear are operational actions. DigiKey secrets are stored in
 Windows Credential Manager, never in `settings.conf`.
+
+Each panel carries only settings and state: no explanatory hint copy, and no
+navigation button that duplicates a category already in the sidebar. A panel
+leads with the one action it exists for, rendered as a filled turquoise primary
+button sized to its label; every other control is an ordinary raised text
+button. Panels do not restate diagnostics that the device reports elsewhere, and
+values derived from an absent device are omitted rather than shown as zeros.
 
 ## Reusable UI rules
 
