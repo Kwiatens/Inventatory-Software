@@ -82,11 +82,19 @@ ftxui::Element App::renderRackManagementUi() const {
   const auto selectedSlot = selectedRackSlot();
   const auto* selectedSlotItem = selectedRackItem();
 
+  // Rack code, type, and a right-aligned occupancy column that ends one cell
+  // short of the panel edge. Type absorbs the remaining width so the numbers
+  // sit flush right instead of floating in the middle of the panel.
+  constexpr int rackCodeWidth = 6;
+  constexpr int rackUsedWidth = 7;
+  const int rackTypeWidth = max(8, listWidth - rackCodeWidth - rackUsedWidth - 1);
+
   ftxui::Elements rackRows;
   rackRows.push_back(ftxui::hbox({
-      rackFixedCell("Rack", 6, uiMutedColor()),
-      rackFixedCell("Type", max(8, listWidth - 18), uiMutedColor()),
-      rackFixedCell("Used", 7, uiMutedColor()),
+      rackFixedCell("Rack", rackCodeWidth, uiMutedColor()),
+      rackFixedCell("Type", rackTypeWidth, uiMutedColor()),
+      rackFixedCell("Used", rackUsedWidth, uiMutedColor(), true),
+      ftxui::text(" "),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
   if (rackIndices.empty()) {
     rackRows.push_back(fullLine(rackFilter_.empty() ? "No racks yet." : "No racks match filter.", uiMutedColor(),
@@ -99,9 +107,11 @@ ftxui::Element App::renderRackManagementUi() const {
       const auto fg = selected ? uiFocusColor() : uiPrimaryText();
       const auto occupied = rackOccupiedSlotCount(store_, candidate);
       auto rackRow = ftxui::hbox({
-          rackFixedCell(" " + candidate.code, 6, fg),
-          rackFixedCell(candidate.componentType, max(8, listWidth - 18), selected ? uiTitleColor() : uiLabelColor()),
-          rackFixedCell(to_string(occupied) + "/25", 7, occupied >= 25 ? uiWarnColor() : uiSuccessColor()),
+          rackFixedCell(" " + candidate.code, rackCodeWidth, fg),
+          rackFixedCell(candidate.componentType, rackTypeWidth, selected ? uiTitleColor() : uiLabelColor()),
+          rackFixedCell(to_string(occupied) + "/25", rackUsedWidth, occupied >= 25 ? uiWarnColor() : uiSuccessColor(),
+                        true),
+          ftxui::text(" "),
       }) | ftxui::bgcolor(bg);
       auto self = const_cast<App*>(this);
       rackRows.push_back(target(rackRow, "racks.row." + candidate.id, UiTargetKind::Row, [self, visible] {

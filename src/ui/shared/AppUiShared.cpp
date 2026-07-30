@@ -519,9 +519,18 @@ string prettyLabel(const string& label) {
 }
 
 vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
+  // Vendor data uses a lone dash or "N/A" to mean "no value". Those carry no
+  // more information than an absent parameter, so they are dropped rather than
+  // given a row in the detail panel.
+  const auto isPlaceholder = [](const string& value) {
+    const auto trimmed = trim(value);
+    // normalizeKey drops punctuation, so "N/A" and "n.a." both reduce to "na".
+    return trimmed.empty() || trimmed == "-" || trimmed == "\xE2\x80\x93" || trimmed == "\xE2\x80\x94" ||
+           normalizeKey(trimmed) == "na";
+  };
   vector<DetailField> fields;
   const auto addField = [&](const string& label, optional<string> value) {
-    if (value && !trim(*value).empty()) {
+    if (value && !isPlaceholder(*value)) {
       fields.push_back({label + ": ", *value, uiLabelColor(), uiTitleColor()});
     }
   };

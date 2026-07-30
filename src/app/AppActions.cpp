@@ -439,6 +439,17 @@ vector<size_t> App::filteredIndices() const {
     if (stockSortOrder_ == StockSortOrder::Quantity && left.quantity != right.quantity) {
       return left.quantity > right.quantity;
     }
+    // Name sorting groups by category first so the stock list renders one
+    // contiguous run per category behind a single group header. Without this a
+    // category reappears whenever part names interleave (diodes and MOSFETs are
+    // both Discrete Semiconductor Products).
+    if (stockSortOrder_ != StockSortOrder::Quantity) {
+      const auto leftCategory = toLower(displayCategory(left.category));
+      const auto rightCategory = toLower(displayCategory(right.category));
+      if (leftCategory != rightCategory) {
+        return stockSortOrder_ == StockSortOrder::Za ? leftCategory > rightCategory : leftCategory < rightCategory;
+      }
+    }
     const auto leftName = toLower(left.partName);
     const auto rightName = toLower(right.partName);
     if (leftName != rightName) {

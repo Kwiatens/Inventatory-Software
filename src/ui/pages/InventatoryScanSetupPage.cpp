@@ -140,18 +140,18 @@ void App::processScanFirmwareCheck() {
   dirty_ = true;
 }
 
-// One short line for the Scan settings panel, so the firmware row reads as a
-// value rather than as instructions.
+// One short line for the Scan settings panel: the device's own version first,
+// then the result of the last release check, so the row reads as a value.
 string App::scanFirmwareStatus() const {
-  const auto installed = deviceFirmwareVersion_.empty() ? string("unknown") : deviceFirmwareVersion_;
-  if (scanFirmwareFuture_.valid()) return "Checking... (device " + installed + ")";
-  if (!scanFirmwareChecked_) return "Device " + installed;
-  if (scanFirmwareCheckFailed_) return "Check failed (device " + installed + ")";
-  if (scanFirmwareLatestVersion_.empty()) return "Device " + installed;
-  if (isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_)) {
-    return scanFirmwareLatestVersion_ + " available (device " + installed + ")";
+  const auto installed = deviceFirmwareVersion_.empty() ? string("Unknown") : deviceFirmwareVersion_;
+  if (scanFirmwareFuture_.valid()) return installed + "  \xC2\xB7  checking...";
+  if (!scanFirmwareChecked_ || scanFirmwareLatestVersion_.empty()) {
+    return scanFirmwareCheckFailed_ ? installed + "  \xC2\xB7  check failed" : installed;
   }
-  return "Up to date (device " + installed + ")";
+  if (isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_)) {
+    return installed + "  \xC2\xB7  " + scanFirmwareLatestVersion_ + " available";
+  }
+  return installed + "  \xC2\xB7  up to date";
 }
 
 void App::openInventatoryScanSetup() {

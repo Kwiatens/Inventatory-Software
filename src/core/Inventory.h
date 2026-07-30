@@ -134,6 +134,7 @@ struct ScanResolution {
 
 string trim(const string& value);
 string toLower(string value);
+string toUpper(string value);
 string nowTimestampString(time_t value);
 string makeId();
 string inventatoryCategoryPrefix(const string& category);
