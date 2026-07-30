@@ -72,9 +72,14 @@ the signed-in Windows user, hides in the notification area after close, and cont
 icon to Open Inventatory or Quit Inventatory; disabling the setting removes Inventatory from Windows startup. This does not run before a
 user signs in.
 
-Inventatory Scan status, pairing state, firmware, RSSI, last result, and recent device
-diagnostics are shown in Inventatory Scan settings. The token is masked; use Copy token
-when provisioning a device. Regenerating it invalidates the old token, and
+Inventatory Scan settings lead with **Pair new device**, which opens the setup
+wizard, followed by one status line for the paired R1 (online/offline, device id,
+signal, and last contact once it has reported in). Below that are the service
+port and **Check for firmware updates**, which compares the version the R1
+reported against the latest published firmware release.
+
+Token and pairing maintenance stay on the Actions sheet (`Space`): copy token,
+regenerate token, and clear device. Regenerating invalidates the old token, and
 clearing a device removes its paired identity.
 
 The R1 communicates directly with the authenticated device service inside the
