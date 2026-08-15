@@ -1,8 +1,13 @@
 ﻿#include "core/Inventory.h"
+#include "app/AppBootstrap.h"
 #include "app/AppSettings.h"
 #include "platform/UpdateService.h"
 #include "platform/StartupRegistration.h"
 #include "core/InventoryInternals.h"
+#include "core/InventorySqlite.h"
+#ifdef near
+#undef near
+#endif
 #include "core/InventatoryScanProtocol.h"
 #include "core/PartDescriptor.h"
 #include "import/DigiKeyCsvImport.h"
@@ -493,6 +498,44 @@ int main() {
     assert(restored.vendorMetadata.parameters.front().name == "Capacitance");
     assert(restored.vendorMetadata.parameters.front().value == "1uF");
   }
+
+#ifdef _WIN32
+  {
+    // A failed rack read must not replace an existing in-memory store or make
+    // the successfully read item subset eligible for a later write-back.
+    const auto databasePath = filesystem::temp_directory_path() / "inventatory-incomplete-load-test.db";
+    error_code removeError;
+    filesystem::remove(databasePath, removeError);
+
+    InventoryStore persisted;
+    persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7});
+    assert(persisted.save(databasePath));
+
+    {
+      SqliteConnection connection;
+      assert(openDatabase(databasePath, connection));
+      assert(execSql(connection, "DROP TABLE inventatory_racks; CREATE TABLE inventatory_racks (id TEXT PRIMARY KEY)"));
+    }
+
+    InventoryStore retained;
+    retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3});
+    assert(!retained.load(databasePath));
+    assert(retained.items().size() == 1);
+    assert(retained.items().front().id == "live-item");
+
+    {
+      SqliteConnection verification;
+      assert(openDatabase(databasePath, verification));
+      SqliteStatement statement;
+      assert(sqliteApi().prepare_v2(verification.db, "SELECT COUNT(*) FROM inventatory_items", -1, &statement.stmt,
+                                    nullptr) == SQLITE_OK);
+      assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+      assert(sqliteApi().column_int(statement.stmt, 0) == 1);
+    }
+    filesystem::remove(databasePath, removeError);
+    assert(!removeError);
+  }
+#endif
 
   {
     const auto tempPath = filesystem::temp_directory_path() / "inventatory-machine-code-roundtrip.db";
@@ -1682,6 +1725,29 @@ int main() {
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
+  }
+
+  {
+    auto activePaths = makeInventatoryDataPaths(filesystem::path("C:/Inventatory/current"));
+    const auto originalPaths = activePaths;
+    int saveAttempts = 0;
+    assert(!switchInventatoryDataPathsAfterSaving(activePaths, filesystem::path("C:/Inventatory/new"), [&] {
+      ++saveAttempts;
+      return false;
+    }));
+    assert(saveAttempts == 1);
+    assert(activePaths.dataDirectory == originalPaths.dataDirectory);
+    assert(activePaths.inventory == originalPaths.inventory);
+    assert(activePaths.printer == originalPaths.printer);
+    assert(activePaths.activity == originalPaths.activity);
+    assert(activePaths.scanConfig == originalPaths.scanConfig);
+
+    assert(switchInventatoryDataPathsAfterSaving(activePaths, filesystem::path("C:/Inventatory/new"), [] {
+      return true;
+    }));
+    assert(activePaths.dataDirectory == filesystem::path("C:/Inventatory/new"));
+    assert(activePaths.inventory == activePaths.dataDirectory / "inventory.db");
+    assert(activePaths.printer == activePaths.dataDirectory / "printer.conf");
   }
 
   {

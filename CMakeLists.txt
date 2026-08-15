@@ -97,6 +97,7 @@ target_link_libraries(inventatory PRIVATE ftxui::screen ftxui::dom ftxui::compon
 
 add_executable(inventatory_tests
   tests/inventatory_tests.cpp
+  src/app/AppBootstrap.cpp
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
