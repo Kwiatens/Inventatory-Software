@@ -281,14 +281,20 @@ bool App::chooseInventatoryFolder() {
     return false;
   }
 
-  saveState();
-
   const auto selectedInventoryPath = resolveInventoryDatabasePath(selectedPath);
-  dataPath_ = selectedInventoryPath.parent_path();
-  inventoryPath_ = selectedInventoryPath;
-  printerPath_ = dataPath_ / "printer.conf";
-  activityPath_ = dataPath_ / "activity.tsv";
-  inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+  auto activePaths = InventatoryDataPaths{dataPath_, inventoryPath_, printerPath_, activityPath_, inventatoryScanConfigPath_};
+  if (!switchInventatoryDataPathsAfterSaving(activePaths, selectedInventoryPath.parent_path(),
+                                             [this] { return saveState(); })) {
+    setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5);
+    return false;
+  }
+  activePaths.inventory = selectedInventoryPath;
+
+  dataPath_ = move(activePaths.dataDirectory);
+  inventoryPath_ = move(activePaths.inventory);
+  printerPath_ = move(activePaths.printer);
+  activityPath_ = move(activePaths.activity);
+  inventatoryScanConfigPath_ = move(activePaths.scanConfig);
   ensureInventoryDatabaseCopied(inventoryPath_);
 
   printerQueues_.clear();

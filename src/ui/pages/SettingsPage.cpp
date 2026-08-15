@@ -249,6 +249,7 @@ bool App::saveSettingsDraft() {
   const bool portChanged = settingsDraft_.deviceServicePort != settings_.deviceServicePort;
   const bool backgroundChanged = settingsDraft_.backgroundServiceEnabled != settings_.backgroundServiceEnabled;
   const bool quickLabelsChanged = settingsDraft_.quickLabelPresets != settings_.quickLabelPresets;
+  InventatoryDataPaths switchedPaths;
   if (quickLabelsChanged) {
     settingsDraft_.quickLabelRevision = settings_.quickLabelRevision == UINT32_MAX
                                             ? 1U
@@ -263,6 +264,13 @@ bool App::saveSettingsDraft() {
         return false;
       }
     }
+    auto activePaths = InventatoryDataPaths{dataPath_, inventoryPath_, printerPath_, activityPath_, inventatoryScanConfigPath_};
+    if (!switchInventatoryDataPathsAfterSaving(activePaths, settingsDraft_.dataDirectory,
+                                               [this] { return saveState(); })) {
+      setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5);
+      return false;
+    }
+    switchedPaths = move(activePaths);
   }
   if (stagedDigiKeySecretChanged_ && !CredentialStore::write(kDigiKeySecretName, stagedDigiKeySecret_)) {
     setMessage("Unable to save the DigiKey secret securely", 5);
@@ -286,12 +294,11 @@ bool App::saveSettingsDraft() {
   }
 
   if (dataChanged) {
-    saveState();
-    dataPath_ = settingsDraft_.dataDirectory;
-    inventoryPath_ = dataPath_ / "inventory.db";
-    printerPath_ = dataPath_ / "printer.conf";
-    activityPath_ = dataPath_ / "activity.tsv";
-    inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+    dataPath_ = move(switchedPaths.dataDirectory);
+    inventoryPath_ = move(switchedPaths.inventory);
+    printerPath_ = move(switchedPaths.printer);
+    activityPath_ = move(switchedPaths.activity);
+    inventatoryScanConfigPath_ = move(switchedPaths.scanConfig);
     quickLabelsPath_ = dataPath_ / "quick_labels.conf";
     ensureInventoryDatabaseCopied(inventoryPath_);
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
