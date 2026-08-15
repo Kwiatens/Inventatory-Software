@@ -8,6 +8,7 @@
 #include "core/BomMatch.h"
 #include "core/BomProjectStore.h"
 #include "app/AppSettings.h"
+#include "app/AppBootstrap.h"
 #include "import/DigiKeyCsvImport.h"
 #include "import/KicadBom.h"
 #include "platform/DigiKeyApi.h"
@@ -456,7 +457,7 @@ class App {
   time_t deviceLastSync_ = 0;
   size_t deviceDebugScroll_ = 0;
   bool deviceDebugFollow_ = true;
-  bool running_ = true;
+  std::atomic<bool> running_{true};
   std::atomic<bool> backgroundQuitRequested_{false};
   std::atomic<bool> foregroundRequested_{false};
   bool dirty_ = true;
