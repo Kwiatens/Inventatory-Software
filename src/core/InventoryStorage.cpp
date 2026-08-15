@@ -151,7 +151,8 @@ bool loadRacks(SqliteConnection& connection, vector<InventatoryRack>& racks) {
   if (sqliteApi().prepare_v2(connection.db,
       "SELECT id, code, component_type, rows_count, columns_count, created_at FROM inventatory_racks ORDER BY created_at, code",
       -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     InventatoryRack rack;
     rack.id = sqliteText(statement.stmt, 0);
     rack.code = sqliteText(statement.stmt, 1);
@@ -161,7 +162,7 @@ bool loadRacks(SqliteConnection& connection, vector<InventatoryRack>& racks) {
     rack.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 5));
     racks.push_back(move(rack));
   }
-  return true;
+  return stepResult == SQLITE_DONE;
 }
 
 InventoryItem legacyRowToItem(sqlite3_stmt* stmt) {
@@ -266,7 +267,8 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     return false;
   }
 
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     InventoryItem item;
     item.id = sqliteText(statement.stmt, 0);
     item.partName = sqliteText(statement.stmt, 1);
@@ -304,7 +306,7 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     items.push_back(move(item));
   }
 
-  return true;
+  return stepResult == SQLITE_DONE;
 }
 
 bool importLegacyItems(SqliteConnection& connection, vector<InventoryItem>& items) {
@@ -324,11 +326,12 @@ bool importLegacyItems(SqliteConnection& connection, vector<InventoryItem>& item
     return false;
   }
 
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     items.push_back(legacyRowToItem(statement.stmt));
   }
 
-  return true;
+  return stepResult == SQLITE_DONE;
 }
 
 bool ensureDeviceEventCommitSchema(SqliteConnection& connection) {
@@ -514,8 +517,6 @@ const vector<InventoryItem>& InventoryStore::items() const {
 }
 
 bool InventoryStore::load(const filesystem::path& path) {
-  items_.clear();
-  racks_.clear();
 #ifdef _WIN32
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
@@ -525,45 +526,38 @@ bool InventoryStore::load(const filesystem::path& path) {
   if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
-  loadRacks(connection, racks_);
+  vector<InventatoryRack> loadedRacks;
+  if (!loadRacks(connection, loadedRacks)) {
+    return false;
+  }
 
   const bool hasInventatoryTable = tableExists(connection, "inventatory_items");
   const bool hasLegacyTable = tableExists(connection, "items");
 
   vector<InventoryItem> inventatoryItems;
-  bool loaded = false;
-  if (hasInventatoryTable) {
-    loaded = loadItemsFromInventatoryTable(connection, inventatoryItems);
-  }
+  if (hasInventatoryTable && !loadItemsFromInventatoryTable(connection, inventatoryItems)) return false;
 
   vector<InventoryItem> legacyItems;
-  if (hasLegacyTable) {
-    importLegacyItems(connection, legacyItems);
-  }
+  if (hasLegacyTable && !importLegacyItems(connection, legacyItems)) return false;
 
-  if (!legacyItems.empty() && (inventatoryItems.empty() || legacyItems.size() > inventatoryItems.size())) {
-    items_ = move(legacyItems);
-    loaded = true;
-    ensureInventoryIdentifiers(items_);
-    writeItemsToInventatoryTable(connection, items_, racks_);
-  } else if (loaded && !inventatoryItems.empty()) {
-    items_ = move(inventatoryItems);
-  } else if (!loaded || items_.empty()) {
-    if (!inventatoryItems.empty()) {
-      items_ = move(inventatoryItems);
-      loaded = true;
-    } else if (!legacyItems.empty()) {
-      items_ = move(legacyItems);
-      loaded = true;
-      ensureInventoryIdentifiers(items_);
-      writeItemsToInventatoryTable(connection, items_, racks_);
-    }
-  }
+  if (!hasInventatoryTable && !hasLegacyTable) return false;
 
-  ensureInventoryIdentifiers(items_);
-  reconcileRackAssignments(*this);
-  return loaded;
+  const bool migrateLegacyItems =
+      !legacyItems.empty() && (inventatoryItems.empty() || legacyItems.size() > inventatoryItems.size());
+  InventoryStore loadedStore;
+  loadedStore.items() = migrateLegacyItems ? move(legacyItems) : move(inventatoryItems);
+  loadedStore.racks() = move(loadedRacks);
+
+  ensureInventoryIdentifiers(loadedStore.items());
+  reconcileRackAssignments(loadedStore);
+  if (migrateLegacyItems &&
+      !writeItemsToInventatoryTable(connection, loadedStore.items(), loadedStore.racks())) return false;
+
+  items_ = move(loadedStore.items());
+  racks_ = move(loadedStore.racks());
+  return true;
 #else
+  vector<InventoryItem> loadedItems;
   ifstream file(path);
   if (!file) {
     return false;
@@ -578,12 +572,15 @@ bool InventoryStore::load(const filesystem::path& path) {
 
     InventoryItem item;
     if (deserializeItem(line, item)) {
-      items_.push_back(move(item));
+      loadedItems.push_back(move(item));
     }
   }
 
-  ensureInventoryIdentifiers(items_);
-  return !items_.empty();
+  ensureInventoryIdentifiers(loadedItems);
+  if (loadedItems.empty()) return false;
+  items_ = move(loadedItems);
+  racks_.clear();
+  return true;
 #endif
 }
 
