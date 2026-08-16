@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(InventatorySoftware VERSION 0.1.0 LANGUAGES CXX)
+project(InventatorySoftware VERSION 0.1.0 LANGUAGES C CXX)
 
 set(INVENTATORY_VERSION "${PROJECT_VERSION}" CACHE STRING "Inventatory application version")
 
@@ -23,6 +23,21 @@ else()
 endif()
 
 include(FetchContent)
+
+# SQLite is compiled into the executable so the release never depends on an
+# ambient sqlite3.dll. The official source archive and its published SHA3-256
+# pin the exact amalgamation used by every build.
+FetchContent_Declare(sqlite3_amalgamation
+  URL https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip
+  URL_HASH SHA3_256=628a44cfe82c66aed1ccbbe85a562d2e33ebe64b3288981ed76285612227934e
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(sqlite3_amalgamation)
+
+add_library(sqlite3_amalgamation STATIC
+  ${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c
+)
+target_include_directories(sqlite3_amalgamation PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
 
 find_package(ftxui CONFIG QUIET)
 if(NOT ftxui_FOUND)
@@ -93,7 +108,7 @@ if(WIN32)
   target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
 endif()
 
-target_link_libraries(inventatory PRIVATE ftxui::screen ftxui::dom ftxui::component)
+target_link_libraries(inventatory PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
 
 add_executable(inventatory_tests
   tests/inventatory_tests.cpp
@@ -129,7 +144,7 @@ if(WIN32)
   target_link_libraries(inventatory_tests PRIVATE winspool bcrypt advapi32)
 endif()
 
-target_link_libraries(inventatory_tests PRIVATE ftxui::screen ftxui::dom ftxui::component)
+target_link_libraries(inventatory_tests PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
 
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)
