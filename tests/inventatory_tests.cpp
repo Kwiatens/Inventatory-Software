@@ -128,6 +128,13 @@ class MockPrinterBackend final : public PrinterBackend {
 }  // namespace
 
 int main() {
+#ifdef _WIN32
+  // The persistence tests below must exercise the statically linked, pinned
+  // SQLite amalgamation rather than an ambient sqlite3.dll.
+  assert(sqliteApi().load());
+  assert(sqlite3_libversion_number() == 3053004);
+#endif
+
   {
     auto items = makeSampleInventory();
     assert(!items.empty());
