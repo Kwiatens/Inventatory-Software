@@ -78,15 +78,22 @@ signal, and last contact once it has reported in). Below that are the service
 port and **Check for firmware updates**, which compares the version the R1
 reported against the latest published firmware release.
 
-Token and pairing maintenance stay on the Actions sheet (`Space`): copy token,
-regenerate token, and clear device. Regenerating invalidates the old token, and
-clearing a device removes its paired identity.
+Pairing maintenance stays on the Actions sheet (`Space`): re-pair after a
+scanner firmware update, regenerate the pairing secret, or clear the device.
+Regenerating the secret invalidates the old pairing, and clearing a device
+removes its paired identity.
 
 The R1 communicates directly with the authenticated device service inside the
 desktop application. This is not the retired phone/web scanner: Inventatory exposes no
 browser scanning page, and the service accepts only the paired R1 device API.
 
-For a new or reset R1, use **Settings → Inventatory Scan → Find scanner**. Enter the six-digit code shown on the R1 and the home Wi-Fi credentials. Bluetooth LE Secure Connections encrypts and authenticates that transfer; Bluetooth setup then turns off and normal mDNS syncing starts. Hold `#` on the R1 to erase only provisioning and return to this flow; queued inventory events stay intact.
+For a new or reset R1, use **Settings → Inventatory Scan → Find scanner**.
+Enter the six-digit code shown on the R1 and the home Wi-Fi credentials.
+Bluetooth LE Secure Connections encrypts and authenticates that transfer;
+Bluetooth setup then turns off and normal mDNS discovery starts. Sync traffic
+uses the paired secret to authenticate every request and response, so an mDNS
+advertisement alone is not trusted. Hold `#` on the R1 to erase only
+provisioning and return to this flow; queued inventory events stay intact.
 
 On an idle R1, press `C` for the device menu. **Quick Labels** automatically checks the paired PC for the latest
 presets when opened (use `D` for the next page). **Quick Settings** changes LCD contrast, enters standby, starts OTA,
