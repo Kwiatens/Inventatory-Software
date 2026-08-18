@@ -303,7 +303,8 @@ bool App::saveSettingsDraft() {
     ensureInventoryDatabaseCopied(inventoryPath_);
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     loadState();
-    server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+    server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                                 appSettingsDirectory() / "inventatory-scan-replay.state");
   }
 
   if (quickLabelsChanged || dataChanged) {

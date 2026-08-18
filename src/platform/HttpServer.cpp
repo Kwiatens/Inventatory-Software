@@ -10,6 +10,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -18,6 +19,7 @@
 #include <string>
 
 #include <winsock2.h>
+#include <windows.h>
 #include <ws2tcpip.h>
 
 #pragma comment(lib, "Ws2_32.lib")
@@ -33,7 +35,8 @@ namespace {
 
 constexpr size_t kMaxHttpHeaderBytes = 8U * 1024U;
 constexpr size_t kMaxHttpBodyBytes = 64U * 1024U;
-constexpr DWORD kClientIoTimeoutMs = 5000U;
+constexpr DWORD kClientIoTimeoutMs = 2000U;
+constexpr size_t kWorkerCount = 4;
 
 string jsonEscape(const string& value) {
   ostringstream out;
@@ -107,6 +110,17 @@ optional<size_t> contentLength(const string& headers) {
   return length;
 }
 
+optional<uint64_t> headerCounter(const string& headers) {
+  const auto value = headerValue(headers, "X-Inventatory-Counter");
+  if (value.empty()) return nullopt;
+  uint64_t counter = 0;
+  for (const unsigned char ch : value) {
+    if (!isdigit(ch) || counter > (numeric_limits<uint64_t>::max() - (ch - '0')) / 10U) return nullopt;
+    counter = counter * 10U + (ch - '0');
+  }
+  return counter == 0 ? nullopt : optional<uint64_t>(counter);
+}
+
 bool tokensMatch(const string& expected, const string& supplied) {
   if (expected.empty() || expected.size() != supplied.size()) {
     return false;
@@ -132,6 +146,49 @@ string httpStatusText(int status) {
     case 503: return "503 Service Unavailable";
     default: return "500 Internal Server Error";
   }
+}
+
+bool loadReplayState(const filesystem::path& path, const string& fingerprint, uint64_t& counter) {
+  counter = 0;
+  if (path.empty()) return true;
+  ifstream input(path);
+  if (!input) return true;
+  string storedFingerprint;
+  string line;
+  while (getline(input, line)) {
+    const auto separator = line.find('=');
+    if (separator == string::npos) continue;
+    if (line.substr(0, separator) == "fingerprint") storedFingerprint = line.substr(separator + 1);
+    if (line.substr(0, separator) == "counter") {
+      try { counter = stoull(line.substr(separator + 1)); } catch (...) { return false; }
+    }
+  }
+  if (storedFingerprint != fingerprint) counter = 0;
+  return true;
+}
+
+bool saveReplayState(const filesystem::path& path, const string& fingerprint, uint64_t counter) {
+  if (path.empty()) return false;
+  error_code error;
+  filesystem::create_directories(path.parent_path(), error);
+  if (error) return false;
+  const auto temporary = filesystem::path(path.string() + ".tmp");
+  ofstream output(temporary, ios::trunc);
+  if (!output) return false;
+  output << "fingerprint=" << fingerprint << '\n' << "counter=" << counter << '\n';
+  output.close();
+  if (!output) return false;
+#ifdef _WIN32
+  if (MoveFileExA(temporary.string().c_str(), path.string().c_str(),
+                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
+  return true;
+#else
+  filesystem::rename(temporary, path, error);
+  return !error;
+#endif
 }
 
 }  // namespace
@@ -160,7 +217,11 @@ bool LocalHttpServer::start(uint16_t preferredPort, ScanCallback onScan, Quantit
   for (uint16_t candidate = preferredPort; candidate < static_cast<uint16_t>(preferredPort + 20); ++candidate) {
     if (bindSocket(candidate)) {
       running_.store(true);
-      worker_ = thread(&LocalHttpServer::workerLoop, this);
+      workers_.clear();
+      workers_.reserve(kWorkerCount);
+      for (size_t index = 0; index < kWorkerCount; ++index) {
+        workers_.emplace_back(&LocalHttpServer::workerLoop, this);
+      }
       return true;
     }
   }
@@ -182,9 +243,10 @@ void LocalHttpServer::stop() {
     listenSocket_ = INVALID_SOCKET;
   }
 
-  if (worker_.joinable()) {
-    worker_.join();
+  for (auto& worker : workers_) {
+    if (worker.joinable()) worker.join();
   }
+  workers_.clear();
 
   if (winsockStarted_) {
     WSACleanup();
@@ -197,10 +259,19 @@ void LocalHttpServer::setRecentActivity(vector<ActivityEntry> activities) {
   recentActivities_ = move(activities);
 }
 
-void LocalHttpServer::setDeviceCredentials(string deviceId, string token) {
-  lock_guard<mutex> lock(stateMutex_);
-  pairedDeviceId_ = move(deviceId);
-  deviceToken_ = move(token);
+void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path replayStatePath) {
+  const auto fingerprint = deviceTransportStateFingerprint(token);
+  {
+    lock_guard<mutex> lock(stateMutex_);
+    pairedDeviceId_ = move(deviceId);
+    deviceToken_ = move(token);
+  }
+  lock_guard<mutex> lock(replayMutex_);
+  replayStatePath_ = move(replayStatePath);
+  replayStateFingerprint_ = fingerprint;
+  if (!loadReplayState(replayStatePath_, replayStateFingerprint_, lastAcceptedCounter_)) {
+    lastAcceptedCounter_ = 0;
+  }
 }
 
 bool LocalHttpServer::running() const {
@@ -315,6 +386,30 @@ string LocalHttpServer::responseText(const string& status, const string& content
   return out.str();
 }
 
+string LocalHttpServer::authenticatedResponseText(int status, uint64_t counter, const string& token,
+                                                  const string& body) const {
+  ostringstream out;
+  out << "HTTP/1.1 " << httpStatusText(status) << "\r\n";
+  out << "Content-Type: application/json; charset=utf-8\r\n";
+  out << "Content-Length: " << body.size() << "\r\n";
+  out << "Connection: close\r\nCache-Control: no-store\r\n";
+  out << "X-Inventatory-Protocol: " << kInventatoryScanTransportProtocolVersion << "\r\n";
+  out << "X-Inventatory-Counter: " << counter << "\r\n";
+  out << "X-Inventatory-Mac: " << deviceResponseMac(token, counter, status, body) << "\r\n\r\n";
+  out << body;
+  return out.str();
+}
+
+bool LocalHttpServer::advanceReplayCounter(uint64_t counter) {
+  lock_guard<mutex> lock(replayMutex_);
+  if (counter <= lastAcceptedCounter_ || replayStateFingerprint_.empty() ||
+      !saveReplayState(replayStatePath_, replayStateFingerprint_, counter)) {
+    return false;
+  }
+  lastAcceptedCounter_ = counter;
+  return true;
+}
+
 bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   // Parse the first request line and route only the tiny local API surface.
   const auto headerEnd = requestText.find("\r\n\r\n");
@@ -342,7 +437,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   input >> method >> target >> version;
   (void)version;
 
-  if (method == "POST" && target == "/api/v1/device/sync") {
+  if (method == "POST" && target == "/api/v3/device/sync") {
     string expectedDevice;
     string expectedToken;
     {
@@ -350,179 +445,53 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedDevice = pairedDeviceId_;
       expectedToken = deviceToken_;
     }
-    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
-    if (!tokensMatch(expectedToken, suppliedToken)) {
+    const auto deviceId = headerValue(headers, "X-Inventatory-Device");
+    const auto counter = headerCounter(headers);
+    const auto suppliedMac = headerValue(headers, "X-Inventatory-Mac");
+    const auto protocol = headerValue(headers, "X-Inventatory-Protocol");
+    if (protocol != to_string(kInventatoryScanTransportProtocolVersion) || deviceId.empty() || !counter ||
+        !tokensMatch(deviceRequestMac(expectedToken, method, target, deviceId, *counter, body), suppliedMac)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          statusResultJson(false, "Unauthorized device"));
       send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
       return false;
     }
-
+    const auto reject = [&](int status, const string& error) {
+      const auto response = authenticatedResponseText(status, *counter, expectedToken, statusResultJson(false, error));
+      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+      return false;
+    };
+    if (!expectedDevice.empty() && deviceId != expectedDevice) {
+      return reject(400, "Device identity does not match the pairing");
+    }
     DeviceSyncRequest request;
     string error;
-    if (!parseDeviceSyncRequestJson(body, request, error)) {
-      const auto status = error == "Unsupported protocol version" ? "426 Upgrade Required" : "400 Bad Request";
-      const auto response = responseText(status, "application/json; charset=utf-8", statusResultJson(false, error));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
+    if (!parseDeviceSyncRequestJson(body, request, error) || request.deviceId != deviceId) {
+      return reject(error == "Unsupported protocol version" ? 426 : 400,
+                    error.empty() ? "Device identity does not match the transport envelope" : error);
     }
-    if (!expectedDevice.empty() && request.deviceId != expectedDevice) {
-      const auto response = responseText("400 Bad Request", "application/json; charset=utf-8",
-                                         statusResultJson(false, "Device identity does not match the pairing"));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
+    if (!advanceReplayCounter(*counter)) {
+      return reject(409, "Replayed or unavailable request counter");
     }
-
     DeviceSyncResponse syncResponse;
-    if (!onSync_ || !onSync_(request, syncResponse, error)) {
-      if (error.empty()) error = "Device sync service unavailable";
-      const auto response = responseText("503 Service Unavailable", "application/json; charset=utf-8",
-                                         statusResultJson(false, error));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
-    }
-    const auto response = responseText("200 OK", "application/json; charset=utf-8",
-                                       deviceSyncResponseJson(syncResponse));
-    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-    return true;
-  }
-  if (method == "POST" && target == "/api/device/scan") {
-    string expectedDevice;
-    string expectedToken;
     {
-      lock_guard<mutex> lock(stateMutex_);
-      expectedDevice = pairedDeviceId_;
-      expectedToken = deviceToken_;
-    }
-    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
-    if (!tokensMatch(expectedToken, suppliedToken)) {
-      const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
-                                         scanResultJson(false, "Unauthorized device"));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
-    }
-
-    DeviceScanRequest request;
-    string error;
-    if (!parseScanRequestJson(body, request, error) || (!expectedDevice.empty() && request.deviceId != expectedDevice)) {
-      if (error.empty()) error = "Device identity does not match the pairing";
-      const auto response = responseText("400 Bad Request", "application/json; charset=utf-8",
-                                         scanResultJson(false, error));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
-    }
-
-    bool seen = false;
-    {
-      lock_guard<mutex> lock(stateMutex_);
-      seen = deviceScanRequestCache_.find(request.requestId) != deviceScanRequestCache_.end();
-      if (!seen) {
-        deviceScanRequestCache_.insert(request.requestId);
-        deviceScanRequestOrder_.push_back(request.requestId);
-        while (deviceScanRequestOrder_.size() > 64U) {
-          deviceScanRequestCache_.erase(deviceScanRequestOrder_.front());
-          deviceScanRequestOrder_.pop_front();
-        }
-        lastScan_ = request.code;
+      lock_guard<mutex> lock(applicationMutex_);
+      if (!onSync_ || !onSync_(request, syncResponse, error)) {
+        if (error.empty()) error = "Device sync service unavailable";
+        return reject(503, error);
       }
     }
-
-    if (!seen && onScan_) {
-      onScan_(request);
-    }
-
-    const auto response = responseText("200 OK", "application/json; charset=utf-8", scanResultJson(true));
+    const auto responseBody = deviceSyncResponseJson(syncResponse);
+    const auto response = authenticatedResponseText(200, *counter, expectedToken, responseBody);
     send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
     return true;
   }
 
-  if (method == "POST" && target == "/api/device/debug") {
-    string expectedDevice;
-    string expectedToken;
-    {
-      lock_guard<mutex> lock(stateMutex_);
-      expectedDevice = pairedDeviceId_;
-      expectedToken = deviceToken_;
-    }
-    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
-    if (!tokensMatch(expectedToken, suppliedToken)) {
-      const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
-                                         debugResultJson(false, "Unauthorized device"));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
-    }
-
-    DeviceDebugReport report;
-    string error;
-    if (!parseDebugReportJson(body, report, error) || (!expectedDevice.empty() && report.deviceId != expectedDevice)) {
-      if (error.empty()) error = "Device identity does not match the pairing";
-      const auto response = responseText("400 Bad Request", "application/json; charset=utf-8",
-                                         debugResultJson(false, error));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
-    }
-
-    const auto response = responseText("200 OK", "application/json; charset=utf-8", debugResultJson(true));
+  if (target.rfind("/api/", 0) == 0) {
+    const auto response = responseText("426 Upgrade Required", "application/json; charset=utf-8",
+                                       statusResultJson(false, "Scanner firmware update and BLE re-pair required"));
     send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-    if (onDebug_) {
-      onDebug_(report);
-    }
-    return true;
-  }
-
-  if (method == "POST" && (target == "/api/device/quantity" || target == "/api/device/status")) {
-    string expectedDevice;
-    string expectedToken;
-    {
-      lock_guard<mutex> lock(stateMutex_);
-      expectedDevice = pairedDeviceId_;
-      expectedToken = deviceToken_;
-    }
-    const auto suppliedToken = headerValue(headers, "X-Inventatory-Token");
-    if (!tokensMatch(expectedToken, suppliedToken)) {
-      const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
-                                         statusResultJson(false, "Unauthorized device"));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
-    }
-
-    if (target == "/api/device/quantity") {
-      DeviceQuantityRequest request;
-      string error;
-      if (!parseQuantityRequestJson(body, request, error) ||
-          (!expectedDevice.empty() && request.deviceId != expectedDevice)) {
-        if (error.empty()) error = "Device identity does not match the pairing";
-        const auto response = responseText("400 Bad Request", "application/json; charset=utf-8",
-                                           statusResultJson(false, error));
-        send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-        return false;
-      }
-      DeviceQuantityResult result;
-      if (onQuantity_) {
-        result = onQuantity_(request);
-      } else {
-        result.httpStatus = 503;
-        result.error = "Quantity service unavailable";
-      }
-      const auto response = responseText(httpStatusText(result.httpStatus), "application/json; charset=utf-8",
-                                         quantityResultJson(result));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return result.ok;
-    }
-
-    DeviceStatusReport report;
-    string error;
-    if (!parseStatusReportJson(body, report, error) || (!expectedDevice.empty() && report.deviceId != expectedDevice)) {
-      if (error.empty()) error = "Device identity does not match the pairing";
-      const auto response = responseText("400 Bad Request", "application/json; charset=utf-8",
-                                         statusResultJson(false, error));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-      return false;
-    }
-    if (onStatus_) onStatus_(report);
-    const auto response = responseText("200 OK", "application/json; charset=utf-8", statusResultJson(true));
-    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-    return true;
+    return false;
   }
 
   const auto response = responseText("404 Not Found", "text/plain; charset=utf-8", "Not found");

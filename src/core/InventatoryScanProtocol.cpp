@@ -61,6 +61,77 @@ string jsonEscape(const string& value) {
   return out.str();
 }
 
+string hexBytes(const unsigned char* bytes, size_t size) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  string out;
+  out.reserve(size * 2U);
+  for (size_t index = 0; index < size; ++index) {
+    out.push_back(kHex[(bytes[index] >> 4U) & 0x0fU]);
+    out.push_back(kHex[bytes[index] & 0x0fU]);
+  }
+  return out;
+}
+
+bool decodeToken(const string& token, array<unsigned char, 32>& bytes) {
+  if (token.size() != bytes.size() * 2U) return false;
+  for (size_t index = 0; index < bytes.size(); ++index) {
+    const auto high = hexDigit(token[index * 2U]);
+    const auto low = hexDigit(token[index * 2U + 1U]);
+    if (high < 0 || low < 0) return false;
+    bytes[index] = static_cast<unsigned char>((high << 4U) | low);
+  }
+  return true;
+}
+
+#ifdef _WIN32
+bool hmacSha256(const unsigned char* key, size_t keySize, const string& input, array<unsigned char, 32>& output) {
+  BCRYPT_ALG_HANDLE algorithm = nullptr;
+  BCRYPT_HASH_HANDLE hash = nullptr;
+  DWORD objectSize = 0;
+  DWORD hashSize = 0;
+  ULONG ignored = 0;
+  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG) != 0 ||
+      BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectSize), sizeof(objectSize),
+                        &ignored, 0) != 0 ||
+      BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashSize), sizeof(hashSize),
+                        &ignored, 0) != 0 || hashSize != output.size()) {
+    if (algorithm != nullptr) BCryptCloseAlgorithmProvider(algorithm, 0);
+    return false;
+  }
+  vector<unsigned char> object(objectSize);
+  if (BCryptCreateHash(algorithm, &hash, object.data(), objectSize, const_cast<PUCHAR>(key),
+                       static_cast<ULONG>(keySize), 0) != 0 ||
+      BCryptHashData(hash, reinterpret_cast<PUCHAR>(const_cast<char*>(input.data())),
+                     static_cast<ULONG>(input.size()), 0) != 0 ||
+      BCryptFinishHash(hash, output.data(), static_cast<ULONG>(output.size()), 0) != 0) {
+    if (hash != nullptr) BCryptDestroyHash(hash);
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    return false;
+  }
+  BCryptDestroyHash(hash);
+  BCryptCloseAlgorithmProvider(algorithm, 0);
+  return true;
+}
+#endif
+
+string transportMac(const string& token, const char* direction, const string& input) {
+  array<unsigned char, 32> root{};
+  array<unsigned char, 32> key{};
+  array<unsigned char, 32> mac{};
+  if (!decodeToken(token, root)) return {};
+#ifdef _WIN32
+  if (!hmacSha256(root.data(), root.size(), string("Inventatory Scan R1 transport v3 ") + direction, key) ||
+      !hmacSha256(key.data(), key.size(), input, mac)) {
+    return {};
+  }
+  return hexBytes(mac.data(), mac.size());
+#else
+  (void)direction;
+  (void)input;
+  return {};
+#endif
+}
+
 bool jsonObjectIsComplete(const string& body) {
   const auto begin = body.find_first_not_of(" \t\r\n");
   const auto end = body.find_last_not_of(" \t\r\n");
@@ -429,6 +500,23 @@ string generateInventatoryScanToken() {
   return hexToken(bytes);
 }
 
+string deviceRequestMac(const string& token, const string& method, const string& path, const string& deviceId,
+                        uint64_t counter, const string& body) {
+  return transportMac(token, "client-to-server",
+                      "Inventatory Scan R1/v3\nrequest\n" + method + '\n' + path + '\n' + deviceId + '\n' +
+                          to_string(counter) + '\n' + body);
+}
+
+string deviceResponseMac(const string& token, uint64_t counter, int status, const string& body) {
+  return transportMac(token, "server-to-client",
+                      "Inventatory Scan R1/v3\nresponse\n" + to_string(counter) + '\n' + to_string(status) + '\n' +
+                          body);
+}
+
+string deviceTransportStateFingerprint(const string& token) {
+  return transportMac(token, "replay-state", "Inventatory Scan R1/v3 replay state");
+}
+
 bool parseQuantityRequestJson(const string& body, DeviceQuantityRequest& request, string& error) {
   if (!jsonObjectIsComplete(body)) {
     error = "Invalid JSON request";
@@ -536,7 +624,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
     error = "Missing or invalid sync envelope field";
     return false;
   }
-  if (*protocolVersion != 2) {
+  if (*protocolVersion != kInventatoryScanTransportProtocolVersion) {
     error = "Unsupported protocol version";
     return false;
   }
@@ -609,7 +697,8 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
 
 string deviceSyncResponseJson(const DeviceSyncResponse& response) {
   ostringstream out;
-  out << "{\"protocolVersion\":2,\"requestId\":\"" << jsonEscape(response.requestId)
+  out << "{\"protocolVersion\":" << kInventatoryScanTransportProtocolVersion << ",\"requestId\":\""
+      << jsonEscape(response.requestId)
       << "\",\"acceptedEventIds\":[";
   for (size_t index = 0; index < response.acceptedEventIds.size(); ++index) {
     if (index != 0) out << ',';
