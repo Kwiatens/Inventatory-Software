@@ -1272,24 +1272,12 @@ void App::processScans() {
     const auto& code = request.code;
     const auto resolution = resolveScanCode(store_, code);
     if (resolution.matched) {
-      bool syncedDigiKeyMetadata = false;
-      InventoryItem* syncedItem = nullptr;
       if (auto* item = store_.findById(resolution.itemId)) {
         const auto shouldTrySync = resolution.created || trim(item->syncStatus) != "synced" ||
                                    trim(item->partName) == "Scanned DigiKey Item";
         if (shouldTrySync) {
-          const auto api = createDigiKeyApi();
-          if (api.client != nullptr) {
-            const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : code;
-            if (!trim(lookup).empty()) {
-              string error;
-              const auto details = api.client->fetchProductDetails(lookup, &error);
-              if (details && mergeDigiKeyMetadata(*item, *details)) {
-                syncedDigiKeyMetadata = true;
-                syncedItem = item;
-              }
-            }
-          }
+          const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : code;
+          if (!trim(lookup).empty()) scanDigiKeyEnrichmentQueue_.emplace_back(item->id, lookup);
         }
       }
 
@@ -1304,10 +1292,6 @@ void App::processScans() {
           reconcileRackAssignment(store_, *item);
         }
         logActivity("scan", "Matched existing item with code " + code);
-      }
-
-      if (syncedDigiKeyMetadata && syncedItem != nullptr) {
-        logActivity("scan", "Synced DigiKey metadata for " + syncedItem->partName);
       }
 
       if (const auto* item = store_.findById(resolution.itemId)) {
@@ -1329,6 +1313,29 @@ void App::processScans() {
     }
     syncSelectionToFilter();
   }
+}
+
+void App::processScanDigiKeyEnrichment() {
+  if (scanDigiKeyEnrichmentFuture_.valid()) {
+    if (scanDigiKeyEnrichmentFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
+    const auto result = scanDigiKeyEnrichmentFuture_.get();
+    if (result.second) {
+      if (auto* item = store_.findById(result.first); item != nullptr && mergeDigiKeyMetadata(*item, *result.second)) {
+        logActivity("scan", "Synced DigiKey metadata for " + item->partName);
+        saveState();
+      }
+    }
+  }
+  if (scanDigiKeyEnrichmentQueue_.empty()) return;
+  const auto [itemId, lookup] = scanDigiKeyEnrichmentQueue_.front();
+  scanDigiKeyEnrichmentQueue_.pop_front();
+  const auto config = loadDigiKeyConfig();
+  if (!config.valid()) return;
+  scanDigiKeyEnrichmentFuture_ = async(launch::async, [itemId, lookup, config] {
+    DigiKeyApiClient client(config);
+    string error;
+    return make_pair(itemId, client.fetchProductDetails(lookup, &error));
+  });
 }
 
 DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& request) {
@@ -1631,17 +1638,7 @@ void App::processDeviceSyncEvents() {
       string warning;
       const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
                                 trim(item->partName) == "Scanned DigiKey Item";
-      if (shouldEnrich) {
-        const auto api = createDigiKeyApi();
-        if (api.client == nullptr) {
-          warning = api.error;
-        } else {
-          string lookupError;
-          const auto details = api.client->fetchProductDetails(event.code, &lookupError);
-          if (details) mergeDigiKeyMetadata(*item, *details);
-          else warning = lookupError.empty() ? "DigiKey metadata unavailable" : lookupError;
-        }
-      }
+      if (shouldEnrich && !trim(event.code).empty()) scanDigiKeyEnrichmentQueue_.emplace_back(item->id, event.code);
       reconcileRackAssignment(candidate, *item);
       result.itemName = item->partName;
       result.location = rackLocation(*item, candidate.racks());
