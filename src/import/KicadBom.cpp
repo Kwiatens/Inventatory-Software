@@ -159,8 +159,14 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
     line.designation = csvCell(row, columns.designation);
     line.supplierRef = csvCell(row, columns.supplier);
     // KiCad usually writes an explicit Quantity, but ungrouped exports omit it.
-    line.quantityPerBoard =
-        parseCount(csvCell(row, columns.quantity)).value_or(static_cast<int>(line.designators.size()));
+    const auto quantityText = csvCell(row, columns.quantity);
+    const auto parsedQuantity = parseCount(quantityText);
+    if (columns.quantity >= 0 && !trim(quantityText).empty() && !parsedQuantity) {
+      bom.warnings.push_back("Row " + to_string(sourceRow) + ": " + line.designation +
+                             " has an invalid explicit quantity");
+      continue;
+    }
+    line.quantityPerBoard = parsedQuantity.value_or(static_cast<int>(line.designators.size()));
 
     if (line.designators.empty() || line.designation.empty()) {
       continue;

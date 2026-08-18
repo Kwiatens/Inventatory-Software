@@ -307,8 +307,10 @@ bool App::saveSettingsDraft() {
                                  appSettingsDirectory() / "inventatory-scan-replay.state");
   }
 
-  if (quickLabelsChanged || dataChanged) {
-    saveQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision);
+  if ((quickLabelsChanged || dataChanged) &&
+      !saveQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision)) {
+    setMessage("Unable to save quick-label settings", 5);
+    return false;
   }
 
   {

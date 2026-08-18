@@ -7,6 +7,9 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace inventatory {
 
@@ -18,6 +21,17 @@ bool parseBool(const string& value, bool fallback) {
   if (value == "1" || value == "true") return true;
   if (value == "0" || value == "false") return false;
   return fallback;
+}
+
+bool replaceSettingsFile(const filesystem::path& path, const filesystem::path& temporary) {
+#ifdef _WIN32
+  return MoveFileExA(temporary.string().c_str(), path.string().c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+  error_code error;
+  filesystem::rename(temporary, path, error);
+  return !error;
+#endif
 }
 
 }  // namespace
@@ -139,10 +153,11 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n';
   output.close();
   if (!output) return false;
-  filesystem::remove(path, error);
-  error.clear();
-  filesystem::rename(temporary, path, error);
-  return !error;
+  if (!replaceSettingsFile(path, temporary)) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
+  return true;
 }
 
 filesystem::path quickLabelsPath(const filesystem::path& dataDirectory) {
@@ -190,10 +205,11 @@ bool saveQuickLabels(const filesystem::path& path, const vector<string>& presets
   }
   output.close();
   if (!output) return false;
-  filesystem::remove(path, error);
-  error.clear();
-  filesystem::rename(temporary, path, error);
-  return !error;
+  if (!replaceSettingsFile(path, temporary)) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
+  return true;
 }
 
 }  // namespace inventatory
