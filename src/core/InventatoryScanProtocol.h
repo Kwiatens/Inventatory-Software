@@ -15,6 +15,8 @@
 
 namespace inventatory {
 
+constexpr int kInventatoryScanTransportProtocolVersion = 3;
+
 struct InventatoryScanConfig {
   std::string deviceId;
   std::string token;
@@ -130,7 +132,7 @@ struct DeviceSyncResult {
 };
 
 struct DeviceSyncResponse {
-  int protocolVersion = 2;
+  int protocolVersion = kInventatoryScanTransportProtocolVersion;
   std::string requestId;
   std::vector<std::string> acceptedEventIds;
   std::vector<DeviceSyncResult> results;
@@ -146,6 +148,12 @@ struct DeviceSyncResponse {
 bool loadInventatoryScanConfig(const std::filesystem::path& path, InventatoryScanConfig& config);
 bool saveInventatoryScanConfig(const std::filesystem::path& path, const InventatoryScanConfig& config);
 std::string generateInventatoryScanToken();
+
+std::string deviceRequestMac(const std::string& token, const std::string& method, const std::string& path,
+                             const std::string& deviceId, std::uint64_t counter, const std::string& body);
+std::string deviceResponseMac(const std::string& token, std::uint64_t counter, int status,
+                              const std::string& body);
+std::string deviceTransportStateFingerprint(const std::string& token);
 
 bool parseQuantityRequestJson(const std::string& body, DeviceQuantityRequest& request, std::string& error);
 bool parseScanRequestJson(const std::string& body, DeviceScanRequest& request, std::string& error);

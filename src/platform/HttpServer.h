@@ -58,7 +58,7 @@ class LocalHttpServer {
              StatusCallback onStatus = {}, DebugCallback onDebug = {}, SyncCallback onSync = {});
   void stop();
   void setRecentActivity(vector<ActivityEntry> activities);
-  void setDeviceCredentials(string deviceId, string token);
+  void setDeviceCredentials(string deviceId, string token, path replayStatePath = {});
 
   bool running() const;
   uint16_t port() const;
@@ -70,17 +70,21 @@ class LocalHttpServer {
   void workerLoop();
   bool serveConnection(SOCKET clientSocket, string requestText);
   string responseText(const string& status, const string& contentType, const string& body) const;
+  string authenticatedResponseText(int status, std::uint64_t counter, const string& token, const string& body) const;
+  bool advanceReplayCounter(std::uint64_t counter);
   bool bindSocket(uint16_t port);
 
   atomic<bool> running_{false};
   bool winsockStarted_ = false;
-  thread worker_;
+  vector<thread> workers_;
   ScanCallback onScan_;
   DebugCallback onDebug_;
   QuantityCallback onQuantity_;
   StatusCallback onStatus_;
   SyncCallback onSync_;
   mutable mutex stateMutex_;
+  mutex applicationMutex_;
+  mutex replayMutex_;
   deque<string> deviceScanRequestOrder_;
   unordered_set<string> deviceScanRequestCache_;
   uint16_t port_ = 0;
@@ -90,6 +94,9 @@ class LocalHttpServer {
   vector<ActivityEntry> recentActivities_;
   string pairedDeviceId_;
   string deviceToken_;
+  path replayStatePath_;
+  string replayStateFingerprint_;
+  std::uint64_t lastAcceptedCounter_ = 0;
   SOCKET listenSocket_ = INVALID_SOCKET;
 };
 
