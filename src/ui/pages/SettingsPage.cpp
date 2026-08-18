@@ -408,7 +408,7 @@ ftxui::Element App::renderSettingsUi() const {
                             self->dirty_ = true;
                           }));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("PRIVATE BETA UPDATES", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(styledText("PUBLIC BETA UPDATES", uiSecondaryText()) | ftxui::bold);
     rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
                           "settings.general.updates", UiTargetKind::Field, [self] {
                             self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
@@ -421,7 +421,7 @@ ftxui::Element App::renderSettingsUi() const {
                                     UiTargetKind::Button, [self] {
                                       self->settings_.lastUpdateCheckUnixSeconds = 0;
                                       self->beginUpdateCheckIfDue();
-                                      self->setMessage("Checking the private beta release...", 4);
+                                      self->setMessage("Checking the public beta release...", 4);
                                     })));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
