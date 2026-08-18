@@ -1,4 +1,6 @@
 build/
+build-phase*/
+dist/
 .vs/
 out/
 Debug/
