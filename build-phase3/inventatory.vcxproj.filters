@@ -1,0 +1,145 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\app.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\app\AppBootstrap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\app\AppActions.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\app\AppSettings.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\StartupRegistration.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\Inventory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventoryHelpers.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\PartDescriptor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventoryQuery.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\RackAllocation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventorySerialization.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventoryHistory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventoryStorage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventoryScan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventorySqlite.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\InventatoryScanProtocol.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\DeviceSyncStore.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\BomMatch.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\core\BomProjectStore.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\import\CsvReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\import\CsvFormat.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\import\KicadBom.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\import\DigiKeyCsvImport.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\label_printer\LabelPrinter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\HttpServer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\MdnsService.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\DigiKeyApi.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\Console.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\BackgroundController.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\CredentialStore.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\BleProvisioningService.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\platform\UpdateService.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\shared\AppUiShared.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\ActionRegistry.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\DashboardPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\StockPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\RackManagementPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\PrinterSetupPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\InventatoryScanSetupPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\OnboardingPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\ImportCsvPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\BomProjectPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\src\ui\pages\SettingsPage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{C56A5EFA-DEF4-3D9B-A517-19A0DA1B0E08}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

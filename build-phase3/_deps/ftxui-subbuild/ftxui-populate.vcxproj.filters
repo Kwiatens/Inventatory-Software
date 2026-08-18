@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\8506dae0a5561c535ba399a8d143a1ca\ftxui-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\4e0867c243b0016e48ffc585a1d07a97\ftxui-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\5448f873c0c6cd1646fd275c20475d5f\ftxui-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-subbuild\CMakeFiles\ftxui-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{27E6E2E0-7C2A-3338-8EFD-662F7C74C33D}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

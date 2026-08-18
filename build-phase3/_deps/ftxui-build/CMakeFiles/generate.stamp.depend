@@ -1,0 +1,28 @@
+# CMake generation dependency list for this directory.
+C:/Program Files/CMake/share/cmake-4.3/Modules/BasicConfigVersion-SameMajorVersion.cmake.in
+C:/Program Files/CMake/share/cmake-4.3/Modules/CMakePackageConfigHelpers.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CPack.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CPackComponent.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CheckCSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CheckIncludeFile.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/CheckLibraryExists.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindPackageHandleStandardArgs.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindPackageMessage.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/FindThreads.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/GNUInstallDirs.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/Internal/CheckSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-4.3/Modules/WriteBasicConfigVersionFile.cmake
+C:/Program Files/CMake/share/cmake-4.3/Templates/CPackConfig.cmake.in
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/CMakeLists.txt
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui-config.cmake.in
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_benchmark.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_coverage.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_export.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_fuzzer.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_install.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_message.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_package.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_set_options.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/ftxui_test.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/cmake/iwyu.cmake
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-src/ftxui.pc.in

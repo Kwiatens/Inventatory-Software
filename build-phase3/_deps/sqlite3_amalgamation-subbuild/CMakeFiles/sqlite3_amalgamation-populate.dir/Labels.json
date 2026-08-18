@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/sqlite3_amalgamation-populate"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/b1dad434d40b43f7ba522a7cfe0df866/sqlite3_amalgamation-populate.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/f7d5568d90b97ed9630e6f77f6f828c1/sqlite3_amalgamation-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/sqlite3_amalgamation-subbuild/CMakeFiles/840c23f379990208662b1af3c1212bec/sqlite3_amalgamation-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"sqlite3_amalgamation-populate"
+		],
+		"name" : "sqlite3_amalgamation-populate"
+	}
+}

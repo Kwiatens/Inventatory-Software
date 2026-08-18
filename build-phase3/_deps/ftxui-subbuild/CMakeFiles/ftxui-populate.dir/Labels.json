@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/ftxui-populate"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/5448f873c0c6cd1646fd275c20475d5f/ftxui-populate.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/4e0867c243b0016e48ffc585a1d07a97/ftxui-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/8506dae0a5561c535ba399a8d143a1ca/ftxui-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"ftxui-populate"
+		],
+		"name" : "ftxui-populate"
+	}
+}

@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\sqlite3_amalgamation-src\sqlite3.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{C56A5EFA-DEF4-3D9B-A517-19A0DA1B0E08}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

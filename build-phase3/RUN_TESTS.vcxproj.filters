@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\CMakeFiles\63f553863c4971e83f820581974a39bd\RUN_TESTS_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{FA74E4CF-D1E7-34BC-9044-7607C70070B3}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

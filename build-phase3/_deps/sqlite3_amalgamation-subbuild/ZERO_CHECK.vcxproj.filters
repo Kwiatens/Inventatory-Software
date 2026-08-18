@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\sqlite3_amalgamation-subbuild\CMakeFiles\b1dad434d40b43f7ba522a7cfe0df866\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{7762023F-1A7B-3EE7-BA07-129976AE1EE8}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

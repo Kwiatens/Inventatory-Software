@@ -1,0 +1,63 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\box.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\color.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\color_info.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\image.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\screen.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\string.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\terminal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\include\ftxui\screen\box.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\include\ftxui\screen\color.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\include\ftxui\screen\color_info.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\include\ftxui\screen\image.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\include\ftxui\screen\pixel.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\include\ftxui\screen\screen.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\include\ftxui\screen\string.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\src\ftxui\screen\util.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\pawci\Documents\GitHub\Inventatory-Project\Inventatory-Software\build-phase3\_deps\ftxui-src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{701B5185-4A03-39DF-A606-AC8E793EBB37}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{C56A5EFA-DEF4-3D9B-A517-19A0DA1B0E08}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

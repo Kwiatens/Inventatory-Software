@@ -156,7 +156,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     onboardingActive_ = true;
     page_ = Page::Onboarding;
   }
-  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                               appSettingsDirectory() / "inventatory-scan-replay.state");
 
   if (!server_.start(settings_.deviceServicePort, [this](const DeviceScanRequest& request) { pushScanCode(request); },
                      [this](const DeviceQuantityRequest& request) { return enqueueDeviceQuantity(request); },

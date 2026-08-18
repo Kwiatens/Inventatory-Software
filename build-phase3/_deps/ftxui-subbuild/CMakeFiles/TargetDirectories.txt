@@ -1,0 +1,3 @@
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/ftxui-populate.dir
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/ALL_BUILD.dir
+C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/_deps/ftxui-subbuild/CMakeFiles/ZERO_CHECK.dir
