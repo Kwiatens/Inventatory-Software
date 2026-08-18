@@ -116,6 +116,8 @@ add_executable(inventatory_tests
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
+  src/platform/HttpServer.cpp
+  src/platform/Console.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
@@ -141,7 +143,7 @@ add_executable(inventatory_tests
 target_include_directories(inventatory_tests PRIVATE src)
 
 if(WIN32)
-  target_link_libraries(inventatory_tests PRIVATE winspool bcrypt advapi32)
+  target_link_libraries(inventatory_tests PRIVATE ws2_32 winspool bcrypt advapi32)
 endif()
 
 target_link_libraries(inventatory_tests PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)

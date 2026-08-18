@@ -50,7 +50,8 @@ bool App::regenerateInventatoryScanToken() {
   deviceLastSync_ = 0;
   deviceRequestCache_.clear();
   deviceRequestOrder_.clear();
-  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                               appSettingsDirectory() / "inventatory-scan-replay.state");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
     setMessage("Generated a new token, but Inventatory could not save it", 4);
     return false;
@@ -86,7 +87,8 @@ bool App::clearInventatoryScanPairing() {
   deviceMode_.clear();
   devicePendingEventCount_ = 0;
   deviceLastSync_ = 0;
-  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                               appSettingsDirectory() / "inventatory-scan-replay.state");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
     setMessage("Cleared pairing in memory, but Inventatory could not save it", 4);
     return false;
@@ -204,7 +206,8 @@ bool App::provisionSelectedBleSetupDevice() {
   }
   inventatoryScanConfig_.token = candidateToken;
   inventatoryScanConfig_.deviceId.clear();
-  server_.setDeviceCredentials({}, inventatoryScanConfig_.token);
+  server_.setDeviceCredentials({}, inventatoryScanConfig_.token,
+                               appSettingsDirectory() / "inventatory-scan-replay.state");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
     setMessage("Scanner setup was sent, but Inventatory could not save pairing metadata", 6);
     return false;
