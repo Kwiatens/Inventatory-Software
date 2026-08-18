@@ -37,15 +37,11 @@ function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory
 }
 
 try {
-  if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI is required for this private beta.' }
-  & gh auth status -h github.com | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'Run "gh auth login" with the invited GitHub account before installing.' }
-
   New-Item -ItemType Directory -Path $downloadRoot | Out-Null
-  $tag = (& gh release view --repo $repo --json tagName --jq '.tagName').Trim()
-  if (-not $tag) { throw 'No private beta release is available yet.' }
-  & gh release download $tag --repo $repo --pattern 'Inventatory-win-x64.zip' --pattern 'SHA256SUMS.txt' --dir $downloadRoot
-  if ($LASTEXITCODE -ne 0) { throw 'Could not download the private beta release. Confirm that your GitHub account is invited.' }
+  $releaseBase = "https://github.com/$repo/releases/latest/download"
+  Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/Inventatory-win-x64.zip" -OutFile (Join-Path $downloadRoot 'Inventatory-win-x64.zip')
+  Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/SHA256SUMS.txt" -OutFile (Join-Path $downloadRoot 'SHA256SUMS.txt')
+  $tag = 'latest public beta'
 
   $archive = Join-Path $downloadRoot 'Inventatory-win-x64.zip'
   $checksums = Join-Path $downloadRoot 'SHA256SUMS.txt'
