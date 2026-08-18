@@ -343,7 +343,8 @@ bool App::chooseInventatoryFolder() {
     inventatoryScanConfig_.token = generateInventatoryScanToken();
     saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   }
-  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                               appSettingsDirectory() / "inventatory-scan-replay.state");
   setMessage("Loaded Inventatory folder: " + dataPath_.string(), 4);
   return true;
 }
@@ -1723,7 +1724,8 @@ void App::processDeviceRequests() {
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(status.deviceId);
       saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
-      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                                   appSettingsDirectory() / "inventatory-scan-replay.state");
     }
     dirty_ = true;
   }
@@ -1754,7 +1756,8 @@ void App::processDeviceRequests() {
     const auto result = applyDeviceQuantityCached(store_, pending->request, deviceRequestCache_, deviceRequestOrder_);
     if (pairingChanged) {
       saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
-      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token);
+      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                                   appSettingsDirectory() / "inventatory-scan-replay.state");
     }
     if (result.ok) {
       logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",

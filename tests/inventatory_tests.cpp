@@ -9,6 +9,10 @@
 #undef near
 #endif
 #include "core/InventatoryScanProtocol.h"
+#include "platform/HttpServer.h"
+#ifdef near
+#undef near
+#endif
 #include "core/PartDescriptor.h"
 #include "import/DigiKeyCsvImport.h"
 #include "import/CsvFormat.h"
@@ -20,14 +24,17 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cassert>
+#include <chrono>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <thread>
 #include <unordered_map>
 
 #undef assert
@@ -43,6 +50,55 @@ using namespace inventatory;
 using namespace std;
 
 namespace {
+
+string sendLocalHttpRequest(uint16_t port, const string& request) {
+  SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  assert(client != INVALID_SOCKET);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = htons(port);
+  assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != SOCKET_ERROR);
+  assert(send(client, request.data(), static_cast<int>(request.size()), 0) == static_cast<int>(request.size()));
+
+  DWORD timeout = 3000;
+  setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+  string response;
+  array<char, 1024> buffer{};
+  int received = 0;
+  while ((received = recv(client, buffer.data(), static_cast<int>(buffer.size()), 0)) > 0) {
+    response.append(buffer.data(), static_cast<size_t>(received));
+  }
+  closesocket(client);
+  return response;
+}
+
+SOCKET connectSlowLocalClient(uint16_t port) {
+  SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  assert(client != INVALID_SOCKET);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = htons(port);
+  assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != SOCKET_ERROR);
+  const string partialRequest = "POST /api/v3/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\n";
+  assert(send(client, partialRequest.data(), static_cast<int>(partialRequest.size()), 0) ==
+         static_cast<int>(partialRequest.size()));
+  return client;
+}
+
+string signedSyncRequest(const string& token, const string& deviceId, uint64_t counter, const string& body) {
+  ostringstream request;
+  request << "POST /api/v3/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n";
+  request << "Content-Length: " << body.size() << "\r\n";
+  request << "X-Inventatory-Protocol: " << kInventatoryScanTransportProtocolVersion << "\r\n";
+  request << "X-Inventatory-Device: " << deviceId << "\r\n";
+  request << "X-Inventatory-Counter: " << counter << "\r\n";
+  request << "X-Inventatory-Mac: "
+          << deviceRequestMac(token, "POST", "/api/v3/device/sync", deviceId, counter, body) << "\r\n\r\n";
+  request << body;
+  return request.str();
+}
 
 vector<InventoryItem> makeSampleInventory() {
   vector<InventoryItem> items;
@@ -1467,6 +1523,70 @@ int main() {
     assert(loaded.fallbackPort == expected.fallbackPort);
     filesystem::remove(configPath);
     assert(generateInventatoryScanToken().size() == 64);
+    assert(deviceRequestMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "POST",
+                            "/api/v3/device/sync", "r1-test", 42, R"({"protocolVersion":3})") ==
+           "37d6d6ef983dd97631462f2eae04faa133a5e6fbe066d3395d4c84c11edd81c3");
+    assert(deviceResponseMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", 42, 200,
+                             R"({"ok":true})") ==
+           "cf552c22d48743e1d2f665e8453b92cf8ea183c9692eda973c5a222820f68c03");
+  }
+
+  {
+    const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-v3-http-test";
+    error_code cleanupError;
+    filesystem::remove_all(stateDirectory, cleanupError);
+    const auto replayState = stateDirectory / "replay.state";
+    const string token = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    const string deviceId = "r1-secure";
+    const string body =
+        R"({"protocolVersion":3,"requestId":"secure-sync","deviceId":"r1-secure","firmwareVersion":"0.3.0","mode":"ready","rssi":-40,"queueDepth":0,"events":[],"resultAcks":[]})";
+    atomic<int> syncCalls{0};
+    auto onSync = [&syncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response, string&) {
+      ++syncCalls;
+      response.requestId = request.requestId;
+      return true;
+    };
+
+    LocalHttpServer server;
+    server.setDeviceCredentials(deviceId, token, replayState);
+    assert(server.start(19430, {}, {}, {}, {}, onSync));
+    const auto firstRequest = signedSyncRequest(token, deviceId, 42, body);
+    const auto accepted = sendLocalHttpRequest(server.port(), firstRequest);
+    assert(accepted.rfind("HTTP/1.1 200 OK", 0) == 0);
+    assert(accepted.find("X-Inventatory-Mac:") != string::npos);
+    assert(accepted.find(token) == string::npos);
+    assert(syncCalls == 1);
+
+    auto modifiedRequest = firstRequest;
+    const auto firmwareVersion = modifiedRequest.find("0.3.0");
+    assert(firmwareVersion != string::npos);
+    modifiedRequest.replace(firmwareVersion, 5, "9.9.9");
+    const auto modified = sendLocalHttpRequest(server.port(), modifiedRequest);
+    assert(modified.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
+    assert(syncCalls == 1);
+
+    const auto replayed = sendLocalHttpRequest(server.port(), firstRequest);
+    assert(replayed.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(syncCalls == 1);
+
+    const auto slowClient = connectSlowLocalClient(server.port());
+    const auto before = chrono::steady_clock::now();
+    const auto nextResponse = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 43, body));
+    const auto elapsed = chrono::steady_clock::now() - before;
+    closesocket(slowClient);
+    assert(nextResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
+    assert(elapsed < chrono::seconds(1));
+    assert(syncCalls == 2);
+    server.stop();
+
+    LocalHttpServer restarted;
+    restarted.setDeviceCredentials(deviceId, token, replayState);
+    assert(restarted.start(19450, {}, {}, {}, {}, onSync));
+    const auto persistedReplay = sendLocalHttpRequest(restarted.port(), firstRequest);
+    assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(syncCalls == 2);
+    restarted.stop();
+    filesystem::remove_all(stateDirectory, cleanupError);
   }
 
   {
@@ -1496,32 +1616,32 @@ int main() {
     DeviceSyncRequest request;
     string error;
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
+        R"({"protocolVersion":3,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
         request, error));
-    assert(request.protocolVersion == 2);
+    assert(request.protocolVersion == kInventatoryScanTransportProtocolVersion);
     assert(request.events.size() == 1);
     assert(request.events.front().value == 2);
     assert(request.resultAcks.size() == 1);
     assert(!request.hasLookup);
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
+        R"({"protocolVersion":3,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.lookupId == "lookup-9");
     assert(request.lookup.code == "0002");
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
+        R"({"protocolVersion":3,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.code == "718-2362-1-ND");
     // A component Data Matrix carries the manufacturer part number, spaces and all.
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-mpn-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-mpn-1","code":"C1F 500"}})",
+        R"({"protocolVersion":3,"requestId":"sync-mpn-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-mpn-1","code":"C1F 500"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.code == "C1F 500");
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
+        R"({"protocolVersion":3,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
         request, error));
     assert(request.hasQuickLabelPrint);
     assert(request.quickLabelPrint.presetIndex == 2);
@@ -1529,12 +1649,12 @@ int main() {
     // An unresolvable lookup code is dropped so the events it travels with are
     // still delivered; only a structurally broken lookup rejects the envelope.
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-odd-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[{"eventId":"r1-a-7","type":"inventory.receive","code":"C1F 500","value":5}],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"AB*C"}})",
+        R"({"protocolVersion":3,"requestId":"sync-odd-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[{"eventId":"r1-a-7","type":"inventory.receive","code":"C1F 500","value":5}],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"AB*C"}})",
         request, error));
     assert(!request.hasLookup);
     assert(request.events.size() == 1);
     assert(!parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"","code":"0002"}})",
+        R"({"protocolVersion":3,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"","code":"0002"}})",
         request, error));
 
     DeviceSyncResponse quickLabelResponse;
@@ -1608,7 +1728,7 @@ int main() {
 
     request = {};
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":2,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
+        R"({"protocolVersion":3,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
         request, error));
     DeviceSyncResponse response;
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));
