@@ -456,23 +456,38 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
   ifstream input(path);
   if (!input) return false;
   InventatoryScanConfig loaded;
+  bool hasDeviceId = false;
+  bool hasFallbackHost = false;
+  bool hasFallbackPort = false;
+  bool hasLegacyToken = false;
   string line;
   while (getline(input, line)) {
     const auto separator = line.find('=');
     if (separator == string::npos) continue;
     const auto key = trim(line.substr(0, separator));
     const auto value = trim(line.substr(separator + 1));
-    if (key == "device_id") loaded.deviceId = value;
-    else if (key == "token") loaded.token = value;
-    else if (key == "fallback_host" || key == "server_host") loaded.fallbackHost = value;
+    if (key == "device_id") {
+      loaded.deviceId = value;
+      hasDeviceId = true;
+    } else if (key == "token") {
+      loaded.token = value;
+      hasLegacyToken = true;
+    } else if (key == "fallback_host" || key == "server_host") {
+      loaded.fallbackHost = value;
+      hasFallbackHost = true;
+    }
     else if (key == "fallback_port" || key == "server_port") {
       try {
         const auto port = stoul(value);
-        if (port <= 65535) loaded.fallbackPort = static_cast<uint16_t>(port);
+        if (port <= 65535) {
+          loaded.fallbackPort = static_cast<uint16_t>(port);
+          hasFallbackPort = true;
+        }
       } catch (...) {
       }
     }
   }
+  if (!hasLegacyToken && !(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
   config = move(loaded);
   return true;
 }
@@ -480,12 +495,26 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
 bool saveInventatoryScanConfig(const filesystem::path& path, const InventatoryScanConfig& config) {
   error_code error;
   filesystem::create_directories(path.parent_path(), error);
-  ofstream output(path, ios::trunc);
+  if (error) return false;
+  const auto temporary = filesystem::path(path.string() + ".tmp");
+  ofstream output(temporary, ios::trunc);
   if (!output) return false;
   output << "device_id=" << config.deviceId << '\n'
          << "fallback_host=" << config.fallbackHost << '\n'
          << "fallback_port=" << config.fallbackPort << '\n';
-  return static_cast<bool>(output);
+  output.close();
+  if (!output) return false;
+#ifdef _WIN32
+  if (MoveFileExA(temporary.string().c_str(), path.string().c_str(),
+                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
+  return true;
+#else
+  filesystem::rename(temporary, path, error);
+  return !error;
+#endif
 }
 
 string generateInventatoryScanToken() {

@@ -33,6 +33,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <utility>
 #include <string>
@@ -240,6 +241,7 @@ class App {
   void clearMessageIfExpired();
   void requestUserExit();
   void processBackgroundWork();
+  void processScanDigiKeyEnrichment();
   void beginUpdateCheckIfDue();
   void processUpdateCheck();
   void beginScanFirmwareCheck();
@@ -497,6 +499,8 @@ class App {
   // so the future (which joins its task) must outlive the client it borrows.
   std::unique_ptr<DigiKeyApiClient> bomEnrichmentClient_;
   std::future<std::pair<std::string, std::string>> bomEnrichmentFuture_;
+  std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
+  std::future<std::pair<std::string, std::optional<DigiKeyProductDetails>>> scanDigiKeyEnrichmentFuture_;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
   std::vector<Action> sheetActions_;
