@@ -1,2 +1,2 @@
-inventatory_core 1 1.32192
+inventatory_core 8 0.046262
 ---

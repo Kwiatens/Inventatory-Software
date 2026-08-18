@@ -1,19 +1,19 @@
-Start testing: Aug 16 15:44 Œrodkowoeuropejski czas letni
+Start testing: Aug 18 10:27 Œrodkowoeuropejski czas letni
 ----------------------------------------------------------
 1/1 Testing: inventatory_core
 1/1 Test: inventatory_core
-Command: "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/Debug/inventatory_tests.exe"
+Command: "C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3/Release/inventatory_tests.exe"
 Directory: C:/Users/pawci/Documents/GitHub/Inventatory-Project/Inventatory-Software/build-phase3
-"inventatory_core" start time: Aug 16 15:44 Œrodkowoeuropejski czas letni
+"inventatory_core" start time: Aug 18 10:27 Œrodkowoeuropejski czas letni
 Output:
 ----------------------------------------------------------
 Inventatory core tests passed
 <end of output>
-Test time =   1.32 sec
+Test time =   0.37 sec
 ----------------------------------------------------------
 Test Passed.
-"inventatory_core" end time: Aug 16 15:44 Œrodkowoeuropejski czas letni
-"inventatory_core" time elapsed: 00:00:01
+"inventatory_core" end time: Aug 18 10:27 Œrodkowoeuropejski czas letni
+"inventatory_core" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Aug 16 15:44 Œrodkowoeuropejski czas letni
+End testing: Aug 18 10:27 Œrodkowoeuropejski czas letni
