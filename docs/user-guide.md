@@ -2,7 +2,7 @@
 
 ## Navigation
 
-Use `1` Home, `2` Stock, `3` Racks, `4` Import, or `5` Settings from any normal
+Use `1` Home, `2` Stock, `3` Racks, `4` Import, `5` Projects, or `6` Settings from any normal
 workspace. The same destinations are clickable. Press `Space` or click
 `Actions` to see every command available in the current context. `Tab` moves
 focus and `Enter` activates it.

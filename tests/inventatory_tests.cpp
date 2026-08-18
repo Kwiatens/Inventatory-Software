@@ -1521,6 +1521,11 @@ int main() {
     assert(loaded.token.empty());
     assert(loaded.fallbackHost == expected.fallbackHost);
     assert(loaded.fallbackPort == expected.fallbackPort);
+    {
+      ofstream truncated(configPath, ios::trunc);
+      truncated << "device_id=r1-test\n";
+    }
+    assert(!loadInventatoryScanConfig(configPath, loaded));
     filesystem::remove(configPath);
     assert(generateInventatoryScanToken().size() == 64);
     assert(deviceRequestMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "POST",
@@ -1998,6 +2003,16 @@ int main() {
     assert(!isNonOrderableDesignator("HDR1", "PinHeader_1x04"));
 
     assert(projectNameFromPath("C:/tmp/Astro_Arrow_PCB_R1_2.1.csv") == "Astro Arrow PCB R1 2.1");
+
+    const auto inferred = parseKicadBomText("Designator,Designation\nR1 R2,10k\n", "inferred");
+    assert(inferred.ok);
+    assert(inferred.lines.front().quantityPerBoard == 2);
+    const auto malformed = parseKicadBomText("Designator,Designation,Quantity\nR1 R2,10k,two\n", "malformed");
+    assert(!malformed.ok);
+    assert(!malformed.warnings.empty());
+    const auto explicitQuantity = parseKicadBomText("Designator,Designation,Quantity\nR1 R2,10k,7\n", "explicit");
+    assert(explicitQuantity.ok);
+    assert(explicitQuantity.lines.front().quantityPerBoard == 7);
   }
 
   {

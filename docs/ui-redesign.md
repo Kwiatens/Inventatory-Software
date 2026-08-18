@@ -14,7 +14,7 @@ Every workspace uses the same four regions:
 3. Flexible workspace content
 4. One transient message line
 
-The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Settings`.
+The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 Settings`.
 `Actions · Space` is always visible and opens the contextual action sheet.
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
