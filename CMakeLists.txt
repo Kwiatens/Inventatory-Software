@@ -13,6 +13,8 @@ if(MSVC)
 endif()
 
 set(INVENTATORY_VERSION "${PROJECT_VERSION}" CACHE STRING "Inventatory application version")
+set(INVENTATORY_RELEASE_REPOSITORY "" CACHE STRING "GitHub owner/repository for application updates")
+set(INVENTATORY_SCAN_FIRMWARE_REPOSITORY "" CACHE STRING "GitHub owner/repository for Scan R1 firmware updates")
 
 include(CTest)
 
@@ -111,6 +113,8 @@ add_executable(inventatory
 target_include_directories(inventatory PRIVATE src)
 target_compile_definitions(inventatory PRIVATE
   Inventatory_VERSION_STRING="${INVENTATORY_VERSION}"
+  Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
+  Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"
   # GitHub's current MSVC toolset still needs WinRT's legacy coroutine header.
   _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
 )
@@ -153,6 +157,10 @@ add_executable(inventatory_tests
 )
 
 target_include_directories(inventatory_tests PRIVATE src)
+target_compile_definitions(inventatory_tests PRIVATE
+  Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
+  Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"
+)
 
 if(WIN32)
   target_link_libraries(inventatory_tests PRIVATE ws2_32 winspool bcrypt advapi32)

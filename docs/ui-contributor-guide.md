@@ -37,7 +37,7 @@ Machine/user settings are versioned in `%LOCALAPPDATA%/Inventatory/settings.conf
 Inventory content stays in the selected Inventatory data directory. Secrets use
 `CredentialStore`; never write them to config, logs, activity history, test
 snapshots, messages, or screenshots. New settings must define validation,
-staging, save/cancel behavior, migration defaults, and runtime/restart effects.
+staging, save/cancel behavior, initial defaults, and runtime/restart effects.
 
 ## Verification
 
