@@ -68,7 +68,6 @@ bool openCsvFileDialog(filesystem::path& selectedPath);
 bool openFolderDialog(filesystem::path& selectedPath, const string& title);
 vector<string> localAddresses();
 bool controlModifierPressed();
-bool controlModifierPressed();
 vector<KeyEvent> pollKeys();
 
 }  // namespace inventatory
