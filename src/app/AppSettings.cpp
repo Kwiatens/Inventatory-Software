@@ -3,7 +3,8 @@
 
 #include "app/AppSettings.h"
 
-#include <cstdlib>
+#include "platform/Environment.h"
+
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -37,11 +38,11 @@ bool replaceSettingsFile(const filesystem::path& path, const filesystem::path& t
 }  // namespace
 
 filesystem::path appSettingsDirectory() {
-  if (const char* value = getenv("LOCALAPPDATA"); value != nullptr && *value != '\0') {
-    return filesystem::path(value) / "Inventatory";
+  if (const auto value = environmentValue("LOCALAPPDATA"); value.has_value() && !value->empty()) {
+    return filesystem::path(*value) / "Inventatory";
   }
-  if (const char* value = getenv("USERPROFILE"); value != nullptr && *value != '\0') {
-    return filesystem::path(value) / "AppData" / "Local" / "Inventatory";
+  if (const auto value = environmentValue("USERPROFILE"); value.has_value() && !value->empty()) {
+    return filesystem::path(*value) / "AppData" / "Local" / "Inventatory";
   }
   return filesystem::current_path() / ".inventatory";
 }

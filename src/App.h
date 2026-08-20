@@ -44,10 +44,6 @@ namespace inventatory {
 
 std::filesystem::path documentsInventatoryPath();
 std::filesystem::path discoverInventatoryDataPath();
-std::filesystem::path legacyDatabasePath();
-void copyDatabaseSidecar(const std::filesystem::path& sourceBase,
-                         const std::filesystem::path& destinationBase, const std::string& suffix);
-void ensureInventoryDatabaseCopied(const std::filesystem::path& localBase);
 std::filesystem::path locateDotEnvFile();
 
 class App {

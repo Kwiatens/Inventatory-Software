@@ -1,4 +1,4 @@
-// Inventatory - GitHub release update discovery for authenticated/private beta installs.
+// Inventatory - GitHub release update discovery for public releases.
 
 #pragma once
 
@@ -16,7 +16,7 @@ struct UpdateCheckResult {
 
 bool isUpdateCheckDue(bool enabled, std::int64_t lastCheckUnixSeconds, std::int64_t nowUnixSeconds);
 bool isVersionNewer(const std::string& candidate, const std::string& installed);
-UpdateCheckResult checkLatestPrivateBetaRelease(const std::string& installedVersion);
+UpdateCheckResult checkLatestRelease(const std::string& installedVersion);
 
 // Latest published Scan R1 firmware. `installedVersion` is the version the
 // paired device last reported; an empty value still returns the latest release

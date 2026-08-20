@@ -187,7 +187,7 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
        scannerRunning ? "Device service ready" : "Device service offline",
        snapshot.lastScannedPart.empty() ? "Waiting for scans" : snapshot.lastScannedPart,
        deviceConnected ? string() : (scannerRunning ? "No recent device status" : "Scanner server is not running")},
-      {"Label Printer", false, false, "Not configured", "No print jobs yet", "Printer integration pending"},
+      {"Label Printer", false, false, "Not configured", "No print jobs yet", "No printer configured"},
   };
 
   sort(snapshot.attention.begin(), snapshot.attention.end(), [](const AttentionRow& lhs, const AttentionRow& rhs) {

@@ -20,7 +20,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Private-beta artifacts must run on a clean Windows PC without a separate
+# Release artifacts must run on a clean Windows PC without a separate
 # Visual C++ runtime installation.
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -90,6 +90,7 @@ add_executable(inventatory
   src/platform/MdnsService.cpp
   src/platform/DigiKeyApi.cpp
   src/platform/Console.cpp
+  src/platform/Environment.cpp
   src/platform/BackgroundController.cpp
   src/platform/CredentialStore.cpp
   src/platform/BleProvisioningService.cpp
@@ -128,6 +129,7 @@ add_executable(inventatory_tests
   src/platform/UpdateService.cpp
   src/platform/HttpServer.cpp
   src/platform/Console.cpp
+  src/platform/Environment.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp

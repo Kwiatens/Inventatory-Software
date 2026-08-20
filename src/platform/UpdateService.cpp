@@ -1,4 +1,4 @@
-// Inventatory - GitHub release update discovery for authenticated/private beta installs.
+// Inventatory - GitHub release update discovery for public releases.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -142,7 +142,7 @@ bool isVersionNewer(const std::string& candidate, const std::string& installed) 
   return false;
 }
 
-UpdateCheckResult checkLatestPrivateBetaRelease(const std::string& installedVersion) {
+UpdateCheckResult checkLatestRelease(const std::string& installedVersion) {
   return latestRelease(L"Kwiatens/Inventatory-Software", installedVersion);
 }
 
