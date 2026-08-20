@@ -128,7 +128,7 @@ void App::handleOnboardingKey(const KeyEvent& key) {
 void App::beginUpdateCheckIfDue() {
   const auto now = static_cast<int64_t>(time(nullptr));
   if (!isUpdateCheckDue(settings_.updateChecksEnabled, settings_.lastUpdateCheckUnixSeconds, now)) return;
-  updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestPrivateBetaRelease(version); });
+  updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
 }
 
 void App::processUpdateCheck() {
