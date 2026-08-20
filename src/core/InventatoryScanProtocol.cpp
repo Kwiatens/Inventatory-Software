@@ -424,7 +424,7 @@ bool looksLikeSupportedInventatoryScanCode(const string& code) {
 }
 
 // Mirrors isStandardManufacturerPartNumber() in the R1 firmware. A component
-// Data Matrix carries the manufacturer part number, which is what protocol v2
+// Data Matrix carries the manufacturer part number, which is what protocol v3
 // puts in `code`, so the desktop must accept the same shape the device does.
 bool looksLikeManufacturerPartNumber(const string& code) {
   const auto trimmed = trim(code);
