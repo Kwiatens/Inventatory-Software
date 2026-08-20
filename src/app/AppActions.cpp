@@ -136,7 +136,7 @@ bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetails& deta
   assignIfUseful(item.datasheetUrl, details.datasheetUrl);
 
   // The retained provider record is the sole input for deterministic vendor
-  // label resolution; legacy item fields remain available for compatibility.
+  // label resolution; direct item fields remain available for the UI.
   item.vendorMetadata = details.vendorMetadata;
   changed = true;
 

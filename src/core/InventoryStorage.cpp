@@ -17,20 +17,7 @@ using namespace std;
 
 namespace {
 
-bool migrateLegacySchema(SqliteConnection& connection) {
-  if (!tableExists(connection, "inventatory_items") && tableExists(connection, "hims_items") &&
-      !execSql(connection, "ALTER TABLE hims_items RENAME TO inventatory_items")) return false;
-  if (tableExists(connection, "inventatory_items") && tableColumnExists(connection, "inventatory_items", "hims_id") &&
-      !execSql(connection, "ALTER TABLE inventatory_items RENAME COLUMN hims_id TO inventatory_id")) return false;
-  if (!tableExists(connection, "inventatory_racks") && tableExists(connection, "hims_racks") &&
-      !execSql(connection, "ALTER TABLE hims_racks RENAME TO inventatory_racks")) return false;
-  if (!tableExists(connection, "inventatory_device_events") && tableExists(connection, "hims_device_events") &&
-      !execSql(connection, "ALTER TABLE hims_device_events RENAME TO inventatory_device_events")) return false;
-  return true;
-}
-
 bool ensureInventatoryTableSchema(SqliteConnection& connection) {
-  if (!migrateLegacySchema(connection)) return false;
   if (!execSql(connection, R"SQL(
     CREATE TABLE IF NOT EXISTS inventatory_items (
       id TEXT PRIMARY KEY,
@@ -71,63 +58,6 @@ bool ensureInventatoryTableSchema(SqliteConnection& connection) {
     return false;
   }
 
-  if (!tableColumnExists(connection, "inventatory_items", "inventatory_id")) {
-    if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN inventatory_id TEXT NOT NULL DEFAULT ''")) {
-      return false;
-    }
-  }
-  if (!tableColumnExists(connection, "inventatory_items", "created_at")) {
-    if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")) {
-      return false;
-    }
-  }
-  if (!tableColumnExists(connection, "inventatory_items", "machine_code")) {
-    if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN machine_code TEXT NOT NULL DEFAULT ''")) {
-      return false;
-    }
-  }
-  if (!tableColumnExists(connection, "inventatory_items", "rack_id") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_id TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "rack_slot") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_slot TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "rack_assignment") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN rack_assignment TEXT NOT NULL DEFAULT 'automatic'")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "manufacturer_part_number") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN manufacturer_part_number TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "enrichment_status") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN enrichment_status TEXT NOT NULL DEFAULT ''")) return false;
-  // Keep the direct DigiKey fields alongside the newer local-enrichment
-  // columns so established SQLite inventories remain readable.
-  if (!tableColumnExists(connection, "inventatory_items", "digikey_part_number") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN digikey_part_number TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "product_url") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN product_url TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "sync_status") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN sync_status TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "sku") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN sku TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "label_override") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN label_override TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_provider") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_provider TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_product_number") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_product_number TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_manufacturer_part_number") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_manufacturer_part_number TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_category_id") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_category_id TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_category_path") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_category_path TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_title") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_title TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_detailed_description") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_detailed_description TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_parameters") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_parameters TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_product_url") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_product_url TEXT NOT NULL DEFAULT ''")) return false;
-  if (!tableColumnExists(connection, "inventatory_items", "vendor_locale") &&
-      !execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_locale TEXT NOT NULL DEFAULT ''")) return false;
   if (!execSql(connection, R"SQL(
     CREATE TABLE IF NOT EXISTS inventatory_racks (
       id TEXT PRIMARY KEY,
@@ -165,96 +95,12 @@ bool loadRacks(SqliteConnection& connection, vector<InventatoryRack>& racks) {
   return stepResult == SQLITE_DONE;
 }
 
-InventoryItem legacyRowToItem(sqlite3_stmt* stmt) {
-  InventoryItem item;
-  const auto legacyId = sqliteApi().column_int64(stmt, 0);
-  const auto partNumber = sqliteText(stmt, 1);
-  const auto partNumberNormalized = sqliteText(stmt, 2);
-  const auto quantity = sqliteApi().column_int(stmt, 3);
-  const auto location = sqliteText(stmt, 4);
-  const auto manufacturer = sqliteText(stmt, 5);
-  const auto packageName = sqliteText(stmt, 6);
-  const auto description = sqliteText(stmt, 7);
-  const auto notes = sqliteText(stmt, 8);
-  const auto updatedAt = sqliteText(stmt, 10);
-  const auto digikeyPartNumber = sqliteText(stmt, 11);
-  const auto category = sqliteText(stmt, 12);
-  const auto subcategory = sqliteText(stmt, 13);
-  const auto productUrl = sqliteText(stmt, 14);
-  const auto datasheetUrl = sqliteText(stmt, 15);
-  const auto searchText = sqliteText(stmt, 18);
-  const auto enrichmentStatus = sqliteText(stmt, 19);
-  const auto inventoryArea = sqliteText(stmt, 22);
-  const auto reorderOverride = sqliteApi().column_int(stmt, 23);
-  const auto hardwareType = sqliteText(stmt, 24);
-  const auto hardwareSize = sqliteText(stmt, 25);
-  const auto hardwareLength = sqliteText(stmt, 26);
-  const auto filamentMaterial = sqliteText(stmt, 28);
-  const auto filamentColor = sqliteText(stmt, 29);
-  const auto filamentDiameterMm = sqliteText(stmt, 30);
-
-  item.id = to_string(legacyId);
-  item.partName = partNumber.empty() ? description : partNumber;
-  item.manufacturer = manufacturer;
-  item.category = category.empty() ? subcategory : (subcategory.empty() ? category : category + " / " + subcategory);
-  item.quantity = quantity;
-  item.reorderThreshold = reorderOverride >= 0 ? reorderOverride : 0;
-  item.location = location;
-  if (!inventoryArea.empty()) {
-    item.tags.push_back(inventoryArea);
-  }
-  if (!packageName.empty()) {
-    item.tags.push_back(packageName);
-  }
-  if (!subcategory.empty()) {
-    item.tags.push_back(subcategory);
-  }
-  if (!packageName.empty()) {
-    item.parameters.push_back({"Package", packageName});
-  }
-  if (!inventoryArea.empty()) {
-    item.parameters.push_back({"Inventory Area", inventoryArea});
-  }
-  if (!hardwareType.empty()) {
-    item.parameters.push_back({"Hardware Type", hardwareType});
-  }
-  if (!hardwareSize.empty()) {
-    item.parameters.push_back({"Hardware Size", hardwareSize});
-  }
-  if (!hardwareLength.empty()) {
-    item.parameters.push_back({"Hardware Length", hardwareLength});
-  }
-  if (!filamentMaterial.empty()) {
-    item.parameters.push_back({"Filament Material", filamentMaterial});
-  }
-  if (!filamentColor.empty()) {
-    item.parameters.push_back({"Filament Color", filamentColor});
-  }
-  if (!filamentDiameterMm.empty()) {
-    item.parameters.push_back({"Filament Diameter", filamentDiameterMm});
-  }
-  item.notes = description.empty() ? notes : (notes.empty() ? description : description + " | " + notes);
-  item.digikeyPartNumber = digikeyPartNumber;
-  item.datasheetUrl = datasheetUrl;
-  item.productUrl = productUrl;
-  item.syncStatus = enrichmentStatus.empty() ? "needs_metadata" : toLower(enrichmentStatus);
-  item.sku = partNumberNormalized.empty() ? partNumber : partNumberNormalized;
-  item.lastUpdated = nowEpoch();
-  if (!updatedAt.empty()) {
-    item.lastUpdated = nowEpoch();
-  }
-  if (!searchText.empty() && item.notes.empty()) {
-    item.notes = searchText;
-  }
-  return item;
-}
-
 bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<InventoryItem>& items) {
   SqliteStatement statement;
   const char* sql = R"SQL(
     SELECT id, part_name, manufacturer, category, quantity, reorder_threshold, location,
-           tags, parameters, notes, COALESCE(NULLIF(digikey_part_number, ''), manufacturer_part_number), datasheet_url, product_url,
-           COALESCE(NULLIF(sync_status, ''), enrichment_status), COALESCE(NULLIF(sku, ''), manufacturer_part_number), last_updated, inventatory_id, created_at, machine_code,
+           tags, parameters, notes, digikey_part_number, datasheet_url, product_url,
+           sync_status, sku, last_updated, inventatory_id, created_at, machine_code,
            rack_id, rack_slot, rack_assignment,
            label_override, vendor_provider, vendor_product_number, vendor_manufacturer_part_number,
            vendor_category_id, vendor_category_path, vendor_title, vendor_detailed_description,
@@ -304,31 +150,6 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     item.vendorMetadata.productUrl = sqliteText(statement.stmt, 31);
     item.vendorMetadata.locale = sqliteText(statement.stmt, 32);
     items.push_back(move(item));
-  }
-
-  return stepResult == SQLITE_DONE;
-}
-
-bool importLegacyItems(SqliteConnection& connection, vector<InventoryItem>& items) {
-  SqliteStatement statement;
-  const char* sql = R"SQL(
-    SELECT id, part_number, part_number_normalized, quantity, location, manufacturer, package, description,
-           notes, created_at, updated_at, digikey_part_number, category, subcategory, product_url, datasheet_url,
-           image_url, specs_json, search_text, enrichment_status, enrichment_error, last_enriched_at,
-           inventory_area, reorder_point_override, hardware_type, hardware_size, hardware_length,
-           hardware_material_finish, filament_material, filament_color, filament_diameter_mm,
-           filament_spool_weight_g, filament_remaining_weight_g
-    FROM items
-    ORDER BY part_number COLLATE NOCASE ASC
-  )SQL";
-
-  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
-    return false;
-  }
-
-  int stepResult = SQLITE_OK;
-  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
-    items.push_back(legacyRowToItem(statement.stmt));
   }
 
   return stepResult == SQLITE_DONE;
@@ -395,13 +216,13 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
   const char* sql = R"SQL(
     INSERT OR REPLACE INTO inventatory_items (
       id, part_name, manufacturer, category, quantity, reorder_threshold, location,
-      tags, parameters, notes, manufacturer_part_number, datasheet_url, enrichment_status,
-      digikey_part_number, product_url, sync_status, sku, last_updated, inventatory_id, created_at, machine_code,
+      tags, parameters, notes, digikey_part_number, datasheet_url, product_url, sync_status, sku,
+      last_updated, inventatory_id, created_at, machine_code,
       rack_id, rack_slot, rack_assignment,
       label_override, vendor_provider, vendor_product_number, vendor_manufacturer_part_number,
       vendor_category_id, vendor_category_path, vendor_title, vendor_detailed_description,
       vendor_parameters, vendor_product_url, vendor_locale
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )SQL";
 
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
@@ -422,35 +243,32 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     const auto parameters = serializeParametersForStorage(item.parameters);
     sqliteApi().bind_text(statement.stmt, 9, parameters.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 10, item.notes.c_str(), -1, SQLITE_TRANSIENT);
-    const auto manufacturerPartNumber = item.sku.empty() ? item.digikeyPartNumber : item.sku;
-    sqliteApi().bind_text(statement.stmt, 11, manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 11, item.digikeyPartNumber.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 12, item.datasheetUrl.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 13, item.syncStatus.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 14, item.digikeyPartNumber.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 15, item.productUrl.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 16, item.syncStatus.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 17, item.sku.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_int64(statement.stmt, 18, static_cast<sqlite3_int64>(item.lastUpdated));
-    sqliteApi().bind_text(statement.stmt, 19, item.inventatoryId.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_int64(statement.stmt, 20, static_cast<sqlite3_int64>(item.createdAt));
-    sqliteApi().bind_text(statement.stmt, 21, item.machineCode.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 22, item.rackId.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 23, item.rackSlot.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 13, item.productUrl.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 14, item.syncStatus.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 15, item.sku.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_int64(statement.stmt, 16, static_cast<sqlite3_int64>(item.lastUpdated));
+    sqliteApi().bind_text(statement.stmt, 17, item.inventatoryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_int64(statement.stmt, 18, static_cast<sqlite3_int64>(item.createdAt));
+    sqliteApi().bind_text(statement.stmt, 19, item.machineCode.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 20, item.rackId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 21, item.rackSlot.c_str(), -1, SQLITE_TRANSIENT);
     const auto assignment = rackAssignmentModeName(item.rackAssignment);
-    sqliteApi().bind_text(statement.stmt, 24, assignment.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 25, item.labelOverride.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 26, item.vendorMetadata.provider.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 27, item.vendorMetadata.providerProductNumber.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 28, item.vendorMetadata.manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 29, item.vendorMetadata.categoryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 22, assignment.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 23, item.labelOverride.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 24, item.vendorMetadata.provider.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 25, item.vendorMetadata.providerProductNumber.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 26, item.vendorMetadata.manufacturerPartNumber.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 27, item.vendorMetadata.categoryId.c_str(), -1, SQLITE_TRANSIENT);
     const auto vendorCategoryPath = serializeTagsForStorage(item.vendorMetadata.categoryPath);
-    sqliteApi().bind_text(statement.stmt, 30, vendorCategoryPath.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 31, item.vendorMetadata.title.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 32, item.vendorMetadata.detailedDescription.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 28, vendorCategoryPath.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 29, item.vendorMetadata.title.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 30, item.vendorMetadata.detailedDescription.c_str(), -1, SQLITE_TRANSIENT);
     const auto vendorParameters = serializeParametersForStorage(item.vendorMetadata.parameters);
-    sqliteApi().bind_text(statement.stmt, 33, vendorParameters.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 34, item.vendorMetadata.productUrl.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(statement.stmt, 35, item.vendorMetadata.locale.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 31, vendorParameters.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 32, item.vendorMetadata.productUrl.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 33, item.vendorMetadata.locale.c_str(), -1, SQLITE_TRANSIENT);
 
     if (sqliteApi().step(statement.stmt) != SQLITE_DONE) {
       execSql(connection, "ROLLBACK");
@@ -531,28 +349,15 @@ bool InventoryStore::load(const filesystem::path& path) {
     return false;
   }
 
-  const bool hasInventatoryTable = tableExists(connection, "inventatory_items");
-  const bool hasLegacyTable = tableExists(connection, "items");
-
   vector<InventoryItem> inventatoryItems;
-  if (hasInventatoryTable && !loadItemsFromInventatoryTable(connection, inventatoryItems)) return false;
+  if (!loadItemsFromInventatoryTable(connection, inventatoryItems)) return false;
 
-  vector<InventoryItem> legacyItems;
-  if (hasLegacyTable && !importLegacyItems(connection, legacyItems)) return false;
-
-  if (!hasInventatoryTable && !hasLegacyTable) return false;
-
-  const bool migrateLegacyItems =
-      !legacyItems.empty() && (inventatoryItems.empty() || legacyItems.size() > inventatoryItems.size());
   InventoryStore loadedStore;
-  loadedStore.items() = migrateLegacyItems ? move(legacyItems) : move(inventatoryItems);
+  loadedStore.items() = move(inventatoryItems);
   loadedStore.racks() = move(loadedRacks);
 
   ensureInventoryIdentifiers(loadedStore.items());
   reconcileRackAssignments(loadedStore);
-  if (migrateLegacyItems &&
-      !writeItemsToInventatoryTable(connection, loadedStore.items(), loadedStore.racks())) return false;
-
   items_ = move(loadedStore.items());
   racks_ = move(loadedStore.racks());
   return true;

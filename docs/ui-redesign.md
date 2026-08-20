@@ -1,4 +1,4 @@
-# Inventatory UI Redesign v2
+# Inventatory UI Redesign
 
 This document is the source of truth for the Inventatory terminal interface. Inventatory is a
 compact electronics-inventory tool: text first, fast under the keyboard, and
@@ -19,7 +19,7 @@ The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 S
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
 
-The retired phone/web scanner is not part of the v2 interface. The physical
+The retired phone/web scanner is not part of the Inventatory interface. The physical
 Inventatory Scan R1 remains supported through the desktop application's authenticated
 device service; UI copy calls this the R1 service rather than a generic bridge.
 

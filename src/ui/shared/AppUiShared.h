@@ -33,9 +33,7 @@ struct DetailField {
   ftxui::Color valueColor;
 };
 
-// Graphite / Turquoise semantic palette. New UI code should use these role
-// names; the legacy helpers below remain as compatibility aliases during the
-// workspace migration.
+// Graphite / Turquoise semantic palette used throughout the terminal UI.
 ftxui::Color uiCanvasBg();
 ftxui::Color uiSurfaceBg();
 ftxui::Color uiRaisedSurfaceBg();

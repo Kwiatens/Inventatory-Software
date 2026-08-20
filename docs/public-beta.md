@@ -13,6 +13,5 @@ Build from a clean clone with Visual Studio 2022 C++ tools and CMake 3.20 or new
     ctest --test-dir build -C Release --output-on-failure
 
 Inventory data defaults to Documents\\Inventatory and machine-local settings use
-%LOCALAPPDATA%\\Inventatory. Scan R1 firmware using transport v3 must be re-paired
-after update; open Settings > Scan R1 in the application to pair the scanner and
-review its connection status.
+%LOCALAPPDATA%\\Inventatory. Open Settings > Scan R1 in the application to pair
+the scanner and review its connection status.

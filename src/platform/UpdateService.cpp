@@ -16,6 +16,8 @@ namespace inventatory {
 namespace {
 
 constexpr std::int64_t kUpdateCheckIntervalSeconds = 24 * 60 * 60;
+constexpr char kReleaseRepository[] = Inventatory_RELEASE_REPOSITORY;
+constexpr char kScanFirmwareRepository[] = Inventatory_SCAN_FIRMWARE_REPOSITORY;
 
 std::string trimVersionPrefix(std::string value) {
   if (!value.empty() && (value.front() == 'v' || value.front() == 'V')) value.erase(value.begin());
@@ -60,7 +62,8 @@ std::string jsonStringValue(const std::string& json, const std::string& key) {
   return {};
 }
 
-std::string fetchLatestReleaseJson(const wchar_t* repository) {
+std::string fetchLatestReleaseJson(const std::string& repository) {
+  if (repository.empty()) return {};
   SECURITY_ATTRIBUTES security{};
   security.nLength = sizeof(security);
   security.bInheritHandle = TRUE;
@@ -80,7 +83,8 @@ std::string fetchLatestReleaseJson(const wchar_t* repository) {
   startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
   PROCESS_INFORMATION process{};
   // CreateProcessW may modify the command line in place, so keep it writable.
-  std::wstring command = std::wstring(L"gh api repos/") + repository + L"/releases/latest";
+  const std::wstring repositoryWide(repository.begin(), repository.end());
+  std::wstring command = std::wstring(L"gh api repos/") + repositoryWide + L"/releases/latest";
   if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup,
                       &process)) {
     CloseHandle(readPipe);
@@ -114,7 +118,7 @@ std::string fetchLatestReleaseJson(const wchar_t* repository) {
   return body;
 }
 
-UpdateCheckResult latestRelease(const wchar_t* repository, const std::string& installedVersion) {
+UpdateCheckResult latestRelease(const std::string& repository, const std::string& installedVersion) {
   const auto body = fetchLatestReleaseJson(repository);
   if (body.empty()) return {};
   const auto latestVersion = jsonStringValue(body, "tag_name");
@@ -143,11 +147,11 @@ bool isVersionNewer(const std::string& candidate, const std::string& installed) 
 }
 
 UpdateCheckResult checkLatestRelease(const std::string& installedVersion) {
-  return latestRelease(L"Kwiatens/Inventatory-Software", installedVersion);
+  return latestRelease(kReleaseRepository, installedVersion);
 }
 
 UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion) {
-  return latestRelease(L"Kwiatens/Inventatory-Hardware", installedVersion);
+  return latestRelease(kScanFirmwareRepository, installedVersion);
 }
 
 }  // namespace inventatory

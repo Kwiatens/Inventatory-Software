@@ -1,4 +1,4 @@
-# Inventatory Scan R1 transport v3
+# Inventatory Scan R1 transport
 
 The R1 connects to the PC after discovering `_inventatory._tcp` over mDNS.
 mDNS is only discovery: it does not authenticate the advertised host.
@@ -8,7 +8,7 @@ provisions a random 32-byte pairing secret. It is retained by the Windows
 Credential Manager on the PC and NVS on the R1. The secret is never placed in
 an HTTP request or response.
 
-Each `POST /api/v3/device/sync` carries the device id, a monotonic request
+Each `POST /api/v1/device/sync` carries the device id, a monotonic request
 counter, and an HMAC-SHA-256 MAC over the method, path, device id, counter, and
 exact JSON body. The PC stores the highest accepted counter under its local
 application settings and refuses lower or equal counters, including after
@@ -27,8 +27,5 @@ by a local-network observer. An observer cannot recover or replay the pairing
 secret from that traffic. TLS with a device trust/bootstrap model remains a
 future enhancement.
 
-Transport v2 and all legacy device routes are rejected by the PC. Updating to
-an R1 transport-v3 firmware requires a Bluetooth LE re-pair; the R1 therefore
-invalidates its old provisioning record and enters setup mode. Existing
-regenerate-secret and clear-device actions remain the credential rotation and
-revocation paths.
+Existing regenerate-secret and clear-device actions remain the credential
+rotation and revocation paths.
