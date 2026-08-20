@@ -78,6 +78,7 @@ ftxui::Element App::renderRackManagementUi() const {
   // screen width instead.
   const int gridWidth = compact ? screenWidth : max(42, screenWidth - listWidth - detailWidth - 2);
   const auto rackIndices = sortedRackIndices();
+  const bool inventoryHasNoRacks = store_.racks().empty();
   const auto* rack = selectedRack();
   const auto selectedSlot = selectedRackSlot();
   const auto* selectedSlotItem = selectedRackItem();
@@ -96,10 +97,7 @@ ftxui::Element App::renderRackManagementUi() const {
       rackFixedCell("Used", rackUsedWidth, uiMutedColor(), true),
       ftxui::text(" "),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
-  if (rackIndices.empty()) {
-    rackRows.push_back(fullLine(rackFilter_.empty() ? "No racks yet." : "No racks match filter.", uiMutedColor(),
-                                uiPanelLeftBg()));
-  } else {
+  if (!rackIndices.empty()) {
     for (size_t visible = 0; visible < rackIndices.size(); ++visible) {
       const auto& candidate = store_.racks()[rackIndices[visible]];
       const bool selected = visible == min(rackSelection_, rackIndices.size() - 1);
@@ -121,11 +119,21 @@ ftxui::Element App::renderRackManagementUi() const {
         self->dirty_ = true;
       }));
     }
+  } else if (!inventoryHasNoRacks) {
+    rackRows.push_back(fullLine("No racks match filter.", uiMutedColor(), uiPanelLeftBg()));
   }
 
   ftxui::Elements gridRows;
   if (rack == nullptr) {
-    gridRows.push_back(fullLine("Eligible inventory will create racks automatically.", uiMutedColor(), uiPanelRightBg()));
+    const auto emptyState = inventoryHasNoRacks ? "Add or import an eligible small component to create racks automatically."
+                                                : "No racks match filter.";
+    gridRows.push_back(ftxui::filler());
+    gridRows.push_back(ftxui::hbox({
+        ftxui::filler(),
+        styledText(emptyState, uiMutedColor()),
+        ftxui::filler(),
+    }));
+    gridRows.push_back(ftxui::filler());
   } else {
     gridRows.push_back(fullLine(rack->code + "  " + rack->componentType + "  " +
                                     to_string(rackOccupiedSlotCount(store_, *rack)) + "/25 occupied",
@@ -218,11 +226,11 @@ ftxui::Element App::renderRackManagementUi() const {
                                       "racks.part.details", UiTargetKind::Button,
                                       [self] { self->openSelectedRackItemDetail(); }));
   }
-  detailRows.push_back(fullLine("Selected slot", uiSecondaryText(), uiSurfaceBg()));
+  if (!inventoryHasNoRacks) detailRows.push_back(fullLine("Selected slot", uiSecondaryText(), uiSurfaceBg()));
   if (rack == nullptr) {
-    detailRows.push_back(detailFieldLine({"Status: ", "No racks", uiWarnColor(), uiTitleColor()}, detailWidth - 2));
-    detailRows.push_back(ftxui::paragraphAlignLeft("Add or import an eligible small component to create racks automatically.") |
-                         ftxui::color(uiMutedColor()));
+    if (!inventoryHasNoRacks) {
+      detailRows.push_back(detailFieldLine({"Status: ", "No racks match filter", uiWarnColor(), uiTitleColor()}, detailWidth - 2));
+    }
   } else {
     detailRows.push_back(detailFieldLine({"Rack: ", rack->code, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
     detailRows.push_back(detailFieldLine({"Slot: ", selectedSlot, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
@@ -256,13 +264,14 @@ ftxui::Element App::renderRackManagementUi() const {
       detailRows.push_back(styledText("From " + movingRackSource_, uiMutedColor()));
     }
   }
-  detailRows.push_back(ftxui::filler());
-  detailRows.push_back(uiDivider());
-  detailRows.push_back(ftxui::hbox(move(primaryActions)));
-  if (!secondaryActions.empty()) detailRows.push_back(ftxui::hbox(move(secondaryActions)));
+  if (!inventoryHasNoRacks) {
+    detailRows.push_back(ftxui::filler());
+    detailRows.push_back(uiDivider());
+    detailRows.push_back(ftxui::hbox(move(primaryActions)));
+    if (!secondaryActions.empty()) detailRows.push_back(ftxui::hbox(move(secondaryActions)));
+  }
   rackRows.insert(rackRows.begin(), fullLine("RACKS", uiSecondaryText(), uiSurfaceBg()));
-  gridRows.insert(gridRows.begin(), fullLine("RACK GRID", uiSecondaryText(), uiSurfaceBg()));
-  detailRows.insert(detailRows.begin(), fullLine("SLOT DETAIL", uiSecondaryText(), uiSurfaceBg()));
+  if (!inventoryHasNoRacks) detailRows.insert(detailRows.begin(), fullLine("SLOT DETAIL", uiSecondaryText(), uiSurfaceBg()));
   auto rackPanel = ftxui::vbox(move(rackRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth);
   auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::bgcolor(uiSurfaceBg()) |
