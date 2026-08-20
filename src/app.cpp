@@ -128,7 +128,6 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
                             !loadDigiKeyConfig().clientSecret.empty();
-  ensureInventoryDatabaseCopied(inventoryPath_);
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (!loadedSettings) {
