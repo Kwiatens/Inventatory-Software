@@ -37,7 +37,7 @@ struct BomProject {
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects);
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects);
 
-// Shared with the tests: v2-escaped round trip for the two string maps.
+// Shared with the tests: escaped round trip for the two string maps.
 string serializeBomMap(const map<string, string>& values);
 map<string, string> deserializeBomMap(const string& value);
 

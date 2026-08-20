@@ -75,8 +75,6 @@ struct InventoryItem {
   string rackId;
   string rackSlot;
   RackAssignmentMode rackAssignment = RackAssignmentMode::Automatic;
-  // Trailing fields preserve compatibility with existing aggregate-initialized
-  // inventory fixtures and callers.
   string labelOverride;
   VendorProductMetadata vendorMetadata;
 

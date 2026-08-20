@@ -82,7 +82,7 @@ SOCKET connectSlowLocalClient(uint16_t port) {
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = htons(port);
   assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != SOCKET_ERROR);
-  const string partialRequest = "POST /api/v3/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\n";
+  const string partialRequest = "POST /api/v1/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\n";
   assert(send(client, partialRequest.data(), static_cast<int>(partialRequest.size()), 0) ==
          static_cast<int>(partialRequest.size()));
   return client;
@@ -90,13 +90,13 @@ SOCKET connectSlowLocalClient(uint16_t port) {
 
 string signedSyncRequest(const string& token, const string& deviceId, uint64_t counter, const string& body) {
   ostringstream request;
-  request << "POST /api/v3/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n";
+  request << "POST /api/v1/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n";
   request << "Content-Length: " << body.size() << "\r\n";
   request << "X-Inventatory-Protocol: " << kInventatoryScanTransportProtocolVersion << "\r\n";
   request << "X-Inventatory-Device: " << deviceId << "\r\n";
   request << "X-Inventatory-Counter: " << counter << "\r\n";
   request << "X-Inventatory-Mac: "
-          << deviceRequestMac(token, "POST", "/api/v3/device/sync", deviceId, counter, body) << "\r\n\r\n";
+          << deviceRequestMac(token, "POST", "/api/v1/device/sync", deviceId, counter, body) << "\r\n\r\n";
   request << body;
   return request.str();
 }
@@ -450,21 +450,21 @@ int main() {
     }
 
     {
-      InventoryStore legacyStore;
-      InventatoryRack legacyRack;
-      legacyRack.id = "legacy-rack";
-      legacyRack.code = "R9";
-      legacyRack.componentType = "integrated-circuits";
-      legacyStore.racks().push_back(legacyRack);
-      InventoryItem legacyIc;
-      legacyIc.id = "legacy-ic";
-      legacyIc.partName = "Buck regulator";
-      legacyIc.category = "Integrated Circuits";
-      legacyIc.parameters = {{"Package / Case", "QFN-16"}};
-      legacyStore.items().push_back(legacyIc);
-      reconcileRackAssignment(legacyStore, legacyStore.items().back());
-      assert(legacyStore.racks().size() == 1);
-      assert(rackLocation(legacyStore.items().back(), legacyStore.racks()) == "R9-A1");
+      InventoryStore normalizedStore;
+      InventatoryRack normalizedRack;
+      normalizedRack.id = "normalized-rack";
+      normalizedRack.code = "R9";
+      normalizedRack.componentType = "integrated-circuits";
+      normalizedStore.racks().push_back(normalizedRack);
+      InventoryItem normalizedIc;
+      normalizedIc.id = "normalized-ic";
+      normalizedIc.partName = "Buck regulator";
+      normalizedIc.category = "Integrated Circuits";
+      normalizedIc.parameters = {{"Package / Case", "QFN-16"}};
+      normalizedStore.items().push_back(normalizedIc);
+      reconcileRackAssignment(normalizedStore, normalizedStore.items().back());
+      assert(normalizedStore.racks().size() == 1);
+      assert(rackLocation(normalizedStore.items().back(), normalizedStore.racks()) == "R9-A1");
     }
 
     string error;
@@ -1067,11 +1067,11 @@ int main() {
     assert(service.buildZpl(tvsDiode).find("^FDVc 26V^FS") != string::npos);
     assert(service.buildZpl(tvsDiode).find("^FDIpp 23.1A^FS") != string::npos);
 
-    InventoryItem legacyTvsDiode;
-    legacyTvsDiode.partName = "SURGE SUPPRESSOR 24V";
-    legacyTvsDiode.category = "Circuit Protection";
-    legacyTvsDiode.parameters = {{"Technology", "TVS"}};
-    assert(service.buildLabelPlan(legacyTvsDiode).categoryHeader == "TVS Diode");
+    InventoryItem circuitProtectionTvs;
+    circuitProtectionTvs.partName = "SURGE SUPPRESSOR 24V";
+    circuitProtectionTvs.category = "Circuit Protection";
+    circuitProtectionTvs.parameters = {{"Technology", "TVS"}};
+    assert(service.buildLabelPlan(circuitProtectionTvs).categoryHeader == "TVS Diode");
 
     InventoryItem protectionIc;
     protectionIc.id = "prot-ic-1";
@@ -1539,22 +1539,22 @@ int main() {
     filesystem::remove(configPath);
     assert(generateInventatoryScanToken().size() == 64);
     assert(deviceRequestMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "POST",
-                            "/api/v3/device/sync", "r1-test", 42, R"({"protocolVersion":3})") ==
-           "37d6d6ef983dd97631462f2eae04faa133a5e6fbe066d3395d4c84c11edd81c3");
+                            "/api/v1/device/sync", "r1-test", 42, R"({"protocolVersion":1})") ==
+           "d99b3246f156ffc7b1cf9507f98aeb47603e93f103945badc3e95641e5c8f685");
     assert(deviceResponseMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", 42, 200,
                              R"({"ok":true})") ==
-           "cf552c22d48743e1d2f665e8453b92cf8ea183c9692eda973c5a222820f68c03");
+           "ec5e858f7b38260c65df43b570e13a7dceab39361d4f17ebf3fe8d4523024423");
   }
 
   {
-    const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-v3-http-test";
+    const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-http-test";
     error_code cleanupError;
     filesystem::remove_all(stateDirectory, cleanupError);
     const auto replayState = stateDirectory / "replay.state";
     const string token = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
     const string deviceId = "r1-secure";
     const string body =
-        R"({"protocolVersion":3,"requestId":"secure-sync","deviceId":"r1-secure","firmwareVersion":"0.3.0","mode":"ready","rssi":-40,"queueDepth":0,"events":[],"resultAcks":[]})";
+        R"({"protocolVersion":1,"requestId":"secure-sync","deviceId":"r1-secure","firmwareVersion":"0.1.0","mode":"ready","rssi":-40,"queueDepth":0,"events":[],"resultAcks":[]})";
     atomic<int> syncCalls{0};
     auto onSync = [&syncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response, string&) {
       ++syncCalls;
@@ -1573,7 +1573,7 @@ int main() {
     assert(syncCalls == 1);
 
     auto modifiedRequest = firstRequest;
-    const auto firmwareVersion = modifiedRequest.find("0.3.0");
+    const auto firmwareVersion = modifiedRequest.find("0.1.0");
     assert(firmwareVersion != string::npos);
     modifiedRequest.replace(firmwareVersion, 5, "9.9.9");
     const auto modified = sendLocalHttpRequest(server.port(), modifiedRequest);
@@ -1631,7 +1631,7 @@ int main() {
     DeviceSyncRequest request;
     string error;
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
+        R"({"protocolVersion":1,"requestId":"sync-1","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":["r1-a-76-result"]})",
         request, error));
     assert(request.protocolVersion == kInventatoryScanTransportProtocolVersion);
     assert(request.events.size() == 1);
@@ -1639,24 +1639,24 @@ int main() {
     assert(request.resultAcks.size() == 1);
     assert(!request.hasLookup);
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
+        R"({"protocolVersion":1,"requestId":"sync-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-9","code":"0002"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.lookupId == "lookup-9");
     assert(request.lookup.code == "0002");
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
+        R"({"protocolVersion":1,"requestId":"sync-digikey-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-dk-1","code":"718-2362-1-ND"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.code == "718-2362-1-ND");
     // A component Data Matrix carries the manufacturer part number, spaces and all.
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-mpn-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-mpn-1","code":"C1F 500"}})",
+        R"({"protocolVersion":1,"requestId":"sync-mpn-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-mpn-1","code":"C1F 500"}})",
         request, error));
     assert(request.hasLookup);
     assert(request.lookup.code == "C1F 500");
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.4.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
+        R"({"protocolVersion":1,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
         request, error));
     assert(request.hasQuickLabelPrint);
     assert(request.quickLabelPrint.presetIndex == 2);
@@ -1664,12 +1664,12 @@ int main() {
     // An unresolvable lookup code is dropped so the events it travels with are
     // still delivered; only a structurally broken lookup rejects the envelope.
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-odd-lookup","deviceId":"r1-a","firmwareVersion":"0.5.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[{"eventId":"r1-a-7","type":"inventory.receive","code":"C1F 500","value":5}],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"AB*C"}})",
+        R"({"protocolVersion":1,"requestId":"sync-odd-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[{"eventId":"r1-a-7","type":"inventory.receive","code":"C1F 500","value":5}],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"AB*C"}})",
         request, error));
     assert(!request.hasLookup);
     assert(request.events.size() == 1);
     assert(!parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"","code":"0002"}})",
+        R"({"protocolVersion":1,"requestId":"sync-bad-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"","code":"0002"}})",
         request, error));
 
     DeviceSyncResponse quickLabelResponse;
@@ -1685,9 +1685,9 @@ int main() {
     quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
     quickLabelResponse.hasLookupResult = true;
     assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
-    // Protocol v1 envelopes are answered with 426 Upgrade Required.
+    // The baseline accepts only protocol v1 envelopes.
     assert(!parseDeviceSyncRequestJson(
-        R"({"protocolVersion":1,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
+        R"({"protocolVersion":99,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
     assert(error == "Unsupported protocol version");
 
@@ -1743,7 +1743,7 @@ int main() {
 
     request = {};
     assert(parseDeviceSyncRequestJson(
-        R"({"protocolVersion":3,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.2.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
+        R"({"protocolVersion":1,"requestId":"sync-3","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":"r1-a-77","type":"inventory.adjust","code":"0002","value":2}],"resultAcks":[]})",
         request, error));
     DeviceSyncResponse response;
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));
@@ -1826,8 +1826,8 @@ int main() {
     expected.completedOnboardingVersion = 1;
     expected.updateChecksEnabled = false;
     expected.lastUpdateCheckUnixSeconds = 123456789;
-    expected.latestAvailableVersion = "0.2.0";
-    expected.latestReleaseUrl = "https://github.com/Kwiatens/Inventatory-Software/releases/tag/v0.2.0";
+    expected.latestAvailableVersion = "0.1.1";
+    expected.latestReleaseUrl = "https://example.invalid/Inventatory/releases/tag/v0.1.1";
     expected.deviceServicePort = 8181;
     expected.digiKeyClientId = "client-id";
     expected.digiKeyAccountId = "account-id";
@@ -1838,7 +1838,7 @@ int main() {
 
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
-    assert(loaded.schemaVersion == 2);
+    assert(loaded.schemaVersion == 1);
     assert(loaded.completedOnboardingVersion == 1);
     assert(loaded.dataDirectory == expected.dataDirectory);
     assert(loaded.printerQueue == expected.printerQueue);
@@ -1847,7 +1847,7 @@ int main() {
     assert(loaded.backgroundConsentAsked);
     assert(!loaded.updateChecksEnabled);
     assert(loaded.lastUpdateCheckUnixSeconds == 123456789);
-    assert(loaded.latestAvailableVersion == "0.2.0");
+    assert(loaded.latestAvailableVersion == "0.1.1");
     assert(loaded.latestReleaseUrl == expected.latestReleaseUrl);
     assert(loaded.deviceServicePort == 8181);
     assert(loaded.digiKeyClientId == "client-id");
@@ -1861,7 +1861,6 @@ int main() {
     assert(text.find("client_secret") == string::npos);
     assert(text.find("secret") == string::npos);
     assert(text.find("device_service_port=8181") != string::npos);
-    assert(text.find("bridge_port") == string::npos);
     assert(text.find("quick_label") == string::npos);
     persisted.close();
     error_code removeError;
@@ -1923,27 +1922,22 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-legacy-settings-test.conf";
-    ofstream legacy(path, ios::trunc);
-    legacy << "schema_version=1\n"
-           << "bridge_port=8182\n";
-    legacy.close();
+    const auto path = filesystem::temp_directory_path() / "inventatory-unsupported-settings-test.conf";
+    ofstream unsupported(path, ios::trunc);
+    unsupported << "schema_version=0\n";
+    unsupported.close();
     AppSettings loaded;
-    assert(loadAppSettings(path, loaded));
-    assert(loaded.schemaVersion == 2);
-    assert(loaded.deviceServicePort == 8182);
-    assert(!loaded.backgroundServiceEnabled);
-    assert(!loaded.backgroundConsentAsked);
+    assert(!loadAppSettings(path, loaded));
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
   }
 
   {
-    assert(isVersionNewer("v0.2.0", "0.1.9"));
-    assert(isVersionNewer("0.2", "0.1.9"));
-    assert(!isVersionNewer("0.2.0", "0.2.0"));
-    assert(!isVersionNewer("preview", "0.2.0"));
+    assert(isVersionNewer("v0.1.1", "0.1.0"));
+    assert(isVersionNewer("0.1.1", "0.1.0"));
+    assert(!isVersionNewer("0.1.0", "0.1.0"));
+    assert(!isVersionNewer("preview", "0.1.0"));
     assert(isUpdateCheckDue(true, 0, 100));
     assert(!isUpdateCheckDue(false, 0, 100));
     assert(!isUpdateCheckDue(true, 100, 100 + 60));
