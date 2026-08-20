@@ -105,7 +105,6 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       activityPath_(dataPath_ / "activity.tsv"),
       inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
       quickLabelsPath_(dataPath_ / "quick_labels.conf") {
-  loadEnvironmentFile(locateDotEnvFile());
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
     dataPath_ = settings_.dataDirectory;
@@ -142,20 +141,19 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     onboardingActive_ = true;
     page_ = Page::Onboarding;
   }
-  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                               appSettingsDirectory() / "inventatory-scan-replay.state");
+  if (!inventoryRecoveryRequired_) {
+    server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                                 appSettingsDirectory() / "inventatory-scan-replay.state");
 
-  if (!server_.start(settings_.deviceServicePort, [this](const DeviceScanRequest& request) { pushScanCode(request); },
-                     [this](const DeviceQuantityRequest& request) { return enqueueDeviceQuantity(request); },
-                     [this](const DeviceStatusReport& report) { enqueueDeviceStatus(report); },
-                     [this](const DeviceDebugReport& report) { enqueueDeviceDebug(report); },
+    if (!server_.start(settings_.deviceServicePort,
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
                        return handleDeviceSync(request, response, error);
                      })) {
-    setMessage("Inventatory Scan R1 service failed to start; terminal still works", 5);
-  } else {
-    mdnsService_.start(server_.port());
-    setMessage("Inventatory Scan R1 service ready", 5);
+      setMessage("Inventatory Scan R1 service failed to start; terminal still works", 5);
+    } else {
+      mdnsService_.start(server_.port());
+      setMessage("Inventatory Scan R1 service ready", 5);
+    }
   }
   beginUpdateCheckIfDue();
 }
@@ -170,6 +168,17 @@ ftxui::Element App::renderUi() const {
   // inherit any workspace navigation, operational state, or search chrome.
   if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
     return renderPageUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
+  }
+  if (inventoryRecoveryRequired_) {
+    return ftxui::vbox({
+        ftxui::filler(),
+        styledText("INVENTORY RECOVERY REQUIRED", uiDangerColor()),
+        ftxui::separator(),
+        styledText(inventoryRecoveryDetail_, uiTitleColor()),
+        styledText("The database was preserved and Inventatory is locked to prevent data loss.", uiMutedColor()),
+        styledText("Press D to choose another Inventatory folder, or Esc to exit.", uiAccentColor()),
+        ftxui::filler(),
+    }) | ftxui::border | ftxui::bgcolor(uiCanvasBg());
   }
   const auto* active = ftxui::ScreenInteractive::Active();
   if (active != nullptr && (active->dimx() < 100 || active->dimy() < 30)) {
@@ -468,6 +477,10 @@ int App::run() {
 }
 
 void App::processBackgroundWork() {
+  if (inventoryRecoveryRequired_) {
+    clearMessageIfExpired();
+    return;
+  }
   processScans();
   processDeviceRequests();
   processDeviceSyncEvents();
@@ -549,6 +562,12 @@ void App::requestUserExit() {
 }
 
 void App::handleKey(const KeyEvent& key) {
+  if (inventoryRecoveryRequired_) {
+    if (key.type == KeyType::Escape) running_ = false;
+    if (key.type == KeyType::Character && (key.ch == 'd' || key.ch == 'D')) chooseInventatoryFolder();
+    dirty_ = true;
+    return;
+  }
   switch (inputMode_) {
     case InputMode::Search:
       handleSearchKey(key);

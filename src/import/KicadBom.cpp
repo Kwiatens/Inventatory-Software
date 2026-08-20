@@ -18,6 +18,8 @@ using namespace std;
 
 namespace {
 
+constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
+
 struct BomColumns {
   int designator = -1;
   int footprint = -1;
@@ -206,6 +208,12 @@ string projectNameFromPath(const filesystem::path& path) {
 }
 
 KicadBomFile loadKicadBomFile(const filesystem::path& path) {
+  error_code error;
+  if (const auto size = filesystem::file_size(path, error); error || size > kMaximumImportBytes) {
+    KicadBomFile bom;
+    bom.error = "BOM import exceeds the 25 MiB safety limit";
+    return bom;
+  }
   ifstream input(path, ios::binary);
   if (!input) {
     KicadBomFile bom;

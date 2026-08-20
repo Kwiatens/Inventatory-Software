@@ -44,6 +44,23 @@ bool validPairingCode(const std::string& value) {
   return value.size() == 6 && std::all_of(value.begin(), value.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; });
 }
 
+#ifdef _WIN32
+class WinrtApartment final {
+ public:
+  WinrtApartment() {
+    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    active_ = true;
+  }
+  ~WinrtApartment() {
+    if (active_) winrt::uninit_apartment();
+  }
+  WinrtApartment(const WinrtApartment&) = delete;
+  WinrtApartment& operator=(const WinrtApartment&) = delete;
+ private:
+  bool active_ = false;
+};
+#endif
+
 }  // namespace
 
 BleProvisioningService::BleProvisioningService() = default;
@@ -87,7 +104,7 @@ void BleProvisioningService::rememberDevice(uint64_t address, const string& name
 void BleProvisioningService::discoveryLoop() {
 #ifdef _WIN32
   try {
-    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    WinrtApartment apartment;
     using namespace winrt::Windows::Devices::Bluetooth::Advertisement;
     const auto serviceUuid = winrt::guid{kServiceUuidText};
     BluetoothLEAdvertisementWatcher watcher;
@@ -112,7 +129,6 @@ void BleProvisioningService::discoveryLoop() {
     }
     watcher.Stop();
     watcher.Received(token);
-    winrt::uninit_apartment();
   } catch (...) {
     lock_guard<mutex> lock(mutex_);
     discovering_ = false;
@@ -130,7 +146,7 @@ bool BleProvisioningService::provision(const BleProvisioningRequest& request, st
   }
 #ifdef _WIN32
   try {
-    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    WinrtApartment apartment;
     using namespace winrt::Windows::Devices::Bluetooth;
     using namespace winrt::Windows::Devices::Bluetooth::GenericAttributeProfile;
     using namespace winrt::Windows::Devices::Enumeration;

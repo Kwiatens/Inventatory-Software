@@ -49,7 +49,6 @@ struct DigiKeyProductDetails {
   VendorProductMetadata vendorMetadata;
 };
 
-bool loadEnvironmentFile(const filesystem::path& path);
 DigiKeyConfig loadDigiKeyConfig();
 
 class DigiKeyApiClient {

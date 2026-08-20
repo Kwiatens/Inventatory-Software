@@ -135,6 +135,8 @@ struct HttpResponse {
   string body;
 };
 
+constexpr size_t kMaximumDigiKeyResponseBytes = 4U * 1024U * 1024U;
+
 string httpErrorMessage(const string& prefix) {
   const DWORD code = GetLastError();
   ostringstream out;
@@ -258,6 +260,13 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
       break;
     }
 
+    if (available > kMaximumDigiKeyResponseBytes || bodyText.size() > kMaximumDigiKeyResponseBytes - available) {
+      if (error != nullptr) *error = "DigiKey response exceeds the 4 MiB safety limit";
+      WinHttpCloseHandle(request);
+      WinHttpCloseHandle(connection);
+      WinHttpCloseHandle(session);
+      return false;
+    }
     const size_t current = bodyText.size();
     bodyText.resize(current + available);
     DWORD read = 0;
@@ -1239,44 +1248,6 @@ bool DigiKeyConfig::valid() const {
   return !trimCopy(clientId).empty() && !trimCopy(clientSecret).empty();
 }
 
-bool loadEnvironmentFile(const filesystem::path& path) {
-  error_code error;
-  if (!filesystem::exists(path, error)) {
-    return false;
-  }
-
-  ifstream file(path);
-  if (!file) {
-    return false;
-  }
-
-  string line;
-  while (getline(file, line)) {
-    line = trimCopy(line);
-    if (line.empty() || line.front() == '#') {
-      continue;
-    }
-
-    const auto equalsPos = line.find('=');
-    if (equalsPos == string::npos) {
-      continue;
-    }
-
-    string key = trimCopy(line.substr(0, equalsPos));
-    string value = trimCopy(line.substr(equalsPos + 1));
-    if (!value.empty() && value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
-                                                (value.front() == '\'' && value.back() == '\''))) {
-      value = value.substr(1, value.size() - 2);
-    }
-
-    if (!key.empty()) {
-      _putenv_s(key.c_str(), value.c_str());
-    }
-  }
-
-  return true;
-}
-
 DigiKeyConfig loadDigiKeyConfig() {
   DigiKeyConfig config;
   if (const auto value = environmentValue("DIGIKEY_CLIENT_ID"); value.has_value()) {
@@ -1540,10 +1511,6 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
 namespace inventatory {
 
 bool DigiKeyConfig::valid() const {
-  return false;
-}
-
-bool loadEnvironmentFile(const filesystem::path&) {
   return false;
 }
 
