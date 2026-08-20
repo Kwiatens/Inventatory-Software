@@ -35,15 +35,6 @@ struct AttentionRow {
   AttentionSeverity severity = AttentionSeverity::Metadata;
 };
 
-struct DeviceStatus {
-  string name;
-  bool connected = false;
-  bool flashing = false;
-  string endpoint;
-  string lastActivity;
-  string error;
-};
-
 struct DashboardSnapshot {
   size_t itemCount = 0;
   size_t totalQuantity = 0;
@@ -51,11 +42,8 @@ struct DashboardSnapshot {
   size_t outOfStockCount = 0;
   size_t dataErrorCount = 0;
   size_t missingMetadataCount = 0;
-  size_t unsyncedCount = 0;
   vector<AttentionRow> attention;
-  vector<DeviceStatus> devices;
   vector<ActivityEntry> recentEvents;
-  string lastScannedPart;
 };
 
 ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, bool rightAlign = false) {
@@ -79,28 +67,6 @@ ftxui::Element metricCard(const string& label, size_t value, ftxui::Color valueC
          ftxui::bgcolor(uiRaisedSurfaceBg()) | ftxui::flex;
 }
 
-ftxui::Element statusChip(bool connected, bool flashing) {
-  const auto foreground = connected ? uiSuccessColor() : uiDangerColor();
-  const auto background = flashing ? uiSelectionBg()
-                                    : (connected ? ftxui::Color::RGB(24, 43, 34)
-                                                 : ftxui::Color::RGB(47, 27, 27));
-  return styledText(connected ? " ONLINE " : " OFFLINE ", foreground, background) | ftxui::bold;
-}
-
-ftxui::Element deviceRow(const DeviceStatus& device) {
-  ftxui::Elements rows;
-  rows.push_back(ftxui::hbox({
-      styledText(device.name, uiPrimaryText()),
-      ftxui::filler(),
-      statusChip(device.connected, device.flashing),
-  }));
-  rows.push_back(styledText(ellipsize(device.endpoint.empty() ? "-" : device.endpoint, 48), uiMutedColor()));
-  if (!device.error.empty()) {
-    rows.push_back(styledText(ellipsize(device.error, 48), uiWarnColor()));
-  }
-  return ftxui::vbox(move(rows));
-}
-
 vector<ActivityEntry> recentEventEntries(const vector<ActivityEntry>& activities, size_t limit) {
   vector<ActivityEntry> entries;
   const auto count = min(activities.size(), limit);
@@ -119,7 +85,7 @@ ftxui::Color recentEventColor(const ActivityEntry& entry) {
 }
 
 DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, const vector<ActivityEntry>& activities,
-                                         bool scannerRunning, bool deviceConnected, size_t recentEventLimit) {
+                                         size_t recentEventLimit) {
   DashboardSnapshot snapshot;
   snapshot.itemCount = items.size();
   snapshot.recentEvents = recentEventEntries(activities, recentEventLimit);
@@ -130,8 +96,6 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
     const bool missingMetadata = item.hasMissingMetadata();
     const bool unsynced = toLower(item.syncStatus) != "synced";
     snapshot.missingMetadataCount += missingMetadata ? 1 : 0;
-    snapshot.unsyncedCount += unsynced ? 1 : 0;
-
     const bool duplicateId = !seenIds.insert(item.id).second;
     const bool dataError = duplicateId || item.quantity < 0 || item.reorderThreshold < 0;
     const bool outOfStock = item.quantity <= 0;
@@ -174,21 +138,6 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
     }
     snapshot.attention.push_back(move(row));
   }
-
-  for (auto it = activities.rbegin(); it != activities.rend(); ++it) {
-    if (it->kind.find("scan") != string::npos) {
-      snapshot.lastScannedPart = it->message;
-      break;
-    }
-  }
-
-  snapshot.devices = {
-      {"Inventatory Scan R1", deviceConnected, false,
-       scannerRunning ? "Device service ready" : "Device service offline",
-       snapshot.lastScannedPart.empty() ? "Waiting for scans" : snapshot.lastScannedPart,
-       deviceConnected ? string() : (scannerRunning ? "No recent device status" : "Scanner server is not running")},
-      {"Label Printer", false, false, "Not configured", "No print jobs yet", "No printer configured"},
-  };
 
   sort(snapshot.attention.begin(), snapshot.attention.end(), [](const AttentionRow& lhs, const AttentionRow& rhs) {
     if (lhs.severity != rhs.severity) return lhs.severity > rhs.severity;
@@ -241,46 +190,18 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
       }) | ftxui::bgcolor(background)));
     }
   }
-  return panel("STOCK STATUS  " + to_string(snapshot.attention.size()), move(rows), uiFocusColor(),
+  return panel("NEEDS ATTENTION  " + to_string(snapshot.attention.size()), move(rows), uiFocusColor(),
                uiDividerColor()) | ftxui::flex;
 }
 
 }  // namespace
 
 ftxui::Element App::renderDashboardUi() const {
-  const auto now = time(nullptr);
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 30;
-  const bool deviceConnected = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 10));
-  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, server_.running(), deviceConnected, recentLimit);
-
-  if (snapshot.devices.size() > 1) {
-    snapshot.devices[1].connected = printerService_.hasConfiguredPrinter();
-    snapshot.devices[1].flashing = now <= printerFlashUntil_;
-    snapshot.devices[1].endpoint = printerService_.hasConfiguredPrinter() ? "Printer connected" : "Not configured";
-    snapshot.devices[1].lastActivity = printerSummary();
-    snapshot.devices[1].error = printerCheck_.ok ? string() :
-        (printerCheck_.message.empty() ? "Printer is not ready" : printerCheck_.message);
-  }
-  if (!snapshot.devices.empty()) snapshot.devices[0].flashing = now <= scannerFlashUntil_;
-
-  auto self = const_cast<App*>(this);
-  auto operations = ftxui::hbox({
-      styledText("OPERATIONS", uiSecondaryText()), ftxui::text("   "),
-      target(styledText(" Review stock ", uiInteractiveColor(), uiRaisedSurfaceBg()), "home.stock",
-             UiTargetKind::Button, [self] { self->changePage(Page::Stock); }), ftxui::text("  "),
-      target(styledText(" Add part ", uiInteractiveColor(), uiRaisedSurfaceBg()), "home.add",
-             UiTargetKind::Button, [self] { self->beginEditCurrentItem(true); }), ftxui::text("  "),
-      target(styledText(" Import CSV ", uiInteractiveColor(), uiRaisedSurfaceBg()), "home.import",
-             UiTargetKind::Button, [self] { self->changePage(Page::Import); }), ftxui::text("  "),
-      target(styledText(" Set up Scan R1 ", uiFocusColor(), uiRaisedSurfaceBg()), "home.scan.setup",
-             UiTargetKind::Button, [self] { self->openInventatoryScanSetup(); }), ftxui::text("  "),
-      target(styledText(" Settings ", uiInteractiveColor(), uiRaisedSurfaceBg()), "home.settings",
-             UiTargetKind::Button, [self] { self->openSettings(); }),
-      ftxui::filler(),
-  });
+  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 7));
+  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit);
 
   auto metrics = ftxui::hbox({
       metricCard("TOTAL PARTS TRACKED", snapshot.itemCount, uiPrimaryText()), uiDivider(),
@@ -288,8 +209,6 @@ ftxui::Element App::renderDashboardUi() const {
       metricCard("LOW STOCK", snapshot.lowStockCount, snapshot.lowStockCount > 0 ? uiWarnColor() : uiSuccessColor()),
       uiDivider(),
       metricCard("OUT OF STOCK", snapshot.outOfStockCount, snapshot.outOfStockCount > 0 ? uiDangerColor() : uiSuccessColor()),
-      uiDivider(),
-      metricCard("PENDING SYNC", snapshot.unsyncedCount, snapshot.unsyncedCount > 0 ? uiLinkColor() : uiSuccessColor()),
   });
 
   const int alertWidth = max(50, (screenWidth - 1) / 2);
@@ -310,13 +229,12 @@ ftxui::Element App::renderDashboardUi() const {
 
   // Keep the alert list stable. Inventory triage needs a predictable start
   // point, not a timer-driven carousel that can move a critical row away.
-  auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 9, 0, true) |
+  auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 5, 0, true) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, alertWidth);
   auto activitySide = recentPanel | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityWidth) | ftxui::flex;
   auto mainContent = ftxui::hbox({queue, uiDivider(), activitySide}) | ftxui::flex;
 
-  return ftxui::vbox({operations, uiDivider(), metrics, uiDivider(), mainContent}) |
-         ftxui::bgcolor(uiCanvasBg());
+  return ftxui::vbox({metrics, uiDivider(), mainContent}) | ftxui::bgcolor(uiCanvasBg());
 }
 
 void App::handleDashboardKey(const KeyEvent& key) {
