@@ -42,10 +42,6 @@ using std::unordered_set;
 
 class LocalHttpServer {
  public:
-  using ScanCallback = function<void(const DeviceScanRequest&)>;
-  using DebugCallback = function<void(const DeviceDebugReport&)>;
-  using QuantityCallback = function<DeviceQuantityResult(const DeviceQuantityRequest&)>;
-  using StatusCallback = function<void(const DeviceStatusReport&)>;
   using SyncCallback = function<bool(const DeviceSyncRequest&, DeviceSyncResponse&, string&)>;
 
   LocalHttpServer() = default;
@@ -54,17 +50,14 @@ class LocalHttpServer {
   LocalHttpServer(const LocalHttpServer&) = delete;
   LocalHttpServer& operator=(const LocalHttpServer&) = delete;
 
-  bool start(uint16_t preferredPort, ScanCallback onScan, QuantityCallback onQuantity = {},
-             StatusCallback onStatus = {}, DebugCallback onDebug = {}, SyncCallback onSync = {});
+  bool start(uint16_t preferredPort, SyncCallback onSync);
   void stop();
-  void setRecentActivity(vector<ActivityEntry> activities);
   void setDeviceCredentials(string deviceId, string token, path replayStatePath = {});
 
   bool running() const;
   uint16_t port() const;
   string baseUrl() const;
   vector<string> addresses() const;
-  string lastScan() const;
 
  private:
   void workerLoop();
@@ -77,21 +70,13 @@ class LocalHttpServer {
   atomic<bool> running_{false};
   bool winsockStarted_ = false;
   vector<thread> workers_;
-  ScanCallback onScan_;
-  DebugCallback onDebug_;
-  QuantityCallback onQuantity_;
-  StatusCallback onStatus_;
   SyncCallback onSync_;
   mutable mutex stateMutex_;
   mutex applicationMutex_;
   mutex replayMutex_;
-  deque<string> deviceScanRequestOrder_;
-  unordered_set<string> deviceScanRequestCache_;
   uint16_t port_ = 0;
-  string lastScan_;
   string lastError_;
   vector<string> addresses_;
-  vector<ActivityEntry> recentActivities_;
   string pairedDeviceId_;
   string deviceToken_;
   path replayStatePath_;
