@@ -94,8 +94,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       value >> quoted(loaded.latestAvailableVersion);
     } else if (key == "latest_release_url") {
       value >> quoted(loaded.latestReleaseUrl);
-    } else if (key == "device_service_port" || key == "bridge_port") {
-      // bridge_port is the pre-v2 name and remains readable for migration.
+    } else if (key == "device_service_port") {
       unsigned int port = loaded.deviceServicePort;
       value >> port;
       if (port >= 1 && port <= 65535) loaded.deviceServicePort = static_cast<uint16_t>(port);
@@ -109,20 +108,9 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       value >> quoted(loaded.digiKeyLanguage);
     } else if (key == "digikey_currency") {
       value >> quoted(loaded.digiKeyCurrency);
-    } else if (key == "quick_label") {
-      string preset;
-      value >> quoted(preset);
-      if (!preset.empty() && loaded.quickLabelPresets.size() < 12) loaded.quickLabelPresets.push_back(preset);
-    } else if (key == "quick_label_revision") {
-      unsigned long revision = loaded.quickLabelRevision;
-      value >> revision;
-      if (revision > 0 && revision <= UINT32_MAX) loaded.quickLabelRevision = static_cast<uint32_t>(revision);
     }
   }
-  if (loaded.schemaVersion < 1 || loaded.schemaVersion > 2) return false;
-  if (loaded.schemaVersion == 1) {
-    loaded.schemaVersion = 2;
-  }
+  if (loaded.schemaVersion != 1) return false;
   settings = move(loaded);
   return true;
 }

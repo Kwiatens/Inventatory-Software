@@ -437,7 +437,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   input >> method >> target >> version;
   (void)version;
 
-  if (method == "POST" && target == "/api/v3/device/sync") {
+  if (method == "POST" && target == "/api/v1/device/sync") {
     string expectedDevice;
     string expectedToken;
     {
@@ -488,8 +488,8 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   }
 
   if (target.rfind("/api/", 0) == 0) {
-    const auto response = responseText("426 Upgrade Required", "application/json; charset=utf-8",
-                                       statusResultJson(false, "Scanner firmware update and BLE re-pair required"));
+    const auto response = responseText("404 Not Found", "application/json; charset=utf-8",
+                                       statusResultJson(false, "Unsupported device API route"));
     send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
     return false;
   }
