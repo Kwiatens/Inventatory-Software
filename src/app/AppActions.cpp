@@ -295,7 +295,6 @@ bool App::chooseInventatoryFolder() {
   printerPath_ = move(activePaths.printer);
   activityPath_ = move(activePaths.activity);
   inventatoryScanConfigPath_ = move(activePaths.scanConfig);
-  ensureInventoryDatabaseCopied(inventoryPath_);
 
   printerQueues_.clear();
   printerCheck_ = {};
@@ -1559,7 +1558,8 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
   status.rssi = request.rssi;
-  status.debug = "protocol=v2 mode=" + request.mode + " queue=" + to_string(request.queueDepth);
+  status.debug = "protocol=v" + to_string(request.protocolVersion) + " mode=" + request.mode +
+                 " queue=" + to_string(request.queueDepth);
   status.protocolVersion = request.protocolVersion;
   status.mode = request.mode;
   status.pendingEventCount = request.queueDepth;
@@ -1598,7 +1598,7 @@ void App::processDeviceSyncEvents() {
   string affectedItemId;
   bool created = false;
   if (event.type == "inventory.adjust") {
-    DeviceQuantityRequest request{"protocol-v1", event.eventId, event.code, event.value};
+    DeviceQuantityRequest request{{}, event.eventId, event.code, event.value};
     const auto quantityResult = applyDeviceQuantity(candidate, request);
     result.requestedDelta = event.value;
     result.appliedDelta = quantityResult.appliedDelta;

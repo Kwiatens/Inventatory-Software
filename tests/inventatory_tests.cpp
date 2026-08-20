@@ -3,6 +3,7 @@
 #include "app/AppSettings.h"
 #include "platform/UpdateService.h"
 #include "platform/StartupRegistration.h"
+#include "platform/Environment.h"
 #include "core/InventoryInternals.h"
 #include "core/InventorySqlite.h"
 #ifdef near
@@ -190,6 +191,15 @@ int main() {
   assert(sqliteApi().load());
   assert(sqlite3_libversion_number() == 3053004);
 #endif
+
+  {
+    assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "test-value") == 0);
+    const auto value = environmentValue("INVENTATORY_TEST_ENVIRONMENT");
+    assert(value.has_value());
+    assert(*value == "test-value");
+    assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "") == 0);
+    assert(!environmentValue("INVENTATORY_TEST_ENVIRONMENT").has_value());
+  }
 
   {
     auto items = makeSampleInventory();
@@ -1759,7 +1769,7 @@ int main() {
     result.location = "R1-A1";
     result.message = "Quantity updated";
 
-    // A new protocol-v1 receive is auto-printed immediately after its event is
+    // A newly received device event is auto-printed immediately after its event is
     // committed. Its live item must receive the same identifiers as the SQLite
     // snapshot; otherwise the label has blank Inventatory text and an empty QR field.
     InventoryItem autoLabelItem;
