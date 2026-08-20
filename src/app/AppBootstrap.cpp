@@ -40,23 +40,6 @@ filesystem::path discoverInventatoryDataPath() {
   return defaultPath;
 }
 
-filesystem::path locateDotEnvFile() {
-  error_code error;
-  auto current = filesystem::current_path();
-  for (int depth = 0; depth < 8 && !current.empty(); ++depth) {
-    const auto candidate = current / ".env";
-    if (filesystem::exists(candidate, error)) {
-      return candidate;
-    }
-    const auto parent = current.parent_path();
-    if (parent == current) {
-      break;
-    }
-    current = parent;
-  }
-  return {};
-}
-
 InventatoryDataPaths makeInventatoryDataPaths(const filesystem::path& dataDirectory) {
   return {dataDirectory, dataDirectory / "inventory.db", dataDirectory / "printer.conf",
           dataDirectory / "activity.tsv", dataDirectory / "inventatory_scan.conf"};

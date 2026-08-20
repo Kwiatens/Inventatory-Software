@@ -1564,7 +1564,7 @@ int main() {
 
     LocalHttpServer server;
     server.setDeviceCredentials(deviceId, token, replayState);
-    assert(server.start(19430, {}, {}, {}, {}, onSync));
+    assert(server.start(19430, onSync));
     const auto firstRequest = signedSyncRequest(token, deviceId, 42, body);
     const auto accepted = sendLocalHttpRequest(server.port(), firstRequest);
     assert(accepted.rfind("HTTP/1.1 200 OK", 0) == 0);
@@ -1596,7 +1596,7 @@ int main() {
 
     LocalHttpServer restarted;
     restarted.setDeviceCredentials(deviceId, token, replayState);
-    assert(restarted.start(19450, {}, {}, {}, {}, onSync));
+    assert(restarted.start(19450, onSync));
     const auto persistedReplay = sendLocalHttpRequest(restarted.port(), firstRequest);
     assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
     assert(syncCalls == 2);
