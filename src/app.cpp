@@ -117,13 +117,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   } else {
     settings_.dataDirectory = dataPath_;
   }
-  if (!loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision)) {
-    // Legacy installs kept quick labels in the machine-local settings file;
-    // migrate them into the data folder so they travel with the user's data.
-    if (!settings_.quickLabelPresets.empty()) {
-      saveQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
-    }
-  }
+  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
@@ -143,13 +137,6 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     printerCheck_ = printerService_.probeConfiguredPrinter();
-  }
-  // Existing settings belong to established users; mark them complete when
-  // migrating so the first-run wizard only appears for fresh installs.
-  if (loadedSettings && settings_.completedOnboardingVersion == 0) {
-    settings_.completedOnboardingVersion = 1;
-    settingsDraft_ = settings_;
-    saveAppSettings(settingsPath_, settings_);
   }
   if (!startInBackground_ && !loadedSettings) {
     onboardingActive_ = true;
@@ -589,7 +576,7 @@ void App::handleKey(const KeyEvent& key) {
       break;
   }
 
-  // Settings fields use their own staged editor rather than a legacy
+  // Settings fields use their own staged editor rather than a shared
   // InputMode. While it is active, all characters (including 1-5) and Enter
   // belong to the field and must not trigger global navigation or focus.
   if (page_ == Page::Settings && settingsEditingField_) {

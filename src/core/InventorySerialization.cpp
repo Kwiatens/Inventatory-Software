@@ -16,7 +16,7 @@ using namespace std;
 
 namespace {
 
-constexpr const char* kStructuredStoragePrefix = "v2:";
+constexpr const char* kStructuredStoragePrefix = "v1:";
 
 string escapeStorageField(const string& value, const string& delimiters) {
   string escaped;
@@ -89,22 +89,6 @@ size_t findUnescapedDelimiter(const string& value, char delimiter) {
   return string::npos;
 }
 
-vector<Parameter> parseLegacyParameters(const string& value) {
-  vector<Parameter> parameters;
-  for (const auto& entry : split(value, ';')) {
-    const auto equalsPos = entry.find('=');
-    if (equalsPos == string::npos) {
-      continue;
-    }
-    parameters.push_back({trim(entry.substr(0, equalsPos)), trim(entry.substr(equalsPos + 1))});
-  }
-  return parameters;
-}
-
-vector<string> parseLegacyTags(const string& value) {
-  return split(value, '|');
-}
-
 }  // namespace
 
 string serializeTagsForStorage(const vector<string>& tags) {
@@ -118,7 +102,7 @@ string serializeTagsForStorage(const vector<string>& tags) {
 
 vector<string> deserializeTagsFromStorage(const string& value) {
   if (value.rfind(kStructuredStoragePrefix, 0) != 0) {
-    return parseLegacyTags(value);
+    return {};
   }
 
   vector<string> tags;
@@ -140,7 +124,7 @@ string serializeParametersForStorage(const vector<Parameter>& parameters) {
 
 vector<Parameter> deserializeParametersFromStorage(const string& value) {
   if (value.rfind(kStructuredStoragePrefix, 0) != 0) {
-    return parseLegacyParameters(value);
+    return {};
   }
 
   vector<Parameter> parameters;
