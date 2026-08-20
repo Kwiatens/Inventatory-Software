@@ -5,6 +5,8 @@
 #define NOMINMAX
 
 #include "platform/DigiKeyApi.h"
+
+#include "platform/Environment.h"
 #include "app/AppSettings.h"
 #include "platform/CredentialStore.h"
 
@@ -1277,23 +1279,23 @@ bool loadEnvironmentFile(const filesystem::path& path) {
 
 DigiKeyConfig loadDigiKeyConfig() {
   DigiKeyConfig config;
-  if (const char* value = getenv("DIGIKEY_CLIENT_ID"); value != nullptr) {
-    config.clientId = value;
+  if (const auto value = environmentValue("DIGIKEY_CLIENT_ID"); value.has_value()) {
+    config.clientId = *value;
   }
-  if (const char* value = getenv("DIGIKEY_CLIENT_SECRET"); value != nullptr) {
-    config.clientSecret = value;
+  if (const auto value = environmentValue("DIGIKEY_CLIENT_SECRET"); value.has_value()) {
+    config.clientSecret = *value;
   }
-  if (const char* value = getenv("DIGIKEY_ACCOUNT_ID"); value != nullptr) {
-    config.accountId = value;
+  if (const auto value = environmentValue("DIGIKEY_ACCOUNT_ID"); value.has_value()) {
+    config.accountId = *value;
   }
-  if (const char* value = getenv("DIGIKEY_SITE"); value != nullptr && *value != '\0') {
-    config.site = value;
+  if (const auto value = environmentValue("DIGIKEY_SITE"); value.has_value() && !value->empty()) {
+    config.site = *value;
   }
-  if (const char* value = getenv("DIGIKEY_LANGUAGE"); value != nullptr && *value != '\0') {
-    config.language = value;
+  if (const auto value = environmentValue("DIGIKEY_LANGUAGE"); value.has_value() && !value->empty()) {
+    config.language = *value;
   }
-  if (const char* value = getenv("DIGIKEY_CURRENCY"); value != nullptr && *value != '\0') {
-    config.currency = value;
+  if (const auto value = environmentValue("DIGIKEY_CURRENCY"); value.has_value() && !value->empty()) {
+    config.currency = *value;
   }
   AppSettings settings;
   if (loadAppSettings(appSettingsPath(), settings)) {
