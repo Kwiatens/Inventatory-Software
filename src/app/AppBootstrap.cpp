@@ -22,16 +22,9 @@ filesystem::path discoverInventatoryDataPath() {
   error_code error;
   const auto defaultPath = documentsInventatoryPath();
   vector<filesystem::path> candidates = {defaultPath};
-  vector<filesystem::path> legacyCandidates;
-  if (const auto profile = environmentValue("USERPROFILE"); profile.has_value() && !profile->empty()) {
-    legacyCandidates.push_back(filesystem::path(*profile) / "Documents" / "HIMS");
-  } else {
-    legacyCandidates.push_back(filesystem::current_path() / "Documents" / "HIMS");
-  }
   const auto addCandidate = [&](const char* envName) {
     if (const auto value = environmentValue(envName); value.has_value() && !value->empty()) {
       candidates.push_back(filesystem::path(*value) / "Documents" / "Inventatory");
-      legacyCandidates.push_back(filesystem::path(*value) / "Documents" / "HIMS");
     }
   };
   addCandidate("OneDrive");
@@ -42,16 +35,6 @@ filesystem::path discoverInventatoryDataPath() {
     if (filesystem::exists(candidate / "inventory.db", error)) {
       return candidate;
     }
-  }
-
-  for (const auto& legacyCandidate : legacyCandidates) {
-    if (!filesystem::exists(legacyCandidate / "inventory.db", error)) continue;
-    filesystem::create_directories(defaultPath, error);
-    if (error) break;
-    filesystem::copy(legacyCandidate, defaultPath,
-                     filesystem::copy_options::recursive | filesystem::copy_options::skip_existing, error);
-    if (!error && filesystem::exists(defaultPath / "inventory.db", error)) return defaultPath;
-    error.clear();
   }
 
   return defaultPath;

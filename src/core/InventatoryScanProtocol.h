@@ -15,7 +15,7 @@
 
 namespace inventatory {
 
-constexpr int kInventatoryScanTransportProtocolVersion = 3;
+constexpr int kInventatoryScanTransportProtocolVersion = 1;
 
 struct InventatoryScanConfig {
   std::string deviceId;

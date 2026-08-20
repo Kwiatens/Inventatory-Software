@@ -11,7 +11,7 @@
 namespace inventatory {
 
 struct AppSettings {
-  int schemaVersion = 2;
+  int schemaVersion = 1;
   int completedOnboardingVersion = 0;
   std::filesystem::path dataDirectory;
   std::string printerQueue;

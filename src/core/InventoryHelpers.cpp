@@ -374,8 +374,8 @@ bool matchesInventatoryScanCode(const string& inventatoryId, const string& code)
 
   const auto dash = display.find('-');
   if (dash != string::npos && dash + 1 < display.size()) {
-    const auto legacy = toLower(display.substr(dash + 1));
-    if (legacy == needle) {
+    const auto compactCode = toLower(display.substr(dash + 1));
+    if (compactCode == needle) {
       return true;
     }
   }

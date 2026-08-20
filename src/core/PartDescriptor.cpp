@@ -172,28 +172,28 @@ PartDescriptor discreteSemiconductorRule(const LabelContext& context) {
   // a structured "Type" parameter.  Resolve those before the broad family
   // mapping below: returning "Diode" for a Schottky or "Transistor" for an
   // NPN BJT throws away the information that distinguishes the stock item.
-  // Older scanned items can predate persisted DigiKey taxonomy and therefore
+  // Scanned items can lack persisted DigiKey taxonomy and therefore
   // retain only "Discrete Semiconductor Products". Their part name and
   // Technology parameter are still structured enough to identify the family.
   const bool isIntegratedCircuitFamily = hasCategoryPhrase(
       context, {"integrated circuits", "power management", "logic", "interface", "linear", "data acquisition", "clock timing"});
-  const bool isLegacyDiscreteFamily = hasCategoryPhrase(context, {"discrete semiconductor"});
+  const bool isDiscreteSemiconductorFamily = hasCategoryPhrase(context, {"discrete semiconductor"});
   const bool hasTvsEvidence = hasCategoryPhrase(context, {"tvs", "transient voltage suppressor"}) ||
                               hasParameter(context, {"Diode Type", "Type", "Technology"}, {"tvs", "transient voltage suppressor"}) ||
                               guardedTitleHas(context, {"tvs diode", "tvs"});
   const bool isDiode = hasCategoryPhrase(context, {"diodes", "rectifiers", "varactor"}) || hasTvsEvidence ||
-                       (isLegacyDiscreteFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"diode", "rectifier"}));
+                       (isDiscreteSemiconductorFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"diode", "rectifier"}));
   const bool isTransistor = hasCategoryPhrase(context, {"transistors", "bipolar bjt"}) ||
-                            (isLegacyDiscreteFamily && !isIntegratedCircuitFamily &&
+                            (isDiscreteSemiconductorFamily && !isIntegratedCircuitFamily &&
                              guardedTitleHas(context, {"transistor", "trans npn", "trans pnp"})) ||
-                            (isLegacyDiscreteFamily && hasParameter(context, {"Technology"}, {"bjt", "bipolar"}));
+                        (isDiscreteSemiconductorFamily && hasParameter(context, {"Technology"}, {"bjt", "bipolar"}));
   const bool isMosfet = hasCategoryPhrase(context, {"mosfets", "mosfet", "fet arrays"}) ||
-                        (isLegacyDiscreteFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"mosfet"})) ||
-                        (isLegacyDiscreteFamily && hasParameter(context, {"Technology"}, {"mosfet"}));
+                        (isDiscreteSemiconductorFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"mosfet"})) ||
+                        (isDiscreteSemiconductorFamily && hasParameter(context, {"Technology"}, {"mosfet"}));
   const bool isJfet = hasCategoryPhrase(context, {"jfets", "jfet"}) ||
-                      (isLegacyDiscreteFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"jfet"}));
+                      (isDiscreteSemiconductorFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"jfet"}));
   const bool isThyristor = hasCategoryPhrase(context, {"thyristors", "scrs", "triacs", "diacs"}) ||
-                           (isLegacyDiscreteFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"thyristor", "triac", "diac"}));
+                           (isDiscreteSemiconductorFamily && !isIntegratedCircuitFamily && guardedTitleHas(context, {"thyristor", "triac", "diac"}));
 
   if (isDiode) {
     if (hasCategoryPhrase(context, {"transient voltage suppressors", "tvs", "esd protection"}) ||
@@ -247,7 +247,7 @@ PartDescriptor discreteSemiconductorRule(const LabelContext& context) {
 }
 
 PartDescriptor integratedCircuitRule(const LabelContext& context) {
-  // Older scans often retain only the broad "Integrated Circuits" category.
+  // Scans can retain only the broad "Integrated Circuits" category.
   // Within that trusted family, DigiKey's Function/Topology fields and the
   // standardized product description identify the actual IC role.
   const bool isIc = hasCategoryPhrase(context, {"integrated circuits", "power management", "pmic", "voltage regulators",
