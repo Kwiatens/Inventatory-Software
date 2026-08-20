@@ -44,7 +44,6 @@ namespace inventatory {
 
 std::filesystem::path documentsInventatoryPath();
 std::filesystem::path discoverInventatoryDataPath();
-std::filesystem::path locateDotEnvFile();
 
 class App {
  public:
@@ -420,6 +419,8 @@ class App {
   bool stockIdentityExpanded_ = false;
   std::string message_;
   std::string persistenceError_;
+  bool inventoryRecoveryRequired_ = false;
+  std::string inventoryRecoveryDetail_;
   time_t messageUntil_ = 0;
   size_t selectedPosition_ = 0;
   size_t stockScroll_ = 0;

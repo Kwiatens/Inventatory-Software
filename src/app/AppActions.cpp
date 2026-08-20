@@ -27,6 +27,7 @@ using namespace std;
 namespace {
 
 constexpr size_t kDeviceDebugWindowLines = 14;
+constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 filesystem::path resolveInventoryDatabasePath(const filesystem::path& selectedPath) {
@@ -219,7 +220,18 @@ DigiKeyApiHandle createDigiKeyApi() {
 }  // namespace
 
 void App::loadState() {
-  const bool inventoryLoaded = store_.load(inventoryPath_);
+  error_code inventoryError;
+  const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
+  const bool inventoryLoaded = !inventoryFileExists || store_.load(inventoryPath_);
+  if (inventoryFileExists && !inventoryLoaded) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not read the existing inventory database: " + inventoryPath_.string();
+    persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
+    dirty_ = true;
+    return;
+  }
+  inventoryRecoveryRequired_ = false;
+  inventoryRecoveryDetail_.clear();
   loadActivities(activityPath_, activities_);
   inventatory::loadBomProjects(inventoryPath_, bomProjects_);
   printerService_.loadConfig(printerPath_);
@@ -230,7 +242,6 @@ void App::loadState() {
   }
   // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 
-  server_.setRecentActivity(activities_);
   if (trim(inventatoryScanConfig_.token).empty()) {
     if (const auto stored = CredentialStore::read(kInventatoryScanTokenCredential); stored.has_value()) {
       inventatoryScanConfig_.token = *stored;
@@ -242,8 +253,6 @@ void App::loadState() {
     setMessage("Unable to save the scanner pairing token securely", 5);
   }
 
-  error_code error;
-  const bool inventoryFileExists = filesystem::exists(inventoryPath_, error);
   vector<string> saveFailures;
   if (inventoryLoaded || !inventoryFileExists) {
     if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
@@ -257,6 +266,10 @@ void App::loadState() {
 }
 
 bool App::saveState() {
+  if (inventoryRecoveryRequired_) {
+    persistenceError_ = inventoryRecoveryDetail_ + ". Recovery is required before Inventatory can save.";
+    return false;
+  }
   ensureInventoryIdentifiers(store_.items());
   reconcileRackAssignments(store_);
   vector<string> saveFailures;
@@ -283,8 +296,10 @@ bool App::chooseInventatoryFolder() {
 
   const auto selectedInventoryPath = resolveInventoryDatabasePath(selectedPath);
   auto activePaths = InventatoryDataPaths{dataPath_, inventoryPath_, printerPath_, activityPath_, inventatoryScanConfigPath_};
-  if (!switchInventatoryDataPathsAfterSaving(activePaths, selectedInventoryPath.parent_path(),
-                                             [this] { return saveState(); })) {
+  if (inventoryRecoveryRequired_) {
+    activePaths = makeInventatoryDataPaths(selectedInventoryPath.parent_path());
+  } else if (!switchInventatoryDataPathsAfterSaving(activePaths, selectedInventoryPath.parent_path(),
+                                                     [this] { return saveState(); })) {
     setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5);
     return false;
   }
@@ -338,6 +353,10 @@ bool App::chooseInventatoryFolder() {
 
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
+  if (inventoryRecoveryRequired_) {
+    setMessage("Selected folder also contains an unreadable inventory database", 6);
+    return false;
+  }
   if (trim(inventatoryScanConfig_.token).empty()) {
     inventatoryScanConfig_.token = generateInventatoryScanToken();
     saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
@@ -367,7 +386,6 @@ bool App::undoLastInventoryChange() {
   activities_ = undoSnapshot_.activities;
   selectedPosition_ = undoSnapshot_.selectedPosition;
   undoSnapshot_.valid = false;
-  server_.setRecentActivity(activities_);
   saveState();
   syncSelectionToFilter();
   setMessage("Undid last change", 2);
@@ -1223,7 +1241,6 @@ void App::logActivity(const string& kind, const string& message) {
   } else if (kind == "print") {
     printerFlashUntil_ = now + 3;
   }
-  server_.setRecentActivity(activities_);
   saveActivities(activityPath_, activities_);
   dirty_ = true;
 }
@@ -1674,7 +1691,6 @@ void App::processDeviceSyncEvents() {
     if (created) autoPrintScannedLabel(affectedItemId);
   }
   saveActivities(activityPath_, activities_);
-  server_.setRecentActivity(activities_);
   dirty_ = true;
 }
 
@@ -1796,6 +1812,11 @@ void App::beginCsvImport() {
   ifstream input(selectedPath, ios::binary);
   if (!input) {
     setMessage("Unable to open " + selectedPath.filename().string(), 6);
+    return;
+  }
+  error_code fileError;
+  if (const auto size = filesystem::file_size(selectedPath, fileError); fileError || size > kMaximumImportBytes) {
+    setMessage("CSV import exceeds the 25 MiB safety limit", 6);
     return;
   }
   ostringstream buffer;
