@@ -235,16 +235,13 @@ std::string App::pageName() const {
   return "";
 }
 
-// Header region: breadcrumb on the left, condensed system status dots on the
-// right (scan server, printer, Inventatory Scan device, auto-label state).
+// Header region: breadcrumb on the left, with only the useful peripheral
+// status dots on the right (printer, Inventatory Scan device, auto-label).
 ftxui::Element App::renderHeaderUi() const {
   const auto now = time(nullptr);
   const bool deviceOnline = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-  const bool scannerFlashing = now <= scannerFlashUntil_;
   const bool printerFlashing = now <= printerFlashUntil_;
 
-  const auto scanColor =
-      scannerFlashing ? uiTitleColor() : (server_.running() ? uiSuccessColor() : uiWarnColor());
   const auto printerColor = printerFlashing ? uiTitleColor()
                             : printerCheck_.ok
                                 ? uiSuccessColor()
@@ -281,12 +278,9 @@ ftxui::Element App::renderHeaderUi() const {
   ftxui::Elements header;
   header.push_back(navigation);
   header.push_back(ftxui::filler());
-  // Budget: 73 columns of nav + 17 for the Actions chip, leaving the status
-  // group 62 with labels and 10 as bare dots. Below that the header would clip
-  // mid-word, so it sheds the labels and then the dots on purpose.
+  // Budget the status group against the persistent navigation and Actions
+  // chip. Labels disappear before the indicators, preventing partial words.
   if (screenWidth >= 152) {
-    header.push_back(statusDot("scan", scanColor));
-    header.push_back(dotSep());
     header.push_back(statusDot("printer", printerColor));
     header.push_back(dotSep());
     header.push_back(statusDot("device", deviceColor, deviceValue));
@@ -294,7 +288,6 @@ ftxui::Element App::renderHeaderUi() const {
     header.push_back(statusDot(autoPrintScannedLabels_ ? "auto-label on" : "auto-label off", autoColor));
     header.push_back(styledText("   ", uiDividerColor()));
   } else if (screenWidth >= 100) {
-    header.push_back(statusDot("", scanColor));
     header.push_back(statusDot("", printerColor));
     header.push_back(statusDot("", deviceColor));
     header.push_back(statusDot("", autoColor));
