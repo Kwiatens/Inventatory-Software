@@ -120,7 +120,7 @@ string transportMac(const string& token, const char* direction, const string& in
   array<unsigned char, 32> mac{};
   if (!decodeToken(token, root)) return {};
 #ifdef _WIN32
-  if (!hmacSha256(root.data(), root.size(), string("Inventatory Scan R1 transport v3 ") + direction, key) ||
+  if (!hmacSha256(root.data(), root.size(), string("Inventatory Scan R1 transport v1 ") + direction, key) ||
       !hmacSha256(key.data(), key.size(), input, mac)) {
     return {};
   }
@@ -424,7 +424,7 @@ bool looksLikeSupportedInventatoryScanCode(const string& code) {
 }
 
 // Mirrors isStandardManufacturerPartNumber() in the R1 firmware. A component
-// Data Matrix carries the manufacturer part number, which is what protocol v3
+// Data Matrix carries the manufacturer part number, which is what the Scan R1
 // puts in `code`, so the desktop must accept the same shape the device does.
 bool looksLikeManufacturerPartNumber(const string& code) {
   const auto trimmed = trim(code);
@@ -459,7 +459,6 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
   bool hasDeviceId = false;
   bool hasFallbackHost = false;
   bool hasFallbackPort = false;
-  bool hasLegacyToken = false;
   string line;
   while (getline(input, line)) {
     const auto separator = line.find('=');
@@ -469,14 +468,10 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
     if (key == "device_id") {
       loaded.deviceId = value;
       hasDeviceId = true;
-    } else if (key == "token") {
-      loaded.token = value;
-      hasLegacyToken = true;
-    } else if (key == "fallback_host" || key == "server_host") {
+    } else if (key == "fallback_host") {
       loaded.fallbackHost = value;
       hasFallbackHost = true;
-    }
-    else if (key == "fallback_port" || key == "server_port") {
+    } else if (key == "fallback_port") {
       try {
         const auto port = stoul(value);
         if (port <= 65535) {
@@ -487,7 +482,7 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
       }
     }
   }
-  if (!hasLegacyToken && !(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
+  if (!(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
   config = move(loaded);
   return true;
 }
@@ -532,18 +527,18 @@ string generateInventatoryScanToken() {
 string deviceRequestMac(const string& token, const string& method, const string& path, const string& deviceId,
                         uint64_t counter, const string& body) {
   return transportMac(token, "client-to-server",
-                      "Inventatory Scan R1/v3\nrequest\n" + method + '\n' + path + '\n' + deviceId + '\n' +
+                      "Inventatory Scan R1/v1\nrequest\n" + method + '\n' + path + '\n' + deviceId + '\n' +
                           to_string(counter) + '\n' + body);
 }
 
 string deviceResponseMac(const string& token, uint64_t counter, int status, const string& body) {
   return transportMac(token, "server-to-client",
-                      "Inventatory Scan R1/v3\nresponse\n" + to_string(counter) + '\n' + to_string(status) + '\n' +
+                      "Inventatory Scan R1/v1\nresponse\n" + to_string(counter) + '\n' + to_string(status) + '\n' +
                           body);
 }
 
 string deviceTransportStateFingerprint(const string& token) {
-  return transportMac(token, "replay-state", "Inventatory Scan R1/v3 replay state");
+  return transportMac(token, "replay-state", "Inventatory Scan R1/v1 replay state");
 }
 
 bool parseQuantityRequestJson(const string& body, DeviceQuantityRequest& request, string& error) {

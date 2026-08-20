@@ -1,8 +1,13 @@
 [CmdletBinding()]
-param([switch]$NoLaunch, [switch]$DesktopShortcut)
+param([switch]$NoLaunch, [switch]$DesktopShortcut,
+      [string]$Repository = '__INVENTATORY_RELEASE_REPOSITORY__')
 
 $ErrorActionPreference = 'Stop'
-$repo = 'Kwiatens/Inventatory-Software'
+if ($Repository -eq '__INVENTATORY_RELEASE_REPOSITORY__' -or
+    $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+  throw 'This installer must be downloaded from an official Inventatory release.'
+}
+$repo = $Repository
 $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Inventatory'
 $downloadRoot = Join-Path $env:TEMP ('Inventatory-' + [guid]::NewGuid())
 $stagingRoot = "$installRoot.staging"
