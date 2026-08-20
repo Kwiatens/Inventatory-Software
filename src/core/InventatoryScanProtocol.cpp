@@ -147,6 +147,14 @@ bool jsonObjectIsComplete(const string& body) {
     const unsigned char ch = static_cast<unsigned char>(body[index]);
     if (inString) {
       if (escaped) {
+        if (ch == 'u') {
+          if (index + 4U > end || hexDigit(body[index + 1U]) < 0 || hexDigit(body[index + 2U]) < 0 ||
+              hexDigit(body[index + 3U]) < 0 || hexDigit(body[index + 4U]) < 0) return false;
+          index += 4U;
+        } else if (ch != '"' && ch != '\\' && ch != '/' && ch != 'b' && ch != 'f' && ch != 'n' &&
+                   ch != 'r' && ch != 't') {
+          return false;
+        }
         escaped = false;
       } else if (ch == '\\') {
         escaped = true;
@@ -285,6 +293,8 @@ optional<int> jsonInt(const string& body, const string& key) {
   if (position < body.size() && (body[position] == '-' || body[position] == '+')) ++position;
   while (position < body.size() && isdigit(static_cast<unsigned char>(body[position]))) ++position;
   if (position == begin || (position == begin + 1 && (body[begin] == '-' || body[begin] == '+'))) return nullopt;
+  if (position < body.size() && body[position] != ',' && body[position] != '}' && body[position] != ']' &&
+      isspace(static_cast<unsigned char>(body[position])) == 0) return nullopt;
   try {
     const auto parsed = stoll(body.substr(begin, position - begin));
     if (parsed < numeric_limits<int>::min() || parsed > numeric_limits<int>::max()) return nullopt;
@@ -299,8 +309,12 @@ optional<bool> jsonBool(const string& body, const string& key) {
   if (!valuePosition) return nullopt;
   auto position = *valuePosition;
   while (position < body.size() && isspace(static_cast<unsigned char>(body[position]))) ++position;
-  if (body.compare(position, 4, "true") == 0) return true;
-  if (body.compare(position, 5, "false") == 0) return false;
+  const auto validTerminator = [&](size_t end) {
+    return end == body.size() || body[end] == ',' || body[end] == '}' || body[end] == ']' ||
+           isspace(static_cast<unsigned char>(body[end])) != 0;
+  };
+  if (body.compare(position, 4, "true") == 0 && validTerminator(position + 4U)) return true;
+  if (body.compare(position, 5, "false") == 0 && validTerminator(position + 5U)) return false;
   return nullopt;
 }
 
