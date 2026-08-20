@@ -20,6 +20,8 @@ using namespace std;
 
 namespace {
 
+constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
+
 struct ColumnMap {
   int digikeyPart = -1;
   int manufacturerPart = -1;
@@ -279,6 +281,12 @@ CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryIt
 }
 
 CsvImportResult loadDigiKeyCsvFile(const filesystem::path& path, const vector<InventoryItem>& existingItems) {
+  error_code error;
+  if (const auto size = filesystem::file_size(path, error); error || size > kMaximumImportBytes) {
+    CsvImportResult result;
+    result.error = "CSV import exceeds the 25 MiB safety limit";
+    return result;
+  }
   ifstream input(path, ios::binary);
   if (!input) {
     CsvImportResult result;

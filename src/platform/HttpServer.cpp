@@ -197,8 +197,7 @@ LocalHttpServer::~LocalHttpServer() {
   stop();
 }
 
-bool LocalHttpServer::start(uint16_t preferredPort, ScanCallback onScan, QuantityCallback onQuantity,
-                            StatusCallback onStatus, DebugCallback onDebug, SyncCallback onSync) {
+bool LocalHttpServer::start(uint16_t preferredPort, SyncCallback onSync) {
   stop();
 
   WSADATA data{};
@@ -208,14 +207,11 @@ bool LocalHttpServer::start(uint16_t preferredPort, ScanCallback onScan, Quantit
   }
   winsockStarted_ = true;
 
-  onScan_ = move(onScan);
-  onDebug_ = move(onDebug);
-  onQuantity_ = move(onQuantity);
-  onStatus_ = move(onStatus);
   onSync_ = move(onSync);
 
-  for (uint16_t candidate = preferredPort; candidate < static_cast<uint16_t>(preferredPort + 20); ++candidate) {
-    if (bindSocket(candidate)) {
+  const unsigned int lastCandidate = min(65535U, static_cast<unsigned int>(preferredPort) + 19U);
+  for (unsigned int candidate = preferredPort; candidate <= lastCandidate; ++candidate) {
+    if (bindSocket(static_cast<uint16_t>(candidate))) {
       running_.store(true);
       workers_.clear();
       workers_.reserve(kWorkerCount);
@@ -252,11 +248,6 @@ void LocalHttpServer::stop() {
     WSACleanup();
     winsockStarted_ = false;
   }
-}
-
-void LocalHttpServer::setRecentActivity(vector<ActivityEntry> activities) {
-  lock_guard<mutex> lock(stateMutex_);
-  recentActivities_ = move(activities);
 }
 
 void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path replayStatePath) {
@@ -296,11 +287,6 @@ vector<string> LocalHttpServer::addresses() const {
     return addresses_;
   }
   return {"127.0.0.1"};
-}
-
-string LocalHttpServer::lastScan() const {
-  lock_guard<mutex> lock(stateMutex_);
-  return lastScan_;
 }
 
 bool LocalHttpServer::bindSocket(uint16_t port) {
