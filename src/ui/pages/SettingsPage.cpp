@@ -300,7 +300,6 @@ bool App::saveSettingsDraft() {
     activityPath_ = move(switchedPaths.activity);
     inventatoryScanConfigPath_ = move(switchedPaths.scanConfig);
     quickLabelsPath_ = dataPath_ / "quick_labels.conf";
-    ensureInventoryDatabaseCopied(inventoryPath_);
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     loadState();
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
