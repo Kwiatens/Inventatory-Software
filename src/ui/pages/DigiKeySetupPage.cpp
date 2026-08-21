@@ -27,7 +27,7 @@ ftxui::Element App::renderDigiKeySetupUi() const {
   ftxui::Elements rows;
   switch (digiKeySetupStep_) {
     case DigiKeySetupStep::Introduction:
-      rows.push_back(styledText("Enter the DigiKey API credentials for Inventatory.", uiTitleColor()));
+      rows.push_back(styledText("Enter the DigiKey API credentials for Inventatory" + uiAnimatedEllipsis(), uiTitleColor()));
       rows.push_back(styledText("Create or copy the Client ID and Client secret from the DigiKey developer portal.",
                                 uiTitleColor()));
       rows.push_back(ftxui::text(""));

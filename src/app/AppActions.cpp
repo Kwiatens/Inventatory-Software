@@ -395,6 +395,7 @@ bool App::undoLastInventoryChange() {
 void App::setMessage(string text, int seconds) {
   message_ = move(text);
   messageUntil_ = time(nullptr) + seconds;
+  messageFlashStartedAt_ = uiAnimationTicks();
   dirty_ = true;
 }
 
