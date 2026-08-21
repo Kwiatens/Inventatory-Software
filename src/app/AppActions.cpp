@@ -1154,9 +1154,6 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::Sku:
       workingCopy_.item.sku = trimmed;
       break;
-    case EditField::SyncStatus:
-      workingCopy_.item.syncStatus = toLower(trimmed);
-      break;
     case EditField::RackLocation: {
       string error;
       if (!setManualRackLocation(store_, workingCopy_.item, value, error)) {
@@ -2580,8 +2577,6 @@ string App::fieldLabel(EditField field) const {
       return "Product URL";
     case EditField::Sku:
       return "SKU";
-    case EditField::SyncStatus:
-      return "Sync status";
     case EditField::RackLocation:
       return "Rack location";
   }
@@ -2629,8 +2624,6 @@ string App::currentFieldValue(EditField field) const {
       return item->productUrl;
     case EditField::Sku:
       return item->sku;
-    case EditField::SyncStatus:
-      return item->syncStatus;
     case EditField::RackLocation: {
       const auto location = rackLocation(*item, store_.racks());
       return location.empty() ? (item->rackAssignment == RackAssignmentMode::Automatic ? "AUTO" : "") : location;
@@ -2656,7 +2649,6 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Datasheet URL", EditField::DatasheetUrl},
       {"Product URL", EditField::ProductUrl},
       {"SKU", EditField::Sku},
-      {"Sync status", EditField::SyncStatus},
   };
 }
 

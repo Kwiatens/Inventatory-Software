@@ -142,7 +142,6 @@ class App {
     DatasheetUrl,
     ProductUrl,
     Sku,
-    SyncStatus,
     RackLocation,
   };
 
@@ -432,8 +431,8 @@ class App {
   int stockFilterSelection_ = 0;
   bool stockDateFilterSubmenuOpen_ = false;
   // Vendor/catalogue identifiers are reference data, not what the page is for,
-  // so the identity block starts collapsed.
-  bool stockIdentityExpanded_ = false;
+  // so the details block starts collapsed.
+  bool stockDetailsExpanded_ = false;
   std::string message_;
   std::string persistenceError_;
   bool inventoryRecoveryRequired_ = false;
