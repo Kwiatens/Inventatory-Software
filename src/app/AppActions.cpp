@@ -1736,6 +1736,7 @@ void App::processDeviceRequests() {
     }
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(status.deviceId);
+      inventatoryScanConfig_.setupComplete = true;
       saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                    appSettingsDirectory() / "inventatory-scan-replay.state");
@@ -1764,6 +1765,7 @@ void App::processDeviceRequests() {
     bool pairingChanged = false;
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(pending->request.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(pending->request.deviceId);
+      inventatoryScanConfig_.setupComplete = true;
       pairingChanged = true;
     }
     const auto result = applyDeviceQuantityCached(store_, pending->request, deviceRequestCache_, deviceRequestOrder_);

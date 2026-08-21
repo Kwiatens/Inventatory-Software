@@ -506,66 +506,78 @@ ftxui::Element App::renderSettingsUi() const {
                settingsField_ >= 0 && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
     }));
   } else if (settingsCategory_ == SettingsCategory::InventatoryScan) {
-    // Pairing is the reason this panel exists, so it leads. Token and
-    // diagnostics operations stay on the Actions sheet.
-    rows.push_back(styledText("DEVICE", uiSecondaryText()) | ftxui::bold);
-    rows.push_back(buttonRow(target(uiPrimaryButton("Pair new device"), "settings.scan.pair", UiTargetKind::Button,
+    const bool setupComplete = inventatoryScanConfig_.setupComplete || !inventatoryScanConfig_.deviceId.empty();
+    if (!setupComplete) {
+      rows.push_back(buttonRow(target(uiPrimaryButton("Begin Setup"), "settings.scan.begin_setup", UiTargetKind::Button,
                                     [self] { self->openInventatoryScanSetup(); })));
-    rows.push_back(ftxui::text(""));
-    const auto now = time(nullptr);
-    const bool paired = !inventatoryScanConfig_.deviceId.empty();
-    const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-    const auto stateColor = !paired ? uiMutedText() : online ? uiSuccessColor() : uiWarnColor();
-    const auto stateWord = !paired ? "No device paired" : online ? "Online" : "Offline";
-    rows.push_back(ftxui::hbox({
-        styledText(" Status", uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
-        styledText(string("\xE2\x97\x8F ") + stateWord, stateColor),
-        ftxui::filler(),
-    }));
-    if (paired) {
-      // Signal strength and last-contact are only meaningful once the device
-      // has actually reported in; before that they would read as fake zeros.
-      auto detail = inventatoryScanConfig_.deviceId;
-      if (deviceLastSeen_ > 0) {
-        detail += "  \xC2\xB7  " + to_string(deviceRssi_) + " dBm  \xC2\xB7  seen " +
-                  to_string(static_cast<long long>(now - deviceLastSeen_)) + "s ago";
-      }
+    } else {
+      // Pairing is the reason this panel exists, so it leads. Token and
+      // diagnostics operations stay on the Actions sheet.
+      rows.push_back(styledText("DEVICE", uiSecondaryText()) | ftxui::bold);
+      rows.push_back(buttonRow(target(uiPrimaryButton("Pair new device"), "settings.scan.pair", UiTargetKind::Button,
+                                      [self] { self->openInventatoryScanSetup(); })));
+      rows.push_back(ftxui::text(""));
+      const auto now = time(nullptr);
+      const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
+      const bool hasDeviceIdentity = !inventatoryScanConfig_.deviceId.empty();
+      const auto stateColor = !hasDeviceIdentity ? uiMutedText() : online ? uiSuccessColor() : uiWarnColor();
+      const auto stateWord = !hasDeviceIdentity ? "Waiting for device" : online ? "Online" : "Offline";
       rows.push_back(ftxui::hbox({
-          styledText(" Device", uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
-          styledText(ellipsize(detail, static_cast<size_t>(max(8, contentWidth - settingsLabelWidth(contentWidth) - 2))),
-                     uiPrimaryText()),
+          styledText(" Status", uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
+          styledText(string("\xE2\x97\x8F ") + stateWord, stateColor),
           ftxui::filler(),
       }));
+      if (hasDeviceIdentity) {
+        // Signal strength and last-contact are only meaningful once the device
+        // has actually reported in; before that they would read as fake zeros.
+        auto detail = inventatoryScanConfig_.deviceId;
+        if (deviceLastSeen_ > 0) {
+          detail += "  \xC2\xB7  " + to_string(deviceRssi_) + " dBm  \xC2\xB7  seen " +
+                    to_string(static_cast<long long>(now - deviceLastSeen_)) + "s ago";
+        }
+        rows.push_back(ftxui::hbox({
+            styledText(" Device", uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
+            styledText(ellipsize(detail, static_cast<size_t>(max(8, contentWidth - settingsLabelWidth(contentWidth) - 2))),
+                       uiPrimaryText()),
+            ftxui::filler(),
+        }));
+      }
+      rows.push_back(uiDivider());
+      const auto portValue = settingsEditingField_ ? inputBuffer_ + "_" : to_string(settingsDraft_.deviceServicePort);
+      rows.push_back(target(settingLine("Service port", portValue, contentWidth, settingsEditingField_),
+                            "settings.scan.port", UiTargetKind::Field,
+                            [self] { self->beginSettingsFieldEdit(0); }));
+      rows.push_back(settingLine("Firmware", scanFirmwareStatus(), contentWidth));
+      rows.push_back(buttonRow(target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware",
+                                      UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
     }
-    rows.push_back(uiDivider());
-    const auto portValue = settingsEditingField_ ? inputBuffer_ + "_" : to_string(settingsDraft_.deviceServicePort);
-    rows.push_back(target(settingLine("Service port", portValue, contentWidth, settingsEditingField_),
-                          "settings.scan.port", UiTargetKind::Field,
-                          [self] { self->beginSettingsFieldEdit(0); }));
-    rows.push_back(settingLine("Firmware", scanFirmwareStatus(), contentWidth));
-    rows.push_back(buttonRow(target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware",
-                                    UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
   } else {
-    rows.push_back(styledText("DIGIKEY API CREDENTIALS", uiSecondaryText()) | ftxui::bold);
-    const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
-    const vector<pair<string, string>> fields = {
-        {"Client ID", settingsDraft_.digiKeyClientId},
-        {"Client secret", hasSecret ? "••••••••" : "Not configured"},
-        {"Account ID", settingsDraft_.digiKeyAccountId},
-        {"Site", settingsDraft_.digiKeySite},
-        {"Language", settingsDraft_.digiKeyLanguage},
-        {"Currency", settingsDraft_.digiKeyCurrency},
-    };
-    for (size_t index = 0; index < fields.size(); ++index) {
-      const bool editing = settingsEditingField_ && settingsField_ == static_cast<int>(index);
-      const auto value = editing ? (index == 1 ? string(inputBuffer_.size(), '*') : inputBuffer_) + "_"
-                                 : fields[index].second;
-      rows.push_back(target(settingLine(fields[index].first, value, contentWidth, editing),
-                            "settings.digikey." + to_string(index), UiTargetKind::Field,
-                            [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
+    const bool configured = !trim(settings_.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
+    if (!configured) {
+      rows.push_back(buttonRow(target(uiPrimaryButton("Begin Setup"), "settings.digikey.begin_setup", UiTargetKind::Button,
+                                    [self] { self->openDigiKeySetup(); })));
+    } else {
+      rows.push_back(styledText("DIGIKEY API CREDENTIALS", uiSecondaryText()) | ftxui::bold);
+      const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
+      const vector<pair<string, string>> fields = {
+          {"Client ID", settingsDraft_.digiKeyClientId},
+          {"Client secret", hasSecret ? "••••••••" : "Not configured"},
+          {"Account ID", settingsDraft_.digiKeyAccountId},
+          {"Site", settingsDraft_.digiKeySite},
+          {"Language", settingsDraft_.digiKeyLanguage},
+          {"Currency", settingsDraft_.digiKeyCurrency},
+      };
+      for (size_t index = 0; index < fields.size(); ++index) {
+        const bool editing = settingsEditingField_ && settingsField_ == static_cast<int>(index);
+        const auto value = editing ? (index == 1 ? string(inputBuffer_.size(), '*') : inputBuffer_) + "_"
+                                   : fields[index].second;
+        rows.push_back(target(settingLine(fields[index].first, value, contentWidth, editing),
+                              "settings.digikey." + to_string(index), UiTargetKind::Field,
+                              [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
+      }
+      rows.push_back(buttonRow(target(uiSecondaryButton("Test credentials"), "settings.digikey.test",
+                                      UiTargetKind::Button, [self] { self->testStagedDigiKey(); })));
     }
-    rows.push_back(buttonRow(target(uiSecondaryButton("Test credentials"), "settings.digikey.test",
-                                    UiTargetKind::Button, [self] { self->testStagedDigiKey(); })));
   }
 
   rows.push_back(ftxui::filler());

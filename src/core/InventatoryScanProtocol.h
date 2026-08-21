@@ -22,6 +22,7 @@ struct InventatoryScanConfig {
   std::string token;
   std::string fallbackHost;
   std::uint16_t fallbackPort = 0;
+  bool setupComplete = false;
 
   bool paired() const;
 };
