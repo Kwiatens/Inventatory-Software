@@ -4,11 +4,32 @@
 #include "platform/MdnsService.h"
 
 #include <array>
+#include <chrono>
 #include <string>
 
 #include <winsock2.h>
+#include <ws2tcpip.h>
 
 namespace inventatory {
+
+#ifdef _WIN32
+void WINAPI MdnsService::registrationComplete(DWORD status, PVOID context, PDNS_SERVICE_INSTANCE) {
+  auto* service = static_cast<MdnsService*>(context);
+  if (service == nullptr) return;
+  {
+    std::lock_guard<std::mutex> lock(service->completionMutex_);
+    service->completionStatus_ = status;
+    service->completionReceived_ = true;
+  }
+  service->completionChanged_.notify_one();
+}
+
+bool MdnsService::waitForRegistrationCompletion(std::chrono::milliseconds timeout) {
+  std::unique_lock<std::mutex> lock(completionMutex_);
+  if (!completionChanged_.wait_for(lock, timeout, [this] { return completionReceived_; })) return true;
+  return completionStatus_ == ERROR_SUCCESS;
+}
+#endif
 
 MdnsService::~MdnsService() {
   stop();
@@ -22,20 +43,51 @@ bool MdnsService::start(std::uint16_t port) {
   std::wstring wideHost;
   for (const char ch : std::string(host.data())) wideHost.push_back(static_cast<unsigned char>(ch));
   wideHost += L".local";
+  IP4_ADDRESS ipv4Address = 0;
+  bool haveIpv4Address = false;
+  addrinfo hints{};
+  hints.ai_family = AF_INET;
+  addrinfo* resolved = nullptr;
+  if (getaddrinfo(host.data(), nullptr, &hints, &resolved) == 0) {
+    for (auto* address = resolved; address != nullptr; address = address->ai_next) {
+      const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(address->ai_addr);
+      const auto hostOrder = ntohl(ipv4->sin_addr.S_un.S_addr);
+      if (hostOrder != 0U && (hostOrder >> 24U) != 127U) {
+        ipv4Address = ipv4->sin_addr.S_un.S_addr;
+        haveIpv4Address = true;
+        break;
+      }
+    }
+    freeaddrinfo(resolved);
+  }
   const wchar_t* keys[] = {L"protocol"};
   const wchar_t* values[] = {L"1"};
-  instance_ = DnsServiceConstructInstance(L"Inventatory._inventatory._tcp.local", wideHost.c_str(), nullptr, nullptr, port, 0, 0,
+  instance_ = DnsServiceConstructInstance(L"Inventatory._inventatory._tcp.local", wideHost.c_str(),
+                                          haveIpv4Address ? &ipv4Address : nullptr, nullptr, port, 0, 0,
                                           1, keys, values);
   if (instance_ == nullptr) return false;
   request_ = {};
   request_.Version = DNS_QUERY_REQUEST_VERSION1;
   request_.InterfaceIndex = 0;
   request_.pServiceInstance = instance_;
+  request_.pRegisterCompletionCallback = &MdnsService::registrationComplete;
+  request_.pQueryContext = this;
   request_.unicastEnabled = FALSE;
+  {
+    std::lock_guard<std::mutex> lock(completionMutex_);
+    completionReceived_ = false;
+    completionStatus_ = ERROR_SUCCESS;
+  }
   const auto status = DnsServiceRegister(&request_, nullptr);
   if (status != ERROR_SUCCESS && status != DNS_REQUEST_PENDING) {
     DnsServiceFreeInstance(instance_);
     instance_ = nullptr;
+    return false;
+  }
+  if (status == DNS_REQUEST_PENDING && !waitForRegistrationCompletion(std::chrono::seconds(2))) {
+    DnsServiceFreeInstance(instance_);
+    instance_ = nullptr;
+    request_ = {};
     return false;
   }
   running_ = true;
@@ -48,7 +100,15 @@ bool MdnsService::start(std::uint16_t port) {
 
 void MdnsService::stop() {
 #ifdef _WIN32
-  if (running_ && instance_ != nullptr) DnsServiceDeRegister(&request_, nullptr);
+  if (running_ && instance_ != nullptr) {
+    {
+      std::lock_guard<std::mutex> lock(completionMutex_);
+      completionReceived_ = false;
+      completionStatus_ = ERROR_SUCCESS;
+    }
+    const auto status = DnsServiceDeRegister(&request_, nullptr);
+    if (status == DNS_REQUEST_PENDING) waitForRegistrationCompletion(std::chrono::seconds(2));
+  }
   if (instance_ != nullptr) DnsServiceFreeInstance(instance_);
   instance_ = nullptr;
   request_ = {};

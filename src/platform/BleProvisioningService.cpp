@@ -162,13 +162,14 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
       publicError = "Scanner is no longer nearby";
       return BleProvisioningOutcome::Failed;
     }
-    const auto info = DeviceInformation::CreateFromIdAsync(device.DeviceId()).get();
+    auto info = DeviceInformation::CreateFromIdAsync(device.DeviceId()).get();
     if (!info) {
       publicError = "Windows could not open the scanner";
       return BleProvisioningOutcome::Failed;
     }
-    if (!info.Pairing().IsPaired()) {
-      const auto pairing = info.Pairing().Custom();
+    const auto pairDevice = [&](DeviceInformation& pairingInfo) {
+      if (pairingInfo.Pairing().IsPaired()) return true;
+      const auto pairing = pairingInfo.Pairing().Custom();
       const auto handler = pairing.PairingRequested([pin = request.pairingCode](const auto&, const DevicePairingRequestedEventArgs& args) {
         if (args.PairingKind() == DevicePairingKinds::ProvidePin) args.Accept(winrt::to_hstring(pin));
         else args.Accept();
@@ -177,10 +178,12 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
                                                          static_cast<unsigned>(DevicePairingKinds::ConfirmOnly));
       const auto result = pairing.PairAsync(kinds, DevicePairingProtectionLevel::EncryptionAndAuthentication).get();
       pairing.PairingRequested(handler);
-      if (result.Status() != DevicePairingResultStatus::Paired && result.Status() != DevicePairingResultStatus::AlreadyPaired) {
-        publicError = "Secure Bluetooth pairing was not completed";
-        return BleProvisioningOutcome::Failed;
-      }
+      return result.Status() == DevicePairingResultStatus::Paired ||
+             result.Status() == DevicePairingResultStatus::AlreadyPaired;
+    };
+    if (!pairDevice(info)) {
+      publicError = "Secure Bluetooth pairing was not completed";
+      return BleProvisioningOutcome::Failed;
     }
 
     // Pairing can replace the cached GATT object, and Windows may retain a
@@ -196,17 +199,42 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
     const auto serviceUuid = winrt::guid{kServiceUuidText};
     const auto statusUuid = winrt::guid{kStatusUuidText};
     const auto requestUuid = winrt::guid{kRequestUuidText};
-    optional<decltype(device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode::Uncached).get())> services;
-    for (int attempt = 0; attempt < 3; ++attempt) {
-      if (attempt > 0) {
+    using GattServicesResult = decltype(device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode::Uncached).get());
+    const auto discoverServices = [&]() -> optional<GattServicesResult> {
+      optional<GattServicesResult> discovered;
+      for (int attempt = 0; attempt < 3; ++attempt) {
+        if (attempt > 0) {
+          this_thread::sleep_for(chrono::milliseconds(500));
+          device = BluetoothLEDevice::FromBluetoothAddressAsync(request.address).get();
+          if (!device) break;
+        }
+        auto candidate = device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode::Uncached).get();
+        if (candidate.Status() == GattCommunicationStatus::Success && candidate.Services().Size() > 0) {
+          discovered = move(candidate);
+          break;
+        }
+      }
+      return discovered;
+    };
+    auto services = discoverServices();
+    if (!services && info.Pairing().IsPaired()) {
+      // A full firmware erase removes the ESP32 bond, but it does not remove
+      // the old Windows bond. Re-pair once when the authenticated GATT
+      // service cannot be discovered; otherwise every reflashed device stays
+      // permanently unavailable to the setup wizard.
+      try {
+        info.Pairing().UnpairAsync().get();
         this_thread::sleep_for(chrono::milliseconds(500));
         device = BluetoothLEDevice::FromBluetoothAddressAsync(request.address).get();
-        if (!device) break;
-      }
-      auto candidate = device.GetGattServicesForUuidAsync(serviceUuid, BluetoothCacheMode::Uncached).get();
-      if (candidate.Status() == GattCommunicationStatus::Success && candidate.Services().Size() > 0) {
-        services = move(candidate);
-        break;
+        DeviceInformation refreshedInfo{nullptr};
+        if (device) refreshedInfo = DeviceInformation::CreateFromIdAsync(device.DeviceId()).get();
+        if (refreshedInfo && pairDevice(refreshedInfo)) {
+          device = BluetoothLEDevice::FromBluetoothAddressAsync(request.address).get();
+          if (device) services = discoverServices();
+        }
+      } catch (...) {
+        // Keep the original discovery error if Windows refuses to refresh its
+        // pairing record; the caller can still remove the entry manually.
       }
     }
     if (!services) {
