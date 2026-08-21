@@ -244,14 +244,11 @@ ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ft
   return styledText(" " + label + " ", fg, fill) | ftxui::bold;
 }
 
-ftxui::Element statusDot(const string& label, ftxui::Color color, const string& value) {
-  ftxui::Elements parts;
-  parts.push_back(ftxui::text("\xE2\x97\x8F ") | ftxui::color(color));  // filled circle
-  parts.push_back(ftxui::text(label) | ftxui::color(uiMutedColor()));
-  if (!value.empty()) {
-    parts.push_back(ftxui::text(" " + value) | ftxui::color(uiMutedColor()));
-  }
-  return ftxui::hbox(move(parts));
+ftxui::Element statusTextBox(const string& label, bool active) {
+  auto box = styledText(" " + label + " ", active ? uiFocusColor() : uiMutedColor(),
+                        active ? uiActiveSoftBg() : uiSurfaceBg());
+  if (active) box = box | ftxui::bold;
+  return box;
 }
 
 bool uiBoxContains(const ftxui::Box& box, int x, int y) {
