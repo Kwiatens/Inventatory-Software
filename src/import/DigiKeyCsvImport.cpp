@@ -217,7 +217,6 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
   candidate.item.manufacturer = csvCell(row, columns.manufacturer);
   candidate.item.category = inferCategory(description);
   candidate.item.quantity = quantity;
-  candidate.item.reorderThreshold = categoryLowStockThreshold(candidate.item.category);
   candidate.item.location = "Import Inbox";
   candidate.item.tags = {"digikey", "csv-import"};
   candidate.item.notes = "Imported from DigiKey CSV row " + to_string(sourceRow) + ".";
