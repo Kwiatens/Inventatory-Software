@@ -203,10 +203,6 @@ string sanitizeIdPart(const string& value) {
   return output;
 }
 
-bool InventoryItem::lowStock() const {
-  return quantity <= reorderThreshold;
-}
-
 bool InventoryItem::hasMissingMetadata() const {
   return partName.empty() || manufacturer.empty() || category.empty() || digikeyPartNumber.empty() ||
          datasheetUrl.empty() || productUrl.empty();

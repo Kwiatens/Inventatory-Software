@@ -5,6 +5,7 @@
 
 #include "platform/Environment.h"
 
+#include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -17,6 +18,13 @@ namespace inventatory {
 using namespace std;
 
 namespace {
+
+int hexDigit(char value) {
+  if (value >= '0' && value <= '9') return value - '0';
+  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+  if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+  return -1;
+}
 
 bool parseBool(const string& value, bool fallback) {
   if (value == "1" || value == "true") return true;
@@ -36,6 +44,84 @@ bool replaceSettingsFile(const filesystem::path& path, const filesystem::path& t
 }
 
 }  // namespace
+
+const char* appearanceColorKey(AppearanceColorRole role) {
+  switch (role) {
+    case AppearanceColorRole::CanvasBg: return "canvas_bg";
+    case AppearanceColorRole::SurfaceBg: return "surface_bg";
+    case AppearanceColorRole::RaisedSurfaceBg: return "raised_surface_bg";
+    case AppearanceColorRole::HoverBg: return "hover_bg";
+    case AppearanceColorRole::SelectionBg: return "selection_bg";
+    case AppearanceColorRole::Divider: return "divider";
+    case AppearanceColorRole::PrimaryText: return "primary_text";
+    case AppearanceColorRole::SecondaryText: return "secondary_text";
+    case AppearanceColorRole::MutedText: return "muted_text";
+    case AppearanceColorRole::FocusText: return "focus_text";
+    case AppearanceColorRole::Interactive: return "interactive";
+    case AppearanceColorRole::Success: return "success";
+    case AppearanceColorRole::Link: return "link";
+    case AppearanceColorRole::WarningText: return "warning_text";
+    case AppearanceColorRole::DangerText: return "danger_text";
+    case AppearanceColorRole::ActiveBg: return "active_bg";
+    case AppearanceColorRole::ActiveSoftBg: return "active_soft_bg";
+    case AppearanceColorRole::WarningBg: return "warning_bg";
+    case AppearanceColorRole::DangerBg: return "danger_bg";
+    case AppearanceColorRole::DangerFlashBg: return "danger_flash_bg";
+    case AppearanceColorRole::Count: break;
+  }
+  return "unknown";
+}
+
+const char* appearanceColorLabel(AppearanceColorRole role) {
+  switch (role) {
+    case AppearanceColorRole::CanvasBg: return "Canvas background";
+    case AppearanceColorRole::SurfaceBg: return "Surface background";
+    case AppearanceColorRole::RaisedSurfaceBg: return "Raised surface";
+    case AppearanceColorRole::HoverBg: return "Hover background";
+    case AppearanceColorRole::SelectionBg: return "Selection background";
+    case AppearanceColorRole::Divider: return "Divider";
+    case AppearanceColorRole::PrimaryText: return "Primary text";
+    case AppearanceColorRole::SecondaryText: return "Secondary text";
+    case AppearanceColorRole::MutedText: return "Muted text";
+    case AppearanceColorRole::FocusText: return "Focus text";
+    case AppearanceColorRole::Interactive: return "Interactive / accent";
+    case AppearanceColorRole::Success: return "Success";
+    case AppearanceColorRole::Link: return "Link";
+    case AppearanceColorRole::WarningText: return "Warning text";
+    case AppearanceColorRole::DangerText: return "Danger text";
+    case AppearanceColorRole::ActiveBg: return "Active background";
+    case AppearanceColorRole::ActiveSoftBg: return "Active soft background";
+    case AppearanceColorRole::WarningBg: return "Warning background";
+    case AppearanceColorRole::DangerBg: return "Danger background";
+    case AppearanceColorRole::DangerFlashBg: return "Danger flash background";
+    case AppearanceColorRole::Count: break;
+  }
+  return "Unknown";
+}
+
+string appearanceColorHex(uint32_t rgb) {
+  ostringstream output;
+  output << '#' << uppercase << hex << setw(6) << setfill('0') << (rgb & 0xFFFFFFu);
+  return output.str();
+}
+
+bool parseAppearanceColorHex(const string& text, uint32_t& rgb) {
+  string value;
+  for (const char character : text) {
+    if (!isspace(static_cast<unsigned char>(character))) value.push_back(character);
+  }
+  if (!value.empty() && value.front() == '#') value.erase(value.begin());
+  if (value.size() != 6) return false;
+
+  uint32_t parsed = 0;
+  for (const char character : value) {
+    const int digit = hexDigit(character);
+    if (digit < 0) return false;
+    parsed = (parsed << 4) | static_cast<uint32_t>(digit);
+  }
+  rgb = parsed;
+  return true;
+}
 
 filesystem::path appSettingsDirectory() {
   if (const auto value = environmentValue("LOCALAPPDATA"); value.has_value() && !value->empty()) {
@@ -108,9 +194,24 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       value >> quoted(loaded.digiKeyLanguage);
     } else if (key == "digikey_currency") {
       value >> quoted(loaded.digiKeyCurrency);
+    } else if (key == "low_stock_threshold") {
+      int threshold = loaded.lowStockThreshold;
+      value >> threshold;
+      if (threshold > 0) loaded.lowStockThreshold = threshold;
+    } else if (key.rfind("appearance_", 0) == 0) {
+      for (size_t index = 0; index < kAppearanceColorCount; ++index) {
+        const auto role = static_cast<AppearanceColorRole>(index);
+        if (key == string("appearance_") + appearanceColorKey(role)) {
+          string encoded;
+          value >> encoded;
+          uint32_t parsed = loaded.appearance.colors[index];
+          if (parseAppearanceColorHex(encoded, parsed)) loaded.appearance.colors[index] = parsed;
+          break;
+        }
+      }
     }
   }
-  if (loaded.schemaVersion != 1) return false;
+  if (loaded.schemaVersion != 1 || loaded.lowStockThreshold <= 0) return false;
   settings = move(loaded);
   return true;
 }
@@ -137,9 +238,15 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "device_service_port=" << settings.deviceServicePort << '\n'
          << "digikey_client_id=" << quoted(settings.digiKeyClientId) << '\n'
          << "digikey_account_id=" << quoted(settings.digiKeyAccountId) << '\n'
-         << "digikey_site=" << quoted(settings.digiKeySite) << '\n'
-         << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
-         << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n';
+          << "digikey_site=" << quoted(settings.digiKeySite) << '\n'
+          << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
+          << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n'
+          << "low_stock_threshold=" << settings.lowStockThreshold << '\n';
+  for (size_t index = 0; index < kAppearanceColorCount; ++index) {
+    const auto role = static_cast<AppearanceColorRole>(index);
+    output << "appearance_" << appearanceColorKey(role) << '='
+           << appearanceColorHex(settings.appearance.colors[index]) << '\n';
+   }
   output.close();
   if (!output) return false;
   if (!replaceSettingsFile(path, temporary)) {

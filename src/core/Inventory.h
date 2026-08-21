@@ -58,6 +58,8 @@ struct InventoryItem {
   string manufacturer;
   string category;
   int quantity = 0;
+  // Retained only so older inventory databases and serialized snapshots round-trip.
+  // Low-stock behavior is controlled by AppSettings::lowStockThreshold.
   int reorderThreshold = 0;
   string location;
   vector<string> tags;
@@ -78,7 +80,6 @@ struct InventoryItem {
   string labelOverride;
   VendorProductMetadata vendorMetadata;
 
-  bool lowStock() const;
   bool hasMissingMetadata() const;
   string searchableText() const;
 };
@@ -144,13 +145,25 @@ vector<string> split(const string& value, char delimiter);
 vector<string> tokenizeQuery(const string& query);
 
 bool containsInsensitive(string_view haystack, string_view needle);
+bool isLowStock(const InventoryItem& item, int threshold);
+bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold);
+bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
+                  int lowStockThreshold);
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold);
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
+                           const vector<InventatoryRack>& racks, int lowStockThreshold);
+Summary summarize(const vector<InventoryItem>& items, int lowStockThreshold);
+InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& items, int lowStockThreshold,
+                                                time_t timestamp = 0);
+
+// Compatibility overloads use the historical default only for callers that do
+// not own application settings. The application always supplies its setting.
 bool matchesQuery(const InventoryItem& item, const string& query);
 bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks);
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query);
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, const vector<InventatoryRack>& racks);
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
+                           const vector<InventatoryRack>& racks);
 Summary summarize(const vector<InventoryItem>& items);
-int categoryLowStockThreshold(const string& category);
-bool lowStockByCategory(const InventoryItem& item);
 InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& items, time_t timestamp = 0);
 bool loadInventoryHistory(const filesystem::path& path, vector<InventoryHistoryPoint>& history);
 bool saveInventoryHistory(const filesystem::path& path, const vector<InventoryHistoryPoint>& history);
