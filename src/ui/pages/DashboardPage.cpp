@@ -26,6 +26,12 @@ enum class AttentionSeverity {
   Data = 4,
 };
 
+enum class AttentionGroup {
+  Out,
+  Low,
+  Other,
+};
+
 struct AttentionRow {
   string issue;
   string partName;
@@ -33,6 +39,12 @@ struct AttentionRow {
   string reason;
   int quantity = 0;
   AttentionSeverity severity = AttentionSeverity::Metadata;
+  AttentionGroup group = AttentionGroup::Other;
+};
+
+struct AttentionLine {
+  string title;
+  const AttentionRow* row = nullptr;
 };
 
 struct DashboardSnapshot {
@@ -47,8 +59,8 @@ struct DashboardSnapshot {
 };
 
 ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, bool rightAlign = false) {
-  const auto clipped = ellipsize(value, static_cast<size_t>(max(0, width)));
-  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), styledText(clipped, color)})
+  const auto clipped = ellipsize(value, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
+  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
                             : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
   return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
@@ -85,7 +97,7 @@ ftxui::Color recentEventColor(const ActivityEntry& entry) {
 }
 
 DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, const vector<ActivityEntry>& activities,
-                                         size_t recentEventLimit) {
+                                         size_t recentEventLimit, int lowStockThreshold) {
   DashboardSnapshot snapshot;
   snapshot.itemCount = items.size();
   snapshot.recentEvents = recentEventEntries(activities, recentEventLimit);
@@ -97,13 +109,9 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
     const bool unsynced = toLower(item.syncStatus) != "synced";
     snapshot.missingMetadataCount += missingMetadata ? 1 : 0;
     const bool duplicateId = !seenIds.insert(item.id).second;
-    const bool dataError = duplicateId || item.quantity < 0 || item.reorderThreshold < 0;
+    const bool dataError = duplicateId || item.quantity < 0;
     const bool outOfStock = item.quantity <= 0;
-    // A zero threshold deliberately means that this item has no configured
-    // reorder alert. The dashboard must use the same per-item rule shown in
-    // the detail pane, rather than silently substituting a category default.
-    const int threshold = item.reorderThreshold;
-    const bool lowStock = item.quantity > 0 && item.lowStock();
+    const bool lowStock = isLowStock(item, lowStockThreshold);
 
     snapshot.dataErrorCount += dataError ? 1 : 0;
     snapshot.outOfStockCount += outOfStock ? 1 : 0;
@@ -117,22 +125,27 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
       row.issue = "DATA";
       row.reason = duplicateId ? "Duplicate identifier" : "Invalid stock value";
       row.severity = AttentionSeverity::Data;
+      row.group = AttentionGroup::Other;
     } else if (outOfStock) {
       row.issue = "OUT";
       row.reason = "Replenish stock";
       row.severity = AttentionSeverity::Out;
+      row.group = AttentionGroup::Out;
     } else if (lowStock) {
       row.issue = "LOW";
-      row.reason = "Threshold " + to_string(threshold);
+      row.reason = "Threshold " + to_string(lowStockThreshold);
       row.severity = AttentionSeverity::Low;
+      row.group = AttentionGroup::Low;
     } else if (missingMetadata) {
       row.issue = "META";
       row.reason = "Complete part metadata";
       row.severity = AttentionSeverity::Metadata;
+      row.group = AttentionGroup::Other;
     } else if (unsynced) {
       row.issue = "SYNC";
       row.reason = "Pending synchronization";
       row.severity = AttentionSeverity::Metadata;
+      row.group = AttentionGroup::Other;
     } else {
       continue;
     }
@@ -140,15 +153,32 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   }
 
   sort(snapshot.attention.begin(), snapshot.attention.end(), [](const AttentionRow& lhs, const AttentionRow& rhs) {
-    if (lhs.severity != rhs.severity) return lhs.severity > rhs.severity;
+    if (lhs.group != rhs.group) return lhs.group < rhs.group;
     if (lhs.quantity != rhs.quantity) return lhs.quantity < rhs.quantity;
     return toLower(lhs.partName) < toLower(rhs.partName);
   });
   return snapshot;
 }
 
-ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int height, size_t offset,
-                              bool outOfStockFlashOn) {
+vector<AttentionLine> attentionLines(const DashboardSnapshot& snapshot) {
+  vector<AttentionLine> lines;
+  AttentionGroup currentGroup = AttentionGroup::Other;
+  bool groupStarted = false;
+  for (const auto& row : snapshot.attention) {
+    if (!groupStarted || row.group != currentGroup) {
+      currentGroup = row.group;
+      groupStarted = true;
+      const auto title = currentGroup == AttentionGroup::Out
+                             ? "OUT OF STOCK"
+                             : currentGroup == AttentionGroup::Low ? "LOW STOCK" : "OTHER";
+      lines.push_back({title, nullptr});
+    }
+    lines.push_back({{}, &row});
+  }
+  return lines;
+}
+
+ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int height) {
   // Keep the compact Home table visually centred inside its panel rather than
   // pinning all of its content against the application's left edge.
   const int contentWidth = max(30, width - 4);
@@ -169,21 +199,33 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
       fixedCell("Qty", quantityWidth, uiMutedColor(), true),
   })));
 
-  if (snapshot.attention.empty()) {
+  const auto lines = attentionLines(snapshot);
+  if (lines.empty()) {
     // Keep the empty panel quiet; the zero in the title already communicates
     // that there are no attention items.
   } else {
-    const auto visible = min(snapshot.attention.size(), static_cast<size_t>(max(4, height - 4)));
+    const auto visible = min(lines.size(), static_cast<size_t>(max(4, height - 4)));
+    const auto offset = lines.size() > visible
+                           ? static_cast<size_t>((uiAnimationTicks() / 1500) % lines.size())
+                           : 0;
     for (size_t index = 0; index < visible; ++index) {
-      const auto& row = snapshot.attention[(offset + index) % snapshot.attention.size()];
+      const auto& line = lines[(offset + index) % lines.size()];
+      if (line.row == nullptr) {
+        const auto headerColor = line.title == "OUT OF STOCK"
+                                     ? uiDangerColor()
+                                     : line.title == "LOW STOCK" ? uiWarnColor() : uiSecondaryText();
+        rows.push_back(centred(styledText(" " + line.title, headerColor, uiRaisedSurfaceBg()) |
+                               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth)));
+        continue;
+      }
+      const auto& row = *line.row;
       const auto background = index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg();
       const auto accent = attentionColor(row.severity);
-      const bool outOfStock = row.severity == AttentionSeverity::Out;
-      const auto partBackground = outOfStock
-                                      ? (outOfStockFlashOn ? uiDangerFlashBg() : uiDangerBg())
-                                      : background;
+      const auto partBackground = row.group == AttentionGroup::Out
+                                      ? uiDangerBg()
+                                      : row.group == AttentionGroup::Low ? uiWarningBg() : background;
       rows.push_back(centred(ftxui::hbox({
-          fixedCell(row.partName, partWidth, outOfStock ? uiPrimaryText() : uiPrimaryText()) |
+          fixedCell(row.partName, partWidth, uiPrimaryText()) |
               ftxui::bgcolor(partBackground),
           ftxui::separator() | ftxui::color(uiDividerColor()),
           fixedCell(to_string(row.quantity), quantityWidth, accent, true),
@@ -201,7 +243,7 @@ ftxui::Element App::renderDashboardUi() const {
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 30;
   const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 7));
-  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit);
+  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit, settings_.lowStockThreshold);
 
   auto metrics = ftxui::hbox({
       metricCard("TOTAL PARTS TRACKED", snapshot.itemCount, uiPrimaryText()), uiDivider(),
@@ -227,9 +269,7 @@ ftxui::Element App::renderDashboardUi() const {
   }
   auto recentPanel = panel("RECENT ACTIVITY", move(activityRows), uiSecondaryText(), uiDividerColor()) | ftxui::flex;
 
-  // Keep the alert list stable. Inventory triage needs a predictable start
-  // point, not a timer-driven carousel that can move a critical row away.
-  auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 5, 0, true) |
+  auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 5) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, alertWidth);
   auto activitySide = recentPanel | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityWidth) | ftxui::flex;
   auto mainContent = ftxui::hbox({queue, uiDivider(), activitySide}) | ftxui::flex;
@@ -253,7 +293,8 @@ void App::handleDashboardKey(const KeyEvent& key) {
         store_.load(inventoryPath_);
         loadInventoryHistory(inventoryPath_, inventoryHistory_);
         if (inventoryHistory_.empty()) {
-          appendInventoryHistory(inventoryHistory_, makeInventoryHistoryPoint(store_.items()));
+          appendInventoryHistory(inventoryHistory_,
+                                 makeInventoryHistoryPoint(store_.items(), settings_.lowStockThreshold));
         }
         saveInventoryHistory(inventoryPath_, inventoryHistory_);
         setMessage("Inventory reloaded from the database", 2);

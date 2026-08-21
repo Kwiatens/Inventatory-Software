@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "app/AppSettings.h"
 #include "core/Inventory.h"
 
 #include <ftxui/component/component.hpp>
@@ -34,6 +35,13 @@ struct DetailField {
 };
 
 // Neutral graphite / petrol-cyan semantic palette used throughout the terminal UI.
+// The active palette is process-local because Inventatory has one interactive
+// application instance; settings pages can stage a replacement without making
+// every render function carry a palette parameter.
+void applyUiAppearance(const AppearanceSettings& appearance);
+const AppearanceSettings& activeUiAppearance();
+ftxui::Color uiAppearanceColor(AppearanceColorRole role);
+
 ftxui::Color uiCanvasBg();
 ftxui::Color uiSurfaceBg();
 ftxui::Color uiRaisedSurfaceBg();
@@ -80,7 +88,7 @@ ftxui::Element footerField(const string& title, const string& body, ftxui::Color
                            ftxui::Color background, bool flashing = false);
 ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ftxui::Color fg,
                              ftxui::Color activeBg, ftxui::Color flashingBg, ftxui::Color inactiveBg);
-ftxui::Element quantityBadge(int quantity, bool selected = false);
+ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected = false);
 
 // Button roles. uiSecondaryButton is the ordinary raised text control used for
 // operational actions; uiPrimaryButton is the filled cyan control that

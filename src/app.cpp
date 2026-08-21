@@ -107,6 +107,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
       quickLabelsPath_(dataPath_ / "quick_labels.conf") {
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
+  applyUiAppearance(settings_.appearance);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
     dataPath_ = settings_.dataDirectory;
     inventoryPath_ = dataPath_ / "inventory.db";
@@ -616,7 +617,7 @@ void App::handleKey(const KeyEvent& key) {
   // Settings fields use their own staged editor rather than a shared
   // InputMode. While it is active, all characters (including 1-5) and Enter
   // belong to the field and must not trigger global navigation or focus.
-  if (page_ == Page::Settings && settingsEditingField_) {
+  if (page_ == Page::Settings && (settingsEditingField_ || appearancePickerOpen_)) {
     handleSettingsKey(key);
     return;
   }

@@ -21,9 +21,10 @@ using namespace std;
 namespace {
 
 ftxui::Element bomCell(const string& text, int width, ftxui::Color color, bool rightAlign = false) {
+  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
   auto content = rightAlign
-                     ? ftxui::hbox({ftxui::filler(), styledText(ellipsize(text, static_cast<size_t>(max(0, width))), color)})
-                     : ftxui::hbox({styledText(ellipsize(text, static_cast<size_t>(max(0, width))), color), ftxui::filler()});
+                     ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
+                     : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
   return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 

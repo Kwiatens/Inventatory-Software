@@ -452,7 +452,7 @@ bool App::stockDateFilterMatches(const InventoryItem& item) const {
 }
 
 vector<size_t> App::filteredIndices() const {
-  const auto queryMatches = filterItems(store_.items(), searchQuery_, store_.racks());
+  const auto queryMatches = filterItems(store_.items(), searchQuery_, store_.racks(), settings_.lowStockThreshold);
   vector<size_t> indices;
   indices.reserve(queryMatches.size());
   for (const auto index : queryMatches) {
@@ -1123,13 +1123,6 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::Quantity:
       try {
         workingCopy_.item.quantity = max(0, stoi(trimmed));
-      } catch (...) {
-        valid = false;
-      }
-      break;
-    case EditField::ReorderThreshold:
-      try {
-        workingCopy_.item.reorderThreshold = max(0, stoi(trimmed));
       } catch (...) {
         valid = false;
       }
@@ -2569,8 +2562,6 @@ string App::fieldLabel(EditField field) const {
       return "Category";
     case EditField::Quantity:
       return "Quantity";
-    case EditField::ReorderThreshold:
-      return "Reorder threshold";
     case EditField::Location:
       return "Location";
     case EditField::Tags:
@@ -2612,8 +2603,6 @@ string App::currentFieldValue(EditField field) const {
       return item->category;
     case EditField::Quantity:
       return to_string(item->quantity);
-    case EditField::ReorderThreshold:
-      return to_string(item->reorderThreshold);
     case EditField::Location:
       return item->location;
     case EditField::Tags:
@@ -2657,7 +2646,6 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Manufacturer", EditField::Manufacturer},
       {"Category", EditField::Category},
       {"Quantity", EditField::Quantity},
-      {"Reorder threshold", EditField::ReorderThreshold},
       {"Location", EditField::Location},
       {"Rack location", EditField::RackLocation},
       {"Tags", EditField::Tags},
@@ -2694,7 +2682,7 @@ string App::itemDetailText(const InventoryItem& item, int width) const {
 }
 
 string App::summaryLine() const {
-  const auto summary = summarize(store_.items());
+  const auto summary = summarize(store_.items(), settings_.lowStockThreshold);
   ostringstream out;
   out << summary.itemCount << " items"
       << " | " << summary.totalUnits << " units"

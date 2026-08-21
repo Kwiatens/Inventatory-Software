@@ -18,28 +18,54 @@ namespace inventatory {
 
 using namespace std;
 
+namespace {
+
+AppearanceSettings g_activeAppearance;
+
+ftxui::Color colorFromRgb(uint32_t rgb) {
+  return ftxui::Color::RGB(static_cast<uint8_t>((rgb >> 16) & 0xFFu),
+                           static_cast<uint8_t>((rgb >> 8) & 0xFFu),
+                           static_cast<uint8_t>(rgb & 0xFFu));
+}
+
+}  // namespace
+
+void applyUiAppearance(const AppearanceSettings& appearance) {
+  g_activeAppearance = appearance;
+}
+
+const AppearanceSettings& activeUiAppearance() {
+  return g_activeAppearance;
+}
+
+ftxui::Color uiAppearanceColor(AppearanceColorRole role) {
+  const auto index = static_cast<size_t>(role);
+  if (index >= kAppearanceColorCount) return colorFromRgb(0);
+  return colorFromRgb(g_activeAppearance.colors[index]);
+}
+
 ftxui::Color uiCanvasBg() {
-  return ftxui::Color::RGB(13, 16, 16);
+  return uiAppearanceColor(AppearanceColorRole::CanvasBg);
 }
 
 ftxui::Color uiSurfaceBg() {
-  return ftxui::Color::RGB(20, 25, 24);
+  return uiAppearanceColor(AppearanceColorRole::SurfaceBg);
 }
 
 ftxui::Color uiRaisedSurfaceBg() {
-  return ftxui::Color::RGB(29, 36, 34);
+  return uiAppearanceColor(AppearanceColorRole::RaisedSurfaceBg);
 }
 
 ftxui::Color uiHoverBg() {
-  return ftxui::Color::RGB(39, 49, 47);
+  return uiAppearanceColor(AppearanceColorRole::HoverBg);
 }
 
 ftxui::Color uiSelectionBg() {
-  return ftxui::Color::RGB(44, 68, 64);
+  return uiAppearanceColor(AppearanceColorRole::SelectionBg);
 }
 
 ftxui::Color uiDividerColor() {
-  return ftxui::Color::RGB(56, 69, 67);
+  return uiAppearanceColor(AppearanceColorRole::Divider);
 }
 
 ftxui::Element uiDivider() {
@@ -47,23 +73,23 @@ ftxui::Element uiDivider() {
 }
 
 ftxui::Color uiPrimaryText() {
-  return ftxui::Color::RGB(241, 238, 229);
+  return uiAppearanceColor(AppearanceColorRole::PrimaryText);
 }
 
 ftxui::Color uiSecondaryText() {
-  return ftxui::Color::RGB(202, 208, 202);
+  return uiAppearanceColor(AppearanceColorRole::SecondaryText);
 }
 
 ftxui::Color uiMutedText() {
-  return ftxui::Color::RGB(140, 150, 144);
+  return uiAppearanceColor(AppearanceColorRole::MutedText);
 }
 
 ftxui::Color uiInteractiveColor() {
-  return ftxui::Color::RGB(88, 185, 176);
+  return uiAppearanceColor(AppearanceColorRole::Interactive);
 }
 
 ftxui::Color uiFocusColor() {
-  return ftxui::Color::RGB(185, 231, 221);
+  return uiAppearanceColor(AppearanceColorRole::FocusText);
 }
 
 ftxui::Color uiTitleColor() {
@@ -79,11 +105,11 @@ ftxui::Color uiInfoColor() {
 }
 
 ftxui::Color uiSuccessColor() {
-  return ftxui::Color::RGB(165, 201, 165);
+  return uiAppearanceColor(AppearanceColorRole::Success);
 }
 
 ftxui::Color uiLinkColor() {
-  return ftxui::Color::RGB(143, 203, 197);
+  return uiAppearanceColor(AppearanceColorRole::Link);
 }
 
 ftxui::Color uiLabelColor() {
@@ -91,31 +117,31 @@ ftxui::Color uiLabelColor() {
 }
 
 ftxui::Color uiWarnColor() {
-  return ftxui::Color::RGB(216, 181, 107);
+  return uiAppearanceColor(AppearanceColorRole::WarningText);
 }
 
 ftxui::Color uiDangerColor() {
-  return ftxui::Color::RGB(224, 140, 131);
+  return uiAppearanceColor(AppearanceColorRole::DangerText);
 }
 
 ftxui::Color uiActiveBg() {
-  return ftxui::Color::RGB(49, 90, 85);
+  return uiAppearanceColor(AppearanceColorRole::ActiveBg);
 }
 
 ftxui::Color uiActiveSoftBg() {
-  return ftxui::Color::RGB(36, 58, 55);
+  return uiAppearanceColor(AppearanceColorRole::ActiveSoftBg);
 }
 
 ftxui::Color uiWarningBg() {
-  return ftxui::Color::RGB(58, 51, 39);
+  return uiAppearanceColor(AppearanceColorRole::WarningBg);
 }
 
 ftxui::Color uiDangerBg() {
-  return ftxui::Color::RGB(62, 42, 41);
+  return uiAppearanceColor(AppearanceColorRole::DangerBg);
 }
 
 ftxui::Color uiDangerFlashBg() {
-  return ftxui::Color::RGB(112, 64, 59);
+  return uiAppearanceColor(AppearanceColorRole::DangerFlashBg);
 }
 
 ftxui::Color uiMutedColor() {
@@ -232,11 +258,14 @@ bool uiBoxContains(const ftxui::Box& box, int x, int y) {
   return x >= box.x_min && x <= box.x_max && y >= box.y_min && y <= box.y_max;
 }
 
-ftxui::Element quantityBadge(int quantity, bool selected) {
-  const auto fg = quantity <= 0 ? uiDangerColor() : (quantity <= 5 ? uiWarnColor() : uiSuccessColor());
+ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected) {
+  InventoryItem item;
+  item.quantity = quantity;
+  const auto fg = quantity <= 0 ? uiDangerColor()
+                                : (isLowStock(item, lowStockThreshold) ? uiWarnColor() : uiSuccessColor());
   const auto bg = selected ? uiRowSelectedBg()
                            : (quantity <= 0 ? uiDangerBg()
-                                            : (quantity <= 5 ? uiWarningBg()
+                                            : (isLowStock(item, lowStockThreshold) ? uiWarningBg()
                                                              : uiRaisedSurfaceBg()));
   return ftxui::text(" " + to_string(quantity) + " ") | ftxui::bold | ftxui::color(fg) | ftxui::bgcolor(bg);
 }
@@ -804,7 +833,6 @@ vector<DetailField> detailCoreFields(const InventoryItem& item, string rack) {
       {"Manufacturer: ", item.manufacturer, uiInfoColor(), uiTitleColor()},
       {"Category: ", displayCategory(item.category), uiLabelColor(), uiTitleColor()},
       {"Quantity: ", to_string(item.quantity), uiSuccessColor(), uiTitleColor()},
-      {"Threshold: ", to_string(item.reorderThreshold), uiWarnColor(), uiTitleColor()},
       {"Location: ", item.location, uiMutedColor(), uiTitleColor()},
   };
 }
