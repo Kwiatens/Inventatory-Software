@@ -170,7 +170,8 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
   })));
 
   if (snapshot.attention.empty()) {
-    rows.push_back(centred(fullLine("All inventory records are healthy.", uiSuccessColor(), uiSurfaceBg())));
+    // Keep the empty panel quiet; the zero in the title already communicates
+    // that there are no attention items.
   } else {
     const auto visible = min(snapshot.attention.size(), static_cast<size_t>(max(4, height - 4)));
     for (size_t index = 0; index < visible; ++index) {
@@ -190,7 +191,7 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
       }) | ftxui::bgcolor(background)));
     }
   }
-  return panel("NEEDS ATTENTION  " + to_string(snapshot.attention.size()), move(rows), uiFocusColor(),
+  return panel("NEEDS ATTENTION  " + to_string(snapshot.attention.size()), move(rows), uiPrimaryText(),
                uiDividerColor()) | ftxui::flex;
 }
 
