@@ -90,10 +90,10 @@ bool tokenMatchesQuantity(const InventoryItem& item, const string& token) {
   return false;
 }
 
-bool tokenMatchesStatus(const InventoryItem& item, const string& value) {
+bool tokenMatchesStatus(const InventoryItem& item, const string& value, int lowStockThreshold) {
   const auto lowerValue = toLower(value);
   if (lowerValue == "low") {
-    return item.lowStock();
+    return isLowStock(item, lowStockThreshold);
   }
   if (lowerValue == "missing") {
     return item.hasMissingMetadata();
@@ -116,35 +116,17 @@ bool tokenMatchesField(const string& field, const string& value) {
 }
 
 bool looksLikeDataError(const InventoryItem& item, bool duplicateId) {
-  return duplicateId || item.quantity < 0 || item.reorderThreshold < 0;
+  return duplicateId || item.quantity < 0;
 }
-
-struct ThresholdRule {
-  const char* needle;
-  int threshold;
-};
-
-constexpr ThresholdRule kCategoryThresholdRules[] = {
-    {"resistor", 20},
-    {"capacitor", 20},
-    {"led", 20},
-    {"indicator", 20},
-    {"connector", 10},
-    {"ic", 5},
-    {"integrated circuit", 5},
-    {"microcontroller", 3},
-    {"mcu", 3},
-    {"sensor", 3},
-    {"module", 3},
-    {"pcb", 2},
-    {"mechanical", 10},
-    {"switch", 10},
-    {"relay", 5},
-};
 
 }  // namespace
 
-bool matchesQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation) {
+bool isLowStock(const InventoryItem& item, int threshold) {
+  return threshold > 0 && item.quantity > 0 && item.quantity <= threshold;
+}
+
+bool matchesQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,
+                          int lowStockThreshold) {
   const auto tokens = tokenizeQuery(query);
   if (tokens.empty()) {
     return true;
@@ -240,7 +222,7 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
 
     if (token.rfind("status:", 0) == 0) {
       const auto value = token.substr(7);
-      if (tokenMatchesStatus(item, value)) {
+      if (tokenMatchesStatus(item, value, lowStockThreshold)) {
         continue;
       }
       return false;
@@ -257,39 +239,41 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
   return true;
 }
 
-bool matchesQuery(const InventoryItem& item, const string& query) {
-  return matchesQueryWithRack(item, query, {});
+bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold) {
+  return matchesQueryWithRack(item, query, {}, lowStockThreshold);
 }
 
-bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks) {
-  return matchesQueryWithRack(item, query, rackLocation(item, racks));
+bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
+                  int lowStockThreshold) {
+  return matchesQueryWithRack(item, query, rackLocation(item, racks), lowStockThreshold);
 }
 
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query) {
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold) {
   vector<size_t> indices;
   for (size_t index = 0; index < items.size(); ++index) {
-    if (matchesQuery(items[index], query)) {
+    if (matchesQuery(items[index], query, lowStockThreshold)) {
       indices.push_back(index);
     }
   }
   return indices;
 }
 
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, const vector<InventatoryRack>& racks) {
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
+                           const vector<InventatoryRack>& racks, int lowStockThreshold) {
   vector<size_t> indices;
   for (size_t index = 0; index < items.size(); ++index) {
-    if (matchesQuery(items[index], query, racks)) indices.push_back(index);
+    if (matchesQuery(items[index], query, racks, lowStockThreshold)) indices.push_back(index);
   }
   return indices;
 }
 
-Summary summarize(const vector<InventoryItem>& items) {
+Summary summarize(const vector<InventoryItem>& items, int lowStockThreshold) {
   Summary summary;
   summary.itemCount = items.size();
 
   for (const auto& item : items) {
     summary.totalUnits += static_cast<size_t>(max(item.quantity, 0));
-    if (item.lowStock()) {
+    if (isLowStock(item, lowStockThreshold)) {
       ++summary.lowStockCount;
     }
     if (item.hasMissingMetadata()) {
@@ -303,21 +287,8 @@ Summary summarize(const vector<InventoryItem>& items) {
   return summary;
 }
 
-int categoryLowStockThreshold(const string& category) {
-  const auto lowered = toLower(trim(category));
-  for (const auto& rule : kCategoryThresholdRules) {
-    if (containsInsensitive(lowered, rule.needle)) {
-      return rule.threshold;
-    }
-  }
-  return 5;
-}
-
-bool lowStockByCategory(const InventoryItem& item) {
-  return item.quantity <= categoryLowStockThreshold(item.category);
-}
-
-InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& items, time_t timestamp) {
+InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& items, int lowStockThreshold,
+                                                time_t timestamp) {
   InventoryHistoryPoint point;
   point.timestamp = timestamp == 0 ? time(nullptr) : timestamp;
   point.itemCount = items.size();
@@ -325,7 +296,7 @@ InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& ite
   unordered_set<string> seenIds;
   for (const auto& item : items) {
     point.totalUnits += static_cast<size_t>(max(item.quantity, 0));
-    if (lowStockByCategory(item)) {
+    if (isLowStock(item, lowStockThreshold)) {
       ++point.lowStockCount;
     }
     if (item.quantity <= 0) {
@@ -337,6 +308,31 @@ InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& ite
   }
 
   return point;
+}
+
+bool matchesQuery(const InventoryItem& item, const string& query) {
+  return matchesQuery(item, query, 5);
+}
+
+bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks) {
+  return matchesQuery(item, query, racks, 5);
+}
+
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query) {
+  return filterItems(items, query, 5);
+}
+
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
+                           const vector<InventatoryRack>& racks) {
+  return filterItems(items, query, racks, 5);
+}
+
+Summary summarize(const vector<InventoryItem>& items) {
+  return summarize(items, 5);
+}
+
+InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& items, time_t timestamp) {
+  return makeInventoryHistoryPoint(items, 5, timestamp);
 }
 
 void appendInventoryHistory(vector<InventoryHistoryPoint>& history, const InventoryHistoryPoint& point,

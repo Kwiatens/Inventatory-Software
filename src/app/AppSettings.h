@@ -4,11 +4,70 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
 
 namespace inventatory {
+
+constexpr int kDefaultLowStockThreshold = 5;
+
+enum class AppearanceColorRole : std::uint8_t {
+  CanvasBg,
+  SurfaceBg,
+  RaisedSurfaceBg,
+  HoverBg,
+  SelectionBg,
+  Divider,
+  PrimaryText,
+  SecondaryText,
+  MutedText,
+  FocusText,
+  Interactive,
+  Success,
+  Link,
+  WarningText,
+  DangerText,
+  ActiveBg,
+  ActiveSoftBg,
+  WarningBg,
+  DangerBg,
+  DangerFlashBg,
+  Count,
+};
+
+constexpr std::size_t kAppearanceColorCount = static_cast<std::size_t>(AppearanceColorRole::Count);
+
+struct AppearanceSettings {
+  std::array<std::uint32_t, kAppearanceColorCount> colors = {
+      0x0D1010,  // CanvasBg
+      0x141918,  // SurfaceBg
+      0x1D2422,  // RaisedSurfaceBg
+      0x27312F,  // HoverBg
+      0x2C4440,  // SelectionBg
+      0x384543,  // Divider
+      0xF1EEE5,  // PrimaryText
+      0xCAD0CA,  // SecondaryText
+      0x8C9690,  // MutedText
+      0xB9E7DD,  // FocusText
+      0x58B9B0,  // Interactive
+      0xA5C9A5,  // Success
+      0x8FCBC5,  // Link
+      0xD8B56B,  // WarningText
+      0xE08C83,  // DangerText
+      0x315A55,  // ActiveBg
+      0x243A37,  // ActiveSoftBg
+      0x3A3327,  // WarningBg
+      0x3E2A29,  // DangerBg
+      0x70403B,  // DangerFlashBg
+  };
+};
+
+const char* appearanceColorKey(AppearanceColorRole role);
+const char* appearanceColorLabel(AppearanceColorRole role);
+std::string appearanceColorHex(std::uint32_t rgb);
+bool parseAppearanceColorHex(const std::string& text, std::uint32_t& rgb);
 
 struct AppSettings {
   int schemaVersion = 1;
@@ -28,6 +87,8 @@ struct AppSettings {
   std::string digiKeySite = "US";
   std::string digiKeyLanguage = "en";
   std::string digiKeyCurrency = "USD";
+  int lowStockThreshold = kDefaultLowStockThreshold;
+  AppearanceSettings appearance;
   // Shared wire-label shortcuts published to the paired Scan R1.
   std::vector<std::string> quickLabelPresets;
   std::uint32_t quickLabelRevision = 1;
