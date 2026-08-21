@@ -166,6 +166,7 @@ void App::openInventatoryScanSetup() {
   blePairingCode_.clear();
   bleSetupSelection_ = 0;
   bleSetupMessage_.clear();
+  bleSetupOutcomeUncertain_ = false;
   scanSetupStep_ = ScanSetupStep::Introduction;
   inputBuffer_.clear();
   changePage(Page::ScanSetup);
@@ -198,7 +199,8 @@ bool App::provisionSelectedBleSetupDevice() {
   request.deviceToken = candidateToken;
   request.pairingCode = blePairingCode_;
   string error;
-  if (!bleProvisioning_.provision(request, error)) {
+  const auto outcome = bleProvisioning_.provision(request, error);
+  if (outcome == BleProvisioningOutcome::Failed) {
     setMessage(error.empty() ? "Bluetooth setup failed" : error, 5);
     return false;
   }
@@ -220,7 +222,10 @@ bool App::provisionSelectedBleSetupDevice() {
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   blePairingCode_.clear();
-  bleSetupMessage_ = "Wi-Fi setup sent securely; waiting for the R1 to join the PC service";
+  bleSetupOutcomeUncertain_ = outcome == BleProvisioningOutcome::Indeterminate;
+  bleSetupMessage_ = bleSetupOutcomeUncertain_
+                         ? "Setup result was not confirmed; the token was retained so the R1 can recover if it accepted it"
+                         : "Wi-Fi setup confirmed securely; waiting for the R1 to join the PC service";
   setMessage(bleSetupMessage_, 6);
   dirty_ = true;
   return true;
@@ -296,8 +301,15 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
       break;
     }
     case ScanSetupStep::Complete:
-      rows.push_back(styledText("Setup request accepted.", uiSuccessColor()) | ftxui::bold);
-      rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect to this Inventatory PC automatically.", uiTitleColor()));
+      if (bleSetupOutcomeUncertain_) {
+        rows.push_back(styledText("Setup result was not confirmed.", uiWarnColor()) | ftxui::bold);
+        rows.push_back(styledText("The token was retained because the R1 may already own it. If it does not connect, run setup again.",
+                                  uiTitleColor()));
+      } else {
+        rows.push_back(styledText("Setup request accepted.", uiSuccessColor()) | ftxui::bold);
+        rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect to this Inventatory PC automatically.",
+                                  uiTitleColor()));
+      }
       rows.push_back(ftxui::text(""));
       rows.push_back(styledText("The device token was stored in Windows Credential Manager; the Wi-Fi password was cleared from Inventatory.",
                                 uiMutedText()));
