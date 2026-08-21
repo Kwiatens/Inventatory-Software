@@ -1,4 +1,4 @@
-# Inventatory Scan R1 transport
+# Inventatory Scan R1 transport v1
 
 The R1 connects to the PC after discovering `_inventatory._tcp` over mDNS.
 mDNS is only discovery: it does not authenticate the advertised host.
