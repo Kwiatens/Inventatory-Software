@@ -23,6 +23,12 @@ struct BleProvisioningRequest {
   std::string pairingCode;
 };
 
+enum class BleProvisioningOutcome {
+  Failed,
+  Succeeded,
+  Indeterminate,
+};
+
 // Windows BLE transport. Credentials are passed only to an authenticated,
 // encrypted GATT characteristic and never written to files or diagnostic logs.
 class BleProvisioningService {
@@ -35,7 +41,7 @@ class BleProvisioningService {
   void startDiscovery();
   void stopDiscovery();
   std::vector<BleSetupDevice> devices() const;
-  bool provision(const BleProvisioningRequest& request, std::string& publicError) const;
+  BleProvisioningOutcome provision(const BleProvisioningRequest& request, std::string& publicError) const;
 
  private:
   void discoveryLoop();

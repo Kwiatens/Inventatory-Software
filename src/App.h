@@ -528,6 +528,7 @@ class App {
   std::string bleWifiPassword_;
   std::string blePairingCode_;
   std::string bleSetupMessage_;
+  bool bleSetupOutcomeUncertain_ = false;
   ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
   DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
