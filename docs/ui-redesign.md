@@ -53,7 +53,7 @@ or titled decorative chrome around the content.
 | Primary text | `241,238,229` / `#F1EEE5` | Important content |
 | Secondary text | `202,208,202` / `#CAD0CA` | Labels |
 | Muted text | `140,150,144` / `#8C9690` | Hints/inactive data |
-| Interactive | `88,185,176` / `#58B9B0` | Actions, active dots, and brand cues |
+| Interactive | `88,185,176` / `#58B9B0` | Actions, active status cues, and brand cues |
 | Focus | `185,231,221` / `#B9E7DD` | Active focus |
 | Link | `143,203,197` / `#8FCBC5` | External links and progress |
 | Success | `165,201,165` / `#A5C9A5` | Ready/completed |
@@ -101,8 +101,8 @@ required.
 A compact inventory dashboard with key counts, an attention list beside recent
 activity, and system state. The attention heading is neutral; an empty list is
 left quiet rather than replaced with a success message. It is not a grid of
-setup cards. Out-of-stock part text in the Home stock-status list flashes its
-red highlight so urgent shortages stand out.
+setup cards. Out-of-stock and low-stock part text in the Home stock-status list
+uses the corresponding warning or danger color without filling the row.
 
 ### Stock
 
