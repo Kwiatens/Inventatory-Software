@@ -1523,7 +1523,7 @@ int main() {
 
   {
     const auto configPath = filesystem::temp_directory_path() / "inventatory-scan-config-test.conf";
-    const InventatoryScanConfig expected{"r1-test", string(64, 'a'), "192.168.1.2", 8080};
+    const InventatoryScanConfig expected{"r1-test", string(64, 'a'), "192.168.1.2", 8080, true};
     assert(saveInventatoryScanConfig(configPath, expected));
     InventatoryScanConfig loaded;
     assert(loadInventatoryScanConfig(configPath, loaded));
@@ -1531,6 +1531,30 @@ int main() {
     assert(loaded.token.empty());
     assert(loaded.fallbackHost == expected.fallbackHost);
     assert(loaded.fallbackPort == expected.fallbackPort);
+    assert(loaded.setupComplete);
+    assert(loaded.paired());
+
+    const auto pendingPath = filesystem::temp_directory_path() / "inventatory-scan-config-pending-test.conf";
+    const InventatoryScanConfig pending{"", string(64, 'b'), "", 0, true};
+    assert(saveInventatoryScanConfig(pendingPath, pending));
+    InventatoryScanConfig pendingLoaded;
+    assert(loadInventatoryScanConfig(pendingPath, pendingLoaded));
+    assert(pendingLoaded.setupComplete);
+    assert(pendingLoaded.paired());
+    filesystem::remove(pendingPath);
+
+    const auto legacyPath = filesystem::temp_directory_path() / "inventatory-scan-config-legacy-test.conf";
+    {
+      ofstream legacy(legacyPath, ios::trunc);
+      legacy << "device_id=r1-legacy\n"
+             << "fallback_host=192.168.1.3\n"
+             << "fallback_port=8081\n";
+    }
+    InventatoryScanConfig legacyLoaded;
+    assert(loadInventatoryScanConfig(legacyPath, legacyLoaded));
+    assert(legacyLoaded.setupComplete);
+    filesystem::remove(legacyPath);
+
     {
       ofstream truncated(configPath, ios::trunc);
       truncated << "device_id=r1-test\n";

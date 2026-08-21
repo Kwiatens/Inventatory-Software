@@ -19,6 +19,9 @@ The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 S
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
 
+Header status dots use blue for active, ready, or enabled and gray for inactive,
+offline, unconfigured, or unknown states.
+
 The retired phone/web scanner is not part of the Inventatory interface. The physical
 Inventatory Scan R1 remains supported through the desktop application's authenticated
 device service; UI copy calls this the R1 service rather than a generic bridge.
@@ -32,6 +35,10 @@ action sheet. It configures the data folder, optional background mode, and an
 optional physical Inventatory Scan R1 only; printer and vendor integrations
 remain later Settings tasks. The normal Scan R1 setup page remains available
 after onboarding.
+
+Setup wizards show only task-specific instructions, inputs, selections, and
+actions. They do not add command-style headers, step counters, progress strips,
+or titled decorative chrome around the content.
 
 ## Graphite / Turquoise palette
 
@@ -81,10 +88,11 @@ required.
 
 ### Home
 
-An operational overview with a compact operations row, a horizontal health
-strip, a compact auto-rotating stock-status list beside recent activity, and
-system state. It is not a grid of setup cards. Out-of-stock part text in the
-Home stock-status list flashes its red highlight so urgent shortages stand out.
+A compact inventory dashboard with key counts, an attention list beside recent
+activity, and system state. The attention heading is neutral; an empty list is
+left quiet rather than replaced with a success message. It is not a grid of
+setup cards. Out-of-stock part text in the Home stock-status list flashes its
+red highlight so urgent shortages stand out.
 
 ### Stock
 
@@ -138,11 +146,13 @@ Regenerate, and Clear are operational actions. DigiKey secrets are stored in
 Windows Credential Manager, never in `settings.conf`.
 
 Each panel carries only settings and state: no explanatory hint copy, and no
-navigation button that duplicates a category already in the sidebar. A panel
-leads with the one action it exists for, rendered as a filled turquoise primary
-button sized to its label; every other control is an ordinary raised text
-button. Panels do not restate diagnostics that the device reports elsewhere, and
-values derived from an absent device are omitted rather than shown as zeros.
+navigation button that duplicates a category already in the sidebar. An
+unconfigured integration or device shows only a filled turquoise `Begin Setup`
+button; setup guidance lives in its wizard. Once setup is accepted, the panel
+restores its settings and state rows. Every other control is an ordinary raised
+text button. Panels do not restate diagnostics that the device reports
+elsewhere, and values derived from an absent device are omitted rather than
+shown as zeros.
 
 ## Reusable UI rules
 

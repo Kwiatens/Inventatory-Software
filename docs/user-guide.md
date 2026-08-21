@@ -72,11 +72,16 @@ the signed-in Windows user, hides in the notification area after close, and cont
 icon to Open Inventatory or Quit Inventatory; disabling the setting removes Inventatory from Windows startup. This does not run before a
 user signs in.
 
-Inventatory Scan settings lead with **Pair new device**, which opens the setup
-wizard, followed by one status line for the paired R1 (online/offline, device id,
-signal, and last contact once it has reported in). Below that are the service
-port and **Check for firmware updates**, which compares the version the R1
-reported against the latest published firmware release.
+An unconfigured Inventatory Scan section shows only **Begin Setup**, which opens
+the existing setup wizard. After provisioning is accepted, the section restores
+**Pair new device**, the R1 status line (online/offline, device id, signal, and
+last contact once it has reported in), the service port, and **Check for firmware
+updates**. Before the first report, the status reads **Waiting for device**.
+
+An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
+collects the Client ID and Client secret, stores the secret in Windows
+Credential Manager, and restores the account and regional settings after the
+credentials are saved. A live credential test remains available afterward.
 
 Pairing maintenance stays on the Actions sheet (`Space`): re-pair after a
 scanner firmware update, regenerate the pairing secret, or clear the device.
@@ -87,8 +92,9 @@ The R1 communicates directly with the authenticated device service inside the
 desktop application. This is not the retired phone/web scanner: Inventatory exposes no
 browser scanning page, and the service accepts only the paired R1 device API.
 
-For a new or reset R1, use **Settings → Inventatory Scan → Find scanner**.
-Enter the six-digit code shown on the R1 and the home Wi-Fi credentials.
+For a new or reset R1, use **Settings → Inventatory Scan → Begin Setup**, then
+choose **Find scanner** inside the wizard. Enter the six-digit code shown on the
+R1 and the home Wi-Fi credentials.
 Bluetooth LE Secure Connections encrypts and authenticates that transfer;
 Bluetooth setup then turns off and normal mDNS discovery starts. Sync traffic
 uses the paired secret to authenticate every request and response, so an mDNS
