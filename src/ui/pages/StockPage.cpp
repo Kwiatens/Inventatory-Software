@@ -67,10 +67,10 @@ ftxui::Element App::renderStockUi() const {
     if (align != CellAlign::Right) parts.push_back(ftxui::filler());
     return ftxui::hbox(move(parts)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
   };
-  const auto quantityCell = [&](int quantity, bool selected) {
+  const auto quantityCell = [&](int quantity) {
     return ftxui::hbox({
         ftxui::filler(),
-        styledText(to_string(quantity), selected ? uiFocusColor() : uiPrimaryText()) | ftxui::bold,
+        styledText(to_string(quantity), uiPrimaryText()) | ftxui::bold,
         ftxui::text(" "),
     }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
   };
@@ -134,22 +134,16 @@ ftxui::Element App::renderStockUi() const {
         }
       }
       const bool selected = index == selectedPosition_;
-      const bool outOfStock = item.quantity <= 0;
-      const bool lowStock = isLowStock(item, settings_.lowStockThreshold);
-      const auto bg = selected ? uiSelectionBg()
-                      : outOfStock ? uiDangerBg()
-                                   : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
-      const auto fg = selected ? uiFocusColor()
-                      : outOfStock ? uiDangerColor()
-                                   : (lowStock ? uiWarnColor() : uiPrimaryText());
-      ftxui::Elements cells = {fixedCell(groupByCategory ? "   " + item.partName : " " + item.partName, partWidth, fg),
+      const auto bg = selected ? uiSelectionBg() : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
+      ftxui::Elements cells = {fixedCell(groupByCategory ? "   " + item.partName : " " + item.partName,
+                                         partWidth, uiPrimaryText()),
                                ftxui::separator() | ftxui::color(uiDimColor())};
       if (!groupByCategory) {
         cells.push_back(fixedCell(category, categoryWidth, selected ? uiTitleColor() : uiLabelColor()));
         cells.push_back(ftxui::filler());
         cells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
       }
-      cells.push_back(quantityCell(item.quantity, selected));
+      cells.push_back(quantityCell(item.quantity));
       auto row = ftxui::hbox(move(cells)) | ftxui::bgcolor(bg);
       if (selected) {
         row = row | ftxui::select;
@@ -224,7 +218,7 @@ ftxui::Element App::renderStockUi() const {
     }
 
     // Essentials: the two facts the footer buttons act on, kept directly under
-    // the summary instead of at the bottom of an identity list.
+    // the summary instead of at the bottom of a details list.
     const auto rack = rackLocation(*item, store_.racks());
     const auto quantityColor = item->quantity <= 0 ? uiDangerColor()
                                : isLowStock(*item, settings_.lowStockThreshold) ? uiWarnColor()
@@ -249,38 +243,36 @@ ftxui::Element App::renderStockUi() const {
       }
     }
 
-    // Identity fields carry no value when empty, so an absent one is dropped
+    // Detail fields carry no value when empty, so an absent one is dropped
     // rather than rendered as a dash.
-    ftxui::Elements identityRows;
-    const auto identityField = [&](const string& label, const string& value, ftxui::Color valueColor) {
+    ftxui::Elements detailRowsExpanded;
+    const auto detailField = [&](const string& label, const string& value, ftxui::Color valueColor) {
       if (trim(value).empty()) return;
-      identityRows.push_back(detailFieldLine({label + ": ", value, uiSecondaryText(), valueColor}, detailInnerWidth));
+      detailRowsExpanded.push_back(detailFieldLine({label + ": ", value, uiSecondaryText(), valueColor}, detailInnerWidth));
     };
-    identityField("DigiKey", item->digikeyPartNumber, uiPrimaryText());
-    identityField("SKU", item->sku, uiPrimaryText());
-    identityField("Inventatory ID", item->inventatoryId, uiPrimaryText());
-    identityField("Location", item->location, uiPrimaryText());
-    identityField("Sync", item->syncStatus,
-                  toLower(item->syncStatus) == "synced" ? uiSuccessColor() : uiWarnColor());
-    identityField("Tags", renderTags(item->tags), uiPrimaryText());
+    detailField("DigiKey", item->digikeyPartNumber, uiPrimaryText());
+    detailField("SKU", item->sku, uiPrimaryText());
+    detailField("Inventatory ID", item->inventatoryId, uiPrimaryText());
+    detailField("Location", item->location, uiPrimaryText());
+    detailField("Tags", renderTags(item->tags), uiPrimaryText());
     // Collapsible: the heading always states how many fields are hidden so the
     // block never looks like missing data.
     detailRows.push_back(uiDivider());
     detailRows.push_back(target(ftxui::hbox({
-                                    styledText(stockIdentityExpanded_ ? " \xE2\x96\xBE IDENTITY" : " \xE2\x96\xB8 IDENTITY",
+                                    styledText(stockDetailsExpanded_ ? " \xE2\x96\xBE DETAILS" : " \xE2\x96\xB8 DETAILS",
                                                uiSecondaryText()),
                                     ftxui::filler(),
-                                    styledText(stockIdentityExpanded_
+                                    styledText(stockDetailsExpanded_
                                                    ? string()
-                                                   : to_string(identityRows.size()) + " fields ",
+                                                   : to_string(detailRowsExpanded.size()) + " fields ",
                                                uiMutedText()),
                                 }) | ftxui::bgcolor(uiSurfaceBg()),
-                                "stock.identity.toggle", UiTargetKind::Button, [self] {
-                                  self->stockIdentityExpanded_ = !self->stockIdentityExpanded_;
+                                "stock.details.toggle", UiTargetKind::Button, [self] {
+                                  self->stockDetailsExpanded_ = !self->stockDetailsExpanded_;
                                   self->dirty_ = true;
                                 }));
-    if (stockIdentityExpanded_) {
-      for (auto& row : identityRows) detailRows.push_back(move(row));
+    if (stockDetailsExpanded_) {
+      for (auto& row : detailRowsExpanded) detailRows.push_back(move(row));
     }
 
     ftxui::Elements linkRows;

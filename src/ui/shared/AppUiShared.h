@@ -86,8 +86,6 @@ ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::
                      optional<ftxui::Color> borderColor = nullopt);
 ftxui::Element footerField(const string& title, const string& body, ftxui::Color titleColor, ftxui::Color bodyColor,
                            ftxui::Color background, bool flashing = false);
-ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ftxui::Color fg,
-                             ftxui::Color activeBg, ftxui::Color flashingBg, ftxui::Color inactiveBg);
 ftxui::Element statusTextBox(const string& label, bool active);
 ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected = false);
 

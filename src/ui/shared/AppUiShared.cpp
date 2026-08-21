@@ -238,12 +238,6 @@ ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg,
                     uiRaisedSurfaceBg());
 }
 
-ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ftxui::Color fg,
-                             ftxui::Color activeBg, ftxui::Color flashingBg, ftxui::Color inactiveBg) {
-  const auto fill = flashing ? flashingBg : (active ? activeBg : inactiveBg);
-  return styledText(" " + label + " ", fg, fill) | ftxui::bold;
-}
-
 ftxui::Element statusTextBox(const string& label, bool active) {
   auto box = styledText(" " + label + " ", active ? uiFocusColor() : uiMutedColor(),
                         active ? uiActiveSoftBg() : uiSurfaceBg());

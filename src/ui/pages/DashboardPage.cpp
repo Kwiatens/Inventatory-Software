@@ -193,20 +193,16 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
     for (size_t index = 0; index < visible; ++index) {
       const auto& line = lines[(offset + index) % lines.size()];
       if (line.row == nullptr) {
-        const auto headerColor = line.title == "OUT OF STOCK"
-                                     ? uiDangerColor()
-                                     : uiWarnColor();
-        rows.push_back(centred(styledText(" " + line.title, headerColor, uiRaisedSurfaceBg()) |
+        rows.push_back(centred(styledText(" " + line.title, uiPrimaryText(), uiRaisedSurfaceBg()) |
                                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth)));
         continue;
       }
       const auto& row = *line.row;
       const auto background = index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg();
-      const auto accent = attentionColor(row.severity);
       rows.push_back(centred(ftxui::hbox({
-          fixedCell(row.partName, partWidth, accent),
+          fixedCell("  " + row.partName, partWidth, attentionColor(row.severity)),
           ftxui::separator() | ftxui::color(uiDividerColor()),
-          fixedCell(to_string(row.quantity), quantityWidth, accent, true),
+          fixedCell(to_string(row.quantity), quantityWidth, uiPrimaryText(), true),
       }) | ftxui::bgcolor(background)));
     }
   }
@@ -226,9 +222,9 @@ ftxui::Element App::renderDashboardUi() const {
   auto metrics = ftxui::hbox({
       metricCard("TOTAL PARTS TRACKED", snapshot.itemCount, uiPrimaryText()), uiDivider(),
       metricCard("TOTAL UNITS TRACKED", snapshot.totalQuantity, uiPrimaryText()), uiDivider(),
-      metricCard("LOW STOCK", snapshot.lowStockCount, snapshot.lowStockCount > 0 ? uiWarnColor() : uiSuccessColor()),
+      metricCard("LOW STOCK", snapshot.lowStockCount, uiPrimaryText()),
       uiDivider(),
-      metricCard("OUT OF STOCK", snapshot.outOfStockCount, snapshot.outOfStockCount > 0 ? uiDangerColor() : uiSuccessColor()),
+      metricCard("OUT OF STOCK", snapshot.outOfStockCount, uiPrimaryText()),
   });
 
   const int alertWidth = max(50, (screenWidth - 1) / 2);
@@ -238,11 +234,12 @@ ftxui::Element App::renderDashboardUi() const {
   if (snapshot.recentEvents.empty()) {
     activityRows.push_back(styledText("No activity yet.", uiMutedColor()));
   } else {
-    for (const auto& entry : snapshot.recentEvents) {
-      activityRows.push_back(styledText(
+    for (size_t index = 0; index < snapshot.recentEvents.size(); ++index) {
+      const auto& entry = snapshot.recentEvents[index];
+      activityRows.push_back(fullLine(
           ellipsize(nowTimestampString(entry.timestamp) + "  " + entry.kind + "  " + entry.message,
                     static_cast<size_t>(activityTextWidth)),
-          recentEventColor(entry)));
+          recentEventColor(entry), index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
     }
   }
   auto recentPanel = panel("RECENT ACTIVITY", move(activityRows), uiSecondaryText(), uiDividerColor()) | ftxui::flex;
