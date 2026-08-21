@@ -220,6 +220,32 @@ int main() {
   }
 
   {
+    InventoryItem outOfStock;
+    outOfStock.id = "out";
+    outOfStock.quantity = 0;
+    InventoryItem atThreshold;
+    atThreshold.id = "at";
+    atThreshold.quantity = 3;
+    InventoryItem aboveThreshold;
+    aboveThreshold.id = "above";
+    aboveThreshold.quantity = 4;
+    const vector<InventoryItem> items = {outOfStock, atThreshold, aboveThreshold};
+
+    assert(!isLowStock(outOfStock, 3));
+    assert(isLowStock(atThreshold, 3));
+    assert(!isLowStock(aboveThreshold, 3));
+    assert(matchesQuery(atThreshold, "status:low", 3));
+    assert(!matchesQuery(outOfStock, "status:low", 3));
+    assert(filterItems(items, "status:low", 3).size() == 1);
+
+    const auto summary = summarize(items, 3);
+    assert(summary.lowStockCount == 1);
+    const auto history = makeInventoryHistoryPoint(items, 3, 1710000000);
+    assert(history.lowStockCount == 1);
+    assert(history.outOfStockCount == 1);
+  }
+
+  {
     auto items = makeSampleInventory();
     items[0].machineCode = "0002";
     items[1].machineCode = "0003";
@@ -662,6 +688,7 @@ int main() {
     assert(candidate.item.manufacturer == "Sumida America Components Inc.");
     assert(candidate.item.quantity == 10);
     assert(candidate.item.category == "Inductors");
+    assert(candidate.item.reorderThreshold == 0);
     assert(candidate.item.parameters.size() == 4);
   }
 
@@ -1858,6 +1885,10 @@ int main() {
     expected.digiKeySite = "PL";
     expected.digiKeyLanguage = "pl";
     expected.digiKeyCurrency = "PLN";
+    expected.lowStockThreshold = 12;
+    expected.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] = 0x123456;
+    expected.appearance.colors[static_cast<size_t>(AppearanceColorRole::Interactive)] = 0xABCDEF;
+    expected.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerBg)] = 0x000000;
     assert(saveAppSettings(path, expected));
 
     AppSettings loaded;
@@ -1879,12 +1910,37 @@ int main() {
     assert(loaded.digiKeySite == "PL");
     assert(loaded.digiKeyLanguage == "pl");
     assert(loaded.digiKeyCurrency == "PLN");
+    assert(loaded.lowStockThreshold == 12);
+    assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] == 0x123456);
+    assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::Interactive)] == 0xABCDEF);
+    assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerBg)] == 0x000000);
+
+    uint32_t parsedColor = 0;
+    assert(parseAppearanceColorHex(" #aBcDeF ", parsedColor));
+    assert(parsedColor == 0xABCDEF);
+    assert(appearanceColorHex(parsedColor) == "#ABCDEF");
+    assert(parseAppearanceColorHex("000000", parsedColor));
+    assert(parsedColor == 0x000000);
+    assert(parseAppearanceColorHex("#FFFFFF", parsedColor));
+    assert(parsedColor == 0xFFFFFF);
+    assert(!parseAppearanceColorHex("#12345", parsedColor));
+    assert(!parseAppearanceColorHex("#12345G", parsedColor));
+
+    applyUiAppearance(expected.appearance);
+    assert(uiCanvasBg() == ftxui::Color::RGB(0x12, 0x34, 0x56));
+    assert(uiAccentColor() == ftxui::Color::RGB(0xAB, 0xCD, 0xEF));
+    assert(uiPanelLeftBg() == uiSurfaceBg());
+    assert(uiRowSelectedBg() == uiSelectionBg());
+    applyUiAppearance(AppearanceSettings{});
 
     ifstream persisted(path);
     const string text((istreambuf_iterator<char>(persisted)), istreambuf_iterator<char>());
     assert(text.find("client_secret") == string::npos);
     assert(text.find("secret") == string::npos);
     assert(text.find("device_service_port=8181") != string::npos);
+    assert(text.find("low_stock_threshold=12") != string::npos);
+    assert(text.find("appearance_canvas_bg=#123456") != string::npos);
+    assert(text.find("appearance_interactive=#ABCDEF") != string::npos);
     assert(text.find("quick_label") == string::npos);
     persisted.close();
     error_code removeError;
@@ -1952,6 +2008,37 @@ int main() {
     unsupported.close();
     AppSettings loaded;
     assert(!loadAppSettings(path, loaded));
+    error_code removeError;
+    filesystem::remove(path, removeError);
+    assert(!removeError);
+  }
+
+  {
+    const auto path = filesystem::temp_directory_path() / "inventatory-legacy-settings-test.conf";
+    ofstream legacy(path, ios::trunc);
+    legacy << "schema_version=1\n";
+    legacy << "data_directory=\"legacy\"\n";
+    legacy << "appearance_canvas_bg=#1234G7\n";
+    legacy.close();
+    AppSettings loaded;
+    assert(loadAppSettings(path, loaded));
+    assert(loaded.lowStockThreshold == kDefaultLowStockThreshold);
+    assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] == 0x0D1010);
+    assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)] == 0x70403B);
+    error_code removeError;
+    filesystem::remove(path, removeError);
+    assert(!removeError);
+  }
+
+  {
+    const auto path = filesystem::temp_directory_path() / "inventatory-invalid-threshold-settings-test.conf";
+    ofstream invalid(path, ios::trunc);
+    invalid << "schema_version=1\n";
+    invalid << "low_stock_threshold=0\n";
+    invalid.close();
+    AppSettings loaded;
+    assert(loadAppSettings(path, loaded));
+    assert(loaded.lowStockThreshold == kDefaultLowStockThreshold);
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
