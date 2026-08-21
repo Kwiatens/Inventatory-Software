@@ -58,6 +58,7 @@ class App {
     Import,
     Projects,
     ScanSetup,
+    DigiKeySetup,
     Settings,
     Onboarding,
   };
@@ -74,6 +75,13 @@ class App {
     FindScanner,
     Confirm,
     Complete,
+  };
+
+  enum class DigiKeySetupStep {
+    Introduction,
+    ClientId,
+    ClientSecret,
+    Review,
   };
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
@@ -190,6 +198,7 @@ class App {
   void handleStockKey(const KeyEvent& key);
   void handleRackManagementKey(const KeyEvent& key);
   void handleInventatoryScanSetupKey(const KeyEvent& key);
+  void handleDigiKeySetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
   void handleBomProjectKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
@@ -207,6 +216,7 @@ class App {
   ftxui::Element renderStockUi() const;
   ftxui::Element renderRackManagementUi() const;
   ftxui::Element renderInventatoryScanSetupUi() const;
+  ftxui::Element renderDigiKeySetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderBomProjectUi() const;
   ftxui::Element renderSettingsUi() const;
@@ -259,6 +269,7 @@ class App {
   bool autoPrintScannedLabel(const std::string& itemId);
   std::string printerSummary() const;
   void openInventatoryScanSetup();
+  void openDigiKeySetup();
   void advanceOnboarding();
   void finishOnboarding();
   bool regenerateInventatoryScanToken();
@@ -511,6 +522,7 @@ class App {
   std::string blePairingCode_;
   std::string bleSetupMessage_;
   ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
+  DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
   time_t scannerFlashUntil_ = 0;
   time_t printerFlashUntil_ = 0;

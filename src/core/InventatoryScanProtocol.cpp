@@ -463,7 +463,7 @@ bool looksLikeSupportedLookupCode(const string& code) {
 }  // namespace
 
 bool InventatoryScanConfig::paired() const {
-  return !trim(token).empty() && token.size() >= 32;
+  return setupComplete;
 }
 
 bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConfig& config) {
@@ -473,6 +473,7 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
   bool hasDeviceId = false;
   bool hasFallbackHost = false;
   bool hasFallbackPort = false;
+  bool hasSetupComplete = false;
   string line;
   while (getline(input, line)) {
     const auto separator = line.find('=');
@@ -494,9 +495,15 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
         }
       } catch (...) {
       }
+    } else if (key == "setup_complete") {
+      loaded.setupComplete = value == "true" || value == "1";
+      hasSetupComplete = true;
     }
   }
   if (!(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
+  // Older config files had no setup marker. A stored device identity means
+  // that pairing had already completed before the marker was introduced.
+  if (!hasSetupComplete) loaded.setupComplete = !loaded.deviceId.empty();
   config = move(loaded);
   return true;
 }
@@ -510,7 +517,8 @@ bool saveInventatoryScanConfig(const filesystem::path& path, const InventatorySc
   if (!output) return false;
   output << "device_id=" << config.deviceId << '\n'
          << "fallback_host=" << config.fallbackHost << '\n'
-         << "fallback_port=" << config.fallbackPort << '\n';
+         << "fallback_port=" << config.fallbackPort << '\n'
+         << "setup_complete=" << (config.setupComplete ? "true" : "false") << '\n';
   output.close();
   if (!output) return false;
 #ifdef _WIN32

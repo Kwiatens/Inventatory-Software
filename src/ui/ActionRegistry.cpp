@@ -185,14 +185,25 @@ vector<App::Action> App::currentActions() const {
       }
       }
       if (settingsCategory_ == SettingsCategory::InventatoryScan) {
-        add("pair new device", "Device", "p", chr('p'), [self] { self->openInventatoryScanSetup(); });
-        add("check firmware", "Device", "f", chr('f'), [self] { self->beginScanFirmwareCheck(); });
-        add("copy token", "Device", "t", chr('t'), [self] { self->copyInventatoryScanToken(); });
-        add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateInventatoryScanToken(); });
-        add("clear device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });
+        const bool setupComplete = self->inventatoryScanConfig_.setupComplete ||
+                                   !self->inventatoryScanConfig_.deviceId.empty();
+        if (!setupComplete) {
+          add("begin setup", "Device", "b", chr('b'), [self] { self->openInventatoryScanSetup(); });
+        } else {
+          add("pair new device", "Device", "p", chr('p'), [self] { self->openInventatoryScanSetup(); });
+          add("check firmware", "Device", "f", chr('f'), [self] { self->beginScanFirmwareCheck(); });
+          add("copy token", "Device", "t", chr('t'), [self] { self->copyInventatoryScanToken(); });
+          add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateInventatoryScanToken(); });
+          add("clear device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });
+        }
       }
       if (settingsCategory_ == SettingsCategory::DigiKey) {
-        add("test credentials", "DigiKey", "t", chr('t'), [self] { self->testStagedDigiKey(); });
+        const bool configured = !trim(self->settings_.digiKeyClientId).empty() && self->hasStoredDigiKeySecret_;
+        if (!configured) {
+          add("begin setup", "DigiKey", "b", chr('b'), [self] { self->openDigiKeySetup(); });
+        } else {
+          add("test credentials", "DigiKey", "t", chr('t'), [self] { self->testStagedDigiKey(); });
+        }
       }
       if (settingsDirty_) {
         add("save settings", "Changes", "s", chr('s'), [self] { self->saveSettingsDraft(); });

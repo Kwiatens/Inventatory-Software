@@ -227,6 +227,8 @@ std::string App::pageName() const {
       return "Projects";
     case Page::ScanSetup:
       return "Scan R1 Setup";
+    case Page::DigiKeySetup:
+      return "DigiKey Setup";
     case Page::Settings:
       return "Settings";
     case Page::Onboarding:
@@ -240,14 +242,10 @@ std::string App::pageName() const {
 ftxui::Element App::renderHeaderUi() const {
   const auto now = time(nullptr);
   const bool deviceOnline = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-  const bool printerFlashing = now <= printerFlashUntil_;
 
-  const auto printerColor = printerFlashing ? uiTitleColor()
-                            : printerCheck_.ok
-                                ? uiSuccessColor()
-                                : (printerService_.hasConfiguredPrinter() ? uiWarnColor() : uiDangerColor());
-  const auto deviceColor = deviceOnline ? uiSuccessColor() : uiMutedColor();
-  const auto autoColor = autoPrintScannedLabels_ ? uiSuccessColor() : uiMutedColor();
+  const auto printerColor = printerCheck_.ok ? uiInteractiveColor() : uiMutedColor();
+  const auto deviceColor = deviceOnline ? uiInteractiveColor() : uiMutedColor();
+  const auto autoColor = autoPrintScannedLabels_ ? uiInteractiveColor() : uiMutedColor();
 
   const std::string deviceValue = deviceOnline ? std::to_string(now - deviceLastSeen_) + "s" : "offline";
 
@@ -314,6 +312,8 @@ ftxui::Element App::renderPageUi() const {
       return renderBomProjectUi();
     case Page::ScanSetup:
       return renderInventatoryScanSetupUi();
+    case Page::DigiKeySetup:
+      return renderDigiKeySetupUi();
     case Page::Settings:
       return renderSettingsUi();
     case Page::Onboarding:
@@ -345,7 +345,7 @@ ftxui::Element App::renderSearchBarUi() const {
   } else {
     switch (page_) {
       case Page::Home:
-        contextText = to_string(store_.items().size()) + " parts · operational overview";
+        contextText = to_string(store_.items().size()) + " parts";
         break;
       case Page::Stock:
         contextTitle = "Search";
@@ -385,6 +385,10 @@ ftxui::Element App::renderSearchBarUi() const {
       case Page::ScanSetup:
         contextTitle = "Setup wizard";
         contextText = "Guided Bluetooth provisioning for Inventatory Scan R1";
+        break;
+      case Page::DigiKeySetup:
+        contextTitle = "Setup wizard";
+        contextText = "DigiKey credentials";
         break;
       case Page::Settings:
         contextTitle = "Settings";
@@ -603,6 +607,11 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
+  if (page_ == Page::DigiKeySetup) {
+    handleDigiKeySetupKey(key);
+    return;
+  }
+
   if (page_ == Page::Onboarding) {
     handleOnboardingKey(key);
     return;
@@ -667,6 +676,9 @@ void App::handleKey(const KeyEvent& key) {
       break;
     case Page::ScanSetup:
       handleInventatoryScanSetupKey(key);
+      break;
+    case Page::DigiKeySetup:
+      handleDigiKeySetupKey(key);
       break;
     case Page::Settings:
       handleSettingsKey(key);
