@@ -20,16 +20,13 @@ using namespace std;
 namespace {
 
 enum class AttentionSeverity {
-  Metadata = 1,
   Low = 2,
   Out = 3,
-  Data = 4,
 };
 
 enum class AttentionGroup {
   Out,
   Low,
-  Other,
 };
 
 struct AttentionRow {
@@ -38,8 +35,8 @@ struct AttentionRow {
   string location;
   string reason;
   int quantity = 0;
-  AttentionSeverity severity = AttentionSeverity::Metadata;
-  AttentionGroup group = AttentionGroup::Other;
+  AttentionSeverity severity = AttentionSeverity::Low;
+  AttentionGroup group = AttentionGroup::Low;
 };
 
 struct AttentionLine {
@@ -66,9 +63,9 @@ ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, boo
 }
 
 ftxui::Color attentionColor(AttentionSeverity severity) {
-  if (severity == AttentionSeverity::Data || severity == AttentionSeverity::Out) return uiDangerColor();
+  if (severity == AttentionSeverity::Out) return uiDangerColor();
   if (severity == AttentionSeverity::Low) return uiWarnColor();
-  return uiLinkColor();
+  return uiSecondaryText();
 }
 
 ftxui::Element metricCard(const string& label, size_t value, ftxui::Color valueColor) {
@@ -89,10 +86,9 @@ vector<ActivityEntry> recentEventEntries(const vector<ActivityEntry>& activities
 }
 
 ftxui::Color recentEventColor(const ActivityEntry& entry) {
-  if (entry.kind.find("scan") != string::npos) return uiLinkColor();
-  if (entry.kind.find("print") != string::npos) return uiAccentColor();
-  if (entry.kind.find("delete") != string::npos) return uiDangerColor();
-  if (entry.kind.find("add") != string::npos) return uiSuccessColor();
+  (void)entry;
+  // Activity is background context, so keep it readable without competing
+  // with the current stock alerts and primary controls.
   return uiSecondaryText();
 }
 
@@ -106,7 +102,6 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   for (const auto& item : items) {
     snapshot.totalQuantity += static_cast<size_t>(max(item.quantity, 0));
     const bool missingMetadata = item.hasMissingMetadata();
-    const bool unsynced = toLower(item.syncStatus) != "synced";
     snapshot.missingMetadataCount += missingMetadata ? 1 : 0;
     const bool duplicateId = !seenIds.insert(item.id).second;
     const bool dataError = duplicateId || item.quantity < 0;
@@ -117,16 +112,13 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
     snapshot.outOfStockCount += outOfStock ? 1 : 0;
     snapshot.lowStockCount += lowStock ? 1 : 0;
 
+    if (dataError) continue;
+
     AttentionRow row;
     row.partName = item.partName;
     row.quantity = item.quantity;
     row.location = trim(item.location).empty() ? "-" : item.location;
-    if (dataError) {
-      row.issue = "DATA";
-      row.reason = duplicateId ? "Duplicate identifier" : "Invalid stock value";
-      row.severity = AttentionSeverity::Data;
-      row.group = AttentionGroup::Other;
-    } else if (outOfStock) {
+    if (outOfStock) {
       row.issue = "OUT";
       row.reason = "Replenish stock";
       row.severity = AttentionSeverity::Out;
@@ -136,16 +128,6 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
       row.reason = "Threshold " + to_string(lowStockThreshold);
       row.severity = AttentionSeverity::Low;
       row.group = AttentionGroup::Low;
-    } else if (missingMetadata) {
-      row.issue = "META";
-      row.reason = "Complete part metadata";
-      row.severity = AttentionSeverity::Metadata;
-      row.group = AttentionGroup::Other;
-    } else if (unsynced) {
-      row.issue = "SYNC";
-      row.reason = "Pending synchronization";
-      row.severity = AttentionSeverity::Metadata;
-      row.group = AttentionGroup::Other;
     } else {
       continue;
     }
@@ -162,7 +144,7 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
 
 vector<AttentionLine> attentionLines(const DashboardSnapshot& snapshot) {
   vector<AttentionLine> lines;
-  AttentionGroup currentGroup = AttentionGroup::Other;
+  AttentionGroup currentGroup = AttentionGroup::Out;
   bool groupStarted = false;
   for (const auto& row : snapshot.attention) {
     if (!groupStarted || row.group != currentGroup) {
@@ -170,7 +152,7 @@ vector<AttentionLine> attentionLines(const DashboardSnapshot& snapshot) {
       groupStarted = true;
       const auto title = currentGroup == AttentionGroup::Out
                              ? "OUT OF STOCK"
-                             : currentGroup == AttentionGroup::Low ? "LOW STOCK" : "OTHER";
+                             : "LOW STOCK";
       lines.push_back({title, nullptr});
     }
     lines.push_back({{}, &row});
@@ -213,7 +195,7 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
       if (line.row == nullptr) {
         const auto headerColor = line.title == "OUT OF STOCK"
                                      ? uiDangerColor()
-                                     : line.title == "LOW STOCK" ? uiWarnColor() : uiSecondaryText();
+                                     : uiWarnColor();
         rows.push_back(centred(styledText(" " + line.title, headerColor, uiRaisedSurfaceBg()) |
                                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth)));
         continue;
@@ -221,12 +203,8 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
       const auto& row = *line.row;
       const auto background = index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg();
       const auto accent = attentionColor(row.severity);
-      const auto partBackground = row.group == AttentionGroup::Out
-                                      ? uiDangerBg()
-                                      : row.group == AttentionGroup::Low ? uiWarningBg() : background;
       rows.push_back(centred(ftxui::hbox({
-          fixedCell(row.partName, partWidth, uiPrimaryText()) |
-              ftxui::bgcolor(partBackground),
+          fixedCell(row.partName, partWidth, accent),
           ftxui::separator() | ftxui::color(uiDividerColor()),
           fixedCell(to_string(row.quantity), quantityWidth, accent, true),
       }) | ftxui::bgcolor(background)));

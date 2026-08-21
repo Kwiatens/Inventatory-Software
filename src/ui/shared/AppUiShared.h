@@ -88,6 +88,7 @@ ftxui::Element footerField(const string& title, const string& body, ftxui::Color
                            ftxui::Color background, bool flashing = false);
 ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ftxui::Color fg,
                              ftxui::Color activeBg, ftxui::Color flashingBg, ftxui::Color inactiveBg);
+ftxui::Element statusTextBox(const string& label, bool active);
 ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected = false);
 
 // Button roles. uiSecondaryButton is the ordinary raised text control used for
@@ -110,9 +111,6 @@ ftxui::Element uiProgressBar(double fraction, int width, ftxui::Color fill);
 ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui::Color firstFill,
                                   ftxui::Color secondFill);
 
-// A compact status indicator: a colored dot, a muted label, and an optional
-// trailing value (e.g. statusDot("device", blue, "12s")). Used in the header.
-ftxui::Element statusDot(const string& label, ftxui::Color color, const string& value = {});
 bool uiBoxContains(const ftxui::Box& box, int x, int y);
 
 string displayCategory(const string& category);
