@@ -449,7 +449,15 @@ ftxui::Element App::renderMessageUi() const {
   if (message_.empty()) {
     return ftxui::text("");
   }
-  return fullLine(message_, uiAccentColor(), uiPanelLeftBg());
+
+  constexpr long long kFlashHalfPeriodMs = 180;
+  constexpr long long kFlashCycles = 3;
+  const auto elapsed = max(0LL, uiAnimationTicks() - messageFlashStartedAt_);
+  const auto flashDuration = kFlashHalfPeriodMs * kFlashCycles * 2;
+  const bool flashing = messageFlashStartedAt_ >= 0 && elapsed < flashDuration &&
+                        ((elapsed / kFlashHalfPeriodMs) % 2 == 0);
+  return fullLine(message_, flashing ? uiCanvasBg() : uiAccentColor(),
+                  flashing ? uiInteractiveColor() : uiPanelLeftBg());
 }
 
 int App::run() {
