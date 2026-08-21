@@ -266,7 +266,8 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
       break;
     case ScanSetupStep::FindScanner: {
       const auto devices = bleProvisioning_.devices();
-      rows.push_back(styledText("Searching for nearby R1 devices advertising the setup service...", uiTitleColor()));
+      rows.push_back(styledText("Searching for nearby R1 devices advertising the setup service" + uiAnimatedEllipsis(),
+                                uiTitleColor()));
       rows.push_back(ftxui::text(""));
       if (devices.empty()) {
         rows.push_back(styledText("bluetooth> waiting for an unconfigured Scan R1", uiWarnColor()));

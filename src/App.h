@@ -433,6 +433,7 @@ class App {
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
   time_t messageUntil_ = 0;
+  long long messageFlashStartedAt_ = -1;
   size_t selectedPosition_ = 0;
   size_t stockScroll_ = 0;
   size_t detailScroll_ = 0;
