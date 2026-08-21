@@ -50,7 +50,7 @@ ftxui::Element App::renderImportCsvUi() const {
                                   uiWarnColor(), uiPanelRightBg()));
     promptRows.push_back(uiDivider());
     promptRows.push_back(ftxui::hbox({
-        target(styledText(" Sync with DigiKey ", uiSuccessColor(), uiRaisedSurfaceBg()), "import.sync.yes",
+        target(styledText(" Sync with DigiKey ", uiInteractiveColor(), uiRaisedSurfaceBg()), "import.sync.yes",
                UiTargetKind::Button, [self] { self->finishCsvImport(true); }),
         ftxui::text("  "),
         target(styledText(" Finish without sync ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.sync.no",
@@ -151,13 +151,13 @@ ftxui::Element App::renderImportCsvUi() const {
   auto self = const_cast<App*>(this);
   if (const auto* candidate = currentImportCandidate()) {
     detailRows.push_back(ftxui::hbox({
-        target(styledText(" Accept ", uiSuccessColor(), uiRaisedSurfaceBg()), "import.accept", UiTargetKind::Button,
+        target(styledText(" Accept ", uiInteractiveColor(), uiRaisedSurfaceBg()), "import.accept", UiTargetKind::Button,
                [self] { self->acceptImportCandidate(); }),
         ftxui::text("  "),
         target(styledText(" Edit ", uiInteractiveColor(), uiRaisedSurfaceBg()), "import.edit", UiTargetKind::Button,
                [self] { self->beginEditImportCandidate(); }),
         ftxui::text("  "),
-        target(styledText(" Skip ", uiWarnColor(), uiRaisedSurfaceBg()), "import.skip", UiTargetKind::Button,
+        target(styledText(" Skip ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.skip", UiTargetKind::Button,
                [self] { self->skipImportCandidate(); }),
         ftxui::filler(),
     }));

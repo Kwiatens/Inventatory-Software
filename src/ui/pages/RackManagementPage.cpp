@@ -41,14 +41,14 @@ string packageSummary(const InventoryItem& item) {
   return "-";
 }
 
-// A part mid-move gets a distinct turquoise highlight: brighter on its grid
+// A part mid-move gets a distinct blue-gray active highlight: brighter on its grid
 // cell, dimmer on the informational banner in the slot detail panel.
 ftxui::Color rackMovingSourceBg() {
-  return ftxui::Color::RGB(18, 61, 64);
+  return uiActiveBg();
 }
 
 ftxui::Color rackMovingBannerBg() {
-  return ftxui::Color::RGB(24, 48, 50);
+  return uiActiveSoftBg();
 }
 
 ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected) {
@@ -56,8 +56,8 @@ ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected) {
                         : item.lowStock() ? uiWarnColor()
                                           : uiSuccessColor();
   const auto background = selected ? uiSelectionBg()
-                        : item.quantity <= 0 ? ftxui::Color::RGB(47, 27, 27)
-                        : item.lowStock() ? ftxui::Color::RGB(48, 39, 24)
+                        : item.quantity <= 0 ? uiDangerBg()
+                        : item.lowStock() ? uiWarningBg()
                                           : uiRaisedSurfaceBg();
   return styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background) | ftxui::bold;
 }

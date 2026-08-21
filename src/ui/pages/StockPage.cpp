@@ -70,8 +70,8 @@ ftxui::Element App::renderStockUi() const {
   const auto quantityCell = [&](int quantity, bool selected) {
     const auto fg = quantity <= 0 ? uiDangerColor() : quantity <= 5 ? uiWarnColor() : uiSuccessColor();
     const auto bg = selected ? uiSelectionBg()
-                    : quantity <= 0 ? ftxui::Color::RGB(55, 32, 31)
-                    : quantity <= 5 ? ftxui::Color::RGB(58, 48, 30)
+                    : quantity <= 0 ? uiDangerBg()
+                    : quantity <= 5 ? uiWarningBg()
                                     : uiRaisedSurfaceBg();
     return ftxui::hbox({
         ftxui::filler(),
@@ -141,7 +141,7 @@ ftxui::Element App::renderStockUi() const {
       const bool outOfStock = item.quantity <= 0;
       const bool lowStock = item.lowStock();
       const auto bg = selected ? uiSelectionBg()
-                      : outOfStock ? ftxui::Color::RGB(47, 27, 27)
+                      : outOfStock ? uiDangerBg()
                                    : uiSurfaceBg();
       const auto fg = selected ? uiFocusColor()
                       : outOfStock ? uiDangerColor()

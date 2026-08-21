@@ -180,8 +180,7 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
       const auto accent = attentionColor(row.severity);
       const bool outOfStock = row.severity == AttentionSeverity::Out;
       const auto partBackground = outOfStock
-                                      ? (outOfStockFlashOn ? ftxui::Color::RGB(89, 35, 31)
-                                                           : ftxui::Color::RGB(58, 29, 27))
+                                      ? (outOfStockFlashOn ? uiDangerFlashBg() : uiDangerBg())
                                       : background;
       rows.push_back(centred(ftxui::hbox({
           fixedCell(row.partName, partWidth, outOfStock ? uiPrimaryText() : uiPrimaryText()) |

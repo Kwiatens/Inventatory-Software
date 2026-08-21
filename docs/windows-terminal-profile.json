@@ -1,0 +1,12 @@
+{
+  "name": "Inventatory",
+  "font": {
+    "face": "JetBrains Mono",
+    "size": 11
+  },
+  "background": "#0D1010",
+  "foreground": "#F1EEE5",
+  "cursorColor": "#58B9B0",
+  "selectionBackground": "#2C4440",
+  "useAcrylic": false
+}

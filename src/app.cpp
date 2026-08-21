@@ -12,6 +12,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/terminal.hpp>
 #include <windows.h>
 
 #include <algorithm>
@@ -450,17 +451,29 @@ ftxui::Element App::renderMessageUi() const {
     return ftxui::text("");
   }
 
-  constexpr long long kFlashHalfPeriodMs = 180;
+  // Keep the pulse aligned with the 100 ms redraw ticker so it reads as a
+  // regular confirmation animation instead of an uneven flicker.
+  constexpr long long kFlashHalfPeriodMs = 200;
   constexpr long long kFlashCycles = 3;
   const auto elapsed = max(0LL, uiAnimationTicks() - messageFlashStartedAt_);
   const auto flashDuration = kFlashHalfPeriodMs * kFlashCycles * 2;
   const bool flashing = messageFlashStartedAt_ >= 0 && elapsed < flashDuration &&
                         ((elapsed / kFlashHalfPeriodMs) % 2 == 0);
-  return fullLine(message_, flashing ? uiCanvasBg() : uiAccentColor(),
-                  flashing ? uiInteractiveColor() : uiPanelLeftBg());
+  return ftxui::hbox({
+             styledText(message_, flashing ? uiCanvasBg() : uiAccentColor(),
+                        flashing ? uiInteractiveColor() : uiPanelLeftBg()),
+             ftxui::filler(),
+         }) |
+         ftxui::bgcolor(uiPanelLeftBg());
 }
 
 int App::run() {
+#if defined(_WIN32)
+  // Windows Terminal does not advertise truecolor through TERM/COLORTERM.
+  // Select it before any semantic palette helper constructs an RGB color;
+  // otherwise FTXUI collapses the graphite/cyan palette to ANSI colors.
+  ftxui::Terminal::SetColorSupport(ftxui::Terminal::Color::TrueColor);
+#endif
   running_ = true;
   // Windows sign-in launches this process with --background. Keep that path
   // free of FTXUI so only the Scan R1 bridge and notification-area handler run.
