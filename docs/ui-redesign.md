@@ -19,7 +19,7 @@ The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 S
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
 
-Header status dots use blue for active, ready, or enabled and gray for inactive,
+Header status dots use cyan for active, ready, or enabled and gray for inactive,
 offline, unconfigured, or unknown states.
 
 The retired phone/web scanner is not part of the Inventatory interface. The physical
@@ -40,33 +40,43 @@ Setup wizards show only task-specific instructions, inputs, selections, and
 actions. They do not add command-style headers, step counters, progress strips,
 or titled decorative chrome around the content.
 
-## Graphite / Turquoise palette
+## Neutral graphite / Petrol-cyan palette
 
 | Role | RGB / hex | Use |
 |---|---|---|
-| Canvas | `12,14,15` / `#0C0E0F` | Application background |
-| Surface | `19,22,25` / `#131619` | Tables and content |
-| Raised | `28,32,36` / `#1C2024` | Controls and overlays |
-| Hover | `37,43,48` / `#252B30` | Mouse hover |
-| Selection | `18,61,64` / `#123D40` | Current row/cell/field |
-| Divider | `51,57,61` / `#33393D` | Necessary separators |
-| Primary text | `241,243,243` / `#F1F3F3` | Important content |
-| Secondary text | `198,202,203` / `#C6CACB` | Labels |
-| Muted text | `141,148,151` / `#8D9497` | Hints/inactive data |
-| Interactive | `73,212,203` / `#49D4CB` | Actions and brand cues |
-| Focus | `140,237,230` / `#8CEDE6` | Active focus |
-| Link | `114,199,238` / `#72C7EE` | External links |
-| Success | `117,199,147` / `#75C793` | Ready/completed |
-| Warning | `216,160,75` / `#D8A04B` | Attention/low stock |
-| Danger | `220,116,107` / `#DC746B` | Error/destructive/out |
+| Canvas | `13,16,16` / `#0D1010` | Application background |
+| Surface | `20,25,24` / `#141918` | Tables and content |
+| Raised | `29,36,34` / `#1D2422` | Controls and overlays |
+| Hover | `39,49,47` / `#27312F` | Mouse hover |
+| Selection | `44,68,64` / `#2C4440` | Current row/cell/field |
+| Divider | `56,69,67` / `#384543` | Necessary separators |
+| Primary text | `241,238,229` / `#F1EEE5` | Important content |
+| Secondary text | `202,208,202` / `#CAD0CA` | Labels |
+| Muted text | `140,150,144` / `#8C9690` | Hints/inactive data |
+| Interactive | `88,185,176` / `#58B9B0` | Actions, active dots, and brand cues |
+| Focus | `185,231,221` / `#B9E7DD` | Active focus |
+| Link | `143,203,197` / `#8FCBC5` | External links and progress |
+| Success | `165,201,165` / `#A5C9A5` | Ready/completed |
+| Warning | `216,181,107` / `#D8B56B` | Attention/low stock |
+| Warning surface | `58,51,39` / `#3A3327` | Low-stock highlights |
+| Danger | `224,140,131` / `#E08C83` | Error/destructive/out |
+| Danger surface | `62,42,41` / `#3E2A29` | Out-of-stock highlights |
+| Active surface | `49,90,85` / `#315A55` | Scanner movement/build focus |
 
-Turquoise means interactive, active, or focused. Ordinary headings are neutral.
-Green, amber, and red are reserved for real state and are always accompanied by
-a word or glyph. Normal rows share one surface; hover and selection provide the
-only background changes.
+Petrol-cyan means interactive, active, focused, linked, or progressing. Ordinary
+headings use warm ivory; graphite surfaces provide structure without making the
+whole interface blue. Green, amber, and red are reserved for real state and are
+always accompanied by a word or glyph. Normal rows share one surface; hover and
+selection provide the only background changes.
 
 Truecolor is the reference rendering. Terminals without truecolor may use their
 nearest xterm-256 colors; text and glyphs keep all states understandable.
+
+JetBrains Mono is the recommended Windows Terminal font. The repository includes
+`docs/windows-terminal-profile.json` as a profile snippet; it is intentionally not
+installed or merged into the user's terminal settings automatically. Developers
+can launch with `.\run.ps1 -WindowsTerminal` after adding that profile as
+`Inventatory`.
 
 ## Input model
 
@@ -147,7 +157,7 @@ Windows Credential Manager, never in `settings.conf`.
 
 Each panel carries only settings and state: no explanatory hint copy, and no
 navigation button that duplicates a category already in the sidebar. An
-unconfigured integration or device shows only a filled turquoise `Begin Setup`
+unconfigured integration or device shows only a filled cyan `Begin Setup`
 button; setup guidance lives in its wizard. Once setup is accepted, the panel
 restores its settings and state rows. Every other control is an ordinary raised
 text button. Panels do not restate diagnostics that the device reports
@@ -160,7 +170,7 @@ shown as zeros.
 - Use a divider only between major functional regions.
 - Controls are compact text labels on a raised surface, not decorative cards.
 - Tables use fixed columns and right-aligned numbers.
-- Selection combines a dark turquoise background, focus-colored text, and a marker.
+- Selection combines a dark blue-gray background, focus-colored text, and a marker.
 - Messages never stack; the newest message replaces the previous one.
 - Confirmations use a raised surface, explicit danger text, and an unlock step
   where accidental activation would be costly.
