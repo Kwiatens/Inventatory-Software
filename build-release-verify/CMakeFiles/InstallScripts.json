@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/cmake_install.cmake",
+		"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/_deps/ftxui-build/cmake_install.cmake",
+		"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/_deps/ftxui-build/examples/cmake_install.cmake",
+		"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/_deps/ftxui-build/doc/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

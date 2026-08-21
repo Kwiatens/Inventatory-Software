@@ -26,10 +26,16 @@ route, and every accelerator must remain discoverable on screen or in Actions.
 
 ## Color and layout
 
-Use semantic Graphite / Turquoise helpers rather than literal RGB values.
-Turquoise is for interaction/focus; semantic colors are for state. Use one
-surface for normal rows and reserve hover/selection backgrounds for interaction.
-Prefer alignment and a single dim divider over windows nested inside windows.
+Use semantic neutral-graphite / petrol-cyan helpers rather than literal RGB
+values. Petrol-cyan is for interaction, focus, links, progress, and active
+navigation; sage, amber, and coral are reserved for real state. Use one surface
+for normal rows and reserve hover/selection backgrounds for interaction. Prefer
+alignment and a single dim divider over windows nested inside windows.
+
+The terminal font is controlled by the host. JetBrains Mono is the recommended
+Windows Terminal font; use the repository profile snippet when setting up a
+developer terminal, and do not add font installation or terminal-settings writes
+to the application.
 
 ## Settings and secrets
 

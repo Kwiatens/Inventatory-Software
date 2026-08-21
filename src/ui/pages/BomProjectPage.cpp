@@ -34,7 +34,7 @@ ftxui::Element centered(ftxui::Element element) {
 // Pulse fill for a rack slot the current build needs opened. Kept page-local
 // alongside the rack page's own state backgrounds.
 ftxui::Color bomLitSlotBg() {
-  return ftxui::Color::RGB(15, 110, 86);
+  return uiActiveBg();
 }
 
 }  // namespace
@@ -145,7 +145,7 @@ ftxui::Element App::renderBomProjectUi() const {
       promptRows.push_back(uiDivider());
       promptRows.push_back(fullLine("Subtract these from stock?", uiAccentColor(), uiPanelRightBg()));
       promptRows.push_back(ftxui::hbox({
-          target(styledText(" y  subtract ", uiSuccessColor(), uiRaisedSurfaceBg()), "bom.deduct.yes",
+          target(styledText(" y  subtract ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.deduct.yes",
                  UiTargetKind::Button, [self] { self->finishBomBuild(true); }),
           ftxui::text("  "),
           target(styledText(" n  keep stock ", uiSecondaryText(), uiRaisedSurfaceBg()), "bom.deduct.no",
@@ -405,7 +405,7 @@ ftxui::Element App::renderBomProjectUi() const {
   ftxui::Elements footer;
   footer.push_back(uiDivider());
   footer.push_back(ftxui::hbox({
-      target(styledText(" Build ", uiSuccessColor(), uiRaisedSurfaceBg()), "bom.build", UiTargetKind::Button,
+      target(styledText(" Build ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.build", UiTargetKind::Button,
              [self] { self->beginBomBuild(); }),
       ftxui::text(" "),
       target(styledText(" Export shortages ", uiLinkColor(), uiRaisedSurfaceBg()), "bom.export",

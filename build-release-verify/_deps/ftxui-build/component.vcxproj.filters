@@ -1,0 +1,126 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\animation.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\button.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\catch_event.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\checkbox.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\collapsible.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\component.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\component_options.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\container.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\dropdown.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\event.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\hoverable.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\input.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\loop.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\maybe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\menu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\modal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\radiobox.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\resizable_split.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\screen_interactive.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\slider.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\terminal_input_parser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\util.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\window.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\animation.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\captured_mouse.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\component.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\component_base.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\component_options.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\event.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\loop.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\mouse.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\receiver.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\screen_interactive.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\include\ftxui\component\task.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\src\ftxui\component\terminal_input_parser.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\pawci\Documents\Github\Inventatory-Software\build\_deps\ftxui-src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{6C3CC173-7A37-3ED2-84F5-92E6F439EBDD}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{ADB0965F-9E04-36FC-AB99-32987D49BF60}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

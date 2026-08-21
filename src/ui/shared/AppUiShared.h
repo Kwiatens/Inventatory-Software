@@ -33,7 +33,7 @@ struct DetailField {
   ftxui::Color valueColor;
 };
 
-// Graphite / Turquoise semantic palette used throughout the terminal UI.
+// Neutral graphite / petrol-cyan semantic palette used throughout the terminal UI.
 ftxui::Color uiCanvasBg();
 ftxui::Color uiSurfaceBg();
 ftxui::Color uiRaisedSurfaceBg();
@@ -55,6 +55,11 @@ ftxui::Color uiLinkColor();
 ftxui::Color uiLabelColor();
 ftxui::Color uiWarnColor();
 ftxui::Color uiDangerColor();
+ftxui::Color uiActiveBg();
+ftxui::Color uiActiveSoftBg();
+ftxui::Color uiWarningBg();
+ftxui::Color uiDangerBg();
+ftxui::Color uiDangerFlashBg();
 ftxui::Color uiMutedColor();
 ftxui::Color uiDimColor();
 ftxui::Color uiPanelLeftBg();
@@ -78,7 +83,7 @@ ftxui::Element statusCueChip(const string& label, bool active, bool flashing, ft
 ftxui::Element quantityBadge(int quantity, bool selected = false);
 
 // Button roles. uiSecondaryButton is the ordinary raised text control used for
-// operational actions; uiPrimaryButton is the filled turquoise control that
+// operational actions; uiPrimaryButton is the filled cyan control that
 // marks the one action a panel exists for, so it reads as a control rather
 // than as another line of text.
 ftxui::Element uiPrimaryButton(const string& label, bool enabled = true);

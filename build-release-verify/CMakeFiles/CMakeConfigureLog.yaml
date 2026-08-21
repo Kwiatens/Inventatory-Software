@@ -1,0 +1,3117 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineSystem.cmake:218 (message)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      The system is: Windows - 10.0.26200 - AMD64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:501 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:538 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCCompilerId.c.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeCCompilerId.c.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      Wersja programu MSBuild 18.9.1+a81b43525 dla .NET Framework
+      Kompilacja rozpocz─Ö┼éa si─Ö 21.08.2026 13:25:10.
+      
+      Projekt ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\4.4.2\\CompilerIdC\\CompilerIdC.vcxprojÔÇŁ w w─Ö┼║le 1 (domy┼Ťlne elementy docelowe).
+      PrepareForBuild:
+        Tworzenie katalogu ÔÇ×Debug\\ÔÇŁ.
+        Dane wyj┼Ťciowe ze struktur─ů s─ů w┼é─ůczone. Formatowanie diagnostyki kompilatora b─Ödzie odzwierciedla─ç hierarchi─Ö b┼é─Öd├│w. Aby uzyska─ç wi─Öcej informacji, zobacz https://aka.ms/cpp/structured-output.
+        Tworzenie katalogu ÔÇ×Debug\\CompilerIdC.tlog\\ÔÇŁ.
+      InitializeBuildStatus:
+        Trwa tworzenie ÔÇ×Debug\\CompilerIdC.tlog\\unsuccessfulbuildÔÇŁ, poniewa┼╝ okre┼Ťlono "AlwaysCreate".
+        Modyfikowanie ÔÇ×Debug\\CompilerIdC.tlog\\unsuccessfulbuildÔÇŁ.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc145.pdb" /external:W0 /Gd /TC /FC /errorReport:queue CMakeCCompilerId.c
+        CMakeCCompilerId.c
+      Link:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdC.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdC.lib" /MACHINE:X64 Debug\\CMakeCCompilerId.obj
+        CompilerIdC.vcxproj -> C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\4.4.2\\CompilerIdC\\CompilerIdC.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_C_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_C_COMPILER=C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        Usuwanie pliku ÔÇ×Debug\\CompilerIdC.tlog\\unsuccessfulbuildÔÇŁ.
+        Modyfikowanie ÔÇ×Debug\\CompilerIdC.tlog\\CompilerIdC.lastbuildstateÔÇŁ.
+      Kompilowanie projektu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\4.4.2\\CompilerIdC\\CompilerIdC.vcxprojÔÇŁ wykonane (domy┼Ťlne elementy docelowe).
+      
+      Kompilacja powiod┼éa si─Ö.
+          Ostrze┼╝enia: 0
+          Liczba b┼é─Öd├│w: 0
+      
+      Czas, kt├│ry up┼éyn─ů┼é: 00:00:00.46
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.vcxproj"
+      
+      The C compiler identification is MSVC, found in:
+        C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/4.4.2/CompilerIdC/CompilerIdC.exe
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:64 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:102 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/link.com"
+    found: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/link.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:64 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:103 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lld-link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lld-link.com"
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lld-link.exe"
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/lld-link.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/lld-link.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link"
+      - "C:/Windows/System32/lld-link.com"
+      - "C:/Windows/System32/lld-link.exe"
+      - "C:/Windows/System32/lld-link"
+      - "C:/Windows/lld-link.com"
+      - "C:/Windows/lld-link.exe"
+      - "C:/Windows/lld-link"
+      - "C:/Windows/System32/wbem/lld-link.com"
+      - "C:/Windows/System32/wbem/lld-link.exe"
+      - "C:/Windows/System32/wbem/lld-link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link"
+      - "C:/Windows/System32/OpenSSH/lld-link.com"
+      - "C:/Windows/System32/OpenSSH/lld-link.exe"
+      - "C:/Windows/System32/OpenSSH/lld-link"
+      - "C:/Program Files/Git/cmd/lld-link.com"
+      - "C:/Program Files/Git/cmd/lld-link.exe"
+      - "C:/Program Files/Git/cmd/lld-link"
+      - "C:/Program Files/CMake/bin/lld-link.com"
+      - "C:/Program Files/CMake/bin/lld-link.exe"
+      - "C:/Program Files/CMake/bin/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/lld-link"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/lld-link"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/lld-link"
+      - "C:/Users/pawci/.diversion/bin/lld-link.com"
+      - "C:/Users/pawci/.diversion/bin/lld-link.exe"
+      - "C:/Users/pawci/.diversion/bin/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/lld-link"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/lld-link.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/lld-link.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/lld-link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:247 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "program"
+    variable: "CMAKE_LINKER"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/link.com"
+    found: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/link.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:247 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "program"
+    variable: "CMAKE_MT"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "mt"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/mt.com"
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/mt.exe"
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/mt"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/mt.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/mt.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/mt"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/mt.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/mt.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/mt"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/mt.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/mt.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/mt"
+      - "C:/Windows/System32/mt.com"
+      - "C:/Windows/System32/mt.exe"
+      - "C:/Windows/System32/mt"
+      - "C:/Windows/mt.com"
+      - "C:/Windows/mt.exe"
+      - "C:/Windows/mt"
+      - "C:/Windows/System32/wbem/mt.com"
+      - "C:/Windows/System32/wbem/mt.exe"
+      - "C:/Windows/System32/wbem/mt"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt"
+      - "C:/Windows/System32/OpenSSH/mt.com"
+      - "C:/Windows/System32/OpenSSH/mt.exe"
+      - "C:/Windows/System32/OpenSSH/mt"
+      - "C:/Program Files/Git/cmd/mt.com"
+      - "C:/Program Files/Git/cmd/mt.exe"
+      - "C:/Program Files/Git/cmd/mt"
+      - "C:/Program Files/CMake/bin/mt.com"
+      - "C:/Program Files/CMake/bin/mt.exe"
+      - "C:/Program Files/CMake/bin/mt"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/mt.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/mt.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/mt"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/mt.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/mt.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/mt"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/mt.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/mt.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/mt"
+      - "C:/Users/pawci/.diversion/bin/mt.com"
+      - "C:/Users/pawci/.diversion/bin/mt.exe"
+      - "C:/Users/pawci/.diversion/bin/mt"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/mt.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/mt.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/mt"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/mt.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/mt.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/mt"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/mt.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/mt.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/mt"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/mt.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/mt.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/mt"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:247 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "program"
+    variable: "CMAKE_AR"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lib"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lib.com"
+    found: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lib.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:501 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:538 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      Wersja programu MSBuild 18.9.1+a81b43525 dla .NET Framework
+      Kompilacja rozpocz─Ö┼éa si─Ö 21.08.2026 13:25:10.
+      
+      Projekt ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\4.4.2\\CompilerIdCXX\\CompilerIdCXX.vcxprojÔÇŁ w w─Ö┼║le 1 (domy┼Ťlne elementy docelowe).
+      PrepareForBuild:
+        Tworzenie katalogu ÔÇ×Debug\\ÔÇŁ.
+        Dane wyj┼Ťciowe ze struktur─ů s─ů w┼é─ůczone. Formatowanie diagnostyki kompilatora b─Ödzie odzwierciedla─ç hierarchi─Ö b┼é─Öd├│w. Aby uzyska─ç wi─Öcej informacji, zobacz https://aka.ms/cpp/structured-output.
+        Tworzenie katalogu ÔÇ×Debug\\CompilerIdCXX.tlog\\ÔÇŁ.
+      InitializeBuildStatus:
+        Trwa tworzenie ÔÇ×Debug\\CompilerIdCXX.tlog\\unsuccessfulbuildÔÇŁ, poniewa┼╝ okre┼Ťlono "AlwaysCreate".
+        Modyfikowanie ÔÇ×Debug\\CompilerIdCXX.tlog\\unsuccessfulbuildÔÇŁ.
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc145.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+        CMakeCXXCompilerId.cpp
+      Link:
+        C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
+        CompilerIdCXX.vcxproj -> C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\4.4.2\\CompilerIdCXX\\CompilerIdCXX.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_CXX_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_CXX_COMPILER=C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        Usuwanie pliku ÔÇ×Debug\\CompilerIdCXX.tlog\\unsuccessfulbuildÔÇŁ.
+        Modyfikowanie ÔÇ×Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.lastbuildstateÔÇŁ.
+      Kompilowanie projektu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\4.4.2\\CompilerIdCXX\\CompilerIdCXX.vcxprojÔÇŁ wykonane (domy┼Ťlne elementy docelowe).
+      
+      Kompilacja powiod┼éa si─Ö.
+          Ostrze┼╝enia: 0
+          Liczba b┼é─Öd├│w: 0
+      
+      Czas, kt├│ry up┼éyn─ů┼é: 00:00:00.44
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.vcxproj"
+      
+      The CXX compiler identification is MSVC, found in:
+        C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/4.4.2/CompilerIdCXX/CompilerIdCXX.exe
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:64 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeFindBinUtils.cmake:103 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lld-link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lld-link.com"
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lld-link.exe"
+      - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lld-link"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/lld-link.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/lld-link.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lld-link"
+      - "C:/Windows/System32/lld-link.com"
+      - "C:/Windows/System32/lld-link.exe"
+      - "C:/Windows/System32/lld-link"
+      - "C:/Windows/lld-link.com"
+      - "C:/Windows/lld-link.exe"
+      - "C:/Windows/lld-link"
+      - "C:/Windows/System32/wbem/lld-link.com"
+      - "C:/Windows/System32/wbem/lld-link.exe"
+      - "C:/Windows/System32/wbem/lld-link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link"
+      - "C:/Windows/System32/OpenSSH/lld-link.com"
+      - "C:/Windows/System32/OpenSSH/lld-link.exe"
+      - "C:/Windows/System32/OpenSSH/lld-link"
+      - "C:/Program Files/Git/cmd/lld-link.com"
+      - "C:/Program Files/Git/cmd/lld-link.exe"
+      - "C:/Program Files/Git/cmd/lld-link"
+      - "C:/Program Files/CMake/bin/lld-link.com"
+      - "C:/Program Files/CMake/bin/lld-link.exe"
+      - "C:/Program Files/CMake/bin/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/lld-link"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/lld-link"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/lld-link"
+      - "C:/Users/pawci/.diversion/bin/lld-link.com"
+      - "C:/Users/pawci/.diversion/bin/lld-link.exe"
+      - "C:/Users/pawci/.diversion/bin/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lld-link"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lld-link"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/lld-link.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/lld-link.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/lld-link"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/lld-link.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/lld-link.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/lld-link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineRCCompiler.cmake:40 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/Platform/Windows-MSVC.cmake:592 (enable_language)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/Platform/Windows-MSVC.cmake:565 (__windows_compiler_msvc_enable_rc)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/Platform/Windows-MSVC-C.cmake:5 (__windows_compiler_msvc)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeCInformation.cmake:48 (include)"
+      - "CMakeLists.txt:3 (project)"
+    mode: "program"
+    variable: "CMAKE_RC_COMPILER"
+    description: "RC compiler"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "rc"
+    candidate_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/"
+      - "C:/Program Files (x86)/InventatorySoftware/"
+    searched_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/rc.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/rc.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/rc"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/rc.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/rc.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/rc"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/rc.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/rc.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/rc"
+      - "C:/Windows/System32/rc.com"
+      - "C:/Windows/System32/rc.exe"
+      - "C:/Windows/System32/rc"
+      - "C:/Windows/rc.com"
+      - "C:/Windows/rc.exe"
+      - "C:/Windows/rc"
+      - "C:/Windows/System32/wbem/rc.com"
+      - "C:/Windows/System32/wbem/rc.exe"
+      - "C:/Windows/System32/wbem/rc"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/rc.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/rc.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/rc"
+      - "C:/Windows/System32/OpenSSH/rc.com"
+      - "C:/Windows/System32/OpenSSH/rc.exe"
+      - "C:/Windows/System32/OpenSSH/rc"
+      - "C:/Program Files/Git/cmd/rc.com"
+      - "C:/Program Files/Git/cmd/rc.exe"
+      - "C:/Program Files/Git/cmd/rc"
+      - "C:/Program Files/CMake/bin/rc.com"
+      - "C:/Program Files/CMake/bin/rc.exe"
+      - "C:/Program Files/CMake/bin/rc"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/rc.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/rc.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/rc"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/rc.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/rc.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/rc"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/rc.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/rc.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/rc"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/rc.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/rc.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/rc"
+      - "C:/Users/pawci/.diversion/bin/rc.com"
+      - "C:/Users/pawci/.diversion/bin/rc.exe"
+      - "C:/Users/pawci/.diversion/bin/rc"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/rc.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/rc.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/rc"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/rc.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/rc.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/rc"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/rc.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/rc.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/rc"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/rc.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/rc.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/rc"
+      - "C:/Program Files/bin/rc.com"
+      - "C:/Program Files/bin/rc.exe"
+      - "C:/Program Files/bin/rc"
+      - "C:/Program Files/sbin/rc.com"
+      - "C:/Program Files/sbin/rc.exe"
+      - "C:/Program Files/sbin/rc"
+      - "C:/Program Files/rc.com"
+      - "C:/Program Files/rc.exe"
+      - "C:/Program Files/rc"
+      - "C:/Program Files (x86)/bin/rc.com"
+      - "C:/Program Files (x86)/bin/rc.exe"
+      - "C:/Program Files (x86)/bin/rc"
+      - "C:/Program Files (x86)/sbin/rc.com"
+      - "C:/Program Files (x86)/sbin/rc.exe"
+      - "C:/Program Files (x86)/sbin/rc"
+      - "C:/Program Files (x86)/rc.com"
+      - "C:/Program Files (x86)/rc.exe"
+      - "C:/Program Files (x86)/rc"
+      - "C:/Program Files/CMake/bin/rc.com"
+      - "C:/Program Files/CMake/bin/rc.exe"
+      - "C:/Program Files/CMake/bin/rc"
+      - "C:/Program Files/CMake/sbin/rc.com"
+      - "C:/Program Files/CMake/sbin/rc.exe"
+      - "C:/Program Files/CMake/sbin/rc"
+      - "C:/Program Files/CMake/rc.com"
+      - "C:/Program Files/CMake/rc.exe"
+      - "C:/Program Files/CMake/rc"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/rc.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/rc.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/rc"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/rc.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/rc.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/rc"
+      - "C:/Program Files (x86)/InventatorySoftware/rc.com"
+      - "C:/Program Files (x86)/InventatorySoftware/rc.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/rc"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/InventatorySoftware"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Program Files (x86)/InventatorySoftware"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerABI.cmake:123 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-g7m968"
+      binary: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-g7m968"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: false
+      stdout: |
+        Change Dir: 'C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-g7m968'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_3c98b.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Wersja programu MSBuild 18.9.1+a81b43525 dla .NET Framework
+        Kompilacja rozpocz─Ö┼éa si─Ö 21.08.2026 13:25:11.
+        
+        Projekt ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-g7m968\\cmTC_3c98b.vcxprojÔÇŁ w w─Ö┼║le 1 (domy┼Ťlne elementy docelowe).
+        PrepareForBuild:
+          Dane wyj┼Ťciowe ze struktur─ů s─ů w┼é─ůczone. Formatowanie diagnostyki kompilatora b─Ödzie odzwierciedla─ç hierarchi─Ö b┼é─Öd├│w. Aby uzyska─ç wi─Öcej informacji, zobacz https://aka.ms/cpp/structured-output.
+          Tworzenie katalogu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-g7m968\\Debug\\ÔÇŁ.
+          Tworzenie katalogu ÔÇ×cmTC_3c98b.dir\\Debug\\cmTC_3c98b.tlog\\ÔÇŁ.
+        InitializeBuildStatus:
+          Trwa tworzenie ÔÇ×cmTC_3c98b.dir\\Debug\\cmTC_3c98b.tlog\\unsuccessfulbuildÔÇŁ, poniewa┼╝ okre┼Ťlono "AlwaysCreate".
+          Modyfikowanie ÔÇ×cmTC_3c98b.dir\\Debug\\cmTC_3c98b.tlog\\unsuccessfulbuildÔÇŁ.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_3c98b.dir\\Debug\\\\" /Fd"cmTC_3c98b.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.4\\Modules\\CMakeCCompilerABI.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256 for x64
+          Copyright (C) Microsoft Corporation. Wszystkie prawa zastrze┼╝one.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /Fo"cmTC_3c98b.dir\\Debug\\\\" /Fd"cmTC_3c98b.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.4\\Modules\\CMakeCCompilerABI.c"
+          CMakeCCompilerABI.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-g7m968\\Debug\\cmTC_3c98b.exe" /INCREMENTAL /ILK:"cmTC_3c98b.dir\\Debug\\cmTC_3c98b.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-g7m968/Debug/cmTC_3c98b.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-g7m968/Debug/cmTC_3c98b.lib" /MACHINE:X64  /machine:x64 cmTC_3c98b.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_3c98b.vcxproj -> C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-g7m968\\Debug\\cmTC_3c98b.exe
+        FinalizeBuildStatus:
+          Usuwanie pliku ÔÇ×cmTC_3c98b.dir\\Debug\\cmTC_3c98b.tlog\\unsuccessfulbuildÔÇŁ.
+          Modyfikowanie ÔÇ×cmTC_3c98b.dir\\Debug\\cmTC_3c98b.tlog\\cmTC_3c98b.lastbuildstateÔÇŁ.
+        Kompilowanie projektu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-g7m968\\cmTC_3c98b.vcxprojÔÇŁ wykonane (domy┼Ťlne elementy docelowe).
+        
+        Kompilacja powiod┼éa si─Ö.
+            Ostrze┼╝enia: 0
+            Liczba b┼é─Öd├│w: 0
+        
+        Czas, kt├│ry up┼éyn─ů┼é: 00:00:00.40
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerABI.cmake:291 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|"|[0-9]+>[ 	-]*Build:[ 	0-9]+ ms[ 	]*)?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        link line: [  C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-g7m968\\Debug\\cmTC_3c98b.exe" /INCREMENTAL /ILK:"cmTC_3c98b.dir\\Debug\\cmTC_3c98b.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-g7m968/Debug/cmTC_3c98b.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-g7m968/Debug/cmTC_3c98b.lib" /MACHINE:X64  /machine:x64 cmTC_3c98b.dir\\Debug\\CMakeCCompilerABI.obj] ==> linker [C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe]
+        linker tool for 'C': C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/HostX64/x64/link.exe 
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/Internal/CMakeDetermineLinkerId.cmake:41 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerABI.cmake:337 (cmake_determine_linker_id)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Running the C compiler's linker: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.51.36256.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerABI.cmake:123 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-s9or27"
+      binary: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-s9or27"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: false
+      stdout: |
+        Change Dir: 'C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-s9or27'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_c30c8.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Wersja programu MSBuild 18.9.1+a81b43525 dla .NET Framework
+        Kompilacja rozpocz─Ö┼éa si─Ö 21.08.2026 13:25:12.
+        
+        Projekt ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-s9or27\\cmTC_c30c8.vcxprojÔÇŁ w w─Ö┼║le 1 (domy┼Ťlne elementy docelowe).
+        PrepareForBuild:
+          Dane wyj┼Ťciowe ze struktur─ů s─ů w┼é─ůczone. Formatowanie diagnostyki kompilatora b─Ödzie odzwierciedla─ç hierarchi─Ö b┼é─Öd├│w. Aby uzyska─ç wi─Öcej informacji, zobacz https://aka.ms/cpp/structured-output.
+          Tworzenie katalogu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-s9or27\\Debug\\ÔÇŁ.
+          Tworzenie katalogu ÔÇ×cmTC_c30c8.dir\\Debug\\cmTC_c30c8.tlog\\ÔÇŁ.
+        InitializeBuildStatus:
+          Trwa tworzenie ÔÇ×cmTC_c30c8.dir\\Debug\\cmTC_c30c8.tlog\\unsuccessfulbuildÔÇŁ, poniewa┼╝ okre┼Ťlono "AlwaysCreate".
+          Modyfikowanie ÔÇ×cmTC_c30c8.dir\\Debug\\cmTC_c30c8.tlog\\unsuccessfulbuildÔÇŁ.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_c30c8.dir\\Debug\\\\" /Fd"cmTC_c30c8.dir\\Debug\\vc145.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.4\\Modules\\CMakeCXXCompilerABI.cpp"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256 for x64
+          Copyright (C) Microsoft Corporation. Wszystkie prawa zastrze┼╝one.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /Fo"cmTC_c30c8.dir\\Debug\\\\" /Fd"cmTC_c30c8.dir\\Debug\\vc145.pdb" /external:W1 /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.4\\Modules\\CMakeCXXCompilerABI.cpp"
+          CMakeCXXCompilerABI.cpp
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-s9or27\\Debug\\cmTC_c30c8.exe" /INCREMENTAL /ILK:"cmTC_c30c8.dir\\Debug\\cmTC_c30c8.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-s9or27/Debug/cmTC_c30c8.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-s9or27/Debug/cmTC_c30c8.lib" /MACHINE:X64  /machine:x64 cmTC_c30c8.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_c30c8.vcxproj -> C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-s9or27\\Debug\\cmTC_c30c8.exe
+        FinalizeBuildStatus:
+          Usuwanie pliku ÔÇ×cmTC_c30c8.dir\\Debug\\cmTC_c30c8.tlog\\unsuccessfulbuildÔÇŁ.
+          Modyfikowanie ÔÇ×cmTC_c30c8.dir\\Debug\\cmTC_c30c8.tlog\\cmTC_c30c8.lastbuildstateÔÇŁ.
+        Kompilowanie projektu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-s9or27\\cmTC_c30c8.vcxprojÔÇŁ wykonane (domy┼Ťlne elementy docelowe).
+        
+        Kompilacja powiod┼éa si─Ö.
+            Ostrze┼╝enia: 0
+            Liczba b┼é─Öd├│w: 0
+        
+        Czas, kt├│ry up┼éyn─ů┼é: 00:00:00.39
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerABI.cmake:291 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|"|[0-9]+>[ 	-]*Build:[ 	0-9]+ ms[ 	]*)?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        link line: [  C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-s9or27\\Debug\\cmTC_c30c8.exe" /INCREMENTAL /ILK:"cmTC_c30c8.dir\\Debug\\cmTC_c30c8.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-s9or27/Debug/cmTC_c30c8.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-s9or27/Debug/cmTC_c30c8.lib" /MACHINE:X64  /machine:x64 cmTC_c30c8.dir\\Debug\\CMakeCXXCompilerABI.obj] ==> linker [C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe]
+        linker tool for 'CXX': C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/HostX64/x64/link.exe 
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/Internal/CMakeDetermineLinkerId.cmake:41 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeDetermineCompilerABI.cmake:337 (cmake_determine_linker_id)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:3 (project)"
+    message: |
+      Running the CXX compiler's linker: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.51.36256.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CTest.cmake:171 (find_program)"
+      - "CMakeLists.txt:19 (include)"
+    mode: "program"
+    variable: "GITCOMMAND"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "git"
+    candidate_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/"
+      - "C:/Program Files (x86)/InventatorySoftware/"
+    searched_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/git.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/git.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/git"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/git.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/git.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/git"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/git.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/git.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/git"
+      - "C:/Windows/System32/git.com"
+      - "C:/Windows/System32/git.exe"
+      - "C:/Windows/System32/git"
+      - "C:/Windows/git.com"
+      - "C:/Windows/git.exe"
+      - "C:/Windows/git"
+      - "C:/Windows/System32/wbem/git.com"
+      - "C:/Windows/System32/wbem/git.exe"
+      - "C:/Windows/System32/wbem/git"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/git.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/git.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/git"
+      - "C:/Windows/System32/OpenSSH/git.com"
+      - "C:/Windows/System32/OpenSSH/git.exe"
+      - "C:/Windows/System32/OpenSSH/git"
+      - "C:/Program Files/Git/cmd/git.com"
+    found: "C:/Program Files/Git/cmd/git.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/InventatorySoftware"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Program Files (x86)/InventatorySoftware"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CTest.cmake:188 (find_program)"
+      - "CMakeLists.txt:19 (include)"
+    mode: "program"
+    variable: "MEMORYCHECK_COMMAND"
+    description: "Path to the memory checking command, used for memory error detection."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "purify"
+      - "valgrind"
+      - "boundscheck"
+      - "drmemory"
+      - "cuda-memcheck"
+      - "compute-sanitizer"
+    candidate_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/"
+      - "C:/Program Files (x86)/InventatorySoftware/"
+      - "/REGISTRY-NOTFOUND/"
+    searched_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/purify.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/purify.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/purify"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/purify.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/purify.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/purify"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/purify.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/purify.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/purify"
+      - "C:/Windows/System32/purify.com"
+      - "C:/Windows/System32/purify.exe"
+      - "C:/Windows/System32/purify"
+      - "C:/Windows/purify.com"
+      - "C:/Windows/purify.exe"
+      - "C:/Windows/purify"
+      - "C:/Windows/System32/wbem/purify.com"
+      - "C:/Windows/System32/wbem/purify.exe"
+      - "C:/Windows/System32/wbem/purify"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/purify.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/purify.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/purify"
+      - "C:/Windows/System32/OpenSSH/purify.com"
+      - "C:/Windows/System32/OpenSSH/purify.exe"
+      - "C:/Windows/System32/OpenSSH/purify"
+      - "C:/Program Files/Git/cmd/purify.com"
+      - "C:/Program Files/Git/cmd/purify.exe"
+      - "C:/Program Files/Git/cmd/purify"
+      - "C:/Program Files/CMake/bin/purify.com"
+      - "C:/Program Files/CMake/bin/purify.exe"
+      - "C:/Program Files/CMake/bin/purify"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/purify.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/purify.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/purify"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/purify.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/purify.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/purify"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/purify.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/purify.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/purify"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/purify.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/purify.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/purify"
+      - "C:/Users/pawci/.diversion/bin/purify.com"
+      - "C:/Users/pawci/.diversion/bin/purify.exe"
+      - "C:/Users/pawci/.diversion/bin/purify"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/purify.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/purify.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/purify"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/purify.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/purify.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/purify"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/purify.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/purify.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/purify"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/purify.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/purify.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/purify"
+      - "C:/Program Files/bin/purify.com"
+      - "C:/Program Files/bin/purify.exe"
+      - "C:/Program Files/bin/purify"
+      - "C:/Program Files/sbin/purify.com"
+      - "C:/Program Files/sbin/purify.exe"
+      - "C:/Program Files/sbin/purify"
+      - "C:/Program Files/purify.com"
+      - "C:/Program Files/purify.exe"
+      - "C:/Program Files/purify"
+      - "C:/Program Files (x86)/bin/purify.com"
+      - "C:/Program Files (x86)/bin/purify.exe"
+      - "C:/Program Files (x86)/bin/purify"
+      - "C:/Program Files (x86)/sbin/purify.com"
+      - "C:/Program Files (x86)/sbin/purify.exe"
+      - "C:/Program Files (x86)/sbin/purify"
+      - "C:/Program Files (x86)/purify.com"
+      - "C:/Program Files (x86)/purify.exe"
+      - "C:/Program Files (x86)/purify"
+      - "C:/Program Files/CMake/bin/purify.com"
+      - "C:/Program Files/CMake/bin/purify.exe"
+      - "C:/Program Files/CMake/bin/purify"
+      - "C:/Program Files/CMake/sbin/purify.com"
+      - "C:/Program Files/CMake/sbin/purify.exe"
+      - "C:/Program Files/CMake/sbin/purify"
+      - "C:/Program Files/CMake/purify.com"
+      - "C:/Program Files/CMake/purify.exe"
+      - "C:/Program Files/CMake/purify"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/purify.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/purify.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/purify"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/purify.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/purify.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/purify"
+      - "C:/Program Files (x86)/InventatorySoftware/purify.com"
+      - "C:/Program Files (x86)/InventatorySoftware/purify.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/purify"
+      - "/REGISTRY-NOTFOUND/purify.com"
+      - "/REGISTRY-NOTFOUND/purify.exe"
+      - "/REGISTRY-NOTFOUND/purify"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/valgrind.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/valgrind.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/valgrind"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/valgrind.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/valgrind.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/valgrind"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/valgrind.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/valgrind.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/valgrind"
+      - "C:/Windows/System32/valgrind.com"
+      - "C:/Windows/System32/valgrind.exe"
+      - "C:/Windows/System32/valgrind"
+      - "C:/Windows/valgrind.com"
+      - "C:/Windows/valgrind.exe"
+      - "C:/Windows/valgrind"
+      - "C:/Windows/System32/wbem/valgrind.com"
+      - "C:/Windows/System32/wbem/valgrind.exe"
+      - "C:/Windows/System32/wbem/valgrind"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/valgrind.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/valgrind.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/valgrind"
+      - "C:/Windows/System32/OpenSSH/valgrind.com"
+      - "C:/Windows/System32/OpenSSH/valgrind.exe"
+      - "C:/Windows/System32/OpenSSH/valgrind"
+      - "C:/Program Files/Git/cmd/valgrind.com"
+      - "C:/Program Files/Git/cmd/valgrind.exe"
+      - "C:/Program Files/Git/cmd/valgrind"
+      - "C:/Program Files/CMake/bin/valgrind.com"
+      - "C:/Program Files/CMake/bin/valgrind.exe"
+      - "C:/Program Files/CMake/bin/valgrind"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/valgrind.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/valgrind.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/valgrind"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/valgrind.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/valgrind.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/valgrind"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/valgrind.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/valgrind.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/valgrind"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/valgrind.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/valgrind.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/valgrind"
+      - "C:/Users/pawci/.diversion/bin/valgrind.com"
+      - "C:/Users/pawci/.diversion/bin/valgrind.exe"
+      - "C:/Users/pawci/.diversion/bin/valgrind"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/valgrind.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/valgrind.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/valgrind"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/valgrind.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/valgrind.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/valgrind"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/valgrind.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/valgrind.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/valgrind"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/valgrind.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/valgrind.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/valgrind"
+      - "C:/Program Files/bin/valgrind.com"
+      - "C:/Program Files/bin/valgrind.exe"
+      - "C:/Program Files/bin/valgrind"
+      - "C:/Program Files/sbin/valgrind.com"
+      - "C:/Program Files/sbin/valgrind.exe"
+      - "C:/Program Files/sbin/valgrind"
+      - "C:/Program Files/valgrind.com"
+      - "C:/Program Files/valgrind.exe"
+      - "C:/Program Files/valgrind"
+      - "C:/Program Files (x86)/bin/valgrind.com"
+      - "C:/Program Files (x86)/bin/valgrind.exe"
+      - "C:/Program Files (x86)/bin/valgrind"
+      - "C:/Program Files (x86)/sbin/valgrind.com"
+      - "C:/Program Files (x86)/sbin/valgrind.exe"
+      - "C:/Program Files (x86)/sbin/valgrind"
+      - "C:/Program Files (x86)/valgrind.com"
+      - "C:/Program Files (x86)/valgrind.exe"
+      - "C:/Program Files (x86)/valgrind"
+      - "C:/Program Files/CMake/bin/valgrind.com"
+      - "C:/Program Files/CMake/bin/valgrind.exe"
+      - "C:/Program Files/CMake/bin/valgrind"
+      - "C:/Program Files/CMake/sbin/valgrind.com"
+      - "C:/Program Files/CMake/sbin/valgrind.exe"
+      - "C:/Program Files/CMake/sbin/valgrind"
+      - "C:/Program Files/CMake/valgrind.com"
+      - "C:/Program Files/CMake/valgrind.exe"
+      - "C:/Program Files/CMake/valgrind"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/valgrind.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/valgrind.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/valgrind"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/valgrind.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/valgrind.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/valgrind"
+      - "C:/Program Files (x86)/InventatorySoftware/valgrind.com"
+      - "C:/Program Files (x86)/InventatorySoftware/valgrind.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/valgrind"
+      - "/REGISTRY-NOTFOUND/valgrind.com"
+      - "/REGISTRY-NOTFOUND/valgrind.exe"
+      - "/REGISTRY-NOTFOUND/valgrind"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/boundscheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/boundscheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/boundscheck"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/boundscheck.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/boundscheck.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/boundscheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/boundscheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/boundscheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/boundscheck"
+      - "C:/Windows/System32/boundscheck.com"
+      - "C:/Windows/System32/boundscheck.exe"
+      - "C:/Windows/System32/boundscheck"
+      - "C:/Windows/boundscheck.com"
+      - "C:/Windows/boundscheck.exe"
+      - "C:/Windows/boundscheck"
+      - "C:/Windows/System32/wbem/boundscheck.com"
+      - "C:/Windows/System32/wbem/boundscheck.exe"
+      - "C:/Windows/System32/wbem/boundscheck"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/boundscheck.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/boundscheck.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/boundscheck"
+      - "C:/Windows/System32/OpenSSH/boundscheck.com"
+      - "C:/Windows/System32/OpenSSH/boundscheck.exe"
+      - "C:/Windows/System32/OpenSSH/boundscheck"
+      - "C:/Program Files/Git/cmd/boundscheck.com"
+      - "C:/Program Files/Git/cmd/boundscheck.exe"
+      - "C:/Program Files/Git/cmd/boundscheck"
+      - "C:/Program Files/CMake/bin/boundscheck.com"
+      - "C:/Program Files/CMake/bin/boundscheck.exe"
+      - "C:/Program Files/CMake/bin/boundscheck"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/boundscheck.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/boundscheck.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/boundscheck"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/boundscheck.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/boundscheck.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/boundscheck"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/boundscheck.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/boundscheck.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/boundscheck"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/boundscheck.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/boundscheck.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/boundscheck"
+      - "C:/Users/pawci/.diversion/bin/boundscheck.com"
+      - "C:/Users/pawci/.diversion/bin/boundscheck.exe"
+      - "C:/Users/pawci/.diversion/bin/boundscheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/boundscheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/boundscheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/boundscheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/boundscheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/boundscheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/boundscheck"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/boundscheck.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/boundscheck.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/boundscheck"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/boundscheck.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/boundscheck.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/boundscheck"
+      - "C:/Program Files/bin/boundscheck.com"
+      - "C:/Program Files/bin/boundscheck.exe"
+      - "C:/Program Files/bin/boundscheck"
+      - "C:/Program Files/sbin/boundscheck.com"
+      - "C:/Program Files/sbin/boundscheck.exe"
+      - "C:/Program Files/sbin/boundscheck"
+      - "C:/Program Files/boundscheck.com"
+      - "C:/Program Files/boundscheck.exe"
+      - "C:/Program Files/boundscheck"
+      - "C:/Program Files (x86)/bin/boundscheck.com"
+      - "C:/Program Files (x86)/bin/boundscheck.exe"
+      - "C:/Program Files (x86)/bin/boundscheck"
+      - "C:/Program Files (x86)/sbin/boundscheck.com"
+      - "C:/Program Files (x86)/sbin/boundscheck.exe"
+      - "C:/Program Files (x86)/sbin/boundscheck"
+      - "C:/Program Files (x86)/boundscheck.com"
+      - "C:/Program Files (x86)/boundscheck.exe"
+      - "C:/Program Files (x86)/boundscheck"
+      - "C:/Program Files/CMake/bin/boundscheck.com"
+      - "C:/Program Files/CMake/bin/boundscheck.exe"
+      - "C:/Program Files/CMake/bin/boundscheck"
+      - "C:/Program Files/CMake/sbin/boundscheck.com"
+      - "C:/Program Files/CMake/sbin/boundscheck.exe"
+      - "C:/Program Files/CMake/sbin/boundscheck"
+      - "C:/Program Files/CMake/boundscheck.com"
+      - "C:/Program Files/CMake/boundscheck.exe"
+      - "C:/Program Files/CMake/boundscheck"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/boundscheck.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/boundscheck.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/boundscheck"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/boundscheck.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/boundscheck.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/boundscheck"
+      - "C:/Program Files (x86)/InventatorySoftware/boundscheck.com"
+      - "C:/Program Files (x86)/InventatorySoftware/boundscheck.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/boundscheck"
+      - "/REGISTRY-NOTFOUND/boundscheck.com"
+      - "/REGISTRY-NOTFOUND/boundscheck.exe"
+      - "/REGISTRY-NOTFOUND/boundscheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/drmemory.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/drmemory.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/drmemory"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/drmemory.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/drmemory.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/drmemory"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/drmemory.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/drmemory.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/drmemory"
+      - "C:/Windows/System32/drmemory.com"
+      - "C:/Windows/System32/drmemory.exe"
+      - "C:/Windows/System32/drmemory"
+      - "C:/Windows/drmemory.com"
+      - "C:/Windows/drmemory.exe"
+      - "C:/Windows/drmemory"
+      - "C:/Windows/System32/wbem/drmemory.com"
+      - "C:/Windows/System32/wbem/drmemory.exe"
+      - "C:/Windows/System32/wbem/drmemory"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/drmemory.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/drmemory.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/drmemory"
+      - "C:/Windows/System32/OpenSSH/drmemory.com"
+      - "C:/Windows/System32/OpenSSH/drmemory.exe"
+      - "C:/Windows/System32/OpenSSH/drmemory"
+      - "C:/Program Files/Git/cmd/drmemory.com"
+      - "C:/Program Files/Git/cmd/drmemory.exe"
+      - "C:/Program Files/Git/cmd/drmemory"
+      - "C:/Program Files/CMake/bin/drmemory.com"
+      - "C:/Program Files/CMake/bin/drmemory.exe"
+      - "C:/Program Files/CMake/bin/drmemory"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/drmemory.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/drmemory.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/drmemory"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/drmemory.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/drmemory.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/drmemory"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/drmemory.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/drmemory.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/drmemory"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/drmemory.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/drmemory.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/drmemory"
+      - "C:/Users/pawci/.diversion/bin/drmemory.com"
+      - "C:/Users/pawci/.diversion/bin/drmemory.exe"
+      - "C:/Users/pawci/.diversion/bin/drmemory"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/drmemory.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/drmemory.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/drmemory"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/drmemory.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/drmemory.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/drmemory"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/drmemory.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/drmemory.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/drmemory"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/drmemory.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/drmemory.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/drmemory"
+      - "C:/Program Files/bin/drmemory.com"
+      - "C:/Program Files/bin/drmemory.exe"
+      - "C:/Program Files/bin/drmemory"
+      - "C:/Program Files/sbin/drmemory.com"
+      - "C:/Program Files/sbin/drmemory.exe"
+      - "C:/Program Files/sbin/drmemory"
+      - "C:/Program Files/drmemory.com"
+      - "C:/Program Files/drmemory.exe"
+      - "C:/Program Files/drmemory"
+      - "C:/Program Files (x86)/bin/drmemory.com"
+      - "C:/Program Files (x86)/bin/drmemory.exe"
+      - "C:/Program Files (x86)/bin/drmemory"
+      - "C:/Program Files (x86)/sbin/drmemory.com"
+      - "C:/Program Files (x86)/sbin/drmemory.exe"
+      - "C:/Program Files (x86)/sbin/drmemory"
+      - "C:/Program Files (x86)/drmemory.com"
+      - "C:/Program Files (x86)/drmemory.exe"
+      - "C:/Program Files (x86)/drmemory"
+      - "C:/Program Files/CMake/bin/drmemory.com"
+      - "C:/Program Files/CMake/bin/drmemory.exe"
+      - "C:/Program Files/CMake/bin/drmemory"
+      - "C:/Program Files/CMake/sbin/drmemory.com"
+      - "C:/Program Files/CMake/sbin/drmemory.exe"
+      - "C:/Program Files/CMake/sbin/drmemory"
+      - "C:/Program Files/CMake/drmemory.com"
+      - "C:/Program Files/CMake/drmemory.exe"
+      - "C:/Program Files/CMake/drmemory"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/drmemory.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/drmemory.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/drmemory"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/drmemory.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/drmemory.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/drmemory"
+      - "C:/Program Files (x86)/InventatorySoftware/drmemory.com"
+      - "C:/Program Files (x86)/InventatorySoftware/drmemory.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/drmemory"
+      - "/REGISTRY-NOTFOUND/drmemory.com"
+      - "/REGISTRY-NOTFOUND/drmemory.exe"
+      - "/REGISTRY-NOTFOUND/drmemory"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/cuda-memcheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/cuda-memcheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/cuda-memcheck"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/cuda-memcheck.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/cuda-memcheck.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/cuda-memcheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/cuda-memcheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/cuda-memcheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/cuda-memcheck"
+      - "C:/Windows/System32/cuda-memcheck.com"
+      - "C:/Windows/System32/cuda-memcheck.exe"
+      - "C:/Windows/System32/cuda-memcheck"
+      - "C:/Windows/cuda-memcheck.com"
+      - "C:/Windows/cuda-memcheck.exe"
+      - "C:/Windows/cuda-memcheck"
+      - "C:/Windows/System32/wbem/cuda-memcheck.com"
+      - "C:/Windows/System32/wbem/cuda-memcheck.exe"
+      - "C:/Windows/System32/wbem/cuda-memcheck"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/cuda-memcheck.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/cuda-memcheck.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/cuda-memcheck"
+      - "C:/Windows/System32/OpenSSH/cuda-memcheck.com"
+      - "C:/Windows/System32/OpenSSH/cuda-memcheck.exe"
+      - "C:/Windows/System32/OpenSSH/cuda-memcheck"
+      - "C:/Program Files/Git/cmd/cuda-memcheck.com"
+      - "C:/Program Files/Git/cmd/cuda-memcheck.exe"
+      - "C:/Program Files/Git/cmd/cuda-memcheck"
+      - "C:/Program Files/CMake/bin/cuda-memcheck.com"
+      - "C:/Program Files/CMake/bin/cuda-memcheck.exe"
+      - "C:/Program Files/CMake/bin/cuda-memcheck"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/cuda-memcheck.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/cuda-memcheck.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/cuda-memcheck"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/cuda-memcheck.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/cuda-memcheck.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/cuda-memcheck"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/cuda-memcheck.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/cuda-memcheck.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/cuda-memcheck"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/cuda-memcheck.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/cuda-memcheck.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/cuda-memcheck"
+      - "C:/Users/pawci/.diversion/bin/cuda-memcheck.com"
+      - "C:/Users/pawci/.diversion/bin/cuda-memcheck.exe"
+      - "C:/Users/pawci/.diversion/bin/cuda-memcheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/cuda-memcheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/cuda-memcheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/cuda-memcheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/cuda-memcheck.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/cuda-memcheck.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/cuda-memcheck"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/cuda-memcheck.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/cuda-memcheck.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/cuda-memcheck"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/cuda-memcheck.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/cuda-memcheck.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/cuda-memcheck"
+      - "C:/Program Files/bin/cuda-memcheck.com"
+      - "C:/Program Files/bin/cuda-memcheck.exe"
+      - "C:/Program Files/bin/cuda-memcheck"
+      - "C:/Program Files/sbin/cuda-memcheck.com"
+      - "C:/Program Files/sbin/cuda-memcheck.exe"
+      - "C:/Program Files/sbin/cuda-memcheck"
+      - "C:/Program Files/cuda-memcheck.com"
+      - "C:/Program Files/cuda-memcheck.exe"
+      - "C:/Program Files/cuda-memcheck"
+      - "C:/Program Files (x86)/bin/cuda-memcheck.com"
+      - "C:/Program Files (x86)/bin/cuda-memcheck.exe"
+      - "C:/Program Files (x86)/bin/cuda-memcheck"
+      - "C:/Program Files (x86)/sbin/cuda-memcheck.com"
+      - "C:/Program Files (x86)/sbin/cuda-memcheck.exe"
+      - "C:/Program Files (x86)/sbin/cuda-memcheck"
+      - "C:/Program Files (x86)/cuda-memcheck.com"
+      - "C:/Program Files (x86)/cuda-memcheck.exe"
+      - "C:/Program Files (x86)/cuda-memcheck"
+      - "C:/Program Files/CMake/bin/cuda-memcheck.com"
+      - "C:/Program Files/CMake/bin/cuda-memcheck.exe"
+      - "C:/Program Files/CMake/bin/cuda-memcheck"
+      - "C:/Program Files/CMake/sbin/cuda-memcheck.com"
+      - "C:/Program Files/CMake/sbin/cuda-memcheck.exe"
+      - "C:/Program Files/CMake/sbin/cuda-memcheck"
+      - "C:/Program Files/CMake/cuda-memcheck.com"
+      - "C:/Program Files/CMake/cuda-memcheck.exe"
+      - "C:/Program Files/CMake/cuda-memcheck"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/cuda-memcheck.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/cuda-memcheck.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/cuda-memcheck"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/cuda-memcheck.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/cuda-memcheck.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/cuda-memcheck"
+      - "C:/Program Files (x86)/InventatorySoftware/cuda-memcheck.com"
+      - "C:/Program Files (x86)/InventatorySoftware/cuda-memcheck.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/cuda-memcheck"
+      - "/REGISTRY-NOTFOUND/cuda-memcheck.com"
+      - "/REGISTRY-NOTFOUND/cuda-memcheck.exe"
+      - "/REGISTRY-NOTFOUND/cuda-memcheck"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/compute-sanitizer.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/compute-sanitizer.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/compute-sanitizer"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/compute-sanitizer.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/compute-sanitizer.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/compute-sanitizer"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/compute-sanitizer.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/compute-sanitizer.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/compute-sanitizer"
+      - "C:/Windows/System32/compute-sanitizer.com"
+      - "C:/Windows/System32/compute-sanitizer.exe"
+      - "C:/Windows/System32/compute-sanitizer"
+      - "C:/Windows/compute-sanitizer.com"
+      - "C:/Windows/compute-sanitizer.exe"
+      - "C:/Windows/compute-sanitizer"
+      - "C:/Windows/System32/wbem/compute-sanitizer.com"
+      - "C:/Windows/System32/wbem/compute-sanitizer.exe"
+      - "C:/Windows/System32/wbem/compute-sanitizer"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/compute-sanitizer.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/compute-sanitizer.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/compute-sanitizer"
+      - "C:/Windows/System32/OpenSSH/compute-sanitizer.com"
+      - "C:/Windows/System32/OpenSSH/compute-sanitizer.exe"
+      - "C:/Windows/System32/OpenSSH/compute-sanitizer"
+      - "C:/Program Files/Git/cmd/compute-sanitizer.com"
+      - "C:/Program Files/Git/cmd/compute-sanitizer.exe"
+      - "C:/Program Files/Git/cmd/compute-sanitizer"
+      - "C:/Program Files/CMake/bin/compute-sanitizer.com"
+      - "C:/Program Files/CMake/bin/compute-sanitizer.exe"
+      - "C:/Program Files/CMake/bin/compute-sanitizer"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/compute-sanitizer.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/compute-sanitizer.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/compute-sanitizer"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/compute-sanitizer.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/compute-sanitizer.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/compute-sanitizer"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/compute-sanitizer.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/compute-sanitizer.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/compute-sanitizer"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/compute-sanitizer.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/compute-sanitizer.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/compute-sanitizer"
+      - "C:/Users/pawci/.diversion/bin/compute-sanitizer.com"
+      - "C:/Users/pawci/.diversion/bin/compute-sanitizer.exe"
+      - "C:/Users/pawci/.diversion/bin/compute-sanitizer"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/compute-sanitizer.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/compute-sanitizer.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/compute-sanitizer"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/compute-sanitizer.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/compute-sanitizer.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/compute-sanitizer"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/compute-sanitizer.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/compute-sanitizer.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/compute-sanitizer"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/compute-sanitizer.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/compute-sanitizer.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/compute-sanitizer"
+      - "C:/Program Files/bin/compute-sanitizer.com"
+      - "C:/Program Files/bin/compute-sanitizer.exe"
+      - "C:/Program Files/bin/compute-sanitizer"
+      - "C:/Program Files/sbin/compute-sanitizer.com"
+      - "C:/Program Files/sbin/compute-sanitizer.exe"
+      - "C:/Program Files/sbin/compute-sanitizer"
+      - "C:/Program Files/compute-sanitizer.com"
+      - "C:/Program Files/compute-sanitizer.exe"
+      - "C:/Program Files/compute-sanitizer"
+      - "C:/Program Files (x86)/bin/compute-sanitizer.com"
+      - "C:/Program Files (x86)/bin/compute-sanitizer.exe"
+      - "C:/Program Files (x86)/bin/compute-sanitizer"
+      - "C:/Program Files (x86)/sbin/compute-sanitizer.com"
+      - "C:/Program Files (x86)/sbin/compute-sanitizer.exe"
+      - "C:/Program Files (x86)/sbin/compute-sanitizer"
+      - "C:/Program Files (x86)/compute-sanitizer.com"
+      - "C:/Program Files (x86)/compute-sanitizer.exe"
+      - "C:/Program Files (x86)/compute-sanitizer"
+      - "C:/Program Files/CMake/bin/compute-sanitizer.com"
+      - "C:/Program Files/CMake/bin/compute-sanitizer.exe"
+      - "C:/Program Files/CMake/bin/compute-sanitizer"
+      - "C:/Program Files/CMake/sbin/compute-sanitizer.com"
+      - "C:/Program Files/CMake/sbin/compute-sanitizer.exe"
+      - "C:/Program Files/CMake/sbin/compute-sanitizer"
+      - "C:/Program Files/CMake/compute-sanitizer.com"
+      - "C:/Program Files/CMake/compute-sanitizer.exe"
+      - "C:/Program Files/CMake/compute-sanitizer"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/compute-sanitizer.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/compute-sanitizer.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/compute-sanitizer"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/compute-sanitizer.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/compute-sanitizer.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/compute-sanitizer"
+      - "C:/Program Files (x86)/InventatorySoftware/compute-sanitizer.com"
+      - "C:/Program Files (x86)/InventatorySoftware/compute-sanitizer.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/compute-sanitizer"
+      - "/REGISTRY-NOTFOUND/compute-sanitizer.com"
+      - "/REGISTRY-NOTFOUND/compute-sanitizer.exe"
+      - "/REGISTRY-NOTFOUND/compute-sanitizer"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/InventatorySoftware"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Program Files (x86)/InventatorySoftware"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CTest.cmake:196 (find_program)"
+      - "CMakeLists.txt:19 (include)"
+    mode: "program"
+    variable: "COVERAGE_COMMAND"
+    description: "Path to the coverage program that CTest uses for performing coverage inspection"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "gcov"
+    candidate_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/"
+      - "C:/Program Files (x86)/InventatorySoftware/"
+    searched_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/gcov.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/gcov.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/gcov"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/gcov.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/gcov.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/gcov"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/gcov.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/gcov.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/gcov"
+      - "C:/Windows/System32/gcov.com"
+      - "C:/Windows/System32/gcov.exe"
+      - "C:/Windows/System32/gcov"
+      - "C:/Windows/gcov.com"
+      - "C:/Windows/gcov.exe"
+      - "C:/Windows/gcov"
+      - "C:/Windows/System32/wbem/gcov.com"
+      - "C:/Windows/System32/wbem/gcov.exe"
+      - "C:/Windows/System32/wbem/gcov"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/gcov.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/gcov.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/gcov"
+      - "C:/Windows/System32/OpenSSH/gcov.com"
+      - "C:/Windows/System32/OpenSSH/gcov.exe"
+      - "C:/Windows/System32/OpenSSH/gcov"
+      - "C:/Program Files/Git/cmd/gcov.com"
+      - "C:/Program Files/Git/cmd/gcov.exe"
+      - "C:/Program Files/Git/cmd/gcov"
+      - "C:/Program Files/CMake/bin/gcov.com"
+      - "C:/Program Files/CMake/bin/gcov.exe"
+      - "C:/Program Files/CMake/bin/gcov"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/gcov.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/gcov.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/gcov"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/gcov.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/gcov.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/gcov"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/gcov.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/gcov.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/gcov"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/gcov.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/gcov.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/gcov"
+      - "C:/Users/pawci/.diversion/bin/gcov.com"
+      - "C:/Users/pawci/.diversion/bin/gcov.exe"
+      - "C:/Users/pawci/.diversion/bin/gcov"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/gcov.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/gcov.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/gcov"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/gcov.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/gcov.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/gcov"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/gcov.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/gcov.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/gcov"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/gcov.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/gcov.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/gcov"
+      - "C:/Program Files/bin/gcov.com"
+      - "C:/Program Files/bin/gcov.exe"
+      - "C:/Program Files/bin/gcov"
+      - "C:/Program Files/sbin/gcov.com"
+      - "C:/Program Files/sbin/gcov.exe"
+      - "C:/Program Files/sbin/gcov"
+      - "C:/Program Files/gcov.com"
+      - "C:/Program Files/gcov.exe"
+      - "C:/Program Files/gcov"
+      - "C:/Program Files (x86)/bin/gcov.com"
+      - "C:/Program Files (x86)/bin/gcov.exe"
+      - "C:/Program Files (x86)/bin/gcov"
+      - "C:/Program Files (x86)/sbin/gcov.com"
+      - "C:/Program Files (x86)/sbin/gcov.exe"
+      - "C:/Program Files (x86)/sbin/gcov"
+      - "C:/Program Files (x86)/gcov.com"
+      - "C:/Program Files (x86)/gcov.exe"
+      - "C:/Program Files (x86)/gcov"
+      - "C:/Program Files/CMake/bin/gcov.com"
+      - "C:/Program Files/CMake/bin/gcov.exe"
+      - "C:/Program Files/CMake/bin/gcov"
+      - "C:/Program Files/CMake/sbin/gcov.com"
+      - "C:/Program Files/CMake/sbin/gcov.exe"
+      - "C:/Program Files/CMake/sbin/gcov"
+      - "C:/Program Files/CMake/gcov.com"
+      - "C:/Program Files/CMake/gcov.exe"
+      - "C:/Program Files/CMake/gcov"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/gcov.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/gcov.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/gcov"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/gcov.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/gcov.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/gcov"
+      - "C:/Program Files (x86)/InventatorySoftware/gcov.com"
+      - "C:/Program Files (x86)/InventatorySoftware/gcov.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/gcov"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/InventatorySoftware"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Program Files (x86)/InventatorySoftware"
+  -
+    kind: "find_package-v1"
+    backtrace:
+      - "CMakeLists.txt:54 (find_package)"
+    name: "ftxui"
+    configs:
+      -
+        filename: "ftxui.cps"
+        kind: "cps"
+      -
+        filename: "ftxuiConfig.cmake"
+        kind: "cmake"
+      -
+        filename: "ftxui-config.cmake"
+        kind: "cmake"
+    version_request:
+      exact: false
+    settings:
+      required: "optional"
+      quiet: true
+      global: false
+      policy_scope: true
+      bypass_provider: false
+      names:
+        - "ftxui"
+      path_suffixes:
+        - ""
+      paths:
+        CMAKE_FIND_USE_CMAKE_PATH: true
+        CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+        CMAKE_FIND_USE_INSTALL_PREFIX: true
+        CMAKE_FIND_USE_PACKAGE_ROOT_PATH: true
+        CMAKE_FIND_USE_CMAKE_PACKAGE_REGISTRY: true
+        CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY: true
+        CMAKE_FIND_ROOT_PATH_MODE: "BOTH"
+    candidates:
+      -
+        path: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/pkgRedirects/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/pkgRedirects/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/pkgRedirects/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/pkgRedirects/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/wbem/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/wbem/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/wbem/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/wbem/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/WindowsPowerShell/v1.0/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/WindowsPowerShell/v1.0/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/WindowsPowerShell/v1.0/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/WindowsPowerShell/v1.0/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/OpenSSH/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/OpenSSH/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/OpenSSH/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Windows/System32/OpenSSH/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/Git/cmd/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/Git/cmd/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/Git/cmd/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/Git/cmd/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/CMake/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/CMake/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/CMake/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/CMake/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/GitHubDesktop/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/GitHubDesktop/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/GitHubDesktop/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/GitHubDesktop/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.diversion/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.diversion/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.diversion/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.diversion/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/CMake/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/CMake/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/ftxuiConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/ftxui-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/lib/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "C:/Program Files (x86)/share/cps/ftxui.cps"
+        mode: "cps"
+        reason: "no_exist"
+    found: null
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/InventatorySoftware"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Program Files (x86)/InventatorySoftware"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/Internal/CheckSourceCompiles.cmake:81 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CheckCSourceCompiles.cmake:103 (cmake_check_source_compiles)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/FindThreads.cmake:160 (check_c_source_compiles)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/FindThreads.cmake:226 (_threads_check_libc)"
+      - "build/_deps/ftxui-src/CMakeLists.txt:156 (find_package)"
+    checks:
+      - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
+    directories:
+      source: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-8cbij6"
+      binary: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-8cbij6"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    buildResult:
+      variable: "CMAKE_HAVE_LIBC_PTHREAD"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-8cbij6'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_a4e3f.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Wersja programu MSBuild 18.9.1+a81b43525 dla .NET Framework
+        Kompilacja rozpocz─Ö┼éa si─Ö 21.08.2026 13:25:13.
+        
+        Projekt ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\cmTC_a4e3f.vcxprojÔÇŁ w w─Ö┼║le 1 (domy┼Ťlne elementy docelowe).
+        PrepareForBuild:
+          Dane wyj┼Ťciowe ze struktur─ů s─ů w┼é─ůczone. Formatowanie diagnostyki kompilatora b─Ödzie odzwierciedla─ç hierarchi─Ö b┼é─Öd├│w. Aby uzyska─ç wi─Öcej informacji, zobacz https://aka.ms/cpp/structured-output.
+          Tworzenie katalogu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\Debug\\ÔÇŁ.
+          Tworzenie katalogu ÔÇ×cmTC_a4e3f.dir\\Debug\\cmTC_a4e3f.tlog\\ÔÇŁ.
+        InitializeBuildStatus:
+          Trwa tworzenie ÔÇ×cmTC_a4e3f.dir\\Debug\\cmTC_a4e3f.tlog\\unsuccessfulbuildÔÇŁ, poniewa┼╝ okre┼Ťlono "AlwaysCreate".
+          Modyfikowanie ÔÇ×cmTC_a4e3f.dir\\Debug\\cmTC_a4e3f.tlog\\unsuccessfulbuildÔÇŁ.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_a4e3f.dir\\Debug\\\\" /Fd"cmTC_a4e3f.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\src.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256 for x64
+          Copyright (C) Microsoft Corporation. Wszystkie prawa zastrze┼╝one.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_a4e3f.dir\\Debug\\\\" /Fd"cmTC_a4e3f.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\src.c"
+          src.c
+        C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\src.c(1,10): error C1083: Nie mo┼╝na otworzy─ç pliku do┼é─ůcz: 'pthread.h': No such file or directory [C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\cmTC_a4e3f.vcxproj]
+        Kompilowanie projektu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\cmTC_a4e3f.vcxprojÔÇŁ wykonane (domy┼Ťlne elementy docelowe) ÔÇö NIEPOWODZENIE.
+        
+        Kompilacja NIE POWIOD┼üA SI─ś.
+        
+        ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\cmTC_a4e3f.vcxprojÔÇŁ (domy┼Ťlny element docelowy) (1)->
+        (element docelowy ClCompile) -> 
+          C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\src.c(1,10): error C1083: Nie mo┼╝na otworzy─ç pliku do┼é─ůcz: 'pthread.h': No such file or directory [C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-8cbij6\\cmTC_a4e3f.vcxproj]
+        
+            Ostrze┼╝enia: 0
+            Liczba b┼é─Öd├│w: 1
+        
+        Czas, kt├│ry up┼éyn─ů┼é: 00:00:00.28
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CheckLibraryExists.cmake:142 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/FindThreads.cmake:175 (check_library_exists)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/FindThreads.cmake:238 (_threads_check_lib)"
+      - "build/_deps/ftxui-src/CMakeLists.txt:156 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthreads"
+    directories:
+      source: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-5dqmxh"
+      binary: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-5dqmxh"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREADS_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-5dqmxh'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_6d70d.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Wersja programu MSBuild 18.9.1+a81b43525 dla .NET Framework
+        Kompilacja rozpocz─Ö┼éa si─Ö 21.08.2026 13:25:13.
+        
+        Projekt ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\cmTC_6d70d.vcxprojÔÇŁ w w─Ö┼║le 1 (domy┼Ťlne elementy docelowe).
+        PrepareForBuild:
+          Dane wyj┼Ťciowe ze struktur─ů s─ů w┼é─ůczone. Formatowanie diagnostyki kompilatora b─Ödzie odzwierciedla─ç hierarchi─Ö b┼é─Öd├│w. Aby uzyska─ç wi─Öcej informacji, zobacz https://aka.ms/cpp/structured-output.
+          Tworzenie katalogu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\Debug\\ÔÇŁ.
+          Tworzenie katalogu ÔÇ×cmTC_6d70d.dir\\Debug\\cmTC_6d70d.tlog\\ÔÇŁ.
+        InitializeBuildStatus:
+          Trwa tworzenie ÔÇ×cmTC_6d70d.dir\\Debug\\cmTC_6d70d.tlog\\unsuccessfulbuildÔÇŁ, poniewa┼╝ okre┼Ťlono "AlwaysCreate".
+          Modyfikowanie ÔÇ×cmTC_6d70d.dir\\Debug\\cmTC_6d70d.tlog\\unsuccessfulbuildÔÇŁ.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_6d70d.dir\\Debug\\\\" /Fd"cmTC_6d70d.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256 for x64
+          Copyright (C) Microsoft Corporation. Wszystkie prawa zastrze┼╝one.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_6d70d.dir\\Debug\\\\" /Fd"cmTC_6d70d.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\CheckFunctionExists.c"
+          CheckFunctionExists.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\Debug\\cmTC_6d70d.exe" /INCREMENTAL /ILK:"cmTC_6d70d.dir\\Debug\\cmTC_6d70d.ilk" /NOLOGO pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-5dqmxh/Debug/cmTC_6d70d.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-5dqmxh/Debug/cmTC_6d70d.lib" /MACHINE:X64  /machine:x64 cmTC_6d70d.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: nie mo┼╝na otworzy─ç pliku "pthreads.lib" [C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\cmTC_6d70d.vcxproj]
+        Kompilowanie projektu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\cmTC_6d70d.vcxprojÔÇŁ wykonane (domy┼Ťlne elementy docelowe) ÔÇö NIEPOWODZENIE.
+        
+        Kompilacja NIE POWIOD┼üA SI─ś.
+        
+        ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\cmTC_6d70d.vcxprojÔÇŁ (domy┼Ťlny element docelowy) (1)->
+        (element docelowy Link) -> 
+          LINK : fatal error LNK1104: nie mo┼╝na otworzy─ç pliku "pthreads.lib" [C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-5dqmxh\\cmTC_6d70d.vcxproj]
+        
+            Ostrze┼╝enia: 0
+            Liczba b┼é─Öd├│w: 1
+        
+        Czas, kt├│ry up┼éyn─ů┼é: 00:00:00.34
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/CheckLibraryExists.cmake:142 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/FindThreads.cmake:175 (check_library_exists)"
+      - "C:/Program Files/CMake/share/cmake-4.4/Modules/FindThreads.cmake:239 (_threads_check_lib)"
+      - "build/_deps/ftxui-src/CMakeLists.txt:156 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthread"
+    directories:
+      source: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-p3nwo7"
+      binary: "C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-p3nwo7"
+    cmakeVariables:
+      CMAKE_CXX_STDLIB_MODULES_JSON: ""
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MSVC_RUNTIME_LIBRARY: "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREAD_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-p3nwo7'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/18/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_35ec5.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=18.0 /v:n
+        Wersja programu MSBuild 18.9.1+a81b43525 dla .NET Framework
+        Kompilacja rozpocz─Ö┼éa si─Ö 21.08.2026 13:25:14.
+        
+        Projekt ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\cmTC_35ec5.vcxprojÔÇŁ w w─Ö┼║le 1 (domy┼Ťlne elementy docelowe).
+        PrepareForBuild:
+          Dane wyj┼Ťciowe ze struktur─ů s─ů w┼é─ůczone. Formatowanie diagnostyki kompilatora b─Ödzie odzwierciedla─ç hierarchi─Ö b┼é─Öd├│w. Aby uzyska─ç wi─Öcej informacji, zobacz https://aka.ms/cpp/structured-output.
+          Tworzenie katalogu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\Debug\\ÔÇŁ.
+          Tworzenie katalogu ÔÇ×cmTC_35ec5.dir\\Debug\\cmTC_35ec5.tlog\\ÔÇŁ.
+        InitializeBuildStatus:
+          Trwa tworzenie ÔÇ×cmTC_35ec5.dir\\Debug\\cmTC_35ec5.tlog\\unsuccessfulbuildÔÇŁ, poniewa┼╝ okre┼Ťlono "AlwaysCreate".
+          Modyfikowanie ÔÇ×cmTC_35ec5.dir\\Debug\\cmTC_35ec5.tlog\\unsuccessfulbuildÔÇŁ.
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_35ec5.dir\\Debug\\\\" /Fd"cmTC_35ec5.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256 for x64
+          Copyright (C) Microsoft Corporation. Wszystkie prawa zastrze┼╝one.
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D _MBCS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MTd /Fo"cmTC_35ec5.dir\\Debug\\\\" /Fd"cmTC_35ec5.dir\\Debug\\vc145.pdb" /external:W1 /TC /errorReport:queue "C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\CheckFunctionExists.c"
+          CheckFunctionExists.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\Debug\\cmTC_35ec5.exe" /INCREMENTAL /ILK:"cmTC_35ec5.dir\\Debug\\cmTC_35ec5.ilk" /NOLOGO pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-p3nwo7/Debug/cmTC_35ec5.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/pawci/Documents/Github/Inventatory-Software/build-release-verify/CMakeFiles/CMakeScratch/TryCompile-p3nwo7/Debug/cmTC_35ec5.lib" /MACHINE:X64  /machine:x64 cmTC_35ec5.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: nie mo┼╝na otworzy─ç pliku "pthread.lib" [C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\cmTC_35ec5.vcxproj]
+        Kompilowanie projektu ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\cmTC_35ec5.vcxprojÔÇŁ wykonane (domy┼Ťlne elementy docelowe) ÔÇö NIEPOWODZENIE.
+        
+        Kompilacja NIE POWIOD┼üA SI─ś.
+        
+        ÔÇ×C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\cmTC_35ec5.vcxprojÔÇŁ (domy┼Ťlny element docelowy) (1)->
+        (element docelowy Link) -> 
+          LINK : fatal error LNK1104: nie mo┼╝na otworzy─ç pliku "pthread.lib" [C:\\Users\\pawci\\Documents\\Github\\Inventatory-Software\\build-release-verify\\CMakeFiles\\CMakeScratch\\TryCompile-p3nwo7\\cmTC_35ec5.vcxproj]
+        
+            Ostrze┼╝enia: 0
+            Liczba b┼é─Öd├│w: 1
+        
+        Czas, kt├│ry up┼éyn─ů┼é: 00:00:00.31
+        
+      exitCode: 1
+  -
+    kind: "find-v1"
+    backtrace:
+      - "build/_deps/ftxui-src/cmake/ftxui_set_options.cmake:1 (find_program)"
+      - "build/_deps/ftxui-src/CMakeLists.txt:162 (include)"
+    mode: "program"
+    variable: "CLANG_TIDY_EXE"
+    description: "Path to clang-tidy executable"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "clang-tidy"
+    candidate_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/"
+      - "C:/Program Files (x86)/InventatorySoftware/"
+    searched_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/clang-tidy.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/clang-tidy.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/clang-tidy"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/clang-tidy.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/clang-tidy.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/clang-tidy"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/clang-tidy.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/clang-tidy.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/clang-tidy"
+      - "C:/Windows/System32/clang-tidy.com"
+      - "C:/Windows/System32/clang-tidy.exe"
+      - "C:/Windows/System32/clang-tidy"
+      - "C:/Windows/clang-tidy.com"
+      - "C:/Windows/clang-tidy.exe"
+      - "C:/Windows/clang-tidy"
+      - "C:/Windows/System32/wbem/clang-tidy.com"
+      - "C:/Windows/System32/wbem/clang-tidy.exe"
+      - "C:/Windows/System32/wbem/clang-tidy"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/clang-tidy.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/clang-tidy.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/clang-tidy"
+      - "C:/Windows/System32/OpenSSH/clang-tidy.com"
+      - "C:/Windows/System32/OpenSSH/clang-tidy.exe"
+      - "C:/Windows/System32/OpenSSH/clang-tidy"
+      - "C:/Program Files/Git/cmd/clang-tidy.com"
+      - "C:/Program Files/Git/cmd/clang-tidy.exe"
+      - "C:/Program Files/Git/cmd/clang-tidy"
+      - "C:/Program Files/CMake/bin/clang-tidy.com"
+      - "C:/Program Files/CMake/bin/clang-tidy.exe"
+      - "C:/Program Files/CMake/bin/clang-tidy"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/clang-tidy.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/clang-tidy.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/clang-tidy"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/clang-tidy.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/clang-tidy.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/clang-tidy"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/clang-tidy.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/clang-tidy.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/clang-tidy"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/clang-tidy.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/clang-tidy.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/clang-tidy"
+      - "C:/Users/pawci/.diversion/bin/clang-tidy.com"
+      - "C:/Users/pawci/.diversion/bin/clang-tidy.exe"
+      - "C:/Users/pawci/.diversion/bin/clang-tidy"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/clang-tidy.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/clang-tidy.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/clang-tidy"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/clang-tidy.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/clang-tidy.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/clang-tidy"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/clang-tidy.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/clang-tidy.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/clang-tidy"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/clang-tidy.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/clang-tidy.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/clang-tidy"
+      - "C:/Program Files/bin/clang-tidy.com"
+      - "C:/Program Files/bin/clang-tidy.exe"
+      - "C:/Program Files/bin/clang-tidy"
+      - "C:/Program Files/sbin/clang-tidy.com"
+      - "C:/Program Files/sbin/clang-tidy.exe"
+      - "C:/Program Files/sbin/clang-tidy"
+      - "C:/Program Files/clang-tidy.com"
+      - "C:/Program Files/clang-tidy.exe"
+      - "C:/Program Files/clang-tidy"
+      - "C:/Program Files (x86)/bin/clang-tidy.com"
+      - "C:/Program Files (x86)/bin/clang-tidy.exe"
+      - "C:/Program Files (x86)/bin/clang-tidy"
+      - "C:/Program Files (x86)/sbin/clang-tidy.com"
+      - "C:/Program Files (x86)/sbin/clang-tidy.exe"
+      - "C:/Program Files (x86)/sbin/clang-tidy"
+      - "C:/Program Files (x86)/clang-tidy.com"
+      - "C:/Program Files (x86)/clang-tidy.exe"
+      - "C:/Program Files (x86)/clang-tidy"
+      - "C:/Program Files/CMake/bin/clang-tidy.com"
+      - "C:/Program Files/CMake/bin/clang-tidy.exe"
+      - "C:/Program Files/CMake/bin/clang-tidy"
+      - "C:/Program Files/CMake/sbin/clang-tidy.com"
+      - "C:/Program Files/CMake/sbin/clang-tidy.exe"
+      - "C:/Program Files/CMake/sbin/clang-tidy"
+      - "C:/Program Files/CMake/clang-tidy.com"
+      - "C:/Program Files/CMake/clang-tidy.exe"
+      - "C:/Program Files/CMake/clang-tidy"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/clang-tidy.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/clang-tidy.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/clang-tidy"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/clang-tidy.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/clang-tidy.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/clang-tidy"
+      - "C:/Program Files (x86)/InventatorySoftware/clang-tidy.com"
+      - "C:/Program Files (x86)/InventatorySoftware/clang-tidy.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/clang-tidy"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/InventatorySoftware"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Program Files (x86)/InventatorySoftware"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "build/_deps/ftxui-src/cmake/iwyu.cmake:1 (find_program)"
+      - "build/_deps/ftxui-src/CMakeLists.txt:175 (include)"
+    mode: "program"
+    variable: "iwyu_path"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "include-what-you-use"
+      - "iwyu"
+    candidate_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Users/pawci/.diversion/bin/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/"
+      - "C:/Program Files (x86)/InventatorySoftware/"
+    searched_directories:
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/include-what-you-use.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/include-what-you-use.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/include-what-you-use"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/include-what-you-use.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/include-what-you-use.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/include-what-you-use"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/include-what-you-use.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/include-what-you-use.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/include-what-you-use"
+      - "C:/Windows/System32/include-what-you-use.com"
+      - "C:/Windows/System32/include-what-you-use.exe"
+      - "C:/Windows/System32/include-what-you-use"
+      - "C:/Windows/include-what-you-use.com"
+      - "C:/Windows/include-what-you-use.exe"
+      - "C:/Windows/include-what-you-use"
+      - "C:/Windows/System32/wbem/include-what-you-use.com"
+      - "C:/Windows/System32/wbem/include-what-you-use.exe"
+      - "C:/Windows/System32/wbem/include-what-you-use"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/include-what-you-use.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/include-what-you-use.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/include-what-you-use"
+      - "C:/Windows/System32/OpenSSH/include-what-you-use.com"
+      - "C:/Windows/System32/OpenSSH/include-what-you-use.exe"
+      - "C:/Windows/System32/OpenSSH/include-what-you-use"
+      - "C:/Program Files/Git/cmd/include-what-you-use.com"
+      - "C:/Program Files/Git/cmd/include-what-you-use.exe"
+      - "C:/Program Files/Git/cmd/include-what-you-use"
+      - "C:/Program Files/CMake/bin/include-what-you-use.com"
+      - "C:/Program Files/CMake/bin/include-what-you-use.exe"
+      - "C:/Program Files/CMake/bin/include-what-you-use"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/include-what-you-use.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/include-what-you-use.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/include-what-you-use"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/include-what-you-use.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/include-what-you-use.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/include-what-you-use"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/include-what-you-use.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/include-what-you-use.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/include-what-you-use"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/include-what-you-use.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/include-what-you-use.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/include-what-you-use"
+      - "C:/Users/pawci/.diversion/bin/include-what-you-use.com"
+      - "C:/Users/pawci/.diversion/bin/include-what-you-use.exe"
+      - "C:/Users/pawci/.diversion/bin/include-what-you-use"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/include-what-you-use.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/include-what-you-use.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/include-what-you-use"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/include-what-you-use.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/include-what-you-use.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/include-what-you-use"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/include-what-you-use.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/include-what-you-use.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/include-what-you-use"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/include-what-you-use.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/include-what-you-use.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/include-what-you-use"
+      - "C:/Program Files/bin/include-what-you-use.com"
+      - "C:/Program Files/bin/include-what-you-use.exe"
+      - "C:/Program Files/bin/include-what-you-use"
+      - "C:/Program Files/sbin/include-what-you-use.com"
+      - "C:/Program Files/sbin/include-what-you-use.exe"
+      - "C:/Program Files/sbin/include-what-you-use"
+      - "C:/Program Files/include-what-you-use.com"
+      - "C:/Program Files/include-what-you-use.exe"
+      - "C:/Program Files/include-what-you-use"
+      - "C:/Program Files (x86)/bin/include-what-you-use.com"
+      - "C:/Program Files (x86)/bin/include-what-you-use.exe"
+      - "C:/Program Files (x86)/bin/include-what-you-use"
+      - "C:/Program Files (x86)/sbin/include-what-you-use.com"
+      - "C:/Program Files (x86)/sbin/include-what-you-use.exe"
+      - "C:/Program Files (x86)/sbin/include-what-you-use"
+      - "C:/Program Files (x86)/include-what-you-use.com"
+      - "C:/Program Files (x86)/include-what-you-use.exe"
+      - "C:/Program Files (x86)/include-what-you-use"
+      - "C:/Program Files/CMake/bin/include-what-you-use.com"
+      - "C:/Program Files/CMake/bin/include-what-you-use.exe"
+      - "C:/Program Files/CMake/bin/include-what-you-use"
+      - "C:/Program Files/CMake/sbin/include-what-you-use.com"
+      - "C:/Program Files/CMake/sbin/include-what-you-use.exe"
+      - "C:/Program Files/CMake/sbin/include-what-you-use"
+      - "C:/Program Files/CMake/include-what-you-use.com"
+      - "C:/Program Files/CMake/include-what-you-use.exe"
+      - "C:/Program Files/CMake/include-what-you-use"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/include-what-you-use.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/include-what-you-use.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/include-what-you-use"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/include-what-you-use.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/include-what-you-use.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/include-what-you-use"
+      - "C:/Program Files (x86)/InventatorySoftware/include-what-you-use.com"
+      - "C:/Program Files (x86)/InventatorySoftware/include-what-you-use.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/include-what-you-use"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/iwyu.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/iwyu.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/powershell/iwyu"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/iwyu.com"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/iwyu.exe"
+      - "C:/Users/pawci/.codex/tmp/arg0/codex-arg0hwSrnH/iwyu"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/iwyu.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/iwyu.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/iwyu"
+      - "C:/Windows/System32/iwyu.com"
+      - "C:/Windows/System32/iwyu.exe"
+      - "C:/Windows/System32/iwyu"
+      - "C:/Windows/iwyu.com"
+      - "C:/Windows/iwyu.exe"
+      - "C:/Windows/iwyu"
+      - "C:/Windows/System32/wbem/iwyu.com"
+      - "C:/Windows/System32/wbem/iwyu.exe"
+      - "C:/Windows/System32/wbem/iwyu"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/iwyu.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/iwyu.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/iwyu"
+      - "C:/Windows/System32/OpenSSH/iwyu.com"
+      - "C:/Windows/System32/OpenSSH/iwyu.exe"
+      - "C:/Windows/System32/OpenSSH/iwyu"
+      - "C:/Program Files/Git/cmd/iwyu.com"
+      - "C:/Program Files/Git/cmd/iwyu.exe"
+      - "C:/Program Files/Git/cmd/iwyu"
+      - "C:/Program Files/CMake/bin/iwyu.com"
+      - "C:/Program Files/CMake/bin/iwyu.exe"
+      - "C:/Program Files/CMake/bin/iwyu"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/iwyu.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/iwyu.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/iwyu"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/iwyu.com"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/iwyu.exe"
+      - "C:/Users/pawci/AppData/Local/Microsoft/WindowsApps/iwyu"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/iwyu.com"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/iwyu.exe"
+      - "C:/Users/pawci/AppData/Local/GitHubDesktop/bin/iwyu"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/iwyu.com"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/iwyu.exe"
+      - "C:/Users/pawci/AppData/Local/Programs/Microsoft VS Code/bin/iwyu"
+      - "C:/Users/pawci/.diversion/bin/iwyu.com"
+      - "C:/Users/pawci/.diversion/bin/iwyu.exe"
+      - "C:/Users/pawci/.diversion/bin/iwyu"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/iwyu.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/iwyu.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/iwyu"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/iwyu.com"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/iwyu.exe"
+      - "C:/Users/pawci/.cache/codex-runtimes/codex-primary-runtime/dependencies/native/git/cmd/iwyu"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/iwyu.com"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/iwyu.exe"
+      - "C:/Users/pawci/AppData/Local/OpenAI/Codex/bin/c4983cb2afde1223/iwyu"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/iwyu.com"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/iwyu.exe"
+      - "C:/Program Files/WindowsApps/OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0/app/resources/iwyu"
+      - "C:/Program Files/bin/iwyu.com"
+      - "C:/Program Files/bin/iwyu.exe"
+      - "C:/Program Files/bin/iwyu"
+      - "C:/Program Files/sbin/iwyu.com"
+      - "C:/Program Files/sbin/iwyu.exe"
+      - "C:/Program Files/sbin/iwyu"
+      - "C:/Program Files/iwyu.com"
+      - "C:/Program Files/iwyu.exe"
+      - "C:/Program Files/iwyu"
+      - "C:/Program Files (x86)/bin/iwyu.com"
+      - "C:/Program Files (x86)/bin/iwyu.exe"
+      - "C:/Program Files (x86)/bin/iwyu"
+      - "C:/Program Files (x86)/sbin/iwyu.com"
+      - "C:/Program Files (x86)/sbin/iwyu.exe"
+      - "C:/Program Files (x86)/sbin/iwyu"
+      - "C:/Program Files (x86)/iwyu.com"
+      - "C:/Program Files (x86)/iwyu.exe"
+      - "C:/Program Files (x86)/iwyu"
+      - "C:/Program Files/CMake/bin/iwyu.com"
+      - "C:/Program Files/CMake/bin/iwyu.exe"
+      - "C:/Program Files/CMake/bin/iwyu"
+      - "C:/Program Files/CMake/sbin/iwyu.com"
+      - "C:/Program Files/CMake/sbin/iwyu.exe"
+      - "C:/Program Files/CMake/sbin/iwyu"
+      - "C:/Program Files/CMake/iwyu.com"
+      - "C:/Program Files/CMake/iwyu.exe"
+      - "C:/Program Files/CMake/iwyu"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/iwyu.com"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/iwyu.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/bin/iwyu"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/iwyu.com"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/iwyu.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/sbin/iwyu"
+      - "C:/Program Files (x86)/InventatorySoftware/iwyu.com"
+      - "C:/Program Files (x86)/InventatorySoftware/iwyu.exe"
+      - "C:/Program Files (x86)/InventatorySoftware/iwyu"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\.codex\\tmp\\arg0\\codex-arg0hwSrnH"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override"
+        - "C:\\WINDOWS\\system32"
+        - "C:\\WINDOWS"
+        - "C:\\WINDOWS\\System32\\Wbem"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell"
+        - "C:\\Users\\pawci\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\pawci\\AppData\\Local\\GitHubDesktop\\bin"
+        - "C:\\Users\\pawci\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+        - "C:\\Users\\pawci\\.diversion\\bin"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\fallback"
+        - "C:\\Users\\pawci\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd"
+        - "C:\\Users\\pawci\\AppData\\Local\\OpenAI\\Codex\\bin\\c4983cb2afde1223"
+        - "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.3698.0_x64__2p2nqsd0c76g0\\app\\resources"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/InventatorySoftware"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Program Files (x86)/InventatorySoftware"
+...
