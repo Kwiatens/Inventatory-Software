@@ -55,11 +55,9 @@ ftxui::Color rackMovingBannerBg() {
 ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, int lowStockThreshold) {
   const auto foreground = item.quantity <= 0 ? uiDangerColor()
                         : isLowStock(item, lowStockThreshold) ? uiWarnColor()
-                                          : uiSuccessColor();
+                                          : uiPrimaryText();
   const auto background = selected ? uiSelectionBg()
-                        : item.quantity <= 0 ? uiDangerBg()
-                        : isLowStock(item, lowStockThreshold) ? uiWarningBg()
-                                          : uiRaisedSurfaceBg();
+                        : uiRaisedSurfaceBg();
   return styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background) | ftxui::bold;
 }
 
@@ -108,7 +106,7 @@ ftxui::Element App::renderRackManagementUi() const {
       auto rackRow = ftxui::hbox({
           rackFixedCell(" " + candidate.code, rackCodeWidth, fg),
           rackFixedCell(candidate.componentType, rackTypeWidth, selected ? uiTitleColor() : uiLabelColor()),
-          rackFixedCell(to_string(occupied) + "/25", rackUsedWidth, occupied >= 25 ? uiWarnColor() : uiSuccessColor(),
+          rackFixedCell(to_string(occupied) + "/25", rackUsedWidth, occupied >= 25 ? uiWarnColor() : uiPrimaryText(),
                         true),
           ftxui::text(" "),
       }) | ftxui::bgcolor(bg);
@@ -174,11 +172,12 @@ ftxui::Element App::renderRackManagementUi() const {
             ftxui::filler(),
         }));
         cellRows.push_back(item == nullptr
-                               ? styledText("available", uiDimColor())
+                               ? ftxui::hbox({ftxui::filler(), styledText("available", uiDimColor()), ftxui::filler()})
                                : ftxui::hbox({ftxui::filler(), rackQuantityIndicator(*item, selected, settings_.lowStockThreshold),
                                               ftxui::filler()}));
-        cellRows.push_back(ftxui::paragraphAlignLeft(itemText) |
-                           ftxui::color(item == nullptr ? uiDimColor() : uiTitleColor()));
+        cellRows.push_back(item == nullptr
+                               ? ftxui::hbox({ftxui::filler(), styledText(itemText, uiDimColor()), ftxui::filler()})
+                               : ftxui::paragraphAlignLeft(itemText) | ftxui::color(uiTitleColor()));
         const int cellWidth = slotWidth + (displayColumn < extraSlotColumns ? 1 : 0);
         auto cell = ftxui::vbox(move(cellRows)) | ftxui::bgcolor(bg) |
                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
