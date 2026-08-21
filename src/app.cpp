@@ -242,17 +242,11 @@ std::string App::pageName() const {
   return "";
 }
 
-// Header region: breadcrumb on the left, with only the useful peripheral
-// status dots on the right (printer, Inventatory Scan device, auto-label).
+// Header region: breadcrumb on the left, with compact peripheral status boxes
+// on the right (printer, Inventatory Scan device, auto-label).
 ftxui::Element App::renderHeaderUi() const {
   const auto now = time(nullptr);
   const bool deviceOnline = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-
-  const auto printerColor = printerCheck_.ok ? uiInteractiveColor() : uiMutedColor();
-  const auto deviceColor = deviceOnline ? uiInteractiveColor() : uiMutedColor();
-  const auto autoColor = autoPrintScannedLabels_ ? uiInteractiveColor() : uiMutedColor();
-
-  const std::string deviceValue = deviceOnline ? std::to_string(now - deviceLastSeen_) + "s" : "offline";
 
   auto self = const_cast<App*>(this);
   const auto nav = [&](Page page, const string& id, const string& label) {
@@ -273,7 +267,7 @@ ftxui::Element App::renderHeaderUi() const {
       nav(Page::Settings, "nav.settings", "6 Settings"),
   });
 
-  auto dotSep = [] { return styledText("   ", uiDimColor()); };
+  auto statusSep = [] { return styledText(" ", uiDimColor()); };
 
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
@@ -282,18 +276,21 @@ ftxui::Element App::renderHeaderUi() const {
   header.push_back(navigation);
   header.push_back(ftxui::filler());
   // Budget the status group against the persistent navigation and Actions
-  // chip. Labels disappear before the indicators, preventing partial words.
+  // chip. Full labels disappear before the compact status boxes.
   if (screenWidth >= 152) {
-    header.push_back(statusDot("printer", printerColor));
-    header.push_back(dotSep());
-    header.push_back(statusDot("device", deviceColor, deviceValue));
-    header.push_back(dotSep());
-    header.push_back(statusDot(autoPrintScannedLabels_ ? "auto-label on" : "auto-label off", autoColor));
+    header.push_back(statusTextBox(printerCheck_.ok ? "printer ready" : "printer offline", printerCheck_.ok));
+    header.push_back(statusSep());
+    header.push_back(statusTextBox(deviceOnline ? "scan " + std::to_string(now - deviceLastSeen_) + "s"
+                                                : "scan offline",
+                                   deviceOnline));
+    header.push_back(statusSep());
+    header.push_back(statusTextBox(autoPrintScannedLabels_ ? "auto-label on" : "auto-label off",
+                                   autoPrintScannedLabels_));
     header.push_back(styledText("   ", uiDividerColor()));
   } else if (screenWidth >= 100) {
-    header.push_back(statusDot("", printerColor));
-    header.push_back(statusDot("", deviceColor));
-    header.push_back(statusDot("", autoColor));
+    header.push_back(statusTextBox("PRN", printerCheck_.ok));
+    header.push_back(statusTextBox("SCAN", deviceOnline));
+    header.push_back(statusTextBox("AUTO", autoPrintScannedLabels_));
     header.push_back(styledText("  ", uiDividerColor()));
   }
   header.push_back(target(styledText(" Actions  Space ", uiInteractiveColor(), uiRaisedSurfaceBg()),
