@@ -97,7 +97,7 @@ ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui:
                                   ftxui::Color secondFill);
 
 // A compact status indicator: a colored dot, a muted label, and an optional
-// trailing value (e.g. statusDot("device", green, "12s")). Used in the header.
+// trailing value (e.g. statusDot("device", blue, "12s")). Used in the header.
 ftxui::Element statusDot(const string& label, ftxui::Color color, const string& value = {});
 bool uiBoxContains(const ftxui::Box& box, int x, int y);
 
