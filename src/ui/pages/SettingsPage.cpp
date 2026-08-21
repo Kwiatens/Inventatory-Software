@@ -895,7 +895,7 @@ ftxui::Element App::renderSettingsUi() const {
       const auto stateWord = !hasDeviceIdentity ? "Waiting for device" : online ? "Online" : "Offline";
       rows.push_back(ftxui::hbox({
           styledText(" Status", uiSecondaryText()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
-          styledText(string("\xE2\x97\x8F ") + stateWord, stateColor),
+          styledText(stateWord, stateColor),
           ftxui::filler(),
       }));
       if (hasDeviceIdentity) {
