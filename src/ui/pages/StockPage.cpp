@@ -68,20 +68,11 @@ ftxui::Element App::renderStockUi() const {
     return ftxui::hbox(move(parts)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
   };
   const auto quantityCell = [&](int quantity, bool selected) {
-    InventoryItem quantityItem;
-    quantityItem.quantity = quantity;
-    const auto fg = quantity <= 0 ? uiDangerColor()
-                                  : isLowStock(quantityItem, settings_.lowStockThreshold) ? uiWarnColor()
-                                                                                           : uiSuccessColor();
-    const auto bg = selected ? uiSelectionBg()
-                    : quantity <= 0 ? uiDangerBg()
-                    : isLowStock(quantityItem, settings_.lowStockThreshold) ? uiWarningBg()
-                                    : uiRaisedSurfaceBg();
     return ftxui::hbox({
         ftxui::filler(),
-        styledText(to_string(quantity), fg) | ftxui::bold,
+        styledText(to_string(quantity), selected ? uiFocusColor() : uiPrimaryText()) | ftxui::bold,
         ftxui::text(" "),
-    }) | ftxui::bgcolor(bg) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
+    }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
   };
 
   const auto qtyHeaderCell = ftxui::hbox({
