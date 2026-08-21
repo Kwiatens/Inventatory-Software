@@ -153,8 +153,11 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
                      })) {
       setMessage("Inventatory Scan R1 service failed to start; terminal still works", 5);
     } else {
-      mdnsService_.start(server_.port());
-      setMessage("Inventatory Scan R1 service ready", 5);
+      if (mdnsService_.start(server_.port())) {
+        setMessage("Inventatory Scan R1 service ready", 5);
+      } else {
+        setMessage("Inventatory Scan R1 service ready; network discovery unavailable", 5);
+      }
     }
   }
   beginUpdateCheckIfDue();
