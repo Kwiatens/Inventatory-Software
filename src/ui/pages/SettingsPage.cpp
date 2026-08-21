@@ -10,6 +10,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -26,9 +29,9 @@ constexpr const char* kDigiKeySecretName = "digikey-client-secret";
 // Every label/value row in Settings shares one label column so values align
 // down the panel regardless of which row rendered them.
 int settingsLabelWidth(int width) {
-  // 24 leaves visible air after the longest label ("Background & startup")
-  // instead of letting its value butt against it.
-  return min(24, max(16, width / 3));
+  // 30 keeps the stock-alert setting label readable while still leaving
+  // visible air before its value on compact terminals.
+  return min(30, max(16, width / 3));
 }
 
 ftxui::Element settingLine(const string& label, const string& value, int width, bool selected = false) {
@@ -65,11 +68,108 @@ ftxui::Element buttonRow(ftxui::Element button) {
   return ftxui::hbox({move(button), ftxui::filler()});
 }
 
+constexpr int kAppearancePickerHueSteps = 12;
+constexpr int kAppearancePickerValueSteps = 6;
+
+uint32_t hsvToRgb(double hue, double saturation, double value) {
+  hue = fmod(hue, 360.0);
+  if (hue < 0.0) hue += 360.0;
+  const double chroma = value * saturation;
+  const double segment = hue / 60.0;
+  const double intermediate = chroma * (1.0 - abs(fmod(segment, 2.0) - 1.0));
+  double red = 0.0;
+  double green = 0.0;
+  double blue = 0.0;
+  if (segment < 1.0) {
+    red = chroma;
+    green = intermediate;
+  } else if (segment < 2.0) {
+    red = intermediate;
+    green = chroma;
+  } else if (segment < 3.0) {
+    green = chroma;
+    blue = intermediate;
+  } else if (segment < 4.0) {
+    green = intermediate;
+    blue = chroma;
+  } else if (segment < 5.0) {
+    red = intermediate;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = intermediate;
+  }
+  const double match = value - chroma;
+  const auto channel = [match](double component) {
+    return static_cast<uint32_t>(round((component + match) * 255.0));
+  };
+  return (channel(red) << 16) | (channel(green) << 8) | channel(blue);
+}
+
+struct HsvCoordinates {
+  int hue = 0;
+  int value = 0;
+};
+
+HsvCoordinates pickerCoordinates(uint32_t rgb) {
+  const double red = static_cast<double>((rgb >> 16) & 0xFFu) / 255.0;
+  const double green = static_cast<double>((rgb >> 8) & 0xFFu) / 255.0;
+  const double blue = static_cast<double>(rgb & 0xFFu) / 255.0;
+  const double maximum = max({red, green, blue});
+  const double minimum = min({red, green, blue});
+  const double delta = maximum - minimum;
+
+  double hue = 0.0;
+  if (delta > 0.0001) {
+    if (maximum == red) {
+      hue = 60.0 * fmod((green - blue) / delta, 6.0);
+    } else if (maximum == green) {
+      hue = 60.0 * ((blue - red) / delta + 2.0);
+    } else {
+      hue = 60.0 * ((red - green) / delta + 4.0);
+    }
+    if (hue < 0.0) hue += 360.0;
+  }
+  const int hueIndex = static_cast<int>(round(hue / 360.0 * kAppearancePickerHueSteps)) %
+                       kAppearancePickerHueSteps;
+  const int valueIndex = static_cast<int>(round((maximum * kAppearancePickerValueSteps) - 1.0));
+  return {hueIndex, clamp(valueIndex, 0, kAppearancePickerValueSteps - 1)};
+}
+
+double pickerValue(int row) {
+  static constexpr double values[kAppearancePickerValueSteps] = {0.30, 0.44, 0.58, 0.72, 0.86, 1.0};
+  return values[clamp(row, 0, kAppearancePickerValueSteps - 1)];
+}
+
+uint32_t pickerColor(int hue, int value) {
+  const auto normalizedHue = (hue + kAppearancePickerHueSteps) % kAppearancePickerHueSteps;
+  return hsvToRgb(static_cast<double>(normalizedHue) * 360.0 / kAppearancePickerHueSteps, 0.82,
+                  pickerValue(value));
+}
+
+ftxui::Element appearanceColorLine(AppearanceColorRole role, int width, bool selected) {
+  const auto labelWidth = max(20, min(29, width - 20));
+  return ftxui::hbox({
+             styledText(selected ? " > " : "   ", selected ? uiFocusColor() : uiSecondaryText()),
+             styledText("   ", uiPrimaryText(), uiAppearanceColor(role)),
+             styledText(" ", uiPrimaryText()),
+             styledText(ellipsize(appearanceColorLabel(role), static_cast<size_t>(labelWidth)),
+                        selected ? uiFocusColor() : uiSecondaryText()) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
+             ftxui::filler(),
+             styledText(appearanceColorHex(activeUiAppearance().colors[static_cast<size_t>(role)]),
+                        selected ? uiPrimaryText() : uiMutedText()),
+             styledText(" "),
+         }) |
+         ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+}
+
 }  // namespace
 
 string App::settingsCategoryName(SettingsCategory category) const {
   switch (category) {
     case SettingsCategory::General: return "General / Data";
+    case SettingsCategory::Appearance: return "Appearance";
     case SettingsCategory::Printer: return "Printer";
     case SettingsCategory::QuickLabels: return "Quick Labels";
     case SettingsCategory::InventatoryScan: return "Inventatory Scan";
@@ -84,6 +184,7 @@ void App::openSettings(SettingsCategory category) {
   settingsDraft_.printerQueue = printerService_.configuredPrinter();
   settingsDirty_ = false;
   settingsEditingField_ = false;
+  appearancePickerOpen_ = false;
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
@@ -91,6 +192,7 @@ void App::openSettings(SettingsCategory category) {
   hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value() ||
                             !loadDigiKeyConfig().clientSecret.empty();
   inputBuffer_.clear();
+  applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
   if (category == SettingsCategory::Printer) refreshPrinterState();
 }
@@ -98,6 +200,25 @@ void App::openSettings(SettingsCategory category) {
 void App::beginSettingsEdit() {
   settingsDraft_ = settings_;
   settingsDirty_ = false;
+}
+
+bool App::settingsDraftHasChanges() const {
+  return settingsDraft_.dataDirectory != settings_.dataDirectory ||
+         settingsDraft_.printerQueue != settings_.printerQueue ||
+         settingsDraft_.autoPrintScannedLabels != settings_.autoPrintScannedLabels ||
+         settingsDraft_.backgroundServiceEnabled != settings_.backgroundServiceEnabled ||
+         settingsDraft_.backgroundConsentAsked != settings_.backgroundConsentAsked ||
+         settingsDraft_.updateChecksEnabled != settings_.updateChecksEnabled ||
+         settingsDraft_.deviceServicePort != settings_.deviceServicePort ||
+         settingsDraft_.digiKeyClientId != settings_.digiKeyClientId ||
+         settingsDraft_.digiKeyAccountId != settings_.digiKeyAccountId ||
+         settingsDraft_.digiKeySite != settings_.digiKeySite ||
+         settingsDraft_.digiKeyLanguage != settings_.digiKeyLanguage ||
+         settingsDraft_.digiKeyCurrency != settings_.digiKeyCurrency ||
+         settingsDraft_.lowStockThreshold != settings_.lowStockThreshold ||
+         settingsDraft_.quickLabelPresets != settings_.quickLabelPresets ||
+         settingsDraft_.appearance.colors != settings_.appearance.colors ||
+         stagedDigiKeySecretChanged_;
 }
 
 bool App::stageInventatoryFolder() {
@@ -156,12 +277,21 @@ bool App::testStagedDigiKey() {
 }
 
 void App::beginSettingsFieldEdit(int field) {
-  if (settingsCategory_ == SettingsCategory::General) return;
+  if (settingsCategory_ == SettingsCategory::Appearance && appearancePickerOpen_) {
+    closeAppearancePicker(true);
+  }
   settingsField_ = field;
   settingsEditingField_ = true;
   switch (settingsCategory_) {
     case SettingsCategory::General:
-      inputBuffer_.clear();
+      inputBuffer_ = field == 0 ? to_string(settingsDraft_.lowStockThreshold) : string();
+      break;
+    case SettingsCategory::Appearance:
+      if (field >= 0 && field < static_cast<int>(kAppearanceColorCount)) {
+        inputBuffer_ = appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(field)]);
+      } else {
+        inputBuffer_.clear();
+      }
       break;
     case SettingsCategory::Printer:
       inputBuffer_ = field == 50 ? wireLabelText_ : string();
@@ -193,6 +323,27 @@ void App::commitSettingsFieldEdit() {
   if (!settingsEditingField_) return;
   if (settingsCategory_ == SettingsCategory::Printer && settingsField_ == 50) {
     wireLabelText_ = trim(inputBuffer_);
+  } else if (settingsCategory_ == SettingsCategory::General) {
+    if (settingsField_ == 0) {
+      try {
+        const auto threshold = stoi(trim(inputBuffer_));
+        if (threshold <= 0) throw out_of_range("threshold");
+        settingsDraft_.lowStockThreshold = threshold;
+      } catch (...) {
+        setMessage("Low-stock threshold must be a positive whole number", 4);
+        return;
+      }
+    }
+  } else if (settingsCategory_ == SettingsCategory::Appearance) {
+    if (settingsField_ < 0 || settingsField_ >= static_cast<int>(kAppearanceColorCount)) return;
+    uint32_t parsed = 0;
+    if (!parseAppearanceColorHex(inputBuffer_, parsed)) {
+      setMessage("Use a six-digit color such as #58B9B0", 4);
+      return;
+    }
+    settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] = parsed;
+    applyUiAppearance(settingsDraft_.appearance);
+    settingsDirty_ = settingsDraftHasChanges();
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
     const auto preset = trim(inputBuffer_);
     if (preset.empty() || preset.size() > kQuickLabelPresetTextLimit) {
@@ -230,6 +381,77 @@ void App::commitSettingsFieldEdit() {
   settingsEditingField_ = false;
   settingsDirty_ = true;
   inputBuffer_.clear();
+  dirty_ = true;
+}
+
+void App::resetSelectedAppearanceColor() {
+  if (settingsCategory_ != SettingsCategory::Appearance || settingsField_ < 0 ||
+      settingsField_ >= static_cast<int>(kAppearanceColorCount)) {
+    return;
+  }
+  settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] =
+      AppearanceSettings{}.colors[static_cast<size_t>(settingsField_)];
+  appearancePickerOpen_ = false;
+  applyUiAppearance(settingsDraft_.appearance);
+  settingsDirty_ = settingsDraftHasChanges();
+  dirty_ = true;
+  setMessage("Selected color reset; save settings to keep it", 3);
+}
+
+void App::resetAppearanceColors() {
+  if (settingsCategory_ != SettingsCategory::Appearance) return;
+  settingsDraft_.appearance = AppearanceSettings{};
+  appearancePickerOpen_ = false;
+  applyUiAppearance(settingsDraft_.appearance);
+  settingsDirty_ = settingsDraftHasChanges();
+  dirty_ = true;
+  setMessage("Appearance reset to defaults; save settings to keep it", 3);
+}
+
+void App::openAppearancePicker() {
+  if (settingsCategory_ != SettingsCategory::Appearance || settingsField_ < 0 ||
+      settingsField_ >= static_cast<int>(kAppearanceColorCount)) {
+    return;
+  }
+  const auto color = settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)];
+  const auto coordinates = pickerCoordinates(color);
+  appearancePickerHue_ = coordinates.hue;
+  appearancePickerValue_ = coordinates.value;
+  appearancePickerOriginalColor_ = color;
+  appearancePickerOpen_ = true;
+  settingsEditingField_ = false;
+  inputBuffer_.clear();
+  dirty_ = true;
+}
+
+void App::moveAppearancePicker(int hueDelta, int valueDelta) {
+  if (!appearancePickerOpen_) return;
+  appearancePickerHue_ = (appearancePickerHue_ + hueDelta + kAppearancePickerHueSteps) %
+                          kAppearancePickerHueSteps;
+  appearancePickerValue_ = clamp(appearancePickerValue_ + valueDelta, 0, kAppearancePickerValueSteps - 1);
+  applyAppearancePickerColor();
+}
+
+void App::applyAppearancePickerColor() {
+  if (!appearancePickerOpen_ || settingsField_ < 0 ||
+      settingsField_ >= static_cast<int>(kAppearanceColorCount)) {
+    return;
+  }
+  settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] =
+      pickerColor(appearancePickerHue_, appearancePickerValue_);
+  applyUiAppearance(settingsDraft_.appearance);
+  settingsDirty_ = settingsDraft_.appearance.colors != settings_.appearance.colors;
+  dirty_ = true;
+}
+
+void App::closeAppearancePicker(bool accept) {
+  if (!appearancePickerOpen_) return;
+  if (!accept && settingsField_ >= 0 && settingsField_ < static_cast<int>(kAppearanceColorCount)) {
+    settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] = appearancePickerOriginalColor_;
+    applyUiAppearance(settingsDraft_.appearance);
+    settingsDirty_ = settingsDraftHasChanges();
+  }
+  appearancePickerOpen_ = false;
   dirty_ = true;
 }
 
@@ -316,6 +538,7 @@ bool App::saveSettingsDraft() {
     lock_guard<mutex> lock(quickLabelMutex_);
     settings_ = settingsDraft_;
   }
+  applyUiAppearance(settings_.appearance);
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   if (backgroundChanged) {
@@ -331,6 +554,7 @@ bool App::saveSettingsDraft() {
     printerService_.saveConfig(printerPath_);
   }
   settingsDirty_ = false;
+  appearancePickerOpen_ = false;
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
@@ -341,8 +565,10 @@ bool App::saveSettingsDraft() {
 
 void App::cancelSettingsDraft() {
   settingsDraft_ = settings_;
+  applyUiAppearance(settings_.appearance);
   settingsDirty_ = false;
   settingsEditingField_ = false;
+  appearancePickerOpen_ = false;
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   inputBuffer_.clear();
@@ -365,14 +591,16 @@ ftxui::Element App::renderSettingsUi() const {
     categories.push_back(target(row, "settings.category." + settingsCategoryName(category), UiTargetKind::Category,
                                 [self, category] {
                                   self->settingsCategory_ = category;
-                                  self->settingsField_ = 0;
-                                  self->settingsEditingField_ = false;
+                                   self->settingsField_ = 0;
+                                   self->settingsEditingField_ = false;
+                                   self->appearancePickerOpen_ = false;
                                   if (category == SettingsCategory::Printer) self->refreshPrinterState();
                                   self->dirty_ = true;
                                 }));
   };
   categories.push_back(styledText(" SYSTEM", uiDimColor()));
   addCategory(SettingsCategory::General);
+  addCategory(SettingsCategory::Appearance);
   categories.push_back(styledText(" OUTPUT", uiDimColor()));
   addCategory(SettingsCategory::Printer);
   addCategory(SettingsCategory::QuickLabels);
@@ -406,6 +634,13 @@ ftxui::Element App::renderSettingsUi() const {
                             self->settingsDirty_ = true;
                             self->dirty_ = true;
                           }));
+    rows.push_back(target(settingLine("Low-stock warning threshold",
+                                      settingsEditingField_ && settingsField_ == 0
+                                          ? inputBuffer_ + "_"
+                                          : to_string(settingsDraft_.lowStockThreshold),
+                                      contentWidth, settingsEditingField_ && settingsField_ == 0),
+                          "settings.general.low_stock_threshold", UiTargetKind::Field,
+                          [self] { self->beginSettingsFieldEdit(0); }));
     rows.push_back(uiDivider());
     rows.push_back(styledText("PUBLIC BETA UPDATES", uiSecondaryText()) | ftxui::bold);
     rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
@@ -422,6 +657,142 @@ ftxui::Element App::renderSettingsUi() const {
                                       self->beginUpdateCheckIfDue();
                                       self->setMessage("Checking the public beta release...", 4);
                                     })));
+  } else if (settingsCategory_ == SettingsCategory::Appearance) {
+    const int colorCellWidth = max(28, (contentWidth - 2) / 2);
+    const auto addAppearanceSection = [&](const string& title,
+                                          initializer_list<AppearanceColorRole> roles) {
+      rows.push_back(styledText(title, uiSecondaryText()) | ftxui::bold);
+      vector<AppearanceColorRole> section(roles);
+      for (size_t offset = 0; offset < section.size(); offset += 2) {
+        ftxui::Elements columns;
+        for (size_t column = 0; column < 2; ++column) {
+          const auto roleIndex = offset + column;
+          if (roleIndex >= section.size()) {
+            columns.push_back(ftxui::filler() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, colorCellWidth));
+            continue;
+          }
+          const auto role = section[roleIndex];
+          const auto index = static_cast<int>(role);
+          columns.push_back(target(
+              appearanceColorLine(role, colorCellWidth, settingsField_ == index),
+              "settings.appearance.color." + to_string(index), UiTargetKind::Field,
+              [self, index] {
+                self->settingsField_ = index;
+                self->settingsEditingField_ = false;
+                self->appearancePickerOpen_ = false;
+                self->inputBuffer_.clear();
+                self->dirty_ = true;
+              }));
+        }
+        rows.push_back(ftxui::hbox(move(columns)));
+      }
+    };
+
+    if (!appearancePickerOpen_) {
+      addAppearanceSection("BACKGROUNDS", {
+          AppearanceColorRole::CanvasBg,
+          AppearanceColorRole::SurfaceBg,
+          AppearanceColorRole::RaisedSurfaceBg,
+          AppearanceColorRole::HoverBg,
+          AppearanceColorRole::SelectionBg,
+          AppearanceColorRole::Divider,
+      });
+      addAppearanceSection("TEXT", {
+          AppearanceColorRole::PrimaryText,
+          AppearanceColorRole::SecondaryText,
+          AppearanceColorRole::MutedText,
+          AppearanceColorRole::FocusText,
+      });
+      addAppearanceSection("ACCENTS AND STATUS", {
+          AppearanceColorRole::Interactive,
+          AppearanceColorRole::Success,
+          AppearanceColorRole::Link,
+          AppearanceColorRole::WarningText,
+          AppearanceColorRole::DangerText,
+      });
+      addAppearanceSection("STATUS BACKGROUNDS", {
+          AppearanceColorRole::ActiveBg,
+          AppearanceColorRole::ActiveSoftBg,
+          AppearanceColorRole::WarningBg,
+          AppearanceColorRole::DangerBg,
+          AppearanceColorRole::DangerFlashBg,
+      });
+    }
+
+    const auto selectedIndex = clamp(settingsField_, 0, static_cast<int>(kAppearanceColorCount) - 1);
+    const auto selectedRole = static_cast<AppearanceColorRole>(selectedIndex);
+    rows.push_back(uiDivider());
+    rows.push_back(styledText("EDIT COLOR", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(ftxui::hbox({
+        styledText(" Selected", uiSecondaryText()) |
+            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
+        styledText(appearanceColorLabel(selectedRole), uiPrimaryText()),
+        ftxui::filler(),
+        styledText("   ", uiPrimaryText(), uiAppearanceColor(selectedRole)),
+        styledText(" " + appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(selectedIndex)]),
+                   uiPrimaryText()),
+        styledText(" "),
+    }));
+
+    const auto hexValue = settingsEditingField_ && settingsField_ == selectedIndex
+                              ? inputBuffer_ + "_"
+                              : appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(selectedIndex)]);
+    rows.push_back(target(settingLine("Hex value", hexValue, contentWidth,
+                                      settingsEditingField_ && settingsField_ == selectedIndex),
+                          "settings.appearance.hex", UiTargetKind::Field,
+                          [self] { self->beginSettingsFieldEdit(self->settingsField_); }));
+
+    if (appearancePickerOpen_) {
+      rows.push_back(styledText("HUE / VALUE PICKER", uiSecondaryText()) | ftxui::bold);
+      for (int value = kAppearancePickerValueSteps - 1; value >= 0; --value) {
+        ftxui::Elements pickerRow;
+        for (int hue = 0; hue < kAppearancePickerHueSteps; ++hue) {
+          const bool selected = hue == appearancePickerHue_ && value == appearancePickerValue_;
+          const auto color = pickerColor(hue, value);
+          auto cell = styledText(selected ? "[]" : "  ", uiPrimaryText(),
+                                 ftxui::Color::RGB(static_cast<uint8_t>((color >> 16) & 0xFFu),
+                                                   static_cast<uint8_t>((color >> 8) & 0xFFu),
+                                                   static_cast<uint8_t>(color & 0xFFu)));
+          pickerRow.push_back(target(move(cell), "settings.appearance.picker." + to_string(hue) + "." +
+                                                       to_string(value),
+                                     UiTargetKind::Cell,
+                                     [self, hue, value] {
+                                       self->appearancePickerHue_ = hue;
+                                       self->appearancePickerValue_ = value;
+                                       self->applyAppearancePickerColor();
+                                     },
+                                     true, false));
+        }
+        rows.push_back(ftxui::hbox(move(pickerRow)));
+      }
+      rows.push_back(styledText("Arrows change hue/value   Enter accept   Esc cancel", uiMutedText()));
+    }
+
+    ftxui::Elements appearanceActions;
+    if (appearancePickerOpen_) {
+      appearanceActions.push_back(target(uiPrimaryButton("Accept picker"), "settings.appearance.picker.accept",
+                                         UiTargetKind::Button, [self] { self->closeAppearancePicker(true); }));
+      appearanceActions.push_back(ftxui::text("  "));
+      appearanceActions.push_back(target(uiSecondaryButton("Cancel picker", uiSecondaryText()),
+                                         "settings.appearance.picker.cancel", UiTargetKind::Button,
+                                         [self] { self->closeAppearancePicker(false); }));
+    } else {
+      appearanceActions.push_back(target(uiPrimaryButton("Open picker"), "settings.appearance.picker.open",
+                                         UiTargetKind::Button, [self] { self->openAppearancePicker(); }));
+      appearanceActions.push_back(ftxui::text("  "));
+      appearanceActions.push_back(target(uiSecondaryButton("Edit hex", uiSecondaryText()),
+                                         "settings.appearance.hex.edit", UiTargetKind::Button,
+                                         [self] { self->beginSettingsFieldEdit(self->settingsField_); }));
+    }
+    appearanceActions.push_back(ftxui::text("  "));
+    appearanceActions.push_back(target(uiSecondaryButton("Reset selected", uiWarnColor()),
+                                       "settings.appearance.reset.selected", UiTargetKind::Button,
+                                       [self] { self->resetSelectedAppearanceColor(); }));
+    appearanceActions.push_back(ftxui::text("  "));
+    appearanceActions.push_back(target(uiSecondaryButton("Reset all", uiDangerColor()),
+                                       "settings.appearance.reset.all", UiTargetKind::Button,
+                                       [self] { self->resetAppearanceColors(); }));
+    rows.push_back(ftxui::hbox(move(appearanceActions)));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
     rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
     rows.push_back(settingLine("Configured queue",
@@ -589,7 +960,9 @@ ftxui::Element App::renderSettingsUi() const {
       target(uiSecondaryButton("Cancel", uiSecondaryText(), settingsDirty_), "settings.cancel", UiTargetKind::Button,
              [self] { self->cancelSettingsDraft(); }, settingsDirty_),
       ftxui::filler(),
-      styledText("↑↓ categories  j/k lists  Tab focus  Enter activate", uiMutedText()),
+       styledText(appearancePickerOpen_ ? "arrows picker  Enter accept  Esc cancel"
+                                       : "↑↓ categories  j/k lists  Tab focus  Enter activate",
+                  uiMutedText()),
   }));
 
   return ftxui::hbox({
@@ -601,6 +974,25 @@ ftxui::Element App::renderSettingsUi() const {
 }
 
 void App::handleSettingsKey(const KeyEvent& key) {
+  if (appearancePickerOpen_) {
+    if (key.type == KeyType::Left) {
+      moveAppearancePicker(-1, 0);
+    } else if (key.type == KeyType::Right) {
+      moveAppearancePicker(1, 0);
+    } else if (key.type == KeyType::Up) {
+      moveAppearancePicker(0, 1);
+    } else if (key.type == KeyType::Down) {
+      moveAppearancePicker(0, -1);
+    } else if (key.type == KeyType::Character && (key.ch == 'j' || key.ch == 'k')) {
+      moveAppearancePicker(0, key.ch == 'j' ? -1 : 1);
+    } else if (key.type == KeyType::Enter) {
+      closeAppearancePicker(true);
+    } else if (key.type == KeyType::Escape) {
+      closeAppearancePicker(false);
+    }
+    return;
+  }
+
   if (settingsEditingField_) {
     if (key.type == KeyType::Character) {
       inputBuffer_.push_back(key.ch);
@@ -629,10 +1021,19 @@ void App::handleSettingsKey(const KeyEvent& key) {
     else if (ch == ']' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(1);
     else if (ch == 't' && settingsCategory_ == SettingsCategory::QuickLabels) testQuickLabelPreset();
     else if (ch == 't' && settingsCategory_ == SettingsCategory::DigiKey) testStagedDigiKey();
-    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::QuickLabels || settingsCategory_ == SettingsCategory::InventatoryScan ||
+    else if (ch == 'p' && settingsCategory_ == SettingsCategory::Appearance) openAppearancePicker();
+    else if (ch == 'r' && settingsCategory_ == SettingsCategory::Appearance) resetSelectedAppearanceColor();
+    else if (ch == 'd' && settingsCategory_ == SettingsCategory::Appearance) resetAppearanceColors();
+    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::General || settingsCategory_ == SettingsCategory::Appearance ||
+                           settingsCategory_ == SettingsCategory::QuickLabels ||
+                           settingsCategory_ == SettingsCategory::InventatoryScan ||
                            settingsCategory_ == SettingsCategory::DigiKey)) beginSettingsFieldEdit(settingsField_);
     if (ch != 'j' && ch != 'k') return;
-    if (settingsCategory_ == SettingsCategory::QuickLabels) {
+    if (settingsCategory_ == SettingsCategory::Appearance) {
+      if (ch == 'j' && settingsField_ + 1 < static_cast<int>(kAppearanceColorCount)) ++settingsField_;
+      if (ch == 'k' && settingsField_ > 0) --settingsField_;
+      dirty_ = true;
+    } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
       if (ch == 'j' && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())) ++settingsField_;
       if (ch == 'k' && settingsField_ > 0) --settingsField_;
       dirty_ = true;
@@ -647,20 +1048,24 @@ void App::handleSettingsKey(const KeyEvent& key) {
   if (key.type == KeyType::Left) {
     settingsCategory_ = static_cast<SettingsCategory>(max(0, static_cast<int>(settingsCategory_) - 1));
     settingsField_ = 0;
+    appearancePickerOpen_ = false;
     dirty_ = true;
   } else if (key.type == KeyType::Right) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(4, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(5, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
+    appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Up) {
     settingsCategory_ = static_cast<SettingsCategory>(max(0, static_cast<int>(settingsCategory_) - 1));
     settingsField_ = 0;
+    appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Down) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(4, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(5, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
+    appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Escape) {

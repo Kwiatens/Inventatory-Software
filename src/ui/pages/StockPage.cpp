@@ -68,21 +68,26 @@ ftxui::Element App::renderStockUi() const {
     return ftxui::hbox(move(parts)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
   };
   const auto quantityCell = [&](int quantity, bool selected) {
-    const auto fg = quantity <= 0 ? uiDangerColor() : quantity <= 5 ? uiWarnColor() : uiSuccessColor();
+    InventoryItem quantityItem;
+    quantityItem.quantity = quantity;
+    const auto fg = quantity <= 0 ? uiDangerColor()
+                                  : isLowStock(quantityItem, settings_.lowStockThreshold) ? uiWarnColor()
+                                                                                           : uiSuccessColor();
     const auto bg = selected ? uiSelectionBg()
                     : quantity <= 0 ? uiDangerBg()
-                    : quantity <= 5 ? uiWarningBg()
+                    : isLowStock(quantityItem, settings_.lowStockThreshold) ? uiWarningBg()
                                     : uiRaisedSurfaceBg();
     return ftxui::hbox({
         ftxui::filler(),
         styledText(to_string(quantity), fg) | ftxui::bold,
-        ftxui::filler(),
+        ftxui::text(" "),
     }) | ftxui::bgcolor(bg) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
   };
 
   const auto qtyHeaderCell = ftxui::hbox({
                                  ftxui::filler(),
                                  styledText("Qty", uiMutedColor()),
+                                 ftxui::text(" "),
                              }) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
 
@@ -139,10 +144,10 @@ ftxui::Element App::renderStockUi() const {
       }
       const bool selected = index == selectedPosition_;
       const bool outOfStock = item.quantity <= 0;
-      const bool lowStock = item.lowStock();
+      const bool lowStock = isLowStock(item, settings_.lowStockThreshold);
       const auto bg = selected ? uiSelectionBg()
                       : outOfStock ? uiDangerBg()
-                                   : uiSurfaceBg();
+                                   : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
       const auto fg = selected ? uiFocusColor()
                       : outOfStock ? uiDangerColor()
                                    : (lowStock ? uiWarnColor() : uiPrimaryText());
@@ -231,7 +236,7 @@ ftxui::Element App::renderStockUi() const {
     // the summary instead of at the bottom of an identity list.
     const auto rack = rackLocation(*item, store_.racks());
     const auto quantityColor = item->quantity <= 0 ? uiDangerColor()
-                               : item->lowStock() ? uiWarnColor()
+                               : isLowStock(*item, settings_.lowStockThreshold) ? uiWarnColor()
                                                   : uiPrimaryText();
     detailRows.push_back(uiDivider());
     detailRows.push_back(ftxui::hbox({
@@ -267,10 +272,6 @@ ftxui::Element App::renderStockUi() const {
     identityField("Sync", item->syncStatus,
                   toLower(item->syncStatus) == "synced" ? uiSuccessColor() : uiWarnColor());
     identityField("Tags", renderTags(item->tags), uiPrimaryText());
-    identityRows.push_back(detailFieldLine({"Reorder threshold: ",
-                                            item->reorderThreshold == 0 ? "Disabled"
-                                                                        : to_string(item->reorderThreshold),
-                                            uiSecondaryText(), uiWarnColor()}, detailInnerWidth));
     // Collapsible: the heading always states how many fields are hidden so the
     // block never looks like missing data.
     detailRows.push_back(uiDivider());
@@ -565,7 +566,8 @@ void App::handleStockKey(const KeyEvent& key) {
         store_.load(inventoryPath_);
         loadInventoryHistory(inventoryPath_, inventoryHistory_);
         if (inventoryHistory_.empty()) {
-          appendInventoryHistory(inventoryHistory_, makeInventoryHistoryPoint(store_.items()));
+          appendInventoryHistory(inventoryHistory_,
+                                 makeInventoryHistoryPoint(store_.items(), settings_.lowStockThreshold));
         }
         saveInventoryHistory(inventoryPath_, inventoryHistory_);
         syncSelectionToFilter();

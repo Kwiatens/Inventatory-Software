@@ -86,7 +86,7 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
-  enum class SettingsCategory { General, Printer, QuickLabels, InventatoryScan, DigiKey };
+  enum class SettingsCategory { General, Appearance, Printer, QuickLabels, InventatoryScan, DigiKey };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
@@ -133,7 +133,6 @@ class App {
     Manufacturer,
     Category,
     Quantity,
-    ReorderThreshold,
     Location,
     Tags,
     Parameters,
@@ -299,6 +298,7 @@ class App {
   bool chooseInventatoryFolder();
   void openSettings(SettingsCategory category = SettingsCategory::General);
   void beginSettingsEdit();
+  bool settingsDraftHasChanges() const;
   bool saveSettingsDraft();
   void cancelSettingsDraft();
   bool stageInventatoryFolder();
@@ -306,6 +306,12 @@ class App {
   bool testStagedDigiKey();
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
+  void resetSelectedAppearanceColor();
+  void resetAppearanceColors();
+  void openAppearancePicker();
+  void moveAppearancePicker(int hueDelta, int valueDelta);
+  void applyAppearancePickerColor();
+  void closeAppearancePicker(bool accept);
   void armDeleteConfirmation();
   void cancelDeleteConfirmation();
   void clearDeleteConfirmationIfExpired();
@@ -535,6 +541,10 @@ class App {
   int settingsField_ = 0;
   bool settingsDirty_ = false;
   bool settingsEditingField_ = false;
+  bool appearancePickerOpen_ = false;
+  int appearancePickerHue_ = 0;
+  int appearancePickerValue_ = 0;
+  std::uint32_t appearancePickerOriginalColor_ = 0;
   std::string stagedDigiKeySecret_;
   bool stagedDigiKeySecretChanged_ = false;
   bool hasStoredDigiKeySecret_ = false;

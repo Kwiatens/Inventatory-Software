@@ -20,9 +20,10 @@ using namespace std;
 namespace {
 
 ftxui::Element rackFixedCell(const string& text, int width, ftxui::Color color, bool rightAlign = false) {
+  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
   auto content = rightAlign
-                     ? ftxui::hbox({ftxui::filler(), styledText(ellipsize(text, static_cast<size_t>(max(0, width))), color)})
-                     : ftxui::hbox({styledText(ellipsize(text, static_cast<size_t>(max(0, width))), color), ftxui::filler()});
+                     ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
+                     : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
   return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
@@ -51,13 +52,13 @@ ftxui::Color rackMovingBannerBg() {
   return uiActiveSoftBg();
 }
 
-ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected) {
+ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, int lowStockThreshold) {
   const auto foreground = item.quantity <= 0 ? uiDangerColor()
-                        : item.lowStock() ? uiWarnColor()
+                        : isLowStock(item, lowStockThreshold) ? uiWarnColor()
                                           : uiSuccessColor();
   const auto background = selected ? uiSelectionBg()
                         : item.quantity <= 0 ? uiDangerBg()
-                        : item.lowStock() ? uiWarningBg()
+                        : isLowStock(item, lowStockThreshold) ? uiWarningBg()
                                           : uiRaisedSurfaceBg();
   return styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background) | ftxui::bold;
 }
@@ -174,7 +175,8 @@ ftxui::Element App::renderRackManagementUi() const {
         }));
         cellRows.push_back(item == nullptr
                                ? styledText("available", uiDimColor())
-                               : ftxui::hbox({ftxui::filler(), rackQuantityIndicator(*item, selected), ftxui::filler()}));
+                               : ftxui::hbox({ftxui::filler(), rackQuantityIndicator(*item, selected, settings_.lowStockThreshold),
+                                              ftxui::filler()}));
         cellRows.push_back(ftxui::paragraphAlignLeft(itemText) |
                            ftxui::color(item == nullptr ? uiDimColor() : uiTitleColor()));
         const int cellWidth = slotWidth + (displayColumn < extraSlotColumns ? 1 : 0);

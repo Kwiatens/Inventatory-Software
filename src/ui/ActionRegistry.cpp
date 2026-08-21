@@ -44,7 +44,8 @@ vector<App::Action> App::currentActions() const {
     self->store_.load(self->inventoryPath_);
     loadInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
     if (self->inventoryHistory_.empty()) {
-      appendInventoryHistory(self->inventoryHistory_, makeInventoryHistoryPoint(self->store_.items()));
+      appendInventoryHistory(self->inventoryHistory_,
+                             makeInventoryHistoryPoint(self->store_.items(), self->settings_.lowStockThreshold));
     }
     saveInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
   };
@@ -157,6 +158,16 @@ vector<App::Action> App::currentActions() const {
     case Page::Settings:
       if (settingsCategory_ == SettingsCategory::General) {
         add("choose data folder", "General", "b", chr('b'), [self] { self->stageInventatoryFolder(); });
+        add("edit low-stock threshold", "General", "e", chr('e'),
+            [self] { self->beginSettingsFieldEdit(0); });
+      }
+      if (settingsCategory_ == SettingsCategory::Appearance) {
+        add("edit hex color", "Appearance", "e", chr('e'),
+            [self] { self->beginSettingsFieldEdit(self->settingsField_); });
+        add("open color picker", "Appearance", "p", chr('p'), [self] { self->openAppearancePicker(); });
+        add("reset selected color", "Appearance", "r", chr('r'),
+            [self] { self->resetSelectedAppearanceColor(); });
+        add("reset all colors", "Appearance", "d", chr('d'), [self] { self->resetAppearanceColors(); });
       }
       if (settingsCategory_ == SettingsCategory::Printer) {
       add("refresh", "Printer", "r", chr('r'), [self] {
