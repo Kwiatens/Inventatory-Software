@@ -302,11 +302,11 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
     }
     case ScanSetupStep::Complete:
       if (bleSetupOutcomeUncertain_) {
-        rows.push_back(styledText("Setup result was not confirmed.", uiWarnColor()) | ftxui::bold);
+        rows.push_back(uiHeaderText("Setup result was not confirmed.", uiWarnColor()));
         rows.push_back(styledText("The token was retained because the R1 may already own it. If it does not connect, run setup again.",
                                   uiTitleColor()));
       } else {
-        rows.push_back(styledText("Setup request accepted.", uiSuccessColor()) | ftxui::bold);
+        rows.push_back(uiHeaderText("Setup request accepted.", uiSuccessColor()));
         rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect to this Inventatory PC automatically.",
                                   uiTitleColor()));
       }

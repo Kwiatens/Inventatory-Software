@@ -58,7 +58,9 @@ ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, i
                                           : uiPrimaryText();
   const auto background = selected ? uiSelectionBg()
                         : uiRaisedSurfaceBg();
-  return styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background) | ftxui::bold;
+  auto indicator = styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background);
+  if (selected) indicator = indicator | ftxui::bold;
+  return indicator;
 }
 
 }  // namespace
@@ -168,7 +170,7 @@ ftxui::Element App::renderRackManagementUi() const {
         ftxui::Elements cellRows;
         cellRows.push_back(ftxui::hbox({
             ftxui::filler(),
-            styledText(slot, titleColor) | ftxui::bold,
+            uiHeaderText(slot, titleColor),
             ftxui::filler(),
         }));
         cellRows.push_back(item == nullptr

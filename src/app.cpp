@@ -214,7 +214,10 @@ ftxui::Element App::renderUi() const {
     body.push_back(renderSearchBarUi());
   }
   body.push_back(renderMessageUi());
-  return ftxui::vbox(move(body)) | ftxui::bgcolor(uiCanvasBg());
+  // FTXUI sizes a root element from its natural content unless it is made
+  // flexible. Keep the application background and every full-width chrome row
+  // attached to the actual terminal width so no right-edge strip is exposed.
+  return ftxui::vbox(move(body)) | ftxui::xflex | ftxui::bgcolor(uiCanvasBg());
 }
 
 // Human-readable name of the active screen, used in the header breadcrumb.
@@ -242,23 +245,21 @@ std::string App::pageName() const {
   return "";
 }
 
-// Header region: breadcrumb on the left, with compact peripheral status boxes
-// on the right (printer, Inventatory Scan device, auto-label).
+// Header region: navigation on the left and the action sheet entry on the
+// right. Peripheral service state remains available through Settings and the
+// action flows rather than occupying persistent chrome.
 ftxui::Element App::renderHeaderUi() const {
-  const auto now = time(nullptr);
-  const bool deviceOnline = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-
   auto self = const_cast<App*>(this);
   const auto nav = [&](Page page, const string& id, const string& label) {
     const bool activePage = page_ == page;
-    auto item = styledText(" " + label + " ", activePage ? uiFocusColor() : uiSecondaryText(),
-                           activePage ? uiSelectionBg() : uiSurfaceBg());
-    if (activePage) item = item | ftxui::bold;
+    auto item = activePage
+                    ? uiHeaderText(" " + label + " ", uiFocusColor(), uiSelectionBg())
+                    : uiBodyText(" " + label + " ", uiSecondaryText(), uiSurfaceBg());
     return target(item, id, UiTargetKind::Navigation, [self, page] { self->changePage(page); });
   };
 
   auto navigation = ftxui::hbox({
-      styledText(" Inventatory ", uiPrimaryText()) | ftxui::bold,
+      uiHeaderText(" Inventatory ", uiPrimaryText()),
       nav(Page::Home, "nav.home", "1 Home"),
       nav(Page::Stock, "nav.stock", "2 Stock"),
       nav(Page::Racks, "nav.racks", "3 Racks"),
@@ -267,37 +268,13 @@ ftxui::Element App::renderHeaderUi() const {
       nav(Page::Settings, "nav.settings", "6 Settings"),
   });
 
-  auto statusSep = [] { return styledText(" ", uiDimColor()); };
-
-  const auto* activeScreen = ftxui::ScreenInteractive::Active();
-  const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
-
   ftxui::Elements header;
   header.push_back(navigation);
   header.push_back(ftxui::filler());
-  // Budget the status group against the persistent navigation and Actions
-  // chip. Full labels disappear before the compact status boxes.
-  if (screenWidth >= 152) {
-    header.push_back(statusTextBox(printerCheck_.ok ? "printer ready" : "printer offline", printerCheck_.ok));
-    header.push_back(statusSep());
-    header.push_back(statusTextBox(deviceOnline ? "scan " + std::to_string(now - deviceLastSeen_) + "s"
-                                                : "scan offline",
-                                   deviceOnline));
-    header.push_back(statusSep());
-    header.push_back(statusTextBox(autoPrintScannedLabels_ ? "auto-label on" : "auto-label off",
-                                   autoPrintScannedLabels_));
-    header.push_back(styledText("   ", uiDividerColor()));
-  } else if (screenWidth >= 100) {
-    header.push_back(statusTextBox("PRN", printerCheck_.ok));
-    header.push_back(statusTextBox("SCAN", deviceOnline));
-    header.push_back(statusTextBox("AUTO", autoPrintScannedLabels_));
-    header.push_back(styledText("  ", uiDividerColor()));
-  }
   header.push_back(target(styledText(" Actions  Space ", uiInteractiveColor(), uiRaisedSurfaceBg()),
                           "shell.actions", UiTargetKind::Action, [self] { self->openActionSheet(); }));
-  header.push_back(ftxui::text(" "));
 
-  return ftxui::hbox(move(header)) | ftxui::bgcolor(uiSurfaceBg());
+  return ftxui::hbox(move(header)) | ftxui::xflex | ftxui::bgcolor(uiSurfaceBg());
 }
 
 ftxui::Element App::renderPageUi() const {
