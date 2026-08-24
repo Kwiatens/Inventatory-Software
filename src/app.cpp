@@ -407,6 +407,21 @@ ftxui::Element App::renderSearchBarUi() const {
 }
 
 ftxui::Element App::renderMessageUi() const {
+  const bool refreshingDigiKey = digiKeyRefreshTotal_ > 0 &&
+                                 (!digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid());
+  if (refreshingDigiKey) {
+    const auto completed = min(digiKeyRefreshCompleted_, digiKeyRefreshTotal_);
+    return ftxui::hbox({
+               styledText(" DigiKey enrichment", uiLinkColor()),
+               styledText("   ", uiLinkColor()),
+               uiProgressBar(static_cast<double>(completed) / static_cast<double>(digiKeyRefreshTotal_), 28,
+                             uiLinkColor()),
+               styledText(" " + to_string(completed) + "/" + to_string(digiKeyRefreshTotal_) + " items",
+                          uiMutedColor()),
+               ftxui::filler(),
+           }) |
+           ftxui::bgcolor(uiPanelLeftBg());
+  }
   const bool enrichingBom = page_ == Page::Projects && bomEnrichmentTotal_ > 0 &&
                             (!bomEnrichmentQueue_.empty() || bomEnrichmentFuture_.valid());
   if (enrichingBom) {
@@ -485,6 +500,7 @@ void App::processBackgroundWork() {
   processUpdateCheck();
   processScanFirmwareCheck();
   processScanDigiKeyEnrichment();
+  processDigiKeyRefresh();
   processBomEnrichment();
 }
 
