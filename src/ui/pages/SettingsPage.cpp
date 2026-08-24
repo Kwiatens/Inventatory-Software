@@ -472,6 +472,9 @@ bool App::saveSettingsDraft() {
   const bool backgroundChanged = settingsDraft_.backgroundServiceEnabled != settings_.backgroundServiceEnabled;
   const bool quickLabelsChanged = settingsDraft_.quickLabelPresets != settings_.quickLabelPresets;
   InventatoryDataPaths switchedPaths;
+  if (dataChanged) {
+    stopDigiKeyRefresh();
+  }
   if (quickLabelsChanged) {
     settingsDraft_.quickLabelRevision = settings_.quickLabelRevision == UINT32_MAX
                                             ? 1U
@@ -947,7 +950,29 @@ ftxui::Element App::renderSettingsUi() const {
                               [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
       }
       rows.push_back(buttonRow(target(uiSecondaryButton("Test credentials"), "settings.digikey.test",
-                                      UiTargetKind::Button, [self] { self->testStagedDigiKey(); })));
+                                       UiTargetKind::Button, [self] { self->testStagedDigiKey(); })));
+      rows.push_back(uiDivider());
+      rows.push_back(uiHeaderText("INVENTORY ENRICHMENT", uiSecondaryText()));
+      const bool refreshRunning = !digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid();
+      string refreshStatus = "Not run";
+      if (refreshRunning) {
+        refreshStatus = "Refreshing " + to_string(digiKeyRefreshCompleted_) + "/" +
+                        to_string(digiKeyRefreshTotal_) + " items";
+      } else if (digiKeyRefreshTotal_ > 0) {
+        refreshStatus = "Last run: " + to_string(digiKeyRefreshSucceeded_) + " updated, " +
+                        to_string(digiKeyRefreshFailed_) + " failed";
+      }
+      rows.push_back(settingLine("Refresh status", refreshStatus, contentWidth));
+      if (!refreshRunning && !digiKeyRefreshLastError_.empty()) {
+        rows.push_back(styledText(
+            ellipsize("Last error: " + digiKeyRefreshLastError_, static_cast<size_t>(max(8, contentWidth))),
+            uiWarnColor()));
+      }
+      const bool refreshEnabled = !refreshRunning && !settingsDirty_;
+      rows.push_back(buttonRow(target(uiPrimaryButton(refreshRunning ? "Refreshing..." : "Refresh inventory data",
+                                                        refreshEnabled),
+                                       "settings.digikey.refresh", UiTargetKind::Button,
+                                       [self] { self->beginDigiKeyRefresh(); }, refreshEnabled)));
     }
   }
 
