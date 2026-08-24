@@ -2,11 +2,12 @@
 
 Inventatory is a Windows terminal application for local hardware inventory management and Scan R1 integration.
 
-For the recommended Windows Terminal presentation, add the profile from
+The normal `.\run.ps1` launch uses the classic Windows Console host
+(`conhost.exe`), which gives Inventatory its compact command-line presentation.
+For an optional Windows Terminal presentation, add the profile from
 [`docs/windows-terminal-profile.json`](docs/windows-terminal-profile.json) as an
-`Inventatory` profile, then use `.\run.ps1 -WindowsTerminal`. The normal
-`.\run.ps1` launch remains available and does not require Windows Terminal or
-JetBrains Mono.
+`Inventatory` profile, then use `.\run.ps1 -WindowsTerminal`. The Windows
+Terminal option requires that profile and JetBrains Mono is recommended for it.
 
 ## Public beta
 

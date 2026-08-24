@@ -214,6 +214,7 @@ vector<App::Action> App::currentActions() const {
           add("begin setup", "DigiKey", "b", chr('b'), [self] { self->openDigiKeySetup(); });
         } else {
           add("test credentials", "DigiKey", "t", chr('t'), [self] { self->testStagedDigiKey(); });
+          add("refresh inventory data", "DigiKey", "r", chr('r'), [self] { self->beginDigiKeyRefresh(); });
         }
       }
       if (settingsDirty_) {

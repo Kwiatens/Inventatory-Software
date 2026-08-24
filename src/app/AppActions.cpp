@@ -217,6 +217,26 @@ DigiKeyApiHandle createDigiKeyApi() {
   return {make_unique<DigiKeyApiClient>(config), {}};
 }
 
+string digiKeyRefreshLookup(const InventoryItem& item) {
+  const auto provider = toLower(trim(item.vendorMetadata.provider));
+  const bool taggedDigiKey = any_of(item.tags.begin(), item.tags.end(), [](const string& tag) {
+    return toLower(trim(tag)) == "digikey";
+  });
+
+  if (!trim(item.digikeyPartNumber).empty()) {
+    return trim(item.digikeyPartNumber);
+  }
+  if (provider == "digikey" && !trim(item.vendorMetadata.providerProductNumber).empty()) {
+    return trim(item.vendorMetadata.providerProductNumber);
+  }
+  // Older imports may retain only the manufacturer/SKU field.  Use that as a
+  // keyword lookup only when the item still carries an explicit DigiKey hint.
+  if ((provider == "digikey" || taggedDigiKey) && !trim(item.sku).empty()) {
+    return trim(item.sku);
+  }
+  return {};
+}
+
 }  // namespace
 
 void App::loadState() {
@@ -304,6 +324,8 @@ bool App::chooseInventatoryFolder() {
     return false;
   }
   activePaths.inventory = selectedInventoryPath;
+
+  stopDigiKeyRefresh();
 
   dataPath_ = move(activePaths.dataDirectory);
   inventoryPath_ = move(activePaths.inventory);
@@ -1343,6 +1365,123 @@ void App::processScanDigiKeyEnrichment() {
     string error;
     return make_pair(itemId, client.fetchProductDetails(lookup, &error));
   });
+}
+
+void App::beginDigiKeyRefresh() {
+  if (!digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid()) {
+    setMessage("DigiKey inventory refresh is already running", 3);
+    return;
+  }
+  if (settingsDirty_) {
+    setMessage("Save DigiKey settings before refreshing inventory data", 4);
+    return;
+  }
+
+  auto api = createDigiKeyApi();
+  if (api.client == nullptr) {
+    setMessage("DigiKey refresh unavailable: " + api.error, 5);
+    return;
+  }
+
+  digiKeyRefreshQueue_.clear();
+  digiKeyRefreshTotal_ = 0;
+  digiKeyRefreshCompleted_ = 0;
+  digiKeyRefreshSucceeded_ = 0;
+  digiKeyRefreshFailed_ = 0;
+  digiKeyRefreshActiveKey_.clear();
+  digiKeyRefreshLastError_.clear();
+  digiKeyRefreshClient_ = move(api.client);
+
+  for (const auto& item : store_.items()) {
+    const auto lookup = digiKeyRefreshLookup(item);
+    if (!lookup.empty()) {
+      digiKeyRefreshQueue_.emplace_back(item.id, lookup);
+    }
+  }
+  digiKeyRefreshTotal_ = digiKeyRefreshQueue_.size();
+  if (digiKeyRefreshTotal_ == 0) {
+    digiKeyRefreshClient_.reset();
+    setMessage("No inventory items with a DigiKey identifier were found", 5);
+    return;
+  }
+
+  setMessage("Refreshing DigiKey data for " + to_string(digiKeyRefreshTotal_) + " inventory items...", 8);
+  dirty_ = true;
+}
+
+void App::processDigiKeyRefresh() {
+  if (digiKeyRefreshFuture_.valid()) {
+    if (digiKeyRefreshFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
+      return;
+    }
+
+    auto result = digiKeyRefreshFuture_.get();
+    digiKeyRefreshActiveKey_.clear();
+    ++digiKeyRefreshCompleted_;
+
+    if (result.details) {
+      auto* item = store_.findById(result.itemId);
+      if (item == nullptr) {
+        ++digiKeyRefreshFailed_;
+        digiKeyRefreshLastError_ = "An inventory item disappeared during refresh";
+      } else {
+        mergeDigiKeyMetadata(*item, *result.details);
+        if (saveState()) {
+          ++digiKeyRefreshSucceeded_;
+        } else {
+          ++digiKeyRefreshFailed_;
+          digiKeyRefreshLastError_ = persistenceError_;
+        }
+      }
+    } else {
+      ++digiKeyRefreshFailed_;
+      digiKeyRefreshLastError_ = result.error.empty() ? "DigiKey returned no product details" : result.error;
+    }
+
+    if (digiKeyRefreshQueue_.empty()) {
+      digiKeyRefreshClient_.reset();
+      const auto summary = "DigiKey refresh complete: " + to_string(digiKeyRefreshSucceeded_) + " updated, " +
+                           to_string(digiKeyRefreshFailed_) + " failed";
+      logActivity("sync", summary);
+      saveState();
+      setMessage(summary, 8);
+      dirty_ = true;
+      return;
+    }
+  }
+
+  if (digiKeyRefreshQueue_.empty() || digiKeyRefreshClient_ == nullptr) {
+    return;
+  }
+
+  const auto [itemId, lookup] = digiKeyRefreshQueue_.front();
+  digiKeyRefreshQueue_.pop_front();
+  digiKeyRefreshActiveKey_ = lookup;
+  auto* client = digiKeyRefreshClient_.get();
+  digiKeyRefreshFuture_ = async(launch::async, [client, itemId, lookup] {
+    DigiKeyRefreshResult result;
+    result.itemId = itemId;
+    if (const auto details = client->fetchProductDetails(lookup, &result.error); details) {
+      result.details = *details;
+    }
+    return result;
+  });
+  dirty_ = true;
+}
+
+void App::stopDigiKeyRefresh() {
+  digiKeyRefreshQueue_.clear();
+  digiKeyRefreshActiveKey_.clear();
+  if (digiKeyRefreshFuture_.valid()) {
+    digiKeyRefreshFuture_.wait();
+    digiKeyRefreshFuture_ = {};
+  }
+  digiKeyRefreshClient_.reset();
+  digiKeyRefreshTotal_ = 0;
+  digiKeyRefreshCompleted_ = 0;
+  digiKeyRefreshSucceeded_ = 0;
+  digiKeyRefreshFailed_ = 0;
+  digiKeyRefreshLastError_.clear();
 }
 
 DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& request) {
