@@ -76,7 +76,7 @@ ftxui::Element App::renderImportCsvUi() const {
                          "import.choose", UiTargetKind::Button, [self] { self->beginCsvImport(); });
     return ftxui::vbox({
         ftxui::filler(),
-        ftxui::hbox({ftxui::filler(), styledText("IMPORT COMPONENTS", uiPrimaryText()) | ftxui::bold,
+        ftxui::hbox({ftxui::filler(), uiHeaderText("IMPORT COMPONENTS", uiPrimaryText()),
                      ftxui::filler()}),
         ftxui::hbox({ftxui::filler(), styledText("DigiKey order CSV  ·  KiCad BOM", uiInfoColor()),
                      ftxui::filler()}),

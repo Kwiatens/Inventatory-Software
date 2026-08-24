@@ -611,7 +611,7 @@ ftxui::Element App::renderSettingsUi() const {
 
   ftxui::Elements rows;
   rows.push_back(ftxui::hbox({
-      styledText(settingsCategoryName(settingsCategory_), uiPrimaryText()) | ftxui::bold,
+      uiHeaderText(settingsCategoryName(settingsCategory_), uiPrimaryText()),
       ftxui::filler(),
       styledText(settingsDirty_ ? "Unsaved changes" : "Saved", settingsDirty_ ? uiWarnColor() : uiSuccessColor()),
       ftxui::text(" "),
@@ -619,12 +619,12 @@ ftxui::Element App::renderSettingsUi() const {
   rows.push_back(uiDivider());
 
   if (settingsCategory_ == SettingsCategory::General) {
-    rows.push_back(styledText("DATA STORAGE", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("DATA STORAGE", uiSecondaryText()));
     rows.push_back(settingLine("Inventatory folder", settingsDraft_.dataDirectory.string(), contentWidth));
     rows.push_back(target(settingLine("Change folder", "Browse...", contentWidth), "settings.data.browse",
                           UiTargetKind::Button, [self] { self->stageInventatoryFolder(); }));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("APPLICATION", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("APPLICATION", uiSecondaryText()));
     rows.push_back(settingLine("Settings file", settingsPath_.string(), contentWidth));
     rows.push_back(target(settingLine("Background & startup", settingsDraft_.backgroundServiceEnabled ? "On" : "Off",
                                       contentWidth),
@@ -642,7 +642,7 @@ ftxui::Element App::renderSettingsUi() const {
                           "settings.general.low_stock_threshold", UiTargetKind::Field,
                           [self] { self->beginSettingsFieldEdit(0); }));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("PUBLIC BETA UPDATES", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("PUBLIC BETA UPDATES", uiSecondaryText()));
     rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
                           "settings.general.updates", UiTargetKind::Field, [self] {
                             self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
@@ -661,7 +661,7 @@ ftxui::Element App::renderSettingsUi() const {
     const int colorCellWidth = max(28, (contentWidth - 2) / 2);
     const auto addAppearanceSection = [&](const string& title,
                                           initializer_list<AppearanceColorRole> roles) {
-      rows.push_back(styledText(title, uiSecondaryText()) | ftxui::bold);
+      rows.push_back(uiHeaderText(title, uiSecondaryText()));
       vector<AppearanceColorRole> section(roles);
       for (size_t offset = 0; offset < section.size(); offset += 2) {
         ftxui::Elements columns;
@@ -722,7 +722,7 @@ ftxui::Element App::renderSettingsUi() const {
     const auto selectedIndex = clamp(settingsField_, 0, static_cast<int>(kAppearanceColorCount) - 1);
     const auto selectedRole = static_cast<AppearanceColorRole>(selectedIndex);
     rows.push_back(uiDivider());
-    rows.push_back(styledText("EDIT COLOR", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("EDIT COLOR", uiSecondaryText()));
     rows.push_back(ftxui::hbox({
         styledText(" Selected", uiSecondaryText()) |
             ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
@@ -743,7 +743,7 @@ ftxui::Element App::renderSettingsUi() const {
                           [self] { self->beginSettingsFieldEdit(self->settingsField_); }));
 
     if (appearancePickerOpen_) {
-      rows.push_back(styledText("HUE / VALUE PICKER", uiSecondaryText()) | ftxui::bold);
+      rows.push_back(uiHeaderText("HUE / VALUE PICKER", uiSecondaryText()));
       for (int value = kAppearancePickerValueSteps - 1; value >= 0; --value) {
         ftxui::Elements pickerRow;
         for (int hue = 0; hue < kAppearancePickerHueSteps; ++hue) {
@@ -794,7 +794,7 @@ ftxui::Element App::renderSettingsUi() const {
                                        [self] { self->resetAppearanceColors(); }));
     rows.push_back(ftxui::hbox(move(appearanceActions)));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
-    rows.push_back(styledText("PRINT QUEUE", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("PRINT QUEUE", uiSecondaryText()));
     rows.push_back(settingLine("Configured queue",
                                settingsDraft_.printerQueue.empty() ? "Not configured" : settingsDraft_.printerQueue,
                                contentWidth));
@@ -805,7 +805,7 @@ ftxui::Element App::renderSettingsUi() const {
                             self->dirty_ = true;
                           }));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("DETECTED QUEUES", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("DETECTED QUEUES", uiSecondaryText()));
     if (printerQueues_.empty()) {
       rows.push_back(styledText("No printer queues detected", uiWarnColor()));
     } else {
@@ -829,7 +829,7 @@ ftxui::Element App::renderSettingsUi() const {
                [self] { self->testStagedPrinter(); }),
     }));
     rows.push_back(uiDivider());
-    rows.push_back(styledText("CUSTOM LABEL", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("CUSTOM LABEL", uiSecondaryText()));
     const auto wireValue = settingsEditingField_ && settingsField_ == 50 ? inputBuffer_ + "_"
                                                                            : wireLabelText_.empty() ? "Enter custom wire text" : wireLabelText_;
     rows.push_back(target(settingLine("Wire label", wireValue, contentWidth, settingsEditingField_ && settingsField_ == 50),
@@ -841,7 +841,7 @@ ftxui::Element App::renderSettingsUi() const {
                                     [self] { self->printWireLabel(self->wireLabelText_); },
                                     !wireLabelText_.empty())));
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
-    rows.push_back(styledText("QUICK LABELS / PRESETS", uiSecondaryText()) | ftxui::bold);
+    rows.push_back(uiHeaderText("QUICK LABELS / PRESETS", uiSecondaryText()));
     const bool canAddPreset = settingsDraft_.quickLabelPresets.size() < kQuickLabelPresetLimit;
     rows.push_back(buttonRow(target(uiPrimaryButton("+ Add quick label", canAddPreset),
                                     "settings.quick_label.add.primary", UiTargetKind::Button,
@@ -884,7 +884,7 @@ ftxui::Element App::renderSettingsUi() const {
     } else {
       // Pairing is the reason this panel exists, so it leads. Token and
       // diagnostics operations stay on the Actions sheet.
-      rows.push_back(styledText("DEVICE", uiSecondaryText()) | ftxui::bold);
+      rows.push_back(uiHeaderText("DEVICE", uiSecondaryText()));
       rows.push_back(buttonRow(target(uiPrimaryButton("Pair new device"), "settings.scan.pair", UiTargetKind::Button,
                                       [self] { self->openInventatoryScanSetup(); })));
       rows.push_back(ftxui::text(""));
@@ -928,7 +928,7 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(buttonRow(target(uiPrimaryButton("Begin Setup"), "settings.digikey.begin_setup", UiTargetKind::Button,
                                     [self] { self->openDigiKeySetup(); })));
     } else {
-      rows.push_back(styledText("DIGIKEY API CREDENTIALS", uiSecondaryText()) | ftxui::bold);
+      rows.push_back(uiHeaderText("DIGIKEY API CREDENTIALS", uiSecondaryText()));
       const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
       const vector<pair<string, string>> fields = {
           {"Client ID", settingsDraft_.digiKeyClientId},

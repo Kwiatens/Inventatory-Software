@@ -51,7 +51,7 @@ ftxui::Element App::renderBomProjectUi() const {
     if (bomProjects_.empty()) {
       return ftxui::vbox({
           ftxui::filler(),
-          centered(styledText("NO PROJECTS", uiPrimaryText()) | ftxui::bold),
+          centered(uiHeaderText("NO PROJECTS", uiPrimaryText())),
           centered(styledText("Import a KiCad BOM from the Import page", uiSecondaryText())),
           ftxui::text(""),
           centered(target(styledText(" Import a BOM ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.import",
@@ -126,7 +126,7 @@ ftxui::Element App::renderBomProjectUi() const {
     ftxui::Elements header;
     header.push_back(ftxui::hbox({
         styledText(" BUILD  ", uiSecondaryText()),
-        styledText(projectName, uiFocusColor()) | ftxui::bold,
+        uiHeaderText(projectName, uiFocusColor()),
         styledText("   ", uiDimColor()),
         styledText(bomDeductPrompt_ ? string("complete")
                                     : "stop " + to_string(stepIndex + 1) + "/" + to_string(steps.size()),
@@ -250,7 +250,7 @@ ftxui::Element App::renderBomProjectUi() const {
           const auto bodyColor = lit ? (blink ? uiPrimaryText() : uiSecondaryText()) : uiDimColor();
 
           ftxui::Elements cellRows;
-          cellRows.push_back(centered(styledText(slot, slotColor) | ftxui::bold));
+          cellRows.push_back(centered(uiHeaderText(slot, slotColor)));
           cellRows.push_back(ftxui::paragraphAlignLeft(item == nullptr ? string("--") : item->partName) |
                              ftxui::color(bodyColor));
           const int cellWidth = slotWidth + (column < extraColumns ? 1 : 0);
@@ -293,7 +293,7 @@ ftxui::Element App::renderBomProjectUi() const {
 
   ftxui::Elements headerRows;
   headerRows.push_back(ftxui::hbox({
-      styledText(" " + projectName + " ", uiPrimaryText()) | ftxui::bold,
+      uiHeaderText(" " + projectName + " ", uiPrimaryText()),
       styledText("  boards ", uiMutedColor()),
       target(styledText(" x" + to_string(bomAnalysis_.boards) + " ", uiFocusColor(), uiRaisedSurfaceBg()),
              "bom.boards", UiTargetKind::Button, [self] { self->adjustBomBoards(1); }),
