@@ -52,6 +52,22 @@ function Test-WindowsTerminalProfile {
   return $false
 }
 
+function Start-InventatoryClassicConsole {
+  param(
+    [string]$ExecutablePath,
+    [string]$WorkingDirectory
+  )
+
+  # Launch conhost explicitly so Windows does not redirect this console app to
+  # the user's default Windows Terminal profile.
+  $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+  $commandLine = 'title Inventatory && "{0}"' -f $ExecutablePath
+  Start-Process -FilePath $consoleHost `
+    -WorkingDirectory $WorkingDirectory `
+    -ArgumentList @($env:ComSpec, '/k', $commandLine) `
+    -WindowStyle Normal
+}
+
 if ($WindowsTerminal) {
   $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
   if ($wt -and (Test-WindowsTerminalProfile -Name 'Inventatory')) {
@@ -73,5 +89,5 @@ if ($WindowsTerminal) {
   }
 }
 
-Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -WindowStyle Normal
+Start-InventatoryClassicConsole -ExecutablePath $exe -WorkingDirectory (Split-Path $exe)
 
