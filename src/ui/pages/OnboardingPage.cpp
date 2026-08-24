@@ -46,33 +46,33 @@ void App::finishOnboarding() {
 
 ftxui::Element App::renderOnboardingUi() const {
   ftxui::Elements rows;
-  rows.push_back(styledText("$ inventatory first-run setup", uiSuccessColor()) | ftxui::bold);
+  rows.push_back(uiHeaderText("$ inventatory first-run setup", uiSuccessColor()));
   rows.push_back(styledText("step> " + onboardingStepName(static_cast<int>(onboardingStep_)), uiMutedText()));
   rows.push_back(uiDivider());
 
   switch (onboardingStep_) {
     case OnboardingStep::Welcome:
-      rows.push_back(styledText("Welcome to Inventatory.", uiTitleColor()) | ftxui::bold);
+      rows.push_back(uiHeaderText("Welcome to Inventatory.", uiTitleColor()));
       rows.push_back(ftxui::text("Your inventory stays on this PC. Optional features can be configured later."));
       rows.push_back(styledText("> Press Enter to begin", uiLinkColor()));
       break;
     case OnboardingStep::DataFolder:
-      rows.push_back(styledText("Inventory data folder", uiAccentColor()) | ftxui::bold);
+      rows.push_back(uiHeaderText("Inventory data folder", uiAccentColor()));
       rows.push_back(ftxui::text("Default: " + dataPath_.string()));
       rows.push_back(ftxui::text("Enter keeps this location. Press B to choose another folder."));
       break;
     case OnboardingStep::BackgroundService:
-      rows.push_back(styledText("Keep Inventatory running in the background?", uiAccentColor()) | ftxui::bold);
+      rows.push_back(uiHeaderText("Keep Inventatory running in the background?", uiAccentColor()));
       rows.push_back(ftxui::text("When enabled, Inventatory starts when you sign in and remains available in the notification area after this terminal closes."));
       rows.push_back(styledText("Y enables it  |  N keeps it off (default)", uiLinkColor()));
       break;
     case OnboardingStep::ScanR1:
-      rows.push_back(styledText("Do you have a hardware Inventatory Scan R1 scanning device?", uiAccentColor()) | ftxui::bold);
+      rows.push_back(uiHeaderText("Do you have a hardware Inventatory Scan R1 scanning device?", uiAccentColor()));
       rows.push_back(ftxui::text("The Scan R1 is an optional handheld device that scans parts into this Inventatory PC."));
       rows.push_back(styledText("Y starts Scan R1 setup now  |  N continues without one", uiLinkColor()));
       break;
     case OnboardingStep::Complete:
-      rows.push_back(styledText("Your Inventatory workspace is ready.", uiSuccessColor()) | ftxui::bold);
+      rows.push_back(uiHeaderText("Your Inventatory workspace is ready.", uiSuccessColor()));
       rows.push_back(ftxui::text("You can configure printers, Scan R1, vendor integrations, startup, and data location later in Settings."));
       rows.push_back(styledText("Press Enter to open the dashboard.", uiLinkColor()));
       break;

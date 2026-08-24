@@ -184,6 +184,23 @@ ftxui::Element styledText(const string& text, optional<ftxui::Color> fg,
   return element;
 }
 
+ftxui::Element uiHeaderText(const string& text, optional<ftxui::Color> fg,
+                            optional<ftxui::Color> bg) {
+  return styledText(text, fg, bg) | ftxui::bold;
+}
+
+ftxui::Element uiBodyText(const string& text, optional<ftxui::Color> fg,
+                          optional<ftxui::Color> bg) {
+  return styledText(text, fg, bg);
+}
+
+ftxui::Element uiSectionHeader(const string& text, optional<ftxui::Color> fg,
+                               optional<ftxui::Color> bg) {
+  const auto fill = bg.value_or(uiSurfaceBg());
+  return ftxui::hbox({uiHeaderText(text, fg, fill), ftxui::filler()}) |
+         ftxui::bgcolor(fill);
+}
+
 ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg,
                         optional<ftxui::Color> bg) {
   auto element = ftxui::hbox({ftxui::text(text), ftxui::filler()});
@@ -209,7 +226,7 @@ ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::
                      optional<ftxui::Color> borderColor) {
   (void)borderColor;
   ftxui::Elements content;
-  content.push_back(fullLine(title, titleColor.value_or(uiSecondaryText()), uiSurfaceBg()) | ftxui::bold);
+  content.push_back(uiSectionHeader(title, titleColor.value_or(uiSecondaryText()), uiSurfaceBg()));
   content.push_back(uiDivider());
   for (auto& row : body) content.push_back(move(row));
   return ftxui::vbox(move(content)) | ftxui::bgcolor(uiSurfaceBg());
@@ -219,8 +236,8 @@ ftxui::Element footerField(const string& title, const string& body, ftxui::Color
                            ftxui::Color background, bool flashing) {
   const auto fill = flashing ? uiWarningBg() : background;
   return ftxui::hbox({
-             styledText(" " + title + ": ", titleColor, fill) | ftxui::bold,
-             styledText(body, bodyColor, fill),
+             uiHeaderText(" " + title + ": ", titleColor, fill),
+             uiBodyText(body, bodyColor, fill),
              ftxui::filler(),
          }) |
          ftxui::bgcolor(fill);
@@ -230,7 +247,7 @@ ftxui::Element uiPrimaryButton(const string& label, bool enabled) {
   // Filled petrol-cyan on canvas-dark text. The inversion is what separates a
   // primary control from the surrounding label/value lines at a glance.
   if (!enabled) return styledText("  " + label + "  ", uiMutedText(), uiRaisedSurfaceBg());
-  return styledText("  " + label + "  ", uiCanvasBg(), uiInteractiveColor()) | ftxui::bold;
+  return uiHeaderText("  " + label + "  ", uiCanvasBg(), uiInteractiveColor());
 }
 
 ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg, bool enabled) {
@@ -241,7 +258,7 @@ ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg,
 ftxui::Element statusTextBox(const string& label, bool active) {
   auto box = styledText(" " + label + " ", active ? uiFocusColor() : uiMutedColor(),
                         active ? uiActiveSoftBg() : uiSurfaceBg());
-  if (active) box = box | ftxui::bold;
+  if (active) box = uiHeaderText(" " + label + " ", uiFocusColor(), uiActiveSoftBg());
   return box;
 }
 
@@ -258,7 +275,9 @@ ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected)
                            : (quantity <= 0 ? uiDangerBg()
                                             : (isLowStock(item, lowStockThreshold) ? uiWarningBg()
                                                              : uiRaisedSurfaceBg()));
-  return ftxui::text(" " + to_string(quantity) + " ") | ftxui::bold | ftxui::color(fg) | ftxui::bgcolor(bg);
+  auto badge = uiBodyText(" " + to_string(quantity) + " ", fg, bg);
+  if (selected) badge = badge | ftxui::bold;
+  return badge;
 }
 
 long long uiAnimationTicks() {
