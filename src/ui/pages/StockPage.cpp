@@ -70,7 +70,7 @@ ftxui::Element App::renderStockUi() const {
   const auto quantityCell = [&](int quantity) {
     return ftxui::hbox({
         ftxui::filler(),
-        styledText(to_string(quantity), uiPrimaryText()) | ftxui::bold,
+        uiBodyText(to_string(quantity), uiPrimaryText()),
         ftxui::text(" "),
     }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
   };
@@ -129,7 +129,8 @@ ftxui::Element App::renderStockUi() const {
             listRows.push_back(
                 ruledRow(ftxui::text("") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth), uiSurfaceBg()));
           }
-          listRows.push_back(ruledRow(fixedCell(" " + toUpper(category), partWidth, uiSecondaryText()) | ftxui::bold,
+          listRows.push_back(ruledRow(uiHeaderText(" " + toUpper(category), uiSecondaryText()) |
+                                          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth),
                                       uiRaisedSurfaceBg()));
         }
       }
@@ -201,12 +202,12 @@ ftxui::Element App::renderStockUi() const {
     const bool passive = categoryContains(*item, {"resistor", "capacitor", "inductor", "diode", "fuse",
                                                    "thermistor", "varistor", "crystal", "resonator"});
     const auto manufacturer = trim(item->manufacturer).empty() ? string("UNKNOWN MANUFACTURER") : item->manufacturer;
-    detailRows.push_back(styledText(manufacturer, uiPrimaryText()) | ftxui::bold);
+    detailRows.push_back(uiBodyText(manufacturer, uiPrimaryText()));
     if (!passive) {
       detailRows.push_back(styledText(item->partName, uiSecondaryText()));
     } else {
       const auto primary = electricalFields.empty() ? item->partName : electricalFields.front().value;
-      ftxui::Elements summary = {styledText(primary, uiPrimaryText()) | ftxui::bold};
+      ftxui::Elements summary = {uiBodyText(primary, uiPrimaryText())};
       for (size_t index = 1; index < electricalFields.size() && index < 3; ++index) {
         if (trim(electricalFields[index].value).empty()) continue;
         summary.push_back(styledText("  " + electricalFields[index].value, uiSecondaryText()));
@@ -226,9 +227,9 @@ ftxui::Element App::renderStockUi() const {
     detailRows.push_back(uiDivider());
     detailRows.push_back(ftxui::hbox({
         styledText(" Qty ", uiSecondaryText()),
-        styledText(to_string(item->quantity), quantityColor) | ftxui::bold,
+        uiBodyText(to_string(item->quantity), quantityColor),
         styledText("     Rack ", uiSecondaryText()),
-        styledText(rack.empty() ? "NOT ASSIGNED" : rack, rack.empty() ? uiWarnColor() : uiFocusColor()) | ftxui::bold,
+        uiBodyText(rack.empty() ? "NOT ASSIGNED" : rack, rack.empty() ? uiWarnColor() : uiFocusColor()),
         ftxui::filler(),
     }));
 
