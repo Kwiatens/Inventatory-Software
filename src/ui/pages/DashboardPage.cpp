@@ -42,6 +42,7 @@ struct AttentionRow {
 struct AttentionLine {
   string title;
   const AttentionRow* row = nullptr;
+  AttentionGroup group = AttentionGroup::Low;
 };
 
 struct DashboardSnapshot {
@@ -55,25 +56,27 @@ struct DashboardSnapshot {
   vector<ActivityEntry> recentEvents;
 };
 
-ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, bool rightAlign = false) {
+ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, bool rightAlign = false,
+                         bool header = false) {
   const auto clipped = ellipsize(value, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
-  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
-                            : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
+  const auto text = header ? uiHeaderText(clipped, color) : uiBodyText(clipped, color);
+  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), text, ftxui::text(" ")})
+                            : ftxui::hbox({text, ftxui::filler()});
   return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-ftxui::Color attentionColor(AttentionSeverity severity) {
-  if (severity == AttentionSeverity::Out) return uiDangerColor();
-  if (severity == AttentionSeverity::Low) return uiWarnColor();
-  return uiSecondaryText();
+ftxui::Color attentionHeaderColor(AttentionGroup group) {
+  const auto severityColor = group == AttentionGroup::Out ? uiDangerColor() : uiWarnColor();
+  return uiBlinkOn(1200) ? severityColor : uiPrimaryText();
 }
 
-ftxui::Element metricCard(const string& label, size_t value, ftxui::Color valueColor) {
+ftxui::Element metricCard(const string& label, size_t value, ftxui::Color valueColor, int width) {
   return ftxui::vbox({
-             styledText(label, uiMutedColor()),
-             styledText(to_string(value), valueColor) | ftxui::bold,
+             uiHeaderText(label, uiMutedColor()),
+             uiBodyText(to_string(value), valueColor),
          }) |
-         ftxui::bgcolor(uiRaisedSurfaceBg()) | ftxui::flex;
+         ftxui::bgcolor(uiRaisedSurfaceBg()) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
 vector<ActivityEntry> recentEventEntries(const vector<ActivityEntry>& activities, size_t limit) {
@@ -153,9 +156,9 @@ vector<AttentionLine> attentionLines(const DashboardSnapshot& snapshot) {
       const auto title = currentGroup == AttentionGroup::Out
                              ? "OUT OF STOCK"
                              : "LOW STOCK";
-      lines.push_back({title, nullptr});
+      lines.push_back({title, nullptr, currentGroup});
     }
-    lines.push_back({{}, &row});
+    lines.push_back({{}, &row, row.group});
   }
   return lines;
 }
@@ -176,9 +179,9 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
 
   ftxui::Elements rows;
   rows.push_back(centred(ftxui::hbox({
-      fixedCell("Part", partWidth, uiMutedColor()),
+      fixedCell("Part", partWidth, uiMutedColor(), false, true),
       ftxui::separator() | ftxui::color(uiDividerColor()),
-      fixedCell("Qty", quantityWidth, uiMutedColor(), true),
+      fixedCell("Qty", quantityWidth, uiMutedColor(), true, true),
   })));
 
   const auto lines = attentionLines(snapshot);
@@ -193,21 +196,29 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
     for (size_t index = 0; index < visible; ++index) {
       const auto& line = lines[(offset + index) % lines.size()];
       if (line.row == nullptr) {
-        rows.push_back(centred(styledText(" " + line.title, uiPrimaryText(), uiRaisedSurfaceBg()) |
+        rows.push_back(centred(uiSectionHeader(" " + line.title, attentionHeaderColor(line.group),
+                                               uiRaisedSurfaceBg()) |
                                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth)));
         continue;
       }
       const auto& row = *line.row;
       const auto background = index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg();
       rows.push_back(centred(ftxui::hbox({
-          fixedCell("  " + row.partName, partWidth, attentionColor(row.severity)),
+          fixedCell("  " + row.partName, partWidth, uiPrimaryText()),
           ftxui::separator() | ftxui::color(uiDividerColor()),
           fixedCell(to_string(row.quantity), quantityWidth, uiPrimaryText(), true),
       }) | ftxui::bgcolor(background)));
     }
   }
-  return panel("NEEDS ATTENTION  " + to_string(snapshot.attention.size()), move(rows), uiPrimaryText(),
-               uiDividerColor()) | ftxui::flex;
+  ftxui::Elements content;
+  content.push_back(ftxui::hbox({
+      uiHeaderText("NEEDS ATTENTION", uiPrimaryText()),
+      uiBodyText("  " + to_string(snapshot.attention.size()), uiMutedColor()),
+      ftxui::filler(),
+  }) | ftxui::bgcolor(uiSurfaceBg()));
+  content.push_back(uiDivider());
+  for (auto& row : rows) content.push_back(move(row));
+  return ftxui::vbox(move(content)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
 }
 
 }  // namespace
@@ -219,27 +230,45 @@ ftxui::Element App::renderDashboardUi() const {
   const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 7));
   auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit, settings_.lowStockThreshold);
 
-  auto metrics = ftxui::hbox({
-      metricCard("TOTAL PARTS TRACKED", snapshot.itemCount, uiPrimaryText()), uiDivider(),
-      metricCard("TOTAL UNITS TRACKED", snapshot.totalQuantity, uiPrimaryText()), uiDivider(),
-      metricCard("LOW STOCK", snapshot.lowStockCount, uiPrimaryText()),
-      uiDivider(),
-      metricCard("OUT OF STOCK", snapshot.outOfStockCount, uiPrimaryText()),
-  });
+  const int metricSpace = max(4, screenWidth - 3);
+  const int metricBaseWidth = metricSpace / 4;
+  const int metricExtraColumns = metricSpace % 4;
+  const auto metricWidth = [&](int index) { return metricBaseWidth + (index < metricExtraColumns ? 1 : 0); };
+  ftxui::Elements metricRows;
+  metricRows.push_back(metricCard("TOTAL PARTS TRACKED", snapshot.itemCount, uiPrimaryText(), metricWidth(0)));
+  metricRows.push_back(uiDivider());
+  metricRows.push_back(metricCard("TOTAL UNITS TRACKED", snapshot.totalQuantity, uiPrimaryText(), metricWidth(1)));
+  metricRows.push_back(uiDivider());
+  metricRows.push_back(metricCard("LOW STOCK", snapshot.lowStockCount, uiPrimaryText(), metricWidth(2)));
+  metricRows.push_back(uiDivider());
+  metricRows.push_back(metricCard("OUT OF STOCK", snapshot.outOfStockCount, uiPrimaryText(), metricWidth(3)));
+  auto metrics = ftxui::hbox(move(metricRows)) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, screenWidth);
 
-  const int alertWidth = max(50, (screenWidth - 1) / 2);
-  const int activityWidth = max(50, screenWidth - alertWidth - 1);
+  const int panelSpace = max(2, screenWidth - 1);
+  const int alertWidth = max(1, panelSpace / 2);
+  const int activityWidth = max(1, panelSpace - alertWidth);
   const int activityTextWidth = max(30, activityWidth - 4);
+  constexpr int activityDateWidth = 16;
   ftxui::Elements activityRows;
   if (snapshot.recentEvents.empty()) {
-    activityRows.push_back(styledText("No activity yet.", uiMutedColor()));
+    activityRows.push_back(uiBodyText("No activity yet.", uiMutedColor()));
   } else {
     for (size_t index = 0; index < snapshot.recentEvents.size(); ++index) {
       const auto& entry = snapshot.recentEvents[index];
-      activityRows.push_back(fullLine(
-          ellipsize(nowTimestampString(entry.timestamp) + "  " + entry.kind + "  " + entry.message,
-                    static_cast<size_t>(activityTextWidth)),
-          recentEventColor(entry), index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
+      const auto activityTextWidthRemaining = max(0, activityTextWidth - activityDateWidth - 3);
+      activityRows.push_back(
+          ftxui::hbox({
+              uiHeaderText(ellipsize(nowTimestampString(entry.timestamp), activityDateWidth), uiSecondaryText()) |
+                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityDateWidth),
+              uiBodyText(" - ", uiDimColor()),
+              uiBodyText(ellipsize(entry.kind + "  " + entry.message,
+                                   static_cast<size_t>(activityTextWidthRemaining)),
+                         recentEventColor(entry)),
+              ftxui::filler(),
+          }) |
+          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityTextWidth) |
+          ftxui::bgcolor(index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
     }
   }
   auto recentPanel = panel("RECENT ACTIVITY", move(activityRows), uiSecondaryText(), uiDividerColor()) | ftxui::flex;
