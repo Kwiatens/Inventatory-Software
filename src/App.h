@@ -189,6 +189,12 @@ class App {
     bool complete = false;
   };
 
+  struct DigiKeyRefreshResult {
+    std::string itemId;
+    std::optional<DigiKeyProductDetails> details;
+    std::string error;
+  };
+
   void loadState();
   bool saveState();
   void handleKey(const KeyEvent& key);
@@ -245,6 +251,9 @@ class App {
   void requestUserExit();
   void processBackgroundWork();
   void processScanDigiKeyEnrichment();
+  void beginDigiKeyRefresh();
+  void processDigiKeyRefresh();
+  void stopDigiKeyRefresh();
   void beginUpdateCheckIfDue();
   void processUpdateCheck();
   void beginScanFirmwareCheck();
@@ -515,6 +524,17 @@ class App {
   std::future<std::pair<std::string, std::string>> bomEnrichmentFuture_;
   std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
   std::future<std::pair<std::string, std::optional<DigiKeyProductDetails>>> scanDigiKeyEnrichmentFuture_;
+  // Inventory-wide DigiKey recovery runs one lookup per tick so restoring
+  // lost vendor metadata never blocks the terminal or changes stock counts.
+  std::deque<std::pair<std::string, std::string>> digiKeyRefreshQueue_;
+  size_t digiKeyRefreshTotal_ = 0;
+  size_t digiKeyRefreshCompleted_ = 0;
+  size_t digiKeyRefreshSucceeded_ = 0;
+  size_t digiKeyRefreshFailed_ = 0;
+  std::string digiKeyRefreshActiveKey_;
+  std::string digiKeyRefreshLastError_;
+  std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
+  std::future<DigiKeyRefreshResult> digiKeyRefreshFuture_;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
   std::vector<Action> sheetActions_;

@@ -72,11 +72,12 @@ selection provide the only background changes.
 Truecolor is the reference rendering. Terminals without truecolor may use their
 nearest xterm-256 colors; text and glyphs keep all states understandable.
 
-JetBrains Mono is the recommended Windows Terminal font. The repository includes
-`docs/windows-terminal-profile.json` as a profile snippet; it is intentionally not
-installed or merged into the user's terminal settings automatically. Developers
-can launch with `.\run.ps1 -WindowsTerminal` after adding that profile as
-`Inventatory`.
+The normal `.\run.ps1` launch uses the classic Windows Console host
+(`conhost.exe`). JetBrains Mono is the recommended font for the optional Windows
+Terminal presentation. The repository includes `docs/windows-terminal-profile.json`
+as a profile snippet; it is intentionally not installed or merged into the user's
+terminal settings automatically. Developers can launch with
+`.\run.ps1 -WindowsTerminal` after adding that profile as `Inventatory`.
 
 ## Input model
 
