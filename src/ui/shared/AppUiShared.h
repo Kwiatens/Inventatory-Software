@@ -78,6 +78,14 @@ ftxui::Color uiRowSelectedBg();
 
 ftxui::Element styledText(const string& text, optional<ftxui::Color> fg = nullopt,
                           optional<ftxui::Color> bg = nullopt);
+// Semantic text helpers keep the application-wide hierarchy explicit: section
+// labels and headings are bold, while ordinary content remains normal weight.
+ftxui::Element uiHeaderText(const string& text, optional<ftxui::Color> fg = nullopt,
+                            optional<ftxui::Color> bg = nullopt);
+ftxui::Element uiBodyText(const string& text, optional<ftxui::Color> fg = nullopt,
+                          optional<ftxui::Color> bg = nullopt);
+ftxui::Element uiSectionHeader(const string& text, optional<ftxui::Color> fg = nullopt,
+                               optional<ftxui::Color> bg = nullopt);
 ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg = nullopt,
                         optional<ftxui::Color> bg = nullopt);
 ftxui::Element bulletLine(const string& label, const string& value, ftxui::Color labelColor,
