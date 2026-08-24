@@ -13,13 +13,23 @@ $downloadRoot = Join-Path $env:TEMP ('Inventatory-' + [guid]::NewGuid())
 $stagingRoot = "$installRoot.staging"
 $backupRoot = "$installRoot.backup"
 
-function New-Shortcut([string]$path, [string]$target, [string]$arguments = '') {
+function New-Shortcut([string]$path, [string]$target, [string]$arguments = '', [string]$workingDirectory = '') {
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut($path)
   $shortcut.TargetPath = $target
   $shortcut.Arguments = $arguments
-  $shortcut.WorkingDirectory = Split-Path $target
+  $shortcut.WorkingDirectory = if ($workingDirectory) { $workingDirectory } else { Split-Path $target }
   $shortcut.Save()
+}
+
+function Start-InventatoryClassicConsole([string]$exe, [string]$workingDirectory) {
+  # Launch conhost explicitly so installed shortcuts use the classic console
+  # even when Windows Terminal is the system default for console applications.
+  $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+  $commandLine = 'title Inventatory && "{0}"' -f $exe
+  Start-Process -FilePath $consoleHost `
+    -WorkingDirectory $workingDirectory `
+    -ArgumentList @($env:ComSpec, '/k', $commandLine)
 }
 
 function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory) {
@@ -38,7 +48,7 @@ function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory
     } while ((Get-Date) -lt $deadline)
   }
   Write-Host "`rLaunching Inventatory now.                                      "
-  Start-Process -FilePath $exe -WorkingDirectory $workingDirectory
+  Start-InventatoryClassicConsole $exe $workingDirectory
 }
 
 try {
@@ -75,11 +85,13 @@ try {
   }
 
   $exe = Join-Path $installRoot 'inventatory.exe'
+  $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+  $consoleArguments = '"{0}" /k title Inventatory && "{1}"' -f $env:ComSpec, $exe
   $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-  New-Shortcut (Join-Path $programs 'Inventatory.lnk') $exe
+  New-Shortcut (Join-Path $programs 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot
   $makeDesktop = $DesktopShortcut
   if (-not $DesktopShortcut) { $makeDesktop = (Read-Host 'Create a desktop shortcut? [y/N]') -match '^[Yy]' }
-  if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $exe }
+  if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot }
 
   Write-Host "Inventatory $tag installed for this Windows user."
   if (-not $NoLaunch) { Start-InventatoryAfterCountdown $exe $installRoot }
