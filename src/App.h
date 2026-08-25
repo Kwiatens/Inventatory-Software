@@ -212,6 +212,7 @@ class App {
   void handleEditValueKey(const KeyEvent& key);
   void handleRackValueKey(const KeyEvent& key);
   void handleStockFilterKey(const KeyEvent& key);
+  void scrollDashboardActivity(int delta);
 
   ftxui::Element renderUi() const;
   ftxui::Element renderHeaderUi() const;
@@ -451,6 +452,7 @@ class App {
   size_t selectedPosition_ = 0;
   size_t stockScroll_ = 0;
   size_t detailScroll_ = 0;
+  size_t dashboardActivityScroll_ = 0;
   size_t rackSelection_ = 0;
   int rackRow_ = 0;
   int rackColumn_ = 0;
@@ -509,6 +511,7 @@ class App {
   bool bomSplitShortFocused_ = false;
   mutable ftxui::Box bomReadyPanelBounds_;
   mutable ftxui::Box bomShortPanelBounds_;
+  mutable ftxui::Box dashboardActivityBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
   // Line keys still awaiting a DigiKey suggestion; drained one per tick so the

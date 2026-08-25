@@ -19,11 +19,6 @@ using namespace std;
 
 namespace {
 
-enum class AttentionSeverity {
-  Low = 2,
-  Out = 3,
-};
-
 enum class AttentionGroup {
   Out,
   Low,
@@ -35,7 +30,6 @@ struct AttentionRow {
   string location;
   string reason;
   int quantity = 0;
-  AttentionSeverity severity = AttentionSeverity::Low;
   AttentionGroup group = AttentionGroup::Low;
 };
 
@@ -63,11 +57,6 @@ ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, boo
   auto content = rightAlign ? ftxui::hbox({ftxui::filler(), text, ftxui::text(" ")})
                             : ftxui::hbox({text, ftxui::filler()});
   return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
-}
-
-ftxui::Color attentionHeaderColor(AttentionGroup group) {
-  const auto severityColor = group == AttentionGroup::Out ? uiDangerColor() : uiWarnColor();
-  return uiBlinkOn(1200) ? severityColor : uiPrimaryText();
 }
 
 ftxui::Element metricCard(const string& label, size_t value, ftxui::Color valueColor, int width) {
@@ -124,12 +113,10 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
     if (outOfStock) {
       row.issue = "OUT";
       row.reason = "Replenish stock";
-      row.severity = AttentionSeverity::Out;
       row.group = AttentionGroup::Out;
     } else if (lowStock) {
       row.issue = "LOW";
       row.reason = "Threshold " + to_string(lowStockThreshold);
-      row.severity = AttentionSeverity::Low;
       row.group = AttentionGroup::Low;
     } else {
       continue;
@@ -145,6 +132,17 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   return snapshot;
 }
 
+int dashboardActivityPageSize() {
+  const auto* activeScreen = ftxui::ScreenInteractive::Active();
+  const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 30;
+  return max(1, screenHeight - 7);
+}
+
+size_t dashboardActivityMaxScroll(size_t activityCount) {
+  const auto visibleRows = static_cast<size_t>(dashboardActivityPageSize());
+  return activityCount > visibleRows ? activityCount - visibleRows : 0;
+}
+
 vector<AttentionLine> attentionLines(const DashboardSnapshot& snapshot) {
   vector<AttentionLine> lines;
   AttentionGroup currentGroup = AttentionGroup::Out;
@@ -154,8 +152,8 @@ vector<AttentionLine> attentionLines(const DashboardSnapshot& snapshot) {
       currentGroup = row.group;
       groupStarted = true;
       const auto title = currentGroup == AttentionGroup::Out
-                             ? "OUT OF STOCK"
-                             : "LOW STOCK";
+                             ? "Out of stock"
+                             : "Low on stock";
       lines.push_back({title, nullptr, currentGroup});
     }
     lines.push_back({{}, &row, row.group});
@@ -190,15 +188,14 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
     // that there are no attention items.
   } else {
     const auto visible = min(lines.size(), static_cast<size_t>(max(4, height - 4)));
-    const auto offset = lines.size() > visible
-                           ? static_cast<size_t>((uiAnimationTicks() / 1500) % lines.size())
-                           : 0;
+    const bool highlightWarnings = uiBlinkOn(1500);
     for (size_t index = 0; index < visible; ++index) {
-      const auto& line = lines[(offset + index) % lines.size()];
+      const auto& line = lines[index];
       if (line.row == nullptr) {
         rows.push_back(centred(
             ftxui::hbox({
-                fixedCell(" " + line.title, partWidth, attentionHeaderColor(line.group)),
+                uiHeaderText(line.title, uiPrimaryText()) |
+                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth),
                 ftxui::separator() | ftxui::color(uiDividerColor()),
                 fixedCell("", quantityWidth, uiMutedColor(), true),
             }) |
@@ -207,7 +204,9 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
         continue;
       }
       const auto& row = *line.row;
-      const auto background = index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg();
+      const auto normalBackground = index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg();
+      const auto highlightBackground = line.group == AttentionGroup::Out ? uiDangerBg() : uiWarningBg();
+      const auto background = highlightWarnings ? highlightBackground : normalBackground;
       rows.push_back(centred(ftxui::hbox({
           fixedCell("  " + row.partName, partWidth, uiPrimaryText()),
           ftxui::separator() | ftxui::color(uiDividerColor()),
@@ -224,8 +223,7 @@ ftxui::Element App::renderDashboardUi() const {
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 30;
-  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 7));
-  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit, settings_.lowStockThreshold);
+  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, activities_.size(), settings_.lowStockThreshold);
 
   // Keep the second metric divider on the same column as the split below.
   const int splitPosition = max(1, screenWidth / 2);
@@ -252,6 +250,8 @@ ftxui::Element App::renderDashboardUi() const {
   const int activityWidth = max(1, screenWidth - alertWidth - 1);
   const int activityTextWidth = max(30, activityWidth - 4);
   constexpr int activityDateWidth = 16;
+  const auto maxActivityScroll = dashboardActivityMaxScroll(activities_.size());
+  const auto activityScroll = min(dashboardActivityScroll_, maxActivityScroll);
   ftxui::Elements activityRows;
   if (snapshot.recentEvents.empty()) {
     activityRows.push_back(uiBodyText("No activity yet.", uiMutedColor()));
@@ -274,18 +274,70 @@ ftxui::Element App::renderDashboardUi() const {
     }
   }
   auto recentPanel = ftxui::vbox(move(activityRows)) |
+                     ftxui::focusPosition(0, static_cast<int>(activityScroll)) |
+                     ftxui::yframe | ftxui::vscroll_indicator |
                      ftxui::bgcolor(uiSurfaceBg()) |
                      ftxui::flex;
 
   auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 5) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, alertWidth);
-  auto activitySide = recentPanel | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityWidth) | ftxui::flex;
+  auto activitySide = recentPanel |
+                       ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityWidth) |
+                       ftxui::flex |
+                       ftxui::reflect(dashboardActivityBounds_);
   auto mainContent = ftxui::hbox({queue, uiDivider(), activitySide}) | ftxui::flex;
 
   return ftxui::vbox({metrics, uiDivider(), mainContent}) | ftxui::bgcolor(uiCanvasBg());
 }
 
+void App::scrollDashboardActivity(int delta) {
+  if (activities_.empty() || delta == 0) return;
+
+  // Resize or data refresh can reduce the valid range without an input event.
+  // Normalize before applying a reverse scroll so stale overscroll never has
+  // to be consumed one keypress at a time.
+  const auto maxScroll = dashboardActivityMaxScroll(activities_.size());
+  dashboardActivityScroll_ = min(dashboardActivityScroll_, maxScroll);
+
+  if (delta < 0) {
+    const auto amount = static_cast<size_t>(-(static_cast<long long>(delta)));
+    dashboardActivityScroll_ = amount >= dashboardActivityScroll_ ? 0 : dashboardActivityScroll_ - amount;
+  } else {
+    dashboardActivityScroll_ = min(maxScroll, dashboardActivityScroll_ + static_cast<size_t>(delta));
+  }
+  dirty_ = true;
+}
+
 void App::handleDashboardKey(const KeyEvent& key) {
+  if (key.type == KeyType::Up || key.type == KeyType::Down || key.type == KeyType::PageUp ||
+      key.type == KeyType::PageDown || key.type == KeyType::Home || key.type == KeyType::End) {
+    switch (key.type) {
+      case KeyType::Up:
+        scrollDashboardActivity(-1);
+        break;
+      case KeyType::Down:
+        scrollDashboardActivity(1);
+        break;
+      case KeyType::PageUp:
+        scrollDashboardActivity(-dashboardActivityPageSize());
+        break;
+      case KeyType::PageDown:
+        scrollDashboardActivity(dashboardActivityPageSize());
+        break;
+      case KeyType::Home:
+        dashboardActivityScroll_ = 0;
+        dirty_ = true;
+        break;
+      case KeyType::End:
+        dashboardActivityScroll_ = dashboardActivityMaxScroll(activities_.size());
+        dirty_ = true;
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
   if (key.type == KeyType::Character) {
     switch (tolower(static_cast<unsigned char>(key.ch))) {
       case '1':
@@ -294,6 +346,12 @@ void App::handleDashboardKey(const KeyEvent& key) {
         break;
       case 'n':
         beginEditCurrentItem(true);
+        break;
+      case 'j':
+        scrollDashboardActivity(1);
+        break;
+      case 'k':
+        scrollDashboardActivity(-1);
         break;
       case '4':
       case 'r':

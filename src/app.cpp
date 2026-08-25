@@ -732,6 +732,9 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
   if (mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown) {
     const int delta = mouse.button == ftxui::Mouse::WheelUp ? -1 : 1;
     if (page_ == Page::Stock) moveSelection(delta);
+    else if (page_ == Page::Home && uiBoxContains(dashboardActivityBounds_, mouse.x, mouse.y)) {
+      scrollDashboardActivity(delta);
+    }
     else if (page_ == Page::Import) moveImportSelection(delta);
     else if (page_ == Page::Projects) {
       if (bomView_ == BomView::Split) {
