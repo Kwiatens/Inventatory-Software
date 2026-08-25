@@ -77,6 +77,14 @@ class App {
     Complete,
   };
 
+  enum class ScannerDashboardState {
+    Unknown,
+    Unpaired,
+    Waiting,
+    Online,
+    Offline,
+  };
+
   enum class DigiKeySetupStep {
     Introduction,
     ClientId,
@@ -290,6 +298,7 @@ class App {
   void enqueueDeviceDebug(const DeviceDebugReport& report);
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
   void processDeviceSyncEvents();
+  void updateDashboardScannerState();
   void adjustDeviceDebugScroll(int delta);
   std::string inventatoryScanDeviceSummary() const;
   ftxui::Element renderDeviceDebugConsoleUi() const;
@@ -552,6 +561,9 @@ class App {
   DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
   time_t scannerFlashUntil_ = 0;
+  ScannerDashboardState scannerDashboardState_ = ScannerDashboardState::Unknown;
+  long long scannerDashboardTransitionStartedAt_ = -1;
+  bool scannerDashboardTransitionExpanding_ = false;
   time_t printerFlashUntil_ = 0;
   bool autoPrintScannedLabels_ = true;
   std::filesystem::path settingsPath_;
