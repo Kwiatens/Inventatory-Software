@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cctype>
 #include <cstdlib>
+#include <ctime>
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
@@ -35,6 +36,19 @@
 namespace inventatory {
 
 using namespace std;
+
+namespace {
+
+string currentDateTimeText() {
+  const auto now = time(nullptr);
+  tm localTime{};
+  localtime_s(&localTime, &now);
+  char buffer[32]{};
+  strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &localTime);
+  return buffer;
+}
+
+}  // namespace
 
 
 KeyEvent translateEvent(const ftxui::Event& event) {
@@ -245,9 +259,8 @@ std::string App::pageName() const {
   return "";
 }
 
-// Header region: navigation on the left and the action sheet entry on the
-// right. Peripheral service state remains available through Settings and the
-// action flows rather than occupying persistent chrome.
+// Header region: navigation only. The action sheet remains keyboard-accessible
+// through Space without taking permanent space from the dashboard.
 ftxui::Element App::renderHeaderUi() const {
   auto self = const_cast<App*>(this);
   const auto nav = [&](Page page, const string& id, const string& label) {
@@ -271,8 +284,7 @@ ftxui::Element App::renderHeaderUi() const {
   ftxui::Elements header;
   header.push_back(navigation);
   header.push_back(ftxui::filler());
-  header.push_back(target(styledText(" Actions  Space ", uiInteractiveColor(), uiRaisedSurfaceBg()),
-                          "shell.actions", UiTargetKind::Action, [self] { self->openActionSheet(); }));
+  header.push_back(uiBodyText(" " + currentDateTimeText() + " ", uiSecondaryText()));
 
   return ftxui::hbox(move(header)) | ftxui::xflex | ftxui::bgcolor(uiSurfaceBg());
 }
@@ -303,6 +315,10 @@ ftxui::Element App::renderPageUi() const {
 }
 
 ftxui::Element App::renderSearchBarUi() const {
+  if (page_ == Page::Home && inputMode_ == InputMode::None) {
+    return fullLine("", uiMutedColor(), uiPanelLeftBg());
+  }
+
   // Stock item editing renders inline in the Detail panel (see StockPage.cpp),
   // so this context line stays a plain search row instead of duplicating it.
   const bool stockEditing =
@@ -495,6 +511,7 @@ void App::processBackgroundWork() {
   processScans();
   processDeviceRequests();
   processDeviceSyncEvents();
+  updateDashboardScannerState();
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();

@@ -1926,6 +1926,29 @@ void App::processDeviceRequests() {
   }
 }
 
+void App::updateDashboardScannerState() {
+  ScannerDashboardState next = ScannerDashboardState::Unpaired;
+  if (!trim(inventatoryScanConfig_.token).empty()) {
+    if (trim(inventatoryScanConfig_.deviceId).empty()) {
+      next = ScannerDashboardState::Waiting;
+    } else {
+      const auto now = time(nullptr);
+      next = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15
+                 ? ScannerDashboardState::Online
+                 : ScannerDashboardState::Offline;
+    }
+  }
+
+  if (next == scannerDashboardState_) return;
+  const auto previous = scannerDashboardState_;
+  scannerDashboardState_ = next;
+  const bool collapsing = previous == ScannerDashboardState::Online && next == ScannerDashboardState::Offline;
+  const bool expanding = previous == ScannerDashboardState::Offline && next == ScannerDashboardState::Online;
+  scannerDashboardTransitionStartedAt_ = collapsing || expanding ? uiAnimationTicks() : -1;
+  scannerDashboardTransitionExpanding_ = expanding;
+  dirty_ = true;
+}
+
 string App::inventatoryScanDeviceSummary() const {
   if (trim(inventatoryScanConfig_.token).empty()) return "R1 UNPAIRED";
   if (trim(inventatoryScanConfig_.deviceId).empty()) return "R1 WAITING FOR DEVICE";
