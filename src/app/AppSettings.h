@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "core/Inventory.h"
+
 namespace inventatory {
 
 constexpr int kDefaultLowStockThreshold = 5;
@@ -92,6 +94,8 @@ struct AppSettings {
   // Shared wire-label shortcuts published to the paired Scan R1.
   std::vector<std::string> quickLabelPresets;
   std::uint32_t quickLabelRevision = 1;
+  // Tolerances for physical value comparison in search.
+  PhysicalValueTolerances physicalValueTolerances;
 };
 
 std::filesystem::path appSettingsDirectory();
