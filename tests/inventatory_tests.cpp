@@ -184,6 +184,214 @@ class MockPrinterBackend final : public PrinterBackend {
 
 }  // namespace
 
+// Forward declarations for physical value tests
+void testPhysicalValueParsing();
+void testPhysicalValueMatching();
+void testPhysicalValueSearchIntegration();
+
+// Physical value parsing and matching tests
+void testPhysicalValueParsing() {
+  // Capacitance values
+  auto cap1 = parsePhysicalValue("100nF");
+  assert(cap1.has_value());
+  assert(cap1->type == PhysicalValueType::Capacitance);
+  assert(std::abs(cap1->value - 1e-7) < 1e-15);
+
+  auto cap2 = parsePhysicalValue("0.1uF");
+  assert(cap2.has_value());
+  assert(cap2->type == PhysicalValueType::Capacitance);
+  assert(std::abs(cap2->value - 1e-7) < 1e-15);
+
+  auto cap3 = parsePhysicalValue("1uF");
+  assert(cap3.has_value());
+  assert(cap3->type == PhysicalValueType::Capacitance);
+  assert(std::abs(cap3->value - 1e-6) < 1e-15);
+
+  auto cap4 = parsePhysicalValue("10uF");
+  assert(cap4.has_value());
+  assert(cap4->type == PhysicalValueType::Capacitance);
+  assert(std::abs(cap4->value - 1e-5) < 1e-15);
+
+  auto cap5 = parsePhysicalValue("100pF");
+  assert(cap5.has_value());
+  assert(cap5->type == PhysicalValueType::Capacitance);
+  assert(std::abs(cap5->value - 1e-10) < 1e-15);
+
+  // Resistance values
+  auto res1 = parsePhysicalValue("10k Ohm");
+  assert(res1.has_value());
+  assert(res1->type == PhysicalValueType::Resistance);
+  assert(std::abs(res1->value - 10000.0) < 0.01);
+
+  auto res2 = parsePhysicalValue("4R7");
+  assert(res2.has_value());
+  assert(res2->type == PhysicalValueType::Resistance);
+  assert(std::abs(res2->value - 4.7) < 0.01);
+
+  auto res3 = parsePhysicalValue("100 Ohm");
+  assert(res3.has_value());
+  assert(res3->type == PhysicalValueType::Resistance);
+  assert(std::abs(res3->value - 100.0) < 0.01);
+
+  auto res4 = parsePhysicalValue("1M");
+  assert(res4.has_value());
+  assert(res4->type == PhysicalValueType::Resistance);
+  assert(std::abs(res4->value - 1000000.0) < 1.0);
+
+  // Inductance values
+  auto ind1 = parsePhysicalValue("4.7uH");
+  assert(ind1.has_value());
+  assert(ind1->type == PhysicalValueType::Inductance);
+  assert(std::abs(ind1->value - 4.7e-6) < 1e-10);
+
+  auto ind2 = parsePhysicalValue("10mH");
+  assert(ind2.has_value());
+  assert(ind2->type == PhysicalValueType::Inductance);
+  assert(std::abs(ind2->value - 0.01) < 0.0001);
+
+  // Frequency values
+  auto freq1 = parsePhysicalValue("1MHz");
+  assert(freq1.has_value());
+  assert(freq1->type == PhysicalValueType::Frequency);
+  assert(std::abs(freq1->value - 1e6) < 1.0);
+
+  auto freq2 = parsePhysicalValue("100kHz");
+  assert(freq2.has_value());
+  assert(freq2->type == PhysicalValueType::Frequency);
+  assert(std::abs(freq2->value - 100000.0) < 0.1);
+
+  // Case insensitive
+  auto capUpper = parsePhysicalValue("100NF");
+  assert(capUpper.has_value());
+  assert(capUpper->type == PhysicalValueType::Capacitance);
+
+  // Invalid inputs
+  assert(!parsePhysicalValue("").has_value());
+  assert(!parsePhysicalValue("abc").has_value());
+  assert(!parsePhysicalValue("123").has_value());
+}
+
+void testPhysicalValueMatching() {
+  // 100nF should match 0.1uF (same value, different prefix)
+  assert(physicalValueMatches("100nF", "0.1uF", 0.01));
+
+  // 10k Ohm should match 10000 Ohm
+  assert(physicalValueMatches("10k Ohm", "10000 Ohm", 0.01));
+
+  // 4R7 should match 4.7 Ohm
+  assert(physicalValueMatches("4R7", "4.7 Ohm", 0.01));
+
+  // 4.7uH should match 4700nH
+  assert(physicalValueMatches("4.7uH", "4700nH", 0.01));
+
+  // 1MHz should match 1000kHz
+  assert(physicalValueMatches("1MHz", "1000kHz", 0.01));
+
+  // Different types should not match
+  assert(!physicalValueMatches("100nF", "100 Ohm", 0.01));
+
+  // Out of tolerance should not match
+  assert(!physicalValueMatches("100nF", "120nF", 0.01));
+
+  // Within tolerance should match
+  assert(physicalValueMatches("100nF", "101nF", 0.01));
+}
+
+void testPhysicalValueSearchIntegration() {
+  vector<InventoryItem> items;
+
+  // Item with 0.1uF capacitance
+  InventoryItem cap1;
+  cap1.id = "cap-01uf";
+  cap1.partName = "0.1uF Capacitor";
+  cap1.category = "Capacitors";
+  cap1.quantity = 50;
+  cap1.parameters = {{"Capacitance", "0.1uF"}, {"Voltage", "50V"}};
+  items.push_back(cap1);
+
+  // Item with 100nF capacitance (physically same as 0.1uF)
+  InventoryItem cap2;
+  cap2.id = "cap-100nf";
+  cap2.partName = "100nF Capacitor";
+  cap2.category = "Capacitors";
+  cap2.quantity = 100;
+  cap2.parameters = {{"Capacitance", "100nF"}, {"Voltage", "50V"}};
+  items.push_back(cap2);
+
+  // Item with 1uF capacitance (different value)
+  InventoryItem cap3;
+  cap3.id = "cap-1uf";
+  cap3.partName = "1uF Capacitor";
+  cap3.category = "Capacitors";
+  cap3.quantity = 25;
+  cap3.parameters = {{"Capacitance", "1uF"}, {"Voltage", "16V"}};
+  items.push_back(cap3);
+
+  // Item with 10k Ohm resistance
+  InventoryItem res1;
+  res1.id = "res-10k";
+  res1.partName = "10k Resistor";
+  res1.category = "Resistors";
+  res1.quantity = 200;
+  res1.parameters = {{"Resistance", "10k Ohm"}, {"Tolerance", "1%"}};
+  items.push_back(res1);
+
+  // Item with 10000 Ohm resistance (physically same as 10k)
+  InventoryItem res2;
+  res2.id = "res-10000";
+  res2.partName = "10000 Ohm Resistor";
+  res2.category = "Resistors";
+  res2.quantity = 150;
+  res2.parameters = {{"Resistance", "10000 Ohm"}, {"Tolerance", "1%"}};
+  items.push_back(res2);
+
+  // Search for "100nF" should find both cap1 and cap2
+  auto capFiltered = filterItems(items, "100nF");
+  assert(capFiltered.size() >= 2);
+  bool foundCap1 = false, foundCap2 = false;
+  for (size_t idx : capFiltered) {
+    if (items[idx].id == "cap-01uf") foundCap1 = true;
+    if (items[idx].id == "cap-100nf") foundCap2 = true;
+  }
+  assert(foundCap1);
+  assert(foundCap2);
+
+  // Search for "0.1uF" should find both cap1 and cap2
+  capFiltered = filterItems(items, "0.1uF");
+  assert(capFiltered.size() >= 2);
+  foundCap1 = false;
+  foundCap2 = false;
+  for (size_t idx : capFiltered) {
+    if (items[idx].id == "cap-01uf") foundCap1 = true;
+    if (items[idx].id == "cap-100nf") foundCap2 = true;
+  }
+  assert(foundCap1);
+  assert(foundCap2);
+
+  // Search for "10k" should find both res1 and res2
+  auto resFiltered = filterItems(items, "10k");
+  assert(resFiltered.size() >= 2);
+  bool foundRes1 = false, foundRes2 = false;
+  for (size_t idx : resFiltered) {
+    if (items[idx].id == "res-10k") foundRes1 = true;
+    if (items[idx].id == "res-10000") foundRes2 = true;
+  }
+  assert(foundRes1);
+  assert(foundRes2);
+
+  // param: prefix should also work with physical values
+  auto paramFiltered = filterItems(items, "param:Capacitance=0.1uF");
+  assert(paramFiltered.size() >= 2);
+  foundCap1 = false;
+  foundCap2 = false;
+  for (size_t idx : paramFiltered) {
+    if (items[idx].id == "cap-01uf") foundCap1 = true;
+    if (items[idx].id == "cap-100nf") foundCap2 = true;
+  }
+  assert(foundCap1);
+  assert(foundCap2);
+}
+
 int main() {
 #ifdef _WIN32
   // The persistence tests below must exercise the statically linked, pinned
