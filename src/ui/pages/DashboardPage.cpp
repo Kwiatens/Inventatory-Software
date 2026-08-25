@@ -179,7 +179,7 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
 
   ftxui::Elements rows;
   rows.push_back(centred(ftxui::hbox({
-      fixedCell("Part", partWidth, uiMutedColor(), false, true),
+      fixedCell("Stock warnings", partWidth, uiMutedColor(), false, true),
       ftxui::separator() | ftxui::color(uiDividerColor()),
       fixedCell("Qty", quantityWidth, uiMutedColor(), true, true),
   })));
@@ -196,9 +196,14 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
     for (size_t index = 0; index < visible; ++index) {
       const auto& line = lines[(offset + index) % lines.size()];
       if (line.row == nullptr) {
-        rows.push_back(centred(uiSectionHeader(" " + line.title, attentionHeaderColor(line.group),
-                                               uiRaisedSurfaceBg()) |
-                               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth)));
+        rows.push_back(centred(
+            ftxui::hbox({
+                fixedCell(" " + line.title, partWidth, attentionHeaderColor(line.group)),
+                ftxui::separator() | ftxui::color(uiDividerColor()),
+                fixedCell("", quantityWidth, uiMutedColor(), true),
+            }) |
+            ftxui::bgcolor(uiRaisedSurfaceBg()) |
+            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth)));
         continue;
       }
       const auto& row = *line.row;
@@ -210,15 +215,7 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
       }) | ftxui::bgcolor(background)));
     }
   }
-  ftxui::Elements content;
-  content.push_back(ftxui::hbox({
-      uiHeaderText("NEEDS ATTENTION", uiPrimaryText()),
-      uiBodyText("  " + to_string(snapshot.attention.size()), uiMutedColor()),
-      ftxui::filler(),
-  }) | ftxui::bgcolor(uiSurfaceBg()));
-  content.push_back(uiDivider());
-  for (auto& row : rows) content.push_back(move(row));
-  return ftxui::vbox(move(content)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
 }
 
 }  // namespace
@@ -230,10 +227,16 @@ ftxui::Element App::renderDashboardUi() const {
   const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 7));
   auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit, settings_.lowStockThreshold);
 
+  // Keep the second metric divider on the same column as the split below.
+  const int splitPosition = max(1, screenWidth / 2);
   const int metricSpace = max(4, screenWidth - 3);
-  const int metricBaseWidth = metricSpace / 4;
-  const int metricExtraColumns = metricSpace % 4;
-  const auto metricWidth = [&](int index) { return metricBaseWidth + (index < metricExtraColumns ? 1 : 0); };
+  const int leftMetricSpace = min(metricSpace, max(0, splitPosition - 1));
+  const int rightMetricSpace = max(0, metricSpace - leftMetricSpace);
+  const auto metricWidth = [&](int index) {
+    const int groupSpace = index < 2 ? leftMetricSpace : rightMetricSpace;
+    const int groupIndex = index % 2;
+    return groupSpace / 2 + (groupIndex < groupSpace % 2 ? 1 : 0);
+  };
   ftxui::Elements metricRows;
   metricRows.push_back(metricCard("TOTAL PARTS TRACKED", snapshot.itemCount, uiPrimaryText(), metricWidth(0)));
   metricRows.push_back(uiDivider());
@@ -245,9 +248,8 @@ ftxui::Element App::renderDashboardUi() const {
   auto metrics = ftxui::hbox(move(metricRows)) |
                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, screenWidth);
 
-  const int panelSpace = max(2, screenWidth - 1);
-  const int alertWidth = max(1, panelSpace / 2);
-  const int activityWidth = max(1, panelSpace - alertWidth);
+  const int alertWidth = splitPosition;
+  const int activityWidth = max(1, screenWidth - alertWidth - 1);
   const int activityTextWidth = max(30, activityWidth - 4);
   constexpr int activityDateWidth = 16;
   ftxui::Elements activityRows;
@@ -271,7 +273,9 @@ ftxui::Element App::renderDashboardUi() const {
           ftxui::bgcolor(index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
     }
   }
-  auto recentPanel = panel("RECENT ACTIVITY", move(activityRows), uiSecondaryText(), uiDividerColor()) | ftxui::flex;
+  auto recentPanel = ftxui::vbox(move(activityRows)) |
+                     ftxui::bgcolor(uiSurfaceBg()) |
+                     ftxui::flex;
 
   auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 5) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, alertWidth);
