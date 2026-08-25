@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// Attention-first dashboard rendering and keyboard handling.
+// Alert-led dashboard rendering and keyboard handling.
 
 #include "App.h"
 
@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <ctime>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -39,12 +40,6 @@ struct AttentionRow {
   AttentionGroup group = AttentionGroup::Low;
 };
 
-struct AttentionLine {
-  string title;
-  const AttentionRow* row = nullptr;
-  AttentionGroup group = AttentionGroup::Low;
-};
-
 struct DashboardSnapshot {
   size_t itemCount = 0;
   size_t totalQuantity = 0;
@@ -56,6 +51,14 @@ struct DashboardSnapshot {
   vector<ActivityEntry> recentEvents;
 };
 
+constexpr long long kWarningRowStepMs = 120;
+constexpr long long kWarningHoldMs = 1600;
+constexpr long long kWarningRestMs = 800;
+constexpr long long kScannerTabRollMs = 700;
+constexpr long long kScannerMessageCycleMs = 3200;
+constexpr int kScannerExpandedHeight = 8;
+constexpr int kScannerSlimHeight = 3;
+
 ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, bool rightAlign = false,
                          bool header = false) {
   const auto clipped = ellipsize(value, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
@@ -65,17 +68,36 @@ ftxui::Element fixedCell(const string& value, int width, ftxui::Color color, boo
   return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-ftxui::Color attentionHeaderColor(AttentionGroup group) {
-  const auto severityColor = group == AttentionGroup::Out ? uiDangerColor() : uiWarnColor();
-  return uiBlinkOn(1200) ? severityColor : uiPrimaryText();
+ftxui::Element centeredCell(const string& value, int width, ftxui::Color color, bool header = false) {
+  const auto clipped = ellipsize(value, static_cast<size_t>(max(0, width)));
+  const auto text = header ? uiHeaderText(clipped, color) : uiBodyText(clipped, color);
+  return ftxui::hbox({ftxui::filler(), text, ftxui::filler()}) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-ftxui::Element metricCard(const string& label, size_t value, ftxui::Color valueColor, int width) {
+ftxui::Element plainSectionTitle(const string& title, int width) {
+  const int contentWidth = max(20, width - 2);
+  return ftxui::hbox({uiHeaderText(title, uiPrimaryText()), ftxui::filler()}) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
+         ftxui::bgcolor(uiSurfaceBg());
+}
+
+ftxui::Element metricBlock(const string& label, const string& value, ftxui::Color valueColor, int width) {
   return ftxui::vbox({
-             uiHeaderText(label, uiMutedColor()),
-             uiBodyText(to_string(value), valueColor),
+             uiBodyText(label, uiMutedColor()),
+             uiBodyText(value, valueColor),
          }) |
-         ftxui::bgcolor(uiRaisedSurfaceBg()) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
+         ftxui::bgcolor(uiRaisedSurfaceBg());
+}
+
+ftxui::Element statusLine(const string& label, const string& value, ftxui::Color valueColor, int width) {
+  return ftxui::hbox({
+             uiBodyText(" " + label, uiSecondaryText()),
+             ftxui::filler(),
+             uiBodyText(ellipsize(value, static_cast<size_t>(max(8, width / 2))), valueColor),
+             uiBodyText(" ", uiSecondaryText()),
+         }) |
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
@@ -88,11 +110,8 @@ vector<ActivityEntry> recentEventEntries(const vector<ActivityEntry>& activities
   return entries;
 }
 
-ftxui::Color recentEventColor(const ActivityEntry& entry) {
-  (void)entry;
-  // Activity is background context, so keep it readable without competing
-  // with the current stock alerts and primary controls.
-  return uiSecondaryText();
+ftxui::Color attentionBackground(const AttentionRow&) {
+  return uiSelectionBg();
 }
 
 DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, const vector<ActivityEntry>& activities,
@@ -145,75 +164,209 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   return snapshot;
 }
 
-vector<AttentionLine> attentionLines(const DashboardSnapshot& snapshot) {
-  vector<AttentionLine> lines;
-  AttentionGroup currentGroup = AttentionGroup::Out;
-  bool groupStarted = false;
-  for (const auto& row : snapshot.attention) {
-    if (!groupStarted || row.group != currentGroup) {
-      currentGroup = row.group;
-      groupStarted = true;
-      const auto title = currentGroup == AttentionGroup::Out
-                             ? "OUT OF STOCK"
-                             : "LOW STOCK";
-      lines.push_back({title, nullptr, currentGroup});
-    }
-    lines.push_back({{}, &row, row.group});
-  }
-  return lines;
-}
-
 ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int height) {
-  // Keep the compact Home table visually centred inside its panel rather than
-  // pinning all of its content against the application's left edge.
-  const int contentWidth = max(30, width - 4);
+  const int contentWidth = max(42, width - 2);
+  const int severityWidth = 8;
   const int quantityWidth = 7;
-  const int partWidth = max(16, contentWidth - quantityWidth - 1);
-  const auto centred = [&](ftxui::Element row) {
-    return ftxui::hbox({
-        ftxui::filler(),
-        row | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth),
-        ftxui::filler(),
-    });
-  };
+  const int partWidth = max(14, contentWidth - severityWidth - quantityWidth - 2);
 
   ftxui::Elements rows;
-  rows.push_back(centred(ftxui::hbox({
-      fixedCell("Stock warnings", partWidth, uiMutedColor(), false, true),
-      ftxui::separator() | ftxui::color(uiDividerColor()),
-      fixedCell("Qty", quantityWidth, uiMutedColor(), true, true),
-  })));
+  rows.push_back(ftxui::hbox({
+      fixedCell("STATE", severityWidth, uiMutedColor(), false, true),
+      uiDivider(),
+      fixedCell("PART", partWidth, uiMutedColor(), false, true),
+      uiDivider(),
+      fixedCell("QTY", quantityWidth, uiMutedColor(), true, true),
+  }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth));
 
-  const auto lines = attentionLines(snapshot);
-  if (lines.empty()) {
-    // Keep the empty panel quiet; the zero in the title already communicates
-    // that there are no attention items.
-  } else {
-    const auto visible = min(lines.size(), static_cast<size_t>(max(4, height - 4)));
-    const auto offset = lines.size() > visible
-                           ? static_cast<size_t>((uiAnimationTicks() / 1500) % lines.size())
-                           : 0;
-    for (size_t index = 0; index < visible; ++index) {
-      const auto& line = lines[(offset + index) % lines.size()];
-      if (line.row == nullptr) {
-        rows.push_back(centred(
-            ftxui::hbox({
-                fixedCell(" " + line.title, partWidth, attentionHeaderColor(line.group)),
-                ftxui::separator() | ftxui::color(uiDividerColor()),
-                fixedCell("", quantityWidth, uiMutedColor(), true),
-            }) |
-            ftxui::bgcolor(uiRaisedSurfaceBg()) |
-            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth)));
-        continue;
-      }
-      const auto& row = *line.row;
-      const auto background = index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg();
-      rows.push_back(centred(ftxui::hbox({
-          fixedCell("  " + row.partName, partWidth, uiPrimaryText()),
-          ftxui::separator() | ftxui::color(uiDividerColor()),
-          fixedCell(to_string(row.quantity), quantityWidth, uiPrimaryText(), true),
-      }) | ftxui::bgcolor(background)));
+  if (snapshot.attention.empty()) {
+    rows.push_back(ftxui::vbox({
+                       uiHeaderText("  No stock warnings", uiSuccessColor()),
+                       uiBodyText("  Every tracked part is above the configured threshold.", uiMutedColor()),
+                   }) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
+                   ftxui::bgcolor(uiSurfaceBg()));
+    return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  }
+
+  const size_t maxRows = static_cast<size_t>(max(1, height - 4));
+  const size_t visible = min(snapshot.attention.size(), maxRows);
+  const auto rowCount = max<size_t>(1, visible);
+  const auto cycleDuration = static_cast<long long>(rowCount) * kWarningRowStepMs + kWarningHoldMs + kWarningRestMs;
+  const auto ticks = uiAnimationTicks();
+  const auto cycleIndex = static_cast<size_t>(ticks / cycleDuration);
+  const auto phase = ticks % cycleDuration;
+  const size_t offset = snapshot.attention.size() > visible ? cycleIndex % snapshot.attention.size() : 0;
+  const bool holding = phase >= static_cast<long long>(rowCount) * kWarningRowStepMs &&
+                       phase < static_cast<long long>(rowCount) * kWarningRowStepMs + kWarningHoldMs;
+  const size_t activeRow = phase < static_cast<long long>(rowCount) * kWarningRowStepMs
+                               ? static_cast<size_t>(phase / kWarningRowStepMs)
+                               : rowCount;
+
+  for (size_t index = 0; index < visible; ++index) {
+    const auto& row = snapshot.attention[(offset + index) % snapshot.attention.size()];
+    const bool highlighted = holding || index == activeRow;
+    const auto background = highlighted ? attentionBackground(row)
+                                        : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
+    rows.push_back(ftxui::hbox({
+        centeredCell(row.issue, severityWidth, uiPrimaryText(), true),
+        uiDivider(),
+        centeredCell(row.partName, partWidth, uiPrimaryText()),
+        uiDivider(),
+        fixedCell(to_string(row.quantity), quantityWidth, uiPrimaryText(), true),
+    }) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
+                   ftxui::bgcolor(background));
+  }
+
+  if (snapshot.attention.size() > visible) {
+    rows.push_back(uiBodyText("  Rotating " + to_string(snapshot.attention.size() - visible) + " more warning" +
+                                 (snapshot.attention.size() - visible == 1 ? "" : "s") + " · live attention sweep",
+                             uiMutedColor()));
+  }
+  return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+}
+
+string elapsedText(time_t timestamp) {
+  if (timestamp <= 0) return "never";
+  const auto elapsed = max<long long>(0, static_cast<long long>(time(nullptr) - timestamp));
+  if (elapsed < 2) return "now";
+  if (elapsed < 60) return to_string(elapsed) + "s ago";
+  if (elapsed < 3600) return to_string(elapsed / 60) + "m ago";
+  return to_string(elapsed / 3600) + "h ago";
+}
+
+ftxui::Element scannerActivityBar(bool connected) {
+  constexpr int kSegments = 5;
+  const auto ticks = uiAnimationTicks();
+  const int phase = static_cast<int>((ticks / 180) % (kSegments * 2 - 2));
+  const int active = phase < kSegments ? phase : (kSegments * 2 - 2 - phase);
+  ftxui::Elements segments;
+  for (int index = 0; index < kSegments; ++index) {
+    const bool lit = connected && index == active;
+    segments.push_back(uiBodyText(lit ? "▌" : "│", lit ? uiInteractiveColor() : uiDividerColor()));
+  }
+  return ftxui::vbox(move(segments)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 2);
+}
+
+int scannerPanelHeight(bool connected, long long transitionStartedAt, bool expanding) {
+  const int target = connected ? kScannerExpandedHeight : kScannerSlimHeight;
+  if (transitionStartedAt < 0) return target;
+  const auto elapsed = max(0LL, uiAnimationTicks() - transitionStartedAt);
+  const auto progress = min(1.0, static_cast<double>(elapsed) / static_cast<double>(kScannerTabRollMs));
+  const int start = expanding ? kScannerSlimHeight : kScannerExpandedHeight;
+  return max(kScannerSlimHeight,
+             min(kScannerExpandedHeight,
+                 static_cast<int>(start + (target - start) * progress + (target >= start ? 0.5 : -0.5))));
+}
+
+ftxui::Element scannerPanel(const string& state, bool connected, bool /*paired*/, long long transitionStartedAt,
+                            bool transitionExpanding, const string& firmware, int rssi, const string& mode,
+                            int pendingEvents, time_t lastSeen, time_t lastSync, const string& lastResult,
+                            int width) {
+  const int contentWidth = max(28, width - 2);
+  const int panelHeight = scannerPanelHeight(connected, transitionStartedAt, transitionExpanding);
+  ftxui::Elements rows;
+  rows.push_back(plainSectionTitle("Inventatory Scanner", width));
+
+  ftxui::Elements body;
+  if (connected) {
+    body.push_back(uiHeaderText("ONLINE · monitoring inventory", uiSuccessColor()));
+    body.push_back(uiBodyText("FW " + (firmware.empty() ? string("unknown") : firmware) + " · RSSI " +
+                                  to_string(rssi) + " dBm",
+                              uiSecondaryText()));
+    body.push_back(uiBodyText("Mode " + (mode.empty() ? string("idle") : mode) + " · queue " +
+                                  to_string(max(0, pendingEvents)),
+                              uiSecondaryText()));
+    body.push_back(uiBodyText("Sync " + elapsedText(lastSync) + " · seen " + elapsedText(lastSeen), uiMutedColor()));
+    if (!lastResult.empty()) {
+      body.push_back(uiBodyText("Last " + ellipsize(lastResult, static_cast<size_t>(max(12, contentWidth - 2))),
+                                lastResult.rfind("ERROR", 0) == 0 ? uiDangerColor() : uiAccentColor()));
     }
+  } else {
+    string message;
+    if (state == "UNPAIRED") {
+      message = "Pair Scanner R1 in Settings";
+    } else if (state == "WAITING") {
+      message = "Please connect the Inventatory Scanner";
+    } else {
+      const bool firstMessage = (uiAnimationTicks() / kScannerMessageCycleMs) % 2 == 0;
+      message = firstMessage ? "Inventatory Scanner Disconnected" : "Please reconnect the device.";
+    }
+    body.push_back(uiBodyText(ellipsize(message, static_cast<size_t>(max(8, contentWidth))), uiMutedColor()));
+  }
+
+  auto bodyElement = ftxui::vbox(move(body)) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, connected ? contentWidth - 3 : contentWidth);
+  ftxui::Elements bodyRow;
+  if (connected) {
+    bodyRow = {scannerActivityBar(true), ftxui::text(" "), move(bodyElement), ftxui::filler()};
+  } else {
+    bodyRow = {move(bodyElement), ftxui::filler()};
+  }
+  rows.push_back(ftxui::hbox(move(bodyRow)) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth));
+  return ftxui::vbox(move(rows)) |
+         ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, panelHeight) |
+         ftxui::yframe |
+         ftxui::bgcolor(uiSurfaceBg());
+}
+
+ftxui::Element healthPanel(const DashboardSnapshot& snapshot, const string& persistenceError, int width) {
+  const int contentWidth = max(28, width - 2);
+  const int metricWidth = max(12, (contentWidth - 1) / 2);
+  const bool databaseReady = persistenceError.empty();
+  ftxui::Elements rows;
+  rows.push_back(plainSectionTitle("INVENTORY DATABASE STATUS", width));
+  rows.push_back(ftxui::hbox({
+      metricBlock("Parts tracked", to_string(snapshot.itemCount), uiPrimaryText(), metricWidth),
+      uiDivider(),
+      metricBlock("Units tracked", to_string(snapshot.totalQuantity), uiPrimaryText(), metricWidth),
+  }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth));
+  rows.push_back(uiDivider());
+  rows.push_back(ftxui::hbox({
+      metricBlock("Low stock", to_string(snapshot.lowStockCount),
+                  snapshot.lowStockCount > 0 ? uiWarnColor() : uiSuccessColor(), metricWidth),
+      uiDivider(),
+      metricBlock("Out of stock", to_string(snapshot.outOfStockCount),
+                  snapshot.outOfStockCount > 0 ? uiDangerColor() : uiSuccessColor(), metricWidth),
+  }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth));
+  rows.push_back(uiDivider());
+  rows.push_back(uiHeaderText("DATA QUALITY", uiMutedColor()));
+  rows.push_back(statusLine("Missing metadata", to_string(snapshot.missingMetadataCount),
+                            snapshot.missingMetadataCount > 0 ? uiWarnColor() : uiSuccessColor(), contentWidth));
+  rows.push_back(statusLine("Invalid records", to_string(snapshot.dataErrorCount),
+                            snapshot.dataErrorCount > 0 ? uiDangerColor() : uiSuccessColor(), contentWidth));
+  if (!databaseReady) {
+    rows.push_back(uiBodyText(ellipsize(persistenceError, static_cast<size_t>(contentWidth)), uiDangerColor()));
+  }
+  return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg());
+}
+
+ftxui::Element activityPanel(const vector<ActivityEntry>& entries, int width) {
+  const int contentWidth = max(28, width - 2);
+  ftxui::Elements rows;
+  rows.push_back(plainSectionTitle("RECENT ACTIVITY", width));
+  if (entries.empty()) {
+    rows.push_back(uiBodyText("No activity yet.", uiMutedColor()));
+    return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  }
+  for (size_t index = 0; index < entries.size(); ++index) {
+    const auto& entry = entries[index];
+    const auto fullTimestamp = nowTimestampString(entry.timestamp);
+    const auto compactTimestamp = fullTimestamp.size() > 5 ? fullTimestamp.substr(5) : fullTimestamp;
+    const int timestampWidth = min(11, max(8, contentWidth / 3));
+    const int messageWidth = max(8, contentWidth - timestampWidth - 3);
+    rows.push_back(ftxui::hbox({
+                         fixedCell(compactTimestamp, timestampWidth, uiSecondaryText()),
+                         centeredCell("-", 3, uiSecondaryText()),
+                         uiBodyText(ellipsize(entry.kind + " " + entry.message,
+                                              static_cast<size_t>(messageWidth)),
+                                    uiSecondaryText()),
+                         ftxui::filler(),
+                     }) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
+                     ftxui::bgcolor(index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
   }
   return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
 }
@@ -224,65 +377,60 @@ ftxui::Element App::renderDashboardUi() const {
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 30;
-  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 7));
-  auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit, settings_.lowStockThreshold);
+  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 13));
+  const auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit, settings_.lowStockThreshold);
 
-  // Keep the second metric divider on the same column as the split below.
-  const int splitPosition = max(1, screenWidth / 2);
-  const int metricSpace = max(4, screenWidth - 3);
-  const int leftMetricSpace = min(metricSpace, max(0, splitPosition - 1));
-  const int rightMetricSpace = max(0, metricSpace - leftMetricSpace);
-  const auto metricWidth = [&](int index) {
-    const int groupSpace = index < 2 ? leftMetricSpace : rightMetricSpace;
-    const int groupIndex = index % 2;
-    return groupSpace / 2 + (groupIndex < groupSpace % 2 ? 1 : 0);
-  };
-  ftxui::Elements metricRows;
-  metricRows.push_back(metricCard("TOTAL PARTS TRACKED", snapshot.itemCount, uiPrimaryText(), metricWidth(0)));
-  metricRows.push_back(uiDivider());
-  metricRows.push_back(metricCard("TOTAL UNITS TRACKED", snapshot.totalQuantity, uiPrimaryText(), metricWidth(1)));
-  metricRows.push_back(uiDivider());
-  metricRows.push_back(metricCard("LOW STOCK", snapshot.lowStockCount, uiPrimaryText(), metricWidth(2)));
-  metricRows.push_back(uiDivider());
-  metricRows.push_back(metricCard("OUT OF STOCK", snapshot.outOfStockCount, uiPrimaryText(), metricWidth(3)));
-  auto metrics = ftxui::hbox(move(metricRows)) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, screenWidth);
-
-  const int alertWidth = splitPosition;
-  const int activityWidth = max(1, screenWidth - alertWidth - 1);
-  const int activityTextWidth = max(30, activityWidth - 4);
-  constexpr int activityDateWidth = 16;
-  ftxui::Elements activityRows;
-  if (snapshot.recentEvents.empty()) {
-    activityRows.push_back(uiBodyText("No activity yet.", uiMutedColor()));
-  } else {
-    for (size_t index = 0; index < snapshot.recentEvents.size(); ++index) {
-      const auto& entry = snapshot.recentEvents[index];
-      const auto activityTextWidthRemaining = max(0, activityTextWidth - activityDateWidth - 3);
-      activityRows.push_back(
-          ftxui::hbox({
-              uiHeaderText(ellipsize(nowTimestampString(entry.timestamp), activityDateWidth), uiSecondaryText()) |
-                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityDateWidth),
-              uiBodyText(" - ", uiDimColor()),
-              uiBodyText(ellipsize(entry.kind + "  " + entry.message,
-                                   static_cast<size_t>(activityTextWidthRemaining)),
-                         recentEventColor(entry)),
-              ftxui::filler(),
-          }) |
-          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityTextWidth) |
-          ftxui::bgcolor(index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
+  auto scannerState = scannerDashboardState_;
+  if (scannerState == ScannerDashboardState::Unknown) {
+    if (trim(inventatoryScanConfig_.token).empty()) {
+      scannerState = ScannerDashboardState::Unpaired;
+    } else if (trim(inventatoryScanConfig_.deviceId).empty()) {
+      scannerState = ScannerDashboardState::Waiting;
+    } else {
+      const auto now = time(nullptr);
+      scannerState = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15
+                         ? ScannerDashboardState::Online
+                         : ScannerDashboardState::Offline;
     }
   }
-  auto recentPanel = ftxui::vbox(move(activityRows)) |
-                     ftxui::bgcolor(uiSurfaceBg()) |
+
+  const bool scannerConnected = scannerState == ScannerDashboardState::Online;
+  const bool scannerPaired = scannerState != ScannerDashboardState::Unpaired;
+  const string scannerStateText = scannerState == ScannerDashboardState::Unpaired ? "UNPAIRED"
+                                  : scannerState == ScannerDashboardState::Waiting ? "WAITING"
+                                                                                  : scannerState == ScannerDashboardState::Offline ? "OFFLINE"
+                                                                                                                                   : "ONLINE";
+  const int scannerHeight = scannerPanelHeight(scannerConnected, scannerDashboardTransitionStartedAt_,
+                                               scannerDashboardTransitionExpanding_);
+
+  const int minimumRightWidth = 50;
+  const int leftWidth = max(48, min(screenWidth - minimumRightWidth - 1, (screenWidth * 45) / 100));
+  const int rightWidth = max(1, screenWidth - leftWidth - 1);
+  const int dashboardHeight = max(14, screenHeight - 5);
+  const int warningHeight = max(8, dashboardHeight - scannerHeight - 1);
+
+  auto warningSide = ftxui::vbox({
+                         attentionPanel(snapshot, leftWidth, warningHeight) | ftxui::flex,
+                         uiDivider(),
+                         scannerPanel(scannerStateText, scannerConnected, scannerPaired,
+                                      scannerDashboardTransitionStartedAt_, scannerDashboardTransitionExpanding_,
+                                      deviceFirmwareVersion_, deviceRssi_, deviceMode_, devicePendingEventCount_,
+                                      deviceLastSeen_, deviceLastSync_, deviceLastResult_, leftWidth),
+                     }) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, leftWidth) |
                      ftxui::flex;
 
-  auto queue = attentionPanel(snapshot, alertWidth - 2, screenHeight - 5) |
-               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, alertWidth);
-  auto activitySide = recentPanel | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, activityWidth) | ftxui::flex;
-  auto mainContent = ftxui::hbox({queue, uiDivider(), activitySide}) | ftxui::flex;
+  auto healthSide = ftxui::vbox({
+                       healthPanel(snapshot, persistenceError_, rightWidth),
+                       uiDivider(),
+                       activityPanel(snapshot.recentEvents, rightWidth) | ftxui::flex,
+                   }) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, rightWidth) |
+                   ftxui::flex;
 
-  return ftxui::vbox({metrics, uiDivider(), mainContent}) | ftxui::bgcolor(uiCanvasBg());
+  return ftxui::hbox({warningSide, uiDivider(), healthSide}) |
+         ftxui::bgcolor(uiCanvasBg()) |
+         ftxui::flex;
 }
 
 void App::handleDashboardKey(const KeyEvent& key) {
