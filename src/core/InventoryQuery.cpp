@@ -2,6 +2,7 @@
 // Core inventory search, filtering, and summary logic.
 
 #include "core/Inventory.h"
+#include "core/PhysicalValue.h"
 
 #include <algorithm>
 #include <cctype>
@@ -57,7 +58,51 @@ bool tokenMatchesParameter(const InventoryItem& item, const string& value) {
       continue;
     }
 
-    if (needleValue.empty() || parameterValue.find(needleValue) != string::npos) {
+    if (needleValue.empty()) {
+      continue;
+    }
+
+    // Try physical value matching first when the value looks like a physical quantity
+    auto parsedNeedle = parsePhysicalValue(needleValue);
+    if (parsedNeedle.has_value() && parsedNeedle->type != PhysicalValueType::Unknown) {
+      // If a key was specified (e.g. "param:Capacitance=0.1uF"), only match
+      // parameters whose name maps to the same physical type.
+      if (!needleKey.empty()) {
+        auto paramType = parameterNameToType(parameter.name);
+        if (paramType != parsedNeedle->type) {
+          continue;
+        }
+      }
+      double tolerance = defaultTolerance(parsedNeedle->type);
+      if (physicalValueMatches(parameterValue, needleValue, tolerance)) {
+        return true;
+      }
+    }
+
+    // Fall back to substring match
+    if (parameterValue.find(needleValue) != string::npos) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool tokenMatchesParameterPhysically(const InventoryItem& item, const string& token) {
+  auto parsed = parsePhysicalValue(token);
+  if (!parsed.has_value() || parsed->type == PhysicalValueType::Unknown) {
+    return false;
+  }
+
+  double tolerance = defaultTolerance(parsed->type);
+
+  for (const auto& parameter : item.parameters) {
+    auto paramType = parameterNameToType(parameter.name);
+    // Only match if the parameter type matches the parsed needle type
+    if (paramType != parsed->type) {
+      continue;
+    }
+    if (physicalValueMatches(parameter.value, token, tolerance)) {
       return true;
     }
   }
@@ -232,6 +277,11 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
       continue;
     }
     if (containsInsensitive(itemRackLocation, token)) continue;
+
+    // Try physical value matching against parameter values
+    if (tokenMatchesParameterPhysically(item, token)) {
+      continue;
+    }
 
     return false;
   }

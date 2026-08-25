@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/PhysicalValue.h"
+
 #include <ctime>
 #include <filesystem>
 #include <string>
@@ -214,6 +216,9 @@ bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activit
 bool saveActivities(const filesystem::path& path, const vector<ActivityEntry>& activities);
 void appendActivity(vector<ActivityEntry>& activities, const ActivityEntry& entry, size_t maxEntries = 100);
 ActivityEntry makeActivity(string kind, string message);
+
+// Physical value helpers for unit-aware search.
+double toleranceForType(const PhysicalValueTolerances& tolerances, PhysicalValueType type);
 
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
 
