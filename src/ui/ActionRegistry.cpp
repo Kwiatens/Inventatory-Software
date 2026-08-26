@@ -161,6 +161,14 @@ vector<App::Action> App::currentActions() const {
         add("edit low-stock threshold", "General", "e", chr('e'),
             [self] { self->beginSettingsFieldEdit(0); });
       }
+      if (settingsCategory_ == SettingsCategory::Updates) {
+        add("check for updates", "Updates", "c", chr('c'), [self] { self->beginUpdateChecks(); });
+        if (!self->settings_.latestReleaseUrl.empty()) {
+          add("open software release", "Updates", "o", chr('o'), [self] {
+            self->openCurrentUrl(self->settings_.latestReleaseUrl, "software release");
+          });
+        }
+      }
       if (settingsCategory_ == SettingsCategory::Appearance) {
         add("edit hex color", "Appearance", "e", chr('e'),
             [self] { self->beginSettingsFieldEdit(self->settingsField_); });
