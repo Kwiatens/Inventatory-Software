@@ -2,6 +2,7 @@
 // Core inventory search, filtering, and summary logic.
 
 #include "core/Inventory.h"
+#include "core/PhysicalValue.h"
 
 #include <algorithm>
 #include <cctype>
@@ -44,12 +45,14 @@ vector<string> splitTokensRespectingQuotes(const string& query) {
   return tokens;
 }
 
-bool tokenMatchesParameter(const InventoryItem& item, const string& value) {
+bool tokenMatchesParameterList(const vector<Parameter>& parameters, const string& value,
+                               const PhysicalValueTolerances& tolerances) {
   const auto equalsPos = value.find('=');
   const auto needleKey = toLower(equalsPos == string::npos ? value : value.substr(0, equalsPos));
-  const auto needleValue = equalsPos == string::npos ? string() : toLower(value.substr(equalsPos + 1));
+  const auto needleValue = equalsPos == string::npos ? string() : trim(value.substr(equalsPos + 1));
+  const auto loweredNeedleValue = toLower(needleValue);
 
-  for (const auto& parameter : item.parameters) {
+  for (const auto& parameter : parameters) {
     const auto key = toLower(parameter.name);
     const auto parameterValue = toLower(parameter.value);
 
@@ -57,12 +60,69 @@ bool tokenMatchesParameter(const InventoryItem& item, const string& value) {
       continue;
     }
 
-    if (needleValue.empty() || parameterValue.find(needleValue) != string::npos) {
+    if (needleValue.empty()) {
+      continue;
+    }
+
+    // Try physical value matching first when the value looks like a physical quantity
+    auto parsedNeedle = parsePhysicalValue(needleValue);
+    if (parsedNeedle.has_value() && parsedNeedle->type != PhysicalValueType::Unknown) {
+      // If a key was specified (e.g. "param:Capacitance=0.1uF"), only match
+      // parameters whose name maps to the same physical type.
+      if (!needleKey.empty()) {
+        auto paramType = parameterNameToType(parameter.name);
+        if (paramType != PhysicalValueType::Unknown && paramType != parsedNeedle->type) {
+          continue;
+        }
+      }
+      const double tolerance = toleranceForType(tolerances, parsedNeedle->type);
+      if (physicalValueMatches(parameter.value, needleValue, tolerance)) {
+        return true;
+      }
+    }
+
+    // Fall back to substring match
+    if (parameterValue.find(loweredNeedleValue) != string::npos) {
       return true;
     }
   }
 
   return false;
+}
+
+bool tokenMatchesParameter(const InventoryItem& item, const string& value,
+                           const PhysicalValueTolerances& tolerances) {
+  return tokenMatchesParameterList(item.parameters, value, tolerances) ||
+         tokenMatchesParameterList(item.vendorMetadata.parameters, value, tolerances);
+}
+
+bool tokenMatchesParameterPhysicallyList(const vector<Parameter>& parameters, const string& token,
+                                         const PhysicalValueTolerances& tolerances) {
+  auto parsed = parsePhysicalValue(token);
+  if (!parsed.has_value() || parsed->type == PhysicalValueType::Unknown) {
+    return false;
+  }
+
+  const double tolerance = toleranceForType(tolerances, parsed->type);
+
+  for (const auto& parameter : parameters) {
+    auto paramType = parameterNameToType(parameter.name);
+    // Only match if the parameter type matches the parsed needle type
+    if (paramType != PhysicalValueType::Unknown && paramType != parsed->type) {
+      continue;
+    }
+    if (physicalValueMatches(parameter.value, token, tolerance)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool tokenMatchesParameterPhysically(const InventoryItem& item, const string& token,
+                                     const PhysicalValueTolerances& tolerances) {
+  return tokenMatchesParameterPhysicallyList(item.parameters, token, tolerances) ||
+         tokenMatchesParameterPhysicallyList(item.vendorMetadata.parameters, token, tolerances);
 }
 
 bool tokenMatchesQuantity(const InventoryItem& item, const string& token) {
@@ -126,7 +186,7 @@ bool isLowStock(const InventoryItem& item, int threshold) {
 }
 
 bool matchesQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,
-                          int lowStockThreshold) {
+                          int lowStockThreshold, const PhysicalValueTolerances& tolerances) {
   const auto tokens = tokenizeQuery(query);
   if (tokens.empty()) {
     return true;
@@ -213,8 +273,8 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
     }
 
     if (token.rfind("param:", 0) == 0) {
-      const auto value = token.substr(6);
-      if (tokenMatchesParameter(item, value)) {
+      const auto value = rawToken.substr(6);
+      if (tokenMatchesParameter(item, value, tolerances)) {
         continue;
       }
       return false;
@@ -233,6 +293,11 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
     }
     if (containsInsensitive(itemRackLocation, token)) continue;
 
+    // Try physical value matching against parameter values
+    if (tokenMatchesParameterPhysically(item, rawToken, tolerances)) {
+      continue;
+    }
+
     return false;
   }
 
@@ -240,18 +305,33 @@ bool matchesQueryWithRack(const InventoryItem& item, const string& query, const 
 }
 
 bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold) {
-  return matchesQueryWithRack(item, query, {}, lowStockThreshold);
+  return matchesQuery(item, query, lowStockThreshold, PhysicalValueTolerances{});
 }
 
 bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
                   int lowStockThreshold) {
-  return matchesQueryWithRack(item, query, rackLocation(item, racks), lowStockThreshold);
+  return matchesQuery(item, query, racks, lowStockThreshold, PhysicalValueTolerances{});
+}
+
+bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold,
+                  const PhysicalValueTolerances& tolerances) {
+  return matchesQueryWithRack(item, query, {}, lowStockThreshold, tolerances);
+}
+
+bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
+                  int lowStockThreshold, const PhysicalValueTolerances& tolerances) {
+  return matchesQueryWithRack(item, query, rackLocation(item, racks), lowStockThreshold, tolerances);
 }
 
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold) {
+  return filterItems(items, query, lowStockThreshold, PhysicalValueTolerances{});
+}
+
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold,
+                           const PhysicalValueTolerances& tolerances) {
   vector<size_t> indices;
   for (size_t index = 0; index < items.size(); ++index) {
-    if (matchesQuery(items[index], query, lowStockThreshold)) {
+    if (matchesQuery(items[index], query, lowStockThreshold, tolerances)) {
       indices.push_back(index);
     }
   }
@@ -260,9 +340,15 @@ vector<size_t> filterItems(const vector<InventoryItem>& items, const string& que
 
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
                            const vector<InventatoryRack>& racks, int lowStockThreshold) {
+  return filterItems(items, query, racks, lowStockThreshold, PhysicalValueTolerances{});
+}
+
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
+                           const vector<InventatoryRack>& racks, int lowStockThreshold,
+                           const PhysicalValueTolerances& tolerances) {
   vector<size_t> indices;
   for (size_t index = 0; index < items.size(); ++index) {
-    if (matchesQuery(items[index], query, racks, lowStockThreshold)) indices.push_back(index);
+    if (matchesQuery(items[index], query, racks, lowStockThreshold, tolerances)) indices.push_back(index);
   }
   return indices;
 }
