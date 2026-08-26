@@ -151,9 +151,18 @@ bool isLowStock(const InventoryItem& item, int threshold);
 bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold);
 bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
                   int lowStockThreshold);
+bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold,
+                  const PhysicalValueTolerances& tolerances);
+bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
+                  int lowStockThreshold, const PhysicalValueTolerances& tolerances);
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold);
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
                            const vector<InventatoryRack>& racks, int lowStockThreshold);
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold,
+                           const PhysicalValueTolerances& tolerances);
+vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
+                           const vector<InventatoryRack>& racks, int lowStockThreshold,
+                           const PhysicalValueTolerances& tolerances);
 Summary summarize(const vector<InventoryItem>& items, int lowStockThreshold);
 InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& items, int lowStockThreshold,
                                                 time_t timestamp = 0);

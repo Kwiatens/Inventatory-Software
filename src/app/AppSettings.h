@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "core/Inventory.h"
+#include "core/PhysicalValue.h"
 
 namespace inventatory {
 
