@@ -174,6 +174,7 @@ string App::settingsCategoryName(SettingsCategory category) const {
     case SettingsCategory::QuickLabels: return "Quick Labels";
     case SettingsCategory::InventatoryScan: return "Inventatory Scan";
     case SettingsCategory::DigiKey: return "DigiKey";
+    case SettingsCategory::Search: return "Search";
   }
   return {};
 }
@@ -218,6 +219,10 @@ bool App::settingsDraftHasChanges() const {
          settingsDraft_.lowStockThreshold != settings_.lowStockThreshold ||
          settingsDraft_.quickLabelPresets != settings_.quickLabelPresets ||
          settingsDraft_.appearance.colors != settings_.appearance.colors ||
+         settingsDraft_.physicalValueTolerances.resistance != settings_.physicalValueTolerances.resistance ||
+         settingsDraft_.physicalValueTolerances.capacitance != settings_.physicalValueTolerances.capacitance ||
+         settingsDraft_.physicalValueTolerances.inductance != settings_.physicalValueTolerances.inductance ||
+         settingsDraft_.physicalValueTolerances.frequency != settings_.physicalValueTolerances.frequency ||
          stagedDigiKeySecretChanged_;
 }
 
@@ -315,6 +320,14 @@ void App::beginSettingsFieldEdit(int field) {
         default: inputBuffer_.clear(); break;
       }
       break;
+    case SettingsCategory::Search:
+      inputBuffer_ = field >= 0 && field < 4 ? to_string(static_cast<int>(round(
+        field == 0 ? settingsDraft_.physicalValueTolerances.resistance :
+        field == 1 ? settingsDraft_.physicalValueTolerances.capacitance :
+        field == 2 ? settingsDraft_.physicalValueTolerances.inductance :
+        settingsDraft_.physicalValueTolerances.frequency
+      ) * 100)) : string();
+      break;
   }
   dirty_ = true;
 }
@@ -376,6 +389,26 @@ void App::commitSettingsFieldEdit() {
       case 4: settingsDraft_.digiKeyLanguage = trim(inputBuffer_); break;
       case 5: settingsDraft_.digiKeyCurrency = trim(inputBuffer_); break;
       default: break;
+    }
+  } else if (settingsCategory_ == SettingsCategory::Search) {
+    try {
+      // The UI displays tolerances as percentages, while settings persist
+      // them as fractions (1% is stored as 0.01).
+      double value = stod(trim(inputBuffer_));
+      if (value < 0 || value > 100) throw out_of_range("tolerance");
+      value /= 100.0;
+      int fieldIndex = settingsField_;
+      if (fieldIndex >= 0 && fieldIndex < 4) {
+        switch (fieldIndex) {
+          case 0: settingsDraft_.physicalValueTolerances.resistance = value; break;
+          case 1: settingsDraft_.physicalValueTolerances.capacitance = value; break;
+          case 2: settingsDraft_.physicalValueTolerances.inductance = value; break;
+          case 3: settingsDraft_.physicalValueTolerances.frequency = value; break;
+        }
+      }
+    } catch (...) {
+      setMessage("Tolerance must be between 0% and 100%", 4);
+      return;
     }
   }
   settingsEditingField_ = false;
@@ -611,6 +644,8 @@ ftxui::Element App::renderSettingsUi() const {
   addCategory(SettingsCategory::InventatoryScan);
   categories.push_back(styledText(" INTEGRATIONS", uiDimColor()));
   addCategory(SettingsCategory::DigiKey);
+  categories.push_back(styledText(" SEARCH", uiDimColor()));
+  addCategory(SettingsCategory::Search);
 
   ftxui::Elements rows;
   rows.push_back(ftxui::hbox({
@@ -923,7 +958,37 @@ ftxui::Element App::renderSettingsUi() const {
                             [self] { self->beginSettingsFieldEdit(0); }));
       rows.push_back(settingLine("Firmware", scanFirmwareStatus(), contentWidth));
       rows.push_back(buttonRow(target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware",
-                                      UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
+                                       UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
+    }
+  } else if (settingsCategory_ == SettingsCategory::Search) {
+    rows.push_back(uiHeaderText("PHYSICAL VALUE TOLERANCES", uiSecondaryText()));
+    rows.push_back(styledText("Tolerance for matching component values during search (e.g. 100nF matches 0.1uF).", uiMutedText()));
+    rows.push_back(uiDivider());
+
+    const char* toleranceLabels[] = {"Resistance", "Capacitance", "Inductance", "Frequency"};
+    double toleranceValues[] = {
+        settingsDraft_.physicalValueTolerances.resistance,
+        settingsDraft_.physicalValueTolerances.capacitance,
+        settingsDraft_.physicalValueTolerances.inductance,
+        settingsDraft_.physicalValueTolerances.frequency,
+    };
+
+    for (size_t index = 0; index < 4; ++index) {
+      const bool editing = settingsEditingField_ && settingsField_ == static_cast<int>(index);
+      double current = toleranceValues[index];
+      if (editing) {
+        switch (index) {
+          case 0: current = settingsDraft_.physicalValueTolerances.resistance; break;
+          case 1: current = settingsDraft_.physicalValueTolerances.capacitance; break;
+          case 2: current = settingsDraft_.physicalValueTolerances.inductance; break;
+          case 3: current = settingsDraft_.physicalValueTolerances.frequency; break;
+        }
+      }
+      rows.push_back(target(settingLine(toleranceLabels[index],
+                                         editing ? inputBuffer_ + "_" : (to_string(static_cast<int>(round(current * 100))) + "%"),
+                                         contentWidth, editing),
+                              "settings.search.tolerance." + to_string(index), UiTargetKind::Field,
+                              [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
     }
   } else {
     const bool configured = !trim(settings_.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
@@ -971,8 +1036,8 @@ ftxui::Element App::renderSettingsUi() const {
       const bool refreshEnabled = !refreshRunning && !settingsDirty_;
       rows.push_back(buttonRow(target(uiPrimaryButton(refreshRunning ? "Refreshing..." : "Refresh inventory data",
                                                         refreshEnabled),
-                                       "settings.digikey.refresh", UiTargetKind::Button,
-                                       [self] { self->beginDigiKeyRefresh(); }, refreshEnabled)));
+                                        "settings.digikey.refresh", UiTargetKind::Button,
+                                         [self] { self->beginDigiKeyRefresh(); }, refreshEnabled)));
     }
   }
 
@@ -1076,7 +1141,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     appearancePickerOpen_ = false;
     dirty_ = true;
   } else if (key.type == KeyType::Right) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(5, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
@@ -1088,7 +1153,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Down) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(5, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
