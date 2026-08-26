@@ -474,7 +474,8 @@ bool App::stockDateFilterMatches(const InventoryItem& item) const {
 }
 
 vector<size_t> App::filteredIndices() const {
-  const auto queryMatches = filterItems(store_.items(), searchQuery_, store_.racks(), settings_.lowStockThreshold);
+  const auto queryMatches = filterItems(store_.items(), searchQuery_, store_.racks(), settings_.lowStockThreshold,
+                                        settings_.physicalValueTolerances);
   vector<size_t> indices;
   indices.reserve(queryMatches.size());
   for (const auto index : queryMatches) {
