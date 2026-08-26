@@ -202,6 +202,12 @@ void testPhysicalValueParsing() {
   assert(cap2->type == PhysicalValueType::Capacitance);
   assert(std::abs(cap2->value - 1e-7) < 1e-15);
 
+  const auto unicodeMicroFarad = string("0.1 ") + "\xC2\xB5" + "F";
+  auto capUnicode = parsePhysicalValue(unicodeMicroFarad);
+  assert(capUnicode.has_value());
+  assert(capUnicode->type == PhysicalValueType::Capacitance);
+  assert(std::abs(capUnicode->value - 1e-7) < 1e-15);
+
   auto cap3 = parsePhysicalValue("1uF");
   assert(cap3.has_value());
   assert(cap3->type == PhysicalValueType::Capacitance);
@@ -274,6 +280,7 @@ void testPhysicalValueParsing() {
 void testPhysicalValueMatching() {
   // 100nF should match 0.1uF (same value, different prefix)
   assert(physicalValueMatches("100nF", "0.1uF", 0.01));
+  assert(physicalValueMatches("100nF", string("0.1 ") + "\xC2\xB5" + "F", 0.01));
 
   // 10k Ohm should match 10000 Ohm
   assert(physicalValueMatches("10k Ohm", "10000 Ohm", 0.01));
@@ -306,7 +313,7 @@ void testPhysicalValueSearchIntegration() {
   cap1.partName = "0.1uF Capacitor";
   cap1.category = "Capacitors";
   cap1.quantity = 50;
-  cap1.parameters = {{"Capacitance", "0.1uF"}, {"Voltage", "50V"}};
+  cap1.parameters = {{"Capacitance", string("0.1 ") + "\xC2\xB5" + "F"}, {"Voltage", "50V"}};
   items.push_back(cap1);
 
   // Item with 100nF capacitance (physically same as 0.1uF)
@@ -390,6 +397,26 @@ void testPhysicalValueSearchIntegration() {
   }
   assert(foundCap1);
   assert(foundCap2);
+
+  // The live search API must honor the configured tolerance rather than
+  // silently reverting to its built-in default.
+  PhysicalValueTolerances exactTolerances;
+  exactTolerances.capacitance = 0.0;
+  const auto exactFiltered = filterItems(items, "101nF", 5, exactTolerances);
+  assert(exactFiltered.empty());
+
+  PhysicalValueTolerances relaxedTolerances;
+  relaxedTolerances.capacitance = 0.02;
+  const auto relaxedFiltered = filterItems(items, "101nF", 5, relaxedTolerances);
+  assert(relaxedFiltered.size() >= 2);
+  bool foundRelaxedCap1 = false;
+  bool foundRelaxedCap2 = false;
+  for (size_t idx : relaxedFiltered) {
+    if (items[idx].id == "cap-01uf") foundRelaxedCap1 = true;
+    if (items[idx].id == "cap-100nf") foundRelaxedCap2 = true;
+  }
+  assert(foundRelaxedCap1);
+  assert(foundRelaxedCap2);
 }
 
 int main() {
@@ -399,6 +426,13 @@ int main() {
   assert(sqliteApi().load());
   assert(sqlite3_libversion_number() == 3053004);
 #endif
+
+  // Keep the unit-aware search tests on the executable path. These used to be
+  // declared and defined but never called, which allowed parser regressions
+  // to pass the test suite unnoticed.
+  testPhysicalValueParsing();
+  testPhysicalValueMatching();
+  testPhysicalValueSearchIntegration();
 
   {
     assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "test-value") == 0);
