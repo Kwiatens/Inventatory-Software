@@ -68,6 +68,13 @@ ftxui::Element buttonRow(ftxui::Element button) {
   return ftxui::hbox({move(button), ftxui::filler()});
 }
 
+double updateLoadingFraction() {
+  constexpr long long kLoadingCycleTicks = 18;
+  const auto phase = static_cast<double>((uiAnimationTicks() / 100) % kLoadingCycleTicks);
+  const auto sweep = phase <= kLoadingCycleTicks / 2 ? phase : kLoadingCycleTicks - phase;
+  return 0.12 + (sweep / static_cast<double>(kLoadingCycleTicks / 2)) * 0.72;
+}
+
 constexpr int kAppearancePickerHueSteps = 12;
 constexpr int kAppearancePickerValueSteps = 6;
 
@@ -169,6 +176,7 @@ ftxui::Element appearanceColorLine(AppearanceColorRole role, int width, bool sel
 string App::settingsCategoryName(SettingsCategory category) const {
   switch (category) {
     case SettingsCategory::General: return "General / Data";
+    case SettingsCategory::Updates: return "Updates";
     case SettingsCategory::Appearance: return "Appearance";
     case SettingsCategory::Printer: return "Printer";
     case SettingsCategory::QuickLabels: return "Quick Labels";
@@ -285,6 +293,9 @@ void App::beginSettingsFieldEdit(int field) {
   switch (settingsCategory_) {
     case SettingsCategory::General:
       inputBuffer_ = field == 0 ? to_string(settingsDraft_.lowStockThreshold) : string();
+      break;
+    case SettingsCategory::Updates:
+      inputBuffer_.clear();
       break;
     case SettingsCategory::Appearance:
       if (field >= 0 && field < static_cast<int>(kAppearanceColorCount)) {
@@ -603,6 +614,7 @@ ftxui::Element App::renderSettingsUi() const {
   };
   categories.push_back(styledText(" SYSTEM", uiDimColor()));
   addCategory(SettingsCategory::General);
+  addCategory(SettingsCategory::Updates);
   addCategory(SettingsCategory::Appearance);
   categories.push_back(styledText(" OUTPUT", uiDimColor()));
   addCategory(SettingsCategory::Printer);
@@ -644,22 +656,63 @@ ftxui::Element App::renderSettingsUi() const {
                                       contentWidth, settingsEditingField_ && settingsField_ == 0),
                           "settings.general.low_stock_threshold", UiTargetKind::Field,
                           [self] { self->beginSettingsFieldEdit(0); }));
+  } else if (settingsCategory_ == SettingsCategory::Updates) {
+    const bool softwareChecking = updateCheckFuture_.valid();
+    const bool firmwareChecking = scanFirmwareFuture_.valid();
+    const bool anythingChecking = softwareChecking || firmwareChecking;
+    const bool scannerPaired = !trim(inventatoryScanConfig_.deviceId).empty() ||
+                               !deviceFirmwareVersion_.empty();
+
+    const auto softwareStatus = [&] {
+      if (softwareChecking) return string("Checking") + uiAnimatedEllipsis();
+      if (updateCheckFailed_) return string("Check failed");
+      if (!settings_.latestAvailableVersion.empty()) {
+        return "Version " + settings_.latestAvailableVersion + " available";
+      }
+      return updateCheckChecked_ ? string("Up to date") : string("Not checked");
+    };
+
+    rows.push_back(uiHeaderText("CURRENT VERSIONS", uiSecondaryText()));
+    rows.push_back(settingLine("Inventatory software", softwareVersion(), contentWidth));
+    rows.push_back(settingLine("Scan R1 firmware",
+                               deviceFirmwareVersion_.empty() ? "Not reported" : deviceFirmwareVersion_,
+                               contentWidth));
     rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("PUBLIC BETA UPDATES", uiSecondaryText()));
+    rows.push_back(uiHeaderText("UPDATE STATUS", uiSecondaryText()));
+    rows.push_back(settingLine("Software", softwareStatus(), contentWidth));
+    rows.push_back(settingLine("Scanner firmware", scannerPaired ? scanFirmwareStatus() : "Pair a scanner to check",
+                               contentWidth));
+
+    if (anythingChecking) {
+      rows.push_back(uiDivider());
+      rows.push_back(uiHeaderText("CHECKING FOR UPDATES", uiSecondaryText()));
+      rows.push_back(ftxui::hbox({
+          uiProgressBar(updateLoadingFraction(), max(20, min(44, contentWidth - 20)), uiInteractiveColor()),
+          styledText("  Contacting release channels" + uiAnimatedEllipsis(), uiMutedText()),
+          ftxui::filler(),
+      }));
+    }
+
+    rows.push_back(uiDivider());
+    rows.push_back(uiHeaderText("UPDATE PREFERENCES", uiSecondaryText()));
     rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
-                          "settings.general.updates", UiTargetKind::Field, [self] {
+                          "settings.updates.daily_check", UiTargetKind::Field, [self] {
                             self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
                             self->settingsDirty_ = true;
                             self->dirty_ = true;
                           }));
-    const auto available = settings_.latestAvailableVersion.empty() ? "Up to date" : "Version " + settings_.latestAvailableVersion + " available";
-    rows.push_back(settingLine("Release status", available, contentWidth));
-    rows.push_back(buttonRow(target(uiSecondaryButton("Check now"), "settings.general.check_updates",
-                                    UiTargetKind::Button, [self] {
-                                      self->settings_.lastUpdateCheckUnixSeconds = 0;
-                                      self->beginUpdateCheckIfDue();
-                                      self->setMessage("Checking the public beta release...", 4);
-                                    })));
+
+    ftxui::Elements updateActions;
+    updateActions.push_back(target(uiPrimaryButton("Check for updates", !anythingChecking),
+                                   "settings.updates.check", UiTargetKind::Button,
+                                   [self] { self->beginUpdateChecks(); }, !anythingChecking));
+    if (!settings_.latestReleaseUrl.empty()) {
+      updateActions.push_back(ftxui::text("  "));
+      updateActions.push_back(target(uiSecondaryButton("Open software release"), "settings.updates.open_release",
+                                     UiTargetKind::Button,
+                                     [self] { self->openCurrentUrl(self->settings_.latestReleaseUrl, "software release"); }));
+    }
+    rows.push_back(buttonRow(ftxui::hbox(move(updateActions))));
   } else if (settingsCategory_ == SettingsCategory::Appearance) {
     const int colorCellWidth = max(28, (contentWidth - 2) / 2);
     const auto addAppearanceSection = [&](const string& title,
@@ -925,7 +978,7 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(buttonRow(target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware",
                                       UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
     }
-  } else {
+  } else if (settingsCategory_ == SettingsCategory::DigiKey) {
     const bool configured = !trim(settings_.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
     if (!configured) {
       rows.push_back(buttonRow(target(uiPrimaryButton("Begin Setup"), "settings.digikey.begin_setup", UiTargetKind::Button,
@@ -1076,7 +1129,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     appearancePickerOpen_ = false;
     dirty_ = true;
   } else if (key.type == KeyType::Right) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(5, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
@@ -1088,7 +1141,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Down) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(5, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();

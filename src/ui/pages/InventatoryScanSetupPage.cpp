@@ -121,6 +121,8 @@ void App::beginScanFirmwareCheck() {
     setMessage("Already checking for Scan R1 firmware updates", 3);
     return;
   }
+  scanFirmwareChecked_ = false;
+  scanFirmwareCheckFailed_ = false;
   scanFirmwareFuture_ = async(launch::async, [installed = deviceFirmwareVersion_] {
     return checkLatestScanFirmwareRelease(installed);
   });
@@ -138,6 +140,8 @@ void App::processScanFirmwareCheck() {
     setMessage("Could not reach the firmware release channel", 4);
   } else if (result.updateAvailable) {
     setMessage("Scan R1 firmware " + result.latestVersion + " is available", 6);
+  } else if (deviceFirmwareVersion_.empty()) {
+    setMessage("Firmware channel checked; connect a scanner to compare versions", 5);
   } else {
     setMessage("Scan R1 firmware is up to date", 4);
   }
@@ -147,8 +151,13 @@ void App::processScanFirmwareCheck() {
 // One short line for the Scan settings panel: the device's own version first,
 // then the result of the last release check, so the row reads as a value.
 string App::scanFirmwareStatus() const {
-  const auto installed = deviceFirmwareVersion_.empty() ? string("Unknown") : deviceFirmwareVersion_;
+  const bool installedKnown = !deviceFirmwareVersion_.empty();
+  const auto installed = installedKnown ? deviceFirmwareVersion_ : string("Not reported");
   if (scanFirmwareFuture_.valid()) return installed + "  \xC2\xB7  checking...";
+  if (!installedKnown) {
+    if (scanFirmwareCheckFailed_) return installed + "  \xC2\xB7  check failed";
+    return "Pair a scanner to compare firmware";
+  }
   if (!scanFirmwareChecked_ || scanFirmwareLatestVersion_.empty()) {
     return scanFirmwareCheckFailed_ ? installed + "  \xC2\xB7  check failed" : installed;
   }
