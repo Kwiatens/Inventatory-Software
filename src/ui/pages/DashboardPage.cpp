@@ -353,12 +353,11 @@ ftxui::Element activityPanel(const vector<ActivityEntry>& entries, int width) {
   }
   for (size_t index = 0; index < entries.size(); ++index) {
     const auto& entry = entries[index];
-    const auto fullTimestamp = nowTimestampString(entry.timestamp);
-    const auto compactTimestamp = fullTimestamp.size() > 5 ? fullTimestamp.substr(5) : fullTimestamp;
-    const int timestampWidth = min(11, max(8, contentWidth / 3));
+    const auto timestamp = nowTimestampString(entry.timestamp);
+    const int timestampWidth = min(16, max(8, contentWidth / 3));
     const int messageWidth = max(8, contentWidth - timestampWidth - 3);
     rows.push_back(ftxui::hbox({
-                         fixedCell(compactTimestamp, timestampWidth, uiSecondaryText()),
+                         fixedCell(timestamp, timestampWidth, uiSecondaryText()),
                          centeredCell("-", 3, uiSecondaryText()),
                          uiBodyText(ellipsize(entry.kind + " " + entry.message,
                                               static_cast<size_t>(messageWidth)),
