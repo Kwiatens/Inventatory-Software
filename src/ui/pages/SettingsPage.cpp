@@ -1194,7 +1194,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     appearancePickerOpen_ = false;
     dirty_ = true;
   } else if (key.type == KeyType::Right) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(7, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
@@ -1206,7 +1206,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
     dirty_ = true;
   } else if (key.type == KeyType::Down) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
+    settingsCategory_ = static_cast<SettingsCategory>(min(7, static_cast<int>(settingsCategory_) + 1));
     settingsField_ = 0;
     appearancePickerOpen_ = false;
     if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
