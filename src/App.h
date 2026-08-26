@@ -94,7 +94,7 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
-  enum class SettingsCategory { General, Appearance, Printer, QuickLabels, InventatoryScan, DigiKey };
+  enum class SettingsCategory { General, Updates, Appearance, Printer, QuickLabels, InventatoryScan, DigiKey };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
@@ -263,6 +263,7 @@ class App {
   void processDigiKeyRefresh();
   void stopDigiKeyRefresh();
   void beginUpdateCheckIfDue();
+  void beginUpdateChecks();
   void processUpdateCheck();
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
@@ -587,6 +588,8 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
+  bool updateCheckChecked_ = false;
+  bool updateCheckFailed_ = false;
   std::string scanFirmwareLatestVersion_;
   bool scanFirmwareChecked_ = false;
   bool scanFirmwareCheckFailed_ = false;
