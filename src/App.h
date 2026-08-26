@@ -94,7 +94,7 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
-  enum class SettingsCategory { General, Appearance, Printer, QuickLabels, InventatoryScan, DigiKey };
+  enum class SettingsCategory { General, Appearance, Printer, QuickLabels, InventatoryScan, DigiKey, Search };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
