@@ -392,8 +392,11 @@ void App::commitSettingsFieldEdit() {
     }
   } else if (settingsCategory_ == SettingsCategory::Search) {
     try {
+      // The UI displays tolerances as percentages, while settings persist
+      // them as fractions (1% is stored as 0.01).
       double value = stod(trim(inputBuffer_));
-      if (value < 0 || value > 1) throw out_of_range("tolerance");
+      if (value < 0 || value > 100) throw out_of_range("tolerance");
+      value /= 100.0;
       int fieldIndex = settingsField_;
       if (fieldIndex >= 0 && fieldIndex < 4) {
         switch (fieldIndex) {
@@ -404,7 +407,7 @@ void App::commitSettingsFieldEdit() {
         }
       }
     } catch (...) {
-      setMessage("Tolerance must be between 0 and 1 (e.g., 0.01 for 1%)", 4);
+      setMessage("Tolerance must be between 0% and 100%", 4);
       return;
     }
   }
