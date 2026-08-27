@@ -78,6 +78,7 @@ add_executable(inventatory
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
   src/core/InventoryStorage.cpp
+  src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
   src/core/InventatoryScanProtocol.cpp
@@ -152,6 +153,7 @@ add_executable(inventatory_tests
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
   src/core/InventoryStorage.cpp
+  src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
   src/core/InventatoryScanProtocol.cpp

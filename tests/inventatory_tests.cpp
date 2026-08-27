@@ -6,6 +6,7 @@
 #include "platform/Environment.h"
 #include "core/InventoryInternals.h"
 #include "core/InventorySqlite.h"
+#include "core/InventoryTransfer.h"
 #ifdef near
 #undef near
 #endif
@@ -2560,6 +2561,100 @@ int main() {
     assert(loadBomProjects(path, empty));
     assert(empty.empty());
 
+    filesystem::remove(path, cleanupError);
+  }
+
+  {
+    const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
+    const auto backup = filesystem::temp_directory_path() / "inventatory-transfer-backup";
+    const auto csv = filesystem::temp_directory_path() / "inventatory-transfer-export.csv";
+    error_code cleanupError;
+    filesystem::remove_all(source, cleanupError);
+    filesystem::remove_all(backup, cleanupError);
+    filesystem::remove(csv, cleanupError);
+    filesystem::create_directories(source);
+
+    InventoryStore store;
+    InventoryItem item;
+    item.id = "transfer-item";
+    item.partName = "Transfer resistor";
+    item.manufacturer = "Inventatory Test";
+    item.category = "Resistors";
+    item.quantity = 12;
+    item.location = "Drawer 1";
+    item.tags = {"test", "release"};
+    item.parameters = {{"Resistance", "10k"}};
+    store.items().push_back(item);
+    assert(store.save(source / "inventory.db"));
+    {
+      ofstream(source / "activity.tsv") << "test activity\n";
+      ofstream(source / "quick_labels.conf") << "quick_label_revision=1\n";
+    }
+
+    string error;
+    assert(exportInventoryCsv(store, csv, error));
+    ifstream exported(csv);
+    const string exportedText((istreambuf_iterator<char>(exported)), istreambuf_iterator<char>());
+    assert(exportedText.find("Transfer resistor") != string::npos);
+    assert(exportedText.find("Quantity") != string::npos);
+    assert(backupInventatoryData(source, backup, error));
+    assert(filesystem::exists(backup / "inventory.db"));
+    assert(filesystem::exists(backup / "activity.tsv"));
+    assert(filesystem::exists(backup / "quick_labels.conf"));
+
+    filesystem::remove_all(source, cleanupError);
+    filesystem::remove_all(backup, cleanupError);
+    filesystem::remove(csv, cleanupError);
+  }
+
+  {
+    const auto path = filesystem::temp_directory_path() / "inventatory-device-event-recovery-test.db";
+    error_code cleanupError;
+    filesystem::remove(path, cleanupError);
+    InventoryStore store;
+    InventoryItem item;
+    item.id = "event-recovery-item";
+    item.machineCode = "0007";
+    item.partName = "Recovery part";
+    item.quantity = 1;
+    store.items().push_back(item);
+    assert(store.save(path));
+
+    DeviceSyncRequest request;
+    request.protocolVersion = 1;
+    request.requestId = "recovery-sync";
+    request.deviceId = "r1-recovery";
+    request.firmwareVersion = "0.1.0";
+    request.mode = "ready";
+    request.rssi = -40;
+    request.queueDepth = 1;
+    request.events = {{"recovery-event", "inventory.adjust", "9999", 1}};
+    DeviceSyncResponse response;
+    string error;
+    assert(acceptDeviceSyncEvents(path, request, response, error));
+    const auto pending = loadPendingDeviceSyncEvents(path);
+    assert(pending.size() == 1);
+
+    DeviceSyncResult failed;
+    failed.resultId = "recovery-event-result";
+    failed.eventId = "recovery-event";
+    failed.status = "failed";
+    failed.code = "unknown_item";
+    failed.message = "Unknown machine code";
+    assert(completeDeviceSyncEvent(store, path, failed));
+    const auto failedRecords = loadDeviceSyncEventRecords(path);
+    assert(failedRecords.size() == 1);
+    assert(failedRecords.front().resultStatus == "failed");
+
+    size_t retried = 0;
+    assert(retryFailedDeviceSyncEvents(path, retried));
+    assert(retried == 1);
+    assert(loadPendingDeviceSyncEvents(path).size() == 1);
+    assert(completeDeviceSyncEvent(store, path, failed));
+    size_t discarded = 0;
+    assert(discardFailedDeviceSyncEvents(path, discarded));
+    assert(discarded == 1);
+    assert(loadDeviceSyncEventRecords(path).empty());
     filesystem::remove(path, cleanupError);
   }
 

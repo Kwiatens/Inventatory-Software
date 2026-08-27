@@ -190,6 +190,112 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
   return events;
 }
 
+vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path& databasePath, size_t limit) {
+  vector<DeviceSyncEventRecord> records;
+#ifdef _WIN32
+  SqliteConnection connection;
+  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return records;
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    SELECT event_id, device_id, event_type, event_code, event_value, state,
+           result_status, result_code, result_message, received_at, completed_at, result_acknowledged
+    FROM inventatory_device_events
+    ORDER BY CASE WHEN state='received' THEN 0 ELSE 1 END, received_at DESC, event_id DESC LIMIT ?
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return records;
+  sqliteApi().bind_int(statement.stmt, 1, static_cast<int>(limit));
+  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+    DeviceSyncEventRecord record;
+    record.event.eventId = sqliteText(statement.stmt, 0);
+    record.deviceId = sqliteText(statement.stmt, 1);
+    record.event.type = sqliteText(statement.stmt, 2);
+    record.event.code = sqliteText(statement.stmt, 3);
+    record.event.value = sqliteApi().column_int(statement.stmt, 4);
+    record.state = sqliteText(statement.stmt, 5);
+    record.resultStatus = sqliteText(statement.stmt, 6);
+    record.resultCode = sqliteText(statement.stmt, 7);
+    record.resultMessage = sqliteText(statement.stmt, 8);
+    record.receivedAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 9));
+    record.completedAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 10));
+    record.acknowledged = sqliteApi().column_int(statement.stmt, 11) != 0;
+    records.push_back(move(record));
+  }
+#else
+  (void)databasePath;
+  (void)limit;
+#endif
+  return records;
+}
+
+bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& retriedCount) {
+  retriedCount = 0;
+#ifdef _WIN32
+  SqliteConnection connection;
+  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
+      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
+
+  SqliteStatement countStatement;
+  if (sqliteApi().prepare_v2(connection.db,
+      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
+      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
+  retriedCount = static_cast<size_t>(sqliteApi().column_int(countStatement.stmt, 0));
+
+  if (!execSql(connection, R"SQL(
+      UPDATE inventatory_device_events
+      SET state='received', result_id='', result_status='', result_existing=0,
+          result_item_name='', result_requested_delta=0, result_applied_delta=0,
+          result_quantity=0, result_location='', result_code='', result_message='',
+          result_acknowledged=0, completed_at=0
+      WHERE state='completed' AND result_status='failed'
+    )SQL")) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
+  if (!execSql(connection, "COMMIT")) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
+  return true;
+#else
+  (void)databasePath;
+  return false;
+#endif
+}
+
+bool discardFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& discardedCount) {
+  discardedCount = 0;
+#ifdef _WIN32
+  SqliteConnection connection;
+  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
+      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
+
+  SqliteStatement countStatement;
+  if (sqliteApi().prepare_v2(connection.db,
+      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
+      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
+  discardedCount = static_cast<size_t>(sqliteApi().column_int(countStatement.stmt, 0));
+  if (!execSql(connection,
+               "DELETE FROM inventatory_device_events WHERE state='completed' AND result_status='failed'")) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
+  if (!execSql(connection, "COMMIT")) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
+  return true;
+#else
+  (void)databasePath;
+  return false;
+#endif
+}
+
 DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const DeviceLookupRequest& request) {
   DeviceLookupResult result;
   result.lookupId = request.lookupId;
