@@ -96,8 +96,8 @@ class App {
 
   enum class SettingsCategory {
     General,
-    Updates,
     Appearance,
+    Updates,
     Printer,
     QuickLabels,
     InventatoryScan,
