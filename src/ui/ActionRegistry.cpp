@@ -163,11 +163,6 @@ vector<App::Action> App::currentActions() const {
       }
       if (settingsCategory_ == SettingsCategory::Updates) {
         add("check for updates", "Updates", "c", chr('c'), [self] { self->beginUpdateChecks(); });
-        if (!self->settings_.latestReleaseUrl.empty()) {
-          add("open software release", "Updates", "o", chr('o'), [self] {
-            self->openCurrentUrl(self->settings_.latestReleaseUrl, "software release");
-          });
-        }
       }
       if (settingsCategory_ == SettingsCategory::Appearance) {
         add("edit hex color", "Appearance", "e", chr('e'),
