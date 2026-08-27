@@ -587,6 +587,9 @@ bool App::saveSettingsDraft() {
     inventatoryScanConfigPath_ = move(switchedPaths.scanConfig);
     quickLabelsPath_ = dataPath_ / "quick_labels.conf";
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+    if (!quickLabelsChanged) {
+      loadQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision);
+    }
     loadState();
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                  appSettingsDirectory() / "inventatory-scan-replay.state");
@@ -605,6 +608,11 @@ bool App::saveSettingsDraft() {
   applyUiAppearance(settings_.appearance);
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
+  bool bridgeRestarted = true;
+  if (portChanged) {
+    restartDeviceService();
+    bridgeRestarted = server_.running();
+  }
   if (backgroundChanged) {
     if (settings_.backgroundServiceEnabled) {
       backgroundController_.start(true, false, [this] { backgroundQuitRequested_.store(true); });
@@ -623,7 +631,10 @@ bool App::saveSettingsDraft() {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  setMessage(portChanged ? "Settings saved; restart Inventatory to apply the device service port" : "Settings saved", 4);
+  setMessage(portChanged ? (bridgeRestarted ? "Settings saved; device bridge restarted"
+                                           : "Settings saved, but the device bridge could not restart")
+                         : "Settings saved",
+             4);
   return true;
 }
 
@@ -690,6 +701,15 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(settingLine("Inventatory folder", settingsDraft_.dataDirectory.string(), contentWidth));
     rows.push_back(target(settingLine("Change folder", "Browse...", contentWidth), "settings.data.browse",
                           UiTargetKind::Button, [self] { self->stageInventatoryFolder(); }));
+    rows.push_back(ftxui::hbox({
+        target(uiSecondaryButton("Export CSV"), "settings.data.export", UiTargetKind::Button,
+               [self] { self->exportInventory(); }),
+        ftxui::text("  "),
+        target(uiSecondaryButton("Backup folder"), "settings.data.backup", UiTargetKind::Button,
+               [self] { self->backupData(); }),
+    }));
+    rows.push_back(styledText("To restore a backup, browse to its folder and save the selected data directory.",
+                              uiMutedText()));
     rows.push_back(uiDivider());
     rows.push_back(uiHeaderText("APPLICATION", uiSecondaryText()));
     rows.push_back(settingLine("Settings file", settingsPath_.string(), contentWidth));
@@ -991,6 +1011,38 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(settingLine("Firmware", scanFirmwareStatus(), contentWidth));
       rows.push_back(buttonRow(target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware",
                                        UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
+      rows.push_back(buttonRow(target(uiSecondaryButton("Restart bridge"), "settings.scan.restart",
+                                       UiTargetKind::Button, [self] { self->restartDeviceService(); })));
+      rows.push_back(uiDivider());
+      rows.push_back(uiHeaderText("EVENT RECOVERY", uiSecondaryText()));
+      if (deviceEventRecords_.empty()) {
+        rows.push_back(styledText("No pending or failed scanner events", uiSuccessColor()));
+      } else {
+        const auto visible = min<size_t>(deviceEventRecords_.size(), 6U);
+        for (size_t index = 0; index < visible; ++index) {
+          const auto& record = deviceEventRecords_[index];
+          const bool pending = record.state == "received";
+          const auto state = pending ? "PENDING" : record.resultStatus == "failed" ? "FAILED" : "DONE";
+          const auto detail = record.event.type + "  " + record.event.code + "  " + to_string(record.event.value);
+          rows.push_back(styledText(string(state) + "  " + ellipsize(detail, static_cast<size_t>(max(8, contentWidth - 12))),
+                                    pending ? uiWarnColor() : record.resultStatus == "failed" ? uiDangerColor()
+                                                                                               : uiMutedText()));
+          if (!pending && record.resultMessage.empty() == false) {
+            rows.push_back(styledText("  " + ellipsize(record.resultMessage, static_cast<size_t>(max(8, contentWidth - 4))),
+                                      uiMutedText()));
+          }
+        }
+      }
+      rows.push_back(ftxui::hbox({
+          target(uiSecondaryButton("Refresh queue"), "settings.scan.events.refresh", UiTargetKind::Button,
+                 [self] { self->refreshDeviceEventRecords(); }),
+          ftxui::text("  "),
+          target(uiSecondaryButton("Retry failed"), "settings.scan.events.retry", UiTargetKind::Button,
+                 [self] { self->retryFailedDeviceEvents(); }),
+          ftxui::text("  "),
+          target(uiSecondaryButton("Discard failed", uiWarnColor()), "settings.scan.events.discard",
+                 UiTargetKind::Button, [self] { self->discardFailedDeviceEvents(); }),
+      }));
     }
   } else if (settingsCategory_ == SettingsCategory::Search) {
     rows.push_back(uiHeaderText("PHYSICAL VALUE TOLERANCES", uiSecondaryText()));

@@ -396,6 +396,11 @@ bool LocalHttpServer::advanceReplayCounter(uint64_t counter) {
   return true;
 }
 
+bool LocalHttpServer::replayCounterAvailable(uint64_t counter) const {
+  lock_guard<mutex> lock(replayMutex_);
+  return counter > lastAcceptedCounter_ && !replayStateFingerprint_.empty();
+}
+
 bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   // Parse the first request line and route only the tiny local API surface.
   const auto headerEnd = requestText.find("\r\n\r\n");
@@ -456,7 +461,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       return reject(error == "Unsupported protocol version" ? 426 : 400,
                     error.empty() ? "Device identity does not match the transport envelope" : error);
     }
-    if (!advanceReplayCounter(*counter)) {
+    if (!replayCounterAvailable(*counter)) {
       return reject(409, "Replayed or unavailable request counter");
     }
     DeviceSyncResponse syncResponse;
@@ -466,6 +471,11 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
         if (error.empty()) error = "Device sync service unavailable";
         return reject(503, error);
       }
+    }
+    // Commit the replay marker only after the durable application callback has
+    // succeeded. A transient database failure must remain retryable by the R1.
+    if (!advanceReplayCounter(*counter)) {
+      return reject(409, "Request completed but its replay marker could not be saved");
     }
     const auto responseBody = deviceSyncResponseJson(syncResponse);
     const auto response = authenticatedResponseText(200, *counter, expectedToken, responseBody);
