@@ -254,6 +254,7 @@ void App::loadState() {
   inventoryRecoveryDetail_.clear();
   loadActivities(activityPath_, activities_);
   inventatory::loadBomProjects(inventoryPath_, bomProjects_);
+  refreshDeviceEventRecords();
   printerService_.loadConfig(printerPath_);
   refreshPrinterState();
   if (activities_.empty()) {
@@ -299,7 +300,63 @@ bool App::saveState() {
   persistenceError_ = saveFailures.empty()
                           ? string()
                           : "Could not save " + join(saveFailures, ',') + "; changes remain in memory.";
+  if (!persistenceError_.empty()) {
+    setMessage(persistenceError_ + " Press R to retry.", 6);
+  }
   return saveFailures.empty();
+}
+
+void App::retrySaveState() {
+  if (saveState()) {
+    setMessage("All Inventatory changes are saved", 3);
+  }
+}
+
+bool App::exportInventory() {
+  filesystem::path target;
+  const string filter = string("CSV files (*.csv)") + '\0' + "*.csv" + '\0' +
+                        "All files (*.*)" + '\0' + "*.*" + '\0';
+  if (!saveFileDialog(target, "Export Inventatory inventory", filter, "csv")) {
+    setMessage("Inventory export cancelled", 2);
+    return false;
+  }
+
+  string error;
+  if (!exportInventoryCsv(store_, target, error)) {
+    setMessage("Inventory export failed: " + error, 5);
+    return false;
+  }
+  setMessage("Exported " + to_string(store_.items().size()) + " inventory parts to " + target.filename().string(), 5);
+  return true;
+}
+
+bool App::backupData() {
+  filesystem::path parent;
+  if (!openFolderDialog(parent, "Choose a folder for the Inventatory backup")) {
+    setMessage("Backup cancelled", 2);
+    return false;
+  }
+  if (parent.empty()) {
+    setMessage("No backup folder selected", 3);
+    return false;
+  }
+
+  string stamp = nowTimestampString(time(nullptr));
+  replace(stamp.begin(), stamp.end(), ':', '-');
+  replace(stamp.begin(), stamp.end(), ' ', '_');
+  auto destination = parent / ("Inventatory Backup " + stamp);
+  for (int suffix = 2; filesystem::exists(destination); ++suffix) {
+    destination = parent / ("Inventatory Backup " + stamp + "-" + to_string(suffix));
+  }
+
+  if (!saveState()) return false;
+  string error;
+  if (!backupInventatoryData(dataPath_, destination, error)) {
+    setMessage("Backup failed: " + error, 5);
+    return false;
+  }
+  setMessage("Backup created in " + destination.filename().string(), 6);
+  return true;
 }
 
 bool App::chooseInventatoryFolder() {
@@ -332,10 +389,18 @@ bool App::chooseInventatoryFolder() {
   printerPath_ = move(activePaths.printer);
   activityPath_ = move(activePaths.activity);
   inventatoryScanConfigPath_ = move(activePaths.scanConfig);
+  quickLabelsPath_ = quickLabelsPath(dataPath_);
+  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+  settings_.dataDirectory = dataPath_;
+  settingsDraft_ = settings_;
+  if (!saveAppSettings(settingsPath_, settings_)) {
+    setMessage("Loaded the recovery folder, but could not save its path", 5);
+  }
 
   printerQueues_.clear();
   printerCheck_ = {};
   inventoryHistory_.clear();
+  deviceEventRecords_.clear();
   scanQueue_.clear();
   importCandidates_.clear();
   importAcceptedItemIds_.clear();
@@ -632,6 +697,12 @@ void App::confirmDeleteSelectedItem() {
 }
 
 void App::changePage(Page page) {
+  if (page != page_ && page_ == Page::Settings && settingsDirty_ && inputMode_ != InputMode::ExitConfirmation) {
+    pendingPageAfterSettings_ = page;
+    inputMode_ = InputMode::ExitConfirmation;
+    setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
+    return;
+  }
   page_ = page;
   inputMode_ = InputMode::None;
   focusedTarget_ = -1;
@@ -1239,11 +1310,55 @@ void App::adjustQuantity(int delta) {
   }
 
   captureUndoSnapshot();
-  item->quantity = max(0, item->quantity + delta);
+  const auto candidate = static_cast<long long>(item->quantity) + delta;
+  item->quantity = static_cast<int>(clamp<long long>(candidate, 0, numeric_limits<int>::max()));
   item->lastUpdated = time(nullptr);
   logActivity(delta > 0 ? "stock" : "usage", item->partName + " quantity changed to " + to_string(item->quantity));
-  saveState();
-  setMessage(item->partName + " quantity is now " + to_string(item->quantity), 2);
+  const bool saved = saveState();
+  setMessage(saved ? item->partName + " quantity is now " + to_string(item->quantity)
+                  : "Quantity changed in memory; press R to retry saving",
+             saved ? 2 : 5);
+  dirty_ = true;
+}
+
+void App::setSelectedQuantityFromInput(const string& value) {
+  auto* item = selectedItem();
+  if (item == nullptr) {
+    setMessage("No item selected", 2);
+    return;
+  }
+  if (value.empty()) {
+    setMessage("Enter a quantity from 0 to 2147483647", 4);
+    return;
+  }
+
+  long long parsed = -1;
+  try {
+    size_t consumed = 0;
+    parsed = stoll(value, &consumed);
+    if (consumed != value.size() || parsed < 0 || parsed > numeric_limits<int>::max()) parsed = -1;
+  } catch (...) {
+    parsed = -1;
+  }
+  if (parsed < 0) {
+    setMessage("Quantity must be a whole number from 0 to 2147483647", 4);
+    return;
+  }
+  if (item->quantity == parsed) {
+    setMessage("Quantity unchanged", 2);
+    return;
+  }
+
+  captureUndoSnapshot();
+  const auto previous = item->quantity;
+  item->quantity = static_cast<int>(parsed);
+  item->lastUpdated = time(nullptr);
+  logActivity(parsed > previous ? "stock" : "usage",
+              item->partName + " quantity set to " + to_string(item->quantity));
+  const bool saved = saveState();
+  setMessage(saved ? item->partName + " quantity set to " + to_string(item->quantity)
+                  : "Quantity changed in memory; press R to retry saving",
+             saved ? 2 : 5);
   dirty_ = true;
 }
 
@@ -1730,6 +1845,50 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   return true;
 }
 
+void App::refreshDeviceEventRecords() {
+  deviceEventRecords_ = loadDeviceSyncEventRecords(inventoryPath_);
+  devicePendingEventCount_ = static_cast<int>(count_if(
+      deviceEventRecords_.begin(), deviceEventRecords_.end(), [](const DeviceSyncEventRecord& record) {
+        return record.state == "received";
+      }));
+  dirty_ = true;
+}
+
+void App::retryFailedDeviceEvents() {
+  size_t retried = 0;
+  if (!retryFailedDeviceSyncEvents(inventoryPath_, retried)) {
+    setMessage("Unable to reopen failed scanner events", 5);
+    return;
+  }
+  refreshDeviceEventRecords();
+  setMessage(retried == 0 ? "No failed scanner events to retry"
+                          : "Reopened " + to_string(retried) + " failed scanner event" +
+                                (retried == 1 ? string() : string("s")),
+             5);
+}
+
+void App::discardFailedDeviceEvents() {
+  const auto now = time(nullptr);
+  if (settingsConfirmAction_ != "discard-device-events" || now > settingsConfirmUntil_) {
+    settingsConfirmAction_ = "discard-device-events";
+    settingsConfirmUntil_ = now + 5;
+    setMessage("Discarding failed scanner events cannot be undone; activate again within 5 seconds to confirm", 5);
+    return;
+  }
+  settingsConfirmAction_.clear();
+  settingsConfirmUntil_ = 0;
+  size_t discarded = 0;
+  if (!discardFailedDeviceSyncEvents(inventoryPath_, discarded)) {
+    setMessage("Unable to discard failed scanner events", 5);
+    return;
+  }
+  refreshDeviceEventRecords();
+  setMessage(discarded == 0 ? "No failed scanner events to discard"
+                            : "Discarded " + to_string(discarded) + " failed scanner event" +
+                                  (discarded == 1 ? string() : string("s")),
+             5);
+}
+
 void App::processDeviceSyncEvents() {
   const auto pending = loadPendingDeviceSyncEvents(inventoryPath_, 1);
   if (pending.empty()) return;
@@ -1822,6 +1981,7 @@ void App::processDeviceSyncEvents() {
     if (created) autoPrintScannedLabel(affectedItemId);
   }
   saveActivities(activityPath_, activities_);
+  refreshDeviceEventRecords();
   dirty_ = true;
 }
 
@@ -2002,6 +2162,12 @@ void App::beginCsvImport() {
   importSkippedCount_ = 0;
   importSyncedCount_ = 0;
   importSyncFailedCount_ = 0;
+  importSyncFailedItemIds_.clear();
+  importSyncTotal_ = 0;
+  importSyncCompleted_ = 0;
+  importSyncRunning_ = false;
+  importSyncHasRun_ = false;
+  importSyncCancelRequested_ = false;
   editingImportCandidate_ = false;
   inputMode_ = InputMode::None;
   page_ = Page::Import;
@@ -2117,50 +2283,144 @@ void App::finishImportReview() {
   dirty_ = true;
 }
 
-void App::syncAcceptedImports() {
-  if (importAcceptedItemIds_.empty()) {
+void App::beginImportSync(bool retryFailed) {
+  if (importSyncRunning_) {
+    setMessage("DigiKey import sync is already running", 3);
+    return;
+  }
+
+  const auto itemIds = retryFailed ? importSyncFailedItemIds_ : importAcceptedItemIds_;
+  if (itemIds.empty()) {
+    setMessage(retryFailed ? "There are no failed DigiKey rows to retry" : "No accepted rows need DigiKey sync", 3);
     return;
   }
 
   const auto api = createDigiKeyApi();
+  importSyncTotal_ = itemIds.size();
+  importSyncCompleted_ = 0;
+  importSyncFailedCount_ = 0;
+  importSyncFailedItemIds_.clear();
+  importSyncCancelRequested_ = false;
+  importSyncHasRun_ = false;
+
+  vector<pair<string, string>> requests;
+  for (const auto& itemId : itemIds) {
+    const auto* item = store_.findById(itemId);
+    if (item == nullptr) {
+      importSyncFailedItemIds_.push_back(itemId);
+      ++importSyncFailedCount_;
+      continue;
+    }
+    const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : item->sku;
+    if (trim(lookup).empty()) {
+      importSyncFailedItemIds_.push_back(itemId);
+      ++importSyncFailedCount_;
+      continue;
+    }
+    requests.emplace_back(itemId, lookup);
+  }
+
   if (api.client == nullptr) {
-    ++importSyncFailedCount_;
-    setMessage("DigiKey sync unavailable: " + api.error, 4);
+    importSyncCompleted_ = importSyncTotal_;
+    importSyncHasRun_ = true;
+    importSyncPrompt_ = true;
+    setMessage("DigiKey sync unavailable: " + api.error + "; press R to retry after configuring it", 6);
     return;
   }
 
-  for (const auto& itemId : importAcceptedItemIds_) {
-    auto* item = store_.findById(itemId);
-    if (item == nullptr) {
-      ++importSyncFailedCount_;
-      continue;
-    }
-
-    const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : item->sku;
-    if (trim(lookup).empty()) {
-      ++importSyncFailedCount_;
-      continue;
-    }
-
-    string error;
-    const auto details = api.client->fetchProductDetails(lookup, &error);
-    if (!details) {
-      ++importSyncFailedCount_;
-      continue;
-    }
-
-    mergeDigiKeyMetadata(*item, *details);
-    reconcileRackAssignment(store_, *item);
-    ++importSyncedCount_;
+  if (requests.empty()) {
+    importSyncCompleted_ = importSyncTotal_;
+    importSyncHasRun_ = true;
+    importSyncPrompt_ = true;
+    setMessage("No accepted rows had a DigiKey identifier; press Enter to finish", 5);
+    return;
   }
 
-  saveState();
+  const auto config = loadDigiKeyConfig();
+  importSyncCancelFlag_ = make_shared<atomic<bool>>(false);
+  const auto cancelFlag = importSyncCancelFlag_;
+  importSyncFuture_ = async(launch::async, [requests = move(requests), config, cancelFlag] {
+    ImportSyncBatchResult batch;
+    DigiKeyApiClient client(config);
+    for (size_t index = 0; index < requests.size(); ++index) {
+      if (cancelFlag->load()) {
+        for (size_t remaining = index; remaining < requests.size(); ++remaining) {
+          batch.failedItemIds.push_back(requests[remaining].first);
+        }
+        break;
+      }
+      string error;
+      auto details = client.fetchProductDetails(requests[index].second, &error);
+      if (details) {
+        batch.results.emplace_back(requests[index].first, move(details));
+      } else {
+        batch.failedItemIds.push_back(requests[index].first);
+      }
+    }
+    return batch;
+  });
+  importSyncRunning_ = true;
+  importSyncPrompt_ = false;
+  setMessage("DigiKey sync is running in the background; the terminal remains available", 5);
+  dirty_ = true;
+}
+
+void App::processImportSync() {
+  if (!importSyncFuture_.valid() || importSyncFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
+
+  const auto batch = importSyncFuture_.get();
+  const bool cancelled = importSyncCancelRequested_;
+  importSyncCompleted_ = min(importSyncTotal_, batch.results.size() + batch.failedItemIds.size() +
+                                             importSyncFailedItemIds_.size());
+  if (cancelled) {
+    for (const auto& result : batch.results) importSyncFailedItemIds_.push_back(result.first);
+    importSyncFailedItemIds_.insert(importSyncFailedItemIds_.end(), batch.failedItemIds.begin(), batch.failedItemIds.end());
+    importSyncFailedCount_ += static_cast<int>(batch.results.size() + batch.failedItemIds.size());
+  } else {
+    for (const auto& result : batch.results) {
+      if (auto* item = store_.findById(result.first); item != nullptr && result.second.has_value()) {
+        mergeDigiKeyMetadata(*item, *result.second);
+        reconcileRackAssignment(store_, *item);
+        ++importSyncedCount_;
+      } else {
+        importSyncFailedItemIds_.push_back(result.first);
+        ++importSyncFailedCount_;
+      }
+    }
+    importSyncFailedItemIds_.insert(importSyncFailedItemIds_.end(), batch.failedItemIds.begin(), batch.failedItemIds.end());
+    importSyncFailedCount_ += static_cast<int>(batch.failedItemIds.size());
+  }
+
+  importSyncRunning_ = false;
+  importSyncHasRun_ = true;
+  importSyncCancelFlag_.reset();
+  if (!cancelled && !batch.results.empty() && !saveState()) {
+    setMessage("DigiKey metadata is in memory; press R to retry saving", 6);
+  } else {
+    setMessage(cancelled ? "DigiKey sync cancelled; press R to retry failed rows"
+                         : "DigiKey sync finished; press R to retry failed rows or Enter to finish",
+               6);
+  }
+  importSyncPrompt_ = true;
+  dirty_ = true;
+}
+
+void App::retryImportSync() {
+  if (importSyncFailedItemIds_.empty()) {
+    setMessage("There are no failed DigiKey rows to retry", 3);
+    return;
+  }
+  beginImportSync(true);
 }
 
 void App::finishCsvImport(bool syncWithDigiKey) {
   if (syncWithDigiKey) {
-    setMessage("Syncing accepted CSV rows with DigiKey API...", 3);
-    syncAcceptedImports();
+    beginImportSync();
+    return;
+  }
+  if (importSyncRunning_) {
+    setMessage("Wait for DigiKey sync to finish or cancel it first", 4);
+    return;
   }
 
   const auto summary = importCompletionMessage();
@@ -2170,6 +2430,11 @@ void App::finishCsvImport(bool syncWithDigiKey) {
   importSourcePath_.clear();
   importSelection_ = 0;
   importSyncPrompt_ = false;
+  importSyncHasRun_ = false;
+  importSyncFailedItemIds_.clear();
+  importSyncTotal_ = 0;
+  importSyncCompleted_ = 0;
+  importSyncCancelRequested_ = false;
   editingImportCandidate_ = false;
   changePage(Page::Home);
   setMessage(summary, 8);
@@ -2856,6 +3121,8 @@ string App::activePrompt() const {
   if (inputMode_ == InputMode::RackCreate) return "New rack type: ";
   if (inputMode_ == InputMode::RackJump) return "Jump to rack: ";
   if (inputMode_ == InputMode::RackFilter) return "Rack filter: ";
+  if (inputMode_ == InputMode::QuantityAdjust) return "Quantity on hand: ";
+  if (inputMode_ == InputMode::ExitConfirmation) return "S save  ·  D discard  ·  Esc cancel";
   return "";
 }
 

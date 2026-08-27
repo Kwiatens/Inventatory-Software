@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/Inventory.h"
+#include "core/InventoryTransfer.h"
 #include "core/InventatoryScanProtocol.h"
 #include "core/BomMatch.h"
 #include "core/BomProjectStore.h"
@@ -130,6 +131,8 @@ class App {
     RackJump,
     RackFilter,
     StockFilter,
+    QuantityAdjust,
+    ExitConfirmation,
     ActionSheet,
   };
 
@@ -212,6 +215,11 @@ class App {
     std::string error;
   };
 
+  struct ImportSyncBatchResult {
+    std::vector<std::pair<std::string, std::optional<DigiKeyProductDetails>>> results;
+    std::vector<std::string> failedItemIds;
+  };
+
   void loadState();
   bool saveState();
   void handleKey(const KeyEvent& key);
@@ -229,6 +237,8 @@ class App {
   void handleEditValueKey(const KeyEvent& key);
   void handleRackValueKey(const KeyEvent& key);
   void handleStockFilterKey(const KeyEvent& key);
+  void handleQuantityAdjustKey(const KeyEvent& key);
+  void handleExitConfirmationKey(const KeyEvent& key);
 
   ftxui::Element renderUi() const;
   ftxui::Element renderHeaderUi() const;
@@ -266,6 +276,8 @@ class App {
   bool messageVisible() const;
   void clearMessageIfExpired();
   void requestUserExit();
+  void completeSettingsExit(bool saveChanges);
+  void restartDeviceService();
   void processBackgroundWork();
   void processScanDigiKeyEnrichment();
   void beginDigiKeyRefresh();
@@ -308,6 +320,9 @@ class App {
   void enqueueDeviceDebug(const DeviceDebugReport& report);
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
   void processDeviceSyncEvents();
+  void refreshDeviceEventRecords();
+  void retryFailedDeviceEvents();
+  void discardFailedDeviceEvents();
   void updateDashboardScannerState();
   void adjustDeviceDebugScroll(int delta);
   std::string inventatoryScanDeviceSummary() const;
@@ -382,6 +397,7 @@ class App {
   void commitEditField(EditField field, const std::string& value);
   void saveWorkingCopy();
   void adjustQuantity(int delta);
+  void setSelectedQuantityFromInput(const std::string& value);
   void captureUndoSnapshot();
   bool undoLastInventoryChange();
   void logActivity(const std::string& kind, const std::string& message);
@@ -393,7 +409,9 @@ class App {
   void skipImportCandidate();
   void finishImportReview();
   void finishCsvImport(bool syncWithDigiKey);
-  void syncAcceptedImports();
+  void beginImportSync(bool retryFailed = false);
+  void processImportSync();
+  void retryImportSync();
   CsvImportCandidate* currentImportCandidate();
   const CsvImportCandidate* currentImportCandidate() const;
   std::string importCompletionMessage() const;
@@ -416,6 +434,9 @@ class App {
   void queueBomEnrichment();
   void processBomEnrichment();
   bool saveBomProjects();
+  bool exportInventory();
+  bool backupData();
+  void retrySaveState();
   std::vector<BuildStep> bomBuildSteps() const;
   BomProject* activeBomProject();
   const BomProject* activeBomProject() const;
@@ -487,6 +508,7 @@ class App {
   std::vector<std::shared_ptr<PendingDeviceQuantity>> deviceQuantityQueue_;
   std::vector<DeviceStatusReport> deviceStatusQueue_;
   std::vector<DeviceDebugReport> deviceDebugQueue_;
+  std::vector<DeviceSyncEventRecord> deviceEventRecords_;
   std::vector<std::string> deviceDebugLog_;
   std::unordered_map<std::string, DeviceQuantityResult> deviceRequestCache_;
   std::deque<std::string> deviceRequestOrder_;
@@ -516,6 +538,14 @@ class App {
   int importSkippedCount_ = 0;
   int importSyncedCount_ = 0;
   int importSyncFailedCount_ = 0;
+  std::future<ImportSyncBatchResult> importSyncFuture_;
+  std::shared_ptr<std::atomic<bool>> importSyncCancelFlag_;
+  std::vector<std::string> importSyncFailedItemIds_;
+  size_t importSyncTotal_ = 0;
+  size_t importSyncCompleted_ = 0;
+  bool importSyncRunning_ = false;
+  bool importSyncHasRun_ = false;
+  bool importSyncCancelRequested_ = false;
   std::vector<BomProject> bomProjects_;
   std::string activeBomProjectId_;
   size_t bomProjectSelection_ = 0;
@@ -594,6 +624,7 @@ class App {
   std::deque<std::string> quickLabelPrintOrder_;
   mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;
+  std::optional<Page> pendingPageAfterSettings_;
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;

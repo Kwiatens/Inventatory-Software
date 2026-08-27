@@ -393,6 +393,15 @@ ftxui::Element App::renderStockUi() const {
         target(uiSecondaryButton("+", nullopt, hasItem), "stock.increment", UiTargetKind::Button,
                [self] { self->adjustQuantity(1); }, hasItem),
         ftxui::text(" "),
+        target(uiSecondaryButton("Set qty", nullopt, hasItem), "stock.set_quantity", UiTargetKind::Button,
+               [self] {
+                 if (const auto* item = self->selectedItem()) {
+                   self->inputBuffer_ = to_string(item->quantity);
+                   self->inputMode_ = App::InputMode::QuantityAdjust;
+                   self->setMessage("Enter the total quantity on hand", 3);
+                 }
+               }, hasItem),
+        ftxui::text(" "),
         // Five peer actions with no single primary among them, so they share
         // the ordinary raised-button role rather than competing for the eye.
         target(uiSecondaryButton("Print", nullopt, hasItem), "stock.print", UiTargetKind::Button,
