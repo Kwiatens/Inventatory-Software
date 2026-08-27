@@ -41,13 +41,19 @@ vector<App::Action> App::currentActions() const {
   const bool hasItem = selectedItem() != nullptr;
 
   auto reloadInventory = [self] {
-    self->store_.load(self->inventoryPath_);
+    if (!self->store_.load(self->inventoryPath_)) {
+      self->persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
+      self->setMessage(self->persistenceError_, 5);
+      return false;
+    }
     loadInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
     if (self->inventoryHistory_.empty()) {
       appendInventoryHistory(self->inventoryHistory_,
                              makeInventoryHistoryPoint(self->store_.items(), self->settings_.lowStockThreshold));
     }
     saveInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
+    self->persistenceError_.clear();
+    return true;
   };
   auto openDatasheet = [self] {
     if (const auto* item = self->selectedItem()) self->openCurrentUrl(item->datasheetUrl, "datasheet");
@@ -73,9 +79,11 @@ vector<App::Action> App::currentActions() const {
       add("import CSV", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
       add("reload", "System", "r", chr('r'), [self, reloadInventory] {
-        reloadInventory();
-        self->setMessage("Inventory reloaded from the database", 2);
+        if (reloadInventory()) self->setMessage("Inventory reloaded from the database", 2);
       });
+      add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
+      add("backup data", "Data", "k", chr('k'), [self] { self->backupData(); });
+      add("retry save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 
@@ -84,6 +92,11 @@ vector<App::Action> App::currentActions() const {
       add("new part", "Edit", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
       if (hasItem) add("add one", "Edit", "+", chr('+'), [self] { self->adjustQuantity(1); });
       if (hasItem) add("remove one", "Edit", "-", chr('-'), [self] { self->adjustQuantity(-1); });
+      if (hasItem) add("set quantity", "Edit", "a", chr('a'), [self] {
+        self->inputBuffer_ = to_string(self->selectedItem()->quantity);
+        self->inputMode_ = App::InputMode::QuantityAdjust;
+        self->setMessage("Enter the total quantity on hand", 3);
+      });
       if (hasItem) add("datasheet", "Links", "d", chr('d'), openDatasheet);
       if (hasItem) add("product", "Links", "o", chr('o'), openProduct);
       if (hasItem) add("DigiKey", "Links", "g", chr('g'), openDigiKey);
@@ -98,14 +111,18 @@ vector<App::Action> App::currentActions() const {
       add("filters", "View", "f", chr('f'), [self] { self->openStockFilterPanel(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
       add("reload", "System", "r", chr('r'), [self, reloadInventory] {
-        reloadInventory();
-        self->syncSelectionToFilter();
-        self->setMessage("Inventory refreshed", 2);
+        if (reloadInventory()) {
+          self->syncSelectionToFilter();
+          self->setMessage("Inventory refreshed", 2);
+        }
       });
       add("undo", "System", "Ctrl+Z", special(KeyType::CtrlZ), [self] { self->undoLastInventoryChange(); });
       if (hasItem)
         add("delete", "System", "Ctrl+Bksp", special(KeyType::CtrlBackspace),
             [self] { self->armDeleteConfirmation(); });
+      add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
+      add("backup data", "Data", "b", chr('b'), [self] { self->backupData(); });
+      add("retry save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 
@@ -160,6 +177,8 @@ vector<App::Action> App::currentActions() const {
         add("choose data folder", "General", "b", chr('b'), [self] { self->stageInventatoryFolder(); });
         add("edit low-stock threshold", "General", "e", chr('e'),
             [self] { self->beginSettingsFieldEdit(0); });
+        add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
+        add("backup data", "Data", "k", chr('k'), [self] { self->backupData(); });
       }
       if (settingsCategory_ == SettingsCategory::Updates) {
         add("check for updates", "Updates", "c", chr('c'), [self] { self->beginUpdateChecks(); });
@@ -199,12 +218,16 @@ vector<App::Action> App::currentActions() const {
       }
       }
       if (settingsCategory_ == SettingsCategory::InventatoryScan) {
+        add("refresh event queue", "Device", "v", chr('v'), [self] { self->refreshDeviceEventRecords(); });
+        add("retry failed events", "Device", "y", chr('y'), [self] { self->retryFailedDeviceEvents(); });
+        add("discard failed events", "Device", "x", chr('x'), [self] { self->discardFailedDeviceEvents(); });
         const bool setupComplete = self->inventatoryScanConfig_.setupComplete ||
                                    !self->inventatoryScanConfig_.deviceId.empty();
         if (!setupComplete) {
           add("begin setup", "Device", "b", chr('b'), [self] { self->openInventatoryScanSetup(); });
         } else {
           add("pair new device", "Device", "p", chr('p'), [self] { self->openInventatoryScanSetup(); });
+          add("restart bridge", "Device", "h", chr('h'), [self] { self->restartDeviceService(); });
           add("check firmware", "Device", "f", chr('f'), [self] { self->beginScanFirmwareCheck(); });
           add("copy token", "Device", "t", chr('t'), [self] { self->copyInventatoryScanToken(); });
           add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateInventatoryScanToken(); });
@@ -228,7 +251,18 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Import:
-      if (importSyncPrompt_) {
+      if (importSyncRunning_) {
+        add("cancel DigiKey sync", "Sync", "c", chr('c'), [self] {
+          if (self->importSyncCancelFlag_) self->importSyncCancelFlag_->store(true);
+          self->importSyncCancelRequested_ = true;
+          self->setMessage("Cancelling after the current DigiKey request...", 4);
+        });
+      } else if (importSyncPrompt_ && importSyncHasRun_) {
+        if (!importSyncFailedItemIds_.empty()) {
+          add("retry failed sync", "Sync", "r", chr('r'), [self] { self->retryImportSync(); });
+        }
+        add("finish import", "Finish", "Enter", special(KeyType::Enter), [self] { self->finishCsvImport(false); });
+      } else if (importSyncPrompt_) {
         add("sync with DigiKey", "Finish", "y", chr('y'), [self] { self->finishCsvImport(true); });
         add("finish without sync", "Finish", "n", chr('n'), [self] { self->finishCsvImport(false); });
       } else {

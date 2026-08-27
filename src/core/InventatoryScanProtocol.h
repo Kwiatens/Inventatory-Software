@@ -75,6 +75,18 @@ struct DeviceSyncEvent {
   int value = 0;
 };
 
+struct DeviceSyncEventRecord {
+  DeviceSyncEvent event;
+  std::string deviceId;
+  std::string state;
+  std::string resultStatus;
+  std::string resultCode;
+  std::string resultMessage;
+  time_t receivedAt = 0;
+  time_t completedAt = 0;
+  bool acknowledged = false;
+};
+
 struct DeviceLookupRequest {
   std::string lookupId;
   std::string code;
@@ -166,6 +178,10 @@ bool acceptDeviceSyncEvents(const std::filesystem::path& databasePath, const Dev
                             DeviceSyncResponse& response, std::string& error);
 std::vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const std::filesystem::path& databasePath,
                                                          std::size_t limit = 4);
+std::vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const std::filesystem::path& databasePath,
+                                                              std::size_t limit = 64);
+bool retryFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std::size_t& retriedCount);
+bool discardFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std::size_t& discardedCount);
 bool completeDeviceSyncEvent(InventoryStore& store, const std::filesystem::path& databasePath,
                              const DeviceSyncResult& result);
 DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLookupRequest& request);

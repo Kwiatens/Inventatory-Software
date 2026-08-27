@@ -326,7 +326,8 @@ ftxui::Element App::renderSearchBarUi() const {
   const bool showsPrompt = !stockEditing &&
                             (inputMode_ == InputMode::EditValue || inputMode_ == InputMode::RackRename ||
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
-                             inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter);
+                             inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
+                             inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::ExitConfirmation);
 
   const auto activeBg = inputMode_ == InputMode::Search || showsPrompt ? uiRowSelectedBg() : uiPanelLeftBg();
   const auto bodyColor = inputMode_ == InputMode::Search ? uiTitleColor() : showsPrompt ? uiLinkColor() : uiMutedColor();
@@ -335,6 +336,9 @@ ftxui::Element App::renderSearchBarUi() const {
   if (inputMode_ == InputMode::Search) {
     contextTitle = "Search";
     contextText = "/" + inputBuffer_ + "_  (filtering live)";
+  } else if (inputMode_ == InputMode::ExitConfirmation) {
+    contextTitle = "Unsaved settings";
+    contextText = activePrompt();
   } else if (showsPrompt) {
     contextText = activePrompt() + inputBuffer_ + "_";
   } else {
@@ -438,6 +442,19 @@ ftxui::Element App::renderMessageUi() const {
            }) |
            ftxui::bgcolor(uiPanelLeftBg());
   }
+  if (importSyncRunning_) {
+    const auto total = max<size_t>(1, importSyncTotal_);
+    const auto completed = min(importSyncCompleted_, importSyncTotal_);
+    return ftxui::hbox({
+               styledText(" DigiKey import sync", uiLinkColor()),
+               styledText("   ", uiLinkColor()),
+               uiProgressBar(static_cast<double>(completed) / static_cast<double>(total), 28, uiLinkColor()),
+               styledText(" " + to_string(completed) + "/" + to_string(importSyncTotal_) + " rows",
+                          uiMutedColor()),
+               ftxui::filler(),
+           }) |
+           ftxui::bgcolor(uiPanelLeftBg());
+  }
   const bool enrichingBom = page_ == Page::Projects && bomEnrichmentTotal_ > 0 &&
                             (!bomEnrichmentQueue_.empty() || bomEnrichmentFuture_.valid());
   if (enrichingBom) {
@@ -518,6 +535,7 @@ void App::processBackgroundWork() {
   processScanFirmwareCheck();
   processScanDigiKeyEnrichment();
   processDigiKeyRefresh();
+  processImportSync();
   processBomEnrichment();
 }
 
@@ -583,10 +601,56 @@ void App::runInteractiveLoop() {
 }
 
 void App::requestUserExit() {
+  if (importSyncRunning_) {
+    setMessage("DigiKey sync is still running; cancel it or wait for completion", 4);
+    return;
+  }
+  if (settingsDirty_) {
+    pendingPageAfterSettings_.reset();
+    inputMode_ = InputMode::ExitConfirmation;
+    setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
+    return;
+  }
   if (backgroundController_.enabled()) {
     backgroundController_.hideConsole(true);
   } else {
     running_ = false;
+  }
+}
+
+void App::restartDeviceService() {
+  mdnsService_.stop();
+  server_.stop();
+  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                               appSettingsDirectory() / "inventatory-scan-replay.state");
+  if (!server_.start(settings_.deviceServicePort,
+                     [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
+                       return handleDeviceSync(request, response, error);
+                     })) {
+    setMessage("Inventatory Scan R1 service failed to restart; terminal still works", 6);
+    return;
+  }
+  if (mdnsService_.start(server_.port())) {
+    setMessage("Inventatory Scan R1 bridge restarted on port " + to_string(server_.port()), 5);
+  } else {
+    setMessage("Inventatory Scan R1 bridge restarted; network discovery unavailable", 5);
+  }
+  dirty_ = true;
+}
+
+void App::completeSettingsExit(bool saveChanges) {
+  if (saveChanges) {
+    if (!saveSettingsDraft()) return;
+  } else {
+    cancelSettingsDraft();
+  }
+  const auto destination = pendingPageAfterSettings_;
+  pendingPageAfterSettings_.reset();
+  inputMode_ = InputMode::None;
+  if (destination.has_value()) {
+    changePage(*destination);
+  } else {
+    requestUserExit();
   }
 }
 
@@ -617,6 +681,12 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::StockFilter:
       handleStockFilterKey(key);
       return;
+    case InputMode::QuantityAdjust:
+      handleQuantityAdjustKey(key);
+      return;
+    case InputMode::ExitConfirmation:
+      handleExitConfirmationKey(key);
+      return;
     case InputMode::ActionSheet:
       handleActionSheetKey(key);
       return;
@@ -646,6 +716,11 @@ void App::handleKey(const KeyEvent& key) {
 
   if (page_ == Page::Onboarding) {
     handleOnboardingKey(key);
+    return;
+  }
+
+  if (key.type == KeyType::Character && key.ch == 'R' && !persistenceError_.empty()) {
+    retrySaveState();
     return;
   }
 
@@ -956,6 +1031,49 @@ void App::handleRackValueKey(const KeyEvent& key) {
     inputBuffer_.clear();
     inputMode_ = InputMode::None;
     setMessage("Rack input cancelled", 2);
+  }
+}
+
+void App::handleQuantityAdjustKey(const KeyEvent& key) {
+  if (key.type == KeyType::Character) {
+    if (isdigit(static_cast<unsigned char>(key.ch)) != 0 && inputBuffer_.size() < 9U) {
+      inputBuffer_.push_back(key.ch);
+      dirty_ = true;
+    }
+    return;
+  }
+  if (key.type == KeyType::Backspace) {
+    if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+    dirty_ = true;
+    return;
+  }
+  if (key.type == KeyType::Enter) {
+    const auto value = inputBuffer_;
+    inputBuffer_.clear();
+    inputMode_ = InputMode::None;
+    setSelectedQuantityFromInput(value);
+    return;
+  }
+  if (key.type == KeyType::Escape) {
+    inputBuffer_.clear();
+    inputMode_ = InputMode::None;
+    setMessage("Quantity change cancelled", 2);
+  }
+}
+
+void App::handleExitConfirmationKey(const KeyEvent& key) {
+  if (key.type == KeyType::Escape) {
+    pendingPageAfterSettings_.reset();
+    inputMode_ = InputMode::None;
+    setMessage("Stayed on the current screen", 2);
+    return;
+  }
+  if (key.type != KeyType::Character) return;
+  const auto ch = static_cast<char>(tolower(static_cast<unsigned char>(key.ch)));
+  if (ch == 's') {
+    completeSettingsExit(true);
+  } else if (ch == 'd') {
+    completeSettingsExit(false);
   }
 }
 
