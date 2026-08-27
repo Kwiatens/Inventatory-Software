@@ -48,6 +48,30 @@ ftxui::Element settingLine(const string& label, const string& value, int width, 
          ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
 }
 
+ftxui::Element versionLine(const string& label, const string& installedVersion,
+                           const string& availableVersion, int width) {
+  const int labelWidth = settingsLabelWidth(width);
+  ftxui::Elements value;
+  if (!availableVersion.empty() && isVersionNewer(availableVersion, installedVersion)) {
+    value = {
+        styledText(installedVersion, uiMutedText()),
+        styledText(" <- ", uiMutedText()),
+        styledText(availableVersion, uiInteractiveColor()),
+        styledText("  Update available", uiMutedText()),
+    };
+  } else {
+    value = {styledText(installedVersion, uiPrimaryText())};
+  }
+
+  ftxui::Elements row;
+  row.push_back(styledText(ellipsize(" " + label, static_cast<size_t>(max(2, labelWidth - 1))),
+                           uiSecondaryText()) |
+                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth));
+  for (auto& part : value) row.push_back(move(part));
+  row.push_back(ftxui::filler());
+  return ftxui::hbox(move(row)) | ftxui::bgcolor(uiSurfaceBg());
+}
+
 ftxui::Element printerQueueLine(const string& name, const string& status, int width, bool selected) {
   const int statusWidth = max(10, min(18, static_cast<int>(status.size()) + 2));
   const int nameWidth = max(12, width - statusWidth - 5);
@@ -66,13 +90,6 @@ ftxui::Element printerQueueLine(const string& name, const string& status, int wi
 // raised/filled background spans the whole panel and reads as a bar.
 ftxui::Element buttonRow(ftxui::Element button) {
   return ftxui::hbox({move(button), ftxui::filler()});
-}
-
-double updateLoadingFraction() {
-  constexpr long long kLoadingCycleTicks = 18;
-  const auto phase = static_cast<double>((uiAnimationTicks() / 100) % kLoadingCycleTicks);
-  const auto sweep = phase <= kLoadingCycleTicks / 2 ? phase : kLoadingCycleTicks - phase;
-  return 0.12 + (sweep / static_cast<double>(kLoadingCycleTicks / 2)) * 0.72;
 }
 
 constexpr int kAppearancePickerHueSteps = 12;
@@ -647,8 +664,8 @@ ftxui::Element App::renderSettingsUi() const {
   };
   categories.push_back(styledText(" SYSTEM", uiDimColor()));
   addCategory(SettingsCategory::General);
-  addCategory(SettingsCategory::Updates);
   addCategory(SettingsCategory::Appearance);
+  addCategory(SettingsCategory::Updates);
   categories.push_back(styledText(" OUTPUT", uiDimColor()));
   addCategory(SettingsCategory::Printer);
   addCategory(SettingsCategory::QuickLabels);
@@ -695,59 +712,21 @@ ftxui::Element App::renderSettingsUi() const {
     const bool softwareChecking = updateCheckFuture_.valid();
     const bool firmwareChecking = scanFirmwareFuture_.valid();
     const bool anythingChecking = softwareChecking || firmwareChecking;
-    const bool scannerPaired = !trim(inventatoryScanConfig_.deviceId).empty() ||
-                               !deviceFirmwareVersion_.empty();
+    const auto softwareVersionText = softwareVersion();
+    const auto firmwareVersionText = deviceFirmwareVersion_.empty() ? string("Not reported") : deviceFirmwareVersion_;
+    rows.push_back(versionLine("Inventatory Software Version", softwareVersionText,
+                               updateCheckFailed_ ? string() : settings_.latestAvailableVersion, contentWidth));
+    rows.push_back(versionLine("Inventascan Firmware Version", firmwareVersionText,
+                               scanFirmwareCheckFailed_ ? string() : scanFirmwareLatestVersion_, contentWidth));
+    rows.push_back(ftxui::text(""));
+    rows.push_back(versionLine("Inventascan Hardware Version", "R1", string(), contentWidth));
+    rows.push_back(ftxui::text(""));
 
-    const auto softwareStatus = [&] {
-      if (softwareChecking) return string("Checking") + uiAnimatedEllipsis();
-      if (updateCheckFailed_) return string("Check failed");
-      if (!settings_.latestAvailableVersion.empty()) {
-        return "Version " + settings_.latestAvailableVersion + " available";
-      }
-      return updateCheckChecked_ ? string("Up to date") : string("Not checked");
-    };
-
-    rows.push_back(uiHeaderText("CURRENT VERSIONS", uiSecondaryText()));
-    rows.push_back(settingLine("Inventatory software", softwareVersion(), contentWidth));
-    rows.push_back(settingLine("Scan R1 firmware",
-                               deviceFirmwareVersion_.empty() ? "Not reported" : deviceFirmwareVersion_,
-                               contentWidth));
-    rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("UPDATE STATUS", uiSecondaryText()));
-    rows.push_back(settingLine("Software", softwareStatus(), contentWidth));
-    rows.push_back(settingLine("Scanner firmware", scannerPaired ? scanFirmwareStatus() : "Pair a scanner to check",
-                               contentWidth));
-
-    if (anythingChecking) {
-      rows.push_back(uiDivider());
-      rows.push_back(uiHeaderText("CHECKING FOR UPDATES", uiSecondaryText()));
-      rows.push_back(ftxui::hbox({
-          uiProgressBar(updateLoadingFraction(), max(20, min(44, contentWidth - 20)), uiInteractiveColor()),
-          styledText("  Contacting release channels" + uiAnimatedEllipsis(), uiMutedText()),
-          ftxui::filler(),
-      }));
-    }
-
-    rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("UPDATE PREFERENCES", uiSecondaryText()));
-    rows.push_back(target(settingLine("Daily GitHub check", settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
-                          "settings.updates.daily_check", UiTargetKind::Field, [self] {
-                            self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
-                            self->settingsDirty_ = true;
-                            self->dirty_ = true;
-                          }));
-
-    ftxui::Elements updateActions;
-    updateActions.push_back(target(uiPrimaryButton("Check for updates", !anythingChecking),
-                                   "settings.updates.check", UiTargetKind::Button,
-                                   [self] { self->beginUpdateChecks(); }, !anythingChecking));
-    if (!settings_.latestReleaseUrl.empty()) {
-      updateActions.push_back(ftxui::text("  "));
-      updateActions.push_back(target(uiSecondaryButton("Open software release"), "settings.updates.open_release",
-                                     UiTargetKind::Button,
-                                     [self] { self->openCurrentUrl(self->settings_.latestReleaseUrl, "software release"); }));
-    }
-    rows.push_back(buttonRow(ftxui::hbox(move(updateActions))));
+    const auto checkLabel = anythingChecking ? "Searching for updates" + uiAnimatedEllipsis()
+                                             : "Check for updates";
+    rows.push_back(buttonRow(target(uiPrimaryButton(checkLabel, !anythingChecking), "settings.updates.check",
+                                                    UiTargetKind::Button,
+                                                    [self] { self->beginUpdateChecks(); }, !anythingChecking)));
   } else if (settingsCategory_ == SettingsCategory::Appearance) {
     const int colorCellWidth = max(28, (contentWidth - 2) / 2);
     const auto addAppearanceSection = [&](const string& title,
