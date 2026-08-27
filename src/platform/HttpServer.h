@@ -64,6 +64,7 @@ class LocalHttpServer {
   bool serveConnection(SOCKET clientSocket, string requestText);
   string responseText(const string& status, const string& contentType, const string& body) const;
   string authenticatedResponseText(int status, std::uint64_t counter, const string& token, const string& body) const;
+  bool replayCounterAvailable(std::uint64_t counter) const;
   bool advanceReplayCounter(std::uint64_t counter);
   bool bindSocket(uint16_t port);
 
@@ -73,7 +74,7 @@ class LocalHttpServer {
   SyncCallback onSync_;
   mutable mutex stateMutex_;
   mutex applicationMutex_;
-  mutex replayMutex_;
+  mutable mutex replayMutex_;
   uint16_t port_ = 0;
   string lastError_;
   vector<string> addresses_;

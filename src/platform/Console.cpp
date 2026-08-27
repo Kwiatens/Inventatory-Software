@@ -122,6 +122,27 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
   return true;
 }
 
+bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
+                    const string& defaultExtension) {
+  char fileName[MAX_PATH] = {};
+  OPENFILENAMEA dialog{};
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = nullptr;
+  dialog.lpstrFilter = filter.c_str();
+  dialog.lpstrFile = fileName;
+  dialog.nMaxFile = MAX_PATH;
+  dialog.lpstrTitle = title.c_str();
+  dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+  dialog.lpstrDefExt = defaultExtension.c_str();
+
+  if (GetSaveFileNameA(&dialog) == 0) {
+    return false;
+  }
+
+  selectedPath = filesystem::path(fileName);
+  return true;
+}
+
 bool openFolderDialog(filesystem::path& selectedPath, const string& title) {
   BROWSEINFOA browse{};
   browse.hwndOwner = nullptr;

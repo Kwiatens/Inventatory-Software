@@ -41,22 +41,59 @@ ftxui::Element App::renderImportCsvUi() const {
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 40;
 
+  if (importSyncRunning_) {
+    ftxui::Elements rows;
+    rows.push_back(fullLine("CSV review is complete.", uiTitleColor(), uiPanelRightBg()));
+    rows.push_back(uiDivider());
+    rows.push_back(fullLine("DigiKey metadata sync is running in the background.", uiAccentColor(), uiPanelRightBg()));
+    rows.push_back(fullLine("You can cancel it; accepted stock changes are already saved locally.", uiMutedColor(), uiPanelRightBg()));
+    rows.push_back(uiDivider());
+    rows.push_back(fullLine("Progress: " + to_string(importSyncCompleted_) + " / " + to_string(importSyncTotal_) +
+                                " rows", uiInfoColor(), uiPanelRightBg()));
+    rows.push_back(fullLine("Press C to cancel after the current request finishes.", uiWarnColor(), uiPanelRightBg()));
+    auto panel = ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelRightBg()) |
+                 ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, max(64, min(screenWidth - 8, 96)));
+    return ftxui::vbox({ftxui::filler(), ftxui::hbox({ftxui::filler(), panel, ftxui::filler()}), ftxui::filler()});
+  }
+
   if (importSyncPrompt_) {
     auto self = const_cast<App*>(this);
     ftxui::Elements promptRows;
     promptRows.push_back(fullLine("CSV review is complete.", uiTitleColor(), uiPanelRightBg()));
     promptRows.push_back(uiDivider());
-    promptRows.push_back(fullLine("Sync accepted parts with DigiKey API?", uiAccentColor(), uiPanelRightBg()));
-    promptRows.push_back(fullLine("Highly recommended: this fills datasheets, product links, categories, and parameters.",
-                                  uiWarnColor(), uiPanelRightBg()));
+    if (importSyncHasRun_) {
+      promptRows.push_back(fullLine("DigiKey metadata sync finished.", uiAccentColor(), uiPanelRightBg()));
+      promptRows.push_back(fullLine(importSyncFailedItemIds_.empty()
+                                        ? "All accepted rows were enriched."
+                                        : "Some rows could not be enriched; retry them or finish the import.",
+                                    importSyncFailedItemIds_.empty() ? uiSuccessColor() : uiWarnColor(),
+                                    uiPanelRightBg()));
+    } else {
+      promptRows.push_back(fullLine("Sync accepted parts with DigiKey API?", uiAccentColor(), uiPanelRightBg()));
+      promptRows.push_back(fullLine("Highly recommended: this fills datasheets, product links, categories, and parameters.",
+                                    uiWarnColor(), uiPanelRightBg()));
+    }
     promptRows.push_back(uiDivider());
-    promptRows.push_back(ftxui::hbox({
-        target(styledText(" Sync with DigiKey ", uiInteractiveColor(), uiRaisedSurfaceBg()), "import.sync.yes",
-               UiTargetKind::Button, [self] { self->finishCsvImport(true); }),
-        ftxui::text("  "),
-        target(styledText(" Finish without sync ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.sync.no",
-               UiTargetKind::Button, [self] { self->finishCsvImport(false); }),
-    }));
+    if (importSyncHasRun_) {
+      ftxui::Elements actions;
+      if (!importSyncFailedItemIds_.empty()) {
+        actions.push_back(target(styledText(" Retry failed rows ", uiInteractiveColor(), uiRaisedSurfaceBg()),
+                                 "import.sync.retry", UiTargetKind::Button,
+                                 [self] { self->retryImportSync(); }));
+        actions.push_back(ftxui::text("  "));
+      }
+      actions.push_back(target(styledText(" Finish import ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.sync.finish",
+                               UiTargetKind::Button, [self] { self->finishCsvImport(false); }));
+      promptRows.push_back(ftxui::hbox(move(actions)));
+    } else {
+      promptRows.push_back(ftxui::hbox({
+          target(styledText(" Sync with DigiKey ", uiInteractiveColor(), uiRaisedSurfaceBg()), "import.sync.yes",
+                 UiTargetKind::Button, [self] { self->finishCsvImport(true); }),
+          ftxui::text("  "),
+          target(styledText(" Finish without sync ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.sync.no",
+                 UiTargetKind::Button, [self] { self->finishCsvImport(false); }),
+      }));
+    }
     promptRows.push_back(uiDivider());
     promptRows.push_back(fullLine(importCompletionMessage(), uiInfoColor(), uiPanelRightBg()));
 
@@ -204,7 +241,23 @@ ftxui::Element App::renderImportCsvUi() const {
 }
 
 void App::handleImportCsvKey(const KeyEvent& key) {
+  if (importSyncRunning_) {
+    if (key.type == KeyType::Escape ||
+        (key.type == KeyType::Character && tolower(static_cast<unsigned char>(key.ch)) == 'c')) {
+      if (importSyncCancelFlag_) importSyncCancelFlag_->store(true);
+      importSyncCancelRequested_ = true;
+      setMessage("Cancelling after the current DigiKey request...", 4);
+    }
+    return;
+  }
+
   if (importSyncPrompt_) {
+    if (importSyncHasRun_) {
+      if (key.type == KeyType::Enter || key.type == KeyType::Escape) {
+        finishCsvImport(false);
+      }
+      return;
+    }
     if (key.type == KeyType::Enter) {
       finishCsvImport(true);
       return;
