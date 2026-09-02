@@ -22,6 +22,18 @@ commands are available through Actions.
 Editing happens in the detail side of Stock. Choose a field, type its value, and
 save the working copy with `s`. Escape cancels the active field or the edit.
 
+Use **Start stocktake** from Actions (`Space`, then the action, or `t`) for a
+guided physical count. Inventatory clears the stock filter, keeps each count in
+memory, and requires every part to be counted before Finish is enabled. Enter a
+count for the selected part, use `j`/`k` or Up/Down to move, then press `s` to
+save the session. `q` or Escape cancels without changing stock. Corrections are
+recorded in the stock movement history and the selected part shows its recent
+movements below the normal details.
+
+Each part can have its own **Reorder threshold** in Edit. A positive value
+overrides the global low-stock warning; `0` uses the global setting. The active
+threshold is used by the dashboard, search, rack indicators, and stock warnings.
+
 ## Rack workflow
 
 Select a rack, then a slot in its 5x5 grid. Place/Move starts a move from an

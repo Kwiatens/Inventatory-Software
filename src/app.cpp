@@ -48,18 +48,6 @@ string currentDateTimeText() {
   return buffer;
 }
 
-string currentExecutablePath() {
-  wchar_t buffer[MAX_PATH]{};
-  const auto length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
-  if (length == 0) return {};
-  const int bytes = WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(length), nullptr, 0, nullptr, nullptr);
-  string result(static_cast<size_t>(max(0, bytes)), '\0');
-  if (bytes > 0) {
-    WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(length), result.data(), bytes, nullptr, nullptr);
-  }
-  return result;
-}
-
 }  // namespace
 
 
@@ -184,7 +172,6 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
                      })) {
       setMessage("Inventatory Scan R1 service failed to start; terminal still works", 5);
     } else {
-      synchronizeScanFirewall();
       if (mdnsService_.start(server_.port())) {
         setMessage("Inventatory Scan R1 service ready", 5);
       } else {
@@ -236,9 +223,6 @@ ftxui::Element App::renderUi() const {
   ftxui::Elements body;
   body.push_back(renderHeaderUi());
   body.push_back(uiDivider());
-  if (!firewallWarning_.empty()) {
-    body.push_back(fullLine("FIREWALL WARNING  " + firewallWarning_, uiDangerColor(), uiDangerBg()));
-  }
   body.push_back(renderPageUi() | ftxui::flex);
   body.push_back(uiDivider());
   // Bottom sheet takes the place of the search/context line while open; the
@@ -348,7 +332,8 @@ ftxui::Element App::renderSearchBarUi() const {
                             (inputMode_ == InputMode::EditValue || inputMode_ == InputMode::RackRename ||
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
-                             inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::ExitConfirmation);
+                             inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
+                             inputMode_ == InputMode::ExitConfirmation);
 
   const auto activeBg = inputMode_ == InputMode::Search || showsPrompt ? uiRowSelectedBg() : uiPanelLeftBg();
   const auto bodyColor = inputMode_ == InputMode::Search ? uiTitleColor() : showsPrompt ? uiLinkColor() : uiMutedColor();
@@ -640,10 +625,6 @@ void App::requestUserExit() {
 }
 
 void App::restartDeviceService() {
-  string firewallWarning;
-  if (!removeScanFirewallRule(firewallWarning) && !firewallWarning.empty()) {
-    firewallWarning_ = firewallWarning;
-  }
   mdnsService_.stop();
   server_.stop();
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
@@ -655,7 +636,6 @@ void App::restartDeviceService() {
     setMessage("Inventatory Scan R1 service failed to restart; terminal still works", 6);
     return;
   }
-  synchronizeScanFirewall();
   if (mdnsService_.start(server_.port())) {
     setMessage("Inventatory Scan R1 bridge restarted on port " + to_string(server_.port()), 5);
   } else {
@@ -706,6 +686,9 @@ void App::handleKey(const KeyEvent& key) {
       return;
     case InputMode::StockFilter:
       handleStockFilterKey(key);
+      return;
+    case InputMode::StocktakeCount:
+      handleStocktakeCountKey(key);
       return;
     case InputMode::QuantityAdjust:
       handleQuantityAdjustKey(key);
@@ -1149,23 +1132,11 @@ void App::handleBomRestockKey(const KeyEvent& key) {
   reconcileRackAssignment(store_, *item);
   logActivity("receipt", item->partName + " received " + to_string(received) + " (now " +
                               to_string(item->quantity) + ")");
-  const bool saved = saveState();
+  const bool saved = saveState("stock_receipt", activeBomProjectId_);
   refreshBomAnalysis();
   setMessage(saved ? item->partName + " receipt saved; BOM re-analyzed"
                    : "Receipt is in memory; press R to retry saving, then recheck the BOM",
              6);
-  dirty_ = true;
-}
-
-void App::synchronizeScanFirewall() {
-  if (!server_.running()) return;
-  string warning;
-  if (!synchronizeScanFirewallRule(server_.port(), currentExecutablePath(), warning)) {
-    firewallWarning_ = warning;
-    setMessage("Scan R1 firewall hardening needs attention", 8);
-  } else {
-    firewallWarning_.clear();
-  }
   dirty_ = true;
 }
 

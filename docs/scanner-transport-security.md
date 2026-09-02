@@ -25,14 +25,12 @@ mutual authentication against an active local-network attacker. It does not
 provide payload confidentiality: request and response JSON can still be read
 by a local-network observer. An observer cannot recover or replay the pairing
 secret from that traffic. The R1-compatible bridge continues to bind on the LAN
-interface rather than loopback. On Windows, Inventatory installs an app-owned
-inbound firewall rule for the current executable and port, limited to the
-Private profile and `LocalSubnet`. This narrows the trust boundary to the
-private LAN, but it is not encryption; users should treat that network as
-trusted and avoid exposing the bridge through public profiles or port
-forwarding. If Windows denies the rule, the bridge remains usable and the
-terminal keeps a persistent warning so the user can fix the firewall manually.
-TLS with a device trust/bootstrap model remains a future enhancement.
+interface rather than loopback. Inventatory does not change Windows Firewall
+settings. If Scan R1 cannot connect, the user can manually allow the
+executable's current service port on the Private network profile, limited to
+the local network. This is a user-owned trust decision; the port should not be
+exposed through public profiles or port forwarding. TLS with a device
+trust/bootstrap model remains a future enhancement.
 
 Regenerate-secret and clear-device actions rotate the pairing secret, reset
 replay state, clear the paired device identity, and require a fresh pairing.
