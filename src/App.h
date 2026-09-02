@@ -132,7 +132,9 @@ class App {
     RackJump,
     RackFilter,
     StockFilter,
+    StocktakeCount,
     QuantityAdjust,
+    BomRestock,
     ExitConfirmation,
     ActionSheet,
   };
@@ -154,6 +156,7 @@ class App {
     Manufacturer,
     Category,
     Quantity,
+    ReorderThreshold,
     Location,
     Tags,
     Parameters,
@@ -222,7 +225,8 @@ class App {
   };
 
   void loadState();
-  bool saveState();
+  bool saveState(const std::string& movementSource = "manual",
+                 const std::string& movementReference = {});
   void handleKey(const KeyEvent& key);
   void handleDashboardKey(const KeyEvent& key);
   void handleStockKey(const KeyEvent& key);
@@ -238,7 +242,9 @@ class App {
   void handleEditValueKey(const KeyEvent& key);
   void handleRackValueKey(const KeyEvent& key);
   void handleStockFilterKey(const KeyEvent& key);
+  void handleStocktakeCountKey(const KeyEvent& key);
   void handleQuantityAdjustKey(const KeyEvent& key);
+  void handleBomRestockKey(const KeyEvent& key);
   void handleExitConfirmationKey(const KeyEvent& key);
 
   ftxui::Element renderUi() const;
@@ -294,6 +300,7 @@ class App {
   void runInteractiveLoop();
   void markDirty();
   void refreshPrinterState();
+  void refreshInventoryMovements();
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);
@@ -402,12 +409,20 @@ class App {
   void saveWorkingCopy();
   void adjustQuantity(int delta);
   void setSelectedQuantityFromInput(const std::string& value);
+  void beginStocktake();
+  void cancelStocktake();
+  void finishStocktake();
+  void beginStocktakeCount();
+  int stocktakeCountFor(const InventoryItem& item) const;
+  size_t stocktakeCountedItems() const;
   void captureUndoSnapshot();
   bool undoLastInventoryChange();
   void logActivity(const std::string& kind, const std::string& message);
   void pushScanCode(const DeviceScanRequest& request);
   void processScans();
   void beginCsvImport();
+  void cancelImportSession();
+  bool commitImportStage();
   void moveImportSelection(int delta);
   void acceptImportCandidate();
   void skipImportCandidate();
@@ -428,6 +443,7 @@ class App {
   void refreshBomAnalysis();
   void adjustBomBoards(int delta);
   void cycleBomAlternate();
+  void beginBomRestock();
   void deleteSelectedBomProject();
   void openSelectedBomProject();
   void moveBomSelection(int delta);
@@ -440,6 +456,7 @@ class App {
   bool saveBomProjects();
   bool exportInventory();
   bool backupData();
+  bool restoreData();
   void retrySaveState();
   std::vector<BuildStep> bomBuildSteps() const;
   BomProject* activeBomProject();
@@ -455,6 +472,10 @@ class App {
   std::string activePrompt() const;
 
   InventoryStore store_;
+  InventoryStore persistedStore_;
+  bool persistedStoreValid_ = false;
+  InventoryStore importOriginalStore_;
+  InventoryStore importStagedStore_;
   std::vector<ActivityEntry> activities_;
   LabelPrinterService printerService_;
   std::vector<PrinterQueueInfo> printerQueues_;
@@ -481,6 +502,10 @@ class App {
   std::string inputBuffer_;
   StockDateFilter stockDateFilter_ = StockDateFilter::All;
   StockSortOrder stockSortOrder_ = StockSortOrder::Az;
+  bool stocktakeActive_ = false;
+  bool stocktakeCommitPending_ = false;
+  std::string stocktakeSessionId_;
+  std::unordered_map<std::string, int> stocktakeCounts_;
   int stockFilterSelection_ = 0;
   bool stockDateFilterSubmenuOpen_ = false;
   // Vendor/catalogue identifiers are reference data, not what the page is for,
@@ -488,6 +513,8 @@ class App {
   bool stockDetailsExpanded_ = false;
   std::string message_;
   std::string persistenceError_;
+  std::string pendingMovementSource_;
+  std::string pendingMovementReference_;
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
   time_t messageUntil_ = 0;
@@ -508,7 +535,10 @@ class App {
   std::vector<CsvImportCandidate> importCandidates_;
   std::vector<std::string> importAcceptedItemIds_;
   std::filesystem::path importSourcePath_;
+  bool importStageActive_ = false;
+  bool importCommitPending_ = false;
   std::vector<InventoryHistoryPoint> inventoryHistory_;
+  std::vector<InventoryMovement> inventoryMovements_;
   std::mutex scanMutex_;
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
@@ -569,6 +599,10 @@ class App {
   mutable ftxui::Box dashboardActivityPanelBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
+  std::string bomRestockItemId_;
+  std::string bomDeleteConfirmationProjectId_;
+  time_t bomDeleteConfirmationUntil_ = 0;
+  bool bomProjectsDirty_ = false;
   // Line keys still awaiting a DigiKey suggestion; drained one per tick so the
   // terminal stays responsive while lookups run.
   std::vector<std::string> bomEnrichmentQueue_;
@@ -633,6 +667,7 @@ class App {
   std::deque<std::string> quickLabelPrintOrder_;
   mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;
+  std::filesystem::path pendingRestoreBackupPath_;
   std::optional<Page> pendingPageAfterSettings_;
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
