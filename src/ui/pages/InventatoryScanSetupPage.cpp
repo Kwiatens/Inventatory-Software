@@ -51,6 +51,8 @@ bool App::regenerateInventatoryScanToken() {
   deviceLastSync_ = 0;
   deviceRequestCache_.clear();
   deviceRequestOrder_.clear();
+  error_code replayError;
+  filesystem::remove(appSettingsDirectory() / "inventatory-scan-replay.state", replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                appSettingsDirectory() / "inventatory-scan-replay.state");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
@@ -78,6 +80,12 @@ bool App::clearInventatoryScanPairing() {
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
 
+  const auto rotatedToken = generateInventatoryScanToken();
+  if (!CredentialStore::write(kInventatoryScanTokenCredential, rotatedToken)) {
+    setMessage("Unable to rotate the scanner token securely; pairing was not cleared", 5);
+    return false;
+  }
+  inventatoryScanConfig_.token = rotatedToken;
   inventatoryScanConfig_.deviceId.clear();
   inventatoryScanConfig_.setupComplete = false;
   deviceLastSeen_ = 0;
@@ -89,6 +97,10 @@ bool App::clearInventatoryScanPairing() {
   deviceMode_.clear();
   devicePendingEventCount_ = 0;
   deviceLastSync_ = 0;
+  deviceRequestCache_.clear();
+  deviceRequestOrder_.clear();
+  error_code replayError;
+  filesystem::remove(appSettingsDirectory() / "inventatory-scan-replay.state", replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                appSettingsDirectory() / "inventatory-scan-replay.state");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
