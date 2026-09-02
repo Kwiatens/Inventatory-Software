@@ -14,6 +14,10 @@ namespace inventatory {
 
 using namespace std;
 
+bool bomBuildReady(const BomAnalysis& analysis) {
+  return analysis.shortCount == 0 && !analysis.matches.empty();
+}
+
 namespace {
 
 // Imperial chip codes KiCad embeds in passive footprint names.
