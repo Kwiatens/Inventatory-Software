@@ -1253,9 +1253,6 @@ DigiKeyConfig loadDigiKeyConfig() {
   if (const auto value = environmentValue("DIGIKEY_CLIENT_ID"); value.has_value()) {
     config.clientId = *value;
   }
-  if (const auto value = environmentValue("DIGIKEY_CLIENT_SECRET"); value.has_value()) {
-    config.clientSecret = *value;
-  }
   if (const auto value = environmentValue("DIGIKEY_ACCOUNT_ID"); value.has_value()) {
     config.accountId = *value;
   }

@@ -215,8 +215,7 @@ void App::openSettings(SettingsCategory category) {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value() ||
-                            !loadDigiKeyConfig().clientSecret.empty();
+  hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value();
   inputBuffer_.clear();
   applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
@@ -292,8 +291,6 @@ bool App::testStagedDigiKey() {
     config.clientSecret = stagedDigiKeySecret_;
   } else if (const auto secret = CredentialStore::read(kDigiKeySecretName); secret.has_value()) {
     config.clientSecret = *secret;
-  } else {
-    config.clientSecret = loadDigiKeyConfig().clientSecret;
   }
   if (!config.valid()) {
     setMessage("Client ID and client secret are required", 4);
@@ -707,8 +704,10 @@ ftxui::Element App::renderSettingsUi() const {
         ftxui::text("  "),
         target(uiSecondaryButton("Backup folder"), "settings.data.backup", UiTargetKind::Button,
                [self] { self->backupData(); }),
+        target(uiSecondaryButton("Restore backup"), "settings.data.restore", UiTargetKind::Button,
+               [self] { self->restoreData(); }),
     }));
-    rows.push_back(styledText("To restore a backup, browse to its folder and save the selected data directory.",
+    rows.push_back(styledText("Restore validates the bundle first, creates a pre-restore backup, and requires Scan R1 re-pairing.",
                               uiMutedText()));
     rows.push_back(uiDivider());
     rows.push_back(uiHeaderText("APPLICATION", uiSecondaryText()));

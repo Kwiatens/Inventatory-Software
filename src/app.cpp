@@ -48,6 +48,18 @@ string currentDateTimeText() {
   return buffer;
 }
 
+string currentExecutablePath() {
+  wchar_t buffer[MAX_PATH]{};
+  const auto length = GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+  if (length == 0) return {};
+  const int bytes = WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(length), nullptr, 0, nullptr, nullptr);
+  string result(static_cast<size_t>(max(0, bytes)), '\0');
+  if (bytes > 0) {
+    WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(length), result.data(), bytes, nullptr, nullptr);
+  }
+  return result;
+}
+
 }  // namespace
 
 
@@ -120,6 +132,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       activityPath_(dataPath_ / "activity.tsv"),
       inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
       quickLabelsPath_(dataPath_ / "quick_labels.conf") {
+  error_code settingsFileError;
+  const bool settingsFileExists = filesystem::exists(settingsPath_, settingsFileError);
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   applyUiAppearance(settings_.appearance);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
@@ -135,8 +149,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
-  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
-                            !loadDigiKeyConfig().clientSecret.empty();
+  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (!loadedSettings) {
@@ -148,12 +161,16 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     settings_.digiKeyLanguage = environment.language;
     settings_.digiKeyCurrency = environment.currency;
     settingsDraft_ = settings_;
-    saveAppSettings(settingsPath_, settings_);
+    if (!settingsFileExists) {
+      saveAppSettings(settingsPath_, settings_);
+    } else {
+      setMessage("Settings file is invalid; defaults are in use temporarily. Finish setup or reset it explicitly.", 8);
+    }
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     printerCheck_ = printerService_.probeConfiguredPrinter();
   }
-  if (!startInBackground_ && !loadedSettings) {
+  if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion)) {
     onboardingActive_ = true;
     page_ = Page::Onboarding;
   }
@@ -167,6 +184,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
                      })) {
       setMessage("Inventatory Scan R1 service failed to start; terminal still works", 5);
     } else {
+      synchronizeScanFirewall();
       if (mdnsService_.start(server_.port())) {
         setMessage("Inventatory Scan R1 service ready", 5);
       } else {
@@ -218,6 +236,9 @@ ftxui::Element App::renderUi() const {
   ftxui::Elements body;
   body.push_back(renderHeaderUi());
   body.push_back(uiDivider());
+  if (!firewallWarning_.empty()) {
+    body.push_back(fullLine("FIREWALL WARNING  " + firewallWarning_, uiDangerColor(), uiDangerBg()));
+  }
   body.push_back(renderPageUi() | ftxui::flex);
   body.push_back(uiDivider());
   // Bottom sheet takes the place of the search/context line while open; the
@@ -619,6 +640,10 @@ void App::requestUserExit() {
 }
 
 void App::restartDeviceService() {
+  string firewallWarning;
+  if (!removeScanFirewallRule(firewallWarning) && !firewallWarning.empty()) {
+    firewallWarning_ = firewallWarning;
+  }
   mdnsService_.stop();
   server_.stop();
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
@@ -630,6 +655,7 @@ void App::restartDeviceService() {
     setMessage("Inventatory Scan R1 service failed to restart; terminal still works", 6);
     return;
   }
+  synchronizeScanFirewall();
   if (mdnsService_.start(server_.port())) {
     setMessage("Inventatory Scan R1 bridge restarted on port " + to_string(server_.port()), 5);
   } else {
@@ -684,6 +710,9 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::QuantityAdjust:
       handleQuantityAdjustKey(key);
       return;
+    case InputMode::BomRestock:
+      handleBomRestockKey(key);
+      return;
     case InputMode::ExitConfirmation:
       handleExitConfirmationKey(key);
       return;
@@ -719,6 +748,10 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
+  if (page_ == Page::Import && importCommitPending_ && key.type == KeyType::Character && key.ch == 'R') {
+    finishImportReview();
+    return;
+  }
   if (key.type == KeyType::Character && key.ch == 'R' && !persistenceError_.empty()) {
     retrySaveState();
     return;
@@ -1066,6 +1099,74 @@ void App::handleQuantityAdjustKey(const KeyEvent& key) {
     inputMode_ = InputMode::None;
     setMessage("Quantity change cancelled", 2);
   }
+}
+
+void App::handleBomRestockKey(const KeyEvent& key) {
+  if (key.type == KeyType::Character) {
+    if (isdigit(static_cast<unsigned char>(key.ch)) != 0 && inputBuffer_.size() < 9U) {
+      inputBuffer_.push_back(key.ch);
+      dirty_ = true;
+    }
+    return;
+  }
+  if (key.type == KeyType::Backspace) {
+    if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+    dirty_ = true;
+    return;
+  }
+  if (key.type == KeyType::Escape) {
+    inputBuffer_.clear();
+    bomRestockItemId_.clear();
+    inputMode_ = InputMode::None;
+    setMessage("Stock receipt cancelled", 2);
+    return;
+  }
+  if (key.type != KeyType::Enter) return;
+
+  const auto text = inputBuffer_;
+  inputBuffer_.clear();
+  inputMode_ = InputMode::None;
+  auto* item = store_.findById(bomRestockItemId_);
+  bomRestockItemId_.clear();
+  if (item == nullptr) {
+    setMessage("The matched stock item no longer exists; add it manually from Stock", 5);
+    return;
+  }
+  int received = 0;
+  try {
+    size_t parsed = 0;
+    received = stoi(text, &parsed);
+    if (parsed != text.size() || received <= 0) throw invalid_argument("quantity");
+  } catch (...) {
+    setMessage("Enter a positive received quantity", 3);
+    return;
+  }
+
+  captureUndoSnapshot();
+  const auto before = item->quantity;
+  item->quantity = before > numeric_limits<int>::max() - received ? numeric_limits<int>::max() : before + received;
+  item->lastUpdated = time(nullptr);
+  reconcileRackAssignment(store_, *item);
+  logActivity("receipt", item->partName + " received " + to_string(received) + " (now " +
+                              to_string(item->quantity) + ")");
+  const bool saved = saveState();
+  refreshBomAnalysis();
+  setMessage(saved ? item->partName + " receipt saved; BOM re-analyzed"
+                   : "Receipt is in memory; press R to retry saving, then recheck the BOM",
+             6);
+  dirty_ = true;
+}
+
+void App::synchronizeScanFirewall() {
+  if (!server_.running()) return;
+  string warning;
+  if (!synchronizeScanFirewallRule(server_.port(), currentExecutablePath(), warning)) {
+    firewallWarning_ = warning;
+    setMessage("Scan R1 firewall hardening needs attention", 8);
+  } else {
+    firewallWarning_.clear();
+  }
+  dirty_ = true;
 }
 
 void App::handleExitConfirmationKey(const KeyEvent& key) {

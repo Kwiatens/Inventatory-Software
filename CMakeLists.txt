@@ -97,6 +97,7 @@ add_executable(inventatory
   src/platform/Environment.cpp
   src/platform/BackgroundController.cpp
   src/platform/CredentialStore.cpp
+  src/platform/FirewallService.cpp
   src/platform/BleProvisioningService.cpp
   src/platform/UpdateService.cpp
   src/ui/shared/AppUiShared.cpp
@@ -123,7 +124,7 @@ target_compile_definitions(inventatory PRIVATE
 )
 
 if(WIN32)
-  target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
+  target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 ole32 oleaut32 runtimeobject windowsapp)
 endif()
 
 target_link_libraries(inventatory PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
@@ -137,6 +138,7 @@ add_executable(inventatory_tests
   src/platform/HttpServer.cpp
   src/platform/Console.cpp
   src/platform/Environment.cpp
+  src/platform/CredentialStore.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
