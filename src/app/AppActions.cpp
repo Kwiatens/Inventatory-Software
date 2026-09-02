@@ -240,6 +240,9 @@ string digiKeyRefreshLookup(const InventoryItem& item) {
 }  // namespace
 
 void App::loadState() {
+  persistedStoreValid_ = false;
+  pendingMovementSource_.clear();
+  pendingMovementReference_.clear();
   error_code inventoryError;
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
   const bool inventoryLoaded = !inventoryFileExists || store_.load(inventoryPath_);
@@ -255,6 +258,7 @@ void App::loadState() {
   loadActivities(activityPath_, activities_);
   inventatory::loadBomProjects(inventoryPath_, bomProjects_);
   refreshDeviceEventRecords();
+  refreshInventoryMovements();
   printerService_.loadConfig(printerPath_);
   refreshPrinterState();
   if (activities_.empty()) {
@@ -275,8 +279,10 @@ void App::loadState() {
   }
 
   vector<string> saveFailures;
+  bool inventorySaved = false;
   if (inventoryLoaded || !inventoryFileExists) {
-    if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
+    inventorySaved = store_.save(inventoryPath_);
+    if (!inventorySaved) saveFailures.push_back("inventory");
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) saveFailures.push_back("scanner settings");
@@ -284,17 +290,41 @@ void App::loadState() {
   persistenceError_ = saveFailures.empty()
                           ? string()
                           : "Could not save " + join(saveFailures, ',') + "; changes remain in memory.";
+  if (inventorySaved) {
+    persistedStore_ = store_;
+    persistedStoreValid_ = true;
+    refreshInventoryMovements();
+  }
 }
 
-bool App::saveState() {
+void App::refreshInventoryMovements() {
+  inventoryMovements_ = loadInventoryMovements(inventoryPath_);
+}
+
+bool App::saveState(const string& movementSource, const string& movementReference) {
   if (inventoryRecoveryRequired_) {
     persistenceError_ = inventoryRecoveryDetail_ + ". Recovery is required before Inventatory can save.";
     return false;
   }
   ensureInventoryIdentifiers(store_.items());
   reconcileRackAssignments(store_);
+  const auto movements = persistedStoreValid_
+                             ? inventoryMovementDiff(persistedStore_, store_, movementSource, movementReference)
+                             : vector<InventoryMovement>();
   vector<string> saveFailures;
-  if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
+  const bool inventorySaved = movements.empty() ? store_.save(inventoryPath_)
+                                                : store_.saveWithMovements(inventoryPath_, movements);
+  if (!inventorySaved) {
+    saveFailures.push_back("inventory");
+    pendingMovementSource_ = movementSource;
+    pendingMovementReference_ = movementReference;
+  } else {
+    persistedStore_ = store_;
+    persistedStoreValid_ = true;
+    refreshInventoryMovements();
+    pendingMovementSource_.clear();
+    pendingMovementReference_.clear();
+  }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
   persistenceError_ = saveFailures.empty()
@@ -307,8 +337,13 @@ bool App::saveState() {
 }
 
 void App::retrySaveState() {
-  if (saveState()) {
+  const bool stateSaved = saveState(pendingMovementSource_.empty() ? string("manual") : pendingMovementSource_,
+                                    pendingMovementReference_);
+  const bool projectsSaved = !bomProjectsDirty_ || saveBomProjects();
+  if (stateSaved && projectsSaved) {
     setMessage("All Inventatory changes are saved", 3);
+  } else if (!projectsSaved) {
+    setMessage("BOM project changes are still unsaved; press R to retry", 5);
   }
 }
 
@@ -349,13 +384,101 @@ bool App::backupData() {
     destination = parent / ("Inventatory Backup " + stamp + "-" + to_string(suffix));
   }
 
-  if (!saveState()) return false;
+  if (!saveState() || !saveQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision)) {
+    setMessage("Unable to save current data before backup", 5);
+    return false;
+  }
   string error;
-  if (!backupInventatoryData(dataPath_, destination, error)) {
+  if (!createInventatoryBackup(dataPath_, settingsPath_, destination, softwareVersion(), error)) {
     setMessage("Backup failed: " + error, 5);
     return false;
   }
   setMessage("Backup created in " + destination.filename().string(), 6);
+  return true;
+}
+
+bool App::restoreData() {
+  const auto now = time(nullptr);
+  filesystem::path selectedBackup;
+  if (settingsConfirmAction_ == "restore-backup" && now <= settingsConfirmUntil_ &&
+      !pendingRestoreBackupPath_.empty()) {
+    selectedBackup = pendingRestoreBackupPath_;
+  } else {
+    if (!openFolderDialog(selectedBackup, "Choose an Inventatory backup bundle")) {
+      setMessage("Restore cancelled", 2);
+      return false;
+    }
+    string validationError;
+    if (!validateInventatoryBackup(selectedBackup, validationError)) {
+      setMessage("Restore refused: " + validationError, 6);
+      return false;
+    }
+    pendingRestoreBackupPath_ = selectedBackup;
+    settingsConfirmAction_ = "restore-backup";
+    settingsConfirmUntil_ = now + 5;
+    setMessage("Press Restore again within 5 seconds to replace current data", 5);
+    dirty_ = true;
+    return false;
+  }
+
+  settingsConfirmAction_.clear();
+  settingsConfirmUntil_ = 0;
+  pendingRestoreBackupPath_.clear();
+  if (!saveState() || !saveQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision)) {
+    setMessage("Unable to save current data before restore", 5);
+    return false;
+  }
+
+  string stamp = nowTimestampString(time(nullptr));
+  replace(stamp.begin(), stamp.end(), ':', '-');
+  replace(stamp.begin(), stamp.end(), ' ', '_');
+  auto preRestore = dataPath_.parent_path() / ("Inventatory Pre-Restore " + stamp);
+  for (int suffix = 2; filesystem::exists(preRestore); ++suffix) {
+    preRestore = dataPath_.parent_path() / ("Inventatory Pre-Restore " + stamp + "-" + to_string(suffix));
+  }
+  string error;
+  if (!createInventatoryBackup(dataPath_, settingsPath_, preRestore, softwareVersion(), error)) {
+    setMessage("Restore stopped; automatic pre-restore backup failed: " + error, 7);
+    return false;
+  }
+  if (!restoreInventatoryBackup(selectedBackup, dataPath_, settingsPath_, error)) {
+    setMessage("Restore failed; current data was left unchanged: " + error, 7);
+    return false;
+  }
+
+  AppSettings restored;
+  if (!loadAppSettings(settingsPath_, restored)) {
+    setMessage("Restore activated, but restored settings could not be loaded; use the pre-restore backup", 7);
+    return false;
+  }
+  settings_ = restored;
+  settings_.dataDirectory = dataPath_;
+  settingsDraft_ = settings_;
+  inventoryPath_ = dataPath_ / "inventory.db";
+  printerPath_ = dataPath_ / "printer.conf";
+  activityPath_ = dataPath_ / "activity.tsv";
+  inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+  quickLabelsPath_ = quickLabelsPath(dataPath_);
+  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+  inventatoryScanConfig_ = {};
+  inventatoryScanConfig_.token = generateInventatoryScanToken();
+  const bool scannerTokenStored = CredentialStore::write(kInventatoryScanTokenCredential, inventatoryScanConfig_.token);
+  if (!scannerTokenStored) {
+    // Do not leave the old credential valid after restoring another workspace.
+    CredentialStore::erase(kInventatoryScanTokenCredential);
+    inventatoryScanConfig_.token.clear();
+  }
+  error_code cleanupError;
+  filesystem::remove(appSettingsDirectory() / "inventatory-scan-replay.state", cleanupError);
+  loadState();
+  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
+  applyUiAppearance(settings_.appearance);
+  settingsDirty_ = false;
+  restartDeviceService();
+  string restoreMessage = "Backup restored. Scan R1 pairing was cleared; pair it again";
+  if (!scannerTokenStored) restoreMessage += ". Scanner token storage needs attention";
+  if (!hasStoredDigiKeySecret_) restoreMessage += ". DigiKey credentials need testing/re-entry";
+  setMessage(restoreMessage, 8);
   return true;
 }
 
@@ -368,6 +491,10 @@ bool App::chooseInventatoryFolder() {
 
   if (selectedPath.empty()) {
     setMessage("No folder selected", 2);
+    return false;
+  }
+  if (filesystem::exists(selectedPath / "manifest.tsv")) {
+    setMessage("That folder is a backup bundle; use Settings > Restore backup", 6);
     return false;
   }
 
@@ -400,11 +527,16 @@ bool App::chooseInventatoryFolder() {
   printerQueues_.clear();
   printerCheck_ = {};
   inventoryHistory_.clear();
+  inventoryMovements_.clear();
   deviceEventRecords_.clear();
   scanQueue_.clear();
   importCandidates_.clear();
   importAcceptedItemIds_.clear();
   importSourcePath_.clear();
+  importOriginalStore_ = {};
+  importStagedStore_ = {};
+  importStageActive_ = false;
+  importCommitPending_ = false;
   workingCopy_ = {};
   undoSnapshot_ = {};
   editingImportCandidate_ = false;
@@ -412,6 +544,7 @@ bool App::chooseInventatoryFolder() {
   importSelection_ = 0;
   importSyncPrompt_ = false;
   bomProjects_.clear();
+  bomProjectsDirty_ = false;
   activeBomProjectId_.clear();
   bomAnalysisValid_ = false;
   bomAnalysis_ = {};
@@ -473,7 +606,7 @@ bool App::undoLastInventoryChange() {
   activities_ = undoSnapshot_.activities;
   selectedPosition_ = undoSnapshot_.selectedPosition;
   undoSnapshot_.valid = false;
-  saveState();
+  saveState("undo");
   syncSelectionToFilter();
   setMessage("Undid last change", 2);
   return true;
@@ -697,6 +830,17 @@ void App::confirmDeleteSelectedItem() {
 }
 
 void App::changePage(Page page) {
+  if (page != page_ && page_ == Page::Stock && stocktakeActive_) {
+    setMessage("Finish or cancel the stocktake before leaving Stock", 5);
+    return;
+  }
+  if (page != page_ && page_ == Page::Import && importCommitPending_) {
+    setMessage("Import is not saved yet. Press R to retry or Q to cancel it.", 6);
+    return;
+  }
+  if (page != page_ && page_ == Page::Import && importStageActive_) {
+    cancelImportSession();
+  }
   if (page != page_ && page_ == Page::Settings && settingsDirty_ && inputMode_ != InputMode::ExitConfirmation) {
     pendingPageAfterSettings_ = page;
     inputMode_ = InputMode::ExitConfirmation;
@@ -719,6 +863,8 @@ void App::changePage(Page page) {
       bomView_ = BomView::Split;
       bomBuildStep_ = 0;
     }
+    bomDeleteConfirmationProjectId_.clear();
+    bomDeleteConfirmationUntil_ = 0;
   }
   dirty_ = true;
 }
@@ -1217,6 +1363,13 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::Quantity:
       try {
         workingCopy_.item.quantity = max(0, stoi(trimmed));
+      } catch (...) {
+        valid = false;
+      }
+      break;
+    case EditField::ReorderThreshold:
+      try {
+        workingCopy_.item.reorderThreshold = max(0, stoi(trimmed));
       } catch (...) {
         valid = false;
       }
@@ -1962,11 +2115,14 @@ void App::processDeviceSyncEvents() {
     result.message = "Unsupported inventory event type";
   }
 
-  if (!completeDeviceSyncEvent(candidate, inventoryPath_, result)) {
+  if (!completeDeviceSyncEvent(candidate, inventoryPath_, result, &store_)) {
     setMessage("Inventatory Scan event could not be committed", 4);
     return;
   }
   store_ = move(candidate);
+  persistedStore_ = store_;
+  persistedStoreValid_ = true;
+  refreshInventoryMovements();
   deviceLastResult_ = result.status == "failed"
                           ? "ERROR " + result.message
                           : (result.existing ? "EXISTING " : "NEW ") + result.itemName + " QTY " +
@@ -2069,7 +2225,7 @@ void App::processDeviceRequests() {
       logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",
                   result.item + " quantity changed by " + to_string(result.appliedDelta) +
                       " to " + to_string(result.quantity));
-      saveState();
+      saveState("scanner", pending->request.requestId);
       scannerFlashUntil_ = time(nullptr) + 3;
       deviceLastResult_ = (result.appliedDelta >= 0 ? "+" : "") + to_string(result.appliedDelta) +
                           " " + result.item + " QTY " + to_string(result.quantity);
@@ -2153,6 +2309,10 @@ void App::beginCsvImport() {
   }
 
   importCandidates_ = result.candidates;
+  importOriginalStore_ = store_;
+  importStagedStore_ = store_;
+  importStageActive_ = true;
+  importCommitPending_ = false;
   importAcceptedItemIds_.clear();
   importSourcePath_ = selectedPath;
   importSelection_ = 0;
@@ -2177,6 +2337,44 @@ void App::beginCsvImport() {
     summary += " · " + to_string(result.warnings.size()) + " rows skipped";
   }
   setMessage(summary, 4);
+}
+
+void App::cancelImportSession() {
+  if (!importStageActive_ && !importCommitPending_) return;
+  if (importCommitPending_) {
+    // The staged copy was assigned to the live view only to let the existing
+    // save-retry path retry the exact same operation. Restore the pre-import
+    // view when the user explicitly cancels that retry.
+    store_ = importOriginalStore_;
+  }
+  importCandidates_.clear();
+  importAcceptedItemIds_.clear();
+  importSourcePath_.clear();
+  importOriginalStore_ = {};
+  importStagedStore_ = {};
+  importStageActive_ = false;
+  importCommitPending_ = false;
+  importSelection_ = 0;
+  importSyncPrompt_ = false;
+  importSyncHasRun_ = false;
+  importSyncFailedItemIds_.clear();
+  editingImportCandidate_ = false;
+  inputMode_ = InputMode::None;
+  dirty_ = true;
+}
+
+bool App::commitImportStage() {
+  if (!importStageActive_) return true;
+  store_ = importStagedStore_;
+  if (!saveState("import", importSourcePath_.filename().string())) {
+    importCommitPending_ = true;
+    setMessage("Import is staged but not saved. Press R to retry or Q to cancel.", 7);
+    dirty_ = true;
+    return false;
+  }
+  importStageActive_ = false;
+  importCommitPending_ = false;
+  return true;
 }
 
 CsvImportCandidate* App::currentImportCandidate() {
@@ -2216,10 +2414,13 @@ void App::acceptImportCandidate() {
 
   string acceptedId;
   if (candidate->hasConflict) {
-    auto* existing = store_.findById(candidate->existingItemId);
+      auto* existing = importStagedStore_.findById(candidate->existingItemId);
     if (existing != nullptr) {
       captureUndoSnapshot();
-      existing->quantity = max(0, existing->quantity + candidate->item.quantity);
+      existing->quantity = candidate->item.quantity > 0 &&
+                                  existing->quantity > numeric_limits<int>::max() - candidate->item.quantity
+                              ? numeric_limits<int>::max()
+                              : max(0, existing->quantity + candidate->item.quantity);
       existing->lastUpdated = time(nullptr);
       mergeImportedMetadata(*existing, candidate->item);
       if (candidate->item.rackAssignment != RackAssignmentMode::Automatic) {
@@ -2227,7 +2428,7 @@ void App::acceptImportCandidate() {
         existing->rackSlot = candidate->item.rackSlot;
         existing->rackAssignment = candidate->item.rackAssignment;
       }
-      reconcileRackAssignment(store_, *existing);
+      reconcileRackAssignment(importStagedStore_, *existing);
       acceptedId = existing->id;
       ++importMergedCount_;
     }
@@ -2235,9 +2436,9 @@ void App::acceptImportCandidate() {
 
   if (acceptedId.empty()) {
     captureUndoSnapshot();
-    store_.items().push_back(candidate->item);
-    reconcileRackAssignment(store_, store_.items().back());
-    acceptedId = store_.items().back().id;
+    importStagedStore_.items().push_back(candidate->item);
+    reconcileRackAssignment(importStagedStore_, importStagedStore_.items().back());
+    acceptedId = importStagedStore_.items().back().id;
     ++importCreatedCount_;
   }
 
@@ -2247,7 +2448,6 @@ void App::acceptImportCandidate() {
     importSelection_ = importCandidates_.size() - 1;
   }
 
-  saveState();
   if (importCandidates_.empty()) {
     finishImportReview();
   } else {
@@ -2277,6 +2477,12 @@ void App::skipImportCandidate() {
 }
 
 void App::finishImportReview() {
+  if (importStageActive_ && !commitImportStage()) return;
+  if (importCommitPending_) return;
+  if (importAcceptedItemIds_.empty()) {
+    finishCsvImport(false);
+    return;
+  }
   importSyncPrompt_ = !importAcceptedItemIds_.empty();
   page_ = Page::Import;
   inputMode_ = InputMode::None;
@@ -2436,6 +2642,10 @@ void App::finishCsvImport(bool syncWithDigiKey) {
   importSyncCompleted_ = 0;
   importSyncCancelRequested_ = false;
   editingImportCandidate_ = false;
+  importStageActive_ = false;
+  importCommitPending_ = false;
+  importOriginalStore_ = {};
+  importStagedStore_ = {};
   changePage(Page::Home);
   setMessage(summary, 8);
 }
@@ -2464,7 +2674,15 @@ const BomProject* App::activeBomProject() const {
 }
 
 bool App::saveBomProjects() {
-  return inventatory::saveBomProjects(inventoryPath_, bomProjects_);
+  const bool saved = inventatory::saveBomProjects(inventoryPath_, bomProjects_);
+  if (!saved) {
+    bomProjectsDirty_ = true;
+    persistenceError_ = "Could not save BOM projects; changes remain in memory.";
+    setMessage(persistenceError_ + " Press R to retry.", 6);
+  } else {
+    bomProjectsDirty_ = false;
+  }
+  return saved;
 }
 
 void App::openBomProjects() {
@@ -2521,10 +2739,11 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   queueBomEnrichment();
   // Persist straight away: an imported BOM should survive a restart without the
   // user having to ask for it.
-  saveBomProjects();
+  const bool projectSaved = saveBomProjects();
   changePage(Page::Projects);
 
   string summary = to_string(bomAnalysis_.readyCount) + " ready · " + to_string(bomAnalysis_.shortCount) + " short";
+  if (!projectSaved) summary += " · project changes unsaved; press R to retry";
   if (!bomFile_.warnings.empty()) {
     summary += " · " + to_string(bomFile_.warnings.size()) + " rows not orderable";
   }
@@ -2616,8 +2835,10 @@ void App::adjustBomBoards(int delta) {
   }
   project->boards = boards;
   refreshBomAnalysis();
-  saveBomProjects();
-  setMessage(to_string(boards) + (boards == 1 ? " board" : " boards"), 2);
+  const bool saved = saveBomProjects();
+  setMessage(saved ? to_string(boards) + (boards == 1 ? " board" : " boards")
+                  : "Board count changed in memory; press R to retry saving the project",
+             saved ? 2 : 5);
 }
 
 void App::cycleBomAlternate() {
@@ -2635,12 +2856,13 @@ void App::cycleBomAlternate() {
   match.chosen = (match.chosen + 1) % match.candidates.size();
   project->overrides[bomLineKey(bomAnalysis_.lines[match.lineIndex])] = match.chosenItemId();
   recomputeBomTotals(bomAnalysis_, store_.items());
-  saveBomProjects();
+  const bool saved = saveBomProjects();
 
   const auto* item = store_.findById(match.chosenItemId());
-  setMessage("Matched to " + (item == nullptr ? string("unknown part") : item->partName) + "  (" +
-                 to_string(match.chosen + 1) + "/" + to_string(match.candidates.size()) + ")",
-             3);
+  setMessage(saved ? "Matched to " + (item == nullptr ? string("unknown part") : item->partName) + "  (" +
+                         to_string(match.chosen + 1) + "/" + to_string(match.candidates.size()) + ")"
+                  : "Alternate match changed in memory; press R to retry saving the project",
+             5);
 }
 
 void App::deleteSelectedBomProject() {
@@ -2648,6 +2870,17 @@ void App::deleteSelectedBomProject() {
     return;
   }
   const auto index = min(bomProjectSelection_, bomProjects_.size() - 1);
+  const auto selectedId = bomProjects_[index].id;
+  const auto now = time(nullptr);
+  if (bomDeleteConfirmationProjectId_ != selectedId || now > bomDeleteConfirmationUntil_) {
+    bomDeleteConfirmationProjectId_ = selectedId;
+    bomDeleteConfirmationUntil_ = now + 5;
+    setMessage("Press d again within 5 seconds to forget " + bomProjects_[index].name, 5);
+    dirty_ = true;
+    return;
+  }
+  bomDeleteConfirmationProjectId_.clear();
+  bomDeleteConfirmationUntil_ = 0;
   const auto name = bomProjects_[index].name;
   if (bomProjects_[index].id == activeBomProjectId_) {
     activeBomProjectId_.clear();
@@ -2655,8 +2888,33 @@ void App::deleteSelectedBomProject() {
   }
   bomProjects_.erase(bomProjects_.begin() + static_cast<long>(index));
   bomProjectSelection_ = bomProjects_.empty() ? 0 : min(index, bomProjects_.size() - 1);
-  saveBomProjects();
+  if (!saveBomProjects()) {
+    setMessage("Could not save project deletion; press R to retry", 5);
+    return;
+  }
   setMessage(name + " forgotten", 3);
+}
+
+void App::beginBomRestock() {
+  if (!bomAnalysisValid_ || bomAnalysis_.matches.empty()) return;
+  const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
+  const auto& match = bomAnalysis_.matches[index];
+  if (match.sufficient) {
+    setMessage("That BOM line is already covered", 2);
+    return;
+  }
+  const auto itemId = match.chosenItemId();
+  if (itemId.empty() || store_.findById(itemId) == nullptr) {
+    setMessage("This line has no matched stock item; add it manually from Stock", 5);
+    changePage(Page::Stock);
+    beginEditCurrentItem(true);
+    return;
+  }
+  bomRestockItemId_ = itemId;
+  inputBuffer_ = to_string(max(1, match.needed - match.available));
+  inputMode_ = InputMode::BomRestock;
+  setMessage("Enter received quantity; default is the shortage", 4);
+  dirty_ = true;
 }
 
 vector<App::BuildStep> App::bomBuildSteps() const {
@@ -2674,6 +2932,13 @@ vector<App::BuildStep> App::bomBuildSteps() const {
   for (const auto& match : bomAnalysis_.matches) {
     const auto itemId = match.chosenItemId();
     if (itemId.empty()) {
+      const auto& line = bomAnalysis_.lines[match.lineIndex];
+      BuildPick pick;
+      pick.label = line.designation + " (add in Stock)";
+      pick.detail = packageFromFootprint(line.footprint);
+      pick.slot = "Add in Stock";
+      pick.quantity = match.needed;
+      loose.picks.push_back(move(pick));
       continue;
     }
     const auto* item = store_.findById(itemId);
@@ -2759,6 +3024,12 @@ void App::advanceBomBuild(int delta) {
     return;
   }
   if (next >= static_cast<int>(steps.size())) {
+    if (!bomBuildReady(bomAnalysis_)) {
+      setMessage("Build walkthrough viewed; completion is disabled while BOM shortages remain", 6);
+      bomBuildStep_ = steps.size() - 1;
+      dirty_ = true;
+      return;
+    }
     // Past the last stop the walkthrough asks its one and only question.
     bomDeductPrompt_ = true;
     dirty_ = true;
@@ -2770,6 +3041,11 @@ void App::advanceBomBuild(int delta) {
 }
 
 void App::finishBomBuild(bool subtractFromStock) {
+  if (!bomBuildReady(bomAnalysis_)) {
+    bomDeductPrompt_ = false;
+    setMessage("Build cannot be completed until every BOM line has enough stock", 6);
+    return;
+  }
   const auto steps = bomBuildSteps();
   int parts = 0;
   int pieces = 0;
@@ -2790,13 +3066,22 @@ void App::finishBomBuild(bool subtractFromStock) {
         pieces += pick.quantity;
       }
     }
-    saveState();
+    if (!saveState("bom_build", activeBomProjectId_)) {
+      setMessage("Build stock changes are in memory; press R to retry saving", 6);
+      return;
+    }
   }
 
   auto* project = activeBomProject();
+  const auto previousLastBuilt = project == nullptr ? time_t(0) : project->lastBuilt;
   if (project != nullptr) {
     project->lastBuilt = time(nullptr);
-    saveBomProjects();
+    if (!saveBomProjects()) {
+      project->lastBuilt = previousLastBuilt;
+      bomDeductPrompt_ = false;
+      setMessage("Build stock was saved, but the project timestamp was not; press R to retry", 7);
+      return;
+    }
   }
 
   const auto name = project == nullptr ? string("Project") : project->name;
@@ -2987,6 +3272,8 @@ string App::fieldLabel(EditField field) const {
       return "Category";
     case EditField::Quantity:
       return "Quantity";
+    case EditField::ReorderThreshold:
+      return "Reorder threshold";
     case EditField::Location:
       return "Location";
     case EditField::Tags:
@@ -3026,6 +3313,8 @@ string App::currentFieldValue(EditField field) const {
       return item->category;
     case EditField::Quantity:
       return to_string(item->quantity);
+    case EditField::ReorderThreshold:
+      return to_string(item->reorderThreshold);
     case EditField::Location:
       return item->location;
     case EditField::Tags:
@@ -3067,6 +3356,7 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Manufacturer", EditField::Manufacturer},
       {"Category", EditField::Category},
       {"Quantity", EditField::Quantity},
+      {"Reorder threshold", EditField::ReorderThreshold},
       {"Location", EditField::Location},
       {"Rack location", EditField::RackLocation},
       {"Tags", EditField::Tags},
@@ -3122,6 +3412,7 @@ string App::activePrompt() const {
   if (inputMode_ == InputMode::RackJump) return "Jump to rack: ";
   if (inputMode_ == InputMode::RackFilter) return "Rack filter: ";
   if (inputMode_ == InputMode::QuantityAdjust) return "Quantity on hand: ";
+  if (inputMode_ == InputMode::StocktakeCount) return "Physical count: ";
   if (inputMode_ == InputMode::ExitConfirmation) return "S save  ·  D discard  ·  Esc cancel";
   return "";
 }

@@ -77,6 +77,7 @@ add_executable(inventatory
   src/core/RackAllocation.cpp
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
+  src/core/InventoryMovements.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp
@@ -137,6 +138,7 @@ add_executable(inventatory_tests
   src/platform/HttpServer.cpp
   src/platform/Console.cpp
   src/platform/Environment.cpp
+  src/platform/CredentialStore.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
@@ -152,6 +154,7 @@ add_executable(inventatory_tests
   src/core/RackAllocation.cpp
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
+  src/core/InventoryMovements.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp

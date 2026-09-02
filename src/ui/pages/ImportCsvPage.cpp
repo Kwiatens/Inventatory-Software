@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -105,6 +106,30 @@ ftxui::Element App::renderImportCsvUi() const {
         ftxui::hbox({ftxui::filler(), prompt, ftxui::filler()}),
         ftxui::filler(),
     });
+  }
+
+  if (importCommitPending_) {
+    auto self = const_cast<App*>(this);
+    ftxui::Elements rows;
+    rows.push_back(fullLine("CSV import is staged but not saved.", uiWarnColor(), uiPanelRightBg()));
+    rows.push_back(uiDivider());
+    rows.push_back(fullLine("The commit did not finish; the staged session is retained.", uiTitleColor(), uiPanelRightBg()));
+    rows.push_back(fullLine("Press R to retry the save, or Q to discard the entire import.", uiMutedColor(),
+                            uiPanelRightBg()));
+    rows.push_back(uiDivider());
+    rows.push_back(ftxui::hbox({
+        target(styledText(" Retry save ", uiInteractiveColor(), uiRaisedSurfaceBg()), "import.retry",
+               UiTargetKind::Button, [self] { self->finishImportReview(); }),
+        ftxui::text("  "),
+        target(styledText(" Cancel import ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.cancel",
+               UiTargetKind::Button, [self] {
+                 self->cancelImportSession();
+                 self->changePage(Page::Home);
+               }),
+    }));
+    auto panel = ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelRightBg()) |
+                 ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, max(64, min(screenWidth - 8, 96)));
+    return ftxui::vbox({ftxui::filler(), ftxui::hbox({ftxui::filler(), panel, ftxui::filler()}), ftxui::filler()});
   }
 
   if (importCandidates_.empty()) {
@@ -207,8 +232,11 @@ ftxui::Element App::renderImportCsvUi() const {
       detailRows.push_back(fullLine("Existing: " + candidate->existingPartName, uiTitleColor(), uiPanelRightBg()));
       detailRows.push_back(fullLine("Existing qty: " + to_string(candidate->existingQuantity), uiMutedColor(), uiPanelRightBg()));
       detailRows.push_back(fullLine("Incoming qty: " + to_string(candidate->item.quantity), uiSuccessColor(), uiPanelRightBg()));
-      detailRows.push_back(fullLine("After Enter: qty " + to_string(candidate->existingQuantity + candidate->item.quantity),
-                                    uiAccentColor(), uiPanelRightBg()));
+      const auto mergedQuantity = min<long long>(numeric_limits<int>::max(),
+                                                 static_cast<long long>(candidate->existingQuantity) +
+                                                     candidate->item.quantity);
+      detailRows.push_back(fullLine("After Enter: qty " + to_string(mergedQuantity), uiAccentColor(),
+                                    uiPanelRightBg()));
       detailRows.push_back(uiDivider());
     }
 
@@ -273,6 +301,17 @@ void App::handleImportCsvKey(const KeyEvent& key) {
       } else if (ch == 'n') {
         finishCsvImport(false);
       }
+    }
+    return;
+  }
+
+  if (importCommitPending_) {
+    if (key.type == KeyType::Character && key.ch == 'R') {
+      finishImportReview();
+    } else if (key.type == KeyType::Character && (key.ch == 'q' || key.ch == 'Q')) {
+      cancelImportSession();
+      changePage(Page::Home);
+      setMessage("CSV import cancelled", 3);
     }
     return;
   }

@@ -109,6 +109,22 @@ struct InventoryHistoryPoint {
   size_t dataErrorCount = 0;
 };
 
+// Durable quantity movement retained separately from the current stock
+// snapshot. The application records only quantity deltas; descriptive item
+// fields are copied into the row so history remains useful after an item is
+// renamed or deleted.
+struct InventoryMovement {
+  string id;
+  string itemId;
+  string itemName;
+  string source;
+  string reference;
+  int quantityBefore = 0;
+  int delta = 0;
+  int quantityAfter = 0;
+  time_t occurredAt = 0;
+};
+
 // A completed device event is persisted in the same SQLite transaction as the
 // inventory snapshot so retrying a sync event can never repeat its stock effect.
 struct DeviceEventCommit {
@@ -147,6 +163,7 @@ vector<string> split(const string& value, char delimiter);
 vector<string> tokenizeQuery(const string& query);
 
 bool containsInsensitive(string_view haystack, string_view needle);
+int effectiveReorderThreshold(const InventoryItem& item, int globalThreshold);
 bool isLowStock(const InventoryItem& item, int threshold);
 bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold);
 bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
@@ -190,7 +207,9 @@ class InventoryStore {
 
   bool load(const filesystem::path& path);
   bool save(const filesystem::path& path) const;
-  bool saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event) const;
+  bool saveWithMovements(const filesystem::path& path, const vector<InventoryMovement>& movements) const;
+  bool saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
+                           const vector<InventoryMovement>& movements = {}) const;
 
   InventoryItem* findById(const string& id);
   const InventoryItem* findById(const string& id) const;
@@ -203,6 +222,11 @@ class InventoryStore {
   vector<InventoryItem> items_;
   vector<InventatoryRack> racks_;
 };
+
+vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, const InventoryStore& after,
+                                               const string& source, const string& reference = {},
+                                               time_t occurredAt = 0);
+vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, size_t limit = 256);
 
 string rackAssignmentModeName(RackAssignmentMode mode);
 RackAssignmentMode parseRackAssignmentMode(const string& value);

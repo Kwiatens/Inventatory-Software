@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <ctime>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -76,10 +77,10 @@ ftxui::Element App::renderStockUi() const {
   };
 
   const auto qtyHeaderCell = ftxui::hbox({
-                                 ftxui::filler(),
-                                 styledText("Qty", uiMutedColor()),
-                                 ftxui::text(" "),
-                             }) |
+                                  ftxui::filler(),
+                                  styledText(stocktakeActive_ ? "Count" : "Qty", uiMutedColor()),
+                                  ftxui::text(" "),
+                              }) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
 
   ftxui::Elements listRows;
@@ -144,7 +145,7 @@ ftxui::Element App::renderStockUi() const {
         cells.push_back(ftxui::filler());
         cells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
       }
-      cells.push_back(quantityCell(item.quantity));
+      cells.push_back(quantityCell(stocktakeActive_ ? stocktakeCountFor(item) : item.quantity));
       auto row = ftxui::hbox(move(cells)) | ftxui::bgcolor(bg);
       if (selected) {
         row = row | ftxui::select;
@@ -233,6 +234,49 @@ ftxui::Element App::renderStockUi() const {
         ftxui::filler(),
     }));
 
+    if (stocktakeActive_) {
+      const auto counted = stocktakeCounts_.find(item->id);
+      const bool alreadyCounted = counted != stocktakeCounts_.end();
+      const auto physicalCount = stocktakeCountFor(*item);
+      detailRows.push_back(uiDivider());
+      detailRows.push_back(fullLine("STOCKTAKE COUNT", uiAccentColor(), uiSurfaceBg()));
+      detailRows.push_back(ftxui::hbox({
+          styledText(" System ", uiSecondaryText()),
+          uiBodyText(to_string(item->quantity), uiPrimaryText()),
+          styledText("     Count ", uiSecondaryText()),
+          uiBodyText(to_string(physicalCount), alreadyCounted ? uiFocusColor() : uiWarnColor()),
+          ftxui::filler(),
+      }));
+      detailRows.push_back(fullLine(inputMode_ == InputMode::StocktakeCount
+                                        ? "Enter the physical count, then press Enter"
+                                        : "Press Enter to count this part · s finish · q cancel",
+                                    uiMutedColor(), uiSurfaceBg()));
+      if (inputMode_ == InputMode::StocktakeCount) {
+        detailRows.push_back(fullLine(" Count: " + inputBuffer_ + "_", uiLinkColor(), uiSelectionBg()));
+      }
+    }
+
+    vector<const InventoryMovement*> recentMovements;
+    for (const auto& movement : inventoryMovements_) {
+      if (movement.itemId == item->id) {
+        recentMovements.push_back(&movement);
+        if (recentMovements.size() == 5) break;
+      }
+    }
+    if (!recentMovements.empty()) {
+      detailRows.push_back(uiDivider());
+      detailRows.push_back(fullLine("RECENT MOVEMENTS", uiSecondaryText(), uiSurfaceBg()));
+      for (const auto* movement : recentMovements) {
+        const auto delta = movement->delta > 0 ? "+" + to_string(movement->delta) : to_string(movement->delta);
+        auto reference = movement->reference.empty() ? string() : " · " + movement->reference;
+        const auto summary = delta + " · " + movement->source + reference + " · " +
+                             to_string(movement->quantityBefore) + " → " + to_string(movement->quantityAfter) +
+                             " · " + nowTimestampString(movement->occurredAt);
+        detailRows.push_back(fullLine(ellipsize(summary, static_cast<size_t>(detailInnerWidth)),
+                                      movement->delta < 0 ? uiWarnColor() : uiFocusColor(), uiSurfaceBg()));
+      }
+    }
+
     if (!electricalFields.empty()) {
       detailRows.push_back(uiDivider());
       detailRows.push_back(fullLine("ELECTRICAL PARAMETERS", uiSecondaryText(), uiSurfaceBg()));
@@ -302,11 +346,16 @@ ftxui::Element App::renderStockUi() const {
     detailRows.push_back(fullLine("No item selected.", uiMutedColor(), uiPanelRightBg()));
   }
 
-  auto filterButton = target(styledText(" Sort / Filter ", uiInteractiveColor(), uiRaisedSurfaceBg()),
+  const auto stockHeader = stocktakeActive_
+                               ? "STOCKTAKE  " + to_string(stocktakeCountedItems()) + "/" +
+                                     to_string(store_.items().size()) + " counted"
+                               : "STOCK  " + to_string(filtered.size()) + " items";
+  auto filterButton = target(styledText(" Sort / Filter ", stocktakeActive_ ? uiMutedColor() : uiInteractiveColor(),
+                                       stocktakeActive_ ? uiSurfaceBg() : uiRaisedSurfaceBg()),
                              "stock.filters.header", UiTargetKind::Button,
-                             [self] { self->openStockFilterPanel(); });
+                             [self] { self->openStockFilterPanel(); }, !stocktakeActive_);
   listRows.insert(listRows.begin(), ftxui::hbox({
-      styledText("STOCK  " + to_string(filtered.size()) + " items", uiSecondaryText()),
+      styledText(stockHeader, stocktakeActive_ ? uiAccentColor() : uiSecondaryText()),
       ftxui::filler(),
       filterButton,
   }) | ftxui::bgcolor(uiSurfaceBg()));
@@ -379,6 +428,19 @@ ftxui::Element App::renderStockUi() const {
   ftxui::Element detailFooter;
   if (editing) {
     detailFooter = styledText(" \xE2\x86\x91\xE2\x86\x93 field  \xE2\x8F\x8E edit  s save  esc cancel", uiMutedColor());
+  } else if (stocktakeActive_) {
+    const bool ready = stocktakeCountedItems() == store_.items().size();
+    detailFooter = ftxui::hbox({
+        target(uiSecondaryButton("Count", nullopt, selectedItem() != nullptr), "stocktake.count", UiTargetKind::Button,
+               [self] { self->beginStocktakeCount(); }, selectedItem() != nullptr),
+        ftxui::text(" "),
+        target(uiSecondaryButton("Finish", nullopt, ready), "stocktake.finish", UiTargetKind::Button,
+               [self] { self->finishStocktake(); }, ready),
+        ftxui::text(" "),
+        target(uiSecondaryButton("Cancel"), "stocktake.cancel", UiTargetKind::Button,
+               [self] { self->cancelStocktake(); }),
+        ftxui::filler(),
+    });
   } else {
     const bool hasItem = selectedItem() != nullptr;
     detailFooter = ftxui::hbox({
@@ -466,6 +528,47 @@ ftxui::Element App::renderStockUi() const {
 }
 
 void App::handleStockKey(const KeyEvent& key) {
+  if (stocktakeActive_) {
+    if (key.type == KeyType::Escape ||
+        (key.type == KeyType::Character && (key.ch == 'q' || key.ch == 'Q'))) {
+      cancelStocktake();
+      return;
+    }
+    if (key.type == KeyType::Enter) {
+      beginStocktakeCount();
+      return;
+    }
+    if (key.type == KeyType::Character && (key.ch == 's' || key.ch == 'S')) {
+      finishStocktake();
+      return;
+    }
+    if (key.type == KeyType::Character && (key.ch == 'j' || key.ch == 'J')) {
+      moveSelection(1);
+      return;
+    }
+    if (key.type == KeyType::Character && (key.ch == 'k' || key.ch == 'K')) {
+      moveSelection(-1);
+      return;
+    }
+    if (key.type == KeyType::Down) {
+      moveSelection(1);
+      return;
+    }
+    if (key.type == KeyType::Up) {
+      moveSelection(-1);
+      return;
+    }
+    if (key.type == KeyType::PageDown) {
+      moveSelection(10);
+      return;
+    }
+    if (key.type == KeyType::PageUp) {
+      moveSelection(-10);
+      return;
+    }
+    return;
+  }
+
   if (deleteConfirmationActive()) {
     if (key.type == KeyType::Enter) {
       confirmDeleteSelectedItem();
@@ -563,6 +666,7 @@ void App::handleStockKey(const KeyEvent& key) {
                                  makeInventoryHistoryPoint(store_.items(), settings_.lowStockThreshold));
         }
         saveInventoryHistory(inventoryPath_, inventoryHistory_);
+        refreshInventoryMovements();
         syncSelectionToFilter();
         setMessage("Inventory refreshed", 2);
         break;
@@ -597,6 +701,173 @@ void App::handleStockKey(const KeyEvent& key) {
   } else if (key.type == KeyType::Escape) {
     changePage(Page::Home);
   }
+}
+
+void App::beginStocktake() {
+  if (stocktakeActive_) {
+    setMessage("Stocktake is already active", 2);
+    return;
+  }
+  if (store_.items().empty()) {
+    setMessage("Add inventory parts before starting a stocktake", 4);
+    return;
+  }
+  searchQuery_.clear();
+  stockDateFilter_ = StockDateFilter::All;
+  stockSortOrder_ = StockSortOrder::Az;
+  stocktakeCounts_.clear();
+  stocktakeSessionId_ = makeId();
+  stocktakeActive_ = true;
+  stocktakeCommitPending_ = false;
+  selectedPosition_ = 0;
+  inputMode_ = InputMode::None;
+  focusedTarget_ = -1;
+  syncSelectionToFilter();
+  setMessage("Stocktake started · count every part, then press S to finish", 5);
+  dirty_ = true;
+}
+
+void App::beginStocktakeCount() {
+  if (!stocktakeActive_) return;
+  const auto* item = selectedItem();
+  if (item == nullptr) {
+    setMessage("No part selected for counting", 2);
+    return;
+  }
+  inputBuffer_.clear();
+  inputMode_ = InputMode::StocktakeCount;
+  setMessage("Enter the physical count for " + item->partName, 4);
+  dirty_ = true;
+}
+
+void App::handleStocktakeCountKey(const KeyEvent& key) {
+  if (key.type == KeyType::Character) {
+    if (isdigit(static_cast<unsigned char>(key.ch)) != 0 && inputBuffer_.size() < 10U) {
+      inputBuffer_.push_back(key.ch);
+      dirty_ = true;
+    }
+    return;
+  }
+  if (key.type == KeyType::Backspace) {
+    if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+    dirty_ = true;
+    return;
+  }
+  if (key.type == KeyType::Escape) {
+    inputBuffer_.clear();
+    inputMode_ = InputMode::None;
+    setMessage("Physical count cancelled", 2);
+    return;
+  }
+  if (key.type != KeyType::Enter) return;
+
+  if (inputBuffer_.empty()) {
+    setMessage("Enter a whole number from 0 to 2147483647", 4);
+    return;
+  }
+  long long parsed = -1;
+  try {
+    size_t consumed = 0;
+    parsed = stoll(inputBuffer_, &consumed);
+    if (consumed != inputBuffer_.size() || parsed < 0 || parsed > numeric_limits<int>::max()) parsed = -1;
+  } catch (...) {
+    parsed = -1;
+  }
+  if (parsed < 0) {
+    setMessage("Count must be a whole number from 0 to 2147483647", 4);
+    return;
+  }
+
+  auto* item = selectedItem();
+  if (item == nullptr) {
+    inputBuffer_.clear();
+    inputMode_ = InputMode::None;
+    setMessage("The selected part is no longer available", 3);
+    return;
+  }
+  stocktakeCounts_[item->id] = static_cast<int>(parsed);
+  inputBuffer_.clear();
+  inputMode_ = InputMode::None;
+  const auto itemName = item->partName;
+  moveSelection(1);
+  setMessage(itemName + " counted as " + to_string(parsed), 3);
+  dirty_ = true;
+}
+
+void App::cancelStocktake() {
+  if (!stocktakeActive_) return;
+  const bool hadPendingCommit = stocktakeCommitPending_;
+  bool revertedUnsavedChanges = false;
+  if (stocktakeCommitPending_ && !pendingMovementSource_.empty() && undoSnapshot_.valid) {
+    store_.items() = undoSnapshot_.items;
+    store_.racks() = undoSnapshot_.racks;
+    activities_ = undoSnapshot_.activities;
+    saveActivities(activityPath_, activities_);
+    undoSnapshot_.valid = false;
+    pendingMovementSource_.clear();
+    pendingMovementReference_.clear();
+    persistenceError_.clear();
+    revertedUnsavedChanges = true;
+  }
+  stocktakeActive_ = false;
+  stocktakeCommitPending_ = false;
+  stocktakeSessionId_.clear();
+  stocktakeCounts_.clear();
+  inputBuffer_.clear();
+  inputMode_ = InputMode::None;
+  setMessage(revertedUnsavedChanges
+                 ? "Stocktake cancelled; unsaved inventory changes were discarded"
+                 : hadPendingCommit ? "Stocktake closed; inventory changes were already saved"
+                                    : "Stocktake cancelled; inventory was not changed",
+             4);
+  dirty_ = true;
+}
+
+void App::finishStocktake() {
+  if (!stocktakeActive_) return;
+  if (stocktakeCountedItems() != store_.items().size()) {
+    setMessage("Count every part before finishing the stocktake", 4);
+    return;
+  }
+
+  if (!stocktakeCommitPending_) {
+    captureUndoSnapshot();
+    const auto now = time(nullptr);
+    int changed = 0;
+    for (auto& item : store_.items()) {
+      const auto count = stocktakeCounts_.find(item.id);
+      if (count == stocktakeCounts_.end() || count->second == item.quantity) continue;
+      item.quantity = count->second;
+      item.lastUpdated = now;
+      reconcileRackAssignment(store_, item);
+      ++changed;
+    }
+    logActivity("stocktake", "Physical count completed · " + to_string(changed) + " parts adjusted");
+  }
+
+  if (!saveState("stocktake", stocktakeSessionId_)) {
+    stocktakeCommitPending_ = true;
+    setMessage("Stocktake changes are in memory; press R to retry saving or Q to discard", 6);
+    dirty_ = true;
+    return;
+  }
+  const auto countedParts = stocktakeCountedItems();
+  stocktakeActive_ = false;
+  stocktakeCommitPending_ = false;
+  stocktakeSessionId_.clear();
+  stocktakeCounts_.clear();
+  inputMode_ = InputMode::None;
+  setMessage("Stocktake saved; " + to_string(countedParts) + " parts counted", 5);
+  dirty_ = true;
+}
+
+int App::stocktakeCountFor(const InventoryItem& item) const {
+  const auto it = stocktakeCounts_.find(item.id);
+  return it == stocktakeCounts_.end() ? item.quantity : it->second;
+}
+
+size_t App::stocktakeCountedItems() const {
+  return stocktakeCounts_.size();
 }
 
 }  // namespace inventatory

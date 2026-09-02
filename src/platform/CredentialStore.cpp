@@ -58,6 +58,7 @@ bool CredentialStore::write(const string& key, const string& secret) {
   credential.CredentialBlob = reinterpret_cast<LPBYTE>(wideSecret.data());
   credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
   credential.UserName = const_cast<wchar_t*>(L"Inventatory user");
+  return CredWriteW(&credential, 0) != FALSE;
 }
 
 bool CredentialStore::erase(const string& key) {

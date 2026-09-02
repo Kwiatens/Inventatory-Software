@@ -47,6 +47,7 @@ vector<App::Action> App::currentActions() const {
       return false;
     }
     loadInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
+    self->refreshInventoryMovements();
     if (self->inventoryHistory_.empty()) {
       appendInventoryHistory(self->inventoryHistory_,
                              makeInventoryHistoryPoint(self->store_.items(), self->settings_.lowStockThreshold));
@@ -88,6 +89,13 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Stock:
+      if (stocktakeActive_) {
+        add("count selected part", "Stocktake", "Enter", special(KeyType::Enter),
+            [self] { self->beginStocktakeCount(); });
+        add("finish stocktake", "Stocktake", "s", chr('s'), [self] { self->finishStocktake(); });
+        add("cancel stocktake", "Stocktake", "q", chr('q'), [self] { self->cancelStocktake(); });
+        break;
+      }
       if (hasItem) add("edit", "Edit", "e", chr('e'), [self] { self->beginEditCurrentItem(false); });
       add("new part", "Edit", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
       if (hasItem) add("add one", "Edit", "+", chr('+'), [self] { self->adjustQuantity(1); });
@@ -120,6 +128,7 @@ vector<App::Action> App::currentActions() const {
       if (hasItem)
         add("delete", "System", "Ctrl+Bksp", special(KeyType::CtrlBackspace),
             [self] { self->armDeleteConfirmation(); });
+      add("start stocktake", "Data", "t", chr('t'), [self] { self->beginStocktake(); });
       add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
       add("backup data", "Data", "b", chr('b'), [self] { self->backupData(); });
       add("retry save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
@@ -179,6 +188,7 @@ vector<App::Action> App::currentActions() const {
             [self] { self->beginSettingsFieldEdit(0); });
         add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
         add("backup data", "Data", "k", chr('k'), [self] { self->backupData(); });
+        add("restore backup", "Data", "r", chr('r'), [self] { self->restoreData(); });
       }
       if (settingsCategory_ == SettingsCategory::Updates) {
         add("check for updates", "Updates", "c", chr('c'), [self] { self->beginUpdateChecks(); });
@@ -251,7 +261,14 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Import:
-      if (importSyncRunning_) {
+      if (importCommitPending_) {
+        add("retry import save", "Review", "R", chr('R'), [self] { self->finishImportReview(); });
+        add("cancel import", "Review", "q", chr('q'), [self] {
+          self->cancelImportSession();
+          self->changePage(Page::Home);
+          self->setMessage("CSV import cancelled", 3);
+        });
+      } else if (importSyncRunning_) {
         add("cancel DigiKey sync", "Sync", "c", chr('c'), [self] {
           if (self->importSyncCancelFlag_) self->importSyncCancelFlag_->store(true);
           self->importSyncCancelRequested_ = true;
@@ -268,6 +285,7 @@ vector<App::Action> App::currentActions() const {
       } else {
         add("edit row", "Review", "e", chr('e'), [self] { self->beginEditImportCandidate(); });
         add("cancel import", "Review", "q", chr('q'), [self] {
+          self->cancelImportSession();
           self->changePage(Page::Home);
           self->setMessage("CSV import cancelled", 3);
         });
@@ -278,8 +296,16 @@ vector<App::Action> App::currentActions() const {
       // The build walkthrough owns the keyboard while it runs, so only the
       // split and list views expose project commands here.
       if (bomDeductPrompt_) {
-        add("subtract from stock", "Finish", "y", chr('y'), [self] { self->finishBomBuild(true); });
-        add("keep stock", "Finish", "n", chr('n'), [self] { self->finishBomBuild(false); });
+        if (bomBuildReady(bomAnalysis_)) {
+          add("subtract from stock", "Finish", "y", chr('y'), [self] { self->finishBomBuild(true); });
+          add("keep stock", "Finish", "n", chr('n'), [self] { self->finishBomBuild(false); });
+        } else {
+          add("return to shortages", "Finish", "Esc", special(KeyType::Escape), [self] {
+            self->bomDeductPrompt_ = false;
+            self->bomView_ = BomView::Split;
+            self->dirty_ = true;
+          });
+        }
       } else if (bomView_ == BomView::Build) {
         add("next rack", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
         add("previous rack", "Build", "Bksp", special(KeyType::Backspace), [self] { self->advanceBomBuild(-1); });
@@ -289,6 +315,13 @@ vector<App::Action> App::currentActions() const {
         add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
         add("alternate match", "Match", "a", chr('a'), [self] { self->cycleBomAlternate(); });
         add("export shortages", "Order", "o", chr('o'), [self] { self->exportBomShortages(); });
+        if (!bomAnalysis_.matches.empty()) {
+          const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
+          if (!bomAnalysis_.matches[index].sufficient) {
+            add("receive selected shortage", "Order", "r", chr('r'),
+                [self] { self->beginBomRestock(); });
+          }
+        }
         add("all projects", "Go", "Esc", special(KeyType::Escape), [self] {
           self->bomView_ = BomView::List;
           self->dirty_ = true;
@@ -298,6 +331,9 @@ vector<App::Action> App::currentActions() const {
             [self] { self->openSelectedBomProject(); });
         add("forget project", "Project", "d", chr('d'), [self] { self->deleteSelectedBomProject(); });
         add("import a BOM", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
+      }
+      if (bomProjectsDirty_) {
+        add("retry project save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
       }
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;

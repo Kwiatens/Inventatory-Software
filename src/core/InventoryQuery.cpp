@@ -181,8 +181,13 @@ bool looksLikeDataError(const InventoryItem& item, bool duplicateId) {
 
 }  // namespace
 
+int effectiveReorderThreshold(const InventoryItem& item, int globalThreshold) {
+  return item.reorderThreshold > 0 ? item.reorderThreshold : max(0, globalThreshold);
+}
+
 bool isLowStock(const InventoryItem& item, int threshold) {
-  return threshold > 0 && item.quantity > 0 && item.quantity <= threshold;
+  return effectiveReorderThreshold(item, threshold) > 0 && item.quantity > 0 &&
+         item.quantity <= effectiveReorderThreshold(item, threshold);
 }
 
 bool matchesQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,

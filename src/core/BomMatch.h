@@ -75,6 +75,10 @@ struct BomAnalysis {
   int totalPieces = 0;
 };
 
+// A build may be browsed while short, but it can only be completed when every
+// BOM line has a selected stock item with enough units for all requested boards.
+bool bomBuildReady(const BomAnalysis& analysis);
+
 // Score at or above which a candidate is trusted enough to auto-select.
 constexpr int kBomMatchThreshold = 60;
 

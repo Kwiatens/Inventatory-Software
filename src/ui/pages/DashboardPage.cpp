@@ -133,7 +133,7 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, int
       row.group = AttentionGroup::Out;
     } else if (lowStock) {
       row.issue = "LOW";
-      row.reason = "Threshold " + to_string(lowStockThreshold);
+      row.reason = "Threshold " + to_string(effectiveReorderThreshold(item, lowStockThreshold));
       row.severity = AttentionSeverity::Low;
       row.group = AttentionGroup::Low;
     } else {
