@@ -19,6 +19,7 @@
 #include <memory>
 #include <sstream>
 #include <system_error>
+#include <unordered_set>
 
 namespace inventatory {
 
@@ -259,6 +260,8 @@ void App::loadState() {
   inventatory::loadBomProjects(inventoryPath_, bomProjects_);
   refreshDeviceEventRecords();
   refreshInventoryMovements();
+  const bool commitHistoryReady = ensureInventoryCommitHistory(inventoryPath_, store_);
+  refreshInventoryCommits();
   printerService_.loadConfig(printerPath_);
   refreshPrinterState();
   if (activities_.empty()) {
@@ -287,6 +290,7 @@ void App::loadState() {
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) saveFailures.push_back("scanner settings");
   if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
+  if (!commitHistoryReady) saveFailures.push_back("inventory commits");
   persistenceError_ = saveFailures.empty()
                           ? string()
                           : "Could not save " + join(saveFailures, ',') + "; changes remain in memory.";
@@ -301,27 +305,216 @@ void App::refreshInventoryMovements() {
   inventoryMovements_ = loadInventoryMovements(inventoryPath_);
 }
 
-bool App::saveState(const string& movementSource, const string& movementReference) {
+void App::refreshInventoryCommits() {
+  if (!loadInventoryCommits(inventoryPath_, inventoryCommits_)) {
+    inventoryCommits_.clear();
+    historyDetailValid_ = false;
+    historySelection_ = 0;
+    return;
+  }
+  if (inventoryCommits_.empty()) {
+    historySelection_ = 0;
+    historyDetailValid_ = false;
+    return;
+  }
+  historySelection_ = min(historySelection_, inventoryCommits_.size() - 1);
+  refreshHistoryDetail();
+}
+
+void App::refreshHistoryDetail() {
+  if (inventoryCommits_.empty()) {
+    historyDetail_ = {};
+    historyDetailValid_ = false;
+    historySelection_ = 0;
+    return;
+  }
+  historySelection_ = min(historySelection_, inventoryCommits_.size() - 1);
+  historyDetailValid_ = loadInventoryCommit(inventoryPath_, inventoryCommits_[historySelection_].id, historyDetail_);
+  if (!historyDetailValid_) historyDetail_ = {};
+}
+
+void App::moveHistorySelection(int delta) {
+  if (inventoryCommits_.empty()) {
+    historySelection_ = 0;
+    historyDetailValid_ = false;
+    dirty_ = true;
+    return;
+  }
+  const auto current = static_cast<int>(min(historySelection_, inventoryCommits_.size() - 1));
+  historySelection_ = static_cast<size_t>(clamp(current + delta, 0,
+                                                  static_cast<int>(inventoryCommits_.size() - 1)));
+  refreshHistoryDetail();
+  dirty_ = true;
+}
+
+void App::openSelectedHistoryCommit() {
+  if (inventoryCommits_.empty()) {
+    setMessage("No inventory commits yet", 3);
+    return;
+  }
+  refreshHistoryDetail();
+  changePage(Page::History);
+}
+
+void App::beginHistoryCheckpoint() {
+  inputBuffer_.clear();
+  inputMode_ = InputMode::HistoryCheckpoint;
+  setMessage("Enter a non-empty checkpoint name, then press Enter", 4);
+}
+
+void App::beginHistoryRestore(InventoryRevertMode mode) {
+  if (!historyDetailValid_) refreshHistoryDetail();
+  if (!historyDetailValid_) {
+    setMessage("The selected inventory commit could not be loaded", 4);
+    return;
+  }
+  if (persistedStoreValid_ && !inventoryCommitDiff(persistedStore_, store_).empty()) {
+    setMessage("Save the current inventory before using History", 4);
+    return;
+  }
+  if (mode == InventoryRevertMode::Reverse && (!historyDetail_.hasParent || historyDetail_.changes.empty())) {
+    setMessage("The selected commit has no reversible inventory changes", 4);
+    return;
+  }
+  InventoryStore preview;
+  if (mode == InventoryRevertMode::Snapshot) {
+    preview = historyDetail_.snapshot;
+  } else {
+    string conflict;
+    if (!prepareInventoryCommitReverse(historyDetail_, store_, preview, conflict)) {
+      setMessage(conflict.empty() ? "Reverse blocked because later changes conflict" : conflict, 6);
+      return;
+    }
+  }
+  const auto affected = inventoryCommitDiff(store_, preview);
+  unordered_set<string> affectedItems;
+  unordered_set<string> affectedRacks;
+  for (const auto& change : affected) {
+    if (change.entityType == "item") affectedItems.insert(change.entityId);
+    if (change.entityType == "rack") affectedRacks.insert(change.entityId);
+  }
+  pendingHistoryRevertMode_ = mode;
+  const auto action = mode == InventoryRevertMode::Snapshot ? "Restore" : "Reverse";
+  historyConfirmationMessage_ = string(action) + " commit #" + to_string(historyDetail_.commit.sequence) + " (" +
+                                historyDetail_.commit.message + ")? This affects " +
+                                to_string(affectedItems.size()) + " parts and " + to_string(affectedRacks.size()) +
+                                " racks.";
+  inputBuffer_.clear();
+  inputMode_ = InputMode::HistoryConfirm;
+  dirty_ = true;
+}
+
+void App::cancelHistoryAction() {
+  inputBuffer_.clear();
+  historyConfirmationMessage_.clear();
+  inputMode_ = InputMode::None;
+  dirty_ = true;
+}
+
+bool App::applyHistoryRevert(InventoryRevertMode mode) {
+  if (!historyDetailValid_) refreshHistoryDetail();
+  if (!historyDetailValid_) {
+    setMessage("The selected inventory commit could not be loaded", 4);
+    cancelHistoryAction();
+    return false;
+  }
+  if (persistedStoreValid_ && !inventoryCommitDiff(persistedStore_, store_).empty()) {
+    setMessage("Save the current inventory before using History", 4);
+    cancelHistoryAction();
+    return false;
+  }
+
+  InventoryStore target;
+  if (mode == InventoryRevertMode::Snapshot) {
+    target = historyDetail_.snapshot;
+  } else {
+    string conflict;
+    if (!prepareInventoryCommitReverse(historyDetail_, store_, target, conflict)) {
+      setMessage(conflict.empty() ? "Reverse blocked because later changes conflict" : conflict, 6);
+      cancelHistoryAction();
+      return false;
+    }
+  }
+
+  if (inventoryCommitDiff(store_, target).empty()) {
+    setMessage("The selected operation would not change inventory", 3);
+    cancelHistoryAction();
+    return false;
+  }
+
+  store_ = move(target);
+  InventoryCommitDraft draft;
+  draft.source = "revert";
+  draft.reference = historyDetail_.commit.id;
+  draft.corrective = true;
+  draft.revertedCommitId = historyDetail_.commit.id;
+  draft.message = mode == InventoryRevertMode::Snapshot
+                      ? "Restored snapshot from commit #" + to_string(historyDetail_.commit.sequence)
+                      : "Reversed changes from commit #" + to_string(historyDetail_.commit.sequence);
+  const bool saved = saveInventoryState(draft);
+  cancelHistoryAction();
+  syncSelectionToFilter();
+  syncRackSelection();
+  if (saved) setMessage(mode == InventoryRevertMode::Snapshot ? "Snapshot restored" : "Changes reversed", 4);
+  return saved;
+}
+
+bool App::saveInventoryState(const InventoryCommitDraft& draft) {
   if (inventoryRecoveryRequired_) {
     persistenceError_ = inventoryRecoveryDetail_ + ". Recovery is required before Inventatory can save.";
     return false;
   }
   ensureInventoryIdentifiers(store_.items());
   reconcileRackAssignments(store_);
+  InventoryCommitDraft effectiveDraft = draft;
   const auto movements = persistedStoreValid_
-                             ? inventoryMovementDiff(persistedStore_, store_, movementSource, movementReference)
+                             ? inventoryMovementDiff(persistedStore_, store_, effectiveDraft.source,
+                                                     effectiveDraft.reference)
                              : vector<InventoryMovement>();
+  const auto changes = persistedStoreValid_ ? inventoryCommitDiff(persistedStore_, store_) : vector<InventoryFieldChange>();
+  unordered_set<string> changedItems;
+  unordered_set<string> changedRacks;
+  for (const auto& change : changes) {
+    if (change.entityType == "item") changedItems.insert(change.entityId);
+    if (change.entityType == "rack") changedRacks.insert(change.entityId);
+  }
+  if (trim(effectiveDraft.message).empty()) {
+    string operation = "Updated inventory";
+    if (effectiveDraft.source == "import") operation = "Imported inventory";
+    else if (effectiveDraft.source == "stocktake") operation = "Completed stocktake";
+    else if (effectiveDraft.source == "bom_build") operation = "Built project inventory";
+    else if (effectiveDraft.source == "scanner") operation = "Recorded scanner event";
+    else if (effectiveDraft.source == "digikey") operation = "Applied DigiKey enrichment";
+    else if (effectiveDraft.source == "undo") operation = "Undid inventory commit";
+    else if (effectiveDraft.source == "revert") operation = "Corrected inventory history";
+    else if (effectiveDraft.source == "checkpoint") operation = "Inventory checkpoint";
+    effectiveDraft.message = operation;
+    if (!effectiveDraft.reference.empty()) effectiveDraft.message += " [" + effectiveDraft.reference + "]";
+    effectiveDraft.message += " · " + to_string(changedItems.size()) +
+                              (changedItems.size() == 1 ? " part, " : " parts, ") +
+                              to_string(changedRacks.size()) + (changedRacks.size() == 1 ? " rack" : " racks");
+  }
   vector<string> saveFailures;
-  const bool inventorySaved = movements.empty() ? store_.save(inventoryPath_)
-                                                : store_.saveWithMovements(inventoryPath_, movements);
+  InventoryCommit committed;
+  const bool needsCommit = effectiveDraft.checkpoint || !changes.empty();
+  const bool inventorySaved = needsCommit
+                                  ? store_.saveWithCommit(inventoryPath_, persistedStore_, effectiveDraft, movements, nullptr,
+                                                          &committed)
+                                  : (movements.empty() ? store_.save(inventoryPath_)
+                                                       : store_.saveWithMovements(inventoryPath_, movements));
   if (!inventorySaved) {
     saveFailures.push_back("inventory");
-    pendingMovementSource_ = movementSource;
-    pendingMovementReference_ = movementReference;
+    pendingCommitDraft_ = effectiveDraft;
+    pendingCommitDraftValid_ = needsCommit;
+    pendingMovementSource_ = draft.source;
+    pendingMovementReference_ = draft.reference;
   } else {
     persistedStore_ = store_;
     persistedStoreValid_ = true;
     refreshInventoryMovements();
+    refreshInventoryCommits();
+    pendingCommitDraft_ = {};
+    pendingCommitDraftValid_ = false;
     pendingMovementSource_.clear();
     pendingMovementReference_.clear();
   }
@@ -336,9 +529,19 @@ bool App::saveState(const string& movementSource, const string& movementReferenc
   return saveFailures.empty();
 }
 
+bool App::saveState(const string& movementSource, const string& movementReference, const string& commitMessage) {
+  InventoryCommitDraft draft;
+  draft.source = movementSource;
+  draft.reference = movementReference;
+  draft.message = commitMessage;
+  return saveInventoryState(draft);
+}
+
 void App::retrySaveState() {
-  const bool stateSaved = saveState(pendingMovementSource_.empty() ? string("manual") : pendingMovementSource_,
-                                    pendingMovementReference_);
+  const bool stateSaved = pendingCommitDraftValid_
+                              ? saveInventoryState(pendingCommitDraft_)
+                              : saveState(pendingMovementSource_.empty() ? string("manual") : pendingMovementSource_,
+                                          pendingMovementReference_);
   const bool projectsSaved = !bomProjectsDirty_ || saveBomProjects();
   if (stateSaved && projectsSaved) {
     setMessage("All Inventatory changes are saved", 3);
@@ -596,20 +799,37 @@ void App::captureUndoSnapshot() {
 }
 
 bool App::undoLastInventoryChange() {
-  if (!undoSnapshot_.valid) {
-    setMessage("Nothing to undo", 2);
+  if (persistedStoreValid_ && !inventoryCommitDiff(persistedStore_, store_).empty()) {
+    setMessage("Save the current inventory before using Ctrl+Z", 4);
+    return false;
+  }
+  if (inventoryCommits_.empty()) refreshInventoryCommits();
+  const auto latest = find_if(inventoryCommits_.begin(), inventoryCommits_.end(), [](const InventoryCommit& commit) {
+    return !commit.checkpoint && (commit.changedItemCount > 0 || commit.changedRackCount > 0) &&
+           !commit.parentId.empty();
+  });
+  if (latest == inventoryCommits_.end()) {
+    setMessage("Nothing to undo", 3);
     return false;
   }
 
-  store_.items() = undoSnapshot_.items;
-  store_.racks() = undoSnapshot_.racks;
-  activities_ = undoSnapshot_.activities;
-  selectedPosition_ = undoSnapshot_.selectedPosition;
-  undoSnapshot_.valid = false;
-  saveState("undo");
+  InventoryCommitDetail detail;
+  if (!loadInventoryCommit(inventoryPath_, latest->id, detail) || !detail.hasParent) {
+    setMessage("The latest inventory commit could not be loaded", 5);
+    return false;
+  }
+  store_ = detail.parentSnapshot;
+  InventoryCommitDraft draft;
+  draft.source = "undo";
+  draft.reference = latest->id;
+  draft.corrective = true;
+  draft.revertedCommitId = latest->id;
+  draft.message = "Undid commit #" + to_string(latest->sequence);
+  const bool saved = saveInventoryState(draft);
   syncSelectionToFilter();
-  setMessage("Undid last change", 2);
-  return true;
+  syncRackSelection();
+  if (saved) setMessage("Undid commit #" + to_string(latest->sequence), 4);
+  return saved;
 }
 
 void App::setMessage(string text, int seconds) {
@@ -1602,7 +1822,7 @@ void App::processScans() {
       }
 
       changePage(Page::Stock);
-      saveState();
+      saveState("scanner", code, "Scanner event " + code);
       if (!resolution.created || !autoPrintScannedLabel(resolution.itemId)) {
         setMessage(resolution.message, 3);
       }
@@ -1620,7 +1840,7 @@ void App::processScanDigiKeyEnrichment() {
     if (result.second) {
       if (auto* item = store_.findById(result.first); item != nullptr && mergeDigiKeyMetadata(*item, *result.second)) {
         logActivity("scan", "Synced DigiKey metadata for " + item->partName);
-        saveState();
+        saveState("digikey", result.first, "DigiKey enrichment");
       }
     }
   }
@@ -1657,6 +1877,7 @@ void App::beginDigiKeyRefresh() {
   digiKeyRefreshCompleted_ = 0;
   digiKeyRefreshSucceeded_ = 0;
   digiKeyRefreshFailed_ = 0;
+  digiKeyRefreshChanged_ = false;
   digiKeyRefreshActiveKey_.clear();
   digiKeyRefreshLastError_.clear();
   digiKeyRefreshClient_ = move(api.client);
@@ -1694,13 +1915,8 @@ void App::processDigiKeyRefresh() {
         ++digiKeyRefreshFailed_;
         digiKeyRefreshLastError_ = "An inventory item disappeared during refresh";
       } else {
-        mergeDigiKeyMetadata(*item, *result.details);
-        if (saveState()) {
-          ++digiKeyRefreshSucceeded_;
-        } else {
-          ++digiKeyRefreshFailed_;
-          digiKeyRefreshLastError_ = persistenceError_;
-        }
+        if (mergeDigiKeyMetadata(*item, *result.details)) digiKeyRefreshChanged_ = true;
+        ++digiKeyRefreshSucceeded_;
       }
     } else {
       ++digiKeyRefreshFailed_;
@@ -1709,10 +1925,12 @@ void App::processDigiKeyRefresh() {
 
     if (digiKeyRefreshQueue_.empty()) {
       digiKeyRefreshClient_.reset();
+      if (digiKeyRefreshChanged_ && !saveState("digikey", "inventory refresh", "DigiKey refresh batch")) {
+        digiKeyRefreshLastError_ = persistenceError_;
+      }
       const auto summary = "DigiKey refresh complete: " + to_string(digiKeyRefreshSucceeded_) + " updated, " +
                            to_string(digiKeyRefreshFailed_) + " failed";
       logActivity("sync", summary);
-      saveState();
       setMessage(summary, 8);
       dirty_ = true;
       return;
@@ -1750,6 +1968,7 @@ void App::stopDigiKeyRefresh() {
   digiKeyRefreshCompleted_ = 0;
   digiKeyRefreshSucceeded_ = 0;
   digiKeyRefreshFailed_ = 0;
+  digiKeyRefreshChanged_ = false;
   digiKeyRefreshLastError_.clear();
 }
 
@@ -2123,6 +2342,7 @@ void App::processDeviceSyncEvents() {
   persistedStore_ = store_;
   persistedStoreValid_ = true;
   refreshInventoryMovements();
+  refreshInventoryCommits();
   deviceLastResult_ = result.status == "failed"
                           ? "ERROR " + result.message
                           : (result.existing ? "EXISTING " : "NEW ") + result.itemName + " QTY " +
@@ -2600,7 +2820,7 @@ void App::processImportSync() {
   importSyncRunning_ = false;
   importSyncHasRun_ = true;
   importSyncCancelFlag_.reset();
-  if (!cancelled && !batch.results.empty() && !saveState()) {
+  if (!cancelled && !batch.results.empty() && !saveState("digikey", "import sync", "DigiKey enrichment batch")) {
     setMessage("DigiKey metadata is in memory; press R to retry saving", 6);
   } else {
     setMessage(cancelled ? "DigiKey sync cancelled; press R to retry failed rows"
@@ -3413,6 +3633,8 @@ string App::activePrompt() const {
   if (inputMode_ == InputMode::RackFilter) return "Rack filter: ";
   if (inputMode_ == InputMode::QuantityAdjust) return "Quantity on hand: ";
   if (inputMode_ == InputMode::StocktakeCount) return "Physical count: ";
+  if (inputMode_ == InputMode::HistoryCheckpoint) return "Checkpoint name: ";
+  if (inputMode_ == InputMode::HistoryConfirm) return historyConfirmationMessage_;
   if (inputMode_ == InputMode::ExitConfirmation) return "S save  ·  D discard  ·  Esc cancel";
   return "";
 }
