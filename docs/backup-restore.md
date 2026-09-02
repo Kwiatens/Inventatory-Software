@@ -5,6 +5,12 @@ SQLite inventory database (including BOM projects), activity history, printer
 configuration, quick-label configuration, and sanitized application settings.
 Each file is listed in `manifest.tsv` with its size and SHA-256 hash.
 
+Inventory commit history is stored inside `inventory.db`, so every backup and
+restore preserves the complete local version history automatically. Older
+databases receive an `Initial inventory` baseline the first time Inventatory
+opens them; existing `activity.tsv` and movement records are retained as-is and
+are not converted into commits.
+
 DigiKey secrets remain in Windows Credential Manager and are never exported.
 The Scan R1 token and device configuration are also excluded. Restoring a
 bundle is an explicit **Restore backup** action: Inventatory validates every

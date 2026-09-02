@@ -48,6 +48,9 @@ vector<App::Action> App::currentActions() const {
     }
     loadInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
     self->refreshInventoryMovements();
+    self->persistedStore_ = self->store_;
+    self->persistedStoreValid_ = true;
+    self->refreshInventoryCommits();
     if (self->inventoryHistory_.empty()) {
       appendInventoryHistory(self->inventoryHistory_,
                              makeInventoryHistoryPoint(self->store_.items(), self->settings_.lowStockThreshold));
@@ -75,7 +78,8 @@ vector<App::Action> App::currentActions() const {
       add("stock", "Go", "2", chr('2'), [self] { self->changePage(Page::Stock); });
       add("racks", "Go", "3", chr('3'), [self] { self->openRackManagement(); });
       add("projects", "Go", "5", chr('5'), [self] { self->openBomProjects(); });
-      add("settings", "Go", "6", chr('6'), [self] { self->openSettings(); });
+      add("history", "Go", "6", chr('6'), [self] { self->changePage(Page::History); });
+      add("settings", "Go", "7", chr('7'), [self] { self->openSettings(); });
       add("add part", "Create", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
       add("import CSV", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
@@ -85,6 +89,24 @@ vector<App::Action> App::currentActions() const {
       add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
       add("backup data", "Data", "k", chr('k'), [self] { self->backupData(); });
       add("retry save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
+      break;
+
+    case Page::History:
+      add("create checkpoint", "History", "c", chr('c'), [self] { self->beginHistoryCheckpoint(); });
+      add("restore snapshot", "History", "s", chr('s'), [self] {
+        self->beginHistoryRestore(InventoryRevertMode::Snapshot);
+      });
+      add("reverse changes", "History", "v", chr('v'), [self] {
+        self->beginHistoryRestore(InventoryRevertMode::Reverse);
+      });
+      add("reload history", "System", "r", chr('r'), [self] {
+        self->refreshInventoryCommits();
+        self->setMessage("Inventory history reloaded", 2);
+      });
+      add("undo latest change", "System", "Ctrl+Z", special(KeyType::CtrlZ),
+          [self] { self->undoLastInventoryChange(); });
+      add("back to home", "Go", "Esc", special(KeyType::Escape), [self] { self->changePage(Page::Home); });
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 

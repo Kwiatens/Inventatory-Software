@@ -252,6 +252,8 @@ std::string App::pageName() const {
       return "Import";
     case Page::Projects:
       return "Projects";
+    case Page::History:
+      return "History";
     case Page::ScanSetup:
       return "Scan R1 Setup";
     case Page::DigiKeySetup:
@@ -283,7 +285,8 @@ ftxui::Element App::renderHeaderUi() const {
       nav(Page::Racks, "nav.racks", "3 Racks"),
       nav(Page::Import, "nav.import", "4 Import"),
       nav(Page::Projects, "nav.projects", "5 Projects"),
-      nav(Page::Settings, "nav.settings", "6 Settings"),
+      nav(Page::History, "nav.history", "6 History"),
+      nav(Page::Settings, "nav.settings", "7 Settings"),
   });
 
   ftxui::Elements header;
@@ -306,6 +309,8 @@ ftxui::Element App::renderPageUi() const {
       return renderImportCsvUi();
     case Page::Projects:
       return renderBomProjectUi();
+    case Page::History:
+      return renderHistoryUi();
     case Page::ScanSetup:
       return renderInventatoryScanSetupUi();
     case Page::DigiKeySetup:
@@ -333,6 +338,7 @@ ftxui::Element App::renderSearchBarUi() const {
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
                              inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
+                             inputMode_ == InputMode::HistoryCheckpoint || inputMode_ == InputMode::HistoryConfirm ||
                              inputMode_ == InputMode::ExitConfirmation);
 
   const auto activeBg = inputMode_ == InputMode::Search || showsPrompt ? uiRowSelectedBg() : uiPanelLeftBg();
@@ -344,6 +350,9 @@ ftxui::Element App::renderSearchBarUi() const {
     contextText = "/" + inputBuffer_ + "_  (filtering live)";
   } else if (inputMode_ == InputMode::ExitConfirmation) {
     contextTitle = "Unsaved settings";
+    contextText = activePrompt();
+  } else if (inputMode_ == InputMode::HistoryConfirm) {
+    contextTitle = "Confirm history action";
     contextText = activePrompt();
   } else if (showsPrompt) {
     contextText = activePrompt() + inputBuffer_ + "_";
@@ -386,6 +395,13 @@ ftxui::Element App::renderSearchBarUi() const {
                         to_string(bomAnalysis_.readyCount) + " ready · " +
                         to_string(bomAnalysis_.shortCount) + " short";
         }
+        break;
+      case Page::History:
+        contextTitle = "History";
+        contextText = inventoryCommits_.empty()
+                          ? "No inventory commits"
+                          : "commit " + to_string(historySelection_ + 1) + " / " +
+                                to_string(inventoryCommits_.size());
         break;
       case Page::ScanSetup:
         contextTitle = "Setup wizard";
@@ -696,6 +712,10 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::BomRestock:
       handleBomRestockKey(key);
       return;
+    case InputMode::HistoryCheckpoint:
+    case InputMode::HistoryConfirm:
+      handleHistoryKey(key);
+      return;
     case InputMode::ExitConfirmation:
       handleExitConfirmationKey(key);
       return;
@@ -766,7 +786,8 @@ void App::handleKey(const KeyEvent& key) {
       case '3': changePage(Page::Racks); return;
       case '4': changePage(Page::Import); return;
       case '5': changePage(Page::Projects); return;
-      case '6': changePage(Page::Settings); return;
+      case '6': changePage(Page::History); return;
+      case '7': changePage(Page::Settings); return;
       default: break;
     }
   }
@@ -796,6 +817,9 @@ void App::handleKey(const KeyEvent& key) {
       break;
     case Page::Projects:
       handleBomProjectKey(key);
+      break;
+    case Page::History:
+      handleHistoryKey(key);
       break;
     case Page::ScanSetup:
       handleInventatoryScanSetupKey(key);
@@ -844,7 +868,7 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       if (uiBoxContains(dashboardWarningPanelBounds_, mouse.x, mouse.y)) {
         moveDashboardSelection(DashboardList::Warnings, delta);
       } else if (uiBoxContains(dashboardActivityPanelBounds_, mouse.x, mouse.y)) {
-        moveDashboardSelection(DashboardList::Activity, delta);
+        moveDashboardSelection(DashboardList::Commits, delta);
       }
     }
     else if (page_ == Page::Import) moveImportSelection(delta);
