@@ -52,4 +52,8 @@ bool switchInventatoryDataPathsAfterSaving(InventatoryDataPaths& active, const f
   return true;
 }
 
+bool onboardingRequired(bool startInBackground, bool settingsLoaded, int completedOnboardingVersion) {
+  return !startInBackground && (!settingsLoaded || completedOnboardingVersion < 1);
+}
+
 }  // namespace inventatory

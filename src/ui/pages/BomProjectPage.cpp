@@ -97,6 +97,9 @@ ftxui::Element App::renderBomProjectUi() const {
 
     rows.insert(rows.begin(), fullLine("PROJECTS  " + to_string(bomProjects_.size()), uiSecondaryText(),
                                        uiSurfaceBg()));
+    if (bomProjectsDirty_) {
+      rows.push_back(fullLine("UNSAVED PROJECT CHANGES  Press R to retry saving", uiDangerColor(), uiDangerBg()));
+    }
     rows.push_back(uiDivider());
     rows.push_back(fullLine("Enter open   d forget   i import a BOM", uiMutedColor(), uiSurfaceBg()));
     return ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::bgcolor(uiSurfaceBg());
@@ -137,6 +140,12 @@ ftxui::Element App::renderBomProjectUi() const {
         styledText("/" + to_string(totalPieces) + " ", uiMutedColor()),
     }) | ftxui::bgcolor(uiSurfaceBg()));
     header.push_back(uiDivider());
+    if (!bomBuildReady(bomAnalysis_)) {
+      header.push_back(fullLine("BUILD BLOCKED  " + to_string(bomAnalysis_.shortCount) +
+                                    " BOM line(s) still unmatched or short; walkthrough only",
+                                uiDangerColor(), uiSurfaceBg()));
+      header.push_back(uiDivider());
+    }
 
     if (bomDeductPrompt_) {
       ftxui::Elements promptRows;
@@ -144,15 +153,21 @@ ftxui::Element App::renderBomProjectUi() const {
                                         to_string(steps.size()) + " stops",
                                     uiTitleColor(), uiPanelRightBg()));
       promptRows.push_back(uiDivider());
-      promptRows.push_back(fullLine("Subtract these from stock?", uiAccentColor(), uiPanelRightBg()));
-      promptRows.push_back(ftxui::hbox({
-          target(styledText(" y  subtract ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.deduct.yes",
-                 UiTargetKind::Button, [self] { self->finishBomBuild(true); }),
-          ftxui::text("  "),
-          target(styledText(" n  keep stock ", uiSecondaryText(), uiRaisedSurfaceBg()), "bom.deduct.no",
-                 UiTargetKind::Button, [self] { self->finishBomBuild(false); }),
-          ftxui::filler(),
-      }));
+      if (bomBuildReady(bomAnalysis_)) {
+        promptRows.push_back(fullLine("Subtract these from stock?", uiAccentColor(), uiPanelRightBg()));
+        promptRows.push_back(ftxui::hbox({
+            target(styledText(" y  subtract ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.deduct.yes",
+                   UiTargetKind::Button, [self] { self->finishBomBuild(true); }),
+            ftxui::text("  "),
+            target(styledText(" n  keep stock ", uiSecondaryText(), uiRaisedSurfaceBg()), "bom.deduct.no",
+                   UiTargetKind::Button, [self] { self->finishBomBuild(false); }),
+            ftxui::filler(),
+        }));
+      } else {
+        promptRows.push_back(fullLine("Shortages appeared while walking the BOM; completion is disabled.",
+                                      uiDangerColor(), uiPanelRightBg()));
+        promptRows.push_back(fullLine("Press Escape to return to the shortage list.", uiMutedColor(), uiPanelRightBg()));
+      }
 
       auto prompt = panel("Build", move(promptRows), uiAccentColor(), uiAccentColor()) |
                     ftxui::bgcolor(uiPanelRightBg()) |
@@ -307,6 +322,15 @@ ftxui::Element App::renderBomProjectUi() const {
   headerRows.push_back(uiSplitProgressBar(readyFraction, shortFraction, max(20, screenWidth - 2),
                                           uiInteractiveColor(), uiDangerColor()));
   headerRows.push_back(uiDivider());
+  if (bomProjectsDirty_) {
+    headerRows.push_back(fullLine("UNSAVED PROJECT CHANGES  Press R to retry saving", uiDangerColor(), uiDangerBg()));
+    headerRows.push_back(uiDivider());
+  }
+  if (!bomBuildReady(bomAnalysis_)) {
+    headerRows.push_back(fullLine("BUILD BLOCKED  Resolve every shortage before completion or stock deduction",
+                                  uiDangerColor(), uiSurfaceBg()));
+    headerRows.push_back(uiDivider());
+  }
 
   const int halfWidth = max(30, (screenWidth - 3) / 2);
   const int valueWidth = clamp(halfWidth / 3, 12, 22);
@@ -405,14 +429,25 @@ ftxui::Element App::renderBomProjectUi() const {
 
   ftxui::Elements footer;
   footer.push_back(uiDivider());
+  const bool selectedShortage = !bomAnalysis_.matches.empty() &&
+                                !bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)].sufficient;
+  const bool selectedMatched = selectedShortage &&
+                               !bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)]
+                                    .chosenItemId().empty();
   footer.push_back(ftxui::hbox({
       target(styledText(" Build ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.build", UiTargetKind::Button,
              [self] { self->beginBomBuild(); }),
       ftxui::text(" "),
+      selectedShortage
+          ? target(styledText(selectedMatched ? " Receive shortage " : " Add missing in Stock ",
+                              selectedMatched ? uiInteractiveColor() : uiWarnColor(), uiRaisedSurfaceBg()),
+                   "bom.restock", UiTargetKind::Button, [self] { self->beginBomRestock(); })
+          : ftxui::text(""),
+      ftxui::text(" "),
       target(styledText(" Export shortages ", uiLinkColor(), uiRaisedSurfaceBg()), "bom.export",
              UiTargetKind::Button, [self] { self->exportBomShortages(); }),
       ftxui::filler(),
-      styledText("b build   o export   a alternate   +/- boards   esc all projects ", uiMutedColor()),
+      styledText("b build   r receive/add   o export   a alternate   +/- boards   esc all projects ", uiMutedColor()),
   }) | ftxui::bgcolor(uiSurfaceBg()));
 
   return ftxui::vbox({
@@ -433,7 +468,13 @@ void App::handleBomProjectKey(const KeyEvent& key) {
       return;
     }
     if (key.type == KeyType::Escape) {
-      finishBomBuild(false);
+      if (bomBuildReady(bomAnalysis_)) {
+        finishBomBuild(false);
+      } else {
+        bomDeductPrompt_ = false;
+        bomView_ = BomView::Split;
+        dirty_ = true;
+      }
     }
     return;  // y / n are registered actions and dispatch ahead of this handler
   }
