@@ -20,5 +20,6 @@ InventatoryDataPaths makeInventatoryDataPaths(const std::filesystem::path& dataD
 bool switchInventatoryDataPathsAfterSaving(InventatoryDataPaths& active,
                                            const std::filesystem::path& nextDataDirectory,
                                            const std::function<bool()>& saveCurrentState);
+bool onboardingRequired(bool startInBackground, bool settingsLoaded, int completedOnboardingVersion);
 
 }  // namespace inventatory
