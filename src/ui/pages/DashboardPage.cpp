@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <ctime>
+#include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -48,12 +49,8 @@ struct DashboardSnapshot {
   size_t dataErrorCount = 0;
   size_t missingMetadataCount = 0;
   vector<AttentionRow> attention;
-  vector<ActivityEntry> recentEvents;
 };
 
-constexpr long long kWarningRowStepMs = 120;
-constexpr long long kWarningHoldMs = 1600;
-constexpr long long kWarningRestMs = 800;
 constexpr long long kScannerTabRollMs = 700;
 constexpr long long kScannerMessageCycleMs = 3200;
 constexpr int kScannerExpandedHeight = 8;
@@ -101,24 +98,13 @@ ftxui::Element statusLine(const string& label, const string& value, ftxui::Color
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-vector<ActivityEntry> recentEventEntries(const vector<ActivityEntry>& activities, size_t limit) {
-  vector<ActivityEntry> entries;
-  const auto count = min(activities.size(), limit);
-  for (size_t offset = 0; offset < count; ++offset) {
-    entries.push_back(activities[activities.size() - 1 - offset]);
-  }
-  return entries;
-}
-
 ftxui::Color attentionBackground(const AttentionRow&) {
   return uiSelectionBg();
 }
 
-DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, const vector<ActivityEntry>& activities,
-                                         size_t recentEventLimit, int lowStockThreshold) {
+DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, int lowStockThreshold) {
   DashboardSnapshot snapshot;
   snapshot.itemCount = items.size();
-  snapshot.recentEvents = recentEventEntries(activities, recentEventLimit);
 
   unordered_set<string> seenIds;
   for (const auto& item : items) {
@@ -164,7 +150,8 @@ DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, con
   return snapshot;
 }
 
-ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int height) {
+ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, size_t selectedRow, bool active,
+                              const function<ftxui::Element(ftxui::Element, size_t)>& wrapRow) {
   const int contentWidth = max(42, width - 2);
   const int severityWidth = 8;
   const int quantityWidth = 7;
@@ -189,26 +176,12 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
     return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
   }
 
-  const size_t maxRows = static_cast<size_t>(max(1, height - 4));
-  const size_t visible = min(snapshot.attention.size(), maxRows);
-  const auto rowCount = max<size_t>(1, visible);
-  const auto cycleDuration = static_cast<long long>(rowCount) * kWarningRowStepMs + kWarningHoldMs + kWarningRestMs;
-  const auto ticks = uiAnimationTicks();
-  const auto cycleIndex = static_cast<size_t>(ticks / cycleDuration);
-  const auto phase = ticks % cycleDuration;
-  const size_t offset = snapshot.attention.size() > visible ? cycleIndex % snapshot.attention.size() : 0;
-  const bool holding = phase >= static_cast<long long>(rowCount) * kWarningRowStepMs &&
-                       phase < static_cast<long long>(rowCount) * kWarningRowStepMs + kWarningHoldMs;
-  const size_t activeRow = phase < static_cast<long long>(rowCount) * kWarningRowStepMs
-                               ? static_cast<size_t>(phase / kWarningRowStepMs)
-                               : rowCount;
-
-  for (size_t index = 0; index < visible; ++index) {
-    const auto& row = snapshot.attention[(offset + index) % snapshot.attention.size()];
-    const bool highlighted = holding || index == activeRow;
-    const auto background = highlighted ? attentionBackground(row)
-                                        : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
-    rows.push_back(ftxui::hbox({
+  for (size_t index = 0; index < snapshot.attention.size(); ++index) {
+    const auto& row = snapshot.attention[index];
+    const bool selected = index == selectedRow;
+    const auto background = selected && active ? attentionBackground(row)
+                                               : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
+    auto renderedRow = ftxui::hbox({
         centeredCell(row.issue, severityWidth, uiPrimaryText(), true),
         uiDivider(),
         centeredCell(row.partName, partWidth, uiPrimaryText()),
@@ -216,15 +189,14 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, int 
         fixedCell(to_string(row.quantity), quantityWidth, uiPrimaryText(), true),
     }) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
-                   ftxui::bgcolor(background));
+                   ftxui::bgcolor(background);
+    if (selected) {
+      renderedRow = renderedRow | ftxui::select;
+    }
+    rows.push_back(wrapRow(move(renderedRow), index));
   }
-
-  if (snapshot.attention.size() > visible) {
-    rows.push_back(uiBodyText("  Rotating " + to_string(snapshot.attention.size() - visible) + " more warning" +
-                                 (snapshot.attention.size() - visible == 1 ? "" : "s") + " · live attention sweep",
-                             uiMutedColor()));
-  }
-  return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  return ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator |
+         ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
 }
 
 string elapsedText(time_t timestamp) {
@@ -343,20 +315,22 @@ ftxui::Element healthPanel(const DashboardSnapshot& snapshot, const string& pers
   return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg());
 }
 
-ftxui::Element activityPanel(const vector<ActivityEntry>& entries, int width) {
+ftxui::Element activityPanel(const vector<ActivityEntry>& activities, int width, size_t selectedRow, bool active,
+                             const function<ftxui::Element(ftxui::Element, size_t)>& wrapRow) {
   const int contentWidth = max(28, width - 2);
   ftxui::Elements rows;
   rows.push_back(plainSectionTitle("RECENT ACTIVITY", width));
-  if (entries.empty()) {
+  if (activities.empty()) {
     rows.push_back(uiBodyText("No activity yet.", uiMutedColor()));
     return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
   }
-  for (size_t index = 0; index < entries.size(); ++index) {
-    const auto& entry = entries[index];
+  for (size_t index = 0; index < activities.size(); ++index) {
+    const auto& entry = activities[activities.size() - 1 - index];
     const auto timestamp = nowTimestampString(entry.timestamp);
     const int timestampWidth = min(16, max(8, contentWidth / 3));
     const int messageWidth = max(8, contentWidth - timestampWidth - 3);
-    rows.push_back(ftxui::hbox({
+    const bool selected = index == selectedRow;
+    auto renderedRow = ftxui::hbox({
                          fixedCell(timestamp, timestampWidth, uiSecondaryText()),
                          centeredCell("-", 3, uiSecondaryText()),
                          uiBodyText(ellipsize(entry.kind + " " + entry.message,
@@ -365,19 +339,58 @@ ftxui::Element activityPanel(const vector<ActivityEntry>& entries, int width) {
                          ftxui::filler(),
                      }) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
-                     ftxui::bgcolor(index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
+                     ftxui::bgcolor(selected && active ? uiSelectionBg()
+                                                        : (index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
+    if (selected) {
+      renderedRow = renderedRow | ftxui::select;
+    }
+    rows.push_back(wrapRow(move(renderedRow), index));
   }
-  return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  return ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator |
+         ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
 }
 
 }  // namespace
 
+void App::moveDashboardSelection(DashboardList list, int delta) {
+  const auto warningCount = [&] {
+    return buildDashboardSnapshot(store_.items(), settings_.lowStockThreshold).attention.size();
+  };
+  const size_t count = list == DashboardList::Warnings ? warningCount() : activities_.size();
+  auto& selection = list == DashboardList::Warnings ? dashboardWarningSelection_ : dashboardActivitySelection_;
+  dashboardList_ = list;
+  if (count == 0) {
+    selection = 0;
+    dirty_ = true;
+    return;
+  }
+
+  const auto current = static_cast<int>(min(selection, count - 1));
+  selection = static_cast<size_t>(clamp(current + delta, 0, static_cast<int>(count - 1)));
+  dirty_ = true;
+}
+
+void App::jumpDashboardSelection(DashboardList list, bool toEnd) {
+  const auto count = list == DashboardList::Warnings
+                         ? buildDashboardSnapshot(store_.items(), settings_.lowStockThreshold).attention.size()
+                         : activities_.size();
+  selectDashboardRow(list, toEnd && count > 0 ? count - 1 : 0);
+}
+
+void App::selectDashboardRow(DashboardList list, size_t position) {
+  const auto count = list == DashboardList::Warnings
+                         ? buildDashboardSnapshot(store_.items(), settings_.lowStockThreshold).attention.size()
+                         : activities_.size();
+  auto& selection = list == DashboardList::Warnings ? dashboardWarningSelection_ : dashboardActivitySelection_;
+  dashboardList_ = list;
+  selection = count == 0 ? 0 : min(position, count - 1);
+  dirty_ = true;
+}
+
 ftxui::Element App::renderDashboardUi() const {
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
-  const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 30;
-  const size_t recentLimit = static_cast<size_t>(max(3, screenHeight - 13));
-  const auto snapshot = buildDashboardSnapshot(store_.items(), activities_, recentLimit, settings_.lowStockThreshold);
+  const auto snapshot = buildDashboardSnapshot(store_.items(), settings_.lowStockThreshold);
 
   auto scannerState = scannerDashboardState_;
   if (scannerState == ScannerDashboardState::Unknown) {
@@ -399,17 +412,35 @@ ftxui::Element App::renderDashboardUi() const {
                                   : scannerState == ScannerDashboardState::Waiting ? "WAITING"
                                                                                   : scannerState == ScannerDashboardState::Offline ? "OFFLINE"
                                                                                                                                    : "ONLINE";
-  const int scannerHeight = scannerPanelHeight(scannerConnected, scannerDashboardTransitionStartedAt_,
-                                               scannerDashboardTransitionExpanding_);
-
   const int minimumRightWidth = 50;
   const int leftWidth = max(48, min(screenWidth - minimumRightWidth - 1, (screenWidth * 45) / 100));
   const int rightWidth = max(1, screenWidth - leftWidth - 1);
-  const int dashboardHeight = max(14, screenHeight - 5);
-  const int warningHeight = max(8, dashboardHeight - scannerHeight - 1);
+
+  auto self = const_cast<App*>(this);
+  const auto warningSelection = snapshot.attention.empty()
+                                    ? size_t(0)
+                                    : min(dashboardWarningSelection_, snapshot.attention.size() - 1);
+  const auto activitySelection = activities_.empty()
+                                     ? size_t(0)
+                                     : min(dashboardActivitySelection_, activities_.size() - 1);
+  const bool warningsActive = dashboardList_ == DashboardList::Warnings;
+  const bool activityActive = dashboardList_ == DashboardList::Activity;
+  const auto wrapWarningRow = [self](ftxui::Element row, size_t index) {
+    return self->target(move(row), "dashboard.warning." + to_string(index), UiTargetKind::Row,
+                        [self, index] { self->selectDashboardRow(DashboardList::Warnings, index); }, true, false);
+  };
+  const auto wrapActivityRow = [self](ftxui::Element row, size_t index) {
+    return self->target(move(row), "dashboard.activity." + to_string(index), UiTargetKind::Row,
+                        [self, index] { self->selectDashboardRow(DashboardList::Activity, index); }, true, false);
+  };
+
+  auto warningPanel = attentionPanel(snapshot, leftWidth, warningSelection, warningsActive, wrapWarningRow) |
+                      ftxui::reflect(dashboardWarningPanelBounds_);
+  auto recentPanel = activityPanel(activities_, rightWidth, activitySelection, activityActive, wrapActivityRow) |
+                     ftxui::reflect(dashboardActivityPanelBounds_);
 
   auto warningSide = ftxui::vbox({
-                         attentionPanel(snapshot, leftWidth, warningHeight) | ftxui::flex,
+                         move(warningPanel) | ftxui::flex,
                          uiDivider(),
                          scannerPanel(scannerStateText, scannerConnected, scannerPaired,
                                       scannerDashboardTransitionStartedAt_, scannerDashboardTransitionExpanding_,
@@ -422,7 +453,7 @@ ftxui::Element App::renderDashboardUi() const {
   auto healthSide = ftxui::vbox({
                        healthPanel(snapshot, persistenceError_, rightWidth),
                        uiDivider(),
-                       activityPanel(snapshot.recentEvents, rightWidth) | ftxui::flex,
+                       move(recentPanel) | ftxui::flex,
                    }) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, rightWidth) |
                    ftxui::flex;
@@ -433,8 +464,50 @@ ftxui::Element App::renderDashboardUi() const {
 }
 
 void App::handleDashboardKey(const KeyEvent& key) {
+  if (key.type == KeyType::Left) {
+    selectDashboardRow(DashboardList::Warnings, dashboardWarningSelection_);
+    return;
+  }
+  if (key.type == KeyType::Right) {
+    selectDashboardRow(DashboardList::Activity, dashboardActivitySelection_);
+    return;
+  }
+  if (key.type == KeyType::Up) {
+    moveDashboardSelection(dashboardList_, -1);
+    return;
+  }
+  if (key.type == KeyType::Down) {
+    moveDashboardSelection(dashboardList_, 1);
+    return;
+  }
+  if (key.type == KeyType::PageUp) {
+    moveDashboardSelection(dashboardList_, -10);
+    return;
+  }
+  if (key.type == KeyType::PageDown) {
+    moveDashboardSelection(dashboardList_, 10);
+    return;
+  }
+  if (key.type == KeyType::Home) {
+    jumpDashboardSelection(dashboardList_, false);
+    return;
+  }
+  if (key.type == KeyType::End) {
+    jumpDashboardSelection(dashboardList_, true);
+    return;
+  }
+
   if (key.type == KeyType::Character) {
-    switch (tolower(static_cast<unsigned char>(key.ch))) {
+    const auto ch = tolower(static_cast<unsigned char>(key.ch));
+    if (ch == 'j') {
+      moveDashboardSelection(dashboardList_, 1);
+      return;
+    }
+    if (ch == 'k') {
+      moveDashboardSelection(dashboardList_, -1);
+      return;
+    }
+    switch (ch) {
       case '1':
       case '\t':
         changePage(Page::Stock);
