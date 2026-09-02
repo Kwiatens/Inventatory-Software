@@ -338,7 +338,7 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
 }
 
 bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& databasePath,
-                             const DeviceSyncResult& result) {
+                             const DeviceSyncResult& result, const InventoryStore* previousStore) {
   // Finalize identifiers in the same snapshot that is committed and returned
   // to the application. InventoryStore::saveWithDeviceEvent() normalizes a
   // private copy, which is sufficient for SQLite but would otherwise leave a
@@ -360,7 +360,12 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   commit.code = result.code;
   commit.message = result.message;
   commit.completedAt = time(nullptr);
-  if (!finalized.saveWithDeviceEvent(databasePath, commit)) return false;
+  InventoryStore persistedStore;
+  if (previousStore == nullptr && !persistedStore.load(databasePath)) return false;
+  const auto& movementBaseline = previousStore == nullptr ? persistedStore : *previousStore;
+  const auto movements = inventoryMovementDiff(movementBaseline, finalized, "scanner", result.eventId,
+                                               commit.completedAt);
+  if (!finalized.saveWithDeviceEvent(databasePath, commit, movements)) return false;
   store = move(finalized);
   return true;
 }

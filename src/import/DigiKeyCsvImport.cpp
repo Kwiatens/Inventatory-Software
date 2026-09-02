@@ -130,8 +130,15 @@ string productSearchUrl(const string& digikeyPart) {
   return "https://www.digikey.com/en/products/result?keywords=" + part;
 }
 
+int addQuantities(int current, int incoming) {
+  if (incoming > 0 && current > numeric_limits<int>::max() - incoming) {
+    return numeric_limits<int>::max();
+  }
+  return max(0, current + incoming);
+}
+
 bool isRequiredColumnSetPresent(const ColumnMap& columns) {
-  return columns.digikeyPart >= 0 && columns.manufacturerPart >= 0 && columns.manufacturer >= 0 &&
+  return columns.manufacturerPart >= 0 && columns.manufacturer >= 0 &&
          columns.description >= 0 && columns.quantity >= 0;
 }
 
@@ -141,7 +148,8 @@ bool rowLooksLikeDigiKeyOrderLine(const vector<string>& row, const ColumnMap& co
     return false;
   }
 
-  return looksLikeDigiKeyPart(csvCell(row, columns.digikeyPart)) &&
+  return (looksLikeDigiKeyPart(csvCell(row, columns.digikeyPart)) ||
+          looksLikeManufacturerPart(csvCell(row, columns.manufacturerPart))) &&
          looksLikeManufacturerPart(csvCell(row, columns.manufacturerPart)) &&
          !csvCell(row, columns.manufacturer).empty() &&
          !csvCell(row, columns.description).empty();
@@ -274,6 +282,32 @@ CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryIt
     result.error = "CSV headers were recognized, but no valid DigiKey product rows were found";
     return result;
   }
+
+  // DigiKey exports can repeat a line when an order was split across
+  // shipments. Treat the CSV as one logical receipt: keep the first row's
+  // review metadata and add quantities from later rows with the same DigiKey
+  // number, falling back to the manufacturer number.
+  vector<CsvImportCandidate> consolidated;
+  unordered_map<string, size_t> byPart;
+  for (auto& candidate : result.candidates) {
+    const auto primary = trim(candidate.item.digikeyPartNumber).empty()
+                             ? candidate.item.sku
+                             : candidate.item.digikeyPartNumber;
+    const auto key = toLower(trim(primary));
+    const auto existing = byPart.find(key);
+    if (key.empty() || existing == byPart.end()) {
+      if (!key.empty()) byPart.emplace(key, consolidated.size());
+      consolidated.push_back(move(candidate));
+      continue;
+    }
+
+    auto& merged = consolidated[existing->second];
+    merged.item.quantity = addQuantities(merged.item.quantity, candidate.item.quantity);
+    merged.item.lastUpdated = time(nullptr);
+    merged.item.notes += " Also received on CSV row " + to_string(candidate.sourceRow) + ".";
+    merged.warnings.push_back("Merged duplicate part from row " + to_string(candidate.sourceRow));
+  }
+  result.candidates = move(consolidated);
 
   result.ok = true;
   return result;
