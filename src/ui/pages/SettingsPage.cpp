@@ -1014,35 +1014,7 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(buttonRow(target(uiSecondaryButton("Restart bridge"), "settings.scan.restart",
                                        UiTargetKind::Button, [self] { self->restartDeviceService(); })));
       rows.push_back(uiDivider());
-      rows.push_back(uiHeaderText("EVENT RECOVERY", uiSecondaryText()));
-      if (deviceEventRecords_.empty()) {
-        rows.push_back(styledText("No pending or failed scanner events", uiSuccessColor()));
-      } else {
-        const auto visible = min<size_t>(deviceEventRecords_.size(), 6U);
-        for (size_t index = 0; index < visible; ++index) {
-          const auto& record = deviceEventRecords_[index];
-          const bool pending = record.state == "received";
-          const auto state = pending ? "PENDING" : record.resultStatus == "failed" ? "FAILED" : "DONE";
-          const auto detail = record.event.type + "  " + record.event.code + "  " + to_string(record.event.value);
-          rows.push_back(styledText(string(state) + "  " + ellipsize(detail, static_cast<size_t>(max(8, contentWidth - 12))),
-                                    pending ? uiWarnColor() : record.resultStatus == "failed" ? uiDangerColor()
-                                                                                               : uiMutedText()));
-          if (!pending && record.resultMessage.empty() == false) {
-            rows.push_back(styledText("  " + ellipsize(record.resultMessage, static_cast<size_t>(max(8, contentWidth - 4))),
-                                      uiMutedText()));
-          }
-        }
-      }
-      rows.push_back(ftxui::hbox({
-          target(uiSecondaryButton("Refresh queue"), "settings.scan.events.refresh", UiTargetKind::Button,
-                 [self] { self->refreshDeviceEventRecords(); }),
-          ftxui::text("  "),
-          target(uiSecondaryButton("Retry failed"), "settings.scan.events.retry", UiTargetKind::Button,
-                 [self] { self->retryFailedDeviceEvents(); }),
-          ftxui::text("  "),
-          target(uiSecondaryButton("Discard failed", uiWarnColor()), "settings.scan.events.discard",
-                 UiTargetKind::Button, [self] { self->discardFailedDeviceEvents(); }),
-      }));
+
     }
   } else if (settingsCategory_ == SettingsCategory::Search) {
     rows.push_back(uiHeaderText("PHYSICAL VALUE TOLERANCES", uiSecondaryText()));

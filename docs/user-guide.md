@@ -7,6 +7,11 @@ workspace. The same destinations are clickable. Press `Space` or click
 `Actions` to see every command available in the current context. `Tab` moves
 focus and `Enter` activates it.
 
+On Home, the stock warnings list is active first. Use Up/Down, `j`/`k`,
+PageUp/PageDown, Home, and End to scroll it; Left/Right switches between stock
+warnings and Recent Activity. The mouse wheel scrolls whichever of those two
+panels is under the pointer.
+
 ## Stock workflow
 
 Open Stock and type `/` to filter by part, category, tag, parameter, location,
