@@ -108,6 +108,7 @@ class App {
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
+  enum class DashboardList { Warnings, Activity };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
 
@@ -325,6 +326,9 @@ class App {
   void discardFailedDeviceEvents();
   void updateDashboardScannerState();
   void adjustDeviceDebugScroll(int delta);
+  void moveDashboardSelection(DashboardList list, int delta);
+  void jumpDashboardSelection(DashboardList list, bool toEnd);
+  void selectDashboardRow(DashboardList list, size_t position);
   std::string inventatoryScanDeviceSummary() const;
   ftxui::Element renderDeviceDebugConsoleUi() const;
 
@@ -491,6 +495,9 @@ class App {
   size_t selectedPosition_ = 0;
   size_t stockScroll_ = 0;
   size_t detailScroll_ = 0;
+  DashboardList dashboardList_ = DashboardList::Warnings;
+  size_t dashboardWarningSelection_ = 0;
+  size_t dashboardActivitySelection_ = 0;
   size_t rackSelection_ = 0;
   int rackRow_ = 0;
   int rackColumn_ = 0;
@@ -558,6 +565,8 @@ class App {
   bool bomSplitShortFocused_ = false;
   mutable ftxui::Box bomReadyPanelBounds_;
   mutable ftxui::Box bomShortPanelBounds_;
+  mutable ftxui::Box dashboardWarningPanelBounds_;
+  mutable ftxui::Box dashboardActivityPanelBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
   // Line keys still awaiting a DigiKey suggestion; drained one per tick so the
