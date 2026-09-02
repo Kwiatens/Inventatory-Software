@@ -315,25 +315,25 @@ ftxui::Element healthPanel(const DashboardSnapshot& snapshot, const string& pers
   return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg());
 }
 
-ftxui::Element activityPanel(const vector<ActivityEntry>& activities, int width, size_t selectedRow, bool active,
+ftxui::Element activityPanel(const vector<InventoryCommit>& commits, int width, size_t selectedRow, bool active,
                              const function<ftxui::Element(ftxui::Element, size_t)>& wrapRow) {
   const int contentWidth = max(28, width - 2);
   ftxui::Elements rows;
-  rows.push_back(plainSectionTitle("RECENT ACTIVITY", width));
-  if (activities.empty()) {
-    rows.push_back(uiBodyText("No activity yet.", uiMutedColor()));
+  rows.push_back(plainSectionTitle("RECENT COMMITS", width));
+  if (commits.empty()) {
+    rows.push_back(uiBodyText("No inventory commits yet.", uiMutedColor()));
     return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
   }
-  for (size_t index = 0; index < activities.size(); ++index) {
-    const auto& entry = activities[activities.size() - 1 - index];
-    const auto timestamp = nowTimestampString(entry.timestamp);
+  for (size_t index = 0; index < commits.size(); ++index) {
+    const auto& commit = commits[index];
+    const auto timestamp = nowTimestampString(commit.timestamp);
     const int timestampWidth = min(16, max(8, contentWidth / 3));
     const int messageWidth = max(8, contentWidth - timestampWidth - 3);
     const bool selected = index == selectedRow;
     auto renderedRow = ftxui::hbox({
                          fixedCell(timestamp, timestampWidth, uiSecondaryText()),
-                         centeredCell("-", 3, uiSecondaryText()),
-                         uiBodyText(ellipsize(entry.kind + " " + entry.message,
+                         centeredCell("#" + to_string(commit.sequence), 5, uiInfoColor()),
+                         uiBodyText(ellipsize(commit.message,
                                               static_cast<size_t>(messageWidth)),
                                     uiSecondaryText()),
                          ftxui::filler(),
@@ -356,7 +356,7 @@ void App::moveDashboardSelection(DashboardList list, int delta) {
   const auto warningCount = [&] {
     return buildDashboardSnapshot(store_.items(), settings_.lowStockThreshold).attention.size();
   };
-  const size_t count = list == DashboardList::Warnings ? warningCount() : activities_.size();
+  const size_t count = list == DashboardList::Warnings ? warningCount() : inventoryCommits_.size();
   auto& selection = list == DashboardList::Warnings ? dashboardWarningSelection_ : dashboardActivitySelection_;
   dashboardList_ = list;
   if (count == 0) {
@@ -373,14 +373,14 @@ void App::moveDashboardSelection(DashboardList list, int delta) {
 void App::jumpDashboardSelection(DashboardList list, bool toEnd) {
   const auto count = list == DashboardList::Warnings
                          ? buildDashboardSnapshot(store_.items(), settings_.lowStockThreshold).attention.size()
-                         : activities_.size();
+                         : inventoryCommits_.size();
   selectDashboardRow(list, toEnd && count > 0 ? count - 1 : 0);
 }
 
 void App::selectDashboardRow(DashboardList list, size_t position) {
   const auto count = list == DashboardList::Warnings
                          ? buildDashboardSnapshot(store_.items(), settings_.lowStockThreshold).attention.size()
-                         : activities_.size();
+                         : inventoryCommits_.size();
   auto& selection = list == DashboardList::Warnings ? dashboardWarningSelection_ : dashboardActivitySelection_;
   dashboardList_ = list;
   selection = count == 0 ? 0 : min(position, count - 1);
@@ -420,23 +420,29 @@ ftxui::Element App::renderDashboardUi() const {
   const auto warningSelection = snapshot.attention.empty()
                                     ? size_t(0)
                                     : min(dashboardWarningSelection_, snapshot.attention.size() - 1);
-  const auto activitySelection = activities_.empty()
+  const auto activitySelection = inventoryCommits_.empty()
                                      ? size_t(0)
-                                     : min(dashboardActivitySelection_, activities_.size() - 1);
+                                     : min(dashboardActivitySelection_, inventoryCommits_.size() - 1);
   const bool warningsActive = dashboardList_ == DashboardList::Warnings;
-  const bool activityActive = dashboardList_ == DashboardList::Activity;
+  const bool activityActive = dashboardList_ == DashboardList::Commits;
   const auto wrapWarningRow = [self](ftxui::Element row, size_t index) {
     return self->target(move(row), "dashboard.warning." + to_string(index), UiTargetKind::Row,
                         [self, index] { self->selectDashboardRow(DashboardList::Warnings, index); }, true, false);
   };
   const auto wrapActivityRow = [self](ftxui::Element row, size_t index) {
     return self->target(move(row), "dashboard.activity." + to_string(index), UiTargetKind::Row,
-                        [self, index] { self->selectDashboardRow(DashboardList::Activity, index); }, true, false);
+                        [self, index] {
+                          self->selectDashboardRow(DashboardList::Commits, index);
+                          if (index < self->inventoryCommits_.size()) {
+                            self->historySelection_ = index;
+                            self->openSelectedHistoryCommit();
+                          }
+                        }, true, false);
   };
 
   auto warningPanel = attentionPanel(snapshot, leftWidth, warningSelection, warningsActive, wrapWarningRow) |
                       ftxui::reflect(dashboardWarningPanelBounds_);
-  auto recentPanel = activityPanel(activities_, rightWidth, activitySelection, activityActive, wrapActivityRow) |
+  auto recentPanel = activityPanel(inventoryCommits_, rightWidth, activitySelection, activityActive, wrapActivityRow) |
                      ftxui::reflect(dashboardActivityPanelBounds_);
 
   auto warningSide = ftxui::vbox({
@@ -469,7 +475,7 @@ void App::handleDashboardKey(const KeyEvent& key) {
     return;
   }
   if (key.type == KeyType::Right) {
-    selectDashboardRow(DashboardList::Activity, dashboardActivitySelection_);
+    selectDashboardRow(DashboardList::Commits, dashboardActivitySelection_);
     return;
   }
   if (key.type == KeyType::Up) {
@@ -556,6 +562,11 @@ void App::handleDashboardKey(const KeyEvent& key) {
     return;
   }
 
+  if (key.type == KeyType::Enter && dashboardList_ == DashboardList::Commits && !inventoryCommits_.empty()) {
+    historySelection_ = min(dashboardActivitySelection_, inventoryCommits_.size() - 1);
+    openSelectedHistoryCommit();
+    return;
+  }
   if (key.type == KeyType::Enter || key.type == KeyType::Tab) changePage(Page::Stock);
 }
 

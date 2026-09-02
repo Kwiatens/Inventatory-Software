@@ -2,15 +2,35 @@
 
 ## Navigation
 
-Use `1` Home, `2` Stock, `3` Racks, `4` Import, `5` Projects, or `6` Settings from any normal
+Use `1` Home, `2` Stock, `3` Racks, `4` Import, `5` Projects, `6` History, or `7` Settings from any normal
 workspace. The same destinations are clickable. Press `Space` or click
 `Actions` to see every command available in the current context. `Tab` moves
 focus and `Enter` activates it.
 
 On Home, the stock warnings list is active first. Use Up/Down, `j`/`k`,
 PageUp/PageDown, Home, and End to scroll it; Left/Right switches between stock
-warnings and Recent Activity. The mouse wheel scrolls whichever of those two
+warnings and Recent Commits. The mouse wheel scrolls whichever of those two
 panels is under the pointer.
+
+## Inventory history
+
+History is a local, append-only record of inventory state. Every completed
+inventory action creates one commit containing the complete items and rack
+snapshot, plus field-level differences from its parent. Legacy activity and
+stock-movement records remain available separately; they are not converted.
+
+Open History with `6`. Commits are newest first. Select one to inspect its
+parent, source, reference, changed part/rack counts, and individual fields.
+Press `C` to create a named snapshot checkpoint. Checkpoints do not change
+inventory and cannot be reversed.
+
+Restore snapshot replaces the current items and racks with the selected commit
+exactly. Reverse changes applies only the selected commit's inverse fields and
+keeps unrelated later edits; it stops if the affected part or rack changed
+afterward. Both operations ask for confirmation and create a new corrective
+commit, leaving existing history untouched. `Ctrl+Z` performs the same kind of
+durable parent restore for the latest inventory-changing commit, even after a
+restart. Save pending inventory changes before using History actions.
 
 ## Stock workflow
 

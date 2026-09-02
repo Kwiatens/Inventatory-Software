@@ -58,6 +58,7 @@ class App {
     Racks,
     Import,
     Projects,
+    History,
     ScanSetup,
     DigiKeySetup,
     Settings,
@@ -108,7 +109,7 @@ class App {
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
   enum class StockSortOrder { Az, Quantity, Za };
-  enum class DashboardList { Warnings, Activity };
+  enum class DashboardList { Warnings, Commits };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
 
@@ -135,6 +136,8 @@ class App {
     StocktakeCount,
     QuantityAdjust,
     BomRestock,
+    HistoryCheckpoint,
+    HistoryConfirm,
     ExitConfirmation,
     ActionSheet,
   };
@@ -226,7 +229,15 @@ class App {
 
   void loadState();
   bool saveState(const std::string& movementSource = "manual",
-                 const std::string& movementReference = {});
+                 const std::string& movementReference = {}, const std::string& commitMessage = {});
+  bool saveInventoryState(const InventoryCommitDraft& draft);
+  void refreshHistoryDetail();
+  void moveHistorySelection(int delta);
+  void openSelectedHistoryCommit();
+  void beginHistoryCheckpoint();
+  void beginHistoryRestore(InventoryRevertMode mode);
+  void cancelHistoryAction();
+  bool applyHistoryRevert(InventoryRevertMode mode);
   void handleKey(const KeyEvent& key);
   void handleDashboardKey(const KeyEvent& key);
   void handleStockKey(const KeyEvent& key);
@@ -245,6 +256,7 @@ class App {
   void handleStocktakeCountKey(const KeyEvent& key);
   void handleQuantityAdjustKey(const KeyEvent& key);
   void handleBomRestockKey(const KeyEvent& key);
+  void handleHistoryKey(const KeyEvent& key);
   void handleExitConfirmationKey(const KeyEvent& key);
 
   ftxui::Element renderUi() const;
@@ -257,6 +269,7 @@ class App {
   ftxui::Element renderDigiKeySetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderBomProjectUi() const;
+  ftxui::Element renderHistoryUi() const;
   ftxui::Element renderSettingsUi() const;
   ftxui::Element renderOnboardingUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
@@ -301,6 +314,7 @@ class App {
   void markDirty();
   void refreshPrinterState();
   void refreshInventoryMovements();
+  void refreshInventoryCommits();
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);
@@ -515,6 +529,8 @@ class App {
   std::string persistenceError_;
   std::string pendingMovementSource_;
   std::string pendingMovementReference_;
+  InventoryCommitDraft pendingCommitDraft_;
+  bool pendingCommitDraftValid_ = false;
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
   time_t messageUntil_ = 0;
@@ -539,6 +555,12 @@ class App {
   bool importCommitPending_ = false;
   std::vector<InventoryHistoryPoint> inventoryHistory_;
   std::vector<InventoryMovement> inventoryMovements_;
+  std::vector<InventoryCommit> inventoryCommits_;
+  size_t historySelection_ = 0;
+  InventoryCommitDetail historyDetail_;
+  bool historyDetailValid_ = false;
+  InventoryRevertMode pendingHistoryRevertMode_ = InventoryRevertMode::Snapshot;
+  std::string historyConfirmationMessage_;
   std::mutex scanMutex_;
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
@@ -623,6 +645,7 @@ class App {
   size_t digiKeyRefreshCompleted_ = 0;
   size_t digiKeyRefreshSucceeded_ = 0;
   size_t digiKeyRefreshFailed_ = 0;
+  bool digiKeyRefreshChanged_ = false;
   std::string digiKeyRefreshActiveKey_;
   std::string digiKeyRefreshLastError_;
   std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;

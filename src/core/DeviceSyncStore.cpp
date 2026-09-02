@@ -365,7 +365,11 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   const auto& movementBaseline = previousStore == nullptr ? persistedStore : *previousStore;
   const auto movements = inventoryMovementDiff(movementBaseline, finalized, "scanner", result.eventId,
                                                commit.completedAt);
-  if (!finalized.saveWithDeviceEvent(databasePath, commit, movements)) return false;
+  InventoryCommitDraft draft;
+  draft.source = "scanner";
+  draft.reference = result.eventId;
+  draft.message = result.message.empty() ? "Scanner update" : result.message;
+  if (!finalized.saveWithCommit(databasePath, movementBaseline, draft, movements, &commit, nullptr)) return false;
   store = move(finalized);
   return true;
 }
