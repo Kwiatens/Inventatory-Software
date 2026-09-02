@@ -3,6 +3,7 @@
 #include "core/PhysicalValue.h"
 
 #include <ctime>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -125,6 +126,46 @@ struct InventoryMovement {
   time_t occurredAt = 0;
 };
 
+enum class InventoryRevertMode {
+  Snapshot,
+  Reverse,
+};
+
+struct InventoryCommitDraft {
+  string source = "manual";
+  string reference;
+  string message;
+  bool checkpoint = false;
+  bool corrective = false;
+  string revertedCommitId;
+  size_t changedItemCount = 0;
+  size_t changedRackCount = 0;
+};
+
+struct InventoryCommit {
+  string id;
+  string parentId;
+  std::uint64_t sequence = 0;
+  time_t timestamp = 0;
+  string source;
+  string reference;
+  string message;
+  bool checkpoint = false;
+  bool corrective = false;
+  string revertedCommitId;
+  size_t changedItemCount = 0;
+  size_t changedRackCount = 0;
+};
+
+struct InventoryFieldChange {
+  string entityType;
+  string entityId;
+  string label;
+  string field;
+  string before;
+  string after;
+};
+
 // A completed device event is persisted in the same SQLite transaction as the
 // inventory snapshot so retrying a sync event can never repeat its stock effect.
 struct DeviceEventCommit {
@@ -210,6 +251,9 @@ class InventoryStore {
   bool saveWithMovements(const filesystem::path& path, const vector<InventoryMovement>& movements) const;
   bool saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
                            const vector<InventoryMovement>& movements = {}) const;
+  bool saveWithCommit(const filesystem::path& path, const InventoryStore& previous,
+                      const InventoryCommitDraft& draft, const vector<InventoryMovement>& movements = {},
+                      const DeviceEventCommit* deviceEvent = nullptr, InventoryCommit* committed = nullptr) const;
 
   InventoryItem* findById(const string& id);
   const InventoryItem* findById(const string& id) const;
@@ -222,6 +266,21 @@ class InventoryStore {
   vector<InventoryItem> items_;
   vector<InventatoryRack> racks_;
 };
+
+struct InventoryCommitDetail {
+  InventoryCommit commit;
+  bool hasParent = false;
+  InventoryStore snapshot;
+  InventoryStore parentSnapshot;
+  vector<InventoryFieldChange> changes;
+};
+
+vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, const InventoryStore& after);
+bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const InventoryStore& current,
+                                   InventoryStore& reversed, string& conflict);
+bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryStore& current);
+bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits);
+bool loadInventoryCommit(const filesystem::path& path, const string& id, InventoryCommitDetail& detail);
 
 vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, const InventoryStore& after,
                                                const string& source, const string& reference = {},
