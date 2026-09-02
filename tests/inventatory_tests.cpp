@@ -12,6 +12,7 @@
 #endif
 #include "core/InventatoryScanProtocol.h"
 #include "platform/HttpServer.h"
+#include "platform/CredentialStore.h"
 #ifdef near
 #undef near
 #endif
@@ -421,6 +422,29 @@ void testPhysicalValueSearchIntegration() {
 }
 
 int main() {
+  assert(onboardingRequired(false, false, 0));
+  assert(onboardingRequired(false, true, 0));
+  assert(!onboardingRequired(false, true, 1));
+  assert(!onboardingRequired(true, false, 0));
+
+  {
+    const string key = "release-readiness-credential-test-" +
+                       to_string(static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count()));
+    const bool initiallyErased = CredentialStore::erase(key);
+    const bool wrote = CredentialStore::write(key, "temporary-secret-value");
+    const auto stored = CredentialStore::read(key);
+    const bool erased = CredentialStore::write(key, "");
+    const bool missing = !CredentialStore::read(key).has_value();
+    // Always clean the unique test target before asserting so a failed test
+    // cannot leave a credential behind in the user's Credential Manager.
+    CredentialStore::erase(key);
+    assert(initiallyErased);
+    assert(wrote);
+    assert(stored.has_value() && *stored == "temporary-secret-value");
+    assert(erased);
+    assert(missing);
+  }
+
 #ifdef _WIN32
   // The persistence tests below must exercise the statically linked, pinned
   // SQLite amalgamation rather than an ambient sqlite3.dll.
@@ -486,6 +510,19 @@ int main() {
     const auto history = makeInventoryHistoryPoint(items, 3, 1710000000);
     assert(history.lowStockCount == 1);
     assert(history.outOfStockCount == 1);
+
+    InventoryItem customThreshold;
+    customThreshold.id = "custom-threshold";
+    customThreshold.quantity = 6;
+    customThreshold.reorderThreshold = 10;
+    assert(effectiveReorderThreshold(customThreshold, 3) == 10);
+    assert(isLowStock(customThreshold, 3));
+    customThreshold.quantity = 11;
+    assert(!isLowStock(customThreshold, 3));
+    customThreshold.reorderThreshold = 0;
+    customThreshold.quantity = 3;
+    assert(effectiveReorderThreshold(customThreshold, 3) == 3);
+    assert(isLowStock(customThreshold, 3));
   }
 
   {
@@ -916,6 +953,74 @@ int main() {
   }
 
   {
+    InventoryStore before;
+    InventoryItem existing;
+    existing.id = "movement-existing";
+    existing.partName = "Existing movement item";
+    existing.quantity = 5;
+    before.items().push_back(existing);
+    InventoryItem removed;
+    removed.id = "movement-removed";
+    removed.partName = "Removed movement item";
+    removed.quantity = 4;
+    before.items().push_back(removed);
+
+    InventoryStore after = before;
+    after.items().front().partName = "Renamed movement item";
+    after.items().front().quantity = 8;
+    after.items().erase(after.items().begin() + 1);
+    InventoryItem added;
+    added.id = "movement-added";
+    added.partName = "Added movement item";
+    added.quantity = 2;
+    after.items().push_back(added);
+
+    const auto movements = inventoryMovementDiff(before, after, "import", "order-42", 1710000200);
+    assert(movements.size() == 3);
+    const auto findMovement = [&](const string& id) -> const InventoryMovement* {
+      for (const auto& movement : movements) {
+        if (movement.itemId == id) return &movement;
+      }
+      return nullptr;
+    };
+    const auto* changed = findMovement("movement-existing");
+    assert(changed != nullptr);
+    assert(changed->itemName == "Renamed movement item");
+    assert(changed->quantityBefore == 5);
+    assert(changed->delta == 3);
+    assert(changed->quantityAfter == 8);
+    assert(changed->source == "import");
+    assert(changed->reference == "order-42");
+    const auto* addedMovement = findMovement("movement-added");
+    assert(addedMovement != nullptr);
+    assert(addedMovement->quantityBefore == 0);
+    assert(addedMovement->delta == 2);
+    assert(addedMovement->quantityAfter == 2);
+    const auto* removedMovement = findMovement("movement-removed");
+    assert(removedMovement != nullptr);
+    assert(removedMovement->quantityBefore == 4);
+    assert(removedMovement->delta == -4);
+    assert(removedMovement->quantityAfter == 0);
+
+    InventoryStore metadataOnly = after;
+    metadataOnly.items().front().notes = "metadata changed";
+    assert(inventoryMovementDiff(after, metadataOnly, "manual").empty());
+
+#ifdef _WIN32
+    const auto databasePath = filesystem::temp_directory_path() / "inventatory-stock-movements-test.db";
+    error_code cleanupError;
+    filesystem::remove(databasePath, cleanupError);
+    assert(before.save(databasePath));
+    assert(after.saveWithMovements(databasePath, movements));
+    const auto loadedMovements = loadInventoryMovements(databasePath, 10);
+    assert(loadedMovements.size() == 3);
+    assert(loadedMovements.front().occurredAt == 1710000200);
+    assert(loadInventoryMovements(databasePath, 2).size() == 2);
+    filesystem::remove(databasePath, cleanupError);
+#endif
+  }
+
+  {
     const string csv =
         "Indeks,Nr kat. DigiKey,Manufacturer Part Number,Producent,Opis,Numer referencyjny klienta,IloĹ›Ä‡,"
         "Niezrealizowana pozycja zamĂłwienia,Cena jednostkowa,WartoĹ›Ä‡\n"
@@ -961,6 +1066,29 @@ int main() {
     mergeImportedMetadata(duplicate, result.candidates.front().item);
     duplicate.quantity += result.candidates.front().item.quantity;
     assert(duplicate.quantity == 57);
+  }
+
+  {
+    const string csv =
+        "Index,Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+        "1,123-ABC-ND,ABC-123,Acme,Test resistor,3\n"
+        "2,123-ABC-ND,ABC-123,Acme,Test resistor,5\n";
+    const auto result = parseDigiKeyCsvText(csv, {});
+    assert(result.ok);
+    assert(result.candidates.size() == 1);
+    assert(result.candidates.front().item.quantity == 8);
+    assert(result.candidates.front().warnings.size() == 1);
+  }
+
+  {
+    const string csv =
+        "Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+        "ABC-456,Acme,Fallback part,2\n"
+        "ABC-456,Acme,Fallback part,4\n";
+    const auto result = parseDigiKeyCsvText(csv, {});
+    assert(result.ok);
+    assert(result.candidates.size() == 1);
+    assert(result.candidates.front().item.quantity == 6);
   }
 
   {
@@ -1886,14 +2014,22 @@ int main() {
     assert(nextResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
     assert(elapsed < chrono::seconds(1));
     assert(syncCalls == 2);
+
+    const string rotatedToken = "111102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    server.setDeviceCredentials(deviceId, rotatedToken, replayState);
+    const auto oldTokenAfterRotation = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 44, body));
+    assert(oldTokenAfterRotation.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
+    const auto newTokenAfterRotation = sendLocalHttpRequest(server.port(), signedSyncRequest(rotatedToken, deviceId, 44, body));
+    assert(newTokenAfterRotation.rfind("HTTP/1.1 200 OK", 0) == 0);
+    assert(syncCalls == 3);
     server.stop();
 
     LocalHttpServer restarted;
-    restarted.setDeviceCredentials(deviceId, token, replayState);
+    restarted.setDeviceCredentials(deviceId, rotatedToken, replayState);
     assert(restarted.start(19450, onSync));
-    const auto persistedReplay = sendLocalHttpRequest(restarted.port(), firstRequest);
+    const auto persistedReplay = sendLocalHttpRequest(restarted.port(), signedSyncRequest(rotatedToken, deviceId, 44, body));
     assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-    assert(syncCalls == 2);
+    assert(syncCalls == 3);
     restarted.stop();
     filesystem::remove_all(stateDirectory, cleanupError);
   }
@@ -2073,7 +2209,7 @@ int main() {
     autoLabelItem.lastUpdated = time(nullptr);
     autoLabelItem.createdAt = autoLabelItem.lastUpdated;
     candidate.items().push_back(autoLabelItem);
-    assert(completeDeviceSyncEvent(candidate, databasePath, result));
+    assert(completeDeviceSyncEvent(candidate, databasePath, result, &store));
     const auto* finalizedAutoLabelItem = candidate.findById(autoLabelItem.id);
     assert(finalizedAutoLabelItem != nullptr);
     assert(isInventatoryId(finalizedAutoLabelItem->inventatoryId));
@@ -2090,6 +2226,15 @@ int main() {
     InventoryStore reloaded;
     assert(reloaded.load(databasePath));
     assert(reloaded.findByMachineCode("0002")->quantity == 7);
+    const auto eventMovements = loadInventoryMovements(databasePath);
+    bool foundEventMovement = false;
+    for (const auto& movement : eventMovements) {
+      if (movement.itemId == "sync-item" && movement.reference == result.eventId && movement.delta == 2) {
+        foundEventMovement = true;
+        break;
+      }
+    }
+    assert(foundEventMovement);
 
     request.events.clear();
     request.resultAcks = {result.resultId};
@@ -2251,6 +2396,10 @@ int main() {
     unsupported.close();
     AppSettings loaded;
     assert(!loadAppSettings(path, loaded));
+    ifstream preserved(path);
+    const string preservedText((istreambuf_iterator<char>(preserved)), istreambuf_iterator<char>());
+    assert(preservedText.find("schema_version=0") != string::npos);
+    preserved.close();
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
@@ -2504,6 +2653,7 @@ int main() {
     assert(analysis.matches[radialIndex].candidates.empty());
     assert(!analysis.matches[radialIndex].sufficient);
     assert(analysis.shortCount > 0);
+    assert(!bomBuildReady(analysis));
 
     // A line needing more than the shelf holds is short.
     const auto oneMicroIndex = lineIndexOf("1uF");
@@ -2524,6 +2674,7 @@ int main() {
     const auto exactIndex = lineIndexOf("ESP32-S3-WROOM-1");
     assert(analysis.matches[exactIndex].sufficient);   // 1 needed, 1 in stock
     assert(!doubled.matches[exactIndex].sufficient);   // 2 needed, 1 in stock
+    assert(bomBuildReady(analysis) == (analysis.shortCount == 0 && !analysis.matches.empty()));
   }
 
   {
@@ -2567,10 +2718,18 @@ int main() {
   {
     const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
     const auto backup = filesystem::temp_directory_path() / "inventatory-transfer-backup";
+    const auto bundle = filesystem::temp_directory_path() / "inventatory-transfer-bundle";
+    const auto restoreTarget = filesystem::temp_directory_path() / "inventatory-transfer-restore-target";
+    const auto settingsPath = filesystem::temp_directory_path() / "inventatory-transfer-settings.conf";
+    const auto targetSettingsPath = filesystem::temp_directory_path() / "inventatory-transfer-target-settings.conf";
     const auto csv = filesystem::temp_directory_path() / "inventatory-transfer-export.csv";
     error_code cleanupError;
     filesystem::remove_all(source, cleanupError);
     filesystem::remove_all(backup, cleanupError);
+    filesystem::remove_all(bundle, cleanupError);
+    filesystem::remove_all(restoreTarget, cleanupError);
+    filesystem::remove(settingsPath, cleanupError);
+    filesystem::remove(targetSettingsPath, cleanupError);
     filesystem::remove(csv, cleanupError);
     filesystem::create_directories(source);
 
@@ -2602,8 +2761,51 @@ int main() {
     assert(filesystem::exists(backup / "activity.tsv"));
     assert(filesystem::exists(backup / "quick_labels.conf"));
 
+    AppSettings backupSettings;
+    backupSettings.dataDirectory = source;
+    backupSettings.completedOnboardingVersion = 1;
+    assert(saveAppSettings(settingsPath, backupSettings));
+    assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
+    assert(filesystem::exists(bundle / "manifest.tsv"));
+    assert(filesystem::exists(bundle / "inventory.db"));
+    assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
+    assert(validateInventatoryBackup(bundle, error));
+    filesystem::create_directories(restoreTarget);
+    InventoryStore protectedStore;
+    InventoryItem protectedItem;
+    protectedItem.id = "protected-restore-item";
+    protectedItem.partName = "Protected current item";
+    protectedStore.items().push_back(protectedItem);
+    assert(protectedStore.save(restoreTarget / "inventory.db"));
+    AppSettings targetSettings;
+    targetSettings.dataDirectory = restoreTarget;
+    assert(saveAppSettings(targetSettingsPath, targetSettings));
+    {
+      ofstream corrupt(bundle / "activity.tsv", ios::app);
+      corrupt << "corrupt\n";
+    }
+    assert(!validateInventatoryBackup(bundle, error));
+    assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error));
+    InventoryStore unchangedStore;
+    assert(unchangedStore.load(restoreTarget / "inventory.db"));
+    assert(unchangedStore.items().front().id == "protected-restore-item");
+    filesystem::remove_all(bundle, cleanupError);
+    assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
+    assert(validateInventatoryBackup(bundle, error));
+    assert(restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error));
+    InventoryStore restoredStore;
+    assert(restoredStore.load(restoreTarget / "inventory.db"));
+    assert(restoredStore.items().size() == 1);
+    AppSettings restoredSettings;
+    assert(loadAppSettings(targetSettingsPath, restoredSettings));
+    assert(restoredSettings.dataDirectory == restoreTarget);
+
     filesystem::remove_all(source, cleanupError);
     filesystem::remove_all(backup, cleanupError);
+    filesystem::remove_all(bundle, cleanupError);
+    filesystem::remove_all(restoreTarget, cleanupError);
+    filesystem::remove(settingsPath, cleanupError);
+    filesystem::remove(targetSettingsPath, cleanupError);
     filesystem::remove(csv, cleanupError);
   }
 

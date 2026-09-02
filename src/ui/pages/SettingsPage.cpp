@@ -215,8 +215,7 @@ void App::openSettings(SettingsCategory category) {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value() ||
-                            !loadDigiKeyConfig().clientSecret.empty();
+  hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value();
   inputBuffer_.clear();
   applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
@@ -292,8 +291,6 @@ bool App::testStagedDigiKey() {
     config.clientSecret = stagedDigiKeySecret_;
   } else if (const auto secret = CredentialStore::read(kDigiKeySecretName); secret.has_value()) {
     config.clientSecret = *secret;
-  } else {
-    config.clientSecret = loadDigiKeyConfig().clientSecret;
   }
   if (!config.valid()) {
     setMessage("Client ID and client secret are required", 4);
@@ -707,8 +704,10 @@ ftxui::Element App::renderSettingsUi() const {
         ftxui::text("  "),
         target(uiSecondaryButton("Backup folder"), "settings.data.backup", UiTargetKind::Button,
                [self] { self->backupData(); }),
+        target(uiSecondaryButton("Restore backup"), "settings.data.restore", UiTargetKind::Button,
+               [self] { self->restoreData(); }),
     }));
-    rows.push_back(styledText("To restore a backup, browse to its folder and save the selected data directory.",
+    rows.push_back(styledText("Restore validates the bundle first, creates a pre-restore backup, and requires Scan R1 re-pairing.",
                               uiMutedText()));
     rows.push_back(uiDivider());
     rows.push_back(uiHeaderText("APPLICATION", uiSecondaryText()));
@@ -1013,9 +1012,13 @@ ftxui::Element App::renderSettingsUi() const {
                                        UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
       rows.push_back(buttonRow(target(uiSecondaryButton("Restart bridge"), "settings.scan.restart",
                                        UiTargetKind::Button, [self] { self->restartDeviceService(); })));
-      rows.push_back(uiDivider());
-
     }
+    rows.push_back(uiDivider());
+    rows.push_back(uiHeaderText("NETWORK ACCESS", uiSecondaryText()));
+    rows.push_back(styledText("Inventatory never changes Windows Firewall settings.", uiTitleColor()));
+    rows.push_back(styledText("If Scan R1 cannot connect, add a manual Private-network rule for this service port.",
+                              uiMutedText()));
+    rows.push_back(styledText("Keep the bridge on your local network; do not expose or forward the port.", uiWarnColor()));
   } else if (settingsCategory_ == SettingsCategory::Search) {
     rows.push_back(uiHeaderText("PHYSICAL VALUE TOLERANCES", uiSecondaryText()));
     rows.push_back(styledText("Tolerance for matching component values during search (e.g. 100nF matches 0.1uF).", uiMutedText()));

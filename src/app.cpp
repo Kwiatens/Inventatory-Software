@@ -120,6 +120,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       activityPath_(dataPath_ / "activity.tsv"),
       inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
       quickLabelsPath_(dataPath_ / "quick_labels.conf") {
+  error_code settingsFileError;
+  const bool settingsFileExists = filesystem::exists(settingsPath_, settingsFileError);
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   applyUiAppearance(settings_.appearance);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
@@ -135,8 +137,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
-  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value() ||
-                            !loadDigiKeyConfig().clientSecret.empty();
+  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (!loadedSettings) {
@@ -148,12 +149,16 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     settings_.digiKeyLanguage = environment.language;
     settings_.digiKeyCurrency = environment.currency;
     settingsDraft_ = settings_;
-    saveAppSettings(settingsPath_, settings_);
+    if (!settingsFileExists) {
+      saveAppSettings(settingsPath_, settings_);
+    } else {
+      setMessage("Settings file is invalid; defaults are in use temporarily. Finish setup or reset it explicitly.", 8);
+    }
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     printerCheck_ = printerService_.probeConfiguredPrinter();
   }
-  if (!startInBackground_ && !loadedSettings) {
+  if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion)) {
     onboardingActive_ = true;
     page_ = Page::Onboarding;
   }
@@ -327,7 +332,8 @@ ftxui::Element App::renderSearchBarUi() const {
                             (inputMode_ == InputMode::EditValue || inputMode_ == InputMode::RackRename ||
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
-                             inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::ExitConfirmation);
+                             inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
+                             inputMode_ == InputMode::ExitConfirmation);
 
   const auto activeBg = inputMode_ == InputMode::Search || showsPrompt ? uiRowSelectedBg() : uiPanelLeftBg();
   const auto bodyColor = inputMode_ == InputMode::Search ? uiTitleColor() : showsPrompt ? uiLinkColor() : uiMutedColor();
@@ -681,8 +687,14 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::StockFilter:
       handleStockFilterKey(key);
       return;
+    case InputMode::StocktakeCount:
+      handleStocktakeCountKey(key);
+      return;
     case InputMode::QuantityAdjust:
       handleQuantityAdjustKey(key);
+      return;
+    case InputMode::BomRestock:
+      handleBomRestockKey(key);
       return;
     case InputMode::ExitConfirmation:
       handleExitConfirmationKey(key);
@@ -719,6 +731,10 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
+  if (page_ == Page::Import && importCommitPending_ && key.type == KeyType::Character && key.ch == 'R') {
+    finishImportReview();
+    return;
+  }
   if (key.type == KeyType::Character && key.ch == 'R' && !persistenceError_.empty()) {
     retrySaveState();
     return;
@@ -1066,6 +1082,62 @@ void App::handleQuantityAdjustKey(const KeyEvent& key) {
     inputMode_ = InputMode::None;
     setMessage("Quantity change cancelled", 2);
   }
+}
+
+void App::handleBomRestockKey(const KeyEvent& key) {
+  if (key.type == KeyType::Character) {
+    if (isdigit(static_cast<unsigned char>(key.ch)) != 0 && inputBuffer_.size() < 9U) {
+      inputBuffer_.push_back(key.ch);
+      dirty_ = true;
+    }
+    return;
+  }
+  if (key.type == KeyType::Backspace) {
+    if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+    dirty_ = true;
+    return;
+  }
+  if (key.type == KeyType::Escape) {
+    inputBuffer_.clear();
+    bomRestockItemId_.clear();
+    inputMode_ = InputMode::None;
+    setMessage("Stock receipt cancelled", 2);
+    return;
+  }
+  if (key.type != KeyType::Enter) return;
+
+  const auto text = inputBuffer_;
+  inputBuffer_.clear();
+  inputMode_ = InputMode::None;
+  auto* item = store_.findById(bomRestockItemId_);
+  bomRestockItemId_.clear();
+  if (item == nullptr) {
+    setMessage("The matched stock item no longer exists; add it manually from Stock", 5);
+    return;
+  }
+  int received = 0;
+  try {
+    size_t parsed = 0;
+    received = stoi(text, &parsed);
+    if (parsed != text.size() || received <= 0) throw invalid_argument("quantity");
+  } catch (...) {
+    setMessage("Enter a positive received quantity", 3);
+    return;
+  }
+
+  captureUndoSnapshot();
+  const auto before = item->quantity;
+  item->quantity = before > numeric_limits<int>::max() - received ? numeric_limits<int>::max() : before + received;
+  item->lastUpdated = time(nullptr);
+  reconcileRackAssignment(store_, *item);
+  logActivity("receipt", item->partName + " received " + to_string(received) + " (now " +
+                              to_string(item->quantity) + ")");
+  const bool saved = saveState("stock_receipt", activeBomProjectId_);
+  refreshBomAnalysis();
+  setMessage(saved ? item->partName + " receipt saved; BOM re-analyzed"
+                   : "Receipt is in memory; press R to retry saving, then recheck the BOM",
+             6);
+  dirty_ = true;
 }
 
 void App::handleExitConfirmationKey(const KeyEvent& key) {
