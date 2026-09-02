@@ -240,6 +240,9 @@ string digiKeyRefreshLookup(const InventoryItem& item) {
 }  // namespace
 
 void App::loadState() {
+  persistedStoreValid_ = false;
+  pendingMovementSource_.clear();
+  pendingMovementReference_.clear();
   error_code inventoryError;
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
   const bool inventoryLoaded = !inventoryFileExists || store_.load(inventoryPath_);
@@ -255,6 +258,7 @@ void App::loadState() {
   loadActivities(activityPath_, activities_);
   inventatory::loadBomProjects(inventoryPath_, bomProjects_);
   refreshDeviceEventRecords();
+  refreshInventoryMovements();
   printerService_.loadConfig(printerPath_);
   refreshPrinterState();
   if (activities_.empty()) {
@@ -275,8 +279,10 @@ void App::loadState() {
   }
 
   vector<string> saveFailures;
+  bool inventorySaved = false;
   if (inventoryLoaded || !inventoryFileExists) {
-    if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
+    inventorySaved = store_.save(inventoryPath_);
+    if (!inventorySaved) saveFailures.push_back("inventory");
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) saveFailures.push_back("scanner settings");
@@ -284,17 +290,41 @@ void App::loadState() {
   persistenceError_ = saveFailures.empty()
                           ? string()
                           : "Could not save " + join(saveFailures, ',') + "; changes remain in memory.";
+  if (inventorySaved) {
+    persistedStore_ = store_;
+    persistedStoreValid_ = true;
+    refreshInventoryMovements();
+  }
 }
 
-bool App::saveState() {
+void App::refreshInventoryMovements() {
+  inventoryMovements_ = loadInventoryMovements(inventoryPath_);
+}
+
+bool App::saveState(const string& movementSource, const string& movementReference) {
   if (inventoryRecoveryRequired_) {
     persistenceError_ = inventoryRecoveryDetail_ + ". Recovery is required before Inventatory can save.";
     return false;
   }
   ensureInventoryIdentifiers(store_.items());
   reconcileRackAssignments(store_);
+  const auto movements = persistedStoreValid_
+                             ? inventoryMovementDiff(persistedStore_, store_, movementSource, movementReference)
+                             : vector<InventoryMovement>();
   vector<string> saveFailures;
-  if (!store_.save(inventoryPath_)) saveFailures.push_back("inventory");
+  const bool inventorySaved = movements.empty() ? store_.save(inventoryPath_)
+                                                : store_.saveWithMovements(inventoryPath_, movements);
+  if (!inventorySaved) {
+    saveFailures.push_back("inventory");
+    pendingMovementSource_ = movementSource;
+    pendingMovementReference_ = movementReference;
+  } else {
+    persistedStore_ = store_;
+    persistedStoreValid_ = true;
+    refreshInventoryMovements();
+    pendingMovementSource_.clear();
+    pendingMovementReference_.clear();
+  }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
   persistenceError_ = saveFailures.empty()
@@ -307,7 +337,8 @@ bool App::saveState() {
 }
 
 void App::retrySaveState() {
-  const bool stateSaved = saveState();
+  const bool stateSaved = saveState(pendingMovementSource_.empty() ? string("manual") : pendingMovementSource_,
+                                    pendingMovementReference_);
   const bool projectsSaved = !bomProjectsDirty_ || saveBomProjects();
   if (stateSaved && projectsSaved) {
     setMessage("All Inventatory changes are saved", 3);
@@ -496,6 +527,7 @@ bool App::chooseInventatoryFolder() {
   printerQueues_.clear();
   printerCheck_ = {};
   inventoryHistory_.clear();
+  inventoryMovements_.clear();
   deviceEventRecords_.clear();
   scanQueue_.clear();
   importCandidates_.clear();
@@ -574,7 +606,7 @@ bool App::undoLastInventoryChange() {
   activities_ = undoSnapshot_.activities;
   selectedPosition_ = undoSnapshot_.selectedPosition;
   undoSnapshot_.valid = false;
-  saveState();
+  saveState("undo");
   syncSelectionToFilter();
   setMessage("Undid last change", 2);
   return true;
@@ -798,6 +830,10 @@ void App::confirmDeleteSelectedItem() {
 }
 
 void App::changePage(Page page) {
+  if (page != page_ && page_ == Page::Stock && stocktakeActive_) {
+    setMessage("Finish or cancel the stocktake before leaving Stock", 5);
+    return;
+  }
   if (page != page_ && page_ == Page::Import && importCommitPending_) {
     setMessage("Import is not saved yet. Press R to retry or Q to cancel it.", 6);
     return;
@@ -1327,6 +1363,13 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::Quantity:
       try {
         workingCopy_.item.quantity = max(0, stoi(trimmed));
+      } catch (...) {
+        valid = false;
+      }
+      break;
+    case EditField::ReorderThreshold:
+      try {
+        workingCopy_.item.reorderThreshold = max(0, stoi(trimmed));
       } catch (...) {
         valid = false;
       }
@@ -2072,11 +2115,14 @@ void App::processDeviceSyncEvents() {
     result.message = "Unsupported inventory event type";
   }
 
-  if (!completeDeviceSyncEvent(candidate, inventoryPath_, result)) {
+  if (!completeDeviceSyncEvent(candidate, inventoryPath_, result, &store_)) {
     setMessage("Inventatory Scan event could not be committed", 4);
     return;
   }
   store_ = move(candidate);
+  persistedStore_ = store_;
+  persistedStoreValid_ = true;
+  refreshInventoryMovements();
   deviceLastResult_ = result.status == "failed"
                           ? "ERROR " + result.message
                           : (result.existing ? "EXISTING " : "NEW ") + result.itemName + " QTY " +
@@ -2179,7 +2225,7 @@ void App::processDeviceRequests() {
       logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",
                   result.item + " quantity changed by " + to_string(result.appliedDelta) +
                       " to " + to_string(result.quantity));
-      saveState();
+      saveState("scanner", pending->request.requestId);
       scannerFlashUntil_ = time(nullptr) + 3;
       deviceLastResult_ = (result.appliedDelta >= 0 ? "+" : "") + to_string(result.appliedDelta) +
                           " " + result.item + " QTY " + to_string(result.quantity);
@@ -2320,7 +2366,7 @@ void App::cancelImportSession() {
 bool App::commitImportStage() {
   if (!importStageActive_) return true;
   store_ = importStagedStore_;
-  if (!saveState()) {
+  if (!saveState("import", importSourcePath_.filename().string())) {
     importCommitPending_ = true;
     setMessage("Import is staged but not saved. Press R to retry or Q to cancel.", 7);
     dirty_ = true;
@@ -3020,7 +3066,7 @@ void App::finishBomBuild(bool subtractFromStock) {
         pieces += pick.quantity;
       }
     }
-    if (!saveState()) {
+    if (!saveState("bom_build", activeBomProjectId_)) {
       setMessage("Build stock changes are in memory; press R to retry saving", 6);
       return;
     }
@@ -3226,6 +3272,8 @@ string App::fieldLabel(EditField field) const {
       return "Category";
     case EditField::Quantity:
       return "Quantity";
+    case EditField::ReorderThreshold:
+      return "Reorder threshold";
     case EditField::Location:
       return "Location";
     case EditField::Tags:
@@ -3265,6 +3313,8 @@ string App::currentFieldValue(EditField field) const {
       return item->category;
     case EditField::Quantity:
       return to_string(item->quantity);
+    case EditField::ReorderThreshold:
+      return to_string(item->reorderThreshold);
     case EditField::Location:
       return item->location;
     case EditField::Tags:
@@ -3306,6 +3356,7 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Manufacturer", EditField::Manufacturer},
       {"Category", EditField::Category},
       {"Quantity", EditField::Quantity},
+      {"Reorder threshold", EditField::ReorderThreshold},
       {"Location", EditField::Location},
       {"Rack location", EditField::RackLocation},
       {"Tags", EditField::Tags},
@@ -3361,6 +3412,7 @@ string App::activePrompt() const {
   if (inputMode_ == InputMode::RackJump) return "Jump to rack: ";
   if (inputMode_ == InputMode::RackFilter) return "Rack filter: ";
   if (inputMode_ == InputMode::QuantityAdjust) return "Quantity on hand: ";
+  if (inputMode_ == InputMode::StocktakeCount) return "Physical count: ";
   if (inputMode_ == InputMode::ExitConfirmation) return "S save  ·  D discard  ·  Esc cancel";
   return "";
 }
