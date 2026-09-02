@@ -24,8 +24,15 @@ This protocol provides device binding, integrity, replay resistance, and
 mutual authentication against an active local-network attacker. It does not
 provide payload confidentiality: request and response JSON can still be read
 by a local-network observer. An observer cannot recover or replay the pairing
-secret from that traffic. TLS with a device trust/bootstrap model remains a
-future enhancement.
+secret from that traffic. The R1-compatible bridge continues to bind on the LAN
+interface rather than loopback. On Windows, Inventatory installs an app-owned
+inbound firewall rule for the current executable and port, limited to the
+Private profile and `LocalSubnet`. This narrows the trust boundary to the
+private LAN, but it is not encryption; users should treat that network as
+trusted and avoid exposing the bridge through public profiles or port
+forwarding. If Windows denies the rule, the bridge remains usable and the
+terminal keeps a persistent warning so the user can fix the firewall manually.
+TLS with a device trust/bootstrap model remains a future enhancement.
 
-Existing regenerate-secret and clear-device actions remain the credential
-rotation and revocation paths.
+Regenerate-secret and clear-device actions rotate the pairing secret, reset
+replay state, clear the paired device identity, and require a fresh pairing.
