@@ -77,6 +77,7 @@ add_executable(inventatory
   src/core/RackAllocation.cpp
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
+  src/core/InventoryVersion.cpp
   src/core/InventoryMovements.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
@@ -111,6 +112,7 @@ add_executable(inventatory
   src/ui/pages/OnboardingPage.cpp
   src/ui/pages/ImportCsvPage.cpp
   src/ui/pages/BomProjectPage.cpp
+  src/ui/pages/HistoryPage.cpp
   src/ui/pages/SettingsPage.cpp
 )
 
@@ -154,6 +156,7 @@ add_executable(inventatory_tests
   src/core/RackAllocation.cpp
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
+  src/core/InventoryVersion.cpp
   src/core/InventoryMovements.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp

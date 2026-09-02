@@ -3,11 +3,13 @@
 
 #include "core/InventoryInternals.h"
 #include "core/InventorySqlite.h"
+#include "core/InventoryVersionInternal.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace inventatory {
@@ -231,12 +233,15 @@ bool writeInventoryMovements(SqliteConnection& connection, const vector<Inventor
 
 bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<InventoryItem>& items,
                            const vector<InventatoryRack>& racks, const DeviceEventCommit* deviceEvent = nullptr,
-                           const vector<InventoryMovement>* movements = nullptr) {
+                           const vector<InventoryMovement>* movements = nullptr,
+                           const InventoryCommitDraft* commitDraft = nullptr,
+                           InventoryCommit* committed = nullptr) {
   if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
   if (!ensureInventoryMovementSchema(connection)) return false;
   if (deviceEvent != nullptr && !ensureDeviceEventCommitSchema(connection)) return false;
+  if (commitDraft != nullptr && !ensureInventoryCommitSchema(connection)) return false;
 
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     return false;
@@ -375,6 +380,15 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     }
   }
 
+  if (commitDraft != nullptr) {
+    InventoryCommit created;
+    if (!writeInventoryCommit(connection, items, racks, *commitDraft, created)) {
+      execSql(connection, "ROLLBACK");
+      return false;
+    }
+    if (committed != nullptr) *committed = move(created);
+  }
+
   if (!execSql(connection, "COMMIT")) {
     execSql(connection, "ROLLBACK");
     return false;
@@ -499,7 +513,7 @@ bool InventoryStore::saveWithMovements(const filesystem::path& path,
 }
 
 bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
-                                         const vector<InventoryMovement>& movements) const {
+                                          const vector<InventoryMovement>& movements) const {
 #ifdef _WIN32
   auto items = items_;
   ensureInventoryIdentifiers(items);
@@ -509,6 +523,67 @@ bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const Dev
 #else
   (void)event;
   (void)movements;
+  return save(path);
+#endif
+}
+
+bool InventoryStore::saveWithCommit(const filesystem::path& path, const InventoryStore& previous,
+                                    const InventoryCommitDraft& draft, const vector<InventoryMovement>& movements,
+                                    const DeviceEventCommit* deviceEvent, InventoryCommit* committed) const {
+#ifdef _WIN32
+  auto items = items_;
+  ensureInventoryIdentifiers(items);
+  InventoryStore normalized;
+  normalized.items() = items;
+  normalized.racks() = racks_;
+  InventoryStore normalizedPrevious = previous;
+  ensureInventoryIdentifiers(normalizedPrevious.items());
+  const auto changes = inventoryCommitDiff(normalizedPrevious, normalized);
+  InventoryCommitDraft enriched = draft;
+  enriched.changedItemCount = 0;
+  enriched.changedRackCount = 0;
+  unordered_set<string> changedItems;
+  unordered_set<string> changedRacks;
+  for (const auto& change : changes) {
+    if (change.entityType == "item") changedItems.insert(change.entityId);
+    if (change.entityType == "rack") changedRacks.insert(change.entityId);
+  }
+  enriched.changedItemCount = changedItems.size();
+  enriched.changedRackCount = changedRacks.size();
+  if (trim(enriched.message).empty()) {
+    string operation = "Updated inventory";
+    if (enriched.source == "import") operation = "Imported inventory";
+    else if (enriched.source == "stocktake") operation = "Completed stocktake";
+    else if (enriched.source == "bom_build") operation = "Built project inventory";
+    else if (enriched.source == "scanner") operation = "Recorded scanner event";
+    else if (enriched.source == "digikey") operation = "Applied DigiKey enrichment";
+    else if (enriched.source == "undo") operation = "Undid inventory commit";
+    else if (enriched.source == "revert") operation = "Corrected inventory history";
+    else if (enriched.source == "checkpoint") operation = "Inventory checkpoint";
+    enriched.message = operation;
+    if (!enriched.reference.empty()) enriched.message += " [" + enriched.reference + "]";
+    enriched.message += " · " + to_string(enriched.changedItemCount) +
+                        (enriched.changedItemCount == 1 ? " part, " : " parts, ") +
+                        to_string(enriched.changedRackCount) +
+                        (enriched.changedRackCount == 1 ? " rack" : " racks");
+  }
+
+  const bool shouldCommit = !changes.empty() || draft.checkpoint;
+  // Direct callers such as the device inbox may be the first writer after an
+  // older database is opened. Establish the parent snapshot before the
+  // inventory/event transaction so every corrective or device commit has a
+  // complete ancestry.
+  if (!ensureInventoryCommitHistory(path, normalizedPrevious)) return false;
+  SqliteConnection connection;
+  if (!openDatabase(path, connection)) return false;
+  return writeItemsToInventatoryTable(connection, items, racks_, deviceEvent, &movements,
+                                      shouldCommit ? &enriched : nullptr, committed);
+#else
+  (void)previous;
+  (void)draft;
+  (void)movements;
+  (void)deviceEvent;
+  (void)committed;
   return save(path);
 #endif
 }

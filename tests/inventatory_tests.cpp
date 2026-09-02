@@ -421,6 +421,176 @@ void testPhysicalValueSearchIntegration() {
   assert(foundRelaxedCap2);
 }
 
+void testInventoryCommitHistory() {
+#ifdef _WIN32
+  const auto path = filesystem::temp_directory_path() / "inventatory-inventory-commit-history-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  InventoryStore baseline;
+  InventoryItem item;
+  item.id = "vc-item";
+  item.partName = "Versioned resistor";
+  item.manufacturer = "Acme";
+  item.category = "Resistors";
+  item.quantity = 10;
+  item.lastUpdated = 1710000000;
+  item.tags = {"smd", "production"};
+  item.parameters = {{"Resistance", "10k"}};
+  item.vendorMetadata.provider = "digikey";
+  item.vendorMetadata.categoryPath = {"Resistors", "Chip Resistor"};
+  baseline.items().push_back(item);
+
+  InventoryItem removed;
+  removed.id = "vc-removed";
+  removed.partName = "Removed part";
+  removed.quantity = 2;
+  removed.lastUpdated = 1710000000;
+  baseline.items().push_back(removed);
+
+  InventatoryRack rack;
+  rack.id = "vc-rack";
+  rack.code = "R1";
+  rack.componentType = "Resistors";
+  rack.rows = 4;
+  rack.columns = 6;
+  baseline.racks().push_back(rack);
+
+  ensureInventoryIdentifiers(baseline.items());
+  reconcileRackAssignments(baseline);
+  assert(baseline.save(path));
+  assert(ensureInventoryCommitHistory(path, baseline));
+  vector<InventoryCommit> commits;
+  assert(loadInventoryCommits(path, commits));
+  assert(commits.size() == 1);
+  assert(commits.front().sequence == 1);
+  assert(commits.front().parentId.empty());
+  assert(commits.front().message == "Initial inventory");
+
+  InventoryCommitDraft noOpDraft;
+  noOpDraft.source = "manual";
+  noOpDraft.message = "Should not be written";
+  InventoryCommit noOpCommit;
+  assert(baseline.saveWithCommit(path, baseline, noOpDraft, {}, nullptr, &noOpCommit));
+  assert(noOpCommit.id.empty());
+  assert(loadInventoryCommits(path, commits) && commits.size() == 1);
+
+  InventoryStore changed = baseline;
+  changed.items().front().quantity = 14;
+  changed.items().front().notes = "Placed on the production line";
+  changed.items().front().tags.push_back("priority");
+  changed.items().front().parameters.push_back({"Tolerance", "1%"});
+  changed.items().front().vendorMetadata.categoryPath.push_back("Precision");
+  changed.items().front().rackId = rack.id;
+  changed.items().front().rackSlot = "A1";
+  changed.items().front().rackAssignment = RackAssignmentMode::Manual;
+  changed.items().erase(changed.items().begin() + 1);
+  InventoryItem added;
+  added.id = "vc-added";
+  added.partName = "Added capacitor";
+  added.quantity = 6;
+  added.lastUpdated = 1710000000;
+  changed.items().push_back(added);
+  ensureInventoryIdentifiers(changed.items());
+  reconcileRackAssignments(changed);
+  changed.racks().front().componentType = "Precision resistors";
+  changed.racks().front().rows = 5;
+
+  const auto changes = inventoryCommitDiff(baseline, changed);
+  assert(!changes.empty());
+  assert(any_of(changes.begin(), changes.end(), [](const InventoryFieldChange& change) {
+    return change.entityType == "item" && change.entityId == "vc-item" && change.field == "quantity" &&
+           change.before == "10" && change.after == "14";
+  }));
+  assert(any_of(changes.begin(), changes.end(), [](const InventoryFieldChange& change) {
+    return change.entityType == "item" && change.entityId == "vc-item" && change.field == "tags";
+  }));
+  assert(any_of(changes.begin(), changes.end(), [](const InventoryFieldChange& change) {
+    return change.entityType == "item" && change.entityId == "vc-removed" && change.field == "record";
+  }));
+  assert(any_of(changes.begin(), changes.end(), [](const InventoryFieldChange& change) {
+    return change.entityType == "rack" && change.entityId == "vc-rack" && change.field == "rows";
+  }));
+
+  InventoryCommitDraft changeDraft;
+  changeDraft.source = "import";
+  changeDraft.reference = "order-42";
+  InventoryCommit changedCommit;
+  assert(changed.saveWithCommit(path, baseline, changeDraft, {}, nullptr, &changedCommit));
+  assert(changedCommit.sequence == 2);
+  assert(changedCommit.parentId == commits.front().id);
+  assert(changedCommit.changedItemCount == 3);
+  assert(changedCommit.changedRackCount == 1);
+  assert(changedCommit.message.find("Imported inventory [order-42]") != string::npos);
+  assert(changedCommit.message.find("3 parts, 1 rack") != string::npos);
+
+  InventoryCommitDetail detail;
+  assert(loadInventoryCommit(path, changedCommit.id, detail));
+  assert(detail.hasParent);
+  assert(inventoryCommitDiff(detail.snapshot, changed).empty());
+  assert(inventoryCommitDiff(detail.parentSnapshot, baseline).empty());
+
+  InventoryStore reversed;
+  string conflict;
+  assert(prepareInventoryCommitReverse(detail, changed, reversed, conflict));
+  assert(inventoryCommitDiff(reversed, baseline).empty());
+
+  InventoryStore conflicting = changed;
+  conflicting.items().front().notes = "Changed later";
+  InventoryStore untouched;
+  assert(!prepareInventoryCommitReverse(detail, conflicting, untouched, conflict));
+  assert(!conflict.empty());
+  assert(inventoryCommitDiff(conflicting, changed).size() == 1);
+
+  InventoryCommitDraft correctiveDraft;
+  correctiveDraft.source = "revert";
+  correctiveDraft.corrective = true;
+  correctiveDraft.revertedCommitId = changedCommit.id;
+  correctiveDraft.message = "Reversed changes from commit #2";
+  InventoryCommit reverseCommit;
+  assert(reversed.saveWithCommit(path, changed, correctiveDraft, {}, nullptr, &reverseCommit));
+  assert(reverseCommit.corrective);
+  assert(reverseCommit.revertedCommitId == changedCommit.id);
+  assert(reverseCommit.sequence == 3);
+
+  InventoryStore later = baseline;
+  later.items().front().location = "Production shelf";
+  InventoryCommitDraft laterDraft;
+  laterDraft.source = "manual";
+  laterDraft.message = "Updated location";
+  assert(later.saveWithCommit(path, baseline, laterDraft));
+  InventoryCommitDetail selectedDetail;
+  assert(loadInventoryCommit(path, changedCommit.id, selectedDetail));
+  InventoryCommitDraft restoreDraft;
+  restoreDraft.source = "revert";
+  restoreDraft.corrective = true;
+  restoreDraft.revertedCommitId = changedCommit.id;
+  restoreDraft.message = "Restored snapshot from commit #2";
+  InventoryCommit restoreCommit;
+  assert(selectedDetail.snapshot.saveWithCommit(path, later, restoreDraft, {}, nullptr, &restoreCommit));
+  InventoryStore restored;
+  assert(restored.load(path));
+  assert(inventoryCommitDiff(restored, selectedDetail.snapshot).empty());
+
+  InventoryCommitDraft checkpointDraft;
+  checkpointDraft.source = "checkpoint";
+  checkpointDraft.checkpoint = true;
+  checkpointDraft.message = "Before assembly";
+  InventoryCommit checkpoint;
+  assert(restored.saveWithCommit(path, restored, checkpointDraft, {}, nullptr, &checkpoint));
+  assert(checkpoint.checkpoint);
+  assert(checkpoint.changedItemCount == 0 && checkpoint.changedRackCount == 0);
+  assert(loadInventoryCommits(path, commits));
+  assert(commits.size() == 6);
+  assert(commits.front().sequence == 6);
+  assert(commits.front().checkpoint);
+  assert(commits.back().sequence == 1);
+
+  filesystem::remove(path, cleanupError);
+  assert(!cleanupError);
+#endif
+}
+
 int main() {
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));
@@ -458,6 +628,7 @@ int main() {
   testPhysicalValueParsing();
   testPhysicalValueMatching();
   testPhysicalValueSearchIntegration();
+  testInventoryCommitHistory();
 
   {
     assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "test-value") == 0);
@@ -2226,6 +2397,12 @@ int main() {
     InventoryStore reloaded;
     assert(reloaded.load(databasePath));
     assert(reloaded.findByMachineCode("0002")->quantity == 7);
+    vector<InventoryCommit> eventCommits;
+    assert(loadInventoryCommits(databasePath, eventCommits));
+    assert(eventCommits.size() == 2);
+    assert(eventCommits.front().source == "scanner");
+    assert(eventCommits.front().reference == result.eventId);
+    assert(eventCommits.front().parentId == eventCommits.back().id);
     const auto eventMovements = loadInventoryMovements(databasePath);
     bool foundEventMovement = false;
     for (const auto& movement : eventMovements) {
@@ -2741,10 +2918,20 @@ int main() {
     item.category = "Resistors";
     item.quantity = 12;
     item.location = "Drawer 1";
+    item.lastUpdated = 1710000000;
     item.tags = {"test", "release"};
     item.parameters = {{"Resistance", "10k"}};
     store.items().push_back(item);
+    ensureInventoryIdentifiers(store.items());
+    reconcileRackAssignments(store);
     assert(store.save(source / "inventory.db"));
+    assert(ensureInventoryCommitHistory(source / "inventory.db", store));
+    InventoryStore changedStore = store;
+    changedStore.items().front().quantity = 13;
+    InventoryCommitDraft changedDraft;
+    changedDraft.source = "manual";
+    changedDraft.message = "Backup history fixture";
+    assert(changedStore.saveWithCommit(source / "inventory.db", store, changedDraft));
     {
       ofstream(source / "activity.tsv") << "test activity\n";
       ofstream(source / "quick_labels.conf") << "quick_label_revision=1\n";
@@ -2758,6 +2945,9 @@ int main() {
     assert(exportedText.find("Quantity") != string::npos);
     assert(backupInventatoryData(source, backup, error));
     assert(filesystem::exists(backup / "inventory.db"));
+    vector<InventoryCommit> backupCommits;
+    assert(loadInventoryCommits(backup / "inventory.db", backupCommits));
+    assert(backupCommits.size() == 2);
     assert(filesystem::exists(backup / "activity.tsv"));
     assert(filesystem::exists(backup / "quick_labels.conf"));
 
@@ -2768,6 +2958,9 @@ int main() {
     assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
     assert(filesystem::exists(bundle / "manifest.tsv"));
     assert(filesystem::exists(bundle / "inventory.db"));
+    vector<InventoryCommit> bundleCommits;
+    assert(loadInventoryCommits(bundle / "inventory.db", bundleCommits));
+    assert(bundleCommits.size() == 2);
     assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
     assert(validateInventatoryBackup(bundle, error));
     filesystem::create_directories(restoreTarget);
@@ -2796,6 +2989,9 @@ int main() {
     InventoryStore restoredStore;
     assert(restoredStore.load(restoreTarget / "inventory.db"));
     assert(restoredStore.items().size() == 1);
+    vector<InventoryCommit> restoredCommits;
+    assert(loadInventoryCommits(restoreTarget / "inventory.db", restoredCommits));
+    assert(restoredCommits.size() == 2);
     AppSettings restoredSettings;
     assert(loadAppSettings(targetSettingsPath, restoredSettings));
     assert(restoredSettings.dataDirectory == restoreTarget);
