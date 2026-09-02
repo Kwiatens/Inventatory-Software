@@ -183,7 +183,7 @@ std::vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const std::filesys
 bool retryFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std::size_t& retriedCount);
 bool discardFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std::size_t& discardedCount);
 bool completeDeviceSyncEvent(InventoryStore& store, const std::filesystem::path& databasePath,
-                             const DeviceSyncResult& result);
+                              const DeviceSyncResult& result, const InventoryStore* previousStore = nullptr);
 DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLookupRequest& request);
 DeviceLookupResult lookupDeviceItem(const std::filesystem::path& databasePath,
                                     const DeviceLookupRequest& request);

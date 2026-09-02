@@ -510,6 +510,19 @@ int main() {
     const auto history = makeInventoryHistoryPoint(items, 3, 1710000000);
     assert(history.lowStockCount == 1);
     assert(history.outOfStockCount == 1);
+
+    InventoryItem customThreshold;
+    customThreshold.id = "custom-threshold";
+    customThreshold.quantity = 6;
+    customThreshold.reorderThreshold = 10;
+    assert(effectiveReorderThreshold(customThreshold, 3) == 10);
+    assert(isLowStock(customThreshold, 3));
+    customThreshold.quantity = 11;
+    assert(!isLowStock(customThreshold, 3));
+    customThreshold.reorderThreshold = 0;
+    customThreshold.quantity = 3;
+    assert(effectiveReorderThreshold(customThreshold, 3) == 3);
+    assert(isLowStock(customThreshold, 3));
   }
 
   {
@@ -937,6 +950,74 @@ int main() {
     assert(loaded.items().front().vendorMetadata.categoryPath == vector<string>({"Diodes"}));
     assert(loaded.items().front().vendorMetadata.parameters.size() == 1);
     filesystem::remove(tempPath);
+  }
+
+  {
+    InventoryStore before;
+    InventoryItem existing;
+    existing.id = "movement-existing";
+    existing.partName = "Existing movement item";
+    existing.quantity = 5;
+    before.items().push_back(existing);
+    InventoryItem removed;
+    removed.id = "movement-removed";
+    removed.partName = "Removed movement item";
+    removed.quantity = 4;
+    before.items().push_back(removed);
+
+    InventoryStore after = before;
+    after.items().front().partName = "Renamed movement item";
+    after.items().front().quantity = 8;
+    after.items().erase(after.items().begin() + 1);
+    InventoryItem added;
+    added.id = "movement-added";
+    added.partName = "Added movement item";
+    added.quantity = 2;
+    after.items().push_back(added);
+
+    const auto movements = inventoryMovementDiff(before, after, "import", "order-42", 1710000200);
+    assert(movements.size() == 3);
+    const auto findMovement = [&](const string& id) -> const InventoryMovement* {
+      for (const auto& movement : movements) {
+        if (movement.itemId == id) return &movement;
+      }
+      return nullptr;
+    };
+    const auto* changed = findMovement("movement-existing");
+    assert(changed != nullptr);
+    assert(changed->itemName == "Renamed movement item");
+    assert(changed->quantityBefore == 5);
+    assert(changed->delta == 3);
+    assert(changed->quantityAfter == 8);
+    assert(changed->source == "import");
+    assert(changed->reference == "order-42");
+    const auto* addedMovement = findMovement("movement-added");
+    assert(addedMovement != nullptr);
+    assert(addedMovement->quantityBefore == 0);
+    assert(addedMovement->delta == 2);
+    assert(addedMovement->quantityAfter == 2);
+    const auto* removedMovement = findMovement("movement-removed");
+    assert(removedMovement != nullptr);
+    assert(removedMovement->quantityBefore == 4);
+    assert(removedMovement->delta == -4);
+    assert(removedMovement->quantityAfter == 0);
+
+    InventoryStore metadataOnly = after;
+    metadataOnly.items().front().notes = "metadata changed";
+    assert(inventoryMovementDiff(after, metadataOnly, "manual").empty());
+
+#ifdef _WIN32
+    const auto databasePath = filesystem::temp_directory_path() / "inventatory-stock-movements-test.db";
+    error_code cleanupError;
+    filesystem::remove(databasePath, cleanupError);
+    assert(before.save(databasePath));
+    assert(after.saveWithMovements(databasePath, movements));
+    const auto loadedMovements = loadInventoryMovements(databasePath, 10);
+    assert(loadedMovements.size() == 3);
+    assert(loadedMovements.front().occurredAt == 1710000200);
+    assert(loadInventoryMovements(databasePath, 2).size() == 2);
+    filesystem::remove(databasePath, cleanupError);
+#endif
   }
 
   {
@@ -2128,7 +2209,7 @@ int main() {
     autoLabelItem.lastUpdated = time(nullptr);
     autoLabelItem.createdAt = autoLabelItem.lastUpdated;
     candidate.items().push_back(autoLabelItem);
-    assert(completeDeviceSyncEvent(candidate, databasePath, result));
+    assert(completeDeviceSyncEvent(candidate, databasePath, result, &store));
     const auto* finalizedAutoLabelItem = candidate.findById(autoLabelItem.id);
     assert(finalizedAutoLabelItem != nullptr);
     assert(isInventatoryId(finalizedAutoLabelItem->inventatoryId));
@@ -2145,6 +2226,15 @@ int main() {
     InventoryStore reloaded;
     assert(reloaded.load(databasePath));
     assert(reloaded.findByMachineCode("0002")->quantity == 7);
+    const auto eventMovements = loadInventoryMovements(databasePath);
+    bool foundEventMovement = false;
+    for (const auto& movement : eventMovements) {
+      if (movement.itemId == "sync-item" && movement.reference == result.eventId && movement.delta == 2) {
+        foundEventMovement = true;
+        break;
+      }
+    }
+    assert(foundEventMovement);
 
     request.events.clear();
     request.resultAcks = {result.resultId};

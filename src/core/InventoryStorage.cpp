@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <fstream>
+#include <limits>
 #include <utility>
 
 namespace inventatory {
@@ -171,11 +172,70 @@ bool ensureDeviceEventCommitSchema(SqliteConnection& connection) {
   )SQL");
 }
 
+bool ensureInventoryMovementSchema(SqliteConnection& connection) {
+  if (!execSql(connection, R"SQL(
+    CREATE TABLE IF NOT EXISTS inventatory_stock_movements (
+      movement_id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      source TEXT NOT NULL,
+      reference TEXT NOT NULL DEFAULT '',
+      quantity_before INTEGER NOT NULL,
+      delta INTEGER NOT NULL,
+      quantity_after INTEGER NOT NULL,
+      occurred_at INTEGER NOT NULL
+    )
+  )SQL")) {
+    return false;
+  }
+  return execSql(connection, R"SQL(
+    CREATE INDEX IF NOT EXISTS idx_inventatory_stock_movements_item_time
+    ON inventatory_stock_movements(item_id, occurred_at DESC, movement_id DESC)
+  )SQL");
+}
+
+bool writeInventoryMovements(SqliteConnection& connection, const vector<InventoryMovement>& movements) {
+  if (movements.empty()) return true;
+
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    INSERT INTO inventatory_stock_movements (
+      movement_id, item_id, item_name, source, reference,
+      quantity_before, delta, quantity_after, occurred_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+
+  for (const auto& movement : movements) {
+    if (movement.delta == 0) continue;
+    const auto movementId = movement.id.empty() ? makeId() : movement.id;
+    sqliteApi().bind_text(statement.stmt, 1, movementId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 2, movement.itemId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 3, movement.itemName.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 4, movement.source.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(statement.stmt, 5, movement.reference.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_int(statement.stmt, 6, movement.quantityBefore);
+    sqliteApi().bind_int(statement.stmt, 7, movement.delta);
+    sqliteApi().bind_int(statement.stmt, 8, movement.quantityAfter);
+    sqliteApi().bind_int64(statement.stmt, 9, static_cast<sqlite3_int64>(movement.occurredAt));
+    if (sqliteApi().step(statement.stmt) != SQLITE_DONE) {
+      return false;
+    }
+    sqliteApi().reset(statement.stmt);
+    sqliteApi().clear_bindings(statement.stmt);
+  }
+  return true;
+}
+
 bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<InventoryItem>& items,
-                           const vector<InventatoryRack>& racks, const DeviceEventCommit* deviceEvent = nullptr) {
+                           const vector<InventatoryRack>& racks, const DeviceEventCommit* deviceEvent = nullptr,
+                           const vector<InventoryMovement>* movements = nullptr) {
   if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
+  if (!ensureInventoryMovementSchema(connection)) return false;
   if (deviceEvent != nullptr && !ensureDeviceEventCommitSchema(connection)) return false;
 
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
@@ -277,6 +337,11 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
 
     sqliteApi().reset(statement.stmt);
     sqliteApi().clear_bindings(statement.stmt);
+  }
+
+  if (movements != nullptr && !writeInventoryMovements(connection, *movements)) {
+    execSql(connection, "ROLLBACK");
+    return false;
   }
 
   if (deviceEvent != nullptr) {
@@ -419,16 +484,75 @@ bool InventoryStore::save(const filesystem::path& path) const {
 #endif
 }
 
-bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event) const {
+bool InventoryStore::saveWithMovements(const filesystem::path& path,
+                                       const vector<InventoryMovement>& movements) const {
 #ifdef _WIN32
   auto items = items_;
   ensureInventoryIdentifiers(items);
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
-  return writeItemsToInventatoryTable(connection, items, racks_, &event);
+  return writeItemsToInventatoryTable(connection, items, racks_, nullptr, &movements);
+#else
+  (void)movements;
+  return save(path);
+#endif
+}
+
+bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
+                                         const vector<InventoryMovement>& movements) const {
+#ifdef _WIN32
+  auto items = items_;
+  ensureInventoryIdentifiers(items);
+  SqliteConnection connection;
+  if (!openDatabase(path, connection)) return false;
+  return writeItemsToInventatoryTable(connection, items, racks_, &event, &movements);
 #else
   (void)event;
+  (void)movements;
   return save(path);
+#endif
+}
+
+vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, size_t limit) {
+#ifdef _WIN32
+  if (limit == 0) return {};
+  error_code filesystemError;
+  if (!filesystem::is_regular_file(path, filesystemError) || filesystemError) return {};
+  SqliteConnection connection;
+  if (!openDatabase(path, connection) || !tableExists(connection, "inventatory_stock_movements")) return {};
+
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    SELECT movement_id, item_id, item_name, source, reference,
+           quantity_before, delta, quantity_after, occurred_at
+    FROM inventatory_stock_movements
+    ORDER BY occurred_at DESC, movement_id DESC
+    LIMIT ?
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return {};
+  const auto boundedLimit = min(limit, static_cast<size_t>(numeric_limits<int>::max()));
+  sqliteApi().bind_int(statement.stmt, 1, static_cast<int>(boundedLimit));
+
+  vector<InventoryMovement> movements;
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
+    InventoryMovement movement;
+    movement.id = sqliteText(statement.stmt, 0);
+    movement.itemId = sqliteText(statement.stmt, 1);
+    movement.itemName = sqliteText(statement.stmt, 2);
+    movement.source = sqliteText(statement.stmt, 3);
+    movement.reference = sqliteText(statement.stmt, 4);
+    movement.quantityBefore = sqliteApi().column_int(statement.stmt, 5);
+    movement.delta = sqliteApi().column_int(statement.stmt, 6);
+    movement.quantityAfter = sqliteApi().column_int(statement.stmt, 7);
+    movement.occurredAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 8));
+    movements.push_back(move(movement));
+  }
+  return stepResult == SQLITE_DONE ? movements : vector<InventoryMovement>();
+#else
+  (void)path;
+  (void)limit;
+  return {};
 #endif
 }
 

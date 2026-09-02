@@ -47,6 +47,7 @@ vector<App::Action> App::currentActions() const {
       return false;
     }
     loadInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
+    self->refreshInventoryMovements();
     if (self->inventoryHistory_.empty()) {
       appendInventoryHistory(self->inventoryHistory_,
                              makeInventoryHistoryPoint(self->store_.items(), self->settings_.lowStockThreshold));
@@ -88,6 +89,13 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Stock:
+      if (stocktakeActive_) {
+        add("count selected part", "Stocktake", "Enter", special(KeyType::Enter),
+            [self] { self->beginStocktakeCount(); });
+        add("finish stocktake", "Stocktake", "s", chr('s'), [self] { self->finishStocktake(); });
+        add("cancel stocktake", "Stocktake", "q", chr('q'), [self] { self->cancelStocktake(); });
+        break;
+      }
       if (hasItem) add("edit", "Edit", "e", chr('e'), [self] { self->beginEditCurrentItem(false); });
       add("new part", "Edit", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
       if (hasItem) add("add one", "Edit", "+", chr('+'), [self] { self->adjustQuantity(1); });
@@ -120,6 +128,7 @@ vector<App::Action> App::currentActions() const {
       if (hasItem)
         add("delete", "System", "Ctrl+Bksp", special(KeyType::CtrlBackspace),
             [self] { self->armDeleteConfirmation(); });
+      add("start stocktake", "Data", "t", chr('t'), [self] { self->beginStocktake(); });
       add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
       add("backup data", "Data", "b", chr('b'), [self] { self->backupData(); });
       add("retry save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
