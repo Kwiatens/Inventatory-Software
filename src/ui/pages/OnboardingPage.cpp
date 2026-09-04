@@ -14,15 +14,58 @@ using namespace std;
 
 namespace {
 
-string onboardingStepName(int step) {
-  switch (step) {
-    case 0: return "Welcome";
-    case 1: return "Data folder";
-    case 2: return "Background service";
-    case 3: return "Scan R1";
-    case 4: return "Complete";
+ftxui::Element onboardingPrompt(const string& text) {
+  return styledText(text, uiLinkColor());
+}
+
+ftxui::Color onboardingGradientColor(int row) {
+  const auto& colors = activeUiAppearance().colors;
+  const auto start = colors[static_cast<size_t>(AppearanceColorRole::Interactive)];
+  const auto end = colors[static_cast<size_t>(AppearanceColorRole::FocusText)];
+  constexpr int kLastRow = 5;
+  const auto channel = [start, end, row](int shift) {
+    const auto startChannel = static_cast<int>((start >> shift) & 0xFFu);
+    const auto endChannel = static_cast<int>((end >> shift) & 0xFFu);
+    return startChannel + (endChannel - startChannel) * row / kLastRow;
+  };
+  return ftxui::Color::RGB(static_cast<uint8_t>(channel(16)), static_cast<uint8_t>(channel(8)),
+                           static_cast<uint8_t>(channel(0)));
+}
+
+ftxui::Element welcomeWordmark() {
+  // The block glyphs carry their own extrusion; the row colors add a quiet
+  // theme-aware blue gradient without introducing another visual treatment.
+  const vector<string> lines = {
+      u8"\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
+      u8"\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d",
+      u8"\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d",
+      u8"\u2588\u2588\u2551\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557  \u255a\u2588\u2588\u2554\u255d",
+      u8"\u2588\u2588\u2551\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551  \u2588\u2588\u2551   \u2588\u2588\u2551   \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551   \u2588\u2588\u2551",
+      u8"\u255a\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d   \u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d    \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d",
+  };
+  ftxui::Elements rows;
+  for (size_t row = 0; row < lines.size(); ++row) {
+    rows.push_back(styledText(lines[row], onboardingGradientColor(static_cast<int>(row))));
   }
-  return {};
+  return ftxui::vbox(move(rows));
+}
+
+ftxui::Element renderWelcomeScreen() {
+  auto content = ftxui::vbox({
+      welcomeWordmark(),
+      ftxui::text(""),
+      uiHeaderText("Welcome to Inventatory", uiTitleColor()),
+      styledText("Let's get your workspace ready.", uiSecondaryText()),
+      ftxui::text(""),
+      onboardingPrompt("[ Enter ] Continue"),
+  });
+
+  return ftxui::vbox({
+             ftxui::filler(),
+             ftxui::hbox({ftxui::filler(), ftxui::center(move(content)), ftxui::filler()}),
+             ftxui::filler(),
+         }) |
+         ftxui::flex | ftxui::bgcolor(uiCanvasBg());
 }
 
 }  // namespace
@@ -36,45 +79,32 @@ void App::finishOnboarding() {
   settings_.completedOnboardingVersion = 1;
   settingsDraft_ = settings_;
   if (!saveAppSettings(settingsPath_, settings_)) {
-    setMessage("Unable to save setup completion; the wizard will reopen next time", 5);
+    setMessage("Unable to save setup completion; setup will open again next time", 5);
     return;
   }
   onboardingActive_ = false;
   changePage(Page::Home);
-  setMessage("Setup complete. Every choice is available later in Settings.", 5);
+  setMessage("Setup complete.", 5);
 }
 
 ftxui::Element App::renderOnboardingUi() const {
+  if (onboardingStep_ == OnboardingStep::Welcome) {
+    return renderWelcomeScreen();
+  }
+
   ftxui::Elements rows;
-  rows.push_back(uiHeaderText("$ inventatory first-run setup", uiSuccessColor()));
-  rows.push_back(styledText("step> " + onboardingStepName(static_cast<int>(onboardingStep_)), uiMutedText()));
-  rows.push_back(uiDivider());
 
   switch (onboardingStep_) {
     case OnboardingStep::Welcome:
-      rows.push_back(uiHeaderText("Welcome to Inventatory.", uiTitleColor()));
-      rows.push_back(ftxui::text("Your inventory stays on this PC. Optional features can be configured later."));
-      rows.push_back(styledText("> Press Enter to begin", uiLinkColor()));
       break;
     case OnboardingStep::DataFolder:
-      rows.push_back(uiHeaderText("Inventory data folder", uiAccentColor()));
-      rows.push_back(ftxui::text("Default: " + dataPath_.string()));
-      rows.push_back(ftxui::text("Enter keeps this location. Press B to choose another folder."));
-      break;
-    case OnboardingStep::BackgroundService:
-      rows.push_back(uiHeaderText("Keep Inventatory running in the background?", uiAccentColor()));
-      rows.push_back(ftxui::text("When enabled, Inventatory starts when you sign in and remains available in the notification area after this terminal closes."));
-      rows.push_back(styledText("Y enables it  |  N keeps it off (default)", uiLinkColor()));
-      break;
-    case OnboardingStep::ScanR1:
-      rows.push_back(uiHeaderText("Do you have a hardware Inventatory Scan R1 scanning device?", uiAccentColor()));
-      rows.push_back(ftxui::text("The Scan R1 is an optional handheld device that scans parts into this Inventatory PC."));
-      rows.push_back(styledText("Y starts Scan R1 setup now  |  N continues without one", uiLinkColor()));
+      rows.push_back(uiHeaderText("Choose where inventory data lives", uiTitleColor()));
+      rows.push_back(styledText("Current folder: " + dataPath_.string(), uiSecondaryText()));
+      rows.push_back(onboardingPrompt("[ Enter ] Use this folder   [ B ] Choose another"));
       break;
     case OnboardingStep::Complete:
-      rows.push_back(uiHeaderText("Your Inventatory workspace is ready.", uiSuccessColor()));
-      rows.push_back(ftxui::text("You can configure printers, Scan R1, vendor integrations, startup, and data location later in Settings."));
-      rows.push_back(styledText("Press Enter to open the dashboard.", uiLinkColor()));
+      rows.push_back(uiHeaderText("You're all set.", uiSuccessColor()));
+      rows.push_back(onboardingPrompt("[ Enter ] Open Inventatory"));
       break;
   }
 
@@ -97,25 +127,9 @@ void App::handleOnboardingKey(const KeyEvent& key) {
         settingsDraft_ = settings_;
         if (stageInventatoryFolder() && saveSettingsDraft()) {
           settingsDraft_ = settings_;
-          setMessage("Data folder saved", 3);
+          setMessage("Data folder updated", 3);
         }
       } else if (key.type == KeyType::Enter) {
-        advanceOnboarding();
-      }
-      return;
-    case OnboardingStep::BackgroundService:
-      if (ch == 'y' || ch == 'n') {
-        settingsDraft_ = settings_;
-        settingsDraft_.backgroundServiceEnabled = ch == 'y';
-        settingsDraft_.backgroundConsentAsked = true;
-        if (saveSettingsDraft()) advanceOnboarding();
-      }
-      return;
-    case OnboardingStep::ScanR1:
-      if (ch == 'y') {
-        returnToOnboardingAfterScan_ = true;
-        openInventatoryScanSetup();
-      } else if (ch == 'n') {
         advanceOnboarding();
       }
       return;

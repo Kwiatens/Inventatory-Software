@@ -94,7 +94,7 @@ class App {
     Review,
   };
 
-  enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
+  enum class OnboardingStep { Welcome, DataFolder, Complete };
 
   enum class SettingsCategory {
     General,
@@ -509,7 +509,6 @@ class App {
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
-  bool returnToOnboardingAfterScan_ = false;
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
   std::string searchQueryBeforeEdit_;
