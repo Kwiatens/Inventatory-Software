@@ -138,7 +138,7 @@ void App::beginScanFirmwareCheck() {
   scanFirmwareFuture_ = async(launch::async, [installed = deviceFirmwareVersion_] {
     return checkLatestScanFirmwareRelease(installed);
   });
-  setMessage("Checking for Scan R1 firmware updates...", 4);
+  setMessage("Checking for Scan R1 firmware updates", 4);
   dirty_ = true;
 }
 
@@ -165,7 +165,7 @@ void App::processScanFirmwareCheck() {
 string App::scanFirmwareStatus() const {
   const bool installedKnown = !deviceFirmwareVersion_.empty();
   const auto installed = installedKnown ? deviceFirmwareVersion_ : string("Not reported");
-  if (scanFirmwareFuture_.valid()) return installed + "  \xC2\xB7  checking...";
+  if (scanFirmwareFuture_.valid()) return installed + "  \xC2\xB7  checking " + uiLoadingSpinner();
   if (!installedKnown) {
     if (scanFirmwareCheckFailed_) return installed + "  \xC2\xB7  check failed";
     return "Pair a scanner to compare firmware";
@@ -292,7 +292,7 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
       break;
     case ScanSetupStep::FindScanner: {
       const auto devices = bleProvisioning_.devices();
-      rows.push_back(styledText("Searching for nearby R1 devices advertising the setup service" + uiAnimatedEllipsis(),
+      rows.push_back(styledText("Searching for nearby R1 devices advertising the setup service " + uiLoadingSpinner(),
                                 uiTitleColor()));
       rows.push_back(ftxui::text(""));
       if (devices.empty()) {

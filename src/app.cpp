@@ -454,7 +454,7 @@ ftxui::Element App::renderMessageUi() const {
   if (refreshingDigiKey) {
     const auto completed = min(digiKeyRefreshCompleted_, digiKeyRefreshTotal_);
     return ftxui::hbox({
-               styledText(" DigiKey enrichment", uiLinkColor()),
+               styledText(" " + uiLoadingSpinner() + " DigiKey enrichment", uiLinkColor()),
                styledText("   ", uiLinkColor()),
                uiProgressBar(static_cast<double>(completed) / static_cast<double>(digiKeyRefreshTotal_), 28,
                              uiLinkColor()),
@@ -468,7 +468,7 @@ ftxui::Element App::renderMessageUi() const {
     const auto total = max<size_t>(1, importSyncTotal_);
     const auto completed = min(importSyncCompleted_, importSyncTotal_);
     return ftxui::hbox({
-               styledText(" DigiKey import sync", uiLinkColor()),
+               styledText(" " + uiLoadingSpinner() + " DigiKey import sync", uiLinkColor()),
                styledText("   ", uiLinkColor()),
                uiProgressBar(static_cast<double>(completed) / static_cast<double>(total), 28, uiLinkColor()),
                styledText(" " + to_string(completed) + "/" + to_string(importSyncTotal_) + " rows",
@@ -481,12 +481,8 @@ ftxui::Element App::renderMessageUi() const {
                             (!bomEnrichmentQueue_.empty() || bomEnrichmentFuture_.valid());
   if (enrichingBom) {
     const auto dispatched = bomEnrichmentTotal_ - bomEnrichmentQueue_.size();
-    const auto phase = static_cast<int>(chrono::duration_cast<chrono::milliseconds>(
-                         chrono::steady_clock::now().time_since_epoch()).count() / 350 % 4);
-    const string dots(static_cast<size_t>(phase), '.');
     return ftxui::hbox({
-        styledText(" DigiKey lookup" + dots, uiLinkColor()),
-        styledText(string(3 - phase, ' '), uiLinkColor()),
+        styledText(" " + uiLoadingSpinner() + " DigiKey lookup", uiLinkColor()),
         uiProgressBar(static_cast<double>(dispatched) / static_cast<double>(bomEnrichmentTotal_), 28, uiLinkColor()),
         styledText(" " + to_string(dispatched) + "/" + to_string(bomEnrichmentTotal_) + " suggestions", uiMutedColor()),
         ftxui::filler(),
