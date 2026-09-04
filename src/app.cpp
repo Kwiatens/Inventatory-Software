@@ -191,7 +191,7 @@ ftxui::Element App::renderUi() const {
   // Fresh setup is intentionally a dedicated terminal surface. It must not
   // inherit any workspace navigation, operational state, or search chrome.
   if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
-    return renderPageUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
+    return renderWizardUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
   if (inventoryRecoveryRequired_) {
     return ftxui::vbox({
@@ -590,6 +590,7 @@ void App::runInteractiveLoop() {
         screen.ExitLoopClosure()();
         return true;
       }
+      updateWizardTransition();
       processBackgroundWork();
       return true;
     }
@@ -683,6 +684,10 @@ void App::handleKey(const KeyEvent& key) {
     if (key.type == KeyType::Escape) running_ = false;
     if (key.type == KeyType::Character && (key.ch == 'd' || key.ch == 'D')) chooseInventatoryFolder();
     dirty_ = true;
+    return;
+  }
+  if (wizardTransition_.phase != WizardTransitionPhase::None) {
+    if (!bufferedWizardKey_.has_value()) bufferedWizardKey_ = key;
     return;
   }
   switch (inputMode_) {

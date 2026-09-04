@@ -190,7 +190,11 @@ void App::openInventatoryScanSetup() {
   bleSetupOutcomeUncertain_ = false;
   scanSetupStep_ = ScanSetupStep::Introduction;
   inputBuffer_.clear();
-  changePage(Page::ScanSetup);
+  if (returnToOnboardingAfterScan_) {
+    beginWizardTransition(Page::ScanSetup, onboardingStep_, scanSetupStep_, true);
+  } else {
+    changePage(Page::ScanSetup);
+  }
   setMessage("Scan R1 setup wizard started", 3);
 }
 
@@ -252,10 +256,7 @@ bool App::provisionSelectedBleSetupDevice() {
   return true;
 }
 
-ftxui::Element App::renderInventatoryScanSetupUi() const {
-  const bool onboardingTerminal = returnToOnboardingAfterScan_;
-  const auto setupBackground = onboardingTerminal ? uiCanvasBg() : uiPanelLeftBg();
-
+ftxui::Element App::renderInventatoryScanSetupContent() const {
   ftxui::Elements rows;
   switch (scanSetupStep_) {
     case ScanSetupStep::Introduction:
@@ -328,7 +329,13 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
       break;
   }
 
-  auto body = ftxui::vbox(move(rows));
+  return ftxui::vbox(move(rows));
+}
+
+ftxui::Element App::renderInventatoryScanSetupUi() const {
+  const bool onboardingTerminal = returnToOnboardingAfterScan_;
+  const auto setupBackground = onboardingTerminal ? uiCanvasBg() : uiPanelLeftBg();
+  auto body = renderInventatoryScanSetupContent();
   if (onboardingTerminal) return renderOnboardingFrame(body | ftxui::bgcolor(setupBackground));
   body = body | ftxui::bgcolor(setupBackground) | ftxui::flex;
   return ftxui::window(ftxui::text(""), body) | ftxui::bgcolor(uiCanvasBg());
@@ -362,16 +369,14 @@ ftxui::Element App::renderDeviceDebugConsoleUi() const {
 void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
   const auto cancel = [this] {
     bleProvisioning_.stopDiscovery();
-    bleWifiSsid_.clear();
-    bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
-    bleWifiPassword_.clear();
-    blePairingCode_.clear();
-    inputBuffer_.clear();
     if (returnToOnboardingAfterScan_) {
-      returnToOnboardingAfterScan_ = false;
-      onboardingStep_ = OnboardingStep::Complete;
-      changePage(Page::Onboarding);
+      beginWizardTransition(Page::Onboarding, OnboardingStep::Complete, scanSetupStep_, false);
     } else {
+      bleWifiSsid_.clear();
+      bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+      bleWifiPassword_.clear();
+      blePairingCode_.clear();
+      inputBuffer_.clear();
       changePage(Page::Home);
     }
   };
@@ -415,9 +420,17 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
   }
 
   if (key.type != KeyType::Enter) return;
+  const auto advanceScanStep = [this](ScanSetupStep next) {
+    if (returnToOnboardingAfterScan_) {
+      beginWizardTransition(Page::ScanSetup, onboardingStep_, next, true);
+    } else {
+      scanSetupStep_ = next;
+      dirty_ = true;
+    }
+  };
   switch (scanSetupStep_) {
     case ScanSetupStep::Introduction:
-      scanSetupStep_ = ScanSetupStep::WifiName;
+      advanceScanStep(ScanSetupStep::WifiName);
       inputBuffer_.clear();
       break;
     case ScanSetupStep::WifiName:
@@ -426,13 +439,11 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
         setMessage("Enter a Wi-Fi network name", 3);
         return;
       }
-      inputBuffer_.clear();
-      scanSetupStep_ = ScanSetupStep::WifiPassword;
+      advanceScanStep(ScanSetupStep::WifiPassword);
       break;
     case ScanSetupStep::WifiPassword:
       bleWifiPassword_ = inputBuffer_;
-      inputBuffer_.clear();
-      scanSetupStep_ = ScanSetupStep::PairingCode;
+      advanceScanStep(ScanSetupStep::PairingCode);
       break;
     case ScanSetupStep::PairingCode:
       blePairingCode_ = trim(inputBuffer_);
@@ -441,8 +452,7 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
         setMessage("The R1 verification code must contain exactly six digits", 4);
         return;
       }
-      inputBuffer_.clear();
-      scanSetupStep_ = ScanSetupStep::FindScanner;
+      advanceScanStep(ScanSetupStep::FindScanner);
       refreshBleSetupDiscovery();
       break;
     case ScanSetupStep::FindScanner:
@@ -450,11 +460,11 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
         setMessage("Wait for a nearby unconfigured Scan R1, then try again", 4);
         return;
       }
-      scanSetupStep_ = ScanSetupStep::Confirm;
+      advanceScanStep(ScanSetupStep::Confirm);
       break;
     case ScanSetupStep::Confirm:
       bleProvisioning_.stopDiscovery();
-      if (provisionSelectedBleSetupDevice()) scanSetupStep_ = ScanSetupStep::Complete;
+      if (provisionSelectedBleSetupDevice()) advanceScanStep(ScanSetupStep::Complete);
       break;
     case ScanSetupStep::Complete:
       cancel();
