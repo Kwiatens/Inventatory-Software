@@ -31,10 +31,9 @@ resize notice instead of a clipped interface.
 
 Fresh-install setup is the sole shell exception. It uses a full-window,
 command-style terminal flow with no navigation, operational status, search, or
-action sheet. It configures the data folder, optional background mode, and an
-optional physical Inventatory Scan R1 only; printer and vendor integrations
-remain later Settings tasks. The normal Scan R1 setup page remains available
-after onboarding.
+action sheet. It confirms the data folder and leaves optional background mode,
+printer, vendor, and physical Inventatory Scan R1 setup for Settings. The normal
+Scan R1 setup page remains available after onboarding.
 
 Setup wizards show only task-specific instructions, inputs, selections, and
 actions. They do not add command-style headers, step counters, progress strips,
