@@ -116,6 +116,14 @@ add_executable(inventatory
   src/ui/pages/SettingsPage.cpp
 )
 
+if(WIN32)
+  add_executable(inventatory_background WIN32
+    src/platform/BackgroundLauncher.cpp
+    src/platform/BackgroundLauncher.rc
+  )
+  set_target_properties(inventatory_background PROPERTIES OUTPUT_NAME "inventatory-background")
+endif()
+
 target_include_directories(inventatory PRIVATE src)
 target_compile_definitions(inventatory PRIVATE
   Inventatory_VERSION_STRING="${INVENTATORY_VERSION}"
