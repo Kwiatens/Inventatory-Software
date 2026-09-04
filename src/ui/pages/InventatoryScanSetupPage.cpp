@@ -253,45 +253,40 @@ bool App::provisionSelectedBleSetupDevice() {
 }
 
 ftxui::Element App::renderInventatoryScanSetupUi() const {
-  const auto setupBackground = uiPanelLeftBg();
+  const bool onboardingTerminal = returnToOnboardingAfterScan_;
+  const auto setupBackground = onboardingTerminal ? uiCanvasBg() : uiPanelLeftBg();
 
   ftxui::Elements rows;
   switch (scanSetupStep_) {
     case ScanSetupStep::Introduction:
-      rows.push_back(styledText("Welcome. This assistant connects an unconfigured Scan R1 without editing files.", uiTitleColor()));
+      rows.push_back(styledText("Connect your Scan R1", uiTitleColor()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Before continuing:", uiTitleColor()));
-      rows.push_back(styledText("  1. Power on the R1; it must show a six-digit BLE code.", uiTitleColor()));
-      rows.push_back(styledText("  2. Keep Bluetooth enabled on this PC.", uiTitleColor()));
-      rows.push_back(styledText("  3. Have the Wi-Fi name and password ready.", uiTitleColor()));
+      rows.push_back(styledText("Power on the scanner, keep Bluetooth enabled, and have the Wi-Fi details ready.", uiSecondaryText()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("> Press Enter to begin  |  Esc to cancel", uiInteractiveColor()));
+      rows.push_back(styledText("[ Enter ] Begin   [ Esc ] Cancel", uiInteractiveColor()));
       break;
     case ScanSetupStep::WifiName:
-      rows.push_back(styledText("Enter the Wi-Fi SSID the Scan R1 should join.", uiTitleColor()));
+      rows.push_back(styledText("Wi-Fi network for the Scan R1", uiTitleColor()));
       rows.push_back(ftxui::text(""));
       rows.push_back(styledText("network> " + inputBuffer_ + "_", uiInteractiveColor()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Enter continues  |  Esc cancels", uiMutedText()));
+      rows.push_back(styledText("Enter continues   Esc cancels", uiMutedText()));
       break;
     case ScanSetupStep::WifiPassword:
-      rows.push_back(styledText("Enter the password. It is masked, transmitted only over encrypted BLE, and cleared after setup.",
-                                uiTitleColor()));
+      rows.push_back(styledText("Wi-Fi password", uiTitleColor()));
       rows.push_back(ftxui::text(""));
       rows.push_back(styledText("password> " + string(inputBuffer_.size(), '*') + "_", uiInteractiveColor()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Enter continues  |  Esc cancels", uiMutedText()));
+      rows.push_back(styledText("Enter continues   Esc cancels", uiMutedText()));
       break;
     case ScanSetupStep::PairingCode:
-      rows.push_back(styledText("Type the six-digit code currently shown on the R1 display.", uiTitleColor()));
+      rows.push_back(styledText("Six-digit code shown on the Scan R1", uiTitleColor()));
       rows.push_back(ftxui::text(""));
       rows.push_back(styledText("r1-code> " + inputBuffer_ + "_", uiInteractiveColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("This proves you are pairing with the scanner in front of you.", uiTitleColor()));
       break;
     case ScanSetupStep::FindScanner: {
       const auto devices = bleProvisioning_.devices();
-      rows.push_back(styledText("Searching for nearby R1 devices advertising the setup service " + uiLoadingSpinner(),
+      rows.push_back(styledText("Looking for nearby Scan R1 devices " + uiLoadingSpinner(),
                                 uiTitleColor()));
       rows.push_back(ftxui::text(""));
       if (devices.empty()) {
@@ -305,7 +300,7 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
         }
       }
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Up/Down selects  |  R refreshes search  |  Enter continues", uiMutedText()));
+      rows.push_back(styledText("Up/Down selects   R refreshes   Enter continues", uiMutedText()));
       break;
     }
     case ScanSetupStep::Confirm: {
@@ -316,8 +311,7 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
       rows.push_back(styledText("Wi-Fi password: " + string(bleWifiPassword_.empty() ? 0 : 12, '*'), uiTitleColor()));
       rows.push_back(styledText("Verification code: " + blePairingCode_, uiTitleColor()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("> Press Enter to securely transfer this configuration", uiInteractiveColor()));
-      rows.push_back(styledText("  Esc cancels without changing the scanner.", uiMutedText()));
+      rows.push_back(styledText("[ Enter ] Transfer configuration   [ Esc ] Cancel", uiInteractiveColor()));
       break;
     }
     case ScanSetupStep::Complete:
@@ -327,18 +321,16 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
                                   uiTitleColor()));
       } else {
         rows.push_back(uiHeaderText("Setup request accepted.", uiSuccessColor()));
-        rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect to this Inventatory PC automatically.",
-                                  uiTitleColor()));
+        rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect automatically.", uiTitleColor()));
       }
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("The device token was stored in Windows Credential Manager; the Wi-Fi password was cleared from Inventatory.",
-                                uiMutedText()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("> Press Enter or Esc to return to Home", uiLinkColor()));
+      rows.push_back(styledText("[ Enter ] Continue", uiLinkColor()));
       break;
   }
 
-  auto body = ftxui::vbox(move(rows)) | ftxui::bgcolor(setupBackground) | ftxui::flex;
+  auto body = ftxui::vbox(move(rows));
+  if (onboardingTerminal) return renderOnboardingFrame(body | ftxui::bgcolor(setupBackground));
+  body = body | ftxui::bgcolor(setupBackground) | ftxui::flex;
   return ftxui::window(ftxui::text(""), body) | ftxui::bgcolor(uiCanvasBg());
 }
 
@@ -375,7 +367,13 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
     bleWifiPassword_.clear();
     blePairingCode_.clear();
     inputBuffer_.clear();
-    changePage(Page::Home);
+    if (returnToOnboardingAfterScan_) {
+      returnToOnboardingAfterScan_ = false;
+      onboardingStep_ = OnboardingStep::Complete;
+      changePage(Page::Onboarding);
+    } else {
+      changePage(Page::Home);
+    }
   };
 
   if (key.type == KeyType::Escape) {
