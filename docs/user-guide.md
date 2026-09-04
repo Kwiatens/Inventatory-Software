@@ -104,7 +104,7 @@ after the new location is validated. An R1 service-port change takes effect on t
 next launch. DigiKey secrets are stored in Windows Credential Manager.
 
 In **Settings -> General / Data**, **Background & startup** controls whether Inventatory remains available for Scan R1 after
-the terminal is closed. The first normal launch asks for permission and defaults to Off. When enabled, Inventatory starts for
+the terminal is closed. It defaults to Off. When enabled, Inventatory starts for
 the signed-in Windows user, hides in the notification area after close, and continues the R1 service. Use the Inventatory tray
 icon to Open Inventatory or Quit Inventatory; the Windows startup entry is shown as **Inventatory Background Service**. Disabling the setting removes Inventatory from Windows startup. This does not run before a
 user signs in.
