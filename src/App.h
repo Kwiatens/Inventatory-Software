@@ -96,6 +96,17 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
+  enum class WizardTransitionPhase { None, FadeOut, FadeIn };
+
+  struct WizardTransition {
+    WizardTransitionPhase phase = WizardTransitionPhase::None;
+    long long startedAt = -1;
+    Page targetPage = Page::Onboarding;
+    OnboardingStep targetOnboardingStep = OnboardingStep::Welcome;
+    ScanSetupStep targetScanSetupStep = ScanSetupStep::Introduction;
+    bool targetReturnToOnboardingAfterScan = false;
+  };
+
   enum class SettingsCategory {
     General,
     Appearance,
@@ -273,7 +284,11 @@ class App {
   ftxui::Element renderSettingsUi() const;
   ftxui::Element renderOnboardingWordmark() const;
   ftxui::Element renderOnboardingFrame(ftxui::Element content) const;
+  ftxui::Element renderOnboardingContent() const;
   ftxui::Element renderOnboardingUi() const;
+  ftxui::Element renderWizardUi() const;
+  ftxui::Element renderWizardContent() const;
+  ftxui::Element renderInventatoryScanSetupContent() const;
   std::string settingsCategoryName(SettingsCategory category) const;
   std::string stockDateFilterName(StockDateFilter filter) const;
   bool stockDateFilterMatches(const InventoryItem& item) const;
@@ -333,6 +348,11 @@ class App {
   void openDigiKeySetup();
   void advanceOnboarding();
   void finishOnboarding();
+  void beginWizardTransition(Page targetPage, OnboardingStep targetOnboardingStep,
+                             ScanSetupStep targetScanSetupStep,
+                             bool targetReturnToOnboardingAfterScan);
+  void updateWizardTransition();
+  void applyWizardTransitionTarget();
   bool regenerateInventatoryScanToken();
   bool clearInventatoryScanPairing();
   bool copyInventatoryScanToken();
@@ -512,6 +532,8 @@ class App {
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
   bool returnToOnboardingAfterScan_ = false;
+  WizardTransition wizardTransition_;
+  std::optional<KeyEvent> bufferedWizardKey_;
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
   std::string searchQueryBeforeEdit_;

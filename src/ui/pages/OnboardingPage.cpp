@@ -4,10 +4,13 @@
 
 #include "ui/shared/AppUiShared.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
 #include <ctime>
+
+#include <ftxui/screen/string.hpp>
 
 namespace inventatory {
 
@@ -15,8 +18,33 @@ using namespace std;
 
 namespace {
 
+constexpr long long kWizardCrossfadeDurationMs = 300;
+constexpr long long kWizardCrossfadeMidpointMs = kWizardCrossfadeDurationMs / 2;
+constexpr int kWizardReservedContentHeight = 8;
+
 ftxui::Element onboardingPrompt(const string& text) {
   return styledText(text, uiLinkColor());
+}
+
+float clampUnit(float value) {
+  return max(0.0F, min(1.0F, value));
+}
+
+ftxui::Color appearanceColorWithAlpha(AppearanceColorRole role, uint8_t alpha) {
+  const auto rgb = activeUiAppearance().colors[static_cast<size_t>(role)];
+  return ftxui::Color::RGBA(static_cast<uint8_t>((rgb >> 16) & 0xFFu),
+                            static_cast<uint8_t>((rgb >> 8) & 0xFFu),
+                            static_cast<uint8_t>(rgb & 0xFFu), alpha);
+}
+
+ftxui::Color wizardCanvasOverlay(float visibleContent) {
+  const auto alpha = static_cast<uint8_t>(255.0F * (1.0F - clampUnit(visibleContent)));
+  return appearanceColorWithAlpha(AppearanceColorRole::CanvasBg, alpha);
+}
+
+ftxui::Element fadeWizardContent(ftxui::Element content, float visibleContent) {
+  const auto overlay = wizardCanvasOverlay(visibleContent);
+  return ftxui::dbox({move(content), ftxui::filler() | ftxui::color(overlay) | ftxui::bgcolor(overlay)});
 }
 
 ftxui::Color onboardingGradientColor(int row) {
@@ -36,8 +64,9 @@ ftxui::Color onboardingGradientColor(int row) {
 }  // namespace
 
 ftxui::Element App::renderOnboardingWordmark() const {
-  // Keep the artwork in the source as Unicode code points so every terminal
-  // receives the same block glyphs, including the final A, T, O, R, and Y.
+  // Keep the supplied six-line artwork canonical and render each glyph as an
+  // individual terminal cell. This prevents variable row widths or terminal
+  // text merging from shifting the final T/O/R/Y sections.
   const vector<string> lines = {
       u8"\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
       u8"\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d",
@@ -47,26 +76,47 @@ ftxui::Element App::renderOnboardingWordmark() const {
       u8"\u255a\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d   \u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d    \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d",
   };
 
+  int width = 0;
+  for (const auto& line : lines) width = max(width, ftxui::string_width(line));
+
   ftxui::Elements rows;
   for (size_t row = 0; row < lines.size(); ++row) {
-    rows.push_back(styledText(lines[row], onboardingGradientColor(static_cast<int>(row))));
+    const auto base = onboardingGradientColor(static_cast<int>(row));
+    ftxui::Elements cells;
+    for (const auto& glyph : ftxui::Utf8ToGlyphs(lines[row])) {
+      auto cell = styledText(glyph.empty() ? " " : glyph, base);
+      if (!glyph.empty() && ftxui::string_width(glyph) == 1) {
+        cell = cell | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 1);
+      }
+      cells.push_back(move(cell));
+    }
+    for (int cell = ftxui::string_width(lines[row]); cell < width; ++cell) {
+      cells.push_back(styledText(" ", base) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 1));
+    }
+    rows.push_back(ftxui::hbox(move(cells)));
   }
   return ftxui::vbox(move(rows));
 }
 
 ftxui::Element App::renderOnboardingFrame(ftxui::Element content) const {
-  auto centeredContent = ftxui::vbox({renderOnboardingWordmark(), ftxui::text(""), move(content)});
+  auto reservedContent = ftxui::vbox({move(content), ftxui::filler()}) |
+                         ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, kWizardReservedContentHeight);
+  auto centeredContent = ftxui::vbox({
+      ftxui::hbox({ftxui::filler(), renderOnboardingWordmark(), ftxui::filler()}),
+      ftxui::text(""),
+      ftxui::hbox({ftxui::filler(), move(reservedContent), ftxui::filler()}),
+  });
   return ftxui::vbox({
              ftxui::filler(),
-             ftxui::hbox({ftxui::filler(), ftxui::center(move(centeredContent)), ftxui::filler()}),
+             move(centeredContent),
              ftxui::filler(),
          }) |
          ftxui::flex | ftxui::bgcolor(uiCanvasBg());
 }
 
 void App::advanceOnboarding() {
-  onboardingStep_ = static_cast<OnboardingStep>(static_cast<int>(onboardingStep_) + 1);
-  dirty_ = true;
+  const auto next = static_cast<OnboardingStep>(static_cast<int>(onboardingStep_) + 1);
+  beginWizardTransition(Page::Onboarding, next, scanSetupStep_, returnToOnboardingAfterScan_);
 }
 
 void App::finishOnboarding() {
@@ -81,7 +131,7 @@ void App::finishOnboarding() {
   setMessage("Setup complete.", 5);
 }
 
-ftxui::Element App::renderOnboardingUi() const {
+ftxui::Element App::renderOnboardingContent() const {
   ftxui::Elements rows;
 
   switch (onboardingStep_) {
@@ -111,7 +161,86 @@ ftxui::Element App::renderOnboardingUi() const {
       break;
   }
 
-  return renderOnboardingFrame(ftxui::vbox(move(rows)));
+  return ftxui::vbox(move(rows));
+}
+
+ftxui::Element App::renderOnboardingUi() const {
+  return renderOnboardingFrame(renderOnboardingContent());
+}
+
+ftxui::Element App::renderWizardContent() const {
+  if (page_ == Page::ScanSetup && returnToOnboardingAfterScan_) {
+    return renderInventatoryScanSetupContent();
+  }
+  return renderOnboardingContent();
+}
+
+ftxui::Element App::renderWizardUi() const {
+  auto content = renderWizardContent();
+  if (wizardTransition_.phase == WizardTransitionPhase::FadeOut) {
+    const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
+    const auto visible = 1.0F - clampUnit(static_cast<float>(elapsed) /
+                                          static_cast<float>(kWizardCrossfadeMidpointMs));
+    content = fadeWizardContent(move(content), visible);
+  } else if (wizardTransition_.phase == WizardTransitionPhase::FadeIn) {
+    const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
+    const auto visible = clampUnit(static_cast<float>(elapsed - kWizardCrossfadeMidpointMs) /
+                                   static_cast<float>(kWizardCrossfadeMidpointMs));
+    content = fadeWizardContent(move(content), visible);
+  }
+  return renderOnboardingFrame(move(content));
+}
+
+void App::beginWizardTransition(Page targetPage, OnboardingStep targetOnboardingStep,
+                                 ScanSetupStep targetScanSetupStep,
+                                 bool targetReturnToOnboardingAfterScan) {
+  if (wizardTransition_.phase != WizardTransitionPhase::None) return;
+  wizardTransition_.phase = WizardTransitionPhase::FadeOut;
+  wizardTransition_.startedAt = uiAnimationTicks();
+  wizardTransition_.targetPage = targetPage;
+  wizardTransition_.targetOnboardingStep = targetOnboardingStep;
+  wizardTransition_.targetScanSetupStep = targetScanSetupStep;
+  wizardTransition_.targetReturnToOnboardingAfterScan = targetReturnToOnboardingAfterScan;
+  bufferedWizardKey_.reset();
+  dirty_ = true;
+}
+
+void App::applyWizardTransitionTarget() {
+  const auto previousPage = page_;
+  page_ = wizardTransition_.targetPage;
+  onboardingStep_ = wizardTransition_.targetOnboardingStep;
+  scanSetupStep_ = wizardTransition_.targetScanSetupStep;
+  returnToOnboardingAfterScan_ = wizardTransition_.targetReturnToOnboardingAfterScan;
+  inputMode_ = InputMode::None;
+  inputBuffer_.clear();
+  focusedTarget_ = -1;
+  if (previousPage == Page::ScanSetup && page_ == Page::Onboarding) {
+    bleWifiSsid_.clear();
+    bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+    bleWifiPassword_.clear();
+    blePairingCode_.clear();
+  }
+  dirty_ = true;
+}
+
+void App::updateWizardTransition() {
+  if (wizardTransition_.phase == WizardTransitionPhase::None) return;
+
+  const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
+  if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && elapsed >= kWizardCrossfadeMidpointMs) {
+    applyWizardTransitionTarget();
+    wizardTransition_.phase = WizardTransitionPhase::FadeIn;
+  }
+  if (elapsed < kWizardCrossfadeDurationMs) {
+    dirty_ = true;
+    return;
+  }
+
+  wizardTransition_.phase = WizardTransitionPhase::None;
+  wizardTransition_.startedAt = -1;
+  auto buffered = move(bufferedWizardKey_);
+  dirty_ = true;
+  if (buffered.has_value()) handleKey(*buffered);
 }
 
 void App::handleOnboardingKey(const KeyEvent& key) {
