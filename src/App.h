@@ -101,6 +101,7 @@ class App {
   struct WizardTransition {
     WizardTransitionPhase phase = WizardTransitionPhase::None;
     long long startedAt = -1;
+    long long durationMs = 300;
     Page targetPage = Page::Onboarding;
     OnboardingStep targetOnboardingStep = OnboardingStep::Welcome;
     ScanSetupStep targetScanSetupStep = ScanSetupStep::Introduction;
@@ -534,6 +535,7 @@ class App {
   bool returnToOnboardingAfterScan_ = false;
   WizardTransition wizardTransition_;
   std::optional<KeyEvent> bufferedWizardKey_;
+  std::optional<char> wizardSelectedOption_;
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
   std::string searchQueryBeforeEdit_;
