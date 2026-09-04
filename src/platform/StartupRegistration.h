@@ -6,6 +6,7 @@
 
 namespace inventatory {
 
+std::wstring buildBackgroundStartupLauncherPath(const std::wstring& executablePath);
 std::wstring buildBackgroundStartupCommand(const std::wstring& executablePath);
 bool setBackgroundStartupEnabled(bool enabled, std::string& error);
 

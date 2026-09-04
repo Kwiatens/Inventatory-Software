@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include <cstdio>
 #include <string>
 
 namespace inventatory {
@@ -27,7 +28,28 @@ BackgroundController* controllerFrom(HWND window) {
   return reinterpret_cast<BackgroundController*>(GetWindowLongPtrW(window, GWLP_USERDATA));
 }
 
+bool consoleIsAvailable() {
+  if (GetConsoleWindow() != nullptr) return true;
+  const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+  DWORD mode = 0;
+  return output != nullptr && output != INVALID_HANDLE_VALUE && GetConsoleMode(output, &mode) != 0;
+}
+
+bool ensureConsole() {
+  if (consoleIsAvailable()) return true;
+  const bool attached = AttachConsole(ATTACH_PARENT_PROCESS) != 0;
+  if (!attached && !AllocConsole()) return false;
+  if (!attached) SetConsoleTitleW(L"Inventatory");
+
+  FILE* stream = nullptr;
+  freopen_s(&stream, "CONIN$", "r", stdin);
+  freopen_s(&stream, "CONOUT$", "w", stdout);
+  freopen_s(&stream, "CONOUT$", "w", stderr);
+  return consoleIsAvailable();
+}
+
 void restoreConsole() {
+  if (!ensureConsole()) return;
   if (const HWND console = GetConsoleWindow(); console != nullptr) {
     ShowWindow(console, SW_RESTORE);
     SetForegroundWindow(console);

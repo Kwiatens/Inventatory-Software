@@ -519,6 +519,12 @@ int App::run() {
   ftxui::Terminal::SetColorSupport(ftxui::Terminal::Color::TrueColor);
 #endif
   running_ = true;
+  // Rewrite the per-user startup entry on every launch so installations that
+  // used the old direct console entry are migrated to the headless launcher.
+  string startupError;
+  if (!setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, startupError)) {
+    setMessage("Unable to update Windows startup: " + startupError, 5);
+  }
   // Windows sign-in launches this process with --background. Keep that path
   // free of FTXUI so only the Scan R1 bridge and notification-area handler run.
   backgroundController_.start(startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
