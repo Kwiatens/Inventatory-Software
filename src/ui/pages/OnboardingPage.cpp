@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cctype>
+#include <cstdint>
 #include <ctime>
 
 namespace inventatory {
@@ -32,17 +33,20 @@ ftxui::Color onboardingGradientColor(int row) {
                            static_cast<uint8_t>(channel(0)));
 }
 
-ftxui::Element welcomeWordmark() {
-  // The block glyphs carry their own extrusion; the row colors add a quiet
-  // theme-aware blue gradient without introducing another visual treatment.
+}  // namespace
+
+ftxui::Element App::renderOnboardingWordmark() const {
+  // Keep the artwork in the source as Unicode code points so every terminal
+  // receives the same block glyphs, including the final A, T, O, R, and Y.
   const vector<string> lines = {
-      u8"\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
+      u8"\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
       u8"\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d",
-      u8"\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d",
-      u8"\u2588\u2588\u2551\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557  \u255a\u2588\u2588\u2554\u255d",
+      u8"\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d",
+      u8"\u2588\u2588\u2551\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557  \u255a\u2588\u2588\u2554\u255d",
       u8"\u2588\u2588\u2551\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551  \u2588\u2588\u2551   \u2588\u2588\u2551   \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551   \u2588\u2588\u2551",
       u8"\u255a\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d   \u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d    \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d",
   };
+
   ftxui::Elements rows;
   for (size_t row = 0; row < lines.size(); ++row) {
     rows.push_back(styledText(lines[row], onboardingGradientColor(static_cast<int>(row))));
@@ -50,25 +54,15 @@ ftxui::Element welcomeWordmark() {
   return ftxui::vbox(move(rows));
 }
 
-ftxui::Element renderWelcomeScreen() {
-  auto content = ftxui::vbox({
-      welcomeWordmark(),
-      ftxui::text(""),
-      uiHeaderText("Welcome to Inventatory", uiTitleColor()),
-      styledText("Let's get your workspace ready.", uiSecondaryText()),
-      ftxui::text(""),
-      onboardingPrompt("[ Enter ] Continue"),
-  });
-
+ftxui::Element App::renderOnboardingFrame(ftxui::Element content) const {
+  auto centeredContent = ftxui::vbox({renderOnboardingWordmark(), ftxui::text(""), move(content)});
   return ftxui::vbox({
              ftxui::filler(),
-             ftxui::hbox({ftxui::filler(), ftxui::center(move(content)), ftxui::filler()}),
+             ftxui::hbox({ftxui::filler(), ftxui::center(move(centeredContent)), ftxui::filler()}),
              ftxui::filler(),
          }) |
          ftxui::flex | ftxui::bgcolor(uiCanvasBg());
 }
-
-}  // namespace
 
 void App::advanceOnboarding() {
   onboardingStep_ = static_cast<OnboardingStep>(static_cast<int>(onboardingStep_) + 1);
@@ -88,28 +82,36 @@ void App::finishOnboarding() {
 }
 
 ftxui::Element App::renderOnboardingUi() const {
-  if (onboardingStep_ == OnboardingStep::Welcome) {
-    return renderWelcomeScreen();
-  }
-
   ftxui::Elements rows;
 
   switch (onboardingStep_) {
     case OnboardingStep::Welcome:
+      rows.push_back(uiHeaderText("Welcome to Inventatory", uiTitleColor()));
+      rows.push_back(styledText("Let's get your workspace ready.", uiSecondaryText()));
+      rows.push_back(onboardingPrompt("[ Enter ] Continue"));
       break;
     case OnboardingStep::DataFolder:
-      rows.push_back(uiHeaderText("Choose where inventory data lives", uiTitleColor()));
+      rows.push_back(uiHeaderText("Inventory data folder", uiTitleColor()));
       rows.push_back(styledText("Current folder: " + dataPath_.string(), uiSecondaryText()));
       rows.push_back(onboardingPrompt("[ Enter ] Use this folder   [ B ] Choose another"));
       break;
+    case OnboardingStep::BackgroundService:
+      rows.push_back(uiHeaderText("Run Inventatory in the background?", uiTitleColor()));
+      rows.push_back(styledText("Starts with Windows and stays available in the notification area.", uiSecondaryText()));
+      rows.push_back(onboardingPrompt("[ Y ] Enable   [ N ] Skip"));
+      break;
+    case OnboardingStep::ScanR1:
+      rows.push_back(uiHeaderText("Set up an Inventatory Scan R1?", uiTitleColor()));
+      rows.push_back(styledText("Have the scanner nearby, powered on, with Bluetooth enabled.", uiSecondaryText()));
+      rows.push_back(onboardingPrompt("[ Y ] Set up now   [ N ] Skip"));
+      break;
     case OnboardingStep::Complete:
-      rows.push_back(uiHeaderText("You're all set.", uiSuccessColor()));
+      rows.push_back(uiHeaderText("Your workspace is ready.", uiSuccessColor()));
       rows.push_back(onboardingPrompt("[ Enter ] Open Inventatory"));
       break;
   }
 
-  rows.push_back(ftxui::filler());
-  return ftxui::vbox(move(rows)) | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
+  return renderOnboardingFrame(ftxui::vbox(move(rows)));
 }
 
 void App::handleOnboardingKey(const KeyEvent& key) {
@@ -130,6 +132,22 @@ void App::handleOnboardingKey(const KeyEvent& key) {
           setMessage("Data folder updated", 3);
         }
       } else if (key.type == KeyType::Enter) {
+        advanceOnboarding();
+      }
+      return;
+    case OnboardingStep::BackgroundService:
+      if (ch == 'y' || ch == 'n') {
+        settingsDraft_ = settings_;
+        settingsDraft_.backgroundServiceEnabled = ch == 'y';
+        settingsDraft_.backgroundConsentAsked = true;
+        if (saveSettingsDraft()) advanceOnboarding();
+      }
+      return;
+    case OnboardingStep::ScanR1:
+      if (ch == 'y') {
+        returnToOnboardingAfterScan_ = true;
+        openInventatoryScanSetup();
+      } else if (ch == 'n') {
         advanceOnboarding();
       }
       return;

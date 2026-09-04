@@ -190,7 +190,7 @@ ftxui::Element App::renderUi() const {
   uiTargets_.reserve(512);
   // Fresh setup is intentionally a dedicated terminal surface. It must not
   // inherit any workspace navigation, operational state, or search chrome.
-  if (page_ == Page::Onboarding) {
+  if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
     return renderPageUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
   if (inventoryRecoveryRequired_) {

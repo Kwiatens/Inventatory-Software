@@ -94,7 +94,7 @@ class App {
     Review,
   };
 
-  enum class OnboardingStep { Welcome, DataFolder, Complete };
+  enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
   enum class SettingsCategory {
     General,
@@ -271,6 +271,8 @@ class App {
   ftxui::Element renderBomProjectUi() const;
   ftxui::Element renderHistoryUi() const;
   ftxui::Element renderSettingsUi() const;
+  ftxui::Element renderOnboardingWordmark() const;
+  ftxui::Element renderOnboardingFrame(ftxui::Element content) const;
   ftxui::Element renderOnboardingUi() const;
   std::string settingsCategoryName(SettingsCategory category) const;
   std::string stockDateFilterName(StockDateFilter filter) const;
@@ -509,6 +511,7 @@ class App {
   Page page_ = Page::Home;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
+  bool returnToOnboardingAfterScan_ = false;
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
   std::string searchQueryBeforeEdit_;
