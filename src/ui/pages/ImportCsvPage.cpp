@@ -274,7 +274,7 @@ void App::handleImportCsvKey(const KeyEvent& key) {
         (key.type == KeyType::Character && tolower(static_cast<unsigned char>(key.ch)) == 'c')) {
       if (importSyncCancelFlag_) importSyncCancelFlag_->store(true);
       importSyncCancelRequested_ = true;
-      setMessage("Cancelling after the current DigiKey request...", 4);
+      setMessage("Cancelling after the current DigiKey request", 4);
     }
     return;
   }
