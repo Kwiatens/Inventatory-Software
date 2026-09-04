@@ -109,7 +109,7 @@ ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg 
 // time(nullptr) is too coarse to pulse against.
 long long uiAnimationTicks();
 bool uiBlinkOn(int periodMs = 900);
-string uiAnimatedEllipsis(int intervalMs = 350);
+string uiLoadingSpinner(int intervalMs = 180);
 
 // Block-character progress bars. uiSplitProgressBar draws two adjacent
 // segments, used for the ready-versus-short project gauge.

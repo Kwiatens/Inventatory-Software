@@ -385,9 +385,7 @@ ftxui::Element App::renderBomProjectUi() const {
         if (found != project->enrichment.end()) {
           suggestion = found->second;
         } else if (bomEnrichmentFuture_.valid() && lineKey == bomEnrichmentActiveKey_) {
-          const auto phase = static_cast<int>(chrono::duration_cast<chrono::milliseconds>(
-                             chrono::steady_clock::now().time_since_epoch()).count() / 350 % 4);
-          suggestion = "Looking up" + string(static_cast<size_t>(phase), '.');
+          suggestion = "Looking up " + uiLoadingSpinner();
         } else if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), lineKey) !=
                    bomEnrichmentQueue_.end()) {
           suggestion = "In lookup queue";

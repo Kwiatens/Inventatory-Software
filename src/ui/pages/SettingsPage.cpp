@@ -741,7 +741,7 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(versionLine("Inventascan Hardware Version", "R1", string(), contentWidth));
     rows.push_back(ftxui::text(""));
 
-    const auto checkLabel = anythingChecking ? "Searching for updates" + uiAnimatedEllipsis()
+    const auto checkLabel = anythingChecking ? "Searching for updates " + uiLoadingSpinner()
                                              : "Check for updates";
     rows.push_back(buttonRow(target(uiPrimaryButton(checkLabel, !anythingChecking), "settings.updates.check",
                                                     UiTargetKind::Button,
@@ -1093,7 +1093,8 @@ ftxui::Element App::renderSettingsUi() const {
             uiWarnColor()));
       }
       const bool refreshEnabled = !refreshRunning && !settingsDirty_;
-      rows.push_back(buttonRow(target(uiPrimaryButton(refreshRunning ? "Refreshing..." : "Refresh inventory data",
+      rows.push_back(buttonRow(target(uiPrimaryButton(refreshRunning ? uiLoadingSpinner() + " Refreshing inventory data"
+                                                                      : "Refresh inventory data",
                                                         refreshEnabled),
                                         "settings.digikey.refresh", UiTargetKind::Button,
                                          [self] { self->beginDigiKeyRefresh(); }, refreshEnabled)));
