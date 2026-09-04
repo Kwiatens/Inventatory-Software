@@ -2562,8 +2562,11 @@ int main() {
   }
 
   {
-    assert(buildBackgroundStartupCommand(L"C:\\Program Files\\Inventatory\\inventatory.exe") ==
-           L"\"C:\\Program Files\\Inventatory\\inventatory.exe\" --background");
+    const auto executablePath = L"C:\\Program Files\\Inventatory\\inventatory.exe";
+    const auto launcherPath = buildBackgroundStartupLauncherPath(executablePath);
+    assert(launcherPath == L"C:\\Program Files\\Inventatory\\inventatory-background.exe");
+    assert(buildBackgroundStartupCommand(launcherPath) ==
+           L"\"C:\\Program Files\\Inventatory\\inventatory-background.exe\" --background");
   }
 
   {
