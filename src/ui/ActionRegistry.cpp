@@ -294,7 +294,7 @@ vector<App::Action> App::currentActions() const {
         add("cancel DigiKey sync", "Sync", "c", chr('c'), [self] {
           if (self->importSyncCancelFlag_) self->importSyncCancelFlag_->store(true);
           self->importSyncCancelRequested_ = true;
-          self->setMessage("Cancelling after the current DigiKey request...", 4);
+          self->setMessage("Cancelling after the current DigiKey request", 4);
         });
       } else if (importSyncPrompt_ && importSyncHasRun_) {
         if (!importSyncFailedItemIds_.empty()) {

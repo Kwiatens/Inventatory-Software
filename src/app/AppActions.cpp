@@ -1895,7 +1895,7 @@ void App::beginDigiKeyRefresh() {
     return;
   }
 
-  setMessage("Refreshing DigiKey data for " + to_string(digiKeyRefreshTotal_) + " inventory items...", 8);
+  setMessage("Refreshing DigiKey data for " + to_string(digiKeyRefreshTotal_) + " inventory items", 8);
   dirty_ = true;
 }
 
