@@ -155,9 +155,9 @@ void App::beginUpdateChecks() {
     started = true;
   }
 
-  setMessage(started ? (scannerPaired ? "Checking for software and scanner updates..."
-                                      : "Checking for software updates...")
-                     : "Already checking for updates...",
+  setMessage(started ? (scannerPaired ? "Checking for software and scanner updates"
+                                      : "Checking for software updates")
+                     : "Already checking for updates",
              4);
   dirty_ = true;
 }

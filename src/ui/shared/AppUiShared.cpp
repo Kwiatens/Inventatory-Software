@@ -290,10 +290,11 @@ bool uiBlinkOn(int periodMs) {
   return (uiAnimationTicks() / period) % 2 == 0;
 }
 
-string uiAnimatedEllipsis(int intervalMs) {
+string uiLoadingSpinner(int intervalMs) {
   const auto interval = max(1, intervalMs);
-  const auto phase = static_cast<int>((uiAnimationTicks() / interval) % 4);
-  return string(static_cast<size_t>(phase), '.');
+  static constexpr char kFrames[] = "/-\\|";
+  const auto phase = static_cast<size_t>((uiAnimationTicks() / interval) % (sizeof(kFrames) - 1));
+  return string(1, kFrames[phase]);
 }
 
 namespace {
