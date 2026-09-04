@@ -30,10 +30,11 @@ The minimum supported terminal is 100 by 30 cells. Smaller terminals show a
 resize notice instead of a clipped interface.
 
 Fresh-install setup is the sole shell exception. It uses a full-window,
-command-style terminal flow with no navigation, operational status, search, or
-action sheet. It confirms the data folder and leaves optional background mode,
-printer, vendor, and physical Inventatory Scan R1 setup for Settings. The normal
-Scan R1 setup page remains available after onboarding.
+centered terminal flow with the Inventatory wordmark and no navigation,
+operational status, search, or action sheet. It confirms the data folder, offers
+background mode and physical Inventatory Scan R1 setup, and leaves printer and
+vendor configuration for Settings. The normal Scan R1 setup page remains
+available after onboarding.
 
 Setup wizards show only task-specific instructions, inputs, selections, and
 actions. They do not add command-style headers, step counters, progress strips,
