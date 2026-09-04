@@ -19,11 +19,18 @@ using namespace std;
 namespace {
 
 constexpr long long kWizardCrossfadeDurationMs = 300;
-constexpr long long kWizardCrossfadeMidpointMs = kWizardCrossfadeDurationMs / 2;
+constexpr long long kWizardSubstepCrossfadeDurationMs = 600;
 constexpr int kWizardReservedContentHeight = 8;
 
 ftxui::Element onboardingPrompt(const string& text) {
   return styledText(text, uiLinkColor());
+}
+
+ftxui::Element onboardingChoicePrompt(char selectedOption, const string& first, const string& second) {
+  const auto firstColor = selectedOption == 'y' ? uiLinkColor() : uiMutedText();
+  const auto secondColor = selectedOption == 'n' ? uiLinkColor() : uiMutedText();
+  return ftxui::hbox({styledText("[ Y ] " + first, firstColor), styledText("   ", uiMutedText()),
+                      styledText("[ N ] " + second, secondColor)});
 }
 
 float clampUnit(float value) {
@@ -106,10 +113,13 @@ ftxui::Element App::renderOnboardingFrame(ftxui::Element content) const {
       ftxui::text(""),
       ftxui::hbox({ftxui::filler(), move(reservedContent), ftxui::filler()}),
   });
+  auto version = ftxui::hbox({ftxui::filler(), styledText("Inventatory v" + softwareVersion(), uiMutedText()),
+                              ftxui::filler()});
   return ftxui::vbox({
              ftxui::filler(),
              move(centeredContent),
              ftxui::filler(),
+             move(version),
          }) |
          ftxui::flex | ftxui::bgcolor(uiCanvasBg());
 }
@@ -148,12 +158,20 @@ ftxui::Element App::renderOnboardingContent() const {
     case OnboardingStep::BackgroundService:
       rows.push_back(uiHeaderText("Run Inventatory in the background?", uiTitleColor()));
       rows.push_back(styledText("Starts with Windows and stays available in the notification area.", uiSecondaryText()));
-      rows.push_back(onboardingPrompt("[ Y ] Enable   [ N ] Skip"));
+      if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && wizardSelectedOption_.has_value()) {
+        rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Enable", "Skip"));
+      } else {
+        rows.push_back(onboardingPrompt("[ Y ] Enable   [ N ] Skip"));
+      }
       break;
     case OnboardingStep::ScanR1:
       rows.push_back(uiHeaderText("Set up an Inventatory Scan R1?", uiTitleColor()));
       rows.push_back(styledText("Have the scanner nearby, powered on, with Bluetooth enabled.", uiSecondaryText()));
-      rows.push_back(onboardingPrompt("[ Y ] Set up now   [ N ] Skip"));
+      if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && wizardSelectedOption_.has_value()) {
+        rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Set up now", "Skip"));
+      } else {
+        rows.push_back(onboardingPrompt("[ Y ] Set up now   [ N ] Skip"));
+      }
       break;
     case OnboardingStep::Complete:
       rows.push_back(uiHeaderText("Your workspace is ready.", uiSuccessColor()));
@@ -179,13 +197,13 @@ ftxui::Element App::renderWizardUi() const {
   auto content = renderWizardContent();
   if (wizardTransition_.phase == WizardTransitionPhase::FadeOut) {
     const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
-    const auto visible = 1.0F - clampUnit(static_cast<float>(elapsed) /
-                                          static_cast<float>(kWizardCrossfadeMidpointMs));
+    const auto midpoint = wizardTransition_.durationMs / 2;
+    const auto visible = 1.0F - clampUnit(static_cast<float>(elapsed) / static_cast<float>(midpoint));
     content = fadeWizardContent(move(content), visible);
   } else if (wizardTransition_.phase == WizardTransitionPhase::FadeIn) {
     const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
-    const auto visible = clampUnit(static_cast<float>(elapsed - kWizardCrossfadeMidpointMs) /
-                                   static_cast<float>(kWizardCrossfadeMidpointMs));
+    const auto midpoint = wizardTransition_.durationMs / 2;
+    const auto visible = clampUnit(static_cast<float>(elapsed - midpoint) / static_cast<float>(midpoint));
     content = fadeWizardContent(move(content), visible);
   }
   return renderOnboardingFrame(move(content));
@@ -197,6 +215,9 @@ void App::beginWizardTransition(Page targetPage, OnboardingStep targetOnboarding
   if (wizardTransition_.phase != WizardTransitionPhase::None) return;
   wizardTransition_.phase = WizardTransitionPhase::FadeOut;
   wizardTransition_.startedAt = uiAnimationTicks();
+  wizardTransition_.durationMs = page_ == Page::ScanSetup || targetPage == Page::ScanSetup
+                                     ? kWizardSubstepCrossfadeDurationMs
+                                     : kWizardCrossfadeDurationMs;
   wizardTransition_.targetPage = targetPage;
   wizardTransition_.targetOnboardingStep = targetOnboardingStep;
   wizardTransition_.targetScanSetupStep = targetScanSetupStep;
@@ -227,11 +248,12 @@ void App::updateWizardTransition() {
   if (wizardTransition_.phase == WizardTransitionPhase::None) return;
 
   const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
-  if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && elapsed >= kWizardCrossfadeMidpointMs) {
+  const auto midpoint = wizardTransition_.durationMs / 2;
+  if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && elapsed >= midpoint) {
     applyWizardTransitionTarget();
     wizardTransition_.phase = WizardTransitionPhase::FadeIn;
   }
-  if (elapsed < kWizardCrossfadeDurationMs) {
+  if (elapsed < wizardTransition_.durationMs) {
     dirty_ = true;
     return;
   }
@@ -239,6 +261,7 @@ void App::updateWizardTransition() {
   wizardTransition_.phase = WizardTransitionPhase::None;
   wizardTransition_.startedAt = -1;
   auto buffered = move(bufferedWizardKey_);
+  wizardSelectedOption_.reset();
   dirty_ = true;
   if (buffered.has_value()) handleKey(*buffered);
 }
@@ -269,15 +292,20 @@ void App::handleOnboardingKey(const KeyEvent& key) {
         settingsDraft_ = settings_;
         settingsDraft_.backgroundServiceEnabled = ch == 'y';
         settingsDraft_.backgroundConsentAsked = true;
-        if (saveSettingsDraft()) advanceOnboarding();
+        if (saveSettingsDraft()) {
+          advanceOnboarding();
+          wizardSelectedOption_ = ch;
+        }
       }
       return;
     case OnboardingStep::ScanR1:
       if (ch == 'y') {
         returnToOnboardingAfterScan_ = true;
         openInventatoryScanSetup();
+        wizardSelectedOption_ = ch;
       } else if (ch == 'n') {
         advanceOnboarding();
+        wizardSelectedOption_ = ch;
       }
       return;
     case OnboardingStep::Complete:
