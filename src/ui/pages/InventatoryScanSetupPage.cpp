@@ -253,8 +253,7 @@ bool App::provisionSelectedBleSetupDevice() {
 }
 
 ftxui::Element App::renderInventatoryScanSetupUi() const {
-  const bool onboardingTerminal = returnToOnboardingAfterScan_;
-  const auto setupBackground = onboardingTerminal ? uiCanvasBg() : uiPanelLeftBg();
+  const auto setupBackground = uiPanelLeftBg();
 
   ftxui::Elements rows;
   switch (scanSetupStep_) {
@@ -340,7 +339,6 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
   }
 
   auto body = ftxui::vbox(move(rows)) | ftxui::bgcolor(setupBackground) | ftxui::flex;
-  if (onboardingTerminal) return body | ftxui::bgcolor(uiCanvasBg());
   return ftxui::window(ftxui::text(""), body) | ftxui::bgcolor(uiCanvasBg());
 }
 
@@ -377,13 +375,7 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
     bleWifiPassword_.clear();
     blePairingCode_.clear();
     inputBuffer_.clear();
-    if (returnToOnboardingAfterScan_) {
-      returnToOnboardingAfterScan_ = false;
-      onboardingStep_ = OnboardingStep::Complete;
-      changePage(Page::Onboarding);
-    } else {
-      changePage(Page::Home);
-    }
+    changePage(Page::Home);
   };
 
   if (key.type == KeyType::Escape) {
