@@ -73,7 +73,10 @@ try {
   Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
   Expand-Archive -LiteralPath $archive -DestinationPath $stagingRoot -Force
   $packageRoot = Join-Path $stagingRoot 'Inventatory'
-  if (-not (Test-Path (Join-Path $packageRoot 'inventatory.exe'))) { throw 'Release archive is missing Inventatory.' }
+  if (-not (Test-Path (Join-Path $packageRoot 'inventatory.exe')) -or
+      -not (Test-Path (Join-Path $packageRoot 'inventatory-background.exe'))) {
+    throw 'Release archive is missing Inventatory or its background launcher.'
+  }
   Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
   if (Test-Path $installRoot) { Move-Item -LiteralPath $installRoot -Destination $backupRoot }
   try {
@@ -85,6 +88,24 @@ try {
   }
 
   $exe = Join-Path $installRoot 'inventatory.exe'
+  $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+  $legacyStartupNames = @('InventatorySoftware', 'HIMSSoftware')
+  $hasLegacyStartup = $false
+  if (Test-Path $runKey) {
+    foreach ($legacyStartupName in $legacyStartupNames) {
+      if ($null -ne (Get-ItemProperty -Path $runKey -Name $legacyStartupName -ErrorAction SilentlyContinue)) {
+        $hasLegacyStartup = $true
+        break
+      }
+    }
+  }
+  if ($hasLegacyStartup) {
+    $launcher = Join-Path $installRoot 'inventatory-background.exe'
+    Set-ItemProperty -Path $runKey -Name 'Inventatory Background Service' -Value ('"{0}" --background' -f $launcher)
+    foreach ($legacyStartupName in $legacyStartupNames) {
+      Remove-ItemProperty -Path $runKey -Name $legacyStartupName -ErrorAction SilentlyContinue
+    }
+  }
   $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
   $consoleArguments = '"{0}" /k title Inventatory && "{1}"' -f $env:ComSpec, $exe
   $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
