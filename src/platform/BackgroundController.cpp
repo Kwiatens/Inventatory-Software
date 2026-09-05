@@ -2,12 +2,14 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include "platform/BackgroundController.h"
+#include "platform/StartupRegistration.h"
 
 #include <windows.h>
 #include <shellapi.h>
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace inventatory {
 
@@ -15,7 +17,8 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"InventatoryBackgroundControllerWindow";
 constexpr wchar_t kWindowTitle[] = L"Inventatory Background Controller";
-constexpr wchar_t kMutexName[] = L"Local\\InventatorySoftware.SingleInstance";
+constexpr wchar_t kInteractiveMutexName[] = L"Local\\InventatorySoftware.InteractiveInstance";
+constexpr wchar_t kBackgroundMutexName[] = L"Local\\InventatorySoftware.BackgroundService";
 constexpr UINT kTrayMessage = WM_APP + 41;
 constexpr UINT kHideMessage = WM_APP + 42;
 constexpr UINT kStopMessage = WM_APP + 43;
@@ -26,6 +29,25 @@ constexpr UINT kQuitCommand = 1002;
 
 BackgroundController* controllerFrom(HWND window) {
   return reinterpret_cast<BackgroundController*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+}
+
+bool mutexExists(const wchar_t* name) {
+  const HANDLE mutex = OpenMutexW(SYNCHRONIZE, FALSE, name);
+  if (mutex == nullptr) return false;
+  CloseHandle(mutex);
+  return true;
+}
+
+std::wstring currentExecutablePath() {
+  std::wstring path(MAX_PATH, L'\0');
+  DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+  while (length == path.size()) {
+    path.resize(path.size() * 2);
+    length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+  }
+  if (length == 0) return {};
+  path.resize(length);
+  return path;
 }
 
 bool consoleIsAvailable() {
@@ -87,6 +109,7 @@ LRESULT CALLBACK controllerWindowProc(HWND window, UINT message, WPARAM wParam, 
       if (controller != nullptr) controller->requestOpenFromTray();
       return 0;
     case kStopMessage:
+      if (controller != nullptr) controller->requestQuitFromTray();
       DestroyWindow(window);
       return 0;
     case WM_COMMAND:
@@ -121,8 +144,10 @@ BackgroundController::~BackgroundController() {
   if (instanceMutex_ != nullptr) CloseHandle(static_cast<HANDLE>(instanceMutex_));
 }
 
-bool BackgroundController::acquireSingleInstance() {
-  const HANDLE mutex = CreateMutexW(nullptr, TRUE, kMutexName);
+bool BackgroundController::acquireSingleInstance(bool backgroundMode) {
+  backgroundMode_ = backgroundMode;
+  const auto* mutexName = backgroundMode ? kBackgroundMutexName : kInteractiveMutexName;
+  const HANDLE mutex = CreateMutexW(nullptr, TRUE, mutexName);
   if (mutex == nullptr) return true;
   instanceMutex_ = mutex;
   return GetLastError() != ERROR_ALREADY_EXISTS;
@@ -133,8 +158,58 @@ bool BackgroundController::signalExistingInstance() const {
   return window != nullptr && PostMessageW(window, kRestoreMessage, 0, 0) != 0;
 }
 
+bool BackgroundController::backgroundServiceRunning() const {
+  return mutexExists(kBackgroundMutexName);
+}
+
+bool BackgroundController::interactiveInstanceRunning() const {
+  return mutexExists(kInteractiveMutexName);
+}
+
+bool BackgroundController::requestBackgroundServiceQuit() const {
+  const HWND window = FindWindowW(kWindowClass, kWindowTitle);
+  return window != nullptr && PostMessageW(window, kStopMessage, 0, 0) != 0;
+}
+
+bool BackgroundController::waitForBackgroundServiceToStop(int timeoutMs) const {
+  const auto start = GetTickCount64();
+  const auto timeout = timeoutMs < 0 ? 0ULL : static_cast<ULONGLONG>(timeoutMs);
+  while (backgroundServiceRunning()) {
+    if (GetTickCount64() - start >= timeout) return false;
+    Sleep(10);
+  }
+  return true;
+}
+
+bool BackgroundController::restartAsBackgroundService() {
+  if (backgroundMode_) return false;
+  const auto executablePath = currentExecutablePath();
+  if (executablePath.empty()) return false;
+  const auto launcherPath = buildBackgroundStartupLauncherPath(executablePath);
+  std::wstring commandLine = buildBackgroundStartupCommand(launcherPath);
+  std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+  mutableCommandLine.push_back(L'\0');
+
+  if (instanceMutex_ != nullptr) {
+    CloseHandle(static_cast<HANDLE>(instanceMutex_));
+    instanceMutex_ = nullptr;
+  }
+
+  STARTUPINFOW startupInfo{};
+  startupInfo.cb = sizeof(startupInfo);
+  PROCESS_INFORMATION processInfo{};
+  if (!CreateProcessW(launcherPath.c_str(), mutableCommandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                      nullptr, nullptr, &startupInfo, &processInfo)) {
+    return false;
+  }
+  CloseHandle(processInfo.hThread);
+  CloseHandle(processInfo.hProcess);
+  return true;
+}
+
 bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen) {
   if (!enabled) return true;
+  if (!backgroundMode_ && backgroundServiceRunning()) return true;
   if (enabled_.exchange(true)) return true;
   {
     std::lock_guard<std::mutex> lock(callbackMutex_);
