@@ -1,13 +1,17 @@
 # Inventatory-Software
 
-Inventatory is a Windows terminal application for local hardware inventory management and Scan R1 integration.
+Inventatory is a open-source, lightweight, terminal based hardware inventory tracking system.
+It is purpose build for PCB designers, but is also great for keeping track of regular hardware - like screws/fasteners etc.
 
-The normal `.\run.ps1` launch uses the classic Windows Console host
-(`conhost.exe`), which gives Inventatory its compact command-line presentation.
-For an optional Windows Terminal presentation, add the profile from
-[`docs/windows-terminal-profile.json`](docs/windows-terminal-profile.json) as an
-`Inventatory` profile, then use `.\run.ps1 -WindowsTerminal`. The Windows
-Terminal option requires that profile and JetBrains Mono is recommended for it.
+The whole system is **designed to be extreamly fast, and require as little user input as possible.**
+
+Inventatory system key features:
+- Automatic tracking of SMD components quantity and their exact physical in a 3D printable storage rack solution.
+- Direct integration with the most popular electronics part vendors (Like DigiKey).
+- DiY-able Hardware scanning device called 'Inventascan' - used for scanning vendor part bags, and Inventatory QR codes from the SMD tubes on the racks.
+- Integration with popular PCB CAD (KiCAD) - automatically compares your inventory with the BOM of your PCB, points out at what rack and exact rack slot each component lives.
+- ZPL Label Printer integration for the tubes that go on 3D printable storage racks.
+- Search by electrical parameters, not only by name! Electrical parameters are applied automatically too, from the vendor's API :)
 
 ## Public beta
 
