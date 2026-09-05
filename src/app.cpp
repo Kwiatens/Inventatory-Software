@@ -525,11 +525,13 @@ int App::run() {
   if (startInBackground_ && backgroundController_.interactiveInstanceRunning()) {
     running_ = false;
   }
-  // Rewrite the per-user startup entry on every launch so installations that
-  // used the old direct console entry are migrated to the headless launcher.
-  string startupError;
-  if (!setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, startupError)) {
-    setMessage("Unable to update Windows startup: " + startupError, 5);
+  // Rewrite the per-user startup entry after setup has recorded a background
+  // choice, so a fresh install never removes an existing entry prematurely.
+  if (settings_.backgroundConsentAsked || settings_.backgroundServiceEnabled) {
+    string startupError;
+    if (!setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, startupError)) {
+      setMessage("Unable to update Windows startup: " + startupError, 5);
+    }
   }
   // Windows sign-in launches this process with --background. Keep that path
   // free of FTXUI so only the Scan R1 bridge and notification-area handler run.
