@@ -18,8 +18,8 @@ using namespace std;
 
 namespace {
 
-constexpr long long kWizardCrossfadeDurationMs = 300;
-constexpr long long kWizardSubstepCrossfadeDurationMs = 600;
+constexpr long long kWizardCrossfadeDurationMs = 800;
+constexpr long long kWizardSubstepCrossfadeDurationMs = 1200;
 constexpr int kWizardReservedContentHeight = 8;
 
 ftxui::Element onboardingPrompt(const string& text) {
@@ -68,41 +68,50 @@ ftxui::Color onboardingGradientColor(int row) {
                            static_cast<uint8_t>(channel(0)));
 }
 
+ftxui::Element alignedOnboardingWordmark() {
+  // Keep each letter in a fixed-width cell. The diagonal rows are narrower
+  // than the top rows; composing them as one string pushes the final letters
+  // sideways as the row changes.
+  const vector<vector<string>> glyphs = {
+      {u8"\u2588\u2588\u2557", u8"\u2588\u2588\u2551", u8"\u2588\u2588\u2551", u8"\u2588\u2588\u2551", u8"\u2588\u2588\u2551", u8"\u255a\u2550\u255d"},
+      {u8"\u2588\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551", u8"\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551", u8"\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551", u8"\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551", u8"\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d"},
+      {u8"\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d", u8" \u255a\u2588\u2588\u2588\u2588\u2554\u255d ", u8"  \u255a\u2550\u2550\u2550\u255d  "},
+      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u255a\u2550\u2550\u2550\u2550\u2588\u2588\u2551", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551", u8"\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d"},
+      {u8"\u2588\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551", u8"\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551", u8"\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551", u8"\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551", u8"\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d"},
+      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u255a\u2550\u255d   "},
+      {u8" \u2588\u2588\u2588\u2588\u2588\u2557 ", u8"\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551", u8"\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551", u8"\u2588\u2588\u2551  \u2588\u2588\u2551", u8"\u255a\u2550\u255d  \u255a\u2550\u255d"},
+      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u255a\u2550\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u255a\u2550\u255d   "},
+      {u8" \u2588\u2588\u2588\u2588\u2588\u2588\u2557 ", u8"\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d", u8" \u255a\u2550\u2550\u2550\u2550\u2550\u255d "},
+      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d", u8"\u2588\u2588\u2554\u2550\u2550\u2550\u255d", u8"\u2588\u2588\u2551", u8"\u255a\u2550\u255d"},
+      {u8"\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d", u8" \u255a\u2588\u2588\u2588\u2588\u2554\u255d ", u8"  \u255a\u2588\u2588\u2554\u255d  ", u8"   \u2588\u2588\u2551   ", u8"   \u255a\u2550\u255d   "},
+  };
+
+  vector<int> glyphWidths;
+  glyphWidths.reserve(glyphs.size());
+  for (const auto& glyph : glyphs) {
+    int width = 0;
+    for (const auto& line : glyph) width = max(width, ftxui::string_width(line));
+    glyphWidths.push_back(width);
+  }
+
+  ftxui::Elements rows;
+  for (size_t row = 0; row < 6; ++row) {
+    string line;
+    for (size_t glyphIndex = 0; glyphIndex < glyphs.size(); ++glyphIndex) {
+      const auto& glyphLine = glyphs[glyphIndex][row];
+      line += glyphLine;
+      const auto padding = glyphWidths[glyphIndex] - ftxui::string_width(glyphLine);
+      if (padding > 0) line.append(static_cast<size_t>(padding), ' ');
+    }
+    rows.push_back(styledText(line, onboardingGradientColor(static_cast<int>(row))));
+  }
+  return ftxui::vbox(move(rows));
+}
+
 }  // namespace
 
 ftxui::Element App::renderOnboardingWordmark() const {
-  // Keep the supplied six-line artwork canonical and render each glyph as an
-  // individual terminal cell. This prevents variable row widths or terminal
-  // text merging from shifting the final T/O/R/Y sections.
-  const vector<string> lines = {
-      u8"\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557",
-      u8"\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d",
-      u8"\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2554\u255d",
-      u8"\u2588\u2588\u2551\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557  \u255a\u2588\u2588\u2554\u255d",
-      u8"\u2588\u2588\u2551\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551  \u2588\u2588\u2551   \u2588\u2588\u2551   \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551   \u2588\u2588\u2551",
-      u8"\u255a\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d   \u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d    \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d   \u255a\u2550\u255d",
-  };
-
-  int width = 0;
-  for (const auto& line : lines) width = max(width, ftxui::string_width(line));
-
-  ftxui::Elements rows;
-  for (size_t row = 0; row < lines.size(); ++row) {
-    const auto base = onboardingGradientColor(static_cast<int>(row));
-    ftxui::Elements cells;
-    for (const auto& glyph : ftxui::Utf8ToGlyphs(lines[row])) {
-      auto cell = styledText(glyph.empty() ? " " : glyph, base);
-      if (!glyph.empty() && ftxui::string_width(glyph) == 1) {
-        cell = cell | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 1);
-      }
-      cells.push_back(move(cell));
-    }
-    for (int cell = ftxui::string_width(lines[row]); cell < width; ++cell) {
-      cells.push_back(styledText(" ", base) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 1));
-    }
-    rows.push_back(ftxui::hbox(move(cells)));
-  }
-  return ftxui::vbox(move(rows));
+  return alignedOnboardingWordmark();
 }
 
 ftxui::Element App::renderOnboardingFrame(ftxui::Element content) const {
