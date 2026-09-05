@@ -162,7 +162,10 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     onboardingActive_ = true;
     page_ = Page::Onboarding;
   }
-  if (!inventoryRecoveryRequired_) {
+  const bool anotherInteractiveInstanceRunning =
+      startInBackground_ && backgroundController_.interactiveInstanceRunning();
+  const bool backgroundServiceAlreadyRunning = !startInBackground_ && backgroundController_.backgroundServiceRunning();
+  if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning) {
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                  appSettingsDirectory() / "inventatory-scan-replay.state");
 
@@ -519,6 +522,9 @@ int App::run() {
   ftxui::Terminal::SetColorSupport(ftxui::Terminal::Color::TrueColor);
 #endif
   running_ = true;
+  if (startInBackground_ && backgroundController_.interactiveInstanceRunning()) {
+    running_ = false;
+  }
   // Rewrite the per-user startup entry on every launch so installations that
   // used the old direct console entry are migrated to the headless launcher.
   string startupError;
@@ -541,6 +547,9 @@ int App::run() {
   backgroundController_.stop();
   mdnsService_.stop();
   server_.stop();
+  if (!startInBackground_ && settings_.backgroundServiceEnabled) {
+    backgroundController_.restartAsBackgroundService();
+  }
   return 0;
 }
 
@@ -565,6 +574,10 @@ void App::processBackgroundWork() {
 
 void App::runBackgroundLoop() {
   while (running_) {
+    if (backgroundController_.interactiveInstanceRunning()) {
+      running_ = false;
+      break;
+    }
     if (backgroundQuitRequested_.exchange(false)) {
       running_ = false;
       break;
