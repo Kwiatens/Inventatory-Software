@@ -19,8 +19,13 @@ class BackgroundController {
   BackgroundController() = default;
   ~BackgroundController();
 
-  bool acquireSingleInstance();
+  bool acquireSingleInstance(bool backgroundMode);
   bool signalExistingInstance() const;
+  bool backgroundServiceRunning() const;
+  bool interactiveInstanceRunning() const;
+  bool requestBackgroundServiceQuit() const;
+  bool waitForBackgroundServiceToStop(int timeoutMs) const;
+  bool restartAsBackgroundService();
   bool start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen = {});
   void stop();
   bool enabled() const;
@@ -37,6 +42,7 @@ class BackgroundController {
   std::atomic<bool> enabled_{false};
   std::atomic<HWND> trayWindow_{nullptr};
   void* instanceMutex_ = nullptr;
+  bool backgroundMode_ = false;
   std::thread trayThread_;
   mutable std::mutex callbackMutex_;
   Callback onQuit_;
