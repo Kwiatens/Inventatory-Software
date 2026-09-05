@@ -96,12 +96,11 @@ class App {
 
   enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
 
-  enum class WizardTransitionPhase { None, FadeOut, FadeIn };
+  enum class WizardTransitionPhase { None, SelectionHold, Blank };
 
   struct WizardTransition {
     WizardTransitionPhase phase = WizardTransitionPhase::None;
     long long startedAt = -1;
-    long long durationMs = 800;
     Page targetPage = Page::Onboarding;
     OnboardingStep targetOnboardingStep = OnboardingStep::Welcome;
     ScanSetupStep targetScanSetupStep = ScanSetupStep::Introduction;

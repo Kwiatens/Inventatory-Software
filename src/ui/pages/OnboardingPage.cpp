@@ -10,16 +10,14 @@
 #include <cstdint>
 #include <ctime>
 
-#include <ftxui/screen/string.hpp>
-
 namespace inventatory {
 
 using namespace std;
 
 namespace {
 
-constexpr long long kWizardCrossfadeDurationMs = 800;
-constexpr long long kWizardSubstepCrossfadeDurationMs = 1200;
+constexpr long long kWizardSelectionHoldDurationMs = 500;
+constexpr long long kWizardBlankDurationMs = 200;
 constexpr int kWizardReservedContentHeight = 8;
 
 ftxui::Element onboardingPrompt(const string& text) {
@@ -31,27 +29,6 @@ ftxui::Element onboardingChoicePrompt(char selectedOption, const string& first, 
   const auto secondColor = selectedOption == 'n' ? uiLinkColor() : uiMutedText();
   return ftxui::hbox({styledText("[ Y ] " + first, firstColor), styledText("   ", uiMutedText()),
                       styledText("[ N ] " + second, secondColor)});
-}
-
-float clampUnit(float value) {
-  return max(0.0F, min(1.0F, value));
-}
-
-ftxui::Color appearanceColorWithAlpha(AppearanceColorRole role, uint8_t alpha) {
-  const auto rgb = activeUiAppearance().colors[static_cast<size_t>(role)];
-  return ftxui::Color::RGBA(static_cast<uint8_t>((rgb >> 16) & 0xFFu),
-                            static_cast<uint8_t>((rgb >> 8) & 0xFFu),
-                            static_cast<uint8_t>(rgb & 0xFFu), alpha);
-}
-
-ftxui::Color wizardCanvasOverlay(float visibleContent) {
-  const auto alpha = static_cast<uint8_t>(255.0F * (1.0F - clampUnit(visibleContent)));
-  return appearanceColorWithAlpha(AppearanceColorRole::CanvasBg, alpha);
-}
-
-ftxui::Element fadeWizardContent(ftxui::Element content, float visibleContent) {
-  const auto overlay = wizardCanvasOverlay(visibleContent);
-  return ftxui::dbox({move(content), ftxui::filler() | ftxui::color(overlay) | ftxui::bgcolor(overlay)});
 }
 
 ftxui::Color onboardingGradientColor(int row) {
@@ -69,43 +46,21 @@ ftxui::Color onboardingGradientColor(int row) {
 }
 
 ftxui::Element alignedOnboardingWordmark() {
-  // Keep each letter in a fixed-width cell. The diagonal rows are narrower
-  // than the top rows; composing them as one string pushes the final letters
-  // sideways as the row changes.
-  const vector<vector<string>> glyphs = {
-      {u8"\u2588\u2588\u2557", u8"\u2588\u2588\u2551", u8"\u2588\u2588\u2551", u8"\u2588\u2588\u2551", u8"\u2588\u2588\u2551", u8"\u255a\u2550\u255d"},
-      {u8"\u2588\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551", u8"\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551", u8"\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551", u8"\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551", u8"\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d"},
-      {u8"\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d", u8" \u255a\u2588\u2588\u2588\u2588\u2554\u255d ", u8"  \u255a\u2550\u2550\u2550\u255d  "},
-      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u255a\u2550\u2550\u2550\u2550\u2588\u2588\u2551", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551", u8"\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d"},
-      {u8"\u2588\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551", u8"\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551", u8"\u2588\u2588\u2551\u255a\u2588\u2588\u2557\u2588\u2588\u2551", u8"\u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2551", u8"\u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u255d"},
-      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u255a\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u255a\u2550\u255d   "},
-      {u8" \u2588\u2588\u2588\u2588\u2588\u2557 ", u8"\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551", u8"\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551", u8"\u2588\u2588\u2551  \u2588\u2588\u2551", u8"\u255a\u2550\u255d  \u255a\u2550\u255d"},
-      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u255a\u2550\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255d", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u2588\u2588\u2551   ", u8"   \u255a\u2550\u255d   "},
-      {u8" \u2588\u2588\u2588\u2588\u2588\u2588\u2557 ", u8"\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u2588\u2588\u2551   \u2588\u2588\u2551", u8"\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d", u8" \u255a\u2550\u2550\u2550\u2550\u2550\u255d "},
-      {u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2557", u8"\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557", u8"\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d", u8"\u2588\u2588\u2554\u2550\u2550\u2550\u255d", u8"\u2588\u2588\u2551", u8"\u255a\u2550\u255d"},
-      {u8"\u2588\u2588\u2557   \u2588\u2588\u2557", u8"\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d", u8" \u255a\u2588\u2588\u2588\u2588\u2554\u255d ", u8"  \u255a\u2588\u2588\u2554\u255d  ", u8"   \u2588\u2588\u2551   ", u8"   \u255a\u2550\u255d   "},
+  const vector<string> wordmarkRows = {
+      u8"██╗███╗   ██╗██╗   ██╗███████╗███╗   ██╗████████╗ █████╗ ████████╗ ██████╗ ██████╗ ██╗   ██╗",
+      u8"██║████╗  ██║██║   ██║██╔════╝████╗  ██║╚══██╔══╝██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗╚██╗ ██╔╝",
+      u8"██║██╔██╗ ██║██║   ██║█████╗  ██╔██╗ ██║   ██║   ███████║   ██║   ██║   ██║██████╔╝ ╚████╔╝ ",
+      u8"██║██║╚██╗██║╚██╗ ██╔╝██╔══╝  ██║╚██╗██║   ██║   ██╔══██║   ██║   ██║   ██║██╔══██╗  ╚██╔╝  ",
+      u8"██║██║ ╚████║ ╚████╔╝ ███████╗██║ ╚████║   ██║   ██║  ██║   ██║   ╚██████╔╝██║  ██║   ██║   ",
+      u8"╚═╝╚═╝  ╚═══╝  ╚═══╝  ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ",
   };
 
-  vector<int> glyphWidths;
-  glyphWidths.reserve(glyphs.size());
-  for (const auto& glyph : glyphs) {
-    int width = 0;
-    for (const auto& line : glyph) width = max(width, ftxui::string_width(line));
-    glyphWidths.push_back(width);
+  ftxui::Elements renderedRows;
+  renderedRows.reserve(wordmarkRows.size());
+  for (size_t row = 0; row < wordmarkRows.size(); ++row) {
+    renderedRows.push_back(styledText(wordmarkRows[row], onboardingGradientColor(static_cast<int>(row))));
   }
-
-  ftxui::Elements rows;
-  for (size_t row = 0; row < 6; ++row) {
-    string line;
-    for (size_t glyphIndex = 0; glyphIndex < glyphs.size(); ++glyphIndex) {
-      const auto& glyphLine = glyphs[glyphIndex][row];
-      line += glyphLine;
-      const auto padding = glyphWidths[glyphIndex] - ftxui::string_width(glyphLine);
-      if (padding > 0) line.append(static_cast<size_t>(padding), ' ');
-    }
-    rows.push_back(styledText(line, onboardingGradientColor(static_cast<int>(row))));
-  }
-  return ftxui::vbox(move(rows));
+  return ftxui::vbox(move(renderedRows));
 }
 
 }  // namespace
@@ -167,7 +122,7 @@ ftxui::Element App::renderOnboardingContent() const {
     case OnboardingStep::BackgroundService:
       rows.push_back(uiHeaderText("Run Inventatory in the background?", uiTitleColor()));
       rows.push_back(styledText("Starts with Windows and stays available in the notification area.", uiSecondaryText()));
-      if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && wizardSelectedOption_.has_value()) {
+      if (wizardTransition_.phase == WizardTransitionPhase::SelectionHold && wizardSelectedOption_.has_value()) {
         rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Enable", "Skip"));
       } else {
         rows.push_back(onboardingPrompt("[ Y ] Enable   [ N ] Skip"));
@@ -176,7 +131,7 @@ ftxui::Element App::renderOnboardingContent() const {
     case OnboardingStep::ScanR1:
       rows.push_back(uiHeaderText("Set up an Inventatory Scan R1?", uiTitleColor()));
       rows.push_back(styledText("Have the scanner nearby, powered on, with Bluetooth enabled.", uiSecondaryText()));
-      if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && wizardSelectedOption_.has_value()) {
+      if (wizardTransition_.phase == WizardTransitionPhase::SelectionHold && wizardSelectedOption_.has_value()) {
         rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Set up now", "Skip"));
       } else {
         rows.push_back(onboardingPrompt("[ Y ] Set up now   [ N ] Skip"));
@@ -204,17 +159,7 @@ ftxui::Element App::renderWizardContent() const {
 
 ftxui::Element App::renderWizardUi() const {
   auto content = renderWizardContent();
-  if (wizardTransition_.phase == WizardTransitionPhase::FadeOut) {
-    const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
-    const auto midpoint = wizardTransition_.durationMs / 2;
-    const auto visible = 1.0F - clampUnit(static_cast<float>(elapsed) / static_cast<float>(midpoint));
-    content = fadeWizardContent(move(content), visible);
-  } else if (wizardTransition_.phase == WizardTransitionPhase::FadeIn) {
-    const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
-    const auto midpoint = wizardTransition_.durationMs / 2;
-    const auto visible = clampUnit(static_cast<float>(elapsed - midpoint) / static_cast<float>(midpoint));
-    content = fadeWizardContent(move(content), visible);
-  }
+  if (wizardTransition_.phase == WizardTransitionPhase::Blank) content = ftxui::text("");
   return renderOnboardingFrame(move(content));
 }
 
@@ -222,11 +167,9 @@ void App::beginWizardTransition(Page targetPage, OnboardingStep targetOnboarding
                                  ScanSetupStep targetScanSetupStep,
                                  bool targetReturnToOnboardingAfterScan) {
   if (wizardTransition_.phase != WizardTransitionPhase::None) return;
-  wizardTransition_.phase = WizardTransitionPhase::FadeOut;
+  wizardTransition_.phase = wizardSelectedOption_.has_value() ? WizardTransitionPhase::SelectionHold
+                                                                : WizardTransitionPhase::Blank;
   wizardTransition_.startedAt = uiAnimationTicks();
-  wizardTransition_.durationMs = page_ == Page::ScanSetup || targetPage == Page::ScanSetup
-                                     ? kWizardSubstepCrossfadeDurationMs
-                                     : kWizardCrossfadeDurationMs;
   wizardTransition_.targetPage = targetPage;
   wizardTransition_.targetOnboardingStep = targetOnboardingStep;
   wizardTransition_.targetScanSetupStep = targetScanSetupStep;
@@ -257,16 +200,23 @@ void App::updateWizardTransition() {
   if (wizardTransition_.phase == WizardTransitionPhase::None) return;
 
   const auto elapsed = max(0LL, uiAnimationTicks() - wizardTransition_.startedAt);
-  const auto midpoint = wizardTransition_.durationMs / 2;
-  if (wizardTransition_.phase == WizardTransitionPhase::FadeOut && elapsed >= midpoint) {
-    applyWizardTransitionTarget();
-    wizardTransition_.phase = WizardTransitionPhase::FadeIn;
+  if (wizardTransition_.phase == WizardTransitionPhase::SelectionHold) {
+    if (elapsed < kWizardSelectionHoldDurationMs) {
+      dirty_ = true;
+      return;
+    }
+    wizardSelectedOption_.reset();
+    wizardTransition_.phase = WizardTransitionPhase::Blank;
+    wizardTransition_.startedAt = uiAnimationTicks();
+    dirty_ = true;
+    return;
   }
-  if (elapsed < wizardTransition_.durationMs) {
+  if (elapsed < kWizardBlankDurationMs) {
     dirty_ = true;
     return;
   }
 
+  applyWizardTransitionTarget();
   wizardTransition_.phase = WizardTransitionPhase::None;
   wizardTransition_.startedAt = -1;
   auto buffered = move(bufferedWizardKey_);
@@ -302,19 +252,19 @@ void App::handleOnboardingKey(const KeyEvent& key) {
         settingsDraft_.backgroundServiceEnabled = ch == 'y';
         settingsDraft_.backgroundConsentAsked = true;
         if (saveSettingsDraft()) {
-          advanceOnboarding();
           wizardSelectedOption_ = ch;
+          advanceOnboarding();
         }
       }
       return;
     case OnboardingStep::ScanR1:
       if (ch == 'y') {
+        wizardSelectedOption_ = ch;
         returnToOnboardingAfterScan_ = true;
         openInventatoryScanSetup();
-        wizardSelectedOption_ = ch;
       } else if (ch == 'n') {
-        advanceOnboarding();
         wizardSelectedOption_ = ch;
+        advanceOnboarding();
       }
       return;
     case OnboardingStep::Complete:
