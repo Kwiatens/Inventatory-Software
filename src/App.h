@@ -101,7 +101,7 @@ class App {
   struct WizardTransition {
     WizardTransitionPhase phase = WizardTransitionPhase::None;
     long long startedAt = -1;
-    long long durationMs = 300;
+    long long durationMs = 800;
     Page targetPage = Page::Onboarding;
     OnboardingStep targetOnboardingStep = OnboardingStep::Welcome;
     ScanSetupStep targetScanSetupStep = ScanSetupStep::Introduction;
