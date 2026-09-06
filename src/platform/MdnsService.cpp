@@ -13,6 +13,18 @@
 namespace inventatory {
 
 #ifdef _WIN32
+namespace {
+
+bool isPrivateIpv4(IP4_ADDRESS address) {
+  const auto hostOrder = ntohl(address);
+  const auto first = (hostOrder >> 24U) & 0xffU;
+  const auto second = (hostOrder >> 16U) & 0xffU;
+  return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
+         (first == 192U && second == 168U) || (first == 169U && second == 254U);
+}
+
+}  // namespace
+
 void WINAPI MdnsService::registrationComplete(DWORD status, PVOID context, PDNS_SERVICE_INSTANCE) {
   auto* service = static_cast<MdnsService*>(context);
   if (service == nullptr) return;
@@ -26,7 +38,7 @@ void WINAPI MdnsService::registrationComplete(DWORD status, PVOID context, PDNS_
 
 bool MdnsService::waitForRegistrationCompletion(std::chrono::milliseconds timeout) {
   std::unique_lock<std::mutex> lock(completionMutex_);
-  if (!completionChanged_.wait_for(lock, timeout, [this] { return completionReceived_; })) return true;
+  if (!completionChanged_.wait_for(lock, timeout, [this] { return completionReceived_; })) return false;
   return completionStatus_ == ERROR_SUCCESS;
 }
 #endif
@@ -52,7 +64,7 @@ bool MdnsService::start(std::uint16_t port) {
     for (auto* address = resolved; address != nullptr; address = address->ai_next) {
       const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(address->ai_addr);
       const auto hostOrder = ntohl(ipv4->sin_addr.S_un.S_addr);
-      if (hostOrder != 0U && (hostOrder >> 24U) != 127U) {
+      if (hostOrder != 0U && (hostOrder >> 24U) != 127U && isPrivateIpv4(ipv4->sin_addr.S_un.S_addr)) {
         ipv4Address = ipv4->sin_addr.S_un.S_addr;
         haveIpv4Address = true;
         break;
@@ -65,7 +77,15 @@ bool MdnsService::start(std::uint16_t port) {
   instance_ = DnsServiceConstructInstance(L"Inventatory._inventatory._tcp.local", wideHost.c_str(),
                                           haveIpv4Address ? &ipv4Address : nullptr, nullptr, port, 0, 0,
                                           1, keys, values);
-  if (instance_ == nullptr) return false;
+  // mDNS is a local-network discovery mechanism.  Do not publish a service
+  // instance that has no private LAN address (for example on a public/VPN-only
+  // host), even though the HTTP listener may still be reachable by an address
+  // known to the user.
+  if (instance_ == nullptr || !haveIpv4Address) {
+    if (instance_ != nullptr) DnsServiceFreeInstance(instance_);
+    instance_ = nullptr;
+    return false;
+  }
   request_ = {};
   request_.Version = DNS_QUERY_REQUEST_VERSION1;
   request_.InterfaceIndex = 0;
@@ -85,6 +105,8 @@ bool MdnsService::start(std::uint16_t port) {
     return false;
   }
   if (status == DNS_REQUEST_PENDING && !waitForRegistrationCompletion(std::chrono::seconds(2))) {
+    DnsServiceDeRegister(&request_, nullptr);
+    waitForRegistrationCompletion(std::chrono::seconds(2));
     DnsServiceFreeInstance(instance_);
     instance_ = nullptr;
     request_ = {};
@@ -100,7 +122,7 @@ bool MdnsService::start(std::uint16_t port) {
 
 void MdnsService::stop() {
 #ifdef _WIN32
-  if (running_ && instance_ != nullptr) {
+  if (instance_ != nullptr) {
     {
       std::lock_guard<std::mutex> lock(completionMutex_);
       completionReceived_ = false;
