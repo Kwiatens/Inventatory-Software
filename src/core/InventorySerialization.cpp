@@ -243,9 +243,6 @@ bool deserializeActivity(const string& line, ActivityEntry& entry) {
 }
 
 bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activities) {
-  // Loading a different workspace must not retain entries from the previous
-  // workspace when its optional activity file is missing or invalid.
-  activities.clear();
   if (!activityFileWithinLimit(path)) return false;
   ifstream file(path);
   if (!file) {
@@ -262,9 +259,8 @@ bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activit
     }
 
     ActivityEntry entry;
-    if (deserializeActivity(line, entry)) {
-      if (validActivity(entry)) loaded.push_back(move(entry));
-    }
+    if (!deserializeActivity(line, entry) || !validActivity(entry)) return false;
+    loaded.push_back(move(entry));
   }
 
   if (file.bad()) return false;
