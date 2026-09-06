@@ -891,24 +891,36 @@ bool App::stockDateFilterMatches(const InventoryItem& item) const {
   return true;
 }
 
-vector<size_t> App::filteredIndices() const {
-  const auto queryMatches = filterItems(store_.items(), searchQuery_, store_.racks(), settings_.lowStockThreshold,
-                                        settings_.physicalValueTolerances);
-  vector<size_t> indices;
-  indices.reserve(queryMatches.size());
-  for (const auto index : queryMatches) {
-    if (stockDateFilterMatches(store_.items()[index])) indices.push_back(index);
-  }
-  sort(indices.begin(), indices.end(), [&](size_t lhs, size_t rhs) {
+vector<InventorySearchMatch> App::stockSearchMatches() const {
+  auto matches = closestSearchActive_
+                     ? findClosestPhysicalValues(store_.items(), closestSearchQuery_)
+                     : rankedFilterItems(store_.items(), searchQuery_, store_.racks(), settings_.lowStockThreshold);
+
+  if (closestSearchActive_) return matches;
+
+  matches.erase(remove_if(matches.begin(), matches.end(), [&](const InventorySearchMatch& match) {
+                  return !stockDateFilterMatches(store_.items()[match.itemIndex]);
+                }),
+                matches.end());
+
+  const bool valueRanked = any_of(matches.begin(), matches.end(), [](const InventorySearchMatch& match) {
+    return match.hasPhysicalComparison;
+  });
+  const auto bandRank = [](PhysicalValueMatchBand band) {
+    switch (band) {
+      case PhysicalValueMatchBand::Exact: return 0;
+      case PhysicalValueMatchBand::Workable: return 1;
+      case PhysicalValueMatchBand::Possible: return 2;
+      case PhysicalValueMatchBand::None: return 3;
+    }
+    return 3;
+  };
+  const auto fallbackLess = [&](size_t lhs, size_t rhs) {
     const auto& left = store_.items()[lhs];
     const auto& right = store_.items()[rhs];
     if (stockSortOrder_ == StockSortOrder::Quantity && left.quantity != right.quantity) {
       return left.quantity > right.quantity;
     }
-    // Name sorting groups by category first so the stock list renders one
-    // contiguous run per category behind a single group header. Without this a
-    // category reappears whenever part names interleave (diodes and MOSFETs are
-    // both Discrete Semiconductor Products).
     if (stockSortOrder_ != StockSortOrder::Quantity) {
       const auto leftCategory = toLower(displayCategory(left.category));
       const auto rightCategory = toLower(displayCategory(right.category));
@@ -922,17 +934,39 @@ vector<size_t> App::filteredIndices() const {
       return stockSortOrder_ == StockSortOrder::Za ? leftName > rightName : leftName < rightName;
     }
     return left.id < right.id;
+  };
+
+  sort(matches.begin(), matches.end(), [&](const InventorySearchMatch& lhs, const InventorySearchMatch& rhs) {
+    if (valueRanked) {
+      const auto leftBand = bandRank(lhs.band);
+      const auto rightBand = bandRank(rhs.band);
+      if (leftBand != rightBand) return leftBand < rightBand;
+      if (lhs.hasPhysicalComparison && rhs.hasPhysicalComparison &&
+          lhs.relativeDifference != rhs.relativeDifference) {
+        return lhs.relativeDifference < rhs.relativeDifference;
+      }
+    }
+    return fallbackLess(lhs.itemIndex, rhs.itemIndex);
   });
+  return matches;
+}
+
+vector<size_t> App::filteredIndices() const {
+  vector<size_t> indices;
+  const auto matches = stockSearchMatches();
+  indices.reserve(matches.size());
+  for (const auto& match : matches) indices.push_back(match.itemIndex);
   return indices;
 }
 
 size_t App::selectedIndex() const {
-  const auto filtered = filteredIndices();
-  if (filtered.empty()) {
+  const auto matches = stockSearchMatches();
+  if (matches.empty()) {
     return numeric_limits<size_t>::max();
   }
-  const auto position = min(selectedPosition_, filtered.size() - 1);
-  return filtered[position];
+  const auto position = closestSearchActive_ ? min(closestSelectedPosition_, matches.size() - 1)
+                                             : min(selectedPosition_, matches.size() - 1);
+  return matches[position].itemIndex;
 }
 
 InventoryItem* App::selectedItem() {
@@ -952,27 +986,33 @@ const InventoryItem* App::selectedItem() const {
 }
 
 void App::syncSelectionToFilter() {
-  const auto filtered = filteredIndices();
-  if (filtered.empty()) {
-    selectedPosition_ = 0;
+  const auto matches = stockSearchMatches();
+  if (matches.empty()) {
+    if (closestSearchActive_) closestSelectedPosition_ = 0;
+    else selectedPosition_ = 0;
     return;
   }
-  if (selectedPosition_ >= filtered.size()) {
-    selectedPosition_ = filtered.size() - 1;
+  if (closestSearchActive_) {
+    if (closestSelectedPosition_ >= matches.size()) closestSelectedPosition_ = matches.size() - 1;
+  } else if (selectedPosition_ >= matches.size()) {
+    selectedPosition_ = matches.size() - 1;
   }
   dirty_ = true;
 }
 
 void App::moveSelection(int delta) {
-  const auto filtered = filteredIndices();
-  if (filtered.empty()) {
-    selectedPosition_ = 0;
+  const auto matches = stockSearchMatches();
+  if (matches.empty()) {
+    if (closestSearchActive_) closestSelectedPosition_ = 0;
+    else selectedPosition_ = 0;
     return;
   }
 
-  const auto current = static_cast<int>(min(selectedPosition_, filtered.size() - 1));
-  const auto next = clamp(current + delta, 0, static_cast<int>(filtered.size() - 1));
-  selectedPosition_ = static_cast<size_t>(next);
+  const auto currentPosition = closestSearchActive_ ? closestSelectedPosition_ : selectedPosition_;
+  const auto current = static_cast<int>(min(currentPosition, matches.size() - 1));
+  const auto next = clamp(current + delta, 0, static_cast<int>(matches.size() - 1));
+  if (closestSearchActive_) closestSelectedPosition_ = static_cast<size_t>(next);
+  else selectedPosition_ = static_cast<size_t>(next);
   dirty_ = true;
 }
 
@@ -1069,6 +1109,11 @@ void App::changePage(Page page) {
   }
   page_ = page;
   inputMode_ = InputMode::None;
+  if (page != Page::Stock) {
+    closestSearchActive_ = false;
+    closestSearchQuery_.clear();
+    closestSelectedPosition_ = 0;
+  }
   focusedTarget_ = -1;
   cancelDeleteConfirmation();
   if (page != Page::Racks) {
@@ -1497,10 +1542,33 @@ void App::autoAssignSelectedRackItem() {
 
 void App::startSearch() {
   page_ = Page::Stock;
+  closestSearchActive_ = false;
+  closestSearchQuery_.clear();
+  closestSelectedPosition_ = 0;
   inputMode_ = InputMode::Search;
   searchQueryBeforeEdit_ = searchQuery_;
   inputBuffer_ = searchQuery_;
   setMessage("Type to filter immediately; Enter keeps it, Esc restores the previous filter", 3);
+}
+
+void App::startClosestSearch() {
+  page_ = Page::Stock;
+  closestSearchActive_ = true;
+  inputMode_ = InputMode::ClosestSearch;
+  inputBuffer_ = closestSearchQuery_;
+  closestSelectedPosition_ = 0;
+  setMessage("Enter a physical value; results are ranked across the whole database", 4);
+  dirty_ = true;
+}
+
+void App::clearClosestSearch() {
+  closestSearchActive_ = false;
+  closestSearchQuery_.clear();
+  closestSelectedPosition_ = 0;
+  if (inputMode_ == InputMode::ClosestSearch) inputMode_ = InputMode::None;
+  inputBuffer_.clear();
+  syncSelectionToFilter();
+  dirty_ = true;
 }
 
 void App::cancelInput() {
@@ -2071,6 +2139,7 @@ void App::deleteQuickLabelPreset() {
 }
 
 void App::openStockFilterPanel() {
+  if (closestSearchActive_) return;
   inputMode_ = InputMode::StockFilter;
   stockDateFilterSubmenuOpen_ = false;
   stockFilterSelection_ = stockDateFilter_ != StockDateFilter::All ? 0

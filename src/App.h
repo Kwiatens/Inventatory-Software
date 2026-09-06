@@ -115,7 +115,6 @@ class App {
     QuickLabels,
     InventatoryScan,
     DigiKey,
-    Search,
   };
 
   enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
@@ -136,6 +135,7 @@ class App {
   enum class InputMode {
     None,
     Search,
+    ClosestSearch,
     EditFieldMenu,
     EditValue,
     RackRename,
@@ -376,6 +376,7 @@ class App {
   ftxui::Element renderDeviceDebugConsoleUi() const;
 
   std::vector<size_t> filteredIndices() const;
+  std::vector<InventorySearchMatch> stockSearchMatches() const;
   size_t selectedIndex() const;
   InventoryItem* selectedItem();
   const InventoryItem* selectedItem() const;
@@ -437,6 +438,9 @@ class App {
   void applyStockDateFilter(StockDateFilter filter);
   void applyStockSortOrder(StockSortOrder order);
   void startSearch();
+  void startClosestSearch();
+  void handleClosestSearchKey(const KeyEvent& key);
+  void clearClosestSearch();
   void cancelInput();
   void beginEditCurrentItem(bool createNew);
   void beginEditImportCandidate();
@@ -538,6 +542,7 @@ class App {
   InputMode inputMode_ = InputMode::None;
   std::string searchQuery_;
   std::string searchQueryBeforeEdit_;
+  std::string closestSearchQuery_;
   std::string inputBuffer_;
   StockDateFilter stockDateFilter_ = StockDateFilter::All;
   StockSortOrder stockSortOrder_ = StockSortOrder::Az;
@@ -561,6 +566,8 @@ class App {
   time_t messageUntil_ = 0;
   long long messageFlashStartedAt_ = -1;
   size_t selectedPosition_ = 0;
+  size_t closestSelectedPosition_ = 0;
+  bool closestSearchActive_ = false;
   size_t stockScroll_ = 0;
   size_t detailScroll_ = 0;
   DashboardList dashboardList_ = DashboardList::Warnings;
