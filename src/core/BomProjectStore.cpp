@@ -33,20 +33,7 @@ map<string, string> deserializeBomMap(const string& value) {
 namespace {
 
 bool ensureBomProjectSchema(SqliteConnection& connection) {
-  return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_bom_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      source_path TEXT NOT NULL,
-      boards INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL DEFAULT 0,
-      last_opened INTEGER NOT NULL DEFAULT 0,
-      last_built INTEGER NOT NULL DEFAULT 0,
-      bom_text TEXT NOT NULL,
-      overrides TEXT NOT NULL DEFAULT '',
-      enrichment TEXT NOT NULL DEFAULT ''
-    )
-  )SQL");
+  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool insertProject(SqliteConnection& connection, const BomProject& project) {
@@ -95,21 +82,21 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
     return false;
   }
 
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     BomProject project;
     project.id = sqliteText(statement.stmt, 0);
     project.name = sqliteText(statement.stmt, 1);
     project.sourcePath = sqliteText(statement.stmt, 2);
-    project.boards = max(1, sqliteApi().column_int(statement.stmt, 3));
-    project.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 4));
-    project.lastOpened = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 5));
-    project.lastBuilt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 6));
+    if (!sqliteInt32(statement.stmt, 3, project.boards) || project.boards <= 0 ||
+        !sqliteTime(statement.stmt, 4, project.createdAt) || !sqliteTime(statement.stmt, 5, project.lastOpened) ||
+        !sqliteTime(statement.stmt, 6, project.lastBuilt)) return false;
     project.bomText = sqliteText(statement.stmt, 7);
     project.overrides = deserializeBomMap(sqliteText(statement.stmt, 8));
     project.enrichment = deserializeBomMap(sqliteText(statement.stmt, 9));
     projects.push_back(move(project));
   }
-  return true;
+  return stepResult == SQLITE_DONE;
 #else
   (void)databasePath;
   return false;

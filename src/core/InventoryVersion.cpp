@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -137,47 +138,7 @@ bool sameRack(const InventatoryRack& lhs, const InventatoryRack& rhs) {
 #ifdef _WIN32
 
 bool ensureInventoryCommitSchema(SqliteConnection& connection) {
-  if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_inventory_commits (
-      commit_id TEXT PRIMARY KEY,
-      sequence INTEGER NOT NULL UNIQUE,
-      parent_id TEXT NOT NULL DEFAULT '',
-      committed_at INTEGER NOT NULL,
-      source TEXT NOT NULL,
-      reference TEXT NOT NULL DEFAULT '',
-      message TEXT NOT NULL,
-      checkpoint INTEGER NOT NULL DEFAULT 0,
-      corrective INTEGER NOT NULL DEFAULT 0,
-      reverted_commit_id TEXT NOT NULL DEFAULT '',
-      changed_item_count INTEGER NOT NULL DEFAULT 0,
-      changed_rack_count INTEGER NOT NULL DEFAULT 0,
-      snapshot_version INTEGER NOT NULL DEFAULT 1
-    )
-  )SQL")) {
-    return false;
-  }
-  if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_inventory_commit_items (
-      commit_id TEXT NOT NULL,
-      item_id TEXT NOT NULL,
-      item_data TEXT NOT NULL,
-      PRIMARY KEY (commit_id, item_id)
-    )
-  )SQL")) {
-    return false;
-  }
-  if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_inventory_commit_racks (
-      commit_id TEXT NOT NULL,
-      rack_id TEXT NOT NULL,
-      rack_data TEXT NOT NULL,
-      PRIMARY KEY (commit_id, rack_id)
-    )
-  )SQL")) {
-    return false;
-  }
-  return execSql(connection, "CREATE INDEX IF NOT EXISTS idx_inventatory_inventory_commits_sequence "
-                            "ON inventatory_inventory_commits(sequence DESC)");
+  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryItem>& items,
@@ -193,9 +154,15 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
 
   string parentId;
   uint64_t sequence = 1;
-  if (sqliteApi().step(latestStatement.stmt) == SQLITE_ROW) {
+  const int latestStep = sqliteApi().step(latestStatement.stmt);
+  if (latestStep == SQLITE_ROW) {
     parentId = sqliteText(latestStatement.stmt, 0);
-    sequence = static_cast<uint64_t>(sqliteApi().column_int64(latestStatement.stmt, 1)) + 1;
+    if (!sqliteUInt64(latestStatement.stmt, 1, sequence) || sequence >= static_cast<uint64_t>(numeric_limits<sqlite3_int64>::max())) {
+      return false;
+    }
+    ++sequence;
+  } else if (latestStep != SQLITE_DONE) {
+    return false;
   }
 
   InventoryCommit next;
@@ -286,16 +253,16 @@ bool readCommitSummary(SqliteConnection& connection, const string& id, Inventory
   if (sqliteApi().step(statement.stmt) != SQLITE_ROW) return false;
   commit.id = sqliteText(statement.stmt, 0);
   commit.parentId = sqliteText(statement.stmt, 1);
-  commit.sequence = static_cast<uint64_t>(sqliteApi().column_int64(statement.stmt, 2));
-  commit.timestamp = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 3));
+  if (!sqliteUInt64(statement.stmt, 2, commit.sequence) || commit.sequence == 0 ||
+      !sqliteTime(statement.stmt, 3, commit.timestamp)) return false;
   commit.source = sqliteText(statement.stmt, 4);
   commit.reference = sqliteText(statement.stmt, 5);
   commit.message = sqliteText(statement.stmt, 6);
   commit.checkpoint = sqliteApi().column_int(statement.stmt, 7) != 0;
   commit.corrective = sqliteApi().column_int(statement.stmt, 8) != 0;
   commit.revertedCommitId = sqliteText(statement.stmt, 9);
-  commit.changedItemCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 10));
-  commit.changedRackCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 11));
+  if (!sqliteSize(statement.stmt, 10, commit.changedItemCount) ||
+      !sqliteSize(statement.stmt, 11, commit.changedRackCount)) return false;
   return true;
 }
 
@@ -472,16 +439,29 @@ bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryS
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection)) return false;
 
+  // Hold the write lock before checking and creating the baseline.  The old
+  // check-then-BEGIN sequence allowed two first writers to both observe an
+  // empty history and race their initial snapshots.
+  if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
+
   SqliteStatement countStatement;
   if (sqliteApi().prepare_v2(connection.db, "SELECT COUNT(*) FROM inventatory_inventory_commits", -1,
                              &countStatement.stmt, nullptr) != SQLITE_OK) {
+    execSql(connection, "ROLLBACK");
     return false;
   }
-  if (sqliteApi().step(countStatement.stmt) == SQLITE_ROW && sqliteApi().column_int64(countStatement.stmt, 0) > 0) {
+  if (sqliteApi().step(countStatement.stmt) != SQLITE_ROW || sqliteApi().column_type(countStatement.stmt, 0) != SQLITE_INTEGER) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
+  if (sqliteApi().column_int64(countStatement.stmt, 0) > 0) {
+    if (!execSql(connection, "COMMIT")) {
+      execSql(connection, "ROLLBACK");
+      return false;
+    }
     return true;
   }
 
-  if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
   InventoryCommitDraft draft;
   draft.source = "system";
   draft.message = "Initial inventory";
@@ -518,16 +498,16 @@ bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>&
     InventoryCommit commit;
     commit.id = sqliteText(statement.stmt, 0);
     commit.parentId = sqliteText(statement.stmt, 1);
-    commit.sequence = static_cast<uint64_t>(sqliteApi().column_int64(statement.stmt, 2));
-    commit.timestamp = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 3));
+    if (!sqliteUInt64(statement.stmt, 2, commit.sequence) || commit.sequence == 0 ||
+        !sqliteTime(statement.stmt, 3, commit.timestamp)) return false;
     commit.source = sqliteText(statement.stmt, 4);
     commit.reference = sqliteText(statement.stmt, 5);
     commit.message = sqliteText(statement.stmt, 6);
     commit.checkpoint = sqliteApi().column_int(statement.stmt, 7) != 0;
     commit.corrective = sqliteApi().column_int(statement.stmt, 8) != 0;
     commit.revertedCommitId = sqliteText(statement.stmt, 9);
-    commit.changedItemCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 10));
-    commit.changedRackCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 11));
+    if (!sqliteSize(statement.stmt, 10, commit.changedItemCount) ||
+        !sqliteSize(statement.stmt, 11, commit.changedRackCount)) return false;
     commits.push_back(move(commit));
   }
   return stepResult == SQLITE_DONE;
