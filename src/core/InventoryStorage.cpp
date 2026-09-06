@@ -21,62 +21,7 @@ using namespace std;
 namespace {
 
 bool ensureInventatoryTableSchema(SqliteConnection& connection) {
-  if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_items (
-      id TEXT PRIMARY KEY,
-      part_name TEXT NOT NULL,
-      manufacturer TEXT NOT NULL,
-      category TEXT NOT NULL,
-      quantity INTEGER NOT NULL,
-      reorder_threshold INTEGER NOT NULL,
-      location TEXT NOT NULL,
-      tags TEXT NOT NULL,
-      parameters TEXT NOT NULL,
-      notes TEXT NOT NULL,
-      label_override TEXT NOT NULL DEFAULT '',
-      vendor_provider TEXT NOT NULL DEFAULT '',
-      vendor_product_number TEXT NOT NULL DEFAULT '',
-      vendor_manufacturer_part_number TEXT NOT NULL DEFAULT '',
-      vendor_category_id TEXT NOT NULL DEFAULT '',
-      vendor_category_path TEXT NOT NULL DEFAULT '',
-      vendor_title TEXT NOT NULL DEFAULT '',
-      vendor_detailed_description TEXT NOT NULL DEFAULT '',
-      vendor_parameters TEXT NOT NULL DEFAULT '',
-      vendor_product_url TEXT NOT NULL DEFAULT '',
-      vendor_locale TEXT NOT NULL DEFAULT '',
-      digikey_part_number TEXT NOT NULL,
-      datasheet_url TEXT NOT NULL,
-      product_url TEXT NOT NULL,
-      sync_status TEXT NOT NULL,
-      sku TEXT NOT NULL,
-      last_updated INTEGER NOT NULL,
-      inventatory_id TEXT NOT NULL DEFAULT '',
-      created_at INTEGER NOT NULL DEFAULT 0,
-      machine_code TEXT NOT NULL DEFAULT '',
-      rack_id TEXT NOT NULL DEFAULT '',
-      rack_slot TEXT NOT NULL DEFAULT '',
-      rack_assignment TEXT NOT NULL DEFAULT 'automatic'
-    )
-  )SQL")) {
-    return false;
-  }
-
-  if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_racks (
-      id TEXT PRIMARY KEY,
-      code TEXT NOT NULL UNIQUE,
-      component_type TEXT NOT NULL,
-      rows_count INTEGER NOT NULL DEFAULT 5,
-      columns_count INTEGER NOT NULL DEFAULT 5,
-      created_at INTEGER NOT NULL DEFAULT 0
-    )
-  )SQL")) return false;
-  if (!execSql(connection, R"SQL(
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_inventatory_items_rack_slot
-    ON inventatory_items(rack_id, rack_slot)
-    WHERE rack_id <> '' AND rack_slot <> ''
-  )SQL")) return false;
-  return true;
+  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool loadRacks(SqliteConnection& connection, vector<InventatoryRack>& racks) {
@@ -90,9 +35,11 @@ bool loadRacks(SqliteConnection& connection, vector<InventatoryRack>& racks) {
     rack.id = sqliteText(statement.stmt, 0);
     rack.code = sqliteText(statement.stmt, 1);
     rack.componentType = sqliteText(statement.stmt, 2);
-    rack.rows = sqliteApi().column_int(statement.stmt, 3);
-    rack.columns = sqliteApi().column_int(statement.stmt, 4);
-    rack.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 5));
+    if (!sqliteInt32(statement.stmt, 3, rack.rows) || !sqliteInt32(statement.stmt, 4, rack.columns) ||
+        !sqliteTime(statement.stmt, 5, rack.createdAt) || rack.rows <= 0 || rack.columns <= 0 || rack.rows > 10000 ||
+        rack.columns > 10000) {
+      return false;
+    }
     racks.push_back(move(rack));
   }
   return stepResult == SQLITE_DONE;
@@ -123,8 +70,9 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     item.partName = sqliteText(statement.stmt, 1);
     item.manufacturer = sqliteText(statement.stmt, 2);
     item.category = sqliteText(statement.stmt, 3);
-    item.quantity = sqliteApi().column_int(statement.stmt, 4);
-    item.reorderThreshold = sqliteApi().column_int(statement.stmt, 5);
+    if (!sqliteInt32(statement.stmt, 4, item.quantity) || !sqliteInt32(statement.stmt, 5, item.reorderThreshold)) {
+      return false;
+    }
     item.location = sqliteText(statement.stmt, 6);
     item.tags = deserializeTagsFromStorage(sqliteText(statement.stmt, 7));
     item.parameters = deserializeParametersFromStorage(sqliteText(statement.stmt, 8));
@@ -134,9 +82,9 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     item.productUrl = sqliteText(statement.stmt, 12);
     item.syncStatus = sqliteText(statement.stmt, 13);
     item.sku = sqliteText(statement.stmt, 14);
-    item.lastUpdated = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 15));
+    if (!sqliteTime(statement.stmt, 15, item.lastUpdated)) return false;
     item.inventatoryId = sqliteText(statement.stmt, 16);
-    item.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 17));
+    if (!sqliteTime(statement.stmt, 17, item.createdAt)) return false;
     item.machineCode = sqliteText(statement.stmt, 18);
     item.rackId = sqliteText(statement.stmt, 19);
     item.rackSlot = sqliteText(statement.stmt, 20);
@@ -156,44 +104,6 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
   }
 
   return stepResult == SQLITE_DONE;
-}
-
-bool ensureDeviceEventCommitSchema(SqliteConnection& connection) {
-  return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_device_events (
-      event_id TEXT PRIMARY KEY, device_id TEXT NOT NULL, event_type TEXT NOT NULL,
-      event_code TEXT NOT NULL, event_value INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'received',
-      result_id TEXT NOT NULL DEFAULT '', result_status TEXT NOT NULL DEFAULT '',
-      result_existing INTEGER NOT NULL DEFAULT 0, result_item_name TEXT NOT NULL DEFAULT '',
-      result_requested_delta INTEGER NOT NULL DEFAULT 0, result_applied_delta INTEGER NOT NULL DEFAULT 0,
-      result_quantity INTEGER NOT NULL DEFAULT 0, result_location TEXT NOT NULL DEFAULT '',
-      result_code TEXT NOT NULL DEFAULT '', result_message TEXT NOT NULL DEFAULT '',
-      result_acknowledged INTEGER NOT NULL DEFAULT 0, received_at INTEGER NOT NULL DEFAULT 0,
-      completed_at INTEGER NOT NULL DEFAULT 0
-    )
-  )SQL");
-}
-
-bool ensureInventoryMovementSchema(SqliteConnection& connection) {
-  if (!execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_stock_movements (
-      movement_id TEXT PRIMARY KEY,
-      item_id TEXT NOT NULL,
-      item_name TEXT NOT NULL,
-      source TEXT NOT NULL,
-      reference TEXT NOT NULL DEFAULT '',
-      quantity_before INTEGER NOT NULL,
-      delta INTEGER NOT NULL,
-      quantity_after INTEGER NOT NULL,
-      occurred_at INTEGER NOT NULL
-    )
-  )SQL")) {
-    return false;
-  }
-  return execSql(connection, R"SQL(
-    CREATE INDEX IF NOT EXISTS idx_inventatory_stock_movements_item_time
-    ON inventatory_stock_movements(item_id, occurred_at DESC, movement_id DESC)
-  )SQL");
 }
 
 bool writeInventoryMovements(SqliteConnection& connection, const vector<InventoryMovement>& movements) {
@@ -235,13 +145,10 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
                            const vector<InventatoryRack>& racks, const DeviceEventCommit* deviceEvent = nullptr,
                            const vector<InventoryMovement>* movements = nullptr,
                            const InventoryCommitDraft* commitDraft = nullptr,
-                           InventoryCommit* committed = nullptr) {
+                           InventoryCommit* committed = nullptr, bool ensureInitialHistory = false) {
   if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
-  if (!ensureInventoryMovementSchema(connection)) return false;
-  if (deviceEvent != nullptr && !ensureDeviceEventCommitSchema(connection)) return false;
-  if (commitDraft != nullptr && !ensureInventoryCommitSchema(connection)) return false;
 
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     return false;
@@ -374,9 +281,30 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     sqliteApi().bind_text(eventStatement.stmt, 10, deviceEvent->message.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_int64(eventStatement.stmt, 11, static_cast<sqlite3_int64>(deviceEvent->completedAt));
     sqliteApi().bind_text(eventStatement.stmt, 12, deviceEvent->eventId.c_str(), -1, SQLITE_TRANSIENT);
-    if (sqliteApi().step(eventStatement.stmt) != SQLITE_DONE) {
+    if (sqliteApi().step(eventStatement.stmt) != SQLITE_DONE || sqliteApi().changes(connection.db) != 1) {
       execSql(connection, "ROLLBACK");
       return false;
+    }
+  }
+
+  if (ensureInitialHistory) {
+    SqliteStatement countStatement;
+    if (sqliteApi().prepare_v2(connection.db, "SELECT COUNT(*) FROM inventatory_inventory_commits", -1,
+                               &countStatement.stmt, nullptr) != SQLITE_OK ||
+        sqliteApi().step(countStatement.stmt) != SQLITE_ROW ||
+        sqliteApi().column_type(countStatement.stmt, 0) != SQLITE_INTEGER) {
+      execSql(connection, "ROLLBACK");
+      return false;
+    }
+    if (sqliteApi().column_int64(countStatement.stmt, 0) == 0) {
+      InventoryCommitDraft initialDraft;
+      initialDraft.source = "system";
+      initialDraft.message = "Initial inventory";
+      InventoryCommit initialCommit;
+      if (!writeInventoryCommit(connection, items, racks, initialDraft, initialCommit)) {
+        execSql(connection, "ROLLBACK");
+        return false;
+      }
     }
   }
 
@@ -436,6 +364,7 @@ bool InventoryStore::load(const filesystem::path& path) {
   loadedStore.racks() = move(loadedRacks);
 
   ensureInventoryIdentifiers(loadedStore.items());
+  if (!validateInventoryIdentifiers(loadedStore.items(), loadedStore.racks())) return false;
   reconcileRackAssignments(loadedStore);
   items_ = move(loadedStore.items());
   racks_ = move(loadedStore.racks());
@@ -472,6 +401,7 @@ bool InventoryStore::save(const filesystem::path& path) const {
 #ifdef _WIN32
   auto items = items_;
   ensureInventoryIdentifiers(items);
+  if (!validateInventoryIdentifiers(items, racks_)) return false;
 
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
@@ -482,6 +412,7 @@ bool InventoryStore::save(const filesystem::path& path) const {
 #else
   auto items = items_;
   ensureInventoryIdentifiers(items);
+  if (!validateInventoryIdentifiers(items, racks_)) return false;
 
   filesystem::create_directories(path.parent_path());
 
@@ -503,6 +434,7 @@ bool InventoryStore::saveWithMovements(const filesystem::path& path,
 #ifdef _WIN32
   auto items = items_;
   ensureInventoryIdentifiers(items);
+  if (!validateInventoryIdentifiers(items, racks_)) return false;
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
   return writeItemsToInventatoryTable(connection, items, racks_, nullptr, &movements);
@@ -517,6 +449,7 @@ bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const Dev
 #ifdef _WIN32
   auto items = items_;
   ensureInventoryIdentifiers(items);
+  if (!validateInventoryIdentifiers(items, racks_)) return false;
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
   return writeItemsToInventatoryTable(connection, items, racks_, &event, &movements);
@@ -536,8 +469,10 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
   InventoryStore normalized;
   normalized.items() = items;
   normalized.racks() = racks_;
+  if (!validateInventoryIdentifiers(normalized.items(), normalized.racks())) return false;
   InventoryStore normalizedPrevious = previous;
   ensureInventoryIdentifiers(normalizedPrevious.items());
+  if (!validateInventoryIdentifiers(normalizedPrevious.items(), normalizedPrevious.racks())) return false;
   const auto changes = inventoryCommitDiff(normalizedPrevious, normalized);
   InventoryCommitDraft enriched = draft;
   enriched.changedItemCount = 0;
@@ -569,15 +504,10 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
   }
 
   const bool shouldCommit = !changes.empty() || draft.checkpoint;
-  // Direct callers such as the device inbox may be the first writer after an
-  // older database is opened. Establish the parent snapshot before the
-  // inventory/event transaction so every corrective or device commit has a
-  // complete ancestry.
-  if (!ensureInventoryCommitHistory(path, normalizedPrevious)) return false;
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
   return writeItemsToInventatoryTable(connection, items, racks_, deviceEvent, &movements,
-                                      shouldCommit ? &enriched : nullptr, committed);
+                                      shouldCommit ? &enriched : nullptr, committed, true);
 #else
   (void)previous;
   (void)draft;
@@ -617,10 +547,10 @@ vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, s
     movement.itemName = sqliteText(statement.stmt, 2);
     movement.source = sqliteText(statement.stmt, 3);
     movement.reference = sqliteText(statement.stmt, 4);
-    movement.quantityBefore = sqliteApi().column_int(statement.stmt, 5);
-    movement.delta = sqliteApi().column_int(statement.stmt, 6);
-    movement.quantityAfter = sqliteApi().column_int(statement.stmt, 7);
-    movement.occurredAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 8));
+    if (!sqliteInt32(statement.stmt, 5, movement.quantityBefore) || !sqliteInt32(statement.stmt, 6, movement.delta) ||
+        !sqliteInt32(statement.stmt, 7, movement.quantityAfter) || !sqliteTime(statement.stmt, 8, movement.occurredAt)) {
+      return {};
+    }
     movements.push_back(move(movement));
   }
   return stepResult == SQLITE_DONE ? movements : vector<InventoryMovement>();

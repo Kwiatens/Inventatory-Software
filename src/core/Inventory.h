@@ -207,6 +207,7 @@ string inventatoryCategoryPrefix(const string& category);
 string makeInventatoryId(const string& category, size_t sequence);
 bool isInventatoryId(const string& value);
 void ensureInventoryIdentifiers(vector<InventoryItem>& items);
+bool validateInventoryIdentifiers(const vector<InventoryItem>& items, const vector<InventatoryRack>& racks);
 string join(const vector<string>& values, char delimiter);
 vector<string> split(const string& value, char delimiter);
 vector<string> tokenizeQuery(const string& query);
