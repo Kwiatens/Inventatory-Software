@@ -36,6 +36,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -2348,6 +2349,69 @@ int main() {
     assert(deviceResponseMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", 42, 200,
                              R"({"ok":true})") ==
            "ec5e858f7b38260c65df43b570e13a7dceab39361d4f17ebf3fe8d4523024423");
+  }
+
+  {
+    // Printer configuration is replaced only after the complete temporary
+    // file has been written and flushed. A failed replacement must not damage
+    // the existing path, and malformed/oversized files must not be accepted.
+#ifdef _WIN32
+    const auto directory = filesystem::temp_directory_path() / L"inventatory-printer-\u017c\u00f3\u0142\u0107";
+#else
+    const auto directory = filesystem::temp_directory_path() / "inventatory-printer-config-test";
+#endif
+    error_code cleanupError;
+    filesystem::remove_all(directory, cleanupError);
+
+    const auto configPath = directory / "printer.conf";
+    const string configuredName = "Zebra " + string("\xCE\xBB") + " label printer";
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+    service.setConfiguredPrinter(configuredName);
+    assert(service.saveConfig(configPath));
+
+    LabelPrinterService loaded(make_unique<MockPrinterBackend>());
+    assert(loaded.loadConfig(configPath));
+    assert(loaded.configuredPrinter() == configuredName);
+
+    {
+      ofstream malformed(configPath, ios::binary | ios::trunc);
+      assert(malformed);
+      malformed << quoted(configuredName) << " trailing-data\n";
+      malformed.flush();
+      assert(malformed);
+    }
+    LabelPrinterService malformedService(make_unique<MockPrinterBackend>());
+    assert(!malformedService.loadConfig(configPath));
+    assert(!malformedService.hasConfiguredPrinter());
+
+    {
+      ofstream oversized(configPath, ios::binary | ios::trunc);
+      assert(oversized);
+      oversized << '"' << string(5000, 'x') << "\"\n";
+      oversized.flush();
+      assert(oversized);
+    }
+    assert(!malformedService.loadConfig(configPath));
+
+    // A directory at the destination makes the final atomic replacement fail
+    // after the temporary file has been written. It must remain intact.
+    const auto replacementFailurePath = directory / "existing-destination";
+    assert(filesystem::create_directory(replacementFailurePath, cleanupError));
+    assert(!service.saveConfig(replacementFailurePath));
+    assert(filesystem::is_directory(replacementFailurePath, cleanupError));
+    assert(!cleanupError);
+
+    // An unconfigured service still writes the valid empty configuration used
+    // by the normal first-run save path.
+    const auto emptyConfigPath = directory / "empty.conf";
+    LabelPrinterService empty(make_unique<MockPrinterBackend>());
+    assert(empty.saveConfig(emptyConfigPath));
+    ifstream emptyConfig(emptyConfigPath, ios::binary);
+    string emptyContents((istreambuf_iterator<char>(emptyConfig)), istreambuf_iterator<char>());
+    assert(emptyContents == "\"\"\n");
+
+    filesystem::remove_all(directory, cleanupError);
+    assert(!cleanupError);
   }
 
   {
