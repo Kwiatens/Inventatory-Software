@@ -20,7 +20,10 @@ snapshot, plus field-level differences from its parent. Legacy activity and
 stock-movement records remain available separately; they are not converted.
 
 Open History with `6`. Commits are newest first. Select one to inspect its
-parent, source, reference, changed part/rack counts, and individual fields.
+parent, source, reference, changed part/rack counts, and its changed records.
+The detail pane groups changes by part or rack; press `Enter` on a record to
+inspect readable before/after field values, and `Esc` to return to the record
+list. Long parameter changes are split into individual parameter differences.
 Press `C` to create a named snapshot checkpoint. Checkpoints do not change
 inventory and cannot be reversed.
 

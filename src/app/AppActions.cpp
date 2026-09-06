@@ -306,6 +306,8 @@ void App::refreshInventoryMovements() {
 }
 
 void App::refreshInventoryCommits() {
+  historyRecordSelection_ = 0;
+  historyRecordOpen_ = false;
   if (!loadInventoryCommits(inventoryPath_, inventoryCommits_)) {
     inventoryCommits_.clear();
     historyDetailValid_ = false;
@@ -334,6 +336,8 @@ void App::refreshHistoryDetail() {
 }
 
 void App::moveHistorySelection(int delta) {
+  historyRecordSelection_ = 0;
+  historyRecordOpen_ = false;
   if (inventoryCommits_.empty()) {
     historySelection_ = 0;
     historyDetailValid_ = false;
@@ -352,6 +356,8 @@ void App::openSelectedHistoryCommit() {
     setMessage("No inventory commits yet", 3);
     return;
   }
+  historyRecordSelection_ = 0;
+  historyRecordOpen_ = false;
   refreshHistoryDetail();
   changePage(Page::History);
 }
