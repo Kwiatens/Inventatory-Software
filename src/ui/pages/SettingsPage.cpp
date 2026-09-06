@@ -704,6 +704,7 @@ ftxui::Element App::renderSettingsUi() const {
         ftxui::text("  "),
         target(uiSecondaryButton("Backup folder"), "settings.data.backup", UiTargetKind::Button,
                [self] { self->backupData(); }),
+        ftxui::text("  "),
         target(uiSecondaryButton("Restore backup"), "settings.data.restore", UiTargetKind::Button,
                [self] { self->restoreData(); }),
     }));
@@ -1008,17 +1009,14 @@ ftxui::Element App::renderSettingsUi() const {
                             "settings.scan.port", UiTargetKind::Field,
                             [self] { self->beginSettingsFieldEdit(0); }));
       rows.push_back(settingLine("Firmware", scanFirmwareStatus(), contentWidth));
-      rows.push_back(buttonRow(target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware",
-                                       UiTargetKind::Button, [self] { self->beginScanFirmwareCheck(); })));
-      rows.push_back(buttonRow(target(uiSecondaryButton("Restart bridge"), "settings.scan.restart",
-                                       UiTargetKind::Button, [self] { self->restartDeviceService(); })));
+      rows.push_back(buttonRow(ftxui::hbox({
+          target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware", UiTargetKind::Button,
+                 [self] { self->beginScanFirmwareCheck(); }),
+          ftxui::text("  "),
+          target(uiSecondaryButton("Restart Bridge"), "settings.scan.restart", UiTargetKind::Button,
+                 [self] { self->restartDeviceService(); }),
+      })));
     }
-    rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("NETWORK ACCESS", uiSecondaryText()));
-    rows.push_back(styledText("Inventatory never changes Windows Firewall settings.", uiTitleColor()));
-    rows.push_back(styledText("If Scan R1 cannot connect, add a manual Private-network rule for this service port.",
-                              uiMutedText()));
-    rows.push_back(styledText("Keep the bridge on your local network; do not expose or forward the port.", uiWarnColor()));
   } else if (settingsCategory_ == SettingsCategory::Search) {
     rows.push_back(uiHeaderText("PHYSICAL VALUE TOLERANCES", uiSecondaryText()));
     rows.push_back(styledText("Tolerance for matching component values during search (e.g. 100nF matches 0.1uF).", uiMutedText()));
