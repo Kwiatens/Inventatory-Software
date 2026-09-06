@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <ctime>
+#include <iomanip>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -27,7 +29,14 @@ enum class CellAlign { Left, Center, Right };
 }  // namespace
 
 ftxui::Element App::renderStockUi() const {
-  const auto filtered = filteredIndices();
+  const auto searchMatches = stockSearchMatches();
+  vector<size_t> filtered;
+  filtered.reserve(searchMatches.size());
+  for (const auto& match : searchMatches) filtered.push_back(match.itemIndex);
+  const bool rankedView = closestSearchActive_ || any_of(searchMatches.begin(), searchMatches.end(), [](const auto& match) {
+    return match.hasPhysicalComparison;
+  });
+  const size_t activeSelection = closestSearchActive_ ? closestSelectedPosition_ : selectedPosition_;
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int detailOuterWidth = clamp(screenWidth / 3, 42, 60);
@@ -49,16 +58,17 @@ ftxui::Element App::renderStockUi() const {
   // stated once in a group header and the part column takes the width the
   // repeated column used to waste. Quantity sorting interleaves categories, so
   // it keeps a per-row column instead.
-  const bool groupByCategory = stockSortOrder_ != StockSortOrder::Quantity;
+  const bool groupByCategory = !rankedView && stockSortOrder_ != StockSortOrder::Quantity;
+  const int matchWidth = rankedView ? 14 : 0;
   const int minCategoryWidth = 12;
   const int maxPartWidth = groupByCategory ? max(18, listInnerWidth - qtyWidth - 1)
-                                           : max(18, listInnerWidth - qtyWidth - minCategoryWidth - 2);
+                                           : max(18, listInnerWidth - qtyWidth - matchWidth - minCategoryWidth - 2);
   const int partWidth = groupByCategory ? maxPartWidth : clamp(static_cast<int>(longestPartName) + 3, 18, maxPartWidth);
   // The fallback column is sized to its longest value and sits beside the part
   // name; the leftover width becomes one gutter before the right-anchored
   // quantity, rather than padding out the category cell.
   const int categoryWidth = clamp(static_cast<int>(longestCategory) + 2, minCategoryWidth,
-                                  max(minCategoryWidth, listInnerWidth - partWidth - qtyWidth - 2));
+                                  max(minCategoryWidth, listInnerWidth - partWidth - qtyWidth - matchWidth - 2));
 
   auto fixedCell = [](const string& text, int width, ftxui::Color color, CellAlign align = CellAlign::Left) {
     const auto content = styledText(ellipsize(text, static_cast<size_t>(max(width, 0))), color);
@@ -84,7 +94,16 @@ ftxui::Element App::renderStockUi() const {
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
 
   ftxui::Elements listRows;
-  if (groupByCategory) {
+  if (rankedView) {
+    listRows.push_back(ftxui::hbox({
+                           fixedCell("Part", partWidth, uiMutedColor()),
+                           ftxui::separator() | ftxui::color(uiDimColor()),
+                           fixedCell("Fit", matchWidth, uiMutedColor(), CellAlign::Center),
+                           ftxui::separator() | ftxui::color(uiDimColor()),
+                           qtyHeaderCell,
+                       }) |
+                       ftxui::bgcolor(uiPanelLeftBg()));
+  } else if (groupByCategory) {
     listRows.push_back(ftxui::hbox({
                            fixedCell("Part", partWidth, uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
@@ -106,21 +125,78 @@ ftxui::Element App::renderStockUi() const {
   // Every list row carries the part/quantity separator at the same column so the
   // vertical rule runs unbroken through group headers and spacers alike.
   const auto ruledRow = [&](ftxui::Element partCell, ftxui::Color background) {
-    return ftxui::hbox({
-               move(partCell),
-               ftxui::separator() | ftxui::color(uiDimColor()),
-               ftxui::text("") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth),
-           }) |
-           ftxui::bgcolor(background);
+    ftxui::Elements cells = {
+        move(partCell),
+        ftxui::separator() | ftxui::color(uiDimColor()),
+    };
+    if (rankedView) {
+      cells.push_back(ftxui::text("") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, matchWidth));
+      cells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+    }
+    cells.push_back(ftxui::text("") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth));
+    return ftxui::hbox(move(cells)) | ftxui::bgcolor(background);
+  };
+
+  const auto bandTitle = [](PhysicalValueMatchBand band, bool closest) {
+    switch (band) {
+      case PhysicalValueMatchBand::Exact: return string(" EXACT MATCHES");
+      case PhysicalValueMatchBand::Workable: return string(" WORKABLE MATCHES");
+      case PhysicalValueMatchBand::Possible: return string(" POSSIBLE MATCHES");
+      case PhysicalValueMatchBand::None:
+        return closest ? string(" OTHER SAME-TYPE MATCHES") : string(" OTHER MATCHES");
+    }
+    return string(" OTHER MATCHES");
+  };
+  const auto bandColor = [](PhysicalValueMatchBand band) {
+    switch (band) {
+      case PhysicalValueMatchBand::Exact: return uiSuccessColor();
+      case PhysicalValueMatchBand::Workable: return uiFocusColor();
+      case PhysicalValueMatchBand::Possible: return uiWarnColor();
+      case PhysicalValueMatchBand::None: return uiMutedColor();
+    }
+    return uiMutedColor();
+  };
+  const auto matchLabel = [](const InventorySearchMatch& match) {
+    if (!match.hasPhysicalComparison) return string("TEXT");
+    if (match.band == PhysicalValueMatchBand::Exact) return string("EXACT");
+    if (!isfinite(match.signedRelativeDifference)) return string("OUTSIDE");
+    ostringstream value;
+    value << showpos << fixed << setprecision(1) << match.signedRelativeDifference * 100.0 << "%";
+    return value.str();
   };
 
   if (filtered.empty()) {
-    listRows.push_back(fullLine("No items match \"" + searchQuery_ + "\".", uiMutedColor(), uiPanelLeftBg()));
+    string message;
+    if (closestSearchActive_) {
+      if (trim(closestSearchQuery_).empty()) {
+        message = "Enter a physical value to find the closest part.";
+      } else if (!parsePhysicalValue(closestSearchQuery_).has_value()) {
+        message = "Use a physical value such as 4.7k, 100nF, or 1MHz.";
+      } else {
+        message = "No inventory records have the same physical value type.";
+      }
+    } else {
+      message = "No items match \"" + searchQuery_ + "\".";
+    }
+    listRows.push_back(fullLine(message, uiMutedColor(), uiPanelLeftBg()));
   } else {
     for (size_t index = 0; index < filtered.size(); ++index) {
-      const auto& item = store_.items()[filtered[index]];
+      const auto& searchMatch = searchMatches[index];
+      const auto& item = store_.items()[searchMatch.itemIndex];
       const auto category = displayCategory(item.category);
-      if (groupByCategory) {
+      if (rankedView) {
+        const bool startsGroup = index == 0 || searchMatch.band != searchMatches[index - 1].band;
+        if (startsGroup) {
+          if (index != 0) {
+            listRows.push_back(
+                ruledRow(ftxui::text("") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth), uiSurfaceBg()));
+          }
+          listRows.push_back(ruledRow(uiHeaderText(bandTitle(searchMatch.band, closestSearchActive_),
+                                                       bandColor(searchMatch.band)) |
+                                          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth),
+                                      uiRaisedSurfaceBg()));
+        }
+      } else if (groupByCategory) {
         const bool startsGroup =
             index == 0 || category != displayCategory(store_.items()[filtered[index - 1]].category);
         if (startsGroup) {
@@ -135,12 +211,15 @@ ftxui::Element App::renderStockUi() const {
                                       uiRaisedSurfaceBg()));
         }
       }
-      const bool selected = index == selectedPosition_;
+      const bool selected = index == activeSelection;
       const auto bg = selected ? uiSelectionBg() : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
       ftxui::Elements cells = {fixedCell(groupByCategory ? "   " + item.partName : " " + item.partName,
                                          partWidth, uiPrimaryText()),
                                ftxui::separator() | ftxui::color(uiDimColor())};
-      if (!groupByCategory) {
+      if (rankedView) {
+        cells.push_back(fixedCell(matchLabel(searchMatch), matchWidth, bandColor(searchMatch.band), CellAlign::Center));
+        cells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+      } else if (!groupByCategory) {
         cells.push_back(fixedCell(category, categoryWidth, selected ? uiTitleColor() : uiLabelColor()));
         cells.push_back(ftxui::filler());
         cells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
@@ -153,7 +232,8 @@ ftxui::Element App::renderStockUi() const {
       auto self = const_cast<App*>(this);
       const auto position = index;
       listRows.push_back(target(row, "stock.row." + item.id, UiTargetKind::Row, [self, position] {
-        self->selectedPosition_ = position;
+        if (self->closestSearchActive_) self->closestSelectedPosition_ = position;
+        else self->selectedPosition_ = position;
         self->syncSelectionToFilter();
         self->dirty_ = true;
       }));
@@ -164,6 +244,11 @@ ftxui::Element App::renderStockUi() const {
   // the Detail panel becomes the form, current field highlighted, live typing
   // shown in place. Save ('s') and cancel (Esc) act on the whole form.
   const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue;
+  const InventorySearchMatch* selectedMatch = nullptr;
+  if (rankedView && !searchMatches.empty()) {
+    const auto selectedPosition = min(activeSelection, searchMatches.size() - 1);
+    selectedMatch = &searchMatches[selectedPosition];
+  }
 
   ftxui::Elements detailRows;
   auto self = const_cast<App*>(this);
@@ -233,6 +318,32 @@ ftxui::Element App::renderStockUi() const {
         uiBodyText(rack.empty() ? "NOT ASSIGNED" : rack, rack.empty() ? uiWarnColor() : uiFocusColor()),
         ftxui::filler(),
     }));
+
+    if (selectedMatch != nullptr) {
+      const auto targetText = closestSearchActive_ ? closestSearchQuery_ : searchQuery_;
+      const auto matchText = selectedMatch->band == PhysicalValueMatchBand::Exact
+                                 ? string("Exact normalized value")
+                                 : selectedMatch->hasPhysicalComparison
+                                       ? string(physicalValueMatchBandName(selectedMatch->band))
+                                       : string("Text match");
+      ostringstream distance;
+      if (selectedMatch->hasPhysicalComparison && selectedMatch->band != PhysicalValueMatchBand::Exact &&
+          isfinite(selectedMatch->signedRelativeDifference)) {
+        distance << showpos << fixed << setprecision(1) << selectedMatch->signedRelativeDifference * 100.0 << "%";
+      }
+      detailRows.push_back(uiDivider());
+      detailRows.push_back(fullLine("MATCH", bandColor(selectedMatch->band), uiSurfaceBg()));
+      detailRows.push_back(detailFieldLine({"Fit: ", matchText, uiSecondaryText(), bandColor(selectedMatch->band)},
+                                            detailInnerWidth));
+      if (!distance.str().empty()) {
+        detailRows.push_back(detailFieldLine({"Delta: ", distance.str(), uiSecondaryText(), uiPrimaryText()},
+                                              detailInnerWidth));
+      }
+      if (!targetText.empty()) {
+        detailRows.push_back(detailFieldLine({"Target: ", targetText, uiSecondaryText(), uiPrimaryText()},
+                                              detailInnerWidth));
+      }
+    }
 
     if (stocktakeActive_) {
       const auto counted = stocktakeCounts_.find(item->id);
@@ -349,11 +460,16 @@ ftxui::Element App::renderStockUi() const {
   const auto stockHeader = stocktakeActive_
                                ? "STOCKTAKE  " + to_string(stocktakeCountedItems()) + "/" +
                                      to_string(store_.items().size()) + " counted"
-                               : "STOCK  " + to_string(filtered.size()) + " items";
-  auto filterButton = target(styledText(" Sort / Filter ", stocktakeActive_ ? uiMutedColor() : uiInteractiveColor(),
-                                       stocktakeActive_ ? uiSurfaceBg() : uiRaisedSurfaceBg()),
+                               : closestSearchActive_
+                                     ? "CLOSEST TO  " + (closestSearchQuery_.empty() ? string("...") : closestSearchQuery_) +
+                                           "  · " + to_string(filtered.size()) + " candidates"
+                                     : rankedView ? "STOCK  " + to_string(filtered.size()) + " matches · ranked by value"
+                                                  : "STOCK  " + to_string(filtered.size()) + " items";
+  const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
+  auto filterButton = target(styledText(" Sort / Filter ", filtersEnabled ? uiInteractiveColor() : uiMutedColor(),
+                                       filtersEnabled ? uiRaisedSurfaceBg() : uiSurfaceBg()),
                              "stock.filters.header", UiTargetKind::Button,
-                             [self] { self->openStockFilterPanel(); }, !stocktakeActive_);
+                             [self] { self->openStockFilterPanel(); }, filtersEnabled);
   listRows.insert(listRows.begin(), ftxui::hbox({
       styledText(stockHeader, stocktakeActive_ ? uiAccentColor() : uiSecondaryText()),
       ftxui::filler(),
@@ -361,7 +477,7 @@ ftxui::Element App::renderStockUi() const {
   }) | ftxui::bgcolor(uiSurfaceBg()));
 
   ftxui::Element filterMenu = ftxui::text("");
-  if (inputMode_ == InputMode::StockFilter) {
+  if (inputMode_ == InputMode::StockFilter && !closestSearchActive_) {
     ftxui::Elements filterRows;
     if (stockDateFilterSubmenuOpen_) {
       filterRows.push_back(fullLine("FILTER BY DATE OF MODIFICATION", uiSecondaryText(), uiPanelLeftBg()));
@@ -410,7 +526,7 @@ ftxui::Element App::renderStockUi() const {
   ftxui::Element listPanel = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
                              ftxui::bgcolor(uiSurfaceBg()) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
-  if (inputMode_ == InputMode::StockFilter) {
+  if (inputMode_ == InputMode::StockFilter && !closestSearchActive_) {
     // Clear only the popup footprint, then draw it over the list. This keeps
     // the stock rows in place while preventing their text from bleeding
     // through the floating menu.
@@ -428,6 +544,11 @@ ftxui::Element App::renderStockUi() const {
   ftxui::Element detailFooter;
   if (editing) {
     detailFooter = styledText(" \xE2\x86\x91\xE2\x86\x93 field  \xE2\x8F\x8E edit  s save  esc cancel", uiMutedColor());
+  } else if (closestSearchActive_) {
+    detailFooter = styledText(inputMode_ == InputMode::ClosestSearch
+                                  ? " type target  \xE2\x86\x91\xE2\x86\x93 select  enter keep  esc close"
+                                  : " \xE2\x86\x91\xE2\x86\x93 select  enter details  F edit target  esc close",
+                              uiMutedColor());
   } else if (stocktakeActive_) {
     const bool ready = stocktakeCountedItems() == store_.items().size();
     detailFooter = ftxui::hbox({
@@ -527,7 +648,59 @@ ftxui::Element App::renderStockUi() const {
   });
 }
 
+void App::handleClosestSearchKey(const KeyEvent& key) {
+  if (key.type == KeyType::Character) {
+    inputBuffer_.push_back(key.ch);
+    closestSearchQuery_ = inputBuffer_;
+    closestSelectedPosition_ = 0;
+    dirty_ = true;
+    return;
+  }
+
+  if (key.type == KeyType::Backspace) {
+    if (!inputBuffer_.empty()) {
+      inputBuffer_.pop_back();
+      closestSearchQuery_ = inputBuffer_;
+      closestSelectedPosition_ = 0;
+      dirty_ = true;
+    }
+    return;
+  }
+
+  if (key.type == KeyType::Enter) {
+    if (!parsePhysicalValue(closestSearchQuery_).has_value()) {
+      setMessage("Enter a physical value such as 4.7k, 100nF, or 1MHz", 4);
+      return;
+    }
+    inputMode_ = InputMode::None;
+    inputBuffer_.clear();
+    setMessage("Closest-value results kept; select a part or press F to edit the target", 3);
+    dirty_ = true;
+    return;
+  }
+
+  if (key.type == KeyType::Escape) {
+    clearClosestSearch();
+    setMessage("Closest-value search closed", 2);
+    return;
+  }
+
+  if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
+    moveSelection(-1);
+  } else if (key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j')) {
+    moveSelection(1);
+  } else if (key.type == KeyType::PageUp) {
+    moveSelection(-10);
+  } else if (key.type == KeyType::PageDown) {
+    moveSelection(10);
+  }
+}
+
 void App::handleStockKey(const KeyEvent& key) {
+  if (closestSearchActive_ && inputMode_ == InputMode::None && key.type == KeyType::Enter) {
+    openSelectedDetail();
+    return;
+  }
   if (stocktakeActive_) {
     if (key.type == KeyType::Escape ||
         (key.type == KeyType::Character && (key.ch == 'q' || key.ch == 'Q'))) {
@@ -688,12 +861,14 @@ void App::handleStockKey(const KeyEvent& key) {
   } else if (key.type == KeyType::PageDown) {
     moveSelection(10);
   } else if (key.type == KeyType::Home) {
-    selectedPosition_ = 0;
+    if (closestSearchActive_) closestSelectedPosition_ = 0;
+    else selectedPosition_ = 0;
     syncSelectionToFilter();
   } else if (key.type == KeyType::End) {
     const auto filtered = filteredIndices();
     if (!filtered.empty()) {
-      selectedPosition_ = filtered.size() - 1;
+      if (closestSearchActive_) closestSelectedPosition_ = filtered.size() - 1;
+      else selectedPosition_ = filtered.size() - 1;
       syncSelectionToFilter();
     }
   } else if (key.type == KeyType::Enter) {
@@ -712,6 +887,9 @@ void App::beginStocktake() {
     setMessage("Add inventory parts before starting a stocktake", 4);
     return;
   }
+  closestSearchActive_ = false;
+  closestSearchQuery_.clear();
+  closestSelectedPosition_ = 0;
   searchQuery_.clear();
   stockDateFilter_ = StockDateFilter::All;
   stockSortOrder_ = StockSortOrder::Az;

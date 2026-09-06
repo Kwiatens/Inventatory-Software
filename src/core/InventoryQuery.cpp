@@ -45,12 +45,24 @@ vector<string> splitTokensRespectingQuotes(const string& query) {
   return tokens;
 }
 
-bool tokenMatchesParameterList(const vector<Parameter>& parameters, const string& value,
-                               const PhysicalValueTolerances& tolerances) {
+optional<PhysicalValueComparison> bestPhysicalComparison(const optional<PhysicalValueComparison>& current,
+                                                         const optional<PhysicalValueComparison>& candidate) {
+  if (!candidate.has_value()) return current;
+  if (!current.has_value() || candidate->relativeDifference < current->relativeDifference) return candidate;
+  return current;
+}
+
+struct TokenMatchResult {
+  bool matched = false;
+  optional<PhysicalValueComparison> physical;
+};
+
+TokenMatchResult tokenMatchesParameterList(const vector<Parameter>& parameters, const string& value) {
   const auto equalsPos = value.find('=');
   const auto needleKey = toLower(equalsPos == string::npos ? value : value.substr(0, equalsPos));
   const auto needleValue = equalsPos == string::npos ? string() : trim(value.substr(equalsPos + 1));
   const auto loweredNeedleValue = toLower(needleValue);
+  TokenMatchResult result;
 
   for (const auto& parameter : parameters) {
     const auto key = toLower(parameter.name);
@@ -75,35 +87,37 @@ bool tokenMatchesParameterList(const vector<Parameter>& parameters, const string
           continue;
         }
       }
-      const double tolerance = toleranceForType(tolerances, parsedNeedle->type);
-      if (physicalValueMatches(parameter.value, needleValue, tolerance)) {
-        return true;
+      const auto comparison = comparePhysicalValues(parameter.value, needleValue);
+      if (comparison.has_value() && comparison->band != PhysicalValueMatchBand::None) {
+        result.matched = true;
+        result.physical = bestPhysicalComparison(result.physical, comparison);
       }
     }
 
     // Fall back to substring match
     if (parameterValue.find(loweredNeedleValue) != string::npos) {
-      return true;
+      result.matched = true;
     }
   }
 
-  return false;
+  return result;
 }
 
-bool tokenMatchesParameter(const InventoryItem& item, const string& value,
-                           const PhysicalValueTolerances& tolerances) {
-  return tokenMatchesParameterList(item.parameters, value, tolerances) ||
-         tokenMatchesParameterList(item.vendorMetadata.parameters, value, tolerances);
+TokenMatchResult tokenMatchesParameter(const InventoryItem& item, const string& value) {
+  const auto primary = tokenMatchesParameterList(item.parameters, value);
+  const auto vendor = tokenMatchesParameterList(item.vendorMetadata.parameters, value);
+  return {primary.matched || vendor.matched, bestPhysicalComparison(primary.physical, vendor.physical)};
 }
 
-bool tokenMatchesParameterPhysicallyList(const vector<Parameter>& parameters, const string& token,
-                                         const PhysicalValueTolerances& tolerances) {
-  auto parsed = parsePhysicalValue(token);
+optional<PhysicalValueComparison> tokenMatchesParameterPhysicallyList(const vector<Parameter>& parameters,
+                                                                      const string& token,
+                                                                      bool allowOutsideBands = false) {
+  const auto parsed = parsePhysicalValue(token);
   if (!parsed.has_value() || parsed->type == PhysicalValueType::Unknown) {
-    return false;
+    return nullopt;
   }
 
-  const double tolerance = toleranceForType(tolerances, parsed->type);
+  optional<PhysicalValueComparison> best;
 
   for (const auto& parameter : parameters) {
     auto paramType = parameterNameToType(parameter.name);
@@ -111,18 +125,21 @@ bool tokenMatchesParameterPhysicallyList(const vector<Parameter>& parameters, co
     if (paramType != PhysicalValueType::Unknown && paramType != parsed->type) {
       continue;
     }
-    if (physicalValueMatches(parameter.value, token, tolerance)) {
-      return true;
+    const auto comparison = comparePhysicalValues(parameter.value, token);
+    if (comparison.has_value() &&
+        (allowOutsideBands || comparison->band != PhysicalValueMatchBand::None)) {
+      best = bestPhysicalComparison(best, comparison);
     }
   }
 
-  return false;
+  return best;
 }
 
-bool tokenMatchesParameterPhysically(const InventoryItem& item, const string& token,
-                                     const PhysicalValueTolerances& tolerances) {
-  return tokenMatchesParameterPhysicallyList(item.parameters, token, tolerances) ||
-         tokenMatchesParameterPhysicallyList(item.vendorMetadata.parameters, token, tolerances);
+optional<PhysicalValueComparison> tokenMatchesParameterPhysically(const InventoryItem& item, const string& token,
+                                                                  bool allowOutsideBands = false) {
+  return bestPhysicalComparison(tokenMatchesParameterPhysicallyList(item.parameters, token, allowOutsideBands),
+                                tokenMatchesParameterPhysicallyList(item.vendorMetadata.parameters, token,
+                                                                    allowOutsideBands));
 }
 
 bool tokenMatchesQuantity(const InventoryItem& item, const string& token) {
@@ -179,6 +196,11 @@ bool looksLikeDataError(const InventoryItem& item, bool duplicateId) {
   return duplicateId || item.quantity < 0;
 }
 
+struct QueryMatchResult {
+  bool matched = false;
+  optional<PhysicalValueComparison> physical;
+};
+
 }  // namespace
 
 int effectiveReorderThreshold(const InventoryItem& item, int globalThreshold) {
@@ -190,172 +212,170 @@ bool isLowStock(const InventoryItem& item, int threshold) {
          item.quantity <= effectiveReorderThreshold(item, threshold);
 }
 
-bool matchesQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,
-                          int lowStockThreshold, const PhysicalValueTolerances& tolerances) {
+QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,
+                                       int lowStockThreshold) {
   const auto tokens = tokenizeQuery(query);
-  if (tokens.empty()) {
-    return true;
-  }
+  if (tokens.empty()) return {true, nullopt};
 
+  optional<PhysicalValueComparison> bestPhysical;
   for (const auto& rawToken : tokens) {
     const auto token = toLower(rawToken);
-
-    if (tokenMatchesQuantity(item, token)) {
-      continue;
-    }
+    if (tokenMatchesQuantity(item, token)) continue;
 
     if (token.rfind("cat:", 0) == 0 || token.rfind("category:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesCategory(item, value)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesCategory(item, value)) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("mfg:", 0) == 0 || token.rfind("manufacturer:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesField(item.manufacturer, value)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesField(item.manufacturer, value)) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("name:", 0) == 0 || token.rfind("part:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesField(item.partName, value)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesField(item.partName, value)) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("loc:", 0) == 0 || token.rfind("location:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesField(item.location, value)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesField(item.location, value)) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("rack:", 0) == 0) {
       const auto value = token.substr(5);
       if (tokenMatchesField(itemRackLocation, value)) continue;
-      return false;
+      return {false, nullopt};
     }
-
     if (token.rfind("sku:", 0) == 0) {
       const auto value = token.substr(4);
-      if (tokenMatchesField(item.sku, value)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesField(item.sku, value)) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("inventatory:", 0) == 0 || token.rfind("inventatoryid:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesField(item.inventatoryId, value)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesField(item.inventatoryId, value)) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("dg:", 0) == 0 || token.rfind("digikey:", 0) == 0) {
       const auto value = token.substr(token.find(':') + 1);
-      if (tokenMatchesField(item.digikeyPartNumber, value)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesField(item.digikeyPartNumber, value)) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("tag:", 0) == 0) {
       const auto value = token.substr(4);
       const auto matched = any_of(item.tags.begin(), item.tags.end(), [&](const string& tag) {
         return containsInsensitive(tag, value);
       });
-      if (matched) {
-        continue;
-      }
-      return false;
+      if (matched) continue;
+      return {false, nullopt};
     }
-
     if (token.rfind("param:", 0) == 0) {
-      const auto value = rawToken.substr(6);
-      if (tokenMatchesParameter(item, value, tolerances)) {
+      const auto parameterMatch = tokenMatchesParameter(item, rawToken.substr(6));
+      if (parameterMatch.matched) {
+        bestPhysical = bestPhysicalComparison(bestPhysical, parameterMatch.physical);
         continue;
       }
-      return false;
+      return {false, nullopt};
     }
-
     if (token.rfind("status:", 0) == 0) {
-      const auto value = token.substr(7);
-      if (tokenMatchesStatus(item, value, lowStockThreshold)) {
-        continue;
-      }
-      return false;
+      if (tokenMatchesStatus(item, token.substr(7), lowStockThreshold)) continue;
+      return {false, nullopt};
     }
 
-    if (containsInsensitive(item.searchableText(), token)) {
+    // Prefer physical comparison for parseable values so normalized matches
+    // receive a rank even when the raw spelling also appears in the item text.
+    const auto physicalMatch = tokenMatchesParameterPhysically(item, rawToken);
+    if (physicalMatch.has_value()) {
+      bestPhysical = bestPhysicalComparison(bestPhysical, physicalMatch);
       continue;
     }
+    if (containsInsensitive(item.searchableText(), token)) continue;
     if (containsInsensitive(itemRackLocation, token)) continue;
-
-    // Try physical value matching against parameter values
-    if (tokenMatchesParameterPhysically(item, rawToken, tolerances)) {
-      continue;
-    }
-
-    return false;
+    return {false, nullopt};
   }
 
-  return true;
+  return {true, bestPhysical};
+}
+
+bool matchesQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,
+                          int lowStockThreshold) {
+  return evaluateQueryWithRack(item, query, itemRackLocation, lowStockThreshold).matched;
 }
 
 bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold) {
-  return matchesQuery(item, query, lowStockThreshold, PhysicalValueTolerances{});
+  return matchesQueryWithRack(item, query, {}, lowStockThreshold);
 }
 
 bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
                   int lowStockThreshold) {
-  return matchesQuery(item, query, racks, lowStockThreshold, PhysicalValueTolerances{});
-}
-
-bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold,
-                  const PhysicalValueTolerances& tolerances) {
-  return matchesQueryWithRack(item, query, {}, lowStockThreshold, tolerances);
-}
-
-bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
-                  int lowStockThreshold, const PhysicalValueTolerances& tolerances) {
-  return matchesQueryWithRack(item, query, rackLocation(item, racks), lowStockThreshold, tolerances);
+  return matchesQueryWithRack(item, query, rackLocation(item, racks), lowStockThreshold);
 }
 
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold) {
-  return filterItems(items, query, lowStockThreshold, PhysicalValueTolerances{});
-}
-
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold,
-                           const PhysicalValueTolerances& tolerances) {
   vector<size_t> indices;
-  for (size_t index = 0; index < items.size(); ++index) {
-    if (matchesQuery(items[index], query, lowStockThreshold, tolerances)) {
-      indices.push_back(index);
-    }
-  }
+  const vector<InventatoryRack> racks;
+  for (const auto& match : rankedFilterItems(items, query, racks, lowStockThreshold)) indices.push_back(match.itemIndex);
   return indices;
 }
 
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
                            const vector<InventatoryRack>& racks, int lowStockThreshold) {
-  return filterItems(items, query, racks, lowStockThreshold, PhysicalValueTolerances{});
+  vector<size_t> indices;
+  for (const auto& match : rankedFilterItems(items, query, racks, lowStockThreshold)) indices.push_back(match.itemIndex);
+  return indices;
 }
 
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
-                           const vector<InventatoryRack>& racks, int lowStockThreshold,
-                           const PhysicalValueTolerances& tolerances) {
-  vector<size_t> indices;
+vector<InventorySearchMatch> rankedFilterItems(const vector<InventoryItem>& items, const string& query,
+                                               const vector<InventatoryRack>& racks, int lowStockThreshold) {
+  vector<InventorySearchMatch> matches;
+  matches.reserve(items.size());
   for (size_t index = 0; index < items.size(); ++index) {
-    if (matchesQuery(items[index], query, racks, lowStockThreshold, tolerances)) indices.push_back(index);
+    const auto result = evaluateQueryWithRack(items[index], query, rackLocation(items[index], racks), lowStockThreshold);
+    if (!result.matched) continue;
+    InventorySearchMatch match;
+    match.itemIndex = index;
+    if (result.physical.has_value()) {
+      match.band = result.physical->band;
+      match.relativeDifference = result.physical->relativeDifference;
+      match.signedRelativeDifference = result.physical->signedRelativeDifference;
+      match.hasPhysicalComparison = true;
+    }
+    matches.push_back(match);
   }
-  return indices;
+  return matches;
+}
+
+vector<InventorySearchMatch> findClosestPhysicalValues(const vector<InventoryItem>& items, const string& target) {
+  const auto parsedTarget = parsePhysicalValue(target);
+  if (!parsedTarget.has_value() || parsedTarget->type == PhysicalValueType::Unknown) return {};
+
+  vector<InventorySearchMatch> matches;
+  matches.reserve(items.size());
+  for (size_t index = 0; index < items.size(); ++index) {
+    optional<PhysicalValueComparison> best;
+    const auto consider = [&](const vector<Parameter>& parameters) {
+      for (const auto& parameter : parameters) {
+        const auto parameterType = parameterNameToType(parameter.name);
+        if (parameterType != PhysicalValueType::Unknown && parameterType != parsedTarget->type) continue;
+        best = bestPhysicalComparison(best, comparePhysicalValues(parameter.value, target));
+      }
+    };
+    consider(items[index].parameters);
+    consider(items[index].vendorMetadata.parameters);
+    if (!best.has_value()) continue;
+
+    matches.push_back({index, best->band, best->relativeDifference, best->signedRelativeDifference, true});
+  }
+
+  sort(matches.begin(), matches.end(), [&](const InventorySearchMatch& lhs, const InventorySearchMatch& rhs) {
+    if (lhs.relativeDifference != rhs.relativeDifference) return lhs.relativeDifference < rhs.relativeDifference;
+    if (items[lhs.itemIndex].quantity != items[rhs.itemIndex].quantity) {
+      return items[lhs.itemIndex].quantity > items[rhs.itemIndex].quantity;
+    }
+    return items[lhs.itemIndex].id < items[rhs.itemIndex].id;
+  });
+  return matches;
 }
 
 Summary summarize(const vector<InventoryItem>& items, int lowStockThreshold) {
