@@ -134,6 +134,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   } else {
     settings_.dataDirectory = dataPath_;
   }
+  activateWorkspaceContext(makeInventatoryDataPaths(dataPath_));
   loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
@@ -557,14 +558,25 @@ int App::run() {
     runInteractiveLoop();
   }
 
-  saveState();
-  backgroundController_.stop();
+  // Stop producers before the final save.  LocalHttpServer joins all request
+  // workers, and the workspace-bound futures are joined here as well, so no
+  // late callback can mutate the store after the final snapshot was written.
   mdnsService_.stop();
   server_.stop();
-  if (!startInBackground_ && settings_.backgroundServiceEnabled) {
+  stopWorkspaceBoundWork();
+  const bool finalSaveSucceeded = saveState();
+  if (!finalSaveSucceeded) {
+    // There is no interactive frame left to display this error.  Keep the
+    // process result and stderr actionable for launchers, and retain the
+    // in-memory state until App destruction for the caller's recovery path.
+    cerr << "Inventatory shutdown save failed: "
+         << (persistenceError_.empty() ? "unknown persistence error" : persistenceError_) << '\n';
+  }
+  backgroundController_.stop();
+  if (finalSaveSucceeded && !startInBackground_ && settings_.backgroundServiceEnabled) {
     backgroundController_.restartAsBackgroundService();
   }
-  return 0;
+  return finalSaveSucceeded ? 0 : 1;
 }
 
 void App::processBackgroundWork() {
@@ -652,6 +664,82 @@ void App::runInteractiveLoop() {
   }
 }
 
+shared_ptr<const App::WorkspaceContext> App::currentWorkspaceContext() const {
+  lock_guard<mutex> lock(workspaceMutex_);
+  return workspaceContext_;
+}
+
+void App::activateWorkspaceContext(const InventatoryDataPaths& paths) {
+  lock_guard<mutex> lock(workspaceMutex_);
+  const auto previousGeneration = workspaceContext_ == nullptr ? 0 : workspaceContext_->generation;
+  auto context = make_shared<WorkspaceContext>();
+  context->paths = paths;
+  context->generation = advanceWorkspaceGeneration(previousGeneration);
+  workspaceContext_ = move(context);
+  dataPath_ = paths.dataDirectory;
+  inventoryPath_ = paths.inventory;
+  printerPath_ = paths.printer;
+  activityPath_ = paths.activity;
+  inventatoryScanConfigPath_ = paths.scanConfig;
+  quickLabelsPath_ = paths.dataDirectory / "quick_labels.conf";
+}
+
+bool App::workspaceIsCurrent(WorkspaceGeneration generation) const {
+  lock_guard<mutex> lock(workspaceMutex_);
+  return workspaceContext_ != nullptr && workspaceGenerationMatches(workspaceContext_->generation, generation);
+}
+
+void App::stopWorkspaceBoundWork() {
+  stopDigiKeyRefresh();
+
+  if (importSyncCancelFlag_ != nullptr) {
+    importSyncCancelFlag_->store(true);
+  }
+  if (importSyncFuture_.valid()) {
+    importSyncFuture_.wait();
+    importSyncFuture_ = {};
+  }
+  importSyncCancelFlag_.reset();
+  importSyncRunning_ = false;
+  importSyncCancelRequested_ = false;
+  importSyncGeneration_ = 0;
+
+  if (scanDigiKeyEnrichmentFuture_.valid()) {
+    scanDigiKeyEnrichmentFuture_.wait();
+    scanDigiKeyEnrichmentFuture_ = {};
+  }
+  scanDigiKeyEnrichmentQueue_.clear();
+
+  if (bomEnrichmentFuture_.valid()) {
+    bomEnrichmentFuture_.wait();
+    bomEnrichmentFuture_ = {};
+  }
+  bomEnrichmentQueue_.clear();
+  bomEnrichmentActiveKey_.clear();
+  bomEnrichmentGeneration_ = 0;
+  bomEnrichmentClient_.reset();
+
+  {
+    lock_guard<mutex> lock(scanMutex_);
+    scanQueue_.clear();
+  }
+  {
+    lock_guard<mutex> lock(deviceQueueMutex_);
+    for (const auto& pending : deviceQuantityQueue_) {
+      lock_guard<mutex> pendingLock(pending->mutex);
+      pending->cancelled = true;
+      pending->result = {};
+      pending->result.httpStatus = 503;
+      pending->result.error = "Inventatory workspace is changing";
+      pending->complete = true;
+      pending->ready.notify_one();
+    }
+    deviceQuantityQueue_.clear();
+    deviceStatusQueue_.clear();
+    deviceDebugQueue_.clear();
+  }
+}
+
 void App::requestUserExit() {
   if (importSyncRunning_) {
     setMessage("DigiKey sync is still running; cancel it or wait for completion", 4);
@@ -659,8 +747,16 @@ void App::requestUserExit() {
   }
   if (settingsDirty_) {
     pendingPageAfterSettings_.reset();
+    exitSavePending_ = false;
     inputMode_ = InputMode::ExitConfirmation;
     setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
+    return;
+  }
+  if (hasPendingPersistence()) {
+    pendingPageAfterSettings_.reset();
+    exitSavePending_ = true;
+    inputMode_ = InputMode::ExitConfirmation;
+    setMessage("Unsaved data could not be persisted: press S to retry, D to exit, or Esc to stay", 6);
     return;
   }
   if (backgroundController_.enabled()) {
@@ -1217,6 +1313,21 @@ void App::handleExitConfirmationKey(const KeyEvent& key) {
   }
   if (key.type != KeyType::Character) return;
   const auto ch = static_cast<char>(tolower(static_cast<unsigned char>(key.ch)));
+  if (exitSavePending_) {
+    if (ch == 's') {
+      if (saveState()) {
+        exitSavePending_ = false;
+        inputMode_ = InputMode::None;
+        requestUserExit();
+      }
+    } else if (ch == 'd') {
+      exitSavePending_ = false;
+      inputMode_ = InputMode::None;
+      setMessage("Exiting with unsaved data; retry persistence from the previous session", 8);
+      running_ = false;
+    }
+    return;
+  }
   if (ch == 's') {
     completeSettingsExit(true);
   } else if (ch == 'd') {
