@@ -3292,7 +3292,6 @@ int main() {
 
   {
     const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
-    const auto backup = filesystem::temp_directory_path() / "inventatory-transfer-backup";
     const auto bundle = filesystem::temp_directory_path() / "inventatory-transfer-bundle";
     const auto restoreTarget = filesystem::temp_directory_path() / "inventatory-transfer-restore-target";
     const auto settingsPath = filesystem::temp_directory_path() / "inventatory-transfer-settings.conf";
@@ -3300,7 +3299,6 @@ int main() {
     const auto csv = filesystem::temp_directory_path() / "inventatory-transfer-export.csv";
     error_code cleanupError;
     filesystem::remove_all(source, cleanupError);
-    filesystem::remove_all(backup, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
     filesystem::remove_all(restoreTarget, cleanupError);
     filesystem::remove(settingsPath, cleanupError);
@@ -3341,14 +3339,6 @@ int main() {
     const string exportedText((istreambuf_iterator<char>(exported)), istreambuf_iterator<char>());
     assert(exportedText.find("Transfer resistor") != string::npos);
     assert(exportedText.find("Quantity") != string::npos);
-    assert(backupInventatoryData(source, backup, error));
-    assert(filesystem::exists(backup / "inventory.db"));
-    vector<InventoryCommit> backupCommits;
-    assert(loadInventoryCommits(backup / "inventory.db", backupCommits));
-    assert(backupCommits.size() == 2);
-    assert(filesystem::exists(backup / "activity.tsv"));
-    assert(filesystem::exists(backup / "quick_labels.conf"));
-
     AppSettings backupSettings;
     backupSettings.dataDirectory = source;
     backupSettings.completedOnboardingVersion = 1;
@@ -3361,6 +3351,34 @@ int main() {
     assert(bundleCommits.size() == 2);
     assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
     assert(validateInventatoryBackup(bundle, error));
+    {
+      ifstream snapshotInput(bundle / "inventory.db", ios::binary);
+      const string snapshotBytes((istreambuf_iterator<char>(snapshotInput)), istreambuf_iterator<char>());
+      assert(validateInventatoryBackup(bundle, error));
+      ifstream snapshotInputAgain(bundle / "inventory.db", ios::binary);
+      const string snapshotBytesAgain((istreambuf_iterator<char>(snapshotInputAgain)), istreambuf_iterator<char>());
+      assert(snapshotBytes == snapshotBytesAgain);
+    }
+    {
+      ofstream extra(bundle / "unexpected.txt", ios::binary);
+      extra << "must not be silently included";
+      extra.close();
+      assert(!validateInventatoryBackup(bundle, error));
+      filesystem::remove(bundle / "unexpected.txt", cleanupError);
+      assert(validateInventatoryBackup(bundle, error));
+    }
+    {
+      ifstream manifestInput(bundle / "manifest.tsv", ios::binary);
+      const string manifest((istreambuf_iterator<char>(manifestInput)), istreambuf_iterator<char>());
+      ofstream malformed(bundle / "manifest.tsv", ios::binary | ios::trunc);
+      malformed << manifest << "unknown\trow\n";
+      malformed.close();
+      assert(!validateInventatoryBackup(bundle, error));
+      ofstream restoredManifest(bundle / "manifest.tsv", ios::binary | ios::trunc);
+      restoredManifest << manifest;
+      restoredManifest.close();
+      assert(validateInventatoryBackup(bundle, error));
+    }
     filesystem::create_directories(restoreTarget);
     InventoryStore protectedStore;
     InventoryItem protectedItem;
@@ -3383,6 +3401,55 @@ int main() {
     filesystem::remove_all(bundle, cleanupError);
     assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
     assert(validateInventatoryBackup(bundle, error));
+    {
+      InventoryTransferTestHooks hooks;
+      hooks.renamePath = [](const filesystem::path& sourcePath, const filesystem::path& targetPath, string& injectedError) {
+        if (sourcePath.filename().u8string().find(".restore-staging-") != string::npos) {
+          injectedError = "injected activation failure";
+          return false;
+        }
+        error_code injectedFilesystemError;
+        filesystem::rename(sourcePath, targetPath, injectedFilesystemError);
+        if (injectedFilesystemError) {
+          injectedError = injectedFilesystemError.message();
+          return false;
+        }
+        return true;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      InventoryStore stillProtected;
+      assert(stillProtected.load(restoreTarget / "inventory.db"));
+      assert(stillProtected.items().front().id == "protected-restore-item");
+    }
+    {
+      InventoryTransferTestHooks hooks;
+      hooks.saveSettings = [](const filesystem::path&, const AppSettings&, string& injectedError) {
+        injectedError = "injected settings activation failure";
+        return false;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      InventoryStore stillProtected;
+      assert(stillProtected.load(restoreTarget / "inventory.db"));
+      assert(stillProtected.items().front().id == "protected-restore-item");
+    }
+    {
+      InventoryTransferTestHooks hooks;
+      hooks.removeAll = [](const filesystem::path& path, string& injectedError) {
+        if (path.filename().u8string().find(".restore-old-data-") != string::npos) {
+          injectedError = "injected cleanup failure";
+          return false;
+        }
+        error_code injectedFilesystemError;
+        filesystem::remove_all(path, injectedFilesystemError);
+        if (injectedFilesystemError) {
+          injectedError = injectedFilesystemError.message();
+          return false;
+        }
+        return true;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
+    }
     assert(restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error));
     InventoryStore restoredStore;
     assert(restoredStore.load(restoreTarget / "inventory.db"));
@@ -3393,9 +3460,10 @@ int main() {
     AppSettings restoredSettings;
     assert(loadAppSettings(targetSettingsPath, restoredSettings));
     assert(restoredSettings.dataDirectory == restoreTarget);
+    assert(!filesystem::exists(restoreTarget / "manifest.tsv"));
+    assert(!filesystem::exists(restoreTarget / "settings.conf"));
 
     filesystem::remove_all(source, cleanupError);
-    filesystem::remove_all(backup, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
     filesystem::remove_all(restoreTarget, cleanupError);
     filesystem::remove(settingsPath, cleanupError);
