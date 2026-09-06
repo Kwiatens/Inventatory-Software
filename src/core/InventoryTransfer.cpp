@@ -277,6 +277,12 @@ bool isSha256Digest(const string& value) {
   return all_of(value.begin(), value.end(), [](unsigned char ch) { return isxdigit(ch) != 0; });
 }
 
+string lowercaseAscii(string value) {
+  transform(value.begin(), value.end(), value.begin(),
+            [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+  return value;
+}
+
 bool parseManifestSize(const string& text, uintmax_t& value) {
   if (text.empty() || !all_of(text.begin(), text.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) return false;
   try {
@@ -407,7 +413,7 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
       return false;
     }
     string actualHash;
-    if (!sha256File(path, actualHash, error) || actualHash != entry.hash) {
+    if (!sha256File(path, actualHash, error) || lowercaseAscii(actualHash) != lowercaseAscii(entry.hash)) {
       if (error.empty()) error = "Backup file hash mismatch: " + entry.name;
       return false;
     }
@@ -708,10 +714,79 @@ bool equivalentPath(const filesystem::path& first, const filesystem::path& secon
   return lhs == rhs;
 }
 
+bool pathContains(const filesystem::path& ancestor, const filesystem::path& candidate, bool& contains,
+                  string& error) {
+  error_code ancestorError;
+  error_code candidateError;
+  const auto ancestorAbsolute = filesystem::absolute(ancestor, ancestorError).lexically_normal();
+  const auto candidateAbsolute = filesystem::absolute(candidate, candidateError).lexically_normal();
+  if (ancestorError || candidateError) {
+    error = "Unable to resolve backup path overlap: " +
+            (ancestorError ? ancestorError.message() : candidateError.message());
+    return false;
+  }
+  string lhs = ancestorAbsolute.generic_u8string();
+  string rhs = candidateAbsolute.generic_u8string();
+#ifdef _WIN32
+  transform(lhs.begin(), lhs.end(), lhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+  transform(rhs.begin(), rhs.end(), rhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+#endif
+  if (lhs == rhs) {
+    contains = true;
+    return true;
+  }
+  if (!lhs.empty() && lhs.back() != '/') lhs.push_back('/');
+  contains = rhs.rfind(lhs, 0) == 0;
+  return true;
+}
+
+bool pathsOverlap(const filesystem::path& first, const filesystem::path& second, bool& overlaps, string& error) {
+  bool firstContainsSecond = false;
+  bool secondContainsFirst = false;
+  if (!pathContains(first, second, firstContainsSecond, error) ||
+      !pathContains(second, first, secondContainsFirst, error)) {
+    return false;
+  }
+  overlaps = firstContainsSecond || secondContainsFirst;
+  return true;
+}
+
+bool ownedRestoreSibling(const filesystem::path& artifact, const filesystem::path& base, const string& marker);
+
 bool ownedRestoreSibling(const filesystem::path& artifact, const filesystem::path& base, const string& marker) {
   if (!equivalentPath(artifact.parent_path(), base.parent_path())) return false;
   const auto prefix = base.filename().u8string() + marker + "-";
   return artifact.filename().u8string().rfind(prefix, 0) == 0;
+}
+
+bool inspectOwnedArtifact(const filesystem::path& artifact, const filesystem::path& base, const string& marker,
+                          bool expectedDirectory, bool required, bool& exists, string& error) {
+  if (!ownedRestoreSibling(artifact, base, marker)) {
+    error = "Restore artifact path is not owned by this workspace";
+    return false;
+  }
+  error_code filesystemError;
+  exists = filesystem::exists(artifact, filesystemError);
+  if (filesystemError) {
+    error = "Unable to inspect restore artifact: " + filesystemError.message();
+    return false;
+  }
+  if (!exists) {
+    if (required) error = "Required restore artifact is missing";
+    return !required;
+  }
+  if (filesystem::is_symlink(artifact, filesystemError) || filesystemError) {
+    error = "Restore artifact is a symbolic link";
+    return false;
+  }
+  const bool correctType = expectedDirectory ? filesystem::is_directory(artifact, filesystemError)
+                                             : filesystem::is_regular_file(artifact, filesystemError);
+  if (filesystemError || !correctType) {
+    error = expectedDirectory ? "Restore artifact is not a real directory"
+                              : "Restore artifact is not a regular file";
+    return false;
+  }
+  return true;
 }
 
 bool validateJournalOwnership(const RestoreJournal& journal, const filesystem::path& destination,
@@ -741,11 +816,17 @@ bool copyToAtomicTarget(const filesystem::path& source, const filesystem::path& 
 
 bool restoreSettingsFromJournal(const RestoreJournal& journal, const TransferOps& ops, string& error) {
   if (journal.settingsExisted) {
-    if (!filesystem::exists(journal.settingsBackup)) {
-      error = "Settings backup is missing during restore rollback";
-      return false;
-    }
+    bool backupExists = false;
+    if (!inspectOwnedArtifact(journal.settingsBackup, journal.settings, ".restore-old", false, true, backupExists,
+                              error)) return false;
     return copyToAtomicTarget(journal.settingsBackup, journal.settings, ops, error);
+  }
+  bool backupExists = false;
+  if (!inspectOwnedArtifact(journal.settingsBackup, journal.settings, ".restore-old", false, false, backupExists,
+                            error)) return false;
+  if (backupExists) {
+    error = "Unexpected settings backup is present during restore rollback";
+    return false;
   }
   error_code filesystemError;
   filesystem::remove(journal.settings, filesystemError);
@@ -758,18 +839,64 @@ bool restoreSettingsFromJournal(const RestoreJournal& journal, const TransferOps
 
 bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, string& error) {
   string stepError;
+  bool oldDataExists = false;
   if (journal.destinationExisted) {
-    error_code filesystemError;
-    if (filesystem::exists(journal.destination, filesystemError) && !ops.removeAll(journal.destination, stepError)) {
+    // Never destroy the active destination unless the journal still points to
+    // a real, owned protected directory that can be put back. A missing old
+    // directory is an unrecoverable state, not permission to continue.
+    if (!inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, true, oldDataExists,
+                              stepError)) {
       error = stepError;
       return false;
     }
+  } else if (!inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, false,
+                                   oldDataExists, stepError) || oldDataExists) {
+    // A journal that says no destination existed must never remove an
+    // unexpected old-data artifact. It may be user data or evidence of a
+    // journal/state mismatch, so leave everything untouched and require
+    // explicit recovery handling.
+    error = oldDataExists ? "Unexpected protected old-data artifact is present" : stepError;
+    return false;
+  }
+  bool settingsBackupExists = false;
+  if (journal.settingsExisted) {
+    if (!inspectOwnedArtifact(journal.settingsBackup, journal.settings, ".restore-old", false, true,
+                              settingsBackupExists, stepError)) {
+      error = stepError;
+      return false;
+    }
+  } else if (!inspectOwnedArtifact(journal.settingsBackup, journal.settings, ".restore-old", false, false,
+                                   settingsBackupExists, stepError) || settingsBackupExists) {
+    error = settingsBackupExists ? "Unexpected settings backup is present" : stepError;
+    return false;
+  }
+  if (journal.destinationExisted) {
+    error_code filesystemError;
+    const bool destinationExists = filesystem::exists(journal.destination, filesystemError);
     if (filesystemError) {
       error = "Unable to inspect restored data during rollback: " + filesystemError.message();
       return false;
     }
-    if (filesystem::exists(journal.oldData) && !ops.rename(journal.oldData, journal.destination, stepError)) {
+    filesystem::path newData;
+    if (destinationExists) {
+      if (!chooseUnusedSibling(journal.destination, ".restore-rollback-new", newData, stepError) ||
+          !ops.rename(journal.destination, newData, stepError)) {
+        error = stepError;
+        return false;
+      }
+    }
+    if (!ops.rename(journal.oldData, journal.destination, stepError)) {
+      if (destinationExists) {
+        string restoreError;
+        if (!ops.rename(newData, journal.destination, restoreError) && !restoreError.empty()) {
+          stepError += "; failed to restore the active destination: " + restoreError;
+        }
+      }
       error = stepError;
+      return false;
+    }
+    if (destinationExists && !ops.removeAll(newData, stepError)) {
+      error = "Restored data was rolled back, but the failed activation could not be removed: " + stepError;
       return false;
     }
   } else if (filesystem::exists(journal.destination) && !ops.removeAll(journal.destination, stepError)) {
@@ -784,7 +911,7 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
     error = stepError;
     return false;
   }
-  if (filesystem::exists(journal.settingsBackup) && !ops.removeAll(journal.settingsBackup, stepError)) {
+  if (settingsBackupExists && !ops.removeAll(journal.settingsBackup, stepError)) {
     error = stepError;
     return false;
   }
@@ -838,8 +965,28 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
     error = "Inventory database is missing";
     return false;
   }
-  if (filesystem::exists(destinationDirectory, filesystemError) || filesystemError) {
+  if (filesystem::exists(destinationDirectory, filesystemError)) {
     error = "Backup destination already exists";
+    return false;
+  }
+  if (filesystemError) {
+    error = "Unable to inspect backup destination: " + filesystemError.message();
+    return false;
+  }
+  bool overlap = false;
+  if (!pathsOverlap(dataDirectory, destinationDirectory, overlap, error)) return false;
+  if (overlap) {
+    error = "Backup destination overlaps the active data directory";
+    return false;
+  }
+  if (!pathsOverlap(destinationDirectory, appSettingsPath, overlap, error)) return false;
+  if (overlap) {
+    error = "Backup destination overlaps application settings";
+    return false;
+  }
+  if (!pathsOverlap(dataDirectory, appSettingsPath, overlap, error)) return false;
+  if (overlap) {
+    error = "Application settings overlap the active data directory";
     return false;
   }
   if (applicationVersion.empty() || containsLineBreakOrTab(applicationVersion)) {
@@ -871,7 +1018,9 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   const vector<string> optionalNames = {"activity.tsv", "printer.conf", "quick_labels.conf"};
   for (const auto& name : optionalNames) {
     const auto source = dataDirectory / name;
-    if (!filesystem::exists(source, filesystemError)) {
+    const bool sourceExists = filesystem::exists(source, filesystemError);
+    if (filesystemError) return fail("Unable to inspect backup source file: " + name);
+    if (!sourceExists) {
       filesystemError.clear();
       continue;
     }
@@ -886,7 +1035,9 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   vector<BackupEntry> entries;
   for (const auto& name : names) {
     const auto target = staging / name;
-    if (!filesystem::is_regular_file(target, filesystemError) || filesystemError) continue;
+    const bool targetIsFile = filesystem::is_regular_file(target, filesystemError);
+    if (filesystemError) return fail("Unable to inspect staged backup file: " + name);
+    if (!targetIsFile) continue;
     BackupEntry entry;
     entry.name = name;
     entry.size = filesystem::file_size(target, filesystemError);
@@ -902,6 +1053,7 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
 }
 
 bool validateInventatoryBackup(const filesystem::path& backupDirectory, string& error) {
+  try {
   error.clear();
   error_code filesystemError;
   if (filesystem::is_symlink(backupDirectory, filesystemError) || filesystemError ||
@@ -911,13 +1063,37 @@ bool validateInventatoryBackup(const filesystem::path& backupDirectory, string& 
   }
   vector<BackupEntry> entries;
   return readManifest(backupDirectory, entries, error) && validateEntries(backupDirectory, entries, error);
+  } catch (const filesystem::filesystem_error& exception) {
+    error = string("Backup validation filesystem error: ") + exception.what();
+    return false;
+  } catch (const exception& exception) {
+    error = string("Backup validation error: ") + exception.what();
+    return false;
+  }
 }
 
 bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
                               const filesystem::path& appSettingsPath, string& error,
                               const InventoryTransferTestHooks* testHooks) {
+  try {
   error.clear();
   const TransferOps ops{testHooks};
+  bool overlap = false;
+  if (!pathsOverlap(backupDirectory, destinationDirectory, overlap, error)) return false;
+  if (overlap) {
+    error = "Backup source overlaps restore destination";
+    return false;
+  }
+  if (!pathsOverlap(backupDirectory, appSettingsPath, overlap, error)) return false;
+  if (overlap) {
+    error = "Backup source overlaps application settings";
+    return false;
+  }
+  if (!pathsOverlap(destinationDirectory, appSettingsPath, overlap, error)) return false;
+  if (overlap) {
+    error = "Restore destination overlaps application settings";
+    return false;
+  }
   const auto journalPath = restoreJournalPath(appSettingsPath);
   error_code journalError;
   if (filesystem::exists(journalPath, journalError)) {
@@ -933,9 +1109,18 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   if (!readManifest(backupDirectory, entries, error)) return false;
 
   error_code filesystemError;
-  if (filesystem::exists(destinationDirectory, filesystemError) &&
-      !filesystem::is_directory(destinationDirectory, filesystemError)) {
+  const bool destinationExists = filesystem::exists(destinationDirectory, filesystemError);
+  if (filesystemError) {
+    error = "Unable to inspect restore destination: " + filesystemError.message();
+    return false;
+  }
+  if (destinationExists && (filesystem::is_symlink(destinationDirectory, filesystemError) ||
+                            !filesystem::is_directory(destinationDirectory, filesystemError))) {
     error = "Restore destination is not a directory";
+    return false;
+  }
+  if (filesystemError) {
+    error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
   filesystem::path staging;
@@ -950,14 +1135,37 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     ops.removeAll(staging, cleanupError);
     return false;
   }
-  journal.destinationExisted = filesystem::exists(destinationDirectory);
-  journal.settingsExisted = filesystem::exists(appSettingsPath);
+  journal.destinationExisted = destinationExists;
+  journal.settingsExisted = filesystem::exists(appSettingsPath, filesystemError);
+  if (filesystemError) {
+    string cleanupError;
+    ops.removeAll(staging, cleanupError);
+    error = "Unable to inspect application settings: " + filesystemError.message();
+    return false;
+  }
   journal.state = "prepared";
   const auto discardStage = [&](const string& primary) {
     string cleanupError;
-    ops.removeAll(staging, cleanupError);
-    ops.removeAll(journalPath, cleanupError);
+    string firstCleanupError;
+    bool cleanupOk = ops.removeAll(staging, cleanupError);
+    if (!cleanupOk) firstCleanupError = cleanupError;
+    if (journal.settingsExisted) {
+      cleanupError.clear();
+      if (!ops.removeAll(journal.settingsBackup, cleanupError) && firstCleanupError.empty()) {
+        firstCleanupError = cleanupError;
+      }
+      cleanupOk = cleanupOk && cleanupError.empty();
+    }
+    // Preserve the journal when any owned artifact could not be removed so
+    // startup recovery can retry the cleanup; deleting the marker would make
+    // the leftover settings backup undiscoverable.
+    if (cleanupOk) {
+      cleanupError.clear();
+      cleanupOk = ops.removeAll(journalPath, cleanupError);
+      if (!cleanupOk && firstCleanupError.empty()) firstCleanupError = cleanupError;
+    }
     error = primary;
+    if (!cleanupOk) error += "; restore cleanup pending: " + firstCleanupError;
     return false;
   };
   if (!writeRestoreJournal(journalPath, journal, ops, error)) return discardStage(error);
@@ -1062,6 +1270,13 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     return false;
   }
   string cleanupError;
+  bool oldDataExists = false;
+  if (journal.destinationExisted &&
+      !inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, true, oldDataExists,
+                            cleanupError)) {
+    error = "Restored data is active, but cleanup is pending: " + cleanupError;
+    return false;
+  }
   if ((journal.destinationExisted && !ops.removeAll(journal.oldData, cleanupError)) ||
       (journal.settingsExisted && !ops.removeAll(journal.settingsBackup, cleanupError)) ||
       !ops.removeAll(journalPath, cleanupError)) {
@@ -1069,11 +1284,25 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     return false;
   }
   return true;
+  } catch (const filesystem::filesystem_error& exception) {
+    error = string("Restore filesystem error: ") + exception.what();
+    return false;
+  } catch (const exception& exception) {
+    error = string("Restore error: ") + exception.what();
+    return false;
+  }
 }
 
 bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, const filesystem::path& appSettingsPath,
                                string& error) {
+  try {
   error.clear();
+  bool overlap = false;
+  if (!pathsOverlap(destinationDirectory, appSettingsPath, overlap, error)) return false;
+  if (overlap) {
+    error = "Restore destination overlaps application settings";
+    return false;
+  }
   const auto journalPath = restoreJournalPath(appSettingsPath);
   error_code filesystemError;
   if (!filesystem::exists(journalPath, filesystemError)) {
@@ -1089,11 +1318,33 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
       !validateJournalOwnership(journal, destinationDirectory, appSettingsPath, error)) {
     return false;
   }
+  bool oldDataExists = false;
+  if (!inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, false, oldDataExists,
+                            error)) {
+    return false;
+  }
+  if (!journal.destinationExisted && oldDataExists) {
+    error = "Unexpected protected old-data artifact is present";
+    return false;
+  }
+  bool settingsBackupExists = false;
+  if (!inspectOwnedArtifact(journal.settingsBackup, journal.settings, ".restore-old", false, false,
+                            settingsBackupExists, error)) {
+    return false;
+  }
+  if (!journal.settingsExisted && settingsBackupExists) {
+    error = "Unexpected settings backup is present";
+    return false;
+  }
   const TransferOps ops;
   if (journal.state == "prepared") {
     string cleanupError;
-    if (!ops.removeAll(journal.staging, cleanupError) || !ops.removeAll(journal.oldData, cleanupError) ||
-        !ops.removeAll(journal.settingsBackup, cleanupError) || !ops.removeAll(journalPath, cleanupError)) {
+    if (oldDataExists) {
+      error = "Unexpected protected old-data artifact is present in prepared restore";
+      return false;
+    }
+    if (!ops.removeAll(journal.staging, cleanupError) || !ops.removeAll(journal.settingsBackup, cleanupError) ||
+        !ops.removeAll(journalPath, cleanupError)) {
       error = cleanupError;
       return false;
     }
@@ -1110,6 +1361,10 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
     return true;
   }
   if (journal.state == "settings_activated" || journal.state == "cleanup_pending") {
+    if (journal.settingsExisted && !settingsBackupExists) {
+      error = "Restored data is active, but the settings backup is missing";
+      return false;
+    }
     SqliteConnection activeConnection;
     string validationError;
     if (filesystem::exists(journal.destination) &&
@@ -1118,6 +1373,16 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
       AppSettings settings;
       if (loadAppSettings(journal.settings, settings) && settings.dataDirectory == journal.destination) {
         string cleanupError;
+        if (journal.destinationExisted &&
+            !inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, true,
+                                  oldDataExists, cleanupError)) {
+          error = "Restored data is active, but old-data cleanup is pending: " + cleanupError;
+          return false;
+        }
+        if (!journal.destinationExisted && oldDataExists) {
+          error = "Restored data is active, but unexpected old-data cleanup is pending";
+          return false;
+        }
         if (filesystem::exists(journal.destination / "manifest.tsv") &&
             !ops.removeAll(journal.destination / "manifest.tsv", cleanupError)) {
           error = cleanupError;
@@ -1128,11 +1393,11 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
           error = cleanupError;
           return false;
         }
-        if (filesystem::exists(journal.oldData) && !ops.removeAll(journal.oldData, cleanupError)) {
+        if (journal.destinationExisted && !ops.removeAll(journal.oldData, cleanupError)) {
           error = "Restored data is active, but old data cleanup failed: " + cleanupError;
           return false;
         }
-        if (filesystem::exists(journal.settingsBackup) && !ops.removeAll(journal.settingsBackup, cleanupError)) {
+        if (settingsBackupExists && !ops.removeAll(journal.settingsBackup, cleanupError)) {
           error = "Restored data is active, but settings backup cleanup failed: " + cleanupError;
           return false;
         }
@@ -1163,6 +1428,13 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
   }
   error = "Unable to roll back interrupted restore in state " + interruptedState + ": " + rollbackError;
   return false;
+  } catch (const filesystem::filesystem_error& exception) {
+    error = string("Restore recovery filesystem error: ") + exception.what();
+    return false;
+  } catch (const exception& exception) {
+    error = string("Restore recovery error: ") + exception.what();
+    return false;
+  }
 }
 
 }  // namespace inventatory
