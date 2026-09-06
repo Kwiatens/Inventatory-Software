@@ -344,13 +344,24 @@ ftxui::Element App::renderSearchBarUi() const {
                              inputMode_ == InputMode::HistoryCheckpoint || inputMode_ == InputMode::HistoryConfirm ||
                              inputMode_ == InputMode::ExitConfirmation);
 
-  const auto activeBg = inputMode_ == InputMode::Search || showsPrompt ? uiRowSelectedBg() : uiPanelLeftBg();
-  const auto bodyColor = inputMode_ == InputMode::Search ? uiTitleColor() : showsPrompt ? uiLinkColor() : uiMutedColor();
+  const auto activeBg = inputMode_ == InputMode::Search || inputMode_ == InputMode::ClosestSearch || showsPrompt
+                            ? uiRowSelectedBg()
+                            : uiPanelLeftBg();
+  const auto bodyColor = inputMode_ == InputMode::Search || inputMode_ == InputMode::ClosestSearch
+                             ? uiTitleColor()
+                             : showsPrompt ? uiLinkColor() : uiMutedColor();
   string contextTitle = "Context";
   string contextText;
   if (inputMode_ == InputMode::Search) {
     contextTitle = "Search";
     contextText = "/" + inputBuffer_ + "_  (filtering live)";
+  } else if (inputMode_ == InputMode::ClosestSearch) {
+    contextTitle = "Find Closest To";
+    contextText = ">" + inputBuffer_ + "_  (searching all records live)";
+  } else if (page_ == Page::Stock && closestSearchActive_) {
+    contextTitle = "Find Closest To";
+    contextText = closestSearchQuery_.empty() ? "> type a physical value" : ">" + closestSearchQuery_ +
+                  "  · F edit target · Esc close";
   } else if (inputMode_ == InputMode::ExitConfirmation) {
     contextTitle = "Unsaved settings";
     contextText = activePrompt();
@@ -426,7 +437,8 @@ ftxui::Element App::renderSearchBarUi() const {
   auto context = footerField(contextTitle, contextText, uiSecondaryText(), bodyColor, activeBg);
   if (page_ == Page::Stock && inputMode_ == InputMode::None) {
     auto self = const_cast<App*>(this);
-    context = target(context, "stock.search", UiTargetKind::Field, [self] { self->startSearch(); });
+    context = target(context, closestSearchActive_ ? "stock.closest.search" : "stock.search", UiTargetKind::Field,
+                     [self] { self->closestSearchActive_ ? self->startClosestSearch() : self->startSearch(); });
   }
   rows.push_back(context);
 
@@ -708,6 +720,9 @@ void App::handleKey(const KeyEvent& key) {
   switch (inputMode_) {
     case InputMode::Search:
       handleSearchKey(key);
+      return;
+    case InputMode::ClosestSearch:
+      handleClosestSearchKey(key);
       return;
     case InputMode::EditFieldMenu:
       handleEditMenuKey(key);
