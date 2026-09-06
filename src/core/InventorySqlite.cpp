@@ -674,11 +674,7 @@ bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value) {
   // Inventatory timestamps are Unix times.  Negative values are outside the
   // persisted domain even on platforms whose time_t can represent them.
   if (raw < 0) return false;
-  if (numeric_limits<time_t>::is_signed) {
-    if (raw > static_cast<sqlite3_int64>(numeric_limits<time_t>::max())) return false;
-  } else if (static_cast<unsigned long long>(raw) > numeric_limits<time_t>::max()) {
-    return false;
-  }
+  if (static_cast<uint64_t>(raw) > static_cast<uint64_t>((numeric_limits<time_t>::max)())) return false;
   value = static_cast<time_t>(raw);
   return true;
 }

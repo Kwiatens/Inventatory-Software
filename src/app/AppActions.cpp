@@ -4,6 +4,7 @@
 #include "App.h"
 
 #include "import/CsvFormat.h"
+#include "core/InventorySqlite.h"
 #include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
