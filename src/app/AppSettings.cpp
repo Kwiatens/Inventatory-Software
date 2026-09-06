@@ -262,7 +262,8 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       if (!parseBoolValue(value, loaded.updateChecksEnabled)) return false;
     } else if (key == "last_update_check_unix_seconds") {
       uint64_t parsed = 0;
-      if (!parseUnsignedValue(value, parsed) || parsed > numeric_limits<int64_t>::max()) return false;
+      if (!parseUnsignedValue(value, parsed) ||
+          parsed > static_cast<uint64_t>((numeric_limits<int64_t>::max)())) return false;
       loaded.lastUpdateCheckUnixSeconds = static_cast<int64_t>(parsed);
     } else if (key == "latest_available_version") {
       if (!parseQuotedValue(value, loaded.latestAvailableVersion) ||
@@ -299,16 +300,16 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       }
     } else if (key == "low_stock_threshold") {
       uint64_t threshold = 0;
-      if (!parseUnsignedValue(value, threshold)) return false;
-      if (threshold > 0 && threshold <= numeric_limits<int>::max()) {
-        loaded.lowStockThreshold = static_cast<int>(threshold);
-      }
+      if (!parseUnsignedValue(value, threshold) || threshold == 0 ||
+          threshold > numeric_limits<int>::max()) return false;
+      loaded.lowStockThreshold = static_cast<int>(threshold);
     } else if (key.rfind("appearance_", 0) == 0) {
       for (size_t index = 0; index < kAppearanceColorCount; ++index) {
         const auto role = static_cast<AppearanceColorRole>(index);
         if (key == string("appearance_") + appearanceColorKey(role)) {
           string encoded;
-          if (!(value >> encoded)) return false;
+          string trailing;
+          if (!(value >> encoded) || (value >> trailing)) return false;
           uint32_t parsed = loaded.appearance.colors[index];
           // Keep the established forward-compatible behavior for malformed
           // optional appearance values: use the default role color while

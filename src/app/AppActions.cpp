@@ -262,7 +262,13 @@ void App::loadState() {
   }
   inventoryRecoveryRequired_ = false;
   inventoryRecoveryDetail_.clear();
-  loadActivities(activityPath_, activities_);
+  vector<ActivityEntry> loadedActivities;
+  error_code activityError;
+  const bool activityFileExists = filesystem::exists(activityPath_, activityError);
+  const bool activityLoadFailed = activityError ||
+                                  (activityFileExists && !loadActivities(activityPath_, loadedActivities));
+  activityPersistenceBlocked_ = activityLoadFailed;
+  activities_ = activityLoadFailed ? vector<ActivityEntry>{} : move(loadedActivities);
   inventatory::loadBomProjects(inventoryPath_, bomProjects_);
   refreshDeviceEventRecords();
   refreshInventoryMovements();
@@ -295,7 +301,12 @@ void App::loadState() {
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) saveFailures.push_back("scanner settings");
-  if (!saveActivitiesChecked(false)) saveFailures.push_back("activity history");
+  if (activityLoadFailed) {
+    activitySavePending_ = true;
+    saveFailures.push_back("activity history (unreadable; original preserved)");
+  } else if (!saveActivitiesChecked(false)) {
+    saveFailures.push_back("activity history");
+  }
   if (!commitHistoryReady) saveFailures.push_back("inventory commits");
   persistenceError_ = saveFailures.empty()
                           ? string()
@@ -542,6 +553,15 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
 }
 
 bool App::saveActivitiesChecked(bool notify) {
+  if (activityPersistenceBlocked_) {
+    activitySavePending_ = true;
+    persistenceError_ =
+        "Activity history is unreadable; the original file was preserved and will not be overwritten.";
+    if (notify) {
+      setMessage(persistenceError_, 6);
+    }
+    return false;
+  }
   if (saveActivities(activityPath_, activities_)) {
     activitySavePending_ = false;
     return true;
