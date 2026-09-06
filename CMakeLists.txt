@@ -77,6 +77,7 @@ add_executable(inventatory
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
   src/core/InventoryMovements.cpp
+  src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp
@@ -164,6 +165,7 @@ add_executable(inventatory_tests
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
   src/core/InventoryMovements.cpp
+  src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp
