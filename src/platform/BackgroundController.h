@@ -41,6 +41,7 @@ class BackgroundController {
  private:
   void trayThreadMain();
   std::atomic<bool> enabled_{false};
+  std::atomic<bool> trayStartupCancelled_{false};
   std::atomic<HWND> trayWindow_{nullptr};
   void* instanceMutex_ = nullptr;
   bool backgroundMode_ = false;
