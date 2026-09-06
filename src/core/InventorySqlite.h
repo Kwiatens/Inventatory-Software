@@ -30,6 +30,9 @@ struct SqliteApi {
   decltype(&::sqlite3_column_text) column_text = &::sqlite3_column_text;
   decltype(&::sqlite3_changes) changes = &::sqlite3_changes;
   decltype(&::sqlite3_busy_timeout) busy_timeout = &::sqlite3_busy_timeout;
+  decltype(&::sqlite3_backup_init) backup_init = &::sqlite3_backup_init;
+  decltype(&::sqlite3_backup_step) backup_step = &::sqlite3_backup_step;
+  decltype(&::sqlite3_backup_finish) backup_finish = &::sqlite3_backup_finish;
   decltype(&::sqlite3_free) free = &::sqlite3_free;
 
   bool load();
@@ -50,6 +53,11 @@ struct SqliteStatement {
 string sqliteText(sqlite3_stmt* stmt, int column);
 bool openDatabase(const filesystem::path& path, SqliteConnection& connection);
 bool openDatabaseReadOnly(const filesystem::path& path, SqliteConnection& connection);
+// Creates a consistent SQLite snapshot without mutating the source database.
+// The destination must not exist; callers should validate the closed snapshot
+// through validateInventoryDatabase() before publishing it.
+bool createSqliteSnapshot(const filesystem::path& sourcePath, const filesystem::path& destinationPath,
+                          string* error = nullptr);
 bool execSql(SqliteConnection& connection, const string& sql);
 bool tableExists(SqliteConnection& connection, const string& tableName);
 bool tableColumnExists(SqliteConnection& connection, const string& tableName, const string& columnName);
