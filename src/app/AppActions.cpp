@@ -6,7 +6,6 @@
 #include "import/CsvFormat.h"
 #include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
-#include "core/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -33,7 +32,6 @@ constexpr size_t kDeviceStatusQueueLimit = 256;
 constexpr size_t kDeviceDebugQueueLimit = 512;
 constexpr size_t kScanQueueLimit = 256;
 constexpr size_t kDeviceQuantityQueueLimit = 64;
-constexpr size_t kDeviceEventIdentityLookupLimit = 4096;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
@@ -2466,14 +2464,7 @@ void App::processDeviceSyncEvents() {
   if (pending.empty()) return;
 
   const auto& event = pending.front();
-  // The pending-event loader intentionally returns the compact event payload.
-  // Recover the durable device identity from the same still-received inbox row
-  // before constructing the completion, so event IDs cannot cross devices.
-  const auto records = loadDeviceSyncEventRecords(context->paths.inventory, kDeviceEventIdentityLookupLimit);
-  const auto record = find_if(records.begin(), records.end(), [&](const DeviceSyncEventRecord& candidate) {
-    return candidate.state == "received" && candidate.event.eventId == event.eventId;
-  });
-  if (record == records.end() || record->deviceId.empty()) {
+  if (event.deviceId.empty()) {
     setMessage("Inventatory Scan event has no durable device identity; it was left pending", 5);
     return;
   }
@@ -2481,7 +2472,7 @@ void App::processDeviceSyncEvents() {
   DeviceSyncResult result;
   result.resultId = event.eventId + "-result";
   result.eventId = event.eventId;
-  result.deviceId = record->deviceId;
+  result.deviceId = event.deviceId;
   result.status = "failed";
   result.code = "invalid_event";
   result.message = "Invalid inventory event";
