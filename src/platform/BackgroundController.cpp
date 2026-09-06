@@ -221,13 +221,19 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
     std::lock_guard<std::mutex> lock(trayReadyMutex_);
     trayReady_ = false;
   }
+  trayStartupCancelled_.store(false);
   trayThread_ = std::thread(&BackgroundController::trayThreadMain, this);
   {
     std::unique_lock<std::mutex> lock(trayReadyMutex_);
     if (!trayReadyChanged_.wait_for(lock, std::chrono::seconds(2), [this] { return trayReady_; })) {
       enabled_.store(false);
+      trayStartupCancelled_.store(true);
       lock.unlock();
+      if (const HWND window = trayWindow_.load(); window != nullptr) {
+        PostMessageW(window, kStopMessage, 0, 0);
+      }
       if (trayThread_.joinable()) trayThread_.join();
+      trayWindow_.store(nullptr);
       std::lock_guard<std::mutex> callbackLock(callbackMutex_);
       onQuit_ = {};
       onOpen_ = {};
@@ -236,7 +242,9 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   }
   if (trayWindow_.load() == nullptr) {
     enabled_.store(false);
+    trayStartupCancelled_.store(true);
     if (trayThread_.joinable()) trayThread_.join();
+    trayWindow_.store(nullptr);
     std::lock_guard<std::mutex> callbackLock(callbackMutex_);
     onQuit_ = {};
     onOpen_ = {};
@@ -319,7 +327,10 @@ void BackgroundController::trayThreadMain() {
     trayReady_ = true;
   }
   trayReadyChanged_.notify_all();
-  if (window == nullptr) return;
+  if (window == nullptr || trayStartupCancelled_.load()) {
+    if (window != nullptr) DestroyWindow(window);
+    return;
+  }
 
   NOTIFYICONDATAW icon{};
   icon.cbSize = sizeof(icon);

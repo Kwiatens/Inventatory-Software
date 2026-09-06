@@ -2551,6 +2551,33 @@ int main() {
     assert(syncCalls == 3);
     corruptStateServer.stop();
 
+    const auto malformedFingerprintState = stateDirectory / "malformed-fingerprint.state";
+    {
+      ofstream malformed(malformedFingerprintState, ios::trunc);
+      malformed << "fingerprint=short\n"
+                << "counter=1\n";
+    }
+    LocalHttpServer malformedFingerprintServer;
+    malformedFingerprintServer.setDeviceCredentials(deviceId, rotatedToken, malformedFingerprintState);
+    assert(malformedFingerprintServer.start(19471, onSync));
+    const auto rejectedWithMalformedFingerprint = sendLocalHttpRequest(
+        malformedFingerprintServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
+    assert(rejectedWithMalformedFingerprint.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(syncCalls == 3);
+    malformedFingerprintServer.stop();
+
+    LocalHttpServer queuedStopServer;
+    queuedStopServer.setDeviceCredentials(deviceId, rotatedToken, stateDirectory / "queued-stop.state");
+    assert(queuedStopServer.start(19472, onSync));
+    vector<SOCKET> queuedSlowClients;
+    for (int index = 0; index < 20; ++index) queuedSlowClients.push_back(connectSlowLocalClient(queuedStopServer.port()));
+    this_thread::sleep_for(chrono::milliseconds(100));
+    const auto stopStarted = chrono::steady_clock::now();
+    queuedStopServer.stop();
+    const auto stopElapsed = chrono::steady_clock::now() - stopStarted;
+    for (const auto client : queuedSlowClients) closesocket(client);
+    assert(stopElapsed < chrono::seconds(4));
+
     filesystem::remove_all(stateDirectory, cleanupError);
   }
 
