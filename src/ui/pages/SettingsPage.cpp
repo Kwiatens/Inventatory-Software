@@ -6,6 +6,7 @@
 #include "platform/CredentialStore.h"
 #include "platform/DigiKeyApi.h"
 #include "platform/StartupRegistration.h"
+#include "core/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -496,72 +497,211 @@ bool App::saveSettingsDraft() {
   const bool portChanged = settingsDraft_.deviceServicePort != settings_.deviceServicePort;
   const bool backgroundChanged = settingsDraft_.backgroundServiceEnabled != settings_.backgroundServiceEnabled;
   const bool quickLabelsChanged = settingsDraft_.quickLabelPresets != settings_.quickLabelPresets;
-  InventatoryDataPaths switchedPaths;
-  if (dataChanged) {
-    stopDigiKeyRefresh();
-  }
   if (quickLabelsChanged) {
     settingsDraft_.quickLabelRevision = settings_.quickLabelRevision == UINT32_MAX
                                             ? 1U
                                             : max(1U, settings_.quickLabelRevision + 1U);
   }
+
+  // Fully read the candidate before stopping the active service or changing
+  // the persisted settings pointer.  A missing database is a valid empty
+  // workspace; an existing database and its sidecars must be readable.
+  InventoryStore candidateStore;
+  AppSettings oldSettings = settings_;
+  const auto oldPaths = makeInventatoryDataPaths(dataPath_);
+  const auto oldContext = currentWorkspaceContext();
+  vector<ActivityEntry> candidateActivities;
+  vector<string> candidateQuickLabels;
+  uint32_t candidateQuickLabelRevision = settingsDraft_.quickLabelRevision;
+  bool candidateQuickLabelsLoaded = false;
+  bool candidateNeedsMigration = false;
+  auto candidatePaths = makeInventatoryDataPaths(settingsDraft_.dataDirectory);
   if (dataChanged) {
-    const auto candidateDatabase = settingsDraft_.dataDirectory / "inventory.db";
-    if (filesystem::exists(candidateDatabase, error)) {
-      InventoryStore candidate;
-      if (!candidate.load(candidateDatabase)) {
+    if (filesystem::exists(candidatePaths.inventory, error)) {
+      SqliteConnection candidateConnection;
+      string candidateValidationError;
+      if (!openDatabaseReadOnly(candidatePaths.inventory, candidateConnection)) {
+        setMessage("The selected folder contains an inventory database Inventatory cannot load", 5);
+        return false;
+      }
+      if (!validateInventoryDatabase(candidateConnection, &candidateValidationError)) {
+        // Legacy databases are migrated only after the active service is
+        // quiesced. A structurally unreadable database is rejected by the
+        // migration/load step before settings activation below.
+        candidateNeedsMigration = true;
+      } else if (!candidateStore.load(candidatePaths.inventory)) {
         setMessage("The selected folder contains an inventory database Inventatory cannot load", 5);
         return false;
       }
     }
-    auto activePaths = InventatoryDataPaths{dataPath_, inventoryPath_, printerPath_, activityPath_, inventatoryScanConfigPath_};
-    if (!switchInventatoryDataPathsAfterSaving(activePaths, settingsDraft_.dataDirectory,
-                                               [this] { return saveState(); })) {
+    if (filesystem::exists(candidatePaths.activity, error) &&
+        !loadActivities(candidatePaths.activity, candidateActivities)) {
+      setMessage("The selected folder contains unreadable activity history", 5);
+      return false;
+    }
+    candidateQuickLabels.clear();
+    if (filesystem::exists(quickLabelsPath(settingsDraft_.dataDirectory), error) &&
+        !loadQuickLabels(quickLabelsPath(settingsDraft_.dataDirectory), candidateQuickLabels,
+                         candidateQuickLabelRevision)) {
+      setMessage("The selected folder contains unreadable Quick Labels settings", 5);
+      return false;
+    }
+    candidateQuickLabelsLoaded = filesystem::exists(quickLabelsPath(settingsDraft_.dataDirectory), error);
+    InventatoryScanConfig candidateScan;
+    if (filesystem::exists(candidatePaths.scanConfig, error) &&
+        !loadInventatoryScanConfig(candidatePaths.scanConfig, candidateScan)) {
+      setMessage("The selected folder contains unreadable scanner settings", 5);
+      return false;
+    }
+    if (!quickLabelsChanged && candidateQuickLabelsLoaded) {
+      settingsDraft_.quickLabelPresets = candidateQuickLabels;
+      settingsDraft_.quickLabelRevision = candidateQuickLabelRevision;
+    }
+  }
+
+  // Do not allow a switch while a user-visible sync is mid-flight.  Other
+  // workspace-bound lookups are quiesced below; their results are never
+  // allowed to cross the generation boundary.
+  if (dataChanged && importSyncRunning_) {
+    setMessage("Wait for DigiKey sync to finish before changing the data folder", 5);
+    return false;
+  }
+
+  const bool serviceWasRunning = server_.running();
+  const auto restartOldService = [&] {
+    if (serviceWasRunning) restartDeviceService();
+  };
+  const auto oldDigiKeySecret = CredentialStore::read(kDigiKeySecretName);
+  bool startupChanged = false;
+  bool credentialChanged = false;
+
+  if (dataChanged) {
+    mdnsService_.stop();
+    server_.stop();
+    stopWorkspaceBoundWork();
+    if (!saveState()) {
+      restartOldService();
       setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5);
       return false;
     }
-    switchedPaths = move(activePaths);
+    if (candidateNeedsMigration && !candidateStore.load(candidatePaths.inventory)) {
+      restartOldService();
+      setMessage("The selected folder contains an inventory database that could not be migrated", 6);
+      return false;
+    }
   }
   if (stagedDigiKeySecretChanged_ && !CredentialStore::write(kDigiKeySecretName, stagedDigiKeySecret_)) {
+    restartOldService();
     setMessage("Unable to save the DigiKey secret securely", 5);
     return false;
   }
+  credentialChanged = stagedDigiKeySecretChanged_;
   if (backgroundChanged) {
     string startupError;
     if (!setBackgroundStartupEnabled(settingsDraft_.backgroundServiceEnabled, startupError)) {
+      if (credentialChanged) {
+        if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
+        else CredentialStore::erase(kDigiKeySecretName);
+      }
+      restartOldService();
       setMessage("Unable to update Windows startup: " + startupError, 5);
       return false;
     }
+    startupChanged = true;
     settingsDraft_.backgroundConsentAsked = true;
   }
   if (!saveAppSettings(settingsPath_, settingsDraft_)) {
-    if (backgroundChanged) {
+    if (startupChanged) {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
+    if (credentialChanged) {
+      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
+      else CredentialStore::erase(kDigiKeySecretName);
+    }
+    restartOldService();
     setMessage("Unable to save Inventatory settings", 5);
     return false;
   }
 
+  if (dataChanged && quickLabelsChanged &&
+      !saveQuickLabels(quickLabelsPath(settingsDraft_.dataDirectory), settingsDraft_.quickLabelPresets,
+                       settingsDraft_.quickLabelRevision)) {
+    const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
+    settings_ = oldSettings;
+    settingsDraft_ = oldSettings;
+    if (startupChanged) {
+      string ignored;
+      setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
+    }
+    if (credentialChanged) {
+      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
+      else CredentialStore::erase(kDigiKeySecretName);
+    }
+    restartOldService();
+    setMessage(rollbackSaved ? "Unable to save Quick Labels in the selected data folder"
+                             : "Unable to save Quick Labels and restore previous settings; verify the settings file",
+               7);
+    return false;
+  }
+
   if (dataChanged) {
-    dataPath_ = move(switchedPaths.dataDirectory);
-    inventoryPath_ = move(switchedPaths.inventory);
-    printerPath_ = move(switchedPaths.printer);
-    activityPath_ = move(switchedPaths.activity);
-    inventatoryScanConfigPath_ = move(switchedPaths.scanConfig);
-    quickLabelsPath_ = dataPath_ / "quick_labels.conf";
+    settings_ = settingsDraft_;
+    settings_.dataDirectory = candidatePaths.dataDirectory;
+    settingsDraft_ = settings_;
+    inventatoryScanConfig_ = {};
+    activateWorkspaceContext(candidatePaths);
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     if (!quickLabelsChanged) {
+      settingsDraft_.quickLabelPresets.clear();
+      settingsDraft_.quickLabelRevision = 1;
       loadQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision);
     }
+    settings_.quickLabelPresets = settingsDraft_.quickLabelPresets;
+    settings_.quickLabelRevision = settingsDraft_.quickLabelRevision;
+    settingsDraft_ = settings_;
     loadState();
+    if (inventoryRecoveryRequired_) {
+      settings_ = oldSettings;
+      settingsDraft_ = oldSettings;
+      const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
+      if (oldContext != nullptr) {
+        activateWorkspaceContext(oldContext->paths);
+      } else {
+        activateWorkspaceContext(oldPaths);
+      }
+      inventatoryScanConfig_ = {};
+      loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+      loadState();
+      restartOldService();
+      setMessage(rollbackSaved
+                     ? "The selected workspace could not be activated; the previous workspace was restored"
+                     : "The selected workspace failed and previous settings could not be restored; verify settings.conf",
+                 7);
+      return false;
+    }
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                  appSettingsDirectory() / "inventatory-scan-replay.state");
   }
 
-  if ((quickLabelsChanged || dataChanged) &&
+  if (quickLabelsChanged && !dataChanged &&
       !saveQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision)) {
-    setMessage("Unable to save quick-label settings", 5);
+    const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
+    settings_ = oldSettings;
+    settingsDraft_ = oldSettings;
+    if (startupChanged) {
+      string ignored;
+      setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
+    }
+    if (credentialChanged) {
+      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
+      else CredentialStore::erase(kDigiKeySecretName);
+    }
+    restartOldService();
+    setMessage(rollbackSaved
+                   ? "Unable to save quick-label settings"
+                   : "Unable to save quick-label settings; previous settings could not be restored",
+               7);
     return false;
   }
 
@@ -576,6 +716,9 @@ bool App::saveSettingsDraft() {
   if (portChanged) {
     restartDeviceService();
     bridgeRestarted = server_.running();
+  } else if (dataChanged) {
+    restartDeviceService();
+    bridgeRestarted = server_.running();
   }
   if (backgroundChanged) {
     if (settings_.backgroundServiceEnabled) {
@@ -587,7 +730,12 @@ bool App::saveSettingsDraft() {
   if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     printerCheck_ = printerService_.probeConfiguredPrinter();
-    printerService_.saveConfig(printerPath_);
+    if (!printerService_.saveConfig(printerPath_)) {
+      persistenceError_ = "Could not save printer settings; changes remain in memory.";
+      setMessage(persistenceError_ + " Press R to retry.", 6);
+      settingsDirty_ = true;
+      return false;
+    }
   }
   settingsDirty_ = false;
   appearancePickerOpen_ = false;
@@ -595,8 +743,8 @@ bool App::saveSettingsDraft() {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  setMessage(portChanged ? (bridgeRestarted ? "Settings saved; device bridge restarted"
-                                           : "Settings saved, but the device bridge could not restart")
+  setMessage((portChanged || dataChanged) ? (bridgeRestarted ? "Settings saved; device bridge restarted"
+                                                              : "Settings saved, but the device bridge could not restart")
                          : "Settings saved",
              4);
   return true;
