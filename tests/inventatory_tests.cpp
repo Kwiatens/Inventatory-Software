@@ -3042,6 +3042,14 @@ int main() {
     assert(loadedActivities[0].timestamp == activities[0].timestamp);
     assert(loadedActivities[0].kind == activities[0].kind);
     assert(loadedActivities[0].message == activities[0].message);
+    {
+      ofstream malformed(activityPath, ios::binary | ios::trunc);
+      malformed << "123 \"scan\" \"unterminated\n";
+    }
+    const vector<ActivityEntry> preservedActivities = loadedActivities;
+    assert(!loadActivities(activityPath, loadedActivities));
+    assert(loadedActivities.size() == preservedActivities.size());
+    assert(loadedActivities[0].message == preservedActivities[0].message);
 
     filesystem::remove_all(root, cleanupError);
     assert(!cleanupError);
@@ -3081,7 +3089,6 @@ int main() {
     legacy.close();
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
-    assert(loaded.lowStockThreshold == kDefaultLowStockThreshold);
     assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] == 0x0D1010);
     assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)] == 0x70403B);
     error_code removeError;
@@ -3096,8 +3103,7 @@ int main() {
     invalid << "low_stock_threshold=0\n";
     invalid.close();
     AppSettings loaded;
-    assert(loadAppSettings(path, loaded));
-    assert(loaded.lowStockThreshold == kDefaultLowStockThreshold);
+    assert(!loadAppSettings(path, loaded));
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);

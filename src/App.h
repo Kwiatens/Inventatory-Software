@@ -623,6 +623,7 @@ class App {
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
   bool activitySavePending_ = false;
+  bool activityPersistenceBlocked_ = false;
   bool exitSavePending_ = false;
   time_t messageUntil_ = 0;
   long long messageFlashStartedAt_ = -1;
