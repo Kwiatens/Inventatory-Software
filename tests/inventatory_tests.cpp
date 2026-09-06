@@ -2960,6 +2960,94 @@ int main() {
   }
 
   {
+    // Small auxiliary files must validate before publication and preserve the
+    // last good bytes when a draft or final replacement is rejected.
+    const auto root = filesystem::temp_directory_path() / "inventatory-atomic-auxiliary-test";
+    error_code cleanupError;
+    filesystem::remove_all(root, cleanupError);
+    assert(!cleanupError);
+    assert(filesystem::create_directories(root));
+
+    const auto readBytes = [](const filesystem::path& path) {
+      ifstream input(path, ios::binary);
+      return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+    };
+
+    AppSettings original;
+    original.dataDirectory = root / "unicode-данные-测试";
+    original.printerQueue = "Queue";
+    const auto settingsPath = root / "settings.conf";
+    assert(saveAppSettings(settingsPath, original));
+    const auto settingsBytes = readBytes(settingsPath);
+
+    auto oversizedSettings = original;
+    oversizedSettings.printerQueue.assign(1025, 'x');
+    assert(!saveAppSettings(settingsPath, oversizedSettings));
+    assert(readBytes(settingsPath) == settingsBytes);
+
+    const auto replacementTarget = root / "replacement-target";
+    assert(filesystem::create_directory(replacementTarget));
+    assert(!saveAppSettings(replacementTarget, original));
+    assert(filesystem::is_directory(replacementTarget));
+
+    const auto quickPath = quickLabelsPath(original.dataDirectory);
+    const vector<string> labels = {"5V", "GND"};
+    assert(saveQuickLabels(quickPath, labels, 4));
+    const auto quickBytes = readBytes(quickPath);
+    auto tooManyLabels = labels;
+    tooManyLabels.resize(kQuickLabelPresetLimit + 1, "extra");
+    assert(!saveQuickLabels(quickPath, tooManyLabels, 4));
+    assert(readBytes(quickPath) == quickBytes);
+    assert(!saveQuickLabels(quickPath, {string(kQuickLabelPresetTextLimit + 1, 'x')}, 4));
+    assert(readBytes(quickPath) == quickBytes);
+
+    const auto malformedQuickPath = root / "malformed-quick-labels.conf";
+    {
+      ofstream malformed(malformedQuickPath, ios::binary | ios::trunc);
+      malformed << "quick_label=\"unterminated\n";
+    }
+    vector<string> preservedLabels = labels;
+    uint32_t preservedRevision = 4;
+    assert(!loadQuickLabels(malformedQuickPath, preservedLabels, preservedRevision));
+    assert(preservedLabels == labels);
+    assert(preservedRevision == 4);
+    {
+      ofstream oversized(malformedQuickPath, ios::binary | ios::trunc);
+      oversized << string(16U * 1024U + 1U, 'x');
+    }
+    assert(!loadQuickLabels(malformedQuickPath, preservedLabels, preservedRevision));
+
+    const auto activityPath = root / "activity.tsv";
+    const vector<ActivityEntry> activities = {{123, "scan", "unicode-данные-测试"}};
+    assert(saveActivities(activityPath, activities));
+    const auto activityBytes = readBytes(activityPath);
+    assert(!saveActivities(activityPath, {{123, "bad\nkind", "message"}}));
+    assert(readBytes(activityPath) == activityBytes);
+    const auto activityReplacementTarget = root / "activity-replacement-target";
+    assert(filesystem::create_directory(activityReplacementTarget));
+    assert(!saveActivities(activityReplacementTarget, activities));
+    assert(filesystem::is_directory(activityReplacementTarget));
+
+    AppSettings loadedSettings;
+    assert(loadAppSettings(settingsPath, loadedSettings));
+    assert(loadedSettings.dataDirectory == original.dataDirectory);
+    vector<string> loadedLabels;
+    uint32_t loadedRevision = 1;
+    assert(loadQuickLabels(quickPath, loadedLabels, loadedRevision));
+    assert(loadedLabels == labels);
+    assert(loadedRevision == 4);
+    vector<ActivityEntry> loadedActivities;
+    assert(loadActivities(activityPath, loadedActivities));
+    assert(loadedActivities.size() == activities.size());
+    assert(loadedActivities[0].timestamp == activities[0].timestamp);
+    assert(loadedActivities[0].kind == activities[0].kind);
+    assert(loadedActivities[0].message == activities[0].message);
+
+    filesystem::remove_all(root, cleanupError);
+    assert(!cleanupError);
+  }
+
+  {
     const auto executablePath = L"C:\\Program Files\\Inventatory\\inventatory.exe";
     const auto launcherPath = buildBackgroundStartupLauncherPath(executablePath);
     assert(launcherPath == L"C:\\Program Files\\Inventatory\\inventatory-background.exe");

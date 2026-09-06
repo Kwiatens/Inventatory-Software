@@ -3,10 +3,13 @@
 
 #include "core/InventoryInternals.h"
 
+#include "core/AtomicFile.h"
+
 #include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <algorithm>
 #include <sstream>
 #include <utility>
 
@@ -17,6 +20,28 @@ using namespace std;
 namespace {
 
 constexpr const char* kStructuredStoragePrefix = "v1:";
+constexpr size_t kMaxActivityFileBytes = 16U * 1024U * 1024U;
+constexpr size_t kMaxActivityLineBytes = 64U * 1024U;
+constexpr size_t kMaxActivityKindBytes = 256U;
+constexpr size_t kMaxActivityMessageBytes = 64U * 1024U;
+
+bool validActivityText(const string& value, size_t maximum) {
+  return value.size() <= maximum &&
+         all_of(value.begin(), value.end(), [](unsigned char character) {
+           return character != 0 && character != '\r' && character != '\n';
+         });
+}
+
+bool validActivity(const ActivityEntry& entry) {
+  return validActivityText(entry.kind, kMaxActivityKindBytes) &&
+         validActivityText(entry.message, kMaxActivityMessageBytes);
+}
+
+bool activityFileWithinLimit(const filesystem::path& path) {
+  error_code error;
+  const auto size = filesystem::file_size(path, error);
+  return !error && size <= kMaxActivityFileBytes;
+}
 
 string escapeStorageField(const string& value, const string& delimiters) {
   string escaped;
@@ -218,15 +243,19 @@ bool deserializeActivity(const string& line, ActivityEntry& entry) {
 }
 
 bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activities) {
+  // Loading a different workspace must not retain entries from the previous
+  // workspace when its optional activity file is missing or invalid.
   activities.clear();
-
+  if (!activityFileWithinLimit(path)) return false;
   ifstream file(path);
   if (!file) {
     return false;
   }
 
+  vector<ActivityEntry> loaded;
   string line;
   while (getline(file, line)) {
+    if (line.size() > kMaxActivityLineBytes) return false;
     line = trim(line);
     if (line.empty() || line.front() == '#') {
       continue;
@@ -234,26 +263,27 @@ bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activit
 
     ActivityEntry entry;
     if (deserializeActivity(line, entry)) {
-      activities.push_back(move(entry));
+      if (validActivity(entry)) loaded.push_back(move(entry));
     }
   }
 
+  if (file.bad()) return false;
+  activities = move(loaded);
   return true;
 }
 
 bool saveActivities(const filesystem::path& path, const vector<ActivityEntry>& activities) {
-  filesystem::create_directories(path.parent_path());
-
-  ofstream file(path, ios::trunc);
-  if (!file) {
-    return false;
-  }
-
+  ostringstream file;
   file << "# Inventatory activity log\n";
   for (const auto& entry : activities) {
+    if (!validActivity(entry)) return false;
     file << serializeActivity(entry) << '\n';
+    if (!file || static_cast<size_t>(file.tellp()) > kMaxActivityFileBytes) return false;
   }
-  return true;
+  const auto text = file.str();
+  if (text.size() > kMaxActivityFileBytes) return false;
+  string error;
+  return writeFileAtomically(path, text, &error);
 }
 
 void appendActivity(vector<ActivityEntry>& activities, const ActivityEntry& entry, size_t maxEntries) {
