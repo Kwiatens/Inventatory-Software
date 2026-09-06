@@ -101,6 +101,14 @@ struct Summary {
   size_t unsyncedCount = 0;
 };
 
+struct InventorySearchMatch {
+  size_t itemIndex = 0;
+  PhysicalValueMatchBand band = PhysicalValueMatchBand::None;
+  double relativeDifference = 0.0;
+  double signedRelativeDifference = 0.0;
+  bool hasPhysicalComparison = false;
+};
+
 struct InventoryHistoryPoint {
   time_t timestamp = 0;
   size_t itemCount = 0;
@@ -209,24 +217,16 @@ bool isLowStock(const InventoryItem& item, int threshold);
 bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold);
 bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
                   int lowStockThreshold);
-bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold,
-                  const PhysicalValueTolerances& tolerances);
-bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks,
-                  int lowStockThreshold, const PhysicalValueTolerances& tolerances);
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold);
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
                            const vector<InventatoryRack>& racks, int lowStockThreshold);
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query, int lowStockThreshold,
-                           const PhysicalValueTolerances& tolerances);
-vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query,
-                           const vector<InventatoryRack>& racks, int lowStockThreshold,
-                           const PhysicalValueTolerances& tolerances);
+vector<InventorySearchMatch> rankedFilterItems(const vector<InventoryItem>& items, const string& query,
+                                               const vector<InventatoryRack>& racks, int lowStockThreshold);
+vector<InventorySearchMatch> findClosestPhysicalValues(const vector<InventoryItem>& items, const string& target);
 Summary summarize(const vector<InventoryItem>& items, int lowStockThreshold);
 InventoryHistoryPoint makeInventoryHistoryPoint(const vector<InventoryItem>& items, int lowStockThreshold,
                                                 time_t timestamp = 0);
 
-// Compatibility overloads use the historical default only for callers that do
-// not own application settings. The application always supplies its setting.
 bool matchesQuery(const InventoryItem& item, const string& query);
 bool matchesQuery(const InventoryItem& item, const string& query, const vector<InventatoryRack>& racks);
 vector<size_t> filterItems(const vector<InventoryItem>& items, const string& query);
@@ -308,9 +308,6 @@ bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activit
 bool saveActivities(const filesystem::path& path, const vector<ActivityEntry>& activities);
 void appendActivity(vector<ActivityEntry>& activities, const ActivityEntry& entry, size_t maxEntries = 100);
 ActivityEntry makeActivity(string kind, string message);
-
-// Physical value helpers for unit-aware search.
-double toleranceForType(const PhysicalValueTolerances& tolerances, PhysicalValueType type);
 
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
 
