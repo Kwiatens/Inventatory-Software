@@ -150,21 +150,48 @@ string httpStatusText(int status) {
 
 bool loadReplayState(const filesystem::path& path, const string& fingerprint, uint64_t& counter) {
   counter = 0;
-  if (path.empty()) return true;
+  if (path.empty() || fingerprint.empty()) return true;
+
+  error_code existenceError;
+  const bool exists = filesystem::exists(path, existenceError);
+  if (existenceError) return false;
+  if (!exists) return true;
+
   ifstream input(path);
-  if (!input) return true;
+  if (!input) return false;
+
   string storedFingerprint;
+  bool hasFingerprint = false;
+  bool hasCounter = false;
   string line;
   while (getline(input, line)) {
     const auto separator = line.find('=');
-    if (separator == string::npos) continue;
-    if (line.substr(0, separator) == "fingerprint") storedFingerprint = line.substr(separator + 1);
-    if (line.substr(0, separator) == "counter") {
-      try { counter = stoull(line.substr(separator + 1)); } catch (...) { return false; }
+    if (separator == string::npos) return false;
+
+    const auto key = line.substr(0, separator);
+    const auto value = line.substr(separator + 1);
+    if (key == "fingerprint") {
+      if (hasFingerprint || value.empty()) return false;
+      storedFingerprint = value;
+      hasFingerprint = true;
+    } else if (key == "counter") {
+      if (hasCounter || value.empty() ||
+          any_of(value.begin(), value.end(), [](unsigned char ch) { return !isdigit(ch); })) {
+        return false;
+      }
+      try {
+        size_t parsed = 0;
+        counter = stoull(value, &parsed);
+        if (parsed != value.size()) return false;
+      } catch (...) {
+        return false;
+      }
+      hasCounter = true;
+    } else {
+      return false;
     }
   }
-  if (storedFingerprint != fingerprint) counter = 0;
-  return true;
+  return !input.bad() && hasFingerprint && hasCounter && storedFingerprint == fingerprint;
 }
 
 bool saveReplayState(const filesystem::path& path, const string& fingerprint, uint64_t counter) {
@@ -258,10 +285,18 @@ void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path r
     deviceToken_ = move(token);
   }
   lock_guard<mutex> lock(replayMutex_);
+  const bool pairingChanged = !replayStateFingerprint_.empty() && replayStateFingerprint_ != fingerprint;
   replayStatePath_ = move(replayStatePath);
   replayStateFingerprint_ = fingerprint;
-  if (!loadReplayState(replayStatePath_, replayStateFingerprint_, lastAcceptedCounter_)) {
+  replayCounterInFlight_.reset();
+  if (pairingChanged) {
+    // A deliberate in-process token rotation starts a fresh replay sequence.
+    // The next accepted request rewrites the state file with the new fingerprint.
+    replayStateValid_ = true;
     lastAcceptedCounter_ = 0;
+  } else {
+    replayStateValid_ = loadReplayState(replayStatePath_, replayStateFingerprint_, lastAcceptedCounter_);
+    if (!replayStateValid_) lastAcceptedCounter_ = 0;
   }
 }
 
@@ -386,19 +421,37 @@ string LocalHttpServer::authenticatedResponseText(int status, uint64_t counter, 
   return out.str();
 }
 
-bool LocalHttpServer::advanceReplayCounter(uint64_t counter) {
+bool LocalHttpServer::reserveReplayCounter(uint64_t counter) {
   lock_guard<mutex> lock(replayMutex_);
-  if (counter <= lastAcceptedCounter_ || replayStateFingerprint_.empty() ||
-      !saveReplayState(replayStatePath_, replayStateFingerprint_, counter)) {
+  if (!replayStateValid_ || replayStateFingerprint_.empty() || replayCounterInFlight_.has_value() ||
+      counter <= lastAcceptedCounter_) {
     return false;
   }
-  lastAcceptedCounter_ = counter;
+  replayCounterInFlight_ = counter;
   return true;
 }
 
-bool LocalHttpServer::replayCounterAvailable(uint64_t counter) const {
+void LocalHttpServer::releaseReplayCounter(uint64_t counter) {
   lock_guard<mutex> lock(replayMutex_);
-  return counter > lastAcceptedCounter_ && !replayStateFingerprint_.empty();
+  if (replayCounterInFlight_.has_value() && *replayCounterInFlight_ == counter) {
+    replayCounterInFlight_.reset();
+  }
+}
+
+bool LocalHttpServer::advanceReplayCounter(uint64_t counter) {
+  lock_guard<mutex> lock(replayMutex_);
+  if (!replayStateValid_ || replayStateFingerprint_.empty() || !replayCounterInFlight_ ||
+      *replayCounterInFlight_ != counter || counter <= lastAcceptedCounter_) {
+    return false;
+  }
+  if (!saveReplayState(replayStatePath_, replayStateFingerprint_, counter)) {
+    replayStateValid_ = false;
+    replayCounterInFlight_.reset();
+    return false;
+  }
+  lastAcceptedCounter_ = counter;
+  replayCounterInFlight_.reset();
+  return true;
 }
 
 bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
@@ -461,19 +514,23 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       return reject(error == "Unsupported protocol version" ? 426 : 400,
                     error.empty() ? "Device identity does not match the transport envelope" : error);
     }
-    if (!replayCounterAvailable(*counter)) {
+    if (!reserveReplayCounter(*counter)) {
       return reject(409, "Replayed or unavailable request counter");
     }
     DeviceSyncResponse syncResponse;
+    bool syncSucceeded = false;
     {
       lock_guard<mutex> lock(applicationMutex_);
-      if (!onSync_ || !onSync_(request, syncResponse, error)) {
-        if (error.empty()) error = "Device sync service unavailable";
-        return reject(503, error);
-      }
+      syncSucceeded = onSync_ && onSync_(request, syncResponse, error);
+    }
+    if (!syncSucceeded) {
+      releaseReplayCounter(*counter);
+      if (error.empty()) error = "Device sync service unavailable";
+      return reject(503, error);
     }
     // Commit the replay marker only after the durable application callback has
-    // succeeded. A transient database failure must remain retryable by the R1.
+    // succeeded. A callback failure releases the reservation so the R1 can retry;
+    // marker persistence failure instead disables sync to avoid replaying a side effect.
     if (!advanceReplayCounter(*counter)) {
       return reject(409, "Request completed but its replay marker could not be saved");
     }

@@ -54,7 +54,7 @@ using namespace std;
 
 namespace {
 
-string sendLocalHttpRequest(uint16_t port, const string& request) {
+string sendLocalHttpRequest(uint16_t port, const string& request, DWORD receiveTimeout = 3000) {
   SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   assert(client != INVALID_SOCKET);
   sockaddr_in address{};
@@ -64,8 +64,7 @@ string sendLocalHttpRequest(uint16_t port, const string& request) {
   assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != SOCKET_ERROR);
   assert(send(client, request.data(), static_cast<int>(request.size()), 0) == static_cast<int>(request.size()));
 
-  DWORD timeout = 3000;
-  setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+  setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&receiveTimeout), sizeof(receiveTimeout));
   string response;
   array<char, 1024> buffer{};
   int received = 0;
@@ -2199,6 +2198,70 @@ int main() {
     assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
     assert(syncCalls == 3);
     restarted.stop();
+
+    const auto concurrentReplayState = stateDirectory / "concurrent-replay.state";
+    atomic<int> concurrentSyncCalls{0};
+    atomic<bool> duplicateRequestStarted{false};
+    string duplicateResponse;
+    uint16_t concurrentPort = 0;
+    auto concurrentOnSync = [&](const DeviceSyncRequest& request, DeviceSyncResponse& response, string&) {
+      ++concurrentSyncCalls;
+      if (!duplicateRequestStarted.exchange(true)) {
+        duplicateResponse = sendLocalHttpRequest(
+            concurrentPort, signedSyncRequest(token, deviceId, 100, body), 1000);
+      }
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer concurrentServer;
+    concurrentServer.setDeviceCredentials(deviceId, token, concurrentReplayState);
+    assert(concurrentServer.start(19460, concurrentOnSync));
+    concurrentPort = concurrentServer.port();
+    const auto concurrentAccepted =
+        sendLocalHttpRequest(concurrentServer.port(), signedSyncRequest(token, deviceId, 100, body));
+    assert(concurrentAccepted.rfind("HTTP/1.1 200 OK", 0) == 0);
+    assert(duplicateResponse.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(concurrentSyncCalls == 1);
+    concurrentServer.stop();
+
+    const auto retryReplayState = stateDirectory / "retry-replay.state";
+    atomic<int> retrySyncCalls{0};
+    auto retryOnSync = [&retrySyncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response,
+                                         string& error) {
+      if (++retrySyncCalls == 1) {
+        error = "durable callback unavailable";
+        return false;
+      }
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer retryServer;
+    retryServer.setDeviceCredentials(deviceId, token, retryReplayState);
+    assert(retryServer.start(19480, retryOnSync));
+    const auto failedSync =
+        sendLocalHttpRequest(retryServer.port(), signedSyncRequest(token, deviceId, 101, body));
+    assert(failedSync.rfind("HTTP/1.1 503 Service Unavailable", 0) == 0);
+    const auto retriedSync =
+        sendLocalHttpRequest(retryServer.port(), signedSyncRequest(token, deviceId, 101, body));
+    assert(retriedSync.rfind("HTTP/1.1 200 OK", 0) == 0);
+    assert(retrySyncCalls == 2);
+    retryServer.stop();
+
+    const auto corruptReplayState = stateDirectory / "corrupt-replay.state";
+    {
+      ofstream corrupt(corruptReplayState, ios::trunc);
+      corrupt << "fingerprint=" << deviceTransportStateFingerprint(rotatedToken) << '\n'
+              << "counter=not-a-counter\n";
+    }
+    LocalHttpServer corruptStateServer;
+    corruptStateServer.setDeviceCredentials(deviceId, rotatedToken, corruptReplayState);
+    assert(corruptStateServer.start(19470, onSync));
+    const auto rejectedWithCorruptState =
+        sendLocalHttpRequest(corruptStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
+    assert(rejectedWithCorruptState.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(syncCalls == 3);
+    corruptStateServer.stop();
+
     filesystem::remove_all(stateDirectory, cleanupError);
   }
 
