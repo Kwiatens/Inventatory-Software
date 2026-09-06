@@ -894,6 +894,13 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       }
     }
     else if (page_ == Page::Import) moveImportSelection(delta);
+    else if (page_ == Page::History) {
+      if (uiBoxContains(historyDetailPanelBounds_, mouse.x, mouse.y)) {
+        moveHistoryRecordSelection(delta);
+      } else if (uiBoxContains(historyListPanelBounds_, mouse.x, mouse.y)) {
+        moveHistorySelection(delta);
+      }
+    }
     else if (page_ == Page::Projects) {
       if (bomView_ == BomView::Split) {
         if (uiBoxContains(bomReadyPanelBounds_, mouse.x, mouse.y)) {
