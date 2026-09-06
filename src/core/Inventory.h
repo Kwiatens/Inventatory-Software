@@ -178,6 +178,10 @@ struct InventoryFieldChange {
 // inventory snapshot so retrying a sync event can never repeat its stock effect.
 struct DeviceEventCommit {
   string eventId;
+  // Identity of the scanner that owns the inbox row.  Callers processing an
+  // event should carry this through so completion cannot finalize another
+  // device's event if storage is ever copied or repaired incorrectly.
+  string deviceId;
   string resultId;
   string status;
   bool existing = false;

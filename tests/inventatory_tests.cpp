@@ -594,6 +594,32 @@ void testSqliteSchemaMigrationAndValidation() {
   error_code cleanupError;
   filesystem::remove(legacyPath, cleanupError);
   filesystem::remove(invalidPath, cleanupError);
+  const auto readBytes = [](const filesystem::path& path) {
+    ifstream input(path, ios::binary);
+    return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  };
+  const auto readUserVersion = [](SqliteConnection& connection) {
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db, "PRAGMA user_version", -1, &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    assert(sqliteApi().column_type(statement.stmt, 0) == SQLITE_INTEGER);
+    return sqliteApi().column_int64(statement.stmt, 0);
+  };
+  const auto readSchema = [](SqliteConnection& connection) {
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(
+               connection.db,
+               "SELECT name, sql FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name",
+               -1, &statement.stmt, nullptr) == SQLITE_OK);
+    string schema;
+    int stepResult = SQLITE_OK;
+    while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
+      if (!schema.empty()) schema += '|';
+      schema += sqliteText(statement.stmt, 0) + ':' + sqliteText(statement.stmt, 1);
+    }
+    assert(stepResult == SQLITE_DONE);
+    return schema;
+  };
 
   {
     SqliteConnection connection;
@@ -616,21 +642,36 @@ void testSqliteSchemaMigrationAndValidation() {
     assert(ensureInventoryDatabaseSchema(connection));
   }
   {
-    SqliteConnection connection;
-    assert(openDatabaseReadOnly(legacyPath, connection));
-    string error;
-    assert(validateInventoryDatabase(connection, &error));
-    SqliteStatement statement;
-    assert(sqliteApi().prepare_v2(connection.db, "SELECT sku FROM inventatory_items WHERE id='legacy-1'", -1,
-                                  &statement.stmt, nullptr) == SQLITE_OK);
-    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
-    assert(sqliteText(statement.stmt, 0) == "LEGACY-SKU");
+    const auto beforeBytes = readBytes(legacyPath);
+    {
+      SqliteConnection connection;
+      assert(openDatabaseReadOnly(legacyPath, connection));
+      const auto beforeVersion = readUserVersion(connection);
+      const auto beforeSchema = readSchema(connection);
+      string error;
+      assert(validateInventoryDatabase(connection, &error));
+      assert(readUserVersion(connection) == beforeVersion);
+      assert(readSchema(connection) == beforeSchema);
+      {
+        SqliteStatement statement;
+        assert(sqliteApi().prepare_v2(connection.db, "SELECT sku FROM inventatory_items WHERE id='legacy-1'", -1,
+                                      &statement.stmt, nullptr) == SQLITE_OK);
+        assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+        assert(sqliteText(statement.stmt, 0) == "LEGACY-SKU");
+      }
+    }
+    assert(readBytes(legacyPath) == beforeBytes);
   }
   {
     SqliteConnection connection;
     assert(openDatabase(legacyPath, connection));
     assert(execSql(connection, "UPDATE inventatory_items SET quantity=2147483648 WHERE id='legacy-1'"));
     string error;
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    assert(readUserVersion(connection) == kInventoryDatabaseSchemaVersion);
+    assert(execSql(connection, "UPDATE inventatory_items SET quantity=4, last_updated=-1 WHERE id='legacy-1'"));
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    assert(execSql(connection, "UPDATE inventatory_items SET last_updated=1710000000, quantity='invalid' WHERE id='legacy-1'"));
     assert(!ensureInventoryDatabaseSchema(connection, &error));
   }
 
@@ -645,17 +686,102 @@ void testSqliteSchemaMigrationAndValidation() {
   filesystem::remove(duplicatePath, cleanupError);
 
   {
-    SqliteConnection connection;
-    assert(openDatabase(invalidPath, connection));
-    assert(execSql(connection, "CREATE TABLE inventatory_items (id TEXT PRIMARY KEY)"));
-    string error;
-    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    const auto beforeBytes = readBytes(invalidPath);
+    string migratedBytes;
+    {
+      SqliteConnection connection;
+      assert(openDatabase(invalidPath, connection));
+      assert(execSql(connection, "CREATE TABLE inventatory_items (id TEXT PRIMARY KEY)"));
+      assert(execSql(connection, "INSERT INTO inventatory_items (id) VALUES ('preserved-row')"));
+      migratedBytes = readBytes(invalidPath);
+      const auto beforeVersion = readUserVersion(connection);
+      const auto beforeSchema = readSchema(connection);
+      string error;
+      assert(!ensureInventoryDatabaseSchema(connection, &error));
+      assert(readUserVersion(connection) == beforeVersion);
+      assert(readSchema(connection) == beforeSchema);
+    }
+    assert(readBytes(invalidPath) == migratedBytes);
+    assert(migratedBytes != beforeBytes);
+    {
+      SqliteConnection connection;
+      assert(openDatabaseReadOnly(invalidPath, connection));
+      SqliteStatement statement;
+      assert(sqliteApi().prepare_v2(connection.db, "SELECT id FROM inventatory_items", -1, &statement.stmt, nullptr) ==
+             SQLITE_OK);
+      assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+      assert(sqliteText(statement.stmt, 0) == "preserved-row");
+    }
   }
   {
     SqliteConnection connection;
     assert(openDatabaseReadOnly(invalidPath, connection));
+    assert(readUserVersion(connection) == 0);
     string error;
     assert(!validateInventoryDatabase(connection, &error));
+  }
+
+  {
+    const auto completionPath = filesystem::temp_directory_path() / "inventatory-device-event-completion-test.db";
+    filesystem::remove(completionPath, cleanupError);
+    InventoryStore original;
+    InventoryItem item;
+    item.id = "completion-item";
+    item.partName = "Completion part";
+    item.quantity = 1;
+    original.items().push_back(item);
+    assert(original.save(completionPath));
+
+    DeviceSyncRequest request;
+    request.protocolVersion = 1;
+    request.requestId = "completion-sync";
+    request.deviceId = "device-a";
+    request.events = {{"completion-event", "inventory.adjust", "completion-item", 1}};
+    DeviceSyncResponse response;
+    string error;
+    assert(acceptDeviceSyncEvents(completionPath, request, response, error));
+    assert(loadPendingDeviceSyncEvents(completionPath).size() == 1);
+
+    vector<InventoryCommit> commits;
+    assert(loadInventoryCommits(completionPath, commits));
+    const auto initialCommitCount = commits.size();
+
+    DeviceSyncResult mismatched;
+    mismatched.resultId = "completion-result-wrong-device";
+    mismatched.eventId = "completion-event";
+    mismatched.deviceId = "device-b";
+    mismatched.status = "completed";
+    mismatched.requestedDelta = 1;
+    mismatched.appliedDelta = 1;
+    mismatched.quantity = 2;
+    InventoryStore candidate = original;
+    candidate.items().front().quantity = 2;
+    assert(!completeDeviceSyncEvent(candidate, completionPath, mismatched, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    assert(commits.size() == initialCommitCount);
+    assert(loadPendingDeviceSyncEvents(completionPath).size() == 1);
+
+    DeviceSyncResult valid = mismatched;
+    valid.resultId = "completion-result";
+    valid.deviceId = "device-a";
+    assert(completeDeviceSyncEvent(candidate, completionPath, valid, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    assert(commits.size() == initialCommitCount + 1);
+
+    // A completed event cannot be applied a second time, even if the result
+    // carries the correct device identity.  The failed update must roll back
+    // the snapshot rewrite and must not append another inventory commit.
+    assert(!completeDeviceSyncEvent(candidate, completionPath, valid, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    assert(commits.size() == initialCommitCount + 1);
+
+    DeviceSyncResult nonexistent = valid;
+    nonexistent.eventId = "no-such-event";
+    nonexistent.resultId = "no-such-result";
+    assert(!completeDeviceSyncEvent(candidate, completionPath, nonexistent, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    assert(commits.size() == initialCommitCount + 1);
+    filesystem::remove(completionPath, cleanupError);
   }
 
   filesystem::remove(legacyPath, cleanupError);
@@ -2530,6 +2656,7 @@ int main() {
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));
     assert(response.acceptedEventIds.size() == 1);
     assert(response.results.size() == 1);
+    assert(response.results.front().deviceId == "r1-a");
     assert(response.results.front().quantity == 7);
     InventoryStore reloaded;
     assert(reloaded.load(databasePath));
