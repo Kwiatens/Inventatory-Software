@@ -6,6 +6,7 @@
 #include "import/CsvFormat.h"
 #include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
+#include "core/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -28,6 +29,11 @@ using namespace std;
 namespace {
 
 constexpr size_t kDeviceDebugWindowLines = 14;
+constexpr size_t kDeviceStatusQueueLimit = 256;
+constexpr size_t kDeviceDebugQueueLimit = 512;
+constexpr size_t kScanQueueLimit = 256;
+constexpr size_t kDeviceQuantityQueueLimit = 64;
+constexpr size_t kDeviceEventIdentityLookupLimit = 4096;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
@@ -242,6 +248,7 @@ string digiKeyRefreshLookup(const InventoryItem& item) {
 
 void App::loadState() {
   persistedStoreValid_ = false;
+  activitySavePending_ = false;
   pendingMovementSource_.clear();
   pendingMovementReference_.clear();
   error_code inventoryError;
@@ -289,7 +296,7 @@ void App::loadState() {
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) saveFailures.push_back("scanner settings");
-  if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
+  if (!saveActivitiesChecked(false)) saveFailures.push_back("activity history");
   if (!commitHistoryReady) saveFailures.push_back("inventory commits");
   persistenceError_ = saveFailures.empty()
                           ? string()
@@ -525,7 +532,7 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
     pendingMovementReference_.clear();
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
-  if (!saveActivities(activityPath_, activities_)) saveFailures.push_back("activity history");
+  if (!saveActivitiesChecked(false)) saveFailures.push_back("activity history");
   persistenceError_ = saveFailures.empty()
                           ? string()
                           : "Could not save " + join(saveFailures, ',') + "; changes remain in memory.";
@@ -533,6 +540,24 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
     setMessage(persistenceError_ + " Press R to retry.", 6);
   }
   return saveFailures.empty();
+}
+
+bool App::saveActivitiesChecked(bool notify) {
+  if (saveActivities(activityPath_, activities_)) {
+    activitySavePending_ = false;
+    return true;
+  }
+
+  activitySavePending_ = true;
+  persistenceError_ = "Could not save activity history; changes remain in memory.";
+  if (notify) {
+    setMessage(persistenceError_ + " Press R to retry.", 6);
+  }
+  return false;
+}
+
+bool App::hasPendingPersistence() const {
+  return pendingCommitDraftValid_ || activitySavePending_ || !persistenceError_.empty();
 }
 
 bool App::saveState(const string& movementSource, const string& movementReference, const string& commitMessage) {
@@ -633,7 +658,12 @@ bool App::restoreData() {
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
   pendingRestoreBackupPath_.clear();
+  const bool serviceWasRunning = server_.running();
+  mdnsService_.stop();
+  server_.stop();
+  stopWorkspaceBoundWork();
   if (!saveState() || !saveQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision)) {
+    if (serviceWasRunning) restartDeviceService();
     setMessage("Unable to save current data before restore", 5);
     return false;
   }
@@ -647,10 +677,12 @@ bool App::restoreData() {
   }
   string error;
   if (!createInventatoryBackup(dataPath_, settingsPath_, preRestore, softwareVersion(), error)) {
+    if (serviceWasRunning) restartDeviceService();
     setMessage("Restore stopped; automatic pre-restore backup failed: " + error, 7);
     return false;
   }
   if (!restoreInventatoryBackup(selectedBackup, dataPath_, settingsPath_, error)) {
+    if (serviceWasRunning) restartDeviceService();
     setMessage("Restore failed; current data was left unchanged: " + error, 7);
     return false;
   }
@@ -663,11 +695,7 @@ bool App::restoreData() {
   settings_ = restored;
   settings_.dataDirectory = dataPath_;
   settingsDraft_ = settings_;
-  inventoryPath_ = dataPath_ / "inventory.db";
-  printerPath_ = dataPath_ / "printer.conf";
-  activityPath_ = dataPath_ / "activity.tsv";
-  inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
-  quickLabelsPath_ = quickLabelsPath(dataPath_);
+  activateWorkspaceContext(makeInventatoryDataPaths(dataPath_));
   loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
   inventatoryScanConfig_ = {};
   inventatoryScanConfig_.token = generateInventatoryScanToken();
@@ -709,29 +737,57 @@ bool App::chooseInventatoryFolder() {
 
   const auto selectedInventoryPath = resolveInventoryDatabasePath(selectedPath);
   auto activePaths = InventatoryDataPaths{dataPath_, inventoryPath_, printerPath_, activityPath_, inventatoryScanConfigPath_};
+  const auto oldPaths = makeInventatoryDataPaths(dataPath_);
+  const auto oldSettings = settings_;
+  const auto oldContext = currentWorkspaceContext();
+  InventoryStore candidate;
+  bool candidateNeedsMigration = false;
+  if (filesystem::exists(selectedInventoryPath)) {
+    SqliteConnection candidateConnection;
+    string candidateValidationError;
+    if (!openDatabaseReadOnly(selectedInventoryPath, candidateConnection)) {
+      setMessage("The selected folder contains an inventory database Inventatory cannot load", 6);
+      return false;
+    }
+    if (!validateInventoryDatabase(candidateConnection, &candidateValidationError)) {
+      candidateNeedsMigration = true;
+    } else if (!candidate.load(selectedInventoryPath)) {
+      setMessage("The selected folder contains an inventory database Inventatory cannot load", 6);
+      return false;
+    }
+  }
+  const bool serviceWasRunning = server_.running();
+  mdnsService_.stop();
+  server_.stop();
+  stopWorkspaceBoundWork();
+  if (candidateNeedsMigration && !candidate.load(selectedInventoryPath)) {
+    if (serviceWasRunning) restartDeviceService();
+    setMessage("The selected folder contains an inventory database that could not be migrated", 6);
+    return false;
+  }
   if (inventoryRecoveryRequired_) {
     activePaths = makeInventatoryDataPaths(selectedInventoryPath.parent_path());
   } else if (!switchInventatoryDataPathsAfterSaving(activePaths, selectedInventoryPath.parent_path(),
                                                      [this] { return saveState(); })) {
+    if (serviceWasRunning) restartDeviceService();
     setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5);
     return false;
   }
   activePaths.inventory = selectedInventoryPath;
-
-  stopDigiKeyRefresh();
-
-  dataPath_ = move(activePaths.dataDirectory);
-  inventoryPath_ = move(activePaths.inventory);
-  printerPath_ = move(activePaths.printer);
-  activityPath_ = move(activePaths.activity);
-  inventatoryScanConfigPath_ = move(activePaths.scanConfig);
-  quickLabelsPath_ = quickLabelsPath(dataPath_);
-  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
-  settings_.dataDirectory = dataPath_;
-  settingsDraft_ = settings_;
-  if (!saveAppSettings(settingsPath_, settings_)) {
-    setMessage("Loaded the recovery folder, but could not save its path", 5);
+  auto candidateSettings = settings_;
+  candidateSettings.dataDirectory = activePaths.dataDirectory;
+  if (!saveAppSettings(settingsPath_, candidateSettings)) {
+    if (serviceWasRunning) restartDeviceService();
+    setMessage("Unable to save the selected data folder path; the previous workspace remains active", 5);
+    return false;
   }
+  settings_ = candidateSettings;
+  settingsDraft_ = settings_;
+  activateWorkspaceContext(activePaths);
+  inventatoryScanConfig_ = {};
+  settings_.quickLabelPresets.clear();
+  settings_.quickLabelRevision = 1;
+  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
 
   printerQueues_.clear();
   printerCheck_ = {};
@@ -783,6 +839,15 @@ bool App::chooseInventatoryFolder() {
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   loadState();
   if (inventoryRecoveryRequired_) {
+    settings_ = oldSettings;
+    settingsDraft_ = oldSettings;
+    saveAppSettings(settingsPath_, oldSettings);
+    if (oldContext != nullptr) activateWorkspaceContext(oldContext->paths);
+    else activateWorkspaceContext(oldPaths);
+    inventatoryScanConfig_ = {};
+    loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+    loadState();
+    if (serviceWasRunning) restartDeviceService();
     setMessage("Selected folder also contains an unreadable inventory database", 6);
     return false;
   }
@@ -792,6 +857,7 @@ bool App::chooseInventatoryFolder() {
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                appSettingsDirectory() / "inventatory-scan-replay.state");
+  if (serviceWasRunning) restartDeviceService();
   setMessage("Loaded Inventatory folder: " + dataPath_.string(), 4);
   return true;
 }
@@ -1817,7 +1883,7 @@ void App::logActivity(const string& kind, const string& message) {
   } else if (kind == "print") {
     printerFlashUntil_ = now + 3;
   }
-  saveActivities(activityPath_, activities_);
+  saveActivitiesChecked();
   dirty_ = true;
 }
 
@@ -1849,18 +1915,25 @@ bool App::autoPrintScannedLabel(const string& itemId) {
 }
 
 void App::pushScanCode(const DeviceScanRequest& request) {
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) return;
   lock_guard<mutex> lock(scanMutex_);
-  scanQueue_.push_back(request);
+  if (scanQueue_.size() >= kScanQueueLimit) {
+    return;
+  }
+  scanQueue_.push_back({request, context->generation});
 }
 
 void App::processScans() {
-  vector<DeviceScanRequest> pending;
+  vector<QueuedScan> pending;
   {
     lock_guard<mutex> lock(scanMutex_);
     pending.swap(scanQueue_);
   }
 
-  for (const auto& request : pending) {
+  for (const auto& queued : pending) {
+    if (!workspaceIsCurrent(queued.workspaceGeneration)) continue;
+    const auto& request = queued.request;
     const auto& code = request.code;
     const auto resolution = resolveScanCode(store_, code);
     if (resolution.matched) {
@@ -1911,10 +1984,13 @@ void App::processScanDigiKeyEnrichment() {
   if (scanDigiKeyEnrichmentFuture_.valid()) {
     if (scanDigiKeyEnrichmentFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
     const auto result = scanDigiKeyEnrichmentFuture_.get();
-    if (result.second) {
-      if (auto* item = store_.findById(result.first); item != nullptr && mergeDigiKeyMetadata(*item, *result.second)) {
+    if (!workspaceIsCurrent(result.workspaceGeneration)) {
+      return;
+    }
+    if (result.details) {
+      if (auto* item = store_.findById(result.itemId); item != nullptr && mergeDigiKeyMetadata(*item, *result.details)) {
         logActivity("scan", "Synced DigiKey metadata for " + item->partName);
-        saveState("digikey", result.first, "DigiKey enrichment");
+        saveState("digikey", result.itemId, "DigiKey enrichment");
       }
     }
   }
@@ -1923,10 +1999,17 @@ void App::processScanDigiKeyEnrichment() {
   scanDigiKeyEnrichmentQueue_.pop_front();
   const auto config = loadDigiKeyConfig();
   if (!config.valid()) return;
-  scanDigiKeyEnrichmentFuture_ = async(launch::async, [itemId, lookup, config] {
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) return;
+  const auto generation = context->generation;
+  scanDigiKeyEnrichmentFuture_ = async(launch::async, [itemId, lookup, config, generation] {
+    ScanDigiKeyEnrichmentResult result;
+    result.itemId = itemId;
+    result.workspaceGeneration = generation;
     DigiKeyApiClient client(config);
     string error;
-    return make_pair(itemId, client.fetchProductDetails(lookup, &error));
+    result.details = client.fetchProductDetails(lookup, &error);
+    return result;
   });
 }
 
@@ -1955,7 +2038,13 @@ void App::beginDigiKeyRefresh() {
   digiKeyRefreshActiveKey_.clear();
   digiKeyRefreshLastError_.clear();
   digiKeyRefreshClient_ = move(api.client);
-
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    stopDigiKeyRefresh();
+    setMessage("DigiKey refresh unavailable while the workspace is changing", 5);
+    return;
+  }
+  digiKeyRefreshGeneration_ = context->generation;
   for (const auto& item : store_.items()) {
     const auto lookup = digiKeyRefreshLookup(item);
     if (!lookup.empty()) {
@@ -1980,6 +2069,12 @@ void App::processDigiKeyRefresh() {
     }
 
     auto result = digiKeyRefreshFuture_.get();
+    if (!workspaceIsCurrent(result.workspaceGeneration)) {
+      digiKeyRefreshQueue_.clear();
+      digiKeyRefreshClient_.reset();
+      digiKeyRefreshActiveKey_.clear();
+      return;
+    }
     digiKeyRefreshActiveKey_.clear();
     ++digiKeyRefreshCompleted_;
 
@@ -2019,9 +2114,10 @@ void App::processDigiKeyRefresh() {
   digiKeyRefreshQueue_.pop_front();
   digiKeyRefreshActiveKey_ = lookup;
   auto* client = digiKeyRefreshClient_.get();
-  digiKeyRefreshFuture_ = async(launch::async, [client, itemId, lookup] {
+  digiKeyRefreshFuture_ = async(launch::async, [client, itemId, lookup, generation = digiKeyRefreshGeneration_] {
     DigiKeyRefreshResult result;
     result.itemId = itemId;
+    result.workspaceGeneration = generation;
     if (const auto details = client->fetchProductDetails(lookup, &result.error); details) {
       result.details = *details;
     }
@@ -2043,18 +2139,34 @@ void App::stopDigiKeyRefresh() {
   digiKeyRefreshSucceeded_ = 0;
   digiKeyRefreshFailed_ = 0;
   digiKeyRefreshChanged_ = false;
+  digiKeyRefreshGeneration_ = 0;
   digiKeyRefreshLastError_.clear();
 }
 
 DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& request) {
   auto pending = make_shared<PendingDeviceQuantity>();
   pending->request = request;
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    DeviceQuantityResult unavailable;
+    unavailable.httpStatus = 503;
+    unavailable.error = "Inventatory workspace is unavailable";
+    return unavailable;
+  }
+  pending->workspaceGeneration = context->generation;
   {
     lock_guard<mutex> lock(deviceQueueMutex_);
+    if (deviceQuantityQueue_.size() >= kDeviceQuantityQueueLimit) {
+      DeviceQuantityResult unavailable;
+      unavailable.httpStatus = 503;
+      unavailable.error = "Inventatory request queue is full";
+      return unavailable;
+    }
     deviceQuantityQueue_.push_back(pending);
   }
   unique_lock<mutex> lock(pending->mutex);
   if (!pending->ready.wait_for(lock, chrono::seconds(3), [&] { return pending->complete; })) {
+    pending->cancelled = true;
     DeviceQuantityResult timeout;
     timeout.httpStatus = 503;
     timeout.error = "Inventatory did not process the request in time";
@@ -2253,17 +2365,28 @@ void App::testQuickLabelPreset() {
   setMessage(printed ? "Quick label sent" : (error.empty() ? "No printer configured" : error), 4);
 }
 
-void App::enqueueDeviceStatus(const DeviceStatusReport& report) {
+void App::enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration) {
   lock_guard<mutex> lock(deviceQueueMutex_);
-  deviceStatusQueue_.push_back(report);
+  if (deviceStatusQueue_.size() >= kDeviceStatusQueueLimit) {
+    deviceStatusQueue_.erase(deviceStatusQueue_.begin());
+  }
+  deviceStatusQueue_.push_back({report, workspaceGeneration});
 }
 
-void App::enqueueDeviceDebug(const DeviceDebugReport& report) {
+void App::enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration) {
   lock_guard<mutex> lock(deviceQueueMutex_);
-  deviceDebugQueue_.push_back(report);
+  if (deviceDebugQueue_.size() >= kDeviceDebugQueueLimit) {
+    deviceDebugQueue_.erase(deviceDebugQueue_.begin());
+  }
+  deviceDebugQueue_.push_back({report, workspaceGeneration});
 }
 
 bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    error = "Inventatory workspace is unavailable";
+    return false;
+  }
   DeviceStatusReport status;
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
@@ -2273,10 +2396,10 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.protocolVersion = request.protocolVersion;
   status.mode = request.mode;
   status.pendingEventCount = request.queueDepth;
-  enqueueDeviceStatus(status);
-  if (!acceptDeviceSyncEvents(inventoryPath_, request, response, error)) return false;
+  enqueueDeviceStatus(status, context->generation);
+  if (!acceptDeviceSyncEvents(context->paths.inventory, request, response, error)) return false;
   if (request.hasLookup) {
-    response.lookupResult = lookupDeviceItem(inventoryPath_, request.lookup);
+    response.lookupResult = lookupDeviceItem(context->paths.inventory, request.lookup);
     response.hasLookupResult = true;
   }
   {
@@ -2337,14 +2460,28 @@ void App::discardFailedDeviceEvents() {
 }
 
 void App::processDeviceSyncEvents() {
-  const auto pending = loadPendingDeviceSyncEvents(inventoryPath_, 1);
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) return;
+  const auto pending = loadPendingDeviceSyncEvents(context->paths.inventory, 1);
   if (pending.empty()) return;
 
   const auto& event = pending.front();
+  // The pending-event loader intentionally returns the compact event payload.
+  // Recover the durable device identity from the same still-received inbox row
+  // before constructing the completion, so event IDs cannot cross devices.
+  const auto records = loadDeviceSyncEventRecords(context->paths.inventory, kDeviceEventIdentityLookupLimit);
+  const auto record = find_if(records.begin(), records.end(), [&](const DeviceSyncEventRecord& candidate) {
+    return candidate.state == "received" && candidate.event.eventId == event.eventId;
+  });
+  if (record == records.end() || record->deviceId.empty()) {
+    setMessage("Inventatory Scan event has no durable device identity; it was left pending", 5);
+    return;
+  }
   auto candidate = store_;
   DeviceSyncResult result;
   result.resultId = event.eventId + "-result";
   result.eventId = event.eventId;
+  result.deviceId = record->deviceId;
   result.status = "failed";
   result.code = "invalid_event";
   result.message = "Invalid inventory event";
@@ -2409,7 +2546,8 @@ void App::processDeviceSyncEvents() {
     result.message = "Unsupported inventory event type";
   }
 
-  if (!completeDeviceSyncEvent(candidate, inventoryPath_, result, &store_)) {
+  if (!workspaceIsCurrent(context->generation)) return;
+  if (!completeDeviceSyncEvent(candidate, context->paths.inventory, result, &store_)) {
     setMessage("Inventatory Scan event could not be committed", 4);
     return;
   }
@@ -2431,7 +2569,7 @@ void App::processDeviceSyncEvents() {
     scannerFlashUntil_ = time(nullptr) + 3;
     if (created) autoPrintScannedLabel(affectedItemId);
   }
-  saveActivities(activityPath_, activities_);
+  saveActivitiesChecked();
   refreshDeviceEventRecords();
   dirty_ = true;
 }
@@ -2456,8 +2594,8 @@ void App::adjustDeviceDebugScroll(int delta) {
 
 void App::processDeviceRequests() {
   vector<shared_ptr<PendingDeviceQuantity>> quantities;
-  vector<DeviceStatusReport> statuses;
-  vector<DeviceDebugReport> debugReports;
+  vector<QueuedDeviceStatus> statuses;
+  vector<QueuedDeviceDebug> debugReports;
   {
     lock_guard<mutex> lock(deviceQueueMutex_);
     quantities.swap(deviceQuantityQueue_);
@@ -2465,7 +2603,9 @@ void App::processDeviceRequests() {
     debugReports.swap(deviceDebugQueue_);
   }
 
-  for (const auto& status : statuses) {
+  for (const auto& queuedStatus : statuses) {
+    if (!workspaceIsCurrent(queuedStatus.workspaceGeneration)) continue;
+    const auto& status = queuedStatus.report;
     deviceLastSeen_ = time(nullptr);
     deviceFirmwareVersion_ = status.firmwareVersion;
     deviceRssi_ = status.rssi;
@@ -2486,7 +2626,9 @@ void App::processDeviceRequests() {
     dirty_ = true;
   }
 
-  for (const auto& debug : debugReports) {
+  for (const auto& queuedDebug : debugReports) {
+    if (!workspaceIsCurrent(queuedDebug.workspaceGeneration)) continue;
+    const auto& debug = queuedDebug.report;
     const auto now = time(nullptr);
     const auto level = trim(debug.level).empty() ? string("info") : trim(debug.level);
     ostringstream out;
@@ -2504,13 +2646,25 @@ void App::processDeviceRequests() {
   }
 
   for (const auto& pending : quantities) {
+    {
+      lock_guard<mutex> pendingLock(pending->mutex);
+      if (pending->cancelled || !workspaceIsCurrent(pending->workspaceGeneration)) {
+        pending->result = {};
+        pending->result.httpStatus = 409;
+        pending->result.error = "Inventatory workspace changed before the request was processed";
+        pending->complete = true;
+        pending->ready.notify_one();
+        continue;
+      }
+    }
     bool pairingChanged = false;
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(pending->request.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(pending->request.deviceId);
       inventatoryScanConfig_.setupComplete = true;
       pairingChanged = true;
     }
-    const auto result = applyDeviceQuantityCached(store_, pending->request, deviceRequestCache_, deviceRequestOrder_);
+    const auto before = store_;
+    auto result = applyDeviceQuantityCached(store_, pending->request, deviceRequestCache_, deviceRequestOrder_);
     if (pairingChanged) {
       saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
@@ -2520,10 +2674,21 @@ void App::processDeviceRequests() {
       logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",
                   result.item + " quantity changed by " + to_string(result.appliedDelta) +
                       " to " + to_string(result.quantity));
-      saveState("scanner", pending->request.requestId);
-      scannerFlashUntil_ = time(nullptr) + 3;
-      deviceLastResult_ = (result.appliedDelta >= 0 ? "+" : "") + to_string(result.appliedDelta) +
-                          " " + result.item + " QTY " + to_string(result.quantity);
+      if (!saveState("scanner", pending->request.requestId)) {
+        store_ = before;
+        deviceRequestCache_.erase(pending->request.requestId);
+        deviceRequestOrder_.erase(
+            remove(deviceRequestOrder_.begin(), deviceRequestOrder_.end(), pending->request.requestId),
+            deviceRequestOrder_.end());
+        result.ok = false;
+        result.httpStatus = 503;
+        result.error = persistenceError_.empty() ? "Inventatory could not persist the scanner update" : persistenceError_;
+        deviceLastResult_ = "ERROR " + result.error;
+      } else {
+        scannerFlashUntil_ = time(nullptr) + 3;
+        deviceLastResult_ = (result.appliedDelta >= 0 ? "+" : "") + to_string(result.appliedDelta) +
+                            " " + result.item + " QTY " + to_string(result.quantity);
+      }
     } else {
       deviceLastResult_ = "ERROR " + result.error;
     }
@@ -2838,10 +3003,18 @@ void App::beginImportSync(bool retryFailed) {
   }
 
   const auto config = loadDigiKeyConfig();
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("DigiKey sync unavailable while the workspace is changing", 5);
+    return;
+  }
+  importSyncGeneration_ = context->generation;
   importSyncCancelFlag_ = make_shared<atomic<bool>>(false);
   const auto cancelFlag = importSyncCancelFlag_;
-  importSyncFuture_ = async(launch::async, [requests = move(requests), config, cancelFlag] {
+  const auto generation = importSyncGeneration_;
+  importSyncFuture_ = async(launch::async, [requests = move(requests), config, cancelFlag, generation] {
     ImportSyncBatchResult batch;
+    batch.workspaceGeneration = generation;
     DigiKeyApiClient client(config);
     for (size_t index = 0; index < requests.size(); ++index) {
       if (cancelFlag->load()) {
@@ -2870,6 +3043,16 @@ void App::processImportSync() {
   if (!importSyncFuture_.valid() || importSyncFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
 
   const auto batch = importSyncFuture_.get();
+  if (!workspaceIsCurrent(batch.workspaceGeneration)) {
+    importSyncRunning_ = false;
+    importSyncHasRun_ = false;
+    importSyncCancelFlag_.reset();
+    importSyncPrompt_ = false;
+    importSyncFailedItemIds_.clear();
+    setMessage("DigiKey sync result discarded because the workspace changed", 5);
+    dirty_ = true;
+    return;
+  }
   const bool cancelled = importSyncCancelRequested_;
   importSyncCompleted_ = min(importSyncTotal_, batch.results.size() + batch.failedItemIds.size() +
                                              importSyncFailedItemIds_.size());
@@ -3460,6 +3643,11 @@ void App::queueBomEnrichment() {
   if (!loadDigiKeyConfig().valid()) {
     return;
   }
+  if (const auto context = currentWorkspaceContext(); context != nullptr) {
+    bomEnrichmentGeneration_ = context->generation;
+  } else {
+    return;
+  }
 
   for (const auto& match : bomAnalysis_.matches) {
     if (match.sufficient) {
@@ -3492,9 +3680,15 @@ void App::processBomEnrichment() {
       return;
     }
     const auto result = bomEnrichmentFuture_.get();
+    if (!workspaceIsCurrent(result.workspaceGeneration)) {
+      bomEnrichmentQueue_.clear();
+      bomEnrichmentActiveKey_.clear();
+      bomEnrichmentClient_.reset();
+      return;
+    }
     bomEnrichmentActiveKey_.clear();
-    if (!result.first.empty()) {
-      project->enrichment[result.first] = result.second;
+    if (!result.key.empty()) {
+      project->enrichment[result.key] = result.suggestion;
       dirty_ = true;
     }
     if (bomEnrichmentQueue_.empty()) {
@@ -3533,14 +3727,15 @@ void App::processBomEnrichment() {
   // such as "470uF Radial 8.0mm" resolves as well as a real part number.
   const auto keywords = trim(line->designation + " " + packageFromFootprint(line->footprint));
   auto* client = bomEnrichmentClient_.get();
-  bomEnrichmentFuture_ = async(launch::async, [client, key, keywords] {
+  const auto generation = bomEnrichmentGeneration_;
+  bomEnrichmentFuture_ = async(launch::async, [client, key, keywords, generation] {
     string error;
     if (const auto details = client->fetchProductDetails(keywords, &error)) {
       const auto suggestion =
           details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
-      return make_pair(key, suggestion.empty() ? string("-") : suggestion);
+      return BomEnrichmentResult{key, suggestion.empty() ? string("-") : suggestion, generation};
     }
-    return make_pair(key, string("-"));  // remembered so the lookup is not retried
+    return BomEnrichmentResult{key, string("-"), generation};  // remembered so the lookup is not retried
   });
   dirty_ = true;
 }

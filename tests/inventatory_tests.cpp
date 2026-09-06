@@ -1,4 +1,5 @@
 ﻿#include "core/Inventory.h"
+#include "App.h"
 #include "app/AppBootstrap.h"
 #include "app/AppSettings.h"
 #include "platform/UpdateService.h"
@@ -37,6 +38,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <thread>
 #include <unordered_map>
 
@@ -790,6 +792,16 @@ void testSqliteSchemaMigrationAndValidation() {
 }
 
 int main() {
+  {
+    const auto first = advanceWorkspaceGeneration(0);
+    const auto second = advanceWorkspaceGeneration(first);
+    assert(first != 0);
+    assert(second != first);
+    assert(workspaceGenerationMatches(first, first));
+    assert(!workspaceGenerationMatches(second, first));
+    assert(!workspaceGenerationMatches(0, first));
+    assert(advanceWorkspaceGeneration(numeric_limits<WorkspaceGeneration>::max()) == 1);
+  }
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));
   assert(!onboardingRequired(false, true, 1));

@@ -26,12 +26,14 @@
 #include <ftxui/screen/box.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
 #include <functional>
 #include <future>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -45,6 +47,18 @@ namespace inventatory {
 
 std::filesystem::path documentsInventatoryPath();
 std::filesystem::path discoverInventatoryDataPath();
+
+using WorkspaceGeneration = std::uint64_t;
+
+// Shared by the controller and focused tests. Generation zero is never a
+// valid captured workspace, which makes an uninitialized result fail closed.
+inline WorkspaceGeneration advanceWorkspaceGeneration(WorkspaceGeneration current) {
+  return current == std::numeric_limits<WorkspaceGeneration>::max() ? 1 : current + 1;
+}
+
+inline bool workspaceGenerationMatches(WorkspaceGeneration current, WorkspaceGeneration captured) {
+  return current != 0 && current == captured;
+}
 
 class App {
  public:
@@ -222,20 +236,58 @@ class App {
   struct PendingDeviceQuantity {
     DeviceQuantityRequest request;
     DeviceQuantityResult result;
+    WorkspaceGeneration workspaceGeneration = 0;
     std::mutex mutex;
     std::condition_variable ready;
     bool complete = false;
+    bool cancelled = false;
+  };
+
+  // Immutable once published. Background work captures one snapshot so a
+  // later data-directory change cannot redirect its completion to a new DB.
+  struct WorkspaceContext {
+    InventatoryDataPaths paths;
+    WorkspaceGeneration generation = 0;
+  };
+
+  struct QueuedScan {
+    DeviceScanRequest request;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct QueuedDeviceStatus {
+    DeviceStatusReport report;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct QueuedDeviceDebug {
+    DeviceDebugReport report;
+    WorkspaceGeneration workspaceGeneration = 0;
   };
 
   struct DigiKeyRefreshResult {
     std::string itemId;
     std::optional<DigiKeyProductDetails> details;
     std::string error;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct ScanDigiKeyEnrichmentResult {
+    std::string itemId;
+    std::optional<DigiKeyProductDetails> details;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct BomEnrichmentResult {
+    std::string key;
+    std::string suggestion;
+    WorkspaceGeneration workspaceGeneration = 0;
   };
 
   struct ImportSyncBatchResult {
     std::vector<std::pair<std::string, std::optional<DigiKeyProductDetails>>> results;
     std::vector<std::string> failedItemIds;
+    WorkspaceGeneration workspaceGeneration = 0;
   };
 
   void loadState();
@@ -329,6 +381,12 @@ class App {
   std::string scanFirmwareStatus() const;
   void runBackgroundLoop();
   void runInteractiveLoop();
+  void stopWorkspaceBoundWork();
+  std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
+  void activateWorkspaceContext(const InventatoryDataPaths& paths);
+  bool workspaceIsCurrent(WorkspaceGeneration generation) const;
+  bool saveActivitiesChecked(bool notify = true);
+  bool hasPendingPersistence() const;
   void markDirty();
   void refreshPrinterState();
   void refreshInventoryMovements();
@@ -360,9 +418,9 @@ class App {
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
   DeviceQuantityResult enqueueDeviceQuantity(const DeviceQuantityRequest& request);
-  void enqueueDeviceStatus(const DeviceStatusReport& report);
+  void enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration);
   void processDeviceRequests();
-  void enqueueDeviceDebug(const DeviceDebugReport& report);
+  void enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration);
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
   void processDeviceSyncEvents();
   void refreshDeviceEventRecords();
@@ -564,6 +622,8 @@ class App {
   bool pendingCommitDraftValid_ = false;
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
+  bool activitySavePending_ = false;
+  bool exitSavePending_ = false;
   time_t messageUntil_ = 0;
   long long messageFlashStartedAt_ = -1;
   size_t selectedPosition_ = 0;
@@ -580,7 +640,7 @@ class App {
   std::string movingRackItemId_;
   std::string movingRackSource_;
   std::string rackFilter_;
-  std::vector<DeviceScanRequest> scanQueue_;
+  std::vector<QueuedScan> scanQueue_;
   std::vector<CsvImportCandidate> importCandidates_;
   std::vector<std::string> importAcceptedItemIds_;
   std::filesystem::path importSourcePath_;
@@ -602,8 +662,8 @@ class App {
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
   std::vector<std::shared_ptr<PendingDeviceQuantity>> deviceQuantityQueue_;
-  std::vector<DeviceStatusReport> deviceStatusQueue_;
-  std::vector<DeviceDebugReport> deviceDebugQueue_;
+  std::vector<QueuedDeviceStatus> deviceStatusQueue_;
+  std::vector<QueuedDeviceDebug> deviceDebugQueue_;
   std::vector<DeviceSyncEventRecord> deviceEventRecords_;
   std::vector<std::string> deviceDebugLog_;
   std::unordered_map<std::string, DeviceQuantityResult> deviceRequestCache_;
@@ -642,6 +702,7 @@ class App {
   bool importSyncRunning_ = false;
   bool importSyncHasRun_ = false;
   bool importSyncCancelRequested_ = false;
+  WorkspaceGeneration importSyncGeneration_ = 0;
   std::vector<BomProject> bomProjects_;
   std::string activeBomProjectId_;
   size_t bomProjectSelection_ = 0;
@@ -667,14 +728,15 @@ class App {
   std::vector<std::string> bomEnrichmentQueue_;
   size_t bomEnrichmentTotal_ = 0;
   std::string bomEnrichmentActiveKey_;
+  WorkspaceGeneration bomEnrichmentGeneration_ = 0;
   // One lookup in flight at a time, off the render thread. A DigiKey call takes
   // seconds and would otherwise freeze the terminal for the whole shortage run.
   // The client is declared first on purpose: members are destroyed in reverse,
   // so the future (which joins its task) must outlive the client it borrows.
   std::unique_ptr<DigiKeyApiClient> bomEnrichmentClient_;
-  std::future<std::pair<std::string, std::string>> bomEnrichmentFuture_;
+  std::future<BomEnrichmentResult> bomEnrichmentFuture_;
   std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
-  std::future<std::pair<std::string, std::optional<DigiKeyProductDetails>>> scanDigiKeyEnrichmentFuture_;
+  std::future<ScanDigiKeyEnrichmentResult> scanDigiKeyEnrichmentFuture_;
   // Inventory-wide DigiKey recovery runs one lookup per tick so restoring
   // lost vendor metadata never blocks the terminal or changes stock counts.
   std::deque<std::pair<std::string, std::string>> digiKeyRefreshQueue_;
@@ -683,6 +745,7 @@ class App {
   size_t digiKeyRefreshSucceeded_ = 0;
   size_t digiKeyRefreshFailed_ = 0;
   bool digiKeyRefreshChanged_ = false;
+  WorkspaceGeneration digiKeyRefreshGeneration_ = 0;
   std::string digiKeyRefreshActiveKey_;
   std::string digiKeyRefreshLastError_;
   std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
@@ -732,6 +795,8 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
+  mutable std::mutex workspaceMutex_;
+  std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckChecked_ = false;
   bool updateCheckFailed_ = false;
   std::string scanFirmwareLatestVersion_;
