@@ -587,6 +587,82 @@ void testInventoryCommitHistory() {
 #endif
 }
 
+void testSqliteSchemaMigrationAndValidation() {
+#ifdef _WIN32
+  const auto legacyPath = filesystem::temp_directory_path() / "inventatory-legacy-schema-test.db";
+  const auto invalidPath = filesystem::temp_directory_path() / "inventatory-invalid-schema-test.db";
+  error_code cleanupError;
+  filesystem::remove(legacyPath, cleanupError);
+  filesystem::remove(invalidPath, cleanupError);
+
+  {
+    SqliteConnection connection;
+    assert(openDatabase(legacyPath, connection));
+    assert(execSql(connection, R"SQL(
+      CREATE TABLE inventatory_items (
+        id TEXT PRIMARY KEY, part_name TEXT NOT NULL, manufacturer TEXT NOT NULL, category TEXT NOT NULL,
+        quantity INTEGER NOT NULL, reorder_threshold INTEGER NOT NULL, location TEXT NOT NULL,
+        tags TEXT NOT NULL, parameters TEXT NOT NULL, notes TEXT NOT NULL,
+        manufacturer_part_number TEXT NOT NULL, datasheet_url TEXT NOT NULL, enrichment_status TEXT NOT NULL,
+        last_updated INTEGER NOT NULL, inventatory_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,
+        machine_code TEXT NOT NULL DEFAULT '', rack_id TEXT NOT NULL DEFAULT '', rack_slot TEXT NOT NULL DEFAULT '',
+        rack_assignment TEXT NOT NULL DEFAULT 'automatic'
+      );
+      INSERT INTO inventatory_items
+        (id, part_name, manufacturer, category, quantity, reorder_threshold, location, tags, parameters, notes,
+         manufacturer_part_number, datasheet_url, enrichment_status, last_updated)
+      VALUES ('legacy-1', 'Legacy resistor', 'Acme', 'Resistors', 4, 1, '', '', '', '', 'LEGACY-SKU', '', 'synced', 1710000000);
+    )SQL"));
+    assert(ensureInventoryDatabaseSchema(connection));
+  }
+  {
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(legacyPath, connection));
+    string error;
+    assert(validateInventoryDatabase(connection, &error));
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db, "SELECT sku FROM inventatory_items WHERE id='legacy-1'", -1,
+                                  &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    assert(sqliteText(statement.stmt, 0) == "LEGACY-SKU");
+  }
+  {
+    SqliteConnection connection;
+    assert(openDatabase(legacyPath, connection));
+    assert(execSql(connection, "UPDATE inventatory_items SET quantity=2147483648 WHERE id='legacy-1'"));
+    string error;
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+  }
+
+  const auto duplicatePath = filesystem::temp_directory_path() / "inventatory-duplicate-identifiers-test.db";
+  filesystem::remove(duplicatePath, cleanupError);
+  {
+    InventoryStore duplicate;
+    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1});
+    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1});
+    assert(!duplicate.save(duplicatePath));
+  }
+  filesystem::remove(duplicatePath, cleanupError);
+
+  {
+    SqliteConnection connection;
+    assert(openDatabase(invalidPath, connection));
+    assert(execSql(connection, "CREATE TABLE inventatory_items (id TEXT PRIMARY KEY)"));
+    string error;
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+  }
+  {
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(invalidPath, connection));
+    string error;
+    assert(!validateInventoryDatabase(connection, &error));
+  }
+
+  filesystem::remove(legacyPath, cleanupError);
+  filesystem::remove(invalidPath, cleanupError);
+#endif
+}
+
 int main() {
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));
@@ -625,6 +701,7 @@ int main() {
   testPhysicalValueMatching();
   testPhysicalValueSearchIntegration();
   testInventoryCommitHistory();
+  testSqliteSchemaMigrationAndValidation();
 
   {
     assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "test-value") == 0);
