@@ -281,29 +281,35 @@ void testPhysicalValueParsing() {
 
 void testPhysicalValueMatching() {
   // 100nF should match 0.1uF (same value, different prefix)
-  assert(physicalValueMatches("100nF", "0.1uF", 0.01));
-  assert(physicalValueMatches("100nF", string("0.1 ") + "\xC2\xB5" + "F", 0.01));
+  const auto exactCap = comparePhysicalValues("100nF", "0.1uF");
+  assert(exactCap.has_value());
+  assert(exactCap->band == PhysicalValueMatchBand::Exact);
+  const auto unicodeCap = comparePhysicalValues("100nF", string("0.1 ") + "\xC2\xB5" + "F");
+  assert(unicodeCap.has_value());
+  assert(unicodeCap->band == PhysicalValueMatchBand::Exact);
 
   // 10k Ohm should match 10000 Ohm
-  assert(physicalValueMatches("10k Ohm", "10000 Ohm", 0.01));
+  assert(comparePhysicalValues("10k Ohm", "10000 Ohm")->band == PhysicalValueMatchBand::Exact);
 
   // 4R7 should match 4.7 Ohm
-  assert(physicalValueMatches("4R7", "4.7 Ohm", 0.01));
+  assert(comparePhysicalValues("4R7", "4.7 Ohm")->band == PhysicalValueMatchBand::Exact);
 
   // 4.7uH should match 4700nH
-  assert(physicalValueMatches("4.7uH", "4700nH", 0.01));
+  assert(comparePhysicalValues("4.7uH", "4700nH")->band == PhysicalValueMatchBand::Exact);
 
   // 1MHz should match 1000kHz
-  assert(physicalValueMatches("1MHz", "1000kHz", 0.01));
+  assert(comparePhysicalValues("1MHz", "1000kHz")->band == PhysicalValueMatchBand::Exact);
 
   // Different types should not match
-  assert(!physicalValueMatches("100nF", "100 Ohm", 0.01));
+  assert(!comparePhysicalValues("100nF", "100 Ohm").has_value());
 
-  // Out of tolerance should not match
-  assert(!physicalValueMatches("100nF", "120nF", 0.01));
+  // The built-in bands classify 20% as possible and reject values beyond 25%.
+  assert(comparePhysicalValues("120nF", "100nF")->band == PhysicalValueMatchBand::Possible);
+  assert(comparePhysicalValues("125nF", "100nF")->band == PhysicalValueMatchBand::Possible);
+  assert(comparePhysicalValues("126nF", "100nF")->band == PhysicalValueMatchBand::None);
 
-  // Within tolerance should match
-  assert(physicalValueMatches("100nF", "101nF", 0.01));
+  // Within the workable band should match
+  assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
 }
 
 void testPhysicalValueSearchIntegration() {
@@ -400,25 +406,16 @@ void testPhysicalValueSearchIntegration() {
   assert(foundCap1);
   assert(foundCap2);
 
-  // The live search API must honor the configured tolerance rather than
-  // silently reverting to its built-in default.
-  PhysicalValueTolerances exactTolerances;
-  exactTolerances.capacitance = 0.0;
-  const auto exactFiltered = filterItems(items, "101nF", 5, exactTolerances);
-  assert(exactFiltered.empty());
+  const auto ranked = rankedFilterItems(items, "101nF", {}, 5);
+  assert(ranked.size() == 2);
+  assert(ranked[0].band == PhysicalValueMatchBand::Workable);
+  assert(ranked[1].band == PhysicalValueMatchBand::Workable);
+  assert(ranked[0].relativeDifference <= ranked[1].relativeDifference + 1e-12);
 
-  PhysicalValueTolerances relaxedTolerances;
-  relaxedTolerances.capacitance = 0.02;
-  const auto relaxedFiltered = filterItems(items, "101nF", 5, relaxedTolerances);
-  assert(relaxedFiltered.size() >= 2);
-  bool foundRelaxedCap1 = false;
-  bool foundRelaxedCap2 = false;
-  for (size_t idx : relaxedFiltered) {
-    if (items[idx].id == "cap-01uf") foundRelaxedCap1 = true;
-    if (items[idx].id == "cap-100nf") foundRelaxedCap2 = true;
-  }
-  assert(foundRelaxedCap1);
-  assert(foundRelaxedCap2);
+  const auto closest = findClosestPhysicalValues(items, "9.9k");
+  assert(closest.size() == 2);
+  assert(items[closest[0].itemIndex].id == "res-10k");
+  assert(closest[0].band == PhysicalValueMatchBand::Workable);
 }
 
 void testInventoryCommitHistory() {
@@ -2507,6 +2504,7 @@ int main() {
     assert(text.find("appearance_canvas_bg=#123456") != string::npos);
     assert(text.find("appearance_interactive=#ABCDEF") != string::npos);
     assert(text.find("quick_label") == string::npos);
+    assert(text.find("tolerance_") == string::npos);
     persisted.close();
     error_code removeError;
     filesystem::remove(path, removeError);
@@ -2591,6 +2589,7 @@ int main() {
     legacy << "schema_version=1\n";
     legacy << "data_directory=\"legacy\"\n";
     legacy << "appearance_canvas_bg=#1234G7\n";
+    legacy << "tolerance_capacitance=0.02\n";
     legacy.close();
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));

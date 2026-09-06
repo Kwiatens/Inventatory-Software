@@ -209,22 +209,6 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
           break;
         }
       }
-    } else if (key == "tolerance_resistance") {
-      double tol = loaded.physicalValueTolerances.resistance;
-      value >> tol;
-      if (tol >= 0 && tol <= 1) loaded.physicalValueTolerances.resistance = tol;
-    } else if (key == "tolerance_capacitance") {
-      double tol = loaded.physicalValueTolerances.capacitance;
-      value >> tol;
-      if (tol >= 0 && tol <= 1) loaded.physicalValueTolerances.capacitance = tol;
-    } else if (key == "tolerance_inductance") {
-      double tol = loaded.physicalValueTolerances.inductance;
-      value >> tol;
-      if (tol >= 0 && tol <= 1) loaded.physicalValueTolerances.inductance = tol;
-    } else if (key == "tolerance_frequency") {
-      double tol = loaded.physicalValueTolerances.frequency;
-      value >> tol;
-      if (tol >= 0 && tol <= 1) loaded.physicalValueTolerances.frequency = tol;
     }
   }
   if (loaded.schemaVersion < 1 || loaded.lowStockThreshold <= 0) return false;
@@ -263,10 +247,6 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
     output << "appearance_" << appearanceColorKey(role) << '='
            << appearanceColorHex(settings.appearance.colors[index]) << '\n';
    }
-   output << "tolerance_resistance=" << settings.physicalValueTolerances.resistance << '\n'
-          << "tolerance_capacitance=" << settings.physicalValueTolerances.capacitance << '\n'
-          << "tolerance_inductance=" << settings.physicalValueTolerances.inductance << '\n'
-          << "tolerance_frequency=" << settings.physicalValueTolerances.frequency << '\n';
    output.close();
   if (!output) return false;
   if (!replaceSettingsFile(path, temporary)) {
