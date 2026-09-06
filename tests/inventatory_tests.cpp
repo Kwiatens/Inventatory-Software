@@ -772,21 +772,23 @@ void testSqliteSchemaMigrationAndValidation() {
     valid.deviceId = "device-a";
     assert(completeDeviceSyncEvent(candidate, completionPath, valid, &original));
     assert(loadInventoryCommits(completionPath, commits));
-    assert(commits.size() == initialCommitCount + 1);
+    // The first versioned write records both the original snapshot and the
+    // scanner mutation in the same transaction.
+    assert(commits.size() == initialCommitCount + 2);
 
     // A completed event cannot be applied a second time, even if the result
     // carries the correct device identity.  The failed update must roll back
     // the snapshot rewrite and must not append another inventory commit.
     assert(!completeDeviceSyncEvent(candidate, completionPath, valid, &original));
     assert(loadInventoryCommits(completionPath, commits));
-    assert(commits.size() == initialCommitCount + 1);
+    assert(commits.size() == initialCommitCount + 2);
 
     DeviceSyncResult nonexistent = valid;
     nonexistent.eventId = "no-such-event";
     nonexistent.resultId = "no-such-result";
     assert(!completeDeviceSyncEvent(candidate, completionPath, nonexistent, &original));
     assert(loadInventoryCommits(completionPath, commits));
-    assert(commits.size() == initialCommitCount + 1);
+    assert(commits.size() == initialCommitCount + 2);
     filesystem::remove(completionPath, cleanupError);
   }
 
@@ -2412,6 +2414,7 @@ int main() {
     ifstream emptyConfig(emptyConfigPath, ios::binary);
     string emptyContents((istreambuf_iterator<char>(emptyConfig)), istreambuf_iterator<char>());
     assert(emptyContents == "\"\"\n");
+    emptyConfig.close();
 
     filesystem::remove_all(directory, cleanupError);
     assert(!cleanupError);
@@ -2518,6 +2521,7 @@ int main() {
     atomic<int> retrySyncCalls{0};
     auto retryOnSync = [&retrySyncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response,
                                          string& error) {
+      (void)error;
       if (++retrySyncCalls == 1) {
         throw runtime_error("durable callback unavailable");
       }
@@ -3343,14 +3347,23 @@ int main() {
     backupSettings.dataDirectory = source;
     backupSettings.completedOnboardingVersion = 1;
     assert(saveAppSettings(settingsPath, backupSettings));
-    assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
+    const bool bundleCreated = createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error);
+    if (!bundleCreated) cerr << "Backup creation failed: " << error << '\n';
+    assert(bundleCreated);
     assert(filesystem::exists(bundle / "manifest.tsv"));
     assert(filesystem::exists(bundle / "inventory.db"));
-    vector<InventoryCommit> bundleCommits;
-    assert(loadInventoryCommits(bundle / "inventory.db", bundleCommits));
-    assert(bundleCommits.size() == 2);
     assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
     assert(validateInventatoryBackup(bundle, error));
+    {
+      SqliteConnection bundleConnection;
+      assert(openDatabaseReadOnly(bundle / "inventory.db", bundleConnection));
+      SqliteStatement countStatement;
+      assert(sqliteApi().prepare_v2(bundleConnection.db,
+                                    "SELECT COUNT(*) FROM inventatory_inventory_commits", -1,
+                                    &countStatement.stmt, nullptr) == SQLITE_OK);
+      assert(sqliteApi().step(countStatement.stmt) == SQLITE_ROW);
+      assert(sqliteApi().column_int64(countStatement.stmt, 0) == 2);
+    }
     {
       ifstream snapshotInput(bundle / "inventory.db", ios::binary);
       const string snapshotBytes((istreambuf_iterator<char>(snapshotInput)), istreambuf_iterator<char>());
