@@ -5,8 +5,6 @@ project(InventatorySoftware VERSION 0.1.0 LANGUAGES C CXX)
 option(INVENTATORY_PARALLEL_MSVC "Enable MSVC parallel compilation" ON)
 
 if(MSVC)
-    add_compile_options(/W4 /permissive-)
-
     if(INVENTATORY_PARALLEL_MSVC)
         add_compile_options(/MP)
     endif()

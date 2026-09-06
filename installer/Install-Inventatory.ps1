@@ -11,7 +11,60 @@ $repo = $Repository
 $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Inventatory'
 $downloadRoot = Join-Path $env:TEMP ('Inventatory-' + [guid]::NewGuid())
 $stagingRoot = "$installRoot.staging"
-$backupRoot = "$installRoot.backup"
+$backupRoot = "$installRoot.backup." + [guid]::NewGuid().ToString('N')
+
+function ConvertTo-NormalizedPath([string]$path) {
+  return [System.IO.Path]::GetFullPath($path).TrimEnd([System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar)
+}
+
+function Get-InventatoryProcesses {
+  $expectedPaths = @(
+    (ConvertTo-NormalizedPath (Join-Path $installRoot 'inventatory.exe')),
+    (ConvertTo-NormalizedPath (Join-Path $installRoot 'inventatory-background.exe'))
+  )
+  $candidates = @(Get-CimInstance -ClassName Win32_Process `
+    -Filter "Name = 'inventatory.exe' OR Name = 'inventatory-background.exe'" -ErrorAction Stop)
+  foreach ($candidate in $candidates) {
+    if ([string]::IsNullOrWhiteSpace($candidate.ExecutablePath)) {
+      throw "Unable to verify the executable path for Inventatory process $($candidate.ProcessId). Close Inventatory and run the installer again."
+    }
+    $candidatePath = ConvertTo-NormalizedPath $candidate.ExecutablePath
+    if ($expectedPaths -contains $candidatePath) {
+      [PSCustomObject]@{
+        Id = [int]$candidate.ProcessId
+        Name = [string]$candidate.Name
+        Path = $candidatePath
+        CommandLine = [string]$candidate.CommandLine
+      }
+    }
+  }
+}
+
+function Wait-InventatoryProcessesStopped([int]$timeoutSeconds = 30) {
+  $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
+  while ($true) {
+    $running = @(Get-InventatoryProcesses)
+    if ($running.Count -eq 0) { return }
+    if ([DateTime]::UtcNow -ge $deadline) {
+      $description = ($running | ForEach-Object { "$($_.Name) (PID $($_.Id))" }) -join ', '
+      throw "Inventatory is still running: $description. Close all Inventatory windows and tray services, then run the installer again. The existing installation was left unchanged."
+    }
+    Start-Sleep -Milliseconds 250
+  }
+}
+
+function Quiesce-InventatoryProcesses {
+  # Do not terminate the application: it owns the database and must be closed
+  # through its normal UI/tray path so its final save can complete safely.
+  $running = @(Get-InventatoryProcesses)
+  if ($running.Count -eq 0) { return }
+  $description = ($running | ForEach-Object { "$($_.Name) (PID $($_.Id))" }) -join ', '
+  Write-Warning "Inventatory processes are running: $description. Close the foreground application and the Scan R1 tray service before continuing."
+  $answer = Read-Host 'Press Enter after both are closed, or type N to cancel'
+  if ($answer -match '^[Nn]') { throw 'Installation cancelled. The existing installation was left unchanged.' }
+  Wait-InventatoryProcessesStopped
+}
 
 function New-Shortcut([string]$path, [string]$target, [string]$arguments = '', [string]$workingDirectory = '') {
   $shell = New-Object -ComObject WScript.Shell
@@ -64,11 +117,7 @@ try {
   $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
   if (-not $expected -or $actual -ne $expected.ToLowerInvariant()) { throw 'Release checksum verification failed. The existing installation was left unchanged.' }
 
-  if (Get-Process inventatory -ErrorAction SilentlyContinue) {
-    $answer = Read-Host 'Inventatory is running. Close it, then press Enter to continue (or type N to cancel)'
-    if ($answer -match '^[Nn]') { throw 'Installation cancelled.' }
-    if (Get-Process inventatory -ErrorAction SilentlyContinue) { throw 'Inventatory is still running. Close it and run the installer again.' }
-  }
+  Quiesce-InventatoryProcesses
 
   Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
   Expand-Archive -LiteralPath $archive -DestinationPath $stagingRoot -Force
@@ -77,13 +126,40 @@ try {
       -not (Test-Path (Join-Path $packageRoot 'inventatory-background.exe'))) {
     throw 'Release archive is missing Inventatory or its background launcher.'
   }
-  Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
-  if (Test-Path $installRoot) { Move-Item -LiteralPath $installRoot -Destination $backupRoot }
+
+  # Re-check immediately before replacing files. This closes the race between
+  # the initial user prompt and the directory swap without ever force-killing
+  # a process that may still be saving inventory data.
+  Wait-InventatoryProcessesStopped -timeoutSeconds 1
+
+  $oldInstallMoved = $false
+  $newInstallMoveAttempted = $false
   try {
-    Move-Item -LiteralPath $packageRoot -Destination $installRoot
+    if (Test-Path -LiteralPath $installRoot) {
+      Move-Item -LiteralPath $installRoot -Destination $backupRoot -ErrorAction Stop
+      $oldInstallMoved = $true
+    }
+    $newInstallMoveAttempted = $true
+    Move-Item -LiteralPath $packageRoot -Destination $installRoot -ErrorAction Stop
     Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
   } catch {
-    if (Test-Path $backupRoot) { Move-Item -LiteralPath $backupRoot -Destination $installRoot }
+    # Keep the old installation recoverable if the new directory cannot be
+    # activated. The staged package is disposable; existing user data is not.
+    if ($newInstallMoveAttempted -and (Test-Path -LiteralPath $installRoot)) {
+      $failedInstallRoot = "$installRoot.failed." + [guid]::NewGuid().ToString('N')
+      try {
+        Move-Item -LiteralPath $installRoot -Destination $failedInstallRoot -ErrorAction Stop
+      } catch {
+        throw "Installation failed and the new files could not be moved aside for rollback: $($_.Exception.Message)"
+      }
+    }
+    if ($oldInstallMoved -and (Test-Path -LiteralPath $backupRoot)) {
+      try {
+        Move-Item -LiteralPath $backupRoot -Destination $installRoot -ErrorAction Stop
+      } catch {
+        throw "Installation failed and rollback could not restore the existing installation: $($_.Exception.Message)"
+      }
+    }
     throw
   }
 
