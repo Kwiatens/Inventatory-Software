@@ -106,7 +106,15 @@ vector<App::Action> App::currentActions() const {
       });
       add("undo latest change", "System", "Ctrl+Z", special(KeyType::CtrlZ),
           [self] { self->undoLastInventoryChange(); });
-      add("back to home", "Go", "Esc", special(KeyType::Escape), [self] { self->changePage(Page::Home); });
+      add("back", "Go", "Esc", special(KeyType::Escape), [self] {
+        if (self->historyRecordOpen_) {
+          self->historyRecordOpen_ = false;
+          self->historyRecordSelection_ = 0;
+          self->dirty_ = true;
+        } else {
+          self->changePage(Page::Home);
+        }
+      });
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
 
