@@ -263,7 +263,7 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
         state='completed', result_id=?, result_status=?, result_existing=?, result_item_name=?,
         result_requested_delta=?, result_applied_delta=?, result_quantity=?, result_location=?,
         result_code=?, result_message=?, completed_at=?
-      WHERE event_id=? AND state='received'
+      WHERE event_id=? AND device_id=? AND state='received'
     )SQL";
     if (sqliteApi().prepare_v2(connection.db, eventSql, -1, &eventStatement.stmt, nullptr) != SQLITE_OK) {
       execSql(connection, "ROLLBACK");
@@ -281,6 +281,7 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     sqliteApi().bind_text(eventStatement.stmt, 10, deviceEvent->message.c_str(), -1, SQLITE_TRANSIENT);
     sqliteApi().bind_int64(eventStatement.stmt, 11, static_cast<sqlite3_int64>(deviceEvent->completedAt));
     sqliteApi().bind_text(eventStatement.stmt, 12, deviceEvent->eventId.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(eventStatement.stmt, 13, deviceEvent->deviceId.c_str(), -1, SQLITE_TRANSIENT);
     if (sqliteApi().step(eventStatement.stmt) != SQLITE_DONE || sqliteApi().changes(connection.db) != 1) {
       execSql(connection, "ROLLBACK");
       return false;
