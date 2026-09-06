@@ -3,6 +3,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -45,6 +46,9 @@ class BackgroundController {
   bool backgroundMode_ = false;
   std::thread trayThread_;
   mutable std::mutex callbackMutex_;
+  mutable std::mutex trayReadyMutex_;
+  std::condition_variable trayReadyChanged_;
+  bool trayReady_ = false;
   Callback onQuit_;
   Callback onOpen_;
 };

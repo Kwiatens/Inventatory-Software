@@ -40,6 +40,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 
@@ -743,7 +744,9 @@ void testSqliteSchemaMigrationAndValidation() {
     DeviceSyncResponse response;
     string error;
     assert(acceptDeviceSyncEvents(completionPath, request, response, error));
-    assert(loadPendingDeviceSyncEvents(completionPath).size() == 1);
+    const auto pendingCompletion = loadPendingDeviceSyncEvents(completionPath);
+    assert(pendingCompletion.size() == 1);
+    assert(pendingCompletion.front().deviceId == "device-a");
 
     vector<InventoryCommit> commits;
     assert(loadInventoryCommits(completionPath, commits));
@@ -2448,6 +2451,14 @@ int main() {
     assert(modified.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
     assert(syncCalls == 1);
 
+    auto duplicateLength = firstRequest;
+    const auto lengthEnd = duplicateLength.find("\r\n", duplicateLength.find("Content-Length:"));
+    assert(lengthEnd != string::npos);
+    duplicateLength.insert(lengthEnd + 2, "Content-Length: " + to_string(body.size()) + "\r\n");
+    const auto duplicateLengthResponse = sendLocalHttpRequest(server.port(), duplicateLength);
+    assert(duplicateLengthResponse.rfind("HTTP/1.1 400 Bad Request", 0) == 0);
+    assert(syncCalls == 1);
+
     const auto replayed = sendLocalHttpRequest(server.port(), firstRequest);
     assert(replayed.rfind("HTTP/1.1 409 Conflict", 0) == 0);
     assert(syncCalls == 1);
@@ -2508,8 +2519,7 @@ int main() {
     auto retryOnSync = [&retrySyncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response,
                                          string& error) {
       if (++retrySyncCalls == 1) {
-        error = "durable callback unavailable";
-        return false;
+        throw runtime_error("durable callback unavailable");
       }
       response.requestId = request.requestId;
       return true;
@@ -2630,6 +2640,21 @@ int main() {
         R"({"protocolVersion":99,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
     assert(error == "Unsupported protocol version");
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-malformed-array","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[1],"resultAcks":[]})",
+        request, error));
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-malformed-ack","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[1]})",
+        request, error));
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-duplicate-event","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":2,"events":[{"eventId":"same","type":"inventory.adjust","code":"0002","value":1},{"eventId":"same","type":"inventory.adjust","code":"0002","value":1}],"resultAcks":[]})",
+        request, error));
+    string deeplyNested = R"({"protocolVersion":1,"requestId":"sync-deep","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"extra":)";
+    deeplyNested.append(33, '[');
+    deeplyNested += "0";
+    deeplyNested.append(33, ']');
+    deeplyNested += '}';
+    assert(!parseDeviceSyncRequestJson(deeplyNested, request, error));
 
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-device-sync-v1-test.db";
     filesystem::remove(databasePath);
@@ -2691,6 +2716,7 @@ int main() {
     assert(response.results.empty());
     const auto pending = loadPendingDeviceSyncEvents(databasePath);
     assert(pending.size() == 1);
+    assert(pending.front().deviceId == "r1-a");
 
     auto candidate = store;
     DeviceQuantityRequest quantityRequest{"r1-a", pending.front().eventId, pending.front().code,
@@ -3377,6 +3403,7 @@ int main() {
     assert(acceptDeviceSyncEvents(path, request, response, error));
     const auto pending = loadPendingDeviceSyncEvents(path);
     assert(pending.size() == 1);
+    assert(pending.front().deviceId == "r1-recovery");
 
     DeviceSyncResult failed;
     failed.resultId = "recovery-event-result";

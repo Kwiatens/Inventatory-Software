@@ -2,6 +2,8 @@
 
 #include "platform/BleProvisioningService.h"
 
+#include <algorithm>
+
 #ifdef _WIN32
 #define WINRT_LEAN_AND_MEAN
 #include <winrt/base.h>
@@ -13,7 +15,6 @@
 #include <winrt/Windows.Devices.Enumeration.h>
 #include <winrt/Windows.Storage.Streams.h>
 
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cctype>
@@ -168,11 +169,18 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
       return BleProvisioningOutcome::Failed;
     }
     const auto pairDevice = [&](DeviceInformation& pairingInfo) {
-      if (pairingInfo.Pairing().IsPaired()) return true;
+      if (pairingInfo.Pairing().IsPaired()) {
+        return pairingInfo.Pairing().ProtectionLevel() == DevicePairingProtectionLevel::EncryptionAndAuthentication;
+      }
       const auto pairing = pairingInfo.Pairing().Custom();
       const auto handler = pairing.PairingRequested([pin = request.pairingCode](const auto&, const DevicePairingRequestedEventArgs& args) {
-        if (args.PairingKind() == DevicePairingKinds::ProvidePin) args.Accept(winrt::to_hstring(pin));
-        else args.Accept();
+        if (args.PairingKind() == DevicePairingKinds::ProvidePin) {
+          args.Accept(winrt::to_hstring(pin));
+        }
+        // ConfirmOnly is deliberately not auto-accepted.  Windows must show
+        // its physical/user confirmation prompt, or pairing fails closed if
+        // that prompt cannot be presented.  Accepting here would allow a
+        // nearby device to be paired without the user confirming its identity.
       });
       const auto kinds = static_cast<DevicePairingKinds>(static_cast<unsigned>(DevicePairingKinds::ProvidePin) |
                                                          static_cast<unsigned>(DevicePairingKinds::ConfirmOnly));
