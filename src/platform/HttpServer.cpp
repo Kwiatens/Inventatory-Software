@@ -238,14 +238,37 @@ bool saveReplayState(const filesystem::path& path, const string& fingerprint, ui
   error_code error;
   filesystem::create_directories(path.parent_path(), error);
   if (error) return false;
+
+  const string contents = "fingerprint=" + fingerprint + '\n' + "counter=" + to_string(counter) + '\n';
+  static atomic<uint64_t> temporarySequence{0};
   auto temporary = path;
-  temporary += ".tmp";
-  ofstream output(temporary, ios::trunc);
-  if (!output) return false;
-  output << "fingerprint=" << fingerprint << '\n' << "counter=" << counter << '\n';
-  output.close();
-  if (!output) return false;
+  temporary += L".tmp.";
+  temporary += to_wstring(GetCurrentProcessId());
+  temporary += L".";
+  temporary += to_wstring(GetCurrentThreadId());
+  temporary += L".";
+  temporary += to_wstring(temporarySequence.fetch_add(1, memory_order_relaxed));
 #ifdef _WIN32
+  // CREATE_NEW prevents two writers from sharing a predictable temporary file.
+  // WRITE_THROUGH plus FlushFileBuffers makes a successful replacement durable
+  // enough for the existing replay invariant; the old state is untouched until
+  // the complete temporary file has been closed.
+  HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) return false;
+
+  bool success = contents.size() <= numeric_limits<DWORD>::max();
+  DWORD written = 0;
+  if (success) {
+    success = WriteFile(handle, contents.data(), static_cast<DWORD>(contents.size()), &written, nullptr) != 0 &&
+              written == contents.size();
+  }
+  if (success) success = FlushFileBuffers(handle) != 0;
+  if (CloseHandle(handle) == 0) success = false;
+  if (!success) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
   if (MoveFileExW(temporary.c_str(), path.c_str(),
                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
     filesystem::remove(temporary, error);
@@ -253,8 +276,23 @@ bool saveReplayState(const filesystem::path& path, const string& fingerprint, ui
   }
   return true;
 #else
+  ofstream output(temporary, ios::binary);
+  if (!output) return false;
+  output.write(contents.data(), static_cast<streamsize>(contents.size()));
+  output.flush();
+  const bool success = output.good();
+  output.close();
+  if (!success || !output) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
   filesystem::rename(temporary, path, error);
-  return !error;
+  const bool renamed = !error;
+  if (!renamed) {
+    error_code cleanupError;
+    filesystem::remove(temporary, cleanupError);
+  }
+  return renamed;
 #endif
 }
 
@@ -315,20 +353,23 @@ void LocalHttpServer::stop() {
     closesocket(listeningSocket);
   }
 
-  clientQueueChanged_.notify_all();
   if (acceptor_.joinable()) acceptor_.join();
+
+  // The acceptor has stopped, so no new socket can be added.  Close every
+  // queued socket before waking workers; only sockets already popped by a
+  // worker are allowed to finish their bounded I/O/callback work during
+  // shutdown.
+  deque<SOCKET> queuedClients;
+  {
+    lock_guard<mutex> lock(clientQueueMutex_);
+    queuedClients.swap(clientQueue_);
+  }
+  for (const auto client : queuedClients) closesocket(client);
   clientQueueChanged_.notify_all();
   for (auto& worker : workers_) {
     if (worker.joinable()) worker.join();
   }
   workers_.clear();
-  {
-    lock_guard<mutex> lock(clientQueueMutex_);
-    while (!clientQueue_.empty()) {
-      closesocket(clientQueue_.front());
-      clientQueue_.pop_front();
-    }
-  }
 
   if (winsockStarted_) {
     WSACleanup();
