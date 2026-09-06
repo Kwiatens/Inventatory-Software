@@ -244,6 +244,7 @@ class App {
   bool saveInventoryState(const InventoryCommitDraft& draft);
   void refreshHistoryDetail();
   void moveHistorySelection(int delta);
+  void moveHistoryRecordSelection(int delta);
   void openSelectedHistoryCommit();
   void beginHistoryCheckpoint();
   void beginHistoryRestore(InventoryRevertMode mode);
@@ -582,8 +583,12 @@ class App {
   std::vector<InventoryMovement> inventoryMovements_;
   std::vector<InventoryCommit> inventoryCommits_;
   size_t historySelection_ = 0;
+  size_t historyRecordSelection_ = 0;
+  bool historyRecordOpen_ = false;
   InventoryCommitDetail historyDetail_;
   bool historyDetailValid_ = false;
+  mutable ftxui::Box historyListPanelBounds_;
+  mutable ftxui::Box historyDetailPanelBounds_;
   InventoryRevertMode pendingHistoryRevertMode_ = InventoryRevertMode::Snapshot;
   std::string historyConfirmationMessage_;
   std::mutex scanMutex_;
