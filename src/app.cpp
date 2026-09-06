@@ -134,13 +134,23 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   } else {
     settings_.dataDirectory = dataPath_;
   }
+  string restoreRecoveryNotice;
+  if (!recoverInventatoryRestore(dataPath_, settingsPath_, restoreRecoveryNotice)) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = restoreRecoveryNotice.empty()
+                                   ? "An interrupted restore could not be recovered safely"
+                                   : restoreRecoveryNotice;
+  }
   activateWorkspaceContext(makeInventatoryDataPaths(dataPath_));
   loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
-  loadState();
+  if (!inventoryRecoveryRequired_) {
+    loadState();
+    if (!restoreRecoveryNotice.empty()) setMessage(restoreRecoveryNotice, 8);
+  }
   if (!loadedSettings) {
     settings_.printerQueue = printerService_.configuredPrinter();
     const auto environment = loadDigiKeyConfig();
