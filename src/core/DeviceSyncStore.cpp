@@ -78,12 +78,24 @@ bool pruneAcknowledgedResults(SqliteConnection& connection, const string& device
   return sqliteApi().step(statement.stmt) == SQLITE_DONE;
 }
 
+bool loadReceivedEventDeviceId(SqliteConnection& connection, const string& eventId, string& deviceId) {
+  SqliteStatement statement;
+  const char* sql = "SELECT device_id FROM inventatory_device_events "
+                    "WHERE event_id=? AND state='received' LIMIT 1";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
+  sqliteApi().bind_text(statement.stmt, 1, eventId.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqliteApi().step(statement.stmt) != SQLITE_ROW ||
+      sqliteApi().column_type(statement.stmt, 0) != SQLITE_TEXT) return false;
+  deviceId = sqliteText(statement.stmt, 0);
+  return !deviceId.empty();
+}
+
 vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string& deviceId, size_t limit) {
   vector<DeviceSyncResult> results;
   if (limit == 0) return results;
   SqliteStatement statement;
   const char* sql = R"SQL(
-    SELECT result_id, event_id, result_status, result_existing, result_item_name,
+    SELECT result_id, event_id, device_id, result_status, result_existing, result_item_name,
            result_requested_delta, result_applied_delta, result_quantity, result_location,
            result_code, result_message
     FROM inventatory_device_events
@@ -98,17 +110,18 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
     DeviceSyncResult result;
     result.resultId = sqliteText(statement.stmt, 0);
     result.eventId = sqliteText(statement.stmt, 1);
-    result.status = sqliteText(statement.stmt, 2);
+    result.deviceId = sqliteText(statement.stmt, 2);
+    result.status = sqliteText(statement.stmt, 3);
     int existing = 0;
-    if (!sqliteInt32(statement.stmt, 3, existing) || !sqliteInt32(statement.stmt, 5, result.requestedDelta) ||
-        !sqliteInt32(statement.stmt, 6, result.appliedDelta) || !sqliteInt32(statement.stmt, 7, result.quantity)) {
+    if (!sqliteInt32(statement.stmt, 4, existing) || !sqliteInt32(statement.stmt, 6, result.requestedDelta) ||
+        !sqliteInt32(statement.stmt, 7, result.appliedDelta) || !sqliteInt32(statement.stmt, 8, result.quantity)) {
       return {};
     }
     result.existing = existing != 0;
-    result.itemName = sqliteText(statement.stmt, 4);
-    result.location = sqliteText(statement.stmt, 8);
-    result.code = sqliteText(statement.stmt, 9);
-    result.message = sqliteText(statement.stmt, 10);
+    result.itemName = sqliteText(statement.stmt, 5);
+    result.location = sqliteText(statement.stmt, 9);
+    result.code = sqliteText(statement.stmt, 10);
+    result.message = sqliteText(statement.stmt, 11);
     results.push_back(move(result));
   }
   if (stepResult != SQLITE_DONE) results.clear();
@@ -350,8 +363,27 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   auto finalized = store;
   ensureInventoryIdentifiers(finalized.items());
 
+#ifdef _WIN32
+  if (result.eventId.empty()) return false;
+  string deviceId = result.deviceId;
+  if (deviceId.empty()) {
+    SqliteConnection identityConnection;
+    if (!openDatabaseReadOnly(databasePath, identityConnection) ||
+        !validateInventoryDatabase(identityConnection) ||
+        !loadReceivedEventDeviceId(identityConnection, result.eventId, deviceId)) {
+      // A result without an explicit identity is accepted only when the
+      // still-pending inbox row supplies it.  This keeps legacy callers safe
+      // while preventing a completion from matching an arbitrary event ID.
+      return false;
+    }
+  }
+#else
+  const string deviceId = result.deviceId;
+#endif
+
   DeviceEventCommit commit;
   commit.eventId = result.eventId;
+  commit.deviceId = deviceId;
   commit.resultId = result.resultId;
   commit.status = result.status;
   commit.existing = result.existing;

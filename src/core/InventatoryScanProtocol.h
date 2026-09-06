@@ -133,6 +133,7 @@ struct DeviceSyncRequest {
 struct DeviceSyncResult {
   std::string resultId;
   std::string eventId;
+  std::string deviceId;
   std::string status;
   bool existing = false;
   std::string itemName;

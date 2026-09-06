@@ -34,7 +34,10 @@ string quoteIdentifier(const string& identifier) {
 void setSqlError(SqliteConnection& connection, string* error, const string& fallback) {
   if (error == nullptr) return;
   const char* message = connection.db == nullptr ? nullptr : sqliteApi().errmsg(connection.db);
-  *error = message == nullptr || *message == '\0' ? fallback : message;
+  // sqlite3_errmsg() may still report "not an error" after a failed helper
+  // query has finalized its statement.  Keep the operation-specific context
+  // instead of replacing it with that non-diagnostic status.
+  *error = message == nullptr || *message == '\0' || string(message) == "not an error" ? fallback : message;
 }
 
 bool queryInt64(SqliteConnection& connection, const string& sql, sqlite3_int64& value) {
@@ -57,10 +60,16 @@ bool queryString(SqliteConnection& connection, const string& sql, string& value)
   return true;
 }
 
-bool queryHasRows(SqliteConnection& connection, const string& sql) {
+bool queryHasRows(SqliteConnection& connection, const string& sql, bool& hasRows) {
   SqliteStatement statement;
+  hasRows = false;
   if (sqliteApi().prepare_v2(connection.db, sql.c_str(), -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
-  return sqliteApi().step(statement.stmt) == SQLITE_ROW;
+  const int result = sqliteApi().step(statement.stmt);
+  if (result == SQLITE_ROW) {
+    hasRows = true;
+    return true;
+  }
+  return result == SQLITE_DONE;
 }
 
 bool requireColumns(SqliteConnection& connection, const string& table, initializer_list<const char*> columns,
@@ -423,19 +432,45 @@ bool validateDataValues(SqliteConnection& connection, string* error) {
   const auto intMin = to_string(numeric_limits<int>::min());
   const auto intMax = to_string(numeric_limits<int>::max());
   const string checks[] = {
-      "SELECT 1 FROM inventatory_items WHERE trim(id)='' OR typeof(quantity)<>'integer' OR typeof(reorder_threshold)<>'integer' OR quantity < " +
-          intMin + " OR quantity > " + intMax + " OR reorder_threshold < " + intMin + " OR reorder_threshold > " + intMax + " LIMIT 1",
-      "SELECT 1 FROM inventatory_racks WHERE trim(id)='' OR trim(code)='' OR typeof(rows_count)<>'integer' OR typeof(columns_count)<>'integer' OR rows_count <= 0 OR columns_count <= 0 OR rows_count > 10000 OR columns_count > 10000 LIMIT 1",
-      "SELECT 1 FROM inventatory_stock_movements WHERE trim(movement_id)='' OR typeof(quantity_before)<>'integer' OR typeof(delta)<>'integer' OR typeof(quantity_after)<>'integer' OR quantity_before < " +
-          intMin + " OR quantity_before > " + intMax + " OR delta < " + intMin + " OR delta > " + intMax + " OR quantity_after < " + intMin + " OR quantity_after > " + intMax + " LIMIT 1",
-      "SELECT 1 FROM inventatory_device_events WHERE trim(event_id)='' OR trim(device_id)='' OR typeof(event_value)<>'integer' OR event_value < " +
-          intMin + " OR event_value > " + intMax + " OR result_requested_delta < " + intMin + " OR result_requested_delta > " + intMax + " OR result_applied_delta < " + intMin + " OR result_applied_delta > " + intMax + " OR result_quantity < " + intMin + " OR result_quantity > " + intMax + " LIMIT 1",
-      "SELECT 1 FROM inventatory_inventory_commits WHERE trim(commit_id)='' OR typeof(sequence)<>'integer' OR sequence <= 0 OR typeof(committed_at)<>'integer' OR changed_item_count < 0 OR changed_rack_count < 0 LIMIT 1",
-      "SELECT 1 FROM inventatory_bom_projects WHERE trim(id)='' OR typeof(boards)<>'integer' OR boards <= 0 LIMIT 1",
-      "SELECT 1 FROM inventatory_inventory_history WHERE typeof(timestamp)<>'integer' OR item_count < 0 OR total_units < 0 OR low_stock_count < 0 OR out_of_stock_count < 0 OR data_error_count < 0 LIMIT 1",
+      "SELECT 1 FROM inventatory_items WHERE typeof(id)<>'text' OR trim(id)='' OR "
+      "typeof(quantity)<>'integer' OR quantity < " + intMin + " OR quantity > " + intMax + " OR "
+      "typeof(reorder_threshold)<>'integer' OR reorder_threshold < " + intMin + " OR reorder_threshold > " + intMax + " OR "
+      "typeof(last_updated)<>'integer' OR last_updated < 0 OR typeof(created_at)<>'integer' OR created_at < 0 LIMIT 1",
+      "SELECT 1 FROM inventatory_racks WHERE typeof(id)<>'text' OR trim(id)='' OR typeof(code)<>'text' OR trim(code)='' OR "
+      "typeof(rows_count)<>'integer' OR typeof(columns_count)<>'integer' OR rows_count <= 0 OR columns_count <= 0 OR "
+      "rows_count > 10000 OR columns_count > 10000 OR typeof(created_at)<>'integer' OR created_at < 0 LIMIT 1",
+      "SELECT 1 FROM inventatory_stock_movements WHERE typeof(movement_id)<>'text' OR trim(movement_id)='' OR "
+      "typeof(quantity_before)<>'integer' OR quantity_before < " + intMin + " OR quantity_before > " + intMax + " OR "
+      "typeof(delta)<>'integer' OR delta < " + intMin + " OR delta > " + intMax + " OR "
+      "typeof(quantity_after)<>'integer' OR quantity_after < " + intMin + " OR quantity_after > " + intMax + " OR "
+      "typeof(occurred_at)<>'integer' OR occurred_at < 0 LIMIT 1",
+      "SELECT 1 FROM inventatory_device_events WHERE typeof(event_id)<>'text' OR trim(event_id)='' OR "
+      "typeof(device_id)<>'text' OR trim(device_id)='' OR typeof(event_value)<>'integer' OR event_value < " + intMin + " OR event_value > " + intMax + " OR "
+      "typeof(result_existing)<>'integer' OR result_existing NOT IN (0, 1) OR "
+      "typeof(result_requested_delta)<>'integer' OR result_requested_delta < " + intMin + " OR result_requested_delta > " + intMax + " OR "
+      "typeof(result_applied_delta)<>'integer' OR result_applied_delta < " + intMin + " OR result_applied_delta > " + intMax + " OR "
+      "typeof(result_quantity)<>'integer' OR result_quantity < " + intMin + " OR result_quantity > " + intMax + " OR "
+      "typeof(result_acknowledged)<>'integer' OR result_acknowledged NOT IN (0, 1) OR "
+      "typeof(received_at)<>'integer' OR received_at < 0 OR typeof(completed_at)<>'integer' OR completed_at < 0 LIMIT 1",
+      "SELECT 1 FROM inventatory_inventory_commits WHERE typeof(commit_id)<>'text' OR trim(commit_id)='' OR "
+      "typeof(sequence)<>'integer' OR sequence <= 0 OR typeof(committed_at)<>'integer' OR committed_at < 0 OR "
+      "typeof(changed_item_count)<>'integer' OR changed_item_count < 0 OR "
+      "typeof(changed_rack_count)<>'integer' OR changed_rack_count < 0 LIMIT 1",
+      "SELECT 1 FROM inventatory_bom_projects WHERE typeof(id)<>'text' OR trim(id)='' OR "
+      "typeof(boards)<>'integer' OR boards <= 0 OR typeof(created_at)<>'integer' OR created_at < 0 OR "
+      "typeof(last_opened)<>'integer' OR last_opened < 0 OR typeof(last_built)<>'integer' OR last_built < 0 LIMIT 1",
+      "SELECT 1 FROM inventatory_inventory_history WHERE typeof(timestamp)<>'integer' OR timestamp < 0 OR "
+      "typeof(item_count)<>'integer' OR item_count < 0 OR typeof(total_units)<>'integer' OR total_units < 0 OR "
+      "typeof(low_stock_count)<>'integer' OR low_stock_count < 0 OR typeof(out_of_stock_count)<>'integer' OR out_of_stock_count < 0 OR "
+      "typeof(data_error_count)<>'integer' OR data_error_count < 0 LIMIT 1",
   };
   for (const auto& check : checks) {
-    if (queryHasRows(connection, check)) {
+    bool hasRows = false;
+    if (!queryHasRows(connection, check, hasRows)) {
+      setSqlError(connection, error, "Unable to validate Inventatory SQLite data");
+      return false;
+    }
+    if (hasRows) {
       setSqlError(connection, error, "Invalid value in the Inventatory SQLite database");
       return false;
     }
@@ -448,7 +483,12 @@ bool validateDataValues(SqliteConnection& connection, string* error) {
       "SELECT 1 FROM inventatory_bom_projects GROUP BY lower(trim(id)) HAVING COUNT(*) > 1 LIMIT 1",
   };
   for (const auto& check : duplicateChecks) {
-    if (queryHasRows(connection, check)) {
+    bool hasRows = false;
+    if (!queryHasRows(connection, check, hasRows)) {
+      setSqlError(connection, error, "Unable to validate Inventatory SQLite identifiers");
+      return false;
+    }
+    if (hasRows) {
       setSqlError(connection, error, "Duplicate identifier in the Inventatory SQLite database");
       return false;
     }
@@ -564,10 +604,12 @@ bool sqliteSize(sqlite3_stmt* statement, int column, size_t& value) {
 bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value) {
   if (sqliteApi().column_type(statement, column) != SQLITE_INTEGER) return false;
   const sqlite3_int64 raw = sqliteApi().column_int64(statement, column);
+  // Inventatory timestamps are Unix times.  Negative values are outside the
+  // persisted domain even on platforms whose time_t can represent them.
+  if (raw < 0) return false;
   if (numeric_limits<time_t>::is_signed) {
-    if (raw < static_cast<sqlite3_int64>(numeric_limits<time_t>::min()) ||
-        raw > static_cast<sqlite3_int64>(numeric_limits<time_t>::max())) return false;
-  } else if (raw < 0 || static_cast<unsigned long long>(raw) > numeric_limits<time_t>::max()) {
+    if (raw > static_cast<sqlite3_int64>(numeric_limits<time_t>::max())) return false;
+  } else if (static_cast<unsigned long long>(raw) > numeric_limits<time_t>::max()) {
     return false;
   }
   value = static_cast<time_t>(raw);
