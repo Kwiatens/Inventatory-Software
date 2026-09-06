@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -64,7 +65,8 @@ class LocalHttpServer {
   bool serveConnection(SOCKET clientSocket, string requestText);
   string responseText(const string& status, const string& contentType, const string& body) const;
   string authenticatedResponseText(int status, std::uint64_t counter, const string& token, const string& body) const;
-  bool replayCounterAvailable(std::uint64_t counter) const;
+  bool reserveReplayCounter(std::uint64_t counter);
+  void releaseReplayCounter(std::uint64_t counter);
   bool advanceReplayCounter(std::uint64_t counter);
   bool bindSocket(uint16_t port);
 
@@ -82,6 +84,8 @@ class LocalHttpServer {
   string deviceToken_;
   path replayStatePath_;
   string replayStateFingerprint_;
+  bool replayStateValid_ = true;
+  std::optional<std::uint64_t> replayCounterInFlight_;
   std::uint64_t lastAcceptedCounter_ = 0;
   SOCKET listenSocket_ = INVALID_SOCKET;
 };
