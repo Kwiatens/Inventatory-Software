@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           $packageRoot = Join-Path $PWD 'dist\Inventatory'
-          $trackedLicense = Join-Path $PWD 'LICENSE.md'
+          $trackedLicense = Join-Path $PWD 'LICENSE'
           if (-not (Test-Path -LiteralPath $trackedLicense -PathType Leaf)) {
             throw 'Tracked GPL license text is missing from the checkout.'
           }
@@ -45,8 +45,8 @@ jobs:
           Copy-Item -LiteralPath 'build\Release\inventatory-background.exe' -Destination $packageRoot -Force
           Copy-Item -LiteralPath 'installer\Uninstall-Inventatory.cmd','installer\Uninstall-Inventatory.ps1' -Destination $packageRoot -Force
           Copy-Item -LiteralPath 'README.md','LICENSE.md','THIRD_PARTY_NOTICES.md' -Destination $packageRoot -Force
-          # The package-level LICENSE is sourced from the tracked project
-          # license so a clean release run never depends on stale dist output.
+          # The package-level LICENSE is sourced from the tracked complete
+          # GPL text so a clean release run never depends on stale dist output.
           Copy-Item -LiteralPath $trackedLicense -Destination (Join-Path $packageRoot 'LICENSE') -Force
           New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'docs') | Out-Null
           Copy-Item -LiteralPath 'docs\public-beta.md' -Destination (Join-Path $packageRoot 'docs') -Force
