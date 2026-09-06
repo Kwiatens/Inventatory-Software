@@ -25,14 +25,23 @@ bool ensureDeviceSyncSchema(SqliteConnection& connection) {
   return ensureInventoryDatabaseSchema(connection);
 }
 
-bool eventExists(SqliteConnection& connection, const string& eventId) {
+bool eventIdentityMatches(SqliteConnection& connection, const string& eventId, const string& deviceId,
+                          bool& exists) {
   SqliteStatement statement;
   if (sqliteApi().prepare_v2(connection.db,
-      "SELECT 1 FROM inventatory_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt, nullptr) != SQLITE_OK) {
+      "SELECT device_id FROM inventatory_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt,
+      nullptr) != SQLITE_OK) {
     return false;
   }
   sqliteApi().bind_text(statement.stmt, 1, eventId.c_str(), -1, SQLITE_TRANSIENT);
-  return sqliteApi().step(statement.stmt) == SQLITE_ROW;
+  const auto step = sqliteApi().step(statement.stmt);
+  if (step == SQLITE_DONE) {
+    exists = false;
+    return true;
+  }
+  if (step != SQLITE_ROW || sqliteApi().column_type(statement.stmt, 0) != SQLITE_TEXT) return false;
+  exists = true;
+  return sqliteText(statement.stmt, 0) == deviceId;
 }
 
 bool insertEvent(SqliteConnection& connection, const string& deviceId, const DeviceSyncEvent& event) {
@@ -147,7 +156,8 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
   for (const auto& resultId : request.resultAcks) ok = acknowledgeResult(connection, request.deviceId, resultId) && ok;
   ok = pruneAcknowledgedResults(connection, request.deviceId) && ok;
   for (const auto& event : request.events) {
-    const bool alreadyStored = eventExists(connection, event.eventId);
+    bool alreadyStored = false;
+    if (!eventIdentityMatches(connection, event.eventId, request.deviceId, alreadyStored)) ok = false;
     if (!alreadyStored) ok = insertEvent(connection, request.deviceId, event) && ok;
     if (ok) response.acceptedEventIds.push_back(event.eventId);
   }
@@ -174,7 +184,7 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
   if (limit == 0) return events;
   SqliteStatement statement;
   const char* sql = R"SQL(
-    SELECT event_id, event_type, event_code, event_value
+    SELECT event_id, device_id, event_type, event_code, event_value
     FROM inventatory_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return events;
@@ -183,9 +193,10 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
   while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     DeviceSyncEvent event;
     event.eventId = sqliteText(statement.stmt, 0);
-    event.type = sqliteText(statement.stmt, 1);
-    event.code = sqliteText(statement.stmt, 2);
-    if (!sqliteInt32(statement.stmt, 3, event.value)) return {};
+    event.deviceId = sqliteText(statement.stmt, 1);
+    event.type = sqliteText(statement.stmt, 2);
+    event.code = sqliteText(statement.stmt, 3);
+    if (!sqliteInt32(statement.stmt, 4, event.value)) return {};
     events.push_back(move(event));
   }
   if (stepResult != SQLITE_DONE) events.clear();

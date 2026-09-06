@@ -32,6 +32,12 @@ using namespace std;
 
 namespace {
 
+// The transport body is already bounded by the HTTP server, but a bounded
+// nesting depth keeps malformed JSON from consuming unbounded parser work and
+// makes the accepted wire shape explicit.
+constexpr size_t kMaxJsonNestingDepth = 32;
+constexpr size_t kMaxJsonBodyBytes = 64U * 1024U;
+
 int hexDigit(char ch) {
   if (ch >= '0' && ch <= '9') return ch - '0';
   if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
@@ -133,14 +139,15 @@ string transportMac(const string& token, const char* direction, const string& in
 }
 
 bool jsonObjectIsComplete(const string& body) {
+  if (body.size() > kMaxJsonBodyBytes) return false;
   const auto begin = body.find_first_not_of(" \t\r\n");
   const auto end = body.find_last_not_of(" \t\r\n");
   if (begin == string::npos || body[begin] != '{' || body[end] != '}') {
     return false;
   }
 
-  int objectDepth = 0;
-  int arrayDepth = 0;
+  vector<char> nesting;
+  nesting.reserve(8);
   bool inString = false;
   bool escaped = false;
   for (size_t index = begin; index <= end; ++index) {
@@ -168,16 +175,20 @@ bool jsonObjectIsComplete(const string& body) {
     if (ch == '"') {
       inString = true;
     } else if (ch == '{') {
-      ++objectDepth;
+      if (nesting.size() >= kMaxJsonNestingDepth) return false;
+      nesting.push_back('{');
     } else if (ch == '}') {
-      if (--objectDepth < 0) return false;
+      if (nesting.empty() || nesting.back() != '{') return false;
+      nesting.pop_back();
     } else if (ch == '[') {
-      ++arrayDepth;
+      if (nesting.size() >= kMaxJsonNestingDepth) return false;
+      nesting.push_back('[');
     } else if (ch == ']') {
-      if (--arrayDepth < 0) return false;
+      if (nesting.empty() || nesting.back() != '[') return false;
+      nesting.pop_back();
     }
   }
-  return !inString && !escaped && objectDepth == 0 && arrayDepth == 0;
+  return !inString && !escaped && nesting.empty();
 }
 
 optional<size_t> jsonMemberValuePosition(const string& body, const string& key) {
@@ -362,60 +373,115 @@ optional<string> jsonObjectBody(const string& body, const string& key) {
   return nullopt;
 }
 
-vector<string> jsonObjectArray(const string& body, const string& key) {
-  vector<string> objects;
+optional<vector<string>> jsonObjectArray(const string& body, const string& key) {
   const auto array = jsonArrayBody(body, key);
-  if (!array) return objects;
-  bool inString = false;
-  bool escaped = false;
-  int depth = 0;
-  size_t begin = string::npos;
-  for (size_t index = 0; index < array->size(); ++index) {
-    const char ch = (*array)[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch == '\\') escaped = true;
-      else if (ch == '"') inString = false;
-      continue;
+  if (!array) return nullopt;
+  vector<string> objects;
+  size_t position = 0;
+  const auto skipWhitespace = [&]() {
+    while (position < array->size() && isspace(static_cast<unsigned char>((*array)[position])) != 0) ++position;
+  };
+  skipWhitespace();
+  if (position == array->size()) return objects;
+  while (position < array->size()) {
+    if ((*array)[position] != '{') return nullopt;
+    const size_t begin = position;
+    vector<char> nesting;
+    bool inString = false;
+    bool escaped = false;
+    for (; position < array->size(); ++position) {
+      const char ch = (*array)[position];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == '\\') {
+          escaped = true;
+        } else if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+      } else if (ch == '{' || ch == '[') {
+        if (nesting.size() >= kMaxJsonNestingDepth) return nullopt;
+        nesting.push_back(ch);
+      } else if (ch == '}' || ch == ']') {
+        if (nesting.empty() || (ch == '}' && nesting.back() != '{') ||
+            (ch == ']' && nesting.back() != '[')) {
+          return nullopt;
+        }
+        nesting.pop_back();
+        if (nesting.empty()) {
+          ++position;
+          break;
+        }
+      }
     }
-    if (ch == '"') inString = true;
-    else if (ch == '{') {
-      if (depth++ == 0) begin = index;
-    } else if (ch == '}' && depth > 0 && --depth == 0 && begin != string::npos) {
-      objects.push_back(array->substr(begin, index - begin + 1));
-      begin = string::npos;
-    }
+    if (inString || escaped || !nesting.empty() || position <= begin) return nullopt;
+    objects.push_back(array->substr(begin, position - begin));
+    skipWhitespace();
+    if (position == array->size()) return objects;
+    if ((*array)[position] != ',') return nullopt;
+    ++position;
+    skipWhitespace();
+    if (position == array->size()) return nullopt;
   }
   return objects;
 }
 
-vector<string> jsonStringArray(const string& body, const string& key) {
-  vector<string> values;
+optional<vector<string>> jsonStringArray(const string& body, const string& key) {
   const auto array = jsonArrayBody(body, key);
-  if (!array) return values;
+  if (!array) return nullopt;
+  vector<string> values;
   size_t position = 0;
+  const auto skipWhitespace = [&]() {
+    while (position < array->size() && isspace(static_cast<unsigned char>((*array)[position])) != 0) ++position;
+  };
+  skipWhitespace();
+  if (position == array->size()) return values;
   while (position < array->size()) {
-    const auto quote = array->find('"', position);
-    if (quote == string::npos) break;
+    if ((*array)[position] != '"') return nullopt;
     string value;
     bool escaped = false;
-    size_t index = quote + 1;
+    bool closed = false;
+    size_t index = position + 1;
     for (; index < array->size(); ++index) {
       const char ch = (*array)[index];
       if (escaped) {
-        value.push_back(ch);
+        if (ch == 'u') {
+          if (index + 4 >= array->size() || hexDigit((*array)[index + 1]) < 0 ||
+              hexDigit((*array)[index + 2]) < 0 || hexDigit((*array)[index + 3]) < 0 ||
+              hexDigit((*array)[index + 4]) < 0) return nullopt;
+          value.push_back(ch);
+          index += 4;
+        } else if (ch != '"' && ch != '\\' && ch != '/' && ch != 'b' && ch != 'f' && ch != 'n' &&
+                   ch != 'r' && ch != 't') {
+          return nullopt;
+        } else {
+          value.push_back(ch);
+        }
         escaped = false;
       } else if (ch == '\\') {
         escaped = true;
       } else if (ch == '"') {
-        values.push_back(value);
+        closed = true;
         ++index;
         break;
       } else {
+        if (static_cast<unsigned char>(ch) < 0x20U) return nullopt;
         value.push_back(ch);
       }
     }
+    if (!closed || escaped) return nullopt;
+    values.push_back(move(value));
     position = index;
+    skipWhitespace();
+    if (position == array->size()) return values;
+    if ((*array)[position] != ',') return nullopt;
+    ++position;
+    skipWhitespace();
+    if (position == array->size()) return nullopt;
   }
   return values;
 }
@@ -512,7 +578,8 @@ bool saveInventatoryScanConfig(const filesystem::path& path, const InventatorySc
   error_code error;
   filesystem::create_directories(path.parent_path(), error);
   if (error) return false;
-  const auto temporary = filesystem::path(path.string() + ".tmp");
+  auto temporary = path;
+  temporary += ".tmp";
   ofstream output(temporary, ios::trunc);
   if (!output) return false;
   output << "device_id=" << config.deviceId << '\n'
@@ -522,7 +589,7 @@ bool saveInventatoryScanConfig(const filesystem::path& path, const InventatorySc
   output.close();
   if (!output) return false;
 #ifdef _WIN32
-  if (MoveFileExA(temporary.string().c_str(), path.string().c_str(),
+  if (MoveFileExW(temporary.c_str(), path.c_str(),
                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
     filesystem::remove(temporary, error);
     return false;
@@ -688,20 +755,40 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
   parsed.mode = *mode;
   parsed.rssi = *rssi;
   parsed.queueDepth = *queueDepth;
-  parsed.resultAcks = jsonStringArray(body, "resultAcks");
-  if (parsed.resultAcks.size() > 4) {
-    error = "Too many result acknowledgements";
+  const auto resultAcks = jsonStringArray(body, "resultAcks");
+  if (!resultAcks) {
+    error = "Invalid result acknowledgements";
+    return false;
+  }
+  parsed.resultAcks = *resultAcks;
+  if (parsed.resultAcks.size() > 4 ||
+      any_of(parsed.resultAcks.begin(), parsed.resultAcks.end(), [](const string& value) {
+        return value.empty() || value.size() > 96;
+      })) {
+    error = parsed.resultAcks.size() > 4 ? "Too many result acknowledgements"
+                                        : "Invalid result acknowledgement";
     return false;
   }
 
-  for (const auto& object : jsonObjectArray(body, "events")) {
+  const auto eventObjects = jsonObjectArray(body, "events");
+  if (!eventObjects) {
+    error = "Invalid sync events";
+    return false;
+  }
+  for (const auto& object : *eventObjects) {
     const auto eventId = jsonString(object, "eventId");
     const auto type = jsonString(object, "type");
     const auto code = jsonString(object, "code");
     const auto value = jsonInt(object, "value");
-    if (!eventId || trim(*eventId).empty() || !type || !code || trim(*code).empty() || !value ||
-        eventId->size() > 96 || code->size() > 128) {
+    if (!eventId || trim(*eventId).empty() || !type || trim(*type).empty() || !code || trim(*code).empty() ||
+        !value || eventId->size() > 96 || type->size() > 48 || code->size() > 128) {
       error = "Invalid sync event";
+      return false;
+    }
+    if (any_of(parsed.events.begin(), parsed.events.end(), [&](const DeviceSyncEvent& event) {
+          return event.eventId == *eventId;
+        })) {
+      error = "Duplicate sync event id";
       return false;
     }
     parsed.events.push_back({*eventId, *type, *code, *value});

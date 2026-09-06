@@ -73,6 +73,10 @@ struct DeviceSyncEvent {
   std::string type;
   std::string code;
   int value = 0;
+  // Filled from the durable inbox for pending events.  It is intentionally
+  // not part of the on-wire event object: the authenticated sync envelope
+  // already carries the sender identity.
+  std::string deviceId;
 };
 
 struct DeviceSyncEventRecord {
