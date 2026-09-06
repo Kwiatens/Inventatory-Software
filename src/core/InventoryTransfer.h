@@ -14,8 +14,9 @@ struct AppSettings;
 
 bool exportInventoryCsv(const InventoryStore& store, const std::filesystem::path& path, std::string& error);
 
-// Optional operation overrides are intended for deterministic failure-path
-// tests. Production callers pass nullptr and use the normal filesystem.
+// Optional operation overrides are test-only seams for deterministic
+// failure-path tests. Production callers must pass nullptr; integrity checks
+// and SQLite snapshot validation are never delegated to these callbacks.
 struct InventoryTransferTestHooks {
   std::function<bool(const std::filesystem::path&, const std::filesystem::path&, std::string&)> copyFile;
   std::function<bool(const std::filesystem::path&, const std::filesystem::path&, std::string&)> renamePath;

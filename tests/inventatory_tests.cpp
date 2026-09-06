@@ -3450,6 +3450,40 @@ int main() {
       assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
       assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
     }
+    {
+      // A failure after the settings backup has been created must clean that
+      // owned artifact along with staging, without touching the active data.
+      InventoryTransferTestHooks hooks;
+      bool settingsBackupCreated = false;
+      hooks.copyFile = [&targetSettingsPath, &settingsBackupCreated](const filesystem::path& sourcePath,
+                                                                       const filesystem::path& targetPath,
+                                                                       string& injectedError) {
+        error_code injectedFilesystemError;
+        filesystem::copy_file(sourcePath, targetPath, filesystem::copy_options::overwrite_existing,
+                              injectedFilesystemError);
+        if (injectedFilesystemError) {
+          injectedError = injectedFilesystemError.message();
+          return false;
+        }
+        if (sourcePath == targetSettingsPath) {
+          settingsBackupCreated = true;
+          injectedError = "injected settings-backup staging failure";
+          return false;
+        }
+        return true;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      assert(settingsBackupCreated);
+      const auto targetJournal = targetSettingsPath.parent_path() /
+                                 filesystem::u8path(targetSettingsPath.filename().u8string() + ".restore-journal");
+      assert(!filesystem::exists(targetJournal));
+      for (const auto& entry : filesystem::directory_iterator(targetSettingsPath.parent_path())) {
+        assert(entry.path().filename().u8string().find(targetSettingsPath.filename().u8string() + ".restore-old-") != 0);
+      }
+      InventoryStore stillProtected;
+      assert(stillProtected.load(restoreTarget / "inventory.db"));
+      assert(stillProtected.items().front().id == "transfer-item");
+    }
     assert(restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error));
     InventoryStore restoredStore;
     assert(restoredStore.load(restoreTarget / "inventory.db"));
@@ -3463,12 +3497,287 @@ int main() {
     assert(!filesystem::exists(restoreTarget / "manifest.tsv"));
     assert(!filesystem::exists(restoreTarget / "settings.conf"));
 
+    // If the protected old directory disappears before rollback, the active
+    // destination must remain intact rather than being deleted blindly.
+    const auto missingOldTarget = filesystem::temp_directory_path() / "inventatory-transfer-missing-old-target";
+    const auto missingOldSettings = filesystem::temp_directory_path() / "inventatory-transfer-missing-old-settings.conf";
+    filesystem::remove_all(missingOldTarget, cleanupError);
+    filesystem::remove(missingOldSettings, cleanupError);
+    filesystem::create_directories(missingOldTarget);
+    InventoryStore missingOldProtected;
+    InventoryItem missingOldItem;
+    missingOldItem.id = "protected-missing-old";
+    missingOldItem.partName = "Protected missing-old item";
+    missingOldProtected.items().push_back(missingOldItem);
+    assert(missingOldProtected.save(missingOldTarget / "inventory.db"));
+    AppSettings missingOldAppSettings;
+    missingOldAppSettings.dataDirectory = missingOldTarget;
+    assert(saveAppSettings(missingOldSettings, missingOldAppSettings));
+    InventoryTransferTestHooks missingOldHooks;
+    missingOldHooks.saveSettings = [missingOldTarget](const filesystem::path&, const AppSettings&, string& injectedError) {
+      error_code removeError;
+      for (const auto& entry : filesystem::directory_iterator(missingOldTarget.parent_path(), removeError)) {
+        if (removeError) break;
+        if (entry.path().filename().u8string().find(missingOldTarget.filename().u8string() + ".restore-old-data-") == 0) {
+          filesystem::remove_all(entry.path(), removeError);
+          break;
+        }
+      }
+      injectedError = "injected settings activation failure after old-data loss";
+      return false;
+    };
+    assert(!restoreInventatoryBackup(bundle, missingOldTarget, missingOldSettings, error, &missingOldHooks));
+    InventoryStore stillActiveAfterLostRollback;
+    assert(stillActiveAfterLostRollback.load(missingOldTarget / "inventory.db"));
+    assert(stillActiveAfterLostRollback.items().front().id == "transfer-item");
+    assert(!recoverInventatoryRestore(missingOldTarget, missingOldSettings, error));
+    filesystem::remove_all(missingOldTarget, cleanupError);
+    filesystem::remove(missingOldSettings, cleanupError);
+    filesystem::remove(missingOldSettings.parent_path() /
+                           filesystem::u8path(missingOldSettings.filename().u8string() + ".restore-journal"),
+                       cleanupError);
+
+    const auto preparedTarget = filesystem::temp_directory_path() / "inventatory-transfer-prepared-target";
+    const auto preparedSettings = filesystem::temp_directory_path() / "inventatory-transfer-prepared-settings.conf";
+    filesystem::remove_all(preparedTarget, cleanupError);
+    filesystem::remove(preparedSettings, cleanupError);
+    filesystem::create_directories(preparedTarget);
+    InventoryStore preparedStore;
+    InventoryItem preparedItem;
+    preparedItem.id = "prepared-protected";
+    preparedItem.partName = "Prepared protected item";
+    preparedStore.items().push_back(preparedItem);
+    assert(preparedStore.save(preparedTarget / "inventory.db"));
+    AppSettings preparedAppSettings;
+    preparedAppSettings.dataDirectory = preparedTarget;
+    assert(saveAppSettings(preparedSettings, preparedAppSettings));
+    InventoryTransferTestHooks preparedHooks;
+    preparedHooks.copyFile = [](const filesystem::path&, const filesystem::path&, string& injectedError) {
+      injectedError = "injected staging copy failure";
+      return false;
+    };
+    preparedHooks.removeAll = [](const filesystem::path& path, string& injectedError) {
+      if (path.filename().u8string().find(".restore-staging-") != string::npos) {
+        injectedError = "injected staging cleanup failure";
+        return false;
+      }
+      error_code removeError;
+      filesystem::remove_all(path, removeError);
+      if (removeError) {
+        injectedError = removeError.message();
+        return false;
+      }
+      return true;
+    };
+    assert(!restoreInventatoryBackup(bundle, preparedTarget, preparedSettings, error, &preparedHooks));
+    InventoryStore preparedStillProtected;
+    assert(preparedStillProtected.load(preparedTarget / "inventory.db"));
+    assert(preparedStillProtected.items().front().id == "prepared-protected");
+    assert(recoverInventatoryRestore(preparedTarget, preparedSettings, error));
+    filesystem::remove_all(preparedTarget, cleanupError);
+    filesystem::remove(preparedSettings, cleanupError);
+
+    // Online backup must capture the last committed WAL state without waiting
+    // for or including a writer's uncommitted transaction.
+    const auto liveBundle = filesystem::temp_directory_path() / "inventatory-transfer-live-bundle";
+    filesystem::remove_all(liveBundle, cleanupError);
+    SqliteConnection liveConnection;
+    assert(openDatabase(source / "inventory.db", liveConnection));
+    assert(execSql(liveConnection, "PRAGMA journal_mode=WAL"));
+    assert(execSql(liveConnection, "BEGIN IMMEDIATE"));
+    assert(execSql(liveConnection, "UPDATE inventatory_items SET quantity=999 WHERE id='transfer-item'"));
+    assert(createInventatoryBackup(source, settingsPath, liveBundle, "1.0.0", error));
+    InventoryStore liveSnapshot;
+    assert(liveSnapshot.load(liveBundle / "inventory.db"));
+    assert(liveSnapshot.items().front().quantity == 13);
+    assert(execSql(liveConnection, "ROLLBACK"));
+    filesystem::remove_all(liveBundle, cleanupError);
+
     filesystem::remove_all(source, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
     filesystem::remove_all(restoreTarget, cleanupError);
     filesystem::remove(settingsPath, cleanupError);
     filesystem::remove(targetSettingsPath, cleanupError);
     filesystem::remove(csv, cleanupError);
+  }
+
+  {
+    const auto root = filesystem::temp_directory_path();
+    const auto emptySource = root / "inventatory-transfer-empty-source";
+    const auto emptyBundle = root / "inventatory-transfer-empty-bundle";
+    const auto noSchemaSource = root / "inventatory-transfer-no-schema-source";
+    const auto noSchemaBundle = root / "inventatory-transfer-no-schema-bundle";
+    const auto invalidBundle = root / "inventatory-transfer-invalid-bundle";
+    const auto foreignBundle = root / "inventatory-transfer-foreign-bundle";
+    const auto malformedBundle = root / "inventatory-transfer-malformed-bundle";
+    const auto missingBundle = root / "inventatory-transfer-missing-bundle";
+    const auto unicodeSource = root / filesystem::u8path("inventatory-transfer-źródło");
+    const auto unicodeBundle = root / filesystem::u8path("inventatory-transfer-kopia-保存");
+    const auto emptySettingsPath = root / "inventatory-transfer-empty-settings.conf";
+    const auto noSchemaSettingsPath = root / "inventatory-transfer-no-schema-settings.conf";
+    const auto unicodeSettingsPath = root / filesystem::u8path("inventatory-transfer-ustawienia-保存.conf");
+    error_code cleanupError;
+    const vector<filesystem::path> cleanupPaths = {emptySource,       emptyBundle,       noSchemaSource,
+                                                   noSchemaBundle,     invalidBundle,     foreignBundle,
+                                                   malformedBundle,    missingBundle,     unicodeSource,
+                                                   unicodeBundle,      emptySettingsPath, noSchemaSettingsPath,
+                                                   unicodeSettingsPath};
+    for (const auto& path : cleanupPaths) filesystem::remove_all(path, cleanupError);
+    filesystem::create_directories(emptySource);
+    InventoryStore emptyStore;
+    assert(emptyStore.save(emptySource / "inventory.db"));
+    AppSettings emptySettings;
+    emptySettings.dataDirectory = emptySource;
+    emptySettings.completedOnboardingVersion = 1;
+    assert(saveAppSettings(emptySettingsPath, emptySettings));
+    string error;
+    const auto nestedDestination = emptySource / "unsafe-backup";
+    assert(!createInventatoryBackup(emptySource, emptySettingsPath, nestedDestination, "1.0.0", error));
+    assert(createInventatoryBackup(emptySource, emptySettingsPath, emptyBundle, "1.0.0", error));
+    assert(validateInventatoryBackup(emptyBundle, error));
+    assert(!restoreInventatoryBackup(emptyBundle, emptyBundle, emptySettingsPath, error));
+
+    // A readable SQLite file without the Inventatory schema is rejected by
+    // the staged public backup workflow, and the source is not modified.
+    filesystem::create_directories(noSchemaSource);
+    {
+      SqliteConnection noSchemaConnection;
+      assert(openDatabase(noSchemaSource / "inventory.db", noSchemaConnection));
+      assert(execSql(noSchemaConnection, "CREATE TABLE foreign_table(value TEXT)"));
+    }
+    AppSettings noSchemaSettings;
+    noSchemaSettings.dataDirectory = noSchemaSource;
+    noSchemaSettings.completedOnboardingVersion = 1;
+    assert(saveAppSettings(noSchemaSettingsPath, noSchemaSettings));
+    ifstream noSchemaBefore(noSchemaSource / "inventory.db", ios::binary);
+    const string noSchemaBytesBefore((istreambuf_iterator<char>(noSchemaBefore)), istreambuf_iterator<char>());
+    assert(!createInventatoryBackup(noSchemaSource, noSchemaSettingsPath, noSchemaBundle, "1.0.0", error));
+    ifstream noSchemaAfter(noSchemaSource / "inventory.db", ios::binary);
+    const string noSchemaBytesAfter((istreambuf_iterator<char>(noSchemaAfter)), istreambuf_iterator<char>());
+    assert(noSchemaBytesBefore == noSchemaBytesAfter);
+    assert(!filesystem::exists(noSchemaBundle));
+
+    const auto rewriteInventoryManifest = [](const filesystem::path& bundle, uintmax_t size, const string& hash) {
+      ifstream input(bundle / "manifest.tsv", ios::binary);
+      const string original((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+      const string prefix = "file\tinventory.db\t";
+      const auto start = original.find(prefix);
+      if (start == string::npos) return false;
+      const auto end = original.find('\n', start);
+      const string replacement = prefix + to_string(size) + '\t' + hash;
+      string rewritten = original.substr(0, start) + replacement;
+      if (end != string::npos) rewritten += original.substr(end);
+      ofstream output(bundle / "manifest.tsv", ios::binary | ios::trunc);
+      output << rewritten;
+      output.close();
+      return static_cast<bool>(output);
+    };
+    const string emptyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    const string foreignHash = "656771905e1ef731f65cd0a0d9fb061238380a1a012e6abdf846ecc7d2ea36fd";
+    filesystem::copy(emptyBundle, invalidBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    ofstream zeroDatabase(invalidBundle / "inventory.db", ios::binary | ios::trunc);
+    zeroDatabase.close();
+    assert(rewriteInventoryManifest(invalidBundle, 0, emptyHash));
+    ifstream zeroBefore(invalidBundle / "inventory.db", ios::binary);
+    const string zeroBytesBefore((istreambuf_iterator<char>(zeroBefore)), istreambuf_iterator<char>());
+    assert(!validateInventatoryBackup(invalidBundle, error));
+    ifstream zeroAfter(invalidBundle / "inventory.db", ios::binary);
+    const string zeroBytesAfter((istreambuf_iterator<char>(zeroAfter)), istreambuf_iterator<char>());
+    assert(zeroBytesBefore == zeroBytesAfter);
+
+    filesystem::copy(emptyBundle, foreignBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    ofstream foreignDatabase(foreignBundle / "inventory.db", ios::binary | ios::trunc);
+    foreignDatabase << "foreign";
+    foreignDatabase.close();
+    assert(rewriteInventoryManifest(foreignBundle, 7, foreignHash));
+    ifstream foreignBefore(foreignBundle / "inventory.db", ios::binary);
+    const string foreignBytesBefore((istreambuf_iterator<char>(foreignBefore)), istreambuf_iterator<char>());
+    assert(!validateInventatoryBackup(foreignBundle, error));
+    ifstream foreignAfter(foreignBundle / "inventory.db", ios::binary);
+    const string foreignBytesAfter((istreambuf_iterator<char>(foreignAfter)), istreambuf_iterator<char>());
+    assert(foreignBytesBefore == foreignBytesAfter);
+
+    filesystem::copy(emptyBundle, malformedBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    ifstream manifestInput(malformedBundle / "manifest.tsv", ios::binary);
+    const string validManifest((istreambuf_iterator<char>(manifestInput)), istreambuf_iterator<char>());
+    const vector<string> badRows = {"inventatory_backup_format\t1\n", "application_version\t1.0.0\n",
+                                    "file\tactivity.tsv\tnot-a-size\t" + string(64, '0') + "\n",
+                                    "file\tinventory.db\t0\tbad\n", "file\tinventory.db\t0\t" + emptyHash + "\n"};
+    for (const auto& badRow : badRows) {
+      ofstream output(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+      output << validManifest << badRow;
+      output.close();
+      assert(!validateInventatoryBackup(malformedBundle, error));
+    }
+    ofstream restoreManifest(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+    restoreManifest << validManifest;
+    restoreManifest.close();
+    string uppercaseManifest = validManifest;
+    size_t lineStart = 0;
+    while (lineStart < uppercaseManifest.size()) {
+      const auto lineEnd = uppercaseManifest.find('\n', lineStart);
+      const auto end = lineEnd == string::npos ? uppercaseManifest.size() : lineEnd;
+      if (uppercaseManifest.compare(lineStart, 5, "file\t") == 0) {
+        const auto hashStart = uppercaseManifest.rfind('\t', end == 0 ? 0 : end - 1);
+        if (hashStart != string::npos && hashStart >= lineStart) {
+          transform(uppercaseManifest.begin() + static_cast<ptrdiff_t>(hashStart + 1),
+                    uppercaseManifest.begin() + static_cast<ptrdiff_t>(end), uppercaseManifest.begin() +
+                    static_cast<ptrdiff_t>(hashStart + 1),
+                    [](unsigned char ch) { return static_cast<char>(toupper(ch)); });
+        }
+      }
+      if (lineEnd == string::npos) break;
+      lineStart = lineEnd + 1;
+    }
+    ofstream uppercaseOutput(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+    uppercaseOutput << uppercaseManifest;
+    uppercaseOutput.close();
+    assert(validateInventatoryBackup(malformedBundle, error));
+    ofstream restoreManifestAgain(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+    restoreManifestAgain << validManifest;
+    restoreManifestAgain.close();
+    filesystem::copy(emptyBundle, missingBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    filesystem::remove(missingBundle / "settings.conf", cleanupError);
+    assert(!validateInventatoryBackup(missingBundle, error));
+
+    ofstream secret(emptySource / "inventatory_scan.conf", ios::binary);
+    secret << "token=must-not-leak";
+    secret.close();
+    const auto secretBundle = root / "inventatory-transfer-secret-bundle";
+    filesystem::remove_all(secretBundle, cleanupError);
+    assert(createInventatoryBackup(emptySource, emptySettingsPath, secretBundle, "1.0.0", error));
+    assert(!filesystem::exists(secretBundle / "inventatory_scan.conf"));
+    InventoryTransferTestHooks copyFailureHooks;
+    copyFailureHooks.copyFile = [](const filesystem::path&, const filesystem::path&, string& injectedError) {
+      injectedError = "injected copy failure";
+      return false;
+    };
+    const auto failedBundle = root / "inventatory-transfer-failed-bundle";
+    filesystem::remove_all(failedBundle, cleanupError);
+    ofstream optionalFile(emptySource / "activity.tsv", ios::binary);
+    optionalFile << "activity";
+    optionalFile.close();
+    assert(!createInventatoryBackup(emptySource, emptySettingsPath, failedBundle, "1.0.0", error,
+                                    &copyFailureHooks));
+    assert(!filesystem::exists(failedBundle));
+
+    filesystem::create_directories(unicodeSource);
+    InventoryStore unicodeStore;
+    assert(unicodeStore.save(unicodeSource / "inventory.db"));
+    AppSettings unicodeSettings;
+    unicodeSettings.dataDirectory = unicodeSource;
+    unicodeSettings.completedOnboardingVersion = 1;
+    assert(saveAppSettings(unicodeSettingsPath, unicodeSettings));
+    assert(createInventatoryBackup(unicodeSource, unicodeSettingsPath, unicodeBundle, "1.0.0", error));
+    assert(validateInventatoryBackup(unicodeBundle, error));
+
+    for (const auto& path : cleanupPaths) filesystem::remove_all(path, cleanupError);
+    filesystem::remove_all(secretBundle, cleanupError);
+    filesystem::remove_all(failedBundle, cleanupError);
   }
 
   {

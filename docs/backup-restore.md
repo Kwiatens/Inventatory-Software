@@ -39,3 +39,7 @@ back. Data-directory and application-settings files can be on different
 volumes, so the journal is required; the operation is not presented as one
 cross-volume atomic transaction. Failed cleanup leaves the journal and
 recoverable old artifacts in place and reports the cleanup failure.
+
+The optional filesystem-operation hooks in the transfer API are test-only
+fault-injection seams. Production code passes no hooks; manifest, database,
+and settings validation always runs in the transfer implementation itself.
