@@ -288,7 +288,7 @@ bool parseManifestSize(const string& text, uintmax_t& value) {
   try {
     size_t consumed = 0;
     const auto parsed = stoull(text, &consumed, 10);
-    if (consumed != text.size() || parsed > numeric_limits<uintmax_t>::max()) return false;
+    if (consumed != text.size() || parsed > (numeric_limits<uintmax_t>::max)()) return false;
     value = static_cast<uintmax_t>(parsed);
     return true;
   } catch (const exception&) {
@@ -1035,9 +1035,13 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   vector<BackupEntry> entries;
   for (const auto& name : names) {
     const auto target = staging / name;
+    filesystemError.clear();
+    const bool targetExists = filesystem::exists(target, filesystemError);
+    if (filesystemError) return fail("Unable to inspect staged backup file: " + name);
+    if (!targetExists) continue;
     const bool targetIsFile = filesystem::is_regular_file(target, filesystemError);
     if (filesystemError) return fail("Unable to inspect staged backup file: " + name);
-    if (!targetIsFile) continue;
+    if (!targetIsFile) return fail("Staged backup entry is not a regular file: " + name);
     BackupEntry entry;
     entry.name = name;
     entry.size = filesystem::file_size(target, filesystemError);
