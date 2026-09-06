@@ -4,9 +4,11 @@
 #include "core/PhysicalValue.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <string>
 
 namespace inventatory {
@@ -14,6 +16,25 @@ namespace inventatory {
 namespace {
 
 using std::string;
+
+struct PhysicalValueBandLimits {
+  double workable;
+  double possible;
+};
+
+constexpr std::array<PhysicalValueBandLimits, 5> kPhysicalValueBandLimits = {{
+    {0.10, 0.25},  // Resistance
+    {0.10, 0.25},  // Capacitance
+    {0.10, 0.25},  // Inductance
+    {0.10, 0.25},  // Frequency
+    {0.0, 0.0},    // Unknown
+}};
+
+constexpr PhysicalValueBandLimits physicalValueBandLimits(PhysicalValueType type) {
+  const auto index = static_cast<size_t>(type);
+  return index < kPhysicalValueBandLimits.size() ? kPhysicalValueBandLimits[index]
+                                                 : PhysicalValueBandLimits{0.0, 0.0};
+}
 
 string trimValue(string value) {
   const auto begin = value.find_first_not_of(" \t\r\n");
@@ -231,46 +252,47 @@ std::optional<PhysicalValue> parsePhysicalValue(const std::string& text) {
   return PhysicalValue{number * parsedUnit.multiplier, parsedUnit.type};
 }
 
-bool physicalValueMatches(const std::string& a, const std::string& b, double tolerance) {
-  if (tolerance < 0.0) {
-    return false;
+std::optional<PhysicalValueComparison> comparePhysicalValues(const std::string& candidate,
+                                                             const std::string& target) {
+  const auto parsedCandidate = parsePhysicalValue(candidate);
+  const auto parsedTarget = parsePhysicalValue(target);
+  if (!parsedCandidate.has_value() || !parsedTarget.has_value() ||
+      parsedCandidate->type != parsedTarget->type || parsedCandidate->type == PhysicalValueType::Unknown) {
+    return std::nullopt;
   }
 
-  const auto parsedA = parsePhysicalValue(a);
-  const auto parsedB = parsePhysicalValue(b);
-  if (!parsedA.has_value() || !parsedB.has_value() || parsedA->type != parsedB->type ||
-      parsedA->type == PhysicalValueType::Unknown) {
-    return false;
+  const double targetMagnitude = std::abs(parsedTarget->value);
+  const double difference = std::abs(parsedCandidate->value - parsedTarget->value);
+  const double relativeDifference = targetMagnitude == 0.0
+                                        ? (difference == 0.0 ? 0.0 : std::numeric_limits<double>::infinity())
+                                        : difference / targetMagnitude;
+  const double signedRelativeDifference = targetMagnitude == 0.0
+                                              ? (difference == 0.0 ? 0.0 : std::numeric_limits<double>::infinity())
+                                              : (parsedCandidate->value - parsedTarget->value) / targetMagnitude;
+  const auto limits = physicalValueBandLimits(parsedTarget->type);
+  constexpr double kComparisonEpsilon = 1e-9;
+
+  PhysicalValueMatchBand band = PhysicalValueMatchBand::None;
+  if (relativeDifference <= kComparisonEpsilon) {
+    band = PhysicalValueMatchBand::Exact;
+  } else if (relativeDifference <= limits.workable + kComparisonEpsilon) {
+    band = PhysicalValueMatchBand::Workable;
+  } else if (relativeDifference <= limits.possible + kComparisonEpsilon) {
+    band = PhysicalValueMatchBand::Possible;
   }
 
-  const double largest = std::max(std::abs(parsedA->value), std::abs(parsedB->value));
-  const double difference = std::abs(parsedA->value - parsedB->value);
-  if (largest == 0.0) {
-    return true;
-  }
-  return difference / largest <= tolerance;
+  return PhysicalValueComparison{parsedTarget->type, parsedTarget->value, parsedCandidate->value,
+                                 relativeDifference, signedRelativeDifference, band};
 }
 
-double defaultTolerance(PhysicalValueType type) {
-  switch (type) {
-    case PhysicalValueType::Resistance: return 0.01;
-    case PhysicalValueType::Capacitance: return 0.01;
-    case PhysicalValueType::Inductance: return 0.05;
-    case PhysicalValueType::Frequency: return 0.01;
-    case PhysicalValueType::Unknown: return 0.01;
+const char* physicalValueMatchBandName(PhysicalValueMatchBand band) {
+  switch (band) {
+    case PhysicalValueMatchBand::None: return "Other";
+    case PhysicalValueMatchBand::Exact: return "Exact";
+    case PhysicalValueMatchBand::Workable: return "Workable";
+    case PhysicalValueMatchBand::Possible: return "Possible";
   }
-  return 0.01;
-}
-
-double toleranceForType(const PhysicalValueTolerances& tolerances, PhysicalValueType type) {
-  switch (type) {
-    case PhysicalValueType::Resistance: return tolerances.resistance;
-    case PhysicalValueType::Capacitance: return tolerances.capacitance;
-    case PhysicalValueType::Inductance: return tolerances.inductance;
-    case PhysicalValueType::Frequency: return tolerances.frequency;
-    case PhysicalValueType::Unknown: return 0.01;
-  }
-  return 0.01;
+  return "Other";
 }
 
 PhysicalValueType parameterNameToType(const std::string& name) {
