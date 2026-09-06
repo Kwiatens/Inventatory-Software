@@ -126,6 +126,11 @@ vector<App::Action> App::currentActions() const {
         add("cancel stocktake", "Stocktake", "q", chr('q'), [self] { self->cancelStocktake(); });
         break;
       }
+      if (closestSearchActive_) {
+        add("edit closest target", "Search", "F", chr('F'), [self] { self->startClosestSearch(); });
+        add("close closest search", "Search", "Esc", special(KeyType::Escape),
+            [self] { self->clearClosestSearch(); });
+      }
       if (hasItem) add("edit", "Edit", "e", chr('e'), [self] { self->beginEditCurrentItem(false); });
       add("new part", "Edit", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
       if (hasItem) add("add one", "Edit", "+", chr('+'), [self] { self->adjustQuantity(1); });
@@ -148,6 +153,9 @@ vector<App::Action> App::currentActions() const {
       });
       add("filters", "View", "f", chr('f'), [self] { self->openStockFilterPanel(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
+      if (!closestSearchActive_) {
+        add("find closest to", "Search", "F", chr('F'), [self] { self->startClosestSearch(); });
+      }
       add("reload", "System", "r", chr('r'), [self, reloadInventory] {
         if (reloadInventory()) {
           self->syncSelectionToFilter();
