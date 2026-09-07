@@ -680,7 +680,7 @@ bool App::saveSettingsDraft() {
       return false;
     }
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                                 appSettingsDirectory() / "inventatory-scan-replay.state");
+                                 inventatoryScanReplayStatePath(dataPath_));
   }
 
   if (quickLabelsChanged && !dataChanged &&
