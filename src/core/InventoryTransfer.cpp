@@ -1006,7 +1006,9 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
     error = "Inventatory data folder does not exist: " + dataDirectory.string();
     return false;
   }
-  if (!filesystem::is_regular_file(dataDirectory / "inventory.db", filesystemError) || filesystemError) {
+  const auto inventorySource = dataDirectory / "inventory.db";
+  if (filesystem::is_symlink(inventorySource, filesystemError) || filesystemError ||
+      !filesystem::is_regular_file(inventorySource, filesystemError) || filesystemError) {
     error = "Inventory database is missing";
     return false;
   }
@@ -1055,7 +1057,7 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
     sourceAggregateSize += size;
     return true;
   };
-  if (!checkSourceSize(dataDirectory / "inventory.db", "inventory.db")) return false;
+  if (!checkSourceSize(inventorySource, "inventory.db")) return false;
   const vector<string> optionalNames = {"activity.tsv", "printer.conf", "quick_labels.conf"};
   for (const auto& name : optionalNames) {
     const auto source = dataDirectory / name;
