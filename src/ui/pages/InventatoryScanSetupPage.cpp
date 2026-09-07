@@ -34,7 +34,7 @@ bool App::regenerateInventatoryScanToken() {
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
   inventatoryScanConfig_.token = generateInventatoryScanToken();
-  if (!CredentialStore::write(kInventatoryScanTokenCredential, inventatoryScanConfig_.token)) {
+  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential, inventatoryScanConfig_.token)) {
     setMessage("Unable to save the new pairing token securely", 4);
     return false;
   }
@@ -52,9 +52,9 @@ bool App::regenerateInventatoryScanToken() {
   deviceRequestCache_.clear();
   deviceRequestOrder_.clear();
   error_code replayError;
-  filesystem::remove(appSettingsDirectory() / "inventatory-scan-replay.state", replayError);
+  filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                               appSettingsDirectory() / "inventatory-scan-replay.state");
+                               inventatoryScanReplayStatePath(dataPath_));
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
     setMessage("Generated a new token, but Inventatory could not save it", 4);
     return false;
@@ -81,7 +81,7 @@ bool App::clearInventatoryScanPairing() {
   settingsConfirmUntil_ = 0;
 
   const auto rotatedToken = generateInventatoryScanToken();
-  if (!CredentialStore::write(kInventatoryScanTokenCredential, rotatedToken)) {
+  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential, rotatedToken)) {
     setMessage("Unable to rotate the scanner token securely; pairing was not cleared", 5);
     return false;
   }
@@ -100,9 +100,9 @@ bool App::clearInventatoryScanPairing() {
   deviceRequestCache_.clear();
   deviceRequestOrder_.clear();
   error_code replayError;
-  filesystem::remove(appSettingsDirectory() / "inventatory-scan-replay.state", replayError);
+  filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                               appSettingsDirectory() / "inventatory-scan-replay.state");
+                               inventatoryScanReplayStatePath(dataPath_));
   if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
     setMessage("Cleared pairing in memory, but Inventatory could not save it", 4);
     return false;
@@ -229,7 +229,7 @@ bool App::provisionSelectedBleSetupDevice() {
     setMessage(error.empty() ? "Bluetooth setup failed" : error, 5);
     return false;
   }
-  if (!CredentialStore::write(kInventatoryScanTokenCredential, candidateToken)) {
+  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential, candidateToken)) {
     setMessage("Scanner accepted setup, but Inventatory could not save its token securely", 6);
     return false;
   }
@@ -242,8 +242,10 @@ bool App::provisionSelectedBleSetupDevice() {
     setMessage("Scanner setup was sent, but Inventatory could not save pairing metadata", 6);
     return false;
   }
+  error_code replayError;
+  filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials({}, inventatoryScanConfig_.token,
-                               appSettingsDirectory() / "inventatory-scan-replay.state");
+                               inventatoryScanReplayStatePath(dataPath_));
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   blePairingCode_.clear();

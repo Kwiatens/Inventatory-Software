@@ -4,6 +4,7 @@
 #include "App.h"
 
 #include "import/CsvFormat.h"
+#include "core/AtomicFile.h"
 #include "core/InventorySqlite.h"
 #include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
@@ -35,6 +36,48 @@ constexpr size_t kScanQueueLimit = 256;
 constexpr size_t kDeviceQuantityQueueLimit = 64;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
+
+optional<string> loadWorkspaceScannerToken(const filesystem::path& workspaceDirectory,
+                                            const InventatoryScanConfig& config, bool& migratedLegacy) {
+  migratedLegacy = false;
+  if (const auto scoped = CredentialStore::readForWorkspace(workspaceDirectory, kInventatoryScanTokenCredential);
+      scoped.has_value()) {
+    return scoped;
+  }
+
+  // Versions before workspace-scoped credentials stored one global token.  It
+  // is safe to migrate that token only when the workspace carries a completed
+  // pairing identity; a fresh/empty workspace must receive a new token.
+  if (config.setupComplete && !trim(config.deviceId).empty()) {
+    if (const auto legacy = CredentialStore::read(kInventatoryScanTokenCredential); legacy.has_value() &&
+        CredentialStore::writeForWorkspace(workspaceDirectory, kInventatoryScanTokenCredential, *legacy)) {
+      migratedLegacy = true;
+      return legacy;
+    }
+  }
+  return nullopt;
+}
+
+void migrateLegacyScannerReplayState(const filesystem::path& workspaceDirectory) {
+  const auto legacyPath = appSettingsDirectory() / "inventatory-scan-replay.state";
+  const auto scopedPath = inventatoryScanReplayStatePath(workspaceDirectory);
+  if (scopedPath.empty() || scopedPath == legacyPath) return;
+
+  error_code error;
+  if (filesystem::exists(scopedPath, error) || error) return;
+  error.clear();
+  if (!filesystem::exists(legacyPath, error) || error) return;
+
+  ifstream input(legacyPath, ios::binary);
+  if (!input) return;
+  string contents((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  if (!input.eof() || contents.size() > 256U) return;
+  string ignored;
+  // The server validates the fingerprint and counter before accepting the
+  // state. Atomic replacement ensures a crash cannot leave a partial scope
+  // marker that is mistaken for durable replay state.
+  writeFileAtomically(scopedPath, contents, &ignored);
+}
 
 filesystem::path resolveInventoryDatabasePath(const filesystem::path& selectedPath) {
   error_code error;
@@ -311,13 +354,17 @@ void App::loadState() {
   // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 
   if (trim(inventatoryScanConfig_.token).empty()) {
-    if (const auto stored = CredentialStore::read(kInventatoryScanTokenCredential); stored.has_value()) {
+    bool migratedLegacyToken = false;
+    if (const auto stored = loadWorkspaceScannerToken(dataPath_, inventatoryScanConfig_, migratedLegacyToken);
+        stored.has_value()) {
       inventatoryScanConfig_.token = *stored;
+      if (migratedLegacyToken) migrateLegacyScannerReplayState(dataPath_);
     } else {
       inventatoryScanConfig_.token = generateInventatoryScanToken();
     }
   }
-  if (!CredentialStore::write(kInventatoryScanTokenCredential, inventatoryScanConfig_.token)) {
+  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential,
+                                          inventatoryScanConfig_.token)) {
     setMessage("Unable to save the scanner pairing token securely", 5);
   }
 
@@ -768,14 +815,15 @@ bool App::restoreData() {
   loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
   inventatoryScanConfig_ = {};
   inventatoryScanConfig_.token = generateInventatoryScanToken();
-  const bool scannerTokenStored = CredentialStore::write(kInventatoryScanTokenCredential, inventatoryScanConfig_.token);
+  const bool scannerTokenStored = CredentialStore::writeForWorkspace(
+      dataPath_, kInventatoryScanTokenCredential, inventatoryScanConfig_.token);
   if (!scannerTokenStored) {
     // Do not leave the old credential valid after restoring another workspace.
-    CredentialStore::erase(kInventatoryScanTokenCredential);
+    CredentialStore::eraseForWorkspace(dataPath_, kInventatoryScanTokenCredential);
     inventatoryScanConfig_.token.clear();
   }
   error_code cleanupError;
-  filesystem::remove(appSettingsDirectory() / "inventatory-scan-replay.state", cleanupError);
+  filesystem::remove(inventatoryScanReplayStatePath(dataPath_), cleanupError);
   loadState();
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
   applyUiAppearance(settings_.appearance);
@@ -925,7 +973,7 @@ bool App::chooseInventatoryFolder() {
     saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                               appSettingsDirectory() / "inventatory-scan-replay.state");
+                               inventatoryScanReplayStatePath(dataPath_));
   if (serviceWasRunning) restartDeviceService();
   setMessage("Loaded Inventatory folder: " + dataPath_.string(), 4);
   return true;
@@ -2741,7 +2789,7 @@ void App::processDeviceRequests() {
       inventatoryScanConfig_.setupComplete = true;
       saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                                   appSettingsDirectory() / "inventatory-scan-replay.state");
+                                   inventatoryScanReplayStatePath(dataPath_));
     }
     dirty_ = true;
   }
@@ -2788,7 +2836,7 @@ void App::processDeviceRequests() {
     if (pairingChanged) {
       saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                                   appSettingsDirectory() / "inventatory-scan-replay.state");
+                                   inventatoryScanReplayStatePath(dataPath_));
     }
     if (result.ok) {
       logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",
