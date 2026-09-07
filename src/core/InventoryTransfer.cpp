@@ -3,6 +3,7 @@
 #include "core/InventoryTransfer.h"
 
 #include "app/AppSettings.h"
+#include "core/BomProjectStore.h"
 #include "core/InventorySqlite.h"
 #include "label_printer/LabelPrinter.h"
 
@@ -444,6 +445,10 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
   AppSettings settings;
   if (!loadAppSettings(directory / "settings.conf", settings)) {
     error = "Backup settings are invalid";
+    return false;
+  }
+  if (!validateBomProjects(connection, &error)) {
+    if (error.empty()) error = "Backup BOM project data could not be validated";
     return false;
   }
   const auto optionalPath = [&](const char* name) { return directory / name; };
@@ -1034,6 +1039,40 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
     return false;
   }
 
+  // Refuse oversized source files before opening SQLite's online-backup or
+  // copying optional sidecars.  Validation repeats the bound on the staged
+  // snapshot to cover growth races, but this preflight prevents an obviously
+  // oversized local workspace from consuming staging disk and hash time.
+  uintmax_t sourceAggregateSize = 0;
+  const auto checkSourceSize = [&](const filesystem::path& source, const string& name) {
+    error_code sourceSizeError;
+    const auto size = filesystem::file_size(source, sourceSizeError);
+    if (sourceSizeError || size > kMaximumBackupPayloadBytes ||
+        sourceAggregateSize > kMaximumBackupPayloadBytes - size) {
+      error = "Backup source payload is too large: " + name;
+      return false;
+    }
+    sourceAggregateSize += size;
+    return true;
+  };
+  if (!checkSourceSize(dataDirectory / "inventory.db", "inventory.db")) return false;
+  const vector<string> optionalNames = {"activity.tsv", "printer.conf", "quick_labels.conf"};
+  for (const auto& name : optionalNames) {
+    const auto source = dataDirectory / name;
+    const bool sourceExists = filesystem::exists(source, filesystemError);
+    if (filesystemError) {
+      error = "Unable to inspect backup source file: " + name;
+      return false;
+    }
+    if (!sourceExists) continue;
+    if (filesystem::is_symlink(source, filesystemError) || filesystemError ||
+        !filesystem::is_regular_file(source, filesystemError) || filesystemError) {
+      error = "Backup source contains an invalid optional file: " + name;
+      return false;
+    }
+    if (!checkSourceSize(source, name)) return false;
+  }
+
   AppSettings settings;
   if (!loadAppSettings(appSettingsPath, settings)) {
     error = "Unable to read application settings for backup";
@@ -1055,7 +1094,6 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   if (!createSqliteSnapshot(dataDirectory / "inventory.db", staging / "inventory.db", &snapshotError)) {
     return fail(snapshotError.empty() ? "Unable to snapshot inventory database" : snapshotError);
   }
-  const vector<string> optionalNames = {"activity.tsv", "printer.conf", "quick_labels.conf"};
   for (const auto& name : optionalNames) {
     const auto source = dataDirectory / name;
     const bool sourceExists = filesystem::exists(source, filesystemError);
