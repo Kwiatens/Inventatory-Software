@@ -149,7 +149,6 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
   if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
-
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     return false;
   }
@@ -350,6 +349,9 @@ bool InventoryStore::load(const filesystem::path& path) {
   }
 
   if (!ensureInventatoryTableSchema(connection)) {
+    return false;
+  }
+  if (!validateInventoryCommitHistory(connection, nullptr)) {
     return false;
   }
   vector<InventatoryRack> loadedRacks;

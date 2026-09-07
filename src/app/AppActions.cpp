@@ -291,11 +291,14 @@ string digiKeyRefreshLookup(const InventoryItem& item) {
 void App::loadState() {
   persistedStoreValid_ = false;
   activitySavePending_ = false;
+  scannerConfigSavePending_ = false;
+  appSettingsSavePending_ = false;
   pendingMovementSource_.clear();
   pendingMovementReference_.clear();
   error_code inventoryError;
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
-  const bool inventoryLoaded = !inventoryFileExists || store_.load(inventoryPath_);
+  InventoryStore loadedStore;
+  const bool inventoryLoaded = !inventoryFileExists || loadedStore.load(inventoryPath_);
   if (inventoryFileExists && !inventoryLoaded) {
     inventoryRecoveryRequired_ = true;
     inventoryRecoveryDetail_ = "Inventatory could not read the existing inventory database: " + inventoryPath_.string();
@@ -303,6 +306,11 @@ void App::loadState() {
     dirty_ = true;
     return;
   }
+  // A missing database is a valid empty workspace.  Activate the candidate
+  // only after an existing database has loaded successfully, so a failed
+  // switch cannot overwrite the prior in-memory inventory and an empty target
+  // can never inherit that inventory during its initial save.
+  store_ = move(loadedStore);
   inventoryRecoveryRequired_ = false;
   inventoryRecoveryDetail_.clear();
   error_code scanConfigError;
@@ -375,7 +383,7 @@ void App::loadState() {
     if (!inventorySaved) saveFailures.push_back("inventory");
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
-  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) saveFailures.push_back("scanner settings");
+  if (!saveScannerConfigChecked(false)) saveFailures.push_back("scanner settings");
   if (activityLoadFailed) {
     activitySavePending_ = true;
     saveFailures.push_back("activity history (unreadable; original preserved)");
@@ -391,6 +399,67 @@ void App::loadState() {
     persistedStoreValid_ = true;
     refreshInventoryMovements();
   }
+}
+
+bool App::reloadInventoryState() {
+  InventoryStore loadedStore;
+  if (!loadedStore.load(inventoryPath_)) {
+    persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
+    setMessage(persistenceError_, 5);
+    return false;
+  }
+
+  vector<InventoryHistoryPoint> loadedHistory;
+  if (!loadInventoryHistory(inventoryPath_, loadedHistory)) {
+    persistenceError_ = "Unable to reload inventory history; the in-memory data was kept.";
+    setMessage(persistenceError_, 5);
+    return false;
+  }
+
+  vector<InventoryCommit> loadedCommits;
+  if (!loadInventoryCommits(inventoryPath_, loadedCommits)) {
+    persistenceError_ = "Unable to reload inventory commits; the in-memory data was kept.";
+    setMessage(persistenceError_, 5);
+    return false;
+  }
+  InventoryCommitDetail loadedDetail;
+  const size_t loadedSelection = loadedCommits.empty()
+                                     ? 0
+                                     : min(historySelection_, loadedCommits.size() - 1);
+  if (!loadedCommits.empty() && !loadInventoryCommit(inventoryPath_, loadedCommits[loadedSelection].id, loadedDetail)) {
+    persistenceError_ = "Unable to reload inventory history details; the in-memory data was kept.";
+    setMessage(persistenceError_, 5);
+    return false;
+  }
+  if (loadedHistory.empty()) {
+    appendInventoryHistory(loadedHistory,
+                           makeInventoryHistoryPoint(loadedStore.items(), settings_.lowStockThreshold));
+    if (!saveInventoryHistory(inventoryPath_, loadedHistory)) {
+      persistenceError_ = "Unable to save reloaded inventory history; the in-memory data was kept.";
+      setMessage(persistenceError_, 5);
+      return false;
+    }
+  }
+
+  const auto loadedMovements = loadInventoryMovements(inventoryPath_);
+  store_ = move(loadedStore);
+  persistedStore_ = store_;
+  persistedStoreValid_ = true;
+  inventoryHistory_ = move(loadedHistory);
+  inventoryMovements_ = loadedMovements;
+  inventoryCommits_ = move(loadedCommits);
+  historySelection_ = loadedSelection;
+  historyRecordSelection_ = 0;
+  historyRecordOpen_ = false;
+  if (inventoryCommits_.empty()) {
+    historyDetail_ = {};
+    historyDetailValid_ = false;
+  } else {
+    historyDetail_ = move(loadedDetail);
+    historyDetailValid_ = true;
+  }
+  persistenceError_.clear();
+  return true;
 }
 
 void App::refreshInventoryMovements() {
@@ -639,6 +708,8 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
     pendingMovementReference_.clear();
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
+  if (scannerConfigSavePending_ && !saveScannerConfigChecked(false)) saveFailures.push_back("scanner settings");
+  if (!savePendingAppSettings()) saveFailures.push_back("application settings");
   if (!saveActivitiesChecked(false)) saveFailures.push_back("activity history");
   persistenceError_ = saveFailures.empty()
                           ? string()
@@ -647,6 +718,27 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
     setMessage(persistenceError_ + " Press R to retry.", 6);
   }
   return saveFailures.empty();
+}
+
+bool App::saveScannerConfigChecked(bool notify) {
+  if (saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
+    scannerConfigSavePending_ = false;
+    return true;
+  }
+  scannerConfigSavePending_ = true;
+  persistenceError_ = "Could not save scanner settings; changes remain in memory.";
+  if (notify) setMessage(persistenceError_ + " Press R to retry.", 6);
+  return false;
+}
+
+bool App::savePendingAppSettings() {
+  if (!appSettingsSavePending_) return true;
+  if (saveAppSettings(settingsPath_, settings_)) {
+    appSettingsSavePending_ = false;
+    return true;
+  }
+  persistenceError_ = "Could not save application settings; changes remain in memory.";
+  return false;
 }
 
 bool App::saveActivitiesChecked(bool notify) {
@@ -673,7 +765,8 @@ bool App::saveActivitiesChecked(bool notify) {
 }
 
 bool App::hasPendingPersistence() const {
-  return pendingCommitDraftValid_ || activitySavePending_ || !persistenceError_.empty();
+  return pendingCommitDraftValid_ || activitySavePending_ || scannerConfigSavePending_ || appSettingsSavePending_ ||
+         !persistenceError_.empty();
 }
 
 bool App::saveState(const string& movementSource, const string& movementReference, const string& commitMessage) {
@@ -690,7 +783,9 @@ void App::retrySaveState() {
                               : saveState(pendingMovementSource_.empty() ? string("manual") : pendingMovementSource_,
                                           pendingMovementReference_);
   const bool projectsSaved = !bomProjectsDirty_ || saveBomProjects();
-  if (stateSaved && projectsSaved) {
+  const bool appSettingsSaved = savePendingAppSettings();
+  const bool scannerSaved = !scannerConfigSavePending_ || saveScannerConfigChecked(false);
+  if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved) {
     setMessage("All Inventatory changes are saved", 3);
   } else if (!projectsSaved) {
     setMessage("BOM project changes are still unsaved; press R to retry", 5);
@@ -946,6 +1041,13 @@ bool App::chooseInventatoryFolder() {
     bomEnrichmentFuture_ = {};
   }
   bomEnrichmentClient_.reset();
+  // The selected workspace may legitimately have no inventory.db.  Clear the
+  // old workspace before loadState() so that the missing-file path creates an
+  // empty database rather than saving the previous workspace's in-memory
+  // inventory into the new folder.
+  store_ = {};
+  persistedStore_ = {};
+  persistedStoreValid_ = false;
   selectedPosition_ = 0;
   searchQuery_.clear();
   inputBuffer_.clear();
@@ -2016,8 +2118,16 @@ void App::toggleAutoPrintScannedLabels() {
   autoPrintScannedLabels_ = !autoPrintScannedLabels_;
   settings_.autoPrintScannedLabels = autoPrintScannedLabels_;
   settingsDraft_.autoPrintScannedLabels = autoPrintScannedLabels_;
-  saveAppSettings(settingsPath_, settings_);
-  setMessage(autoPrintScannedLabels_ ? "Auto label printing enabled" : "Auto label printing disabled", 3);
+  if (!saveAppSettings(settingsPath_, settings_)) {
+    appSettingsSavePending_ = true;
+    settingsDirty_ = true;
+    persistenceError_ = "Could not save application settings; changes remain in memory.";
+    setMessage(persistenceError_ + " Press R to retry.", 6);
+  } else {
+    appSettingsSavePending_ = false;
+    setMessage(autoPrintScannedLabels_ ? "Auto label printing enabled" : "Auto label printing disabled", 3);
+  }
+  dirty_ = true;
 }
 
 bool App::autoPrintScannedLabel(const string& itemId) {
@@ -2787,7 +2897,7 @@ void App::processDeviceRequests() {
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(status.deviceId);
       inventatoryScanConfig_.setupComplete = true;
-      saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+      saveScannerConfigChecked(true);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                    inventatoryScanReplayStatePath(dataPath_));
     }
@@ -2834,7 +2944,7 @@ void App::processDeviceRequests() {
     const auto before = store_;
     auto result = applyDeviceQuantityCached(store_, pending->request, deviceRequestCache_, deviceRequestOrder_);
     if (pairingChanged) {
-      saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+      saveScannerConfigChecked(false);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                    inventatoryScanReplayStatePath(dataPath_));
     }

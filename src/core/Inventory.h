@@ -318,10 +318,16 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);
+// Historical commit snapshots use a complete, fixed-width item record.  The
+// strict form rejects truncated records, trailing fields, and malformed
+// structured values instead of silently dropping data.
+bool deserializeItemStrict(const string& line, InventoryItem& item);
 string serializeTagsForStorage(const vector<string>& tags);
 vector<string> deserializeTagsFromStorage(const string& value);
+bool deserializeTagsFromStorageStrict(const string& value, vector<string>& tags);
 string serializeParametersForStorage(const vector<Parameter>& parameters);
 vector<Parameter> deserializeParametersFromStorage(const string& value);
+bool deserializeParametersFromStorageStrict(const string& value, vector<Parameter>& parameters);
 string serializeActivity(const ActivityEntry& entry);
 bool deserializeActivity(const string& line, ActivityEntry& entry);
 

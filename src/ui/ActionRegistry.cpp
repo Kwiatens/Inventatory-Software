@@ -41,23 +41,7 @@ vector<App::Action> App::currentActions() const {
   const bool hasItem = selectedItem() != nullptr;
 
   auto reloadInventory = [self] {
-    if (!self->store_.load(self->inventoryPath_)) {
-      self->persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
-      self->setMessage(self->persistenceError_, 5);
-      return false;
-    }
-    loadInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
-    self->refreshInventoryMovements();
-    self->persistedStore_ = self->store_;
-    self->persistedStoreValid_ = true;
-    self->refreshInventoryCommits();
-    if (self->inventoryHistory_.empty()) {
-      appendInventoryHistory(self->inventoryHistory_,
-                             makeInventoryHistoryPoint(self->store_.items(), self->settings_.lowStockThreshold));
-    }
-    saveInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
-    self->persistenceError_.clear();
-    return true;
+    return self->reloadInventoryState();
   };
   auto openDatasheet = [self] {
     if (const auto* item = self->selectedItem()) self->openCurrentUrl(item->datasheetUrl, "datasheet");

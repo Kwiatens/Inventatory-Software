@@ -14,6 +14,7 @@ bool ensureInventoryCommitSchema(SqliteConnection& connection);
 bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryItem>& items,
                           const vector<InventatoryRack>& racks, const InventoryCommitDraft& draft,
                           InventoryCommit& committed);
+bool validateInventoryCommitHistory(SqliteConnection& connection, string* error = nullptr);
 
 #endif
 

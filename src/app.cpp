@@ -562,9 +562,24 @@ int App::run() {
   }
   // Windows sign-in launches this process with --background. Keep that path
   // free of FTXUI so only the Scan R1 bridge and notification-area handler run.
-  backgroundController_.start(startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
-    backgroundQuitRequested_.store(true);
-  }, [this] { foregroundRequested_.store(true); });
+  const bool backgroundStarted = backgroundController_.start(
+      startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
+        backgroundQuitRequested_.store(true);
+      }, [this] { foregroundRequested_.store(true); });
+  if (!backgroundStarted && (startInBackground_ || settings_.backgroundServiceEnabled)) {
+    // A tray/controller startup failure must not leave the persisted setting
+    // claiming that the background bridge is available on the next launch.
+    settings_.backgroundServiceEnabled = false;
+    settingsDraft_.backgroundServiceEnabled = false;
+    string startupError;
+    setBackgroundStartupEnabled(false, startupError);
+    if (!saveAppSettings(settingsPath_, settings_)) {
+      appSettingsSavePending_ = true;
+    }
+    setMessage(startInBackground_ ? "Background service could not start; it was disabled"
+                                  : "Background service unavailable; it was disabled",
+               7);
+  }
 
   if (startInBackground_) {
     runBackgroundLoop();
@@ -588,7 +603,18 @@ int App::run() {
   }
   backgroundController_.stop();
   if (finalSaveSucceeded && !startInBackground_ && settings_.backgroundServiceEnabled) {
-    backgroundController_.restartAsBackgroundService();
+    if (!backgroundController_.restartAsBackgroundService()) {
+      settings_.backgroundServiceEnabled = false;
+      settingsDraft_.backgroundServiceEnabled = false;
+      string startupError;
+      setBackgroundStartupEnabled(false, startupError);
+      if (!saveAppSettings(settingsPath_, settings_)) {
+        cerr << "Inventatory could not disable the unavailable background service preference: "
+             << (startupError.empty() ? "settings save failed" : startupError) << '\n';
+      }
+      cerr << "Inventatory background service failed to start after shutdown" << '\n';
+      return 1;
+    }
   }
   return finalSaveSucceeded ? 0 : 1;
 }
