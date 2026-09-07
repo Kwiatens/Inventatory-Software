@@ -393,6 +393,8 @@ bool readManifest(const filesystem::path& backupDirectory, vector<BackupEntry>& 
   return true;
 }
 
+bool validateWorkspaceData(const filesystem::path& directory, string& error);
+
 bool validateEntries(const filesystem::path& directory, const vector<BackupEntry>& entries, string& error) {
   set<string> listed;
   uintmax_t aggregateSize = 0;
@@ -437,43 +439,11 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
       return false;
     }
   }
-  SqliteConnection connection;
-  if (!openDatabaseReadOnly(directory / "inventory.db", connection) ||
-      !validateInventoryDatabase(connection, &error)) {
-    if (error.empty()) error = "Backup inventory database could not be validated";
-    return false;
-  }
+  if (!validateWorkspaceData(directory, error)) return false;
   AppSettings settings;
   if (!loadAppSettings(directory / "settings.conf", settings)) {
     error = "Backup settings are invalid";
     return false;
-  }
-  if (!validateBomProjects(connection, &error)) {
-    if (error.empty()) error = "Backup BOM project data could not be validated";
-    return false;
-  }
-  const auto optionalPath = [&](const char* name) { return directory / name; };
-  if (listed.count("activity.tsv") != 0) {
-    vector<ActivityEntry> activities;
-    if (!loadActivities(optionalPath("activity.tsv"), activities)) {
-      error = "Backup activity history is invalid";
-      return false;
-    }
-  }
-  if (listed.count("quick_labels.conf") != 0) {
-    vector<string> presets;
-    uint32_t revision = 1;
-    if (!loadQuickLabels(optionalPath("quick_labels.conf"), presets, revision)) {
-      error = "Backup Quick Labels settings are invalid";
-      return false;
-    }
-  }
-  if (listed.count("printer.conf") != 0) {
-    LabelPrinterService printer;
-    if (!printer.loadConfig(optionalPath("printer.conf"))) {
-      error = "Backup printer settings are invalid";
-      return false;
-    }
   }
   return true;
 }
@@ -764,6 +734,88 @@ bool equivalentPath(const filesystem::path& first, const filesystem::path& secon
   transform(rhs.begin(), rhs.end(), rhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
 #endif
   return lhs == rhs;
+}
+
+// Validate the complete data-directory portion of a workspace without
+// creating, migrating, or otherwise mutating any file. Backup staging,
+// post-activation restore checks, and startup recovery all use this same
+// semantic gate so an optional sidecar cannot bypass one of those paths.
+bool validateWorkspaceData(const filesystem::path& directory, string& error) {
+  error.clear();
+  SqliteConnection connection;
+  if (!openDatabaseReadOnly(directory / "inventory.db", connection) ||
+      !validateInventoryDatabase(connection, &error)) {
+    if (error.empty()) error = "Workspace inventory database could not be validated";
+    return false;
+  }
+  if (!validateBomProjects(connection, &error)) {
+    if (error.empty()) error = "Workspace BOM project data could not be validated";
+    return false;
+  }
+
+  const auto optionalPath = [&](const char* name) { return directory / name; };
+  error_code filesystemError;
+  if (filesystem::exists(optionalPath("activity.tsv"), filesystemError)) {
+    if (filesystemError) {
+      error = "Unable to inspect workspace activity history: " + filesystemError.message();
+      return false;
+    }
+    vector<ActivityEntry> activities;
+    if (!loadActivities(optionalPath("activity.tsv"), activities)) {
+      error = "Workspace activity history is invalid";
+      return false;
+    }
+  } else if (filesystemError) {
+    error = "Unable to inspect workspace activity history: " + filesystemError.message();
+    return false;
+  }
+  filesystemError.clear();
+  if (filesystem::exists(optionalPath("quick_labels.conf"), filesystemError)) {
+    if (filesystemError) {
+      error = "Unable to inspect workspace Quick Labels settings: " + filesystemError.message();
+      return false;
+    }
+    vector<string> presets;
+    uint32_t revision = 1;
+    if (!loadQuickLabels(optionalPath("quick_labels.conf"), presets, revision)) {
+      error = "Workspace Quick Labels settings are invalid";
+      return false;
+    }
+  } else if (filesystemError) {
+    error = "Unable to inspect workspace Quick Labels settings: " + filesystemError.message();
+    return false;
+  }
+  filesystemError.clear();
+  if (filesystem::exists(optionalPath("printer.conf"), filesystemError)) {
+    if (filesystemError) {
+      error = "Unable to inspect workspace printer settings: " + filesystemError.message();
+      return false;
+    }
+    LabelPrinterService printer;
+    if (!printer.loadConfig(optionalPath("printer.conf"))) {
+      error = "Workspace printer settings are invalid";
+      return false;
+    }
+  } else if (filesystemError) {
+    error = "Unable to inspect workspace printer settings: " + filesystemError.message();
+    return false;
+  }
+  return true;
+}
+
+bool validateWorkspaceSettings(const filesystem::path& settingsPath, const filesystem::path& dataDirectory,
+                               string& error) {
+  error.clear();
+  AppSettings settings;
+  if (!loadAppSettings(settingsPath, settings)) {
+    error = "Workspace application settings are invalid";
+    return false;
+  }
+  if (!equivalentPath(settings.dataDirectory, dataDirectory)) {
+    error = "Workspace application settings point to a different data directory";
+    return false;
+  }
+  return true;
 }
 
 bool pathContains(const filesystem::path& ancestor, const filesystem::path& candidate, bool& contains,
@@ -1165,9 +1217,11 @@ bool validateInventatoryBackup(const filesystem::path& backupDirectory, string& 
 
 bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
                               const filesystem::path& appSettingsPath, string& error,
-                              const InventoryTransferTestHooks* testHooks) {
+                              const InventoryTransferTestHooks* testHooks,
+                              bool* replacementWorkspaceActiveOnFailure) {
   try {
   error.clear();
+  if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
   const TransferOps ops{testHooks};
   bool overlap = false;
   if (!pathsOverlap(backupDirectory, destinationDirectory, overlap, error)) return false;
@@ -1273,25 +1327,33 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   if (journal.destinationExisted && !ops.rename(destinationDirectory, journal.oldData, primaryError)) {
     return discardStage(primaryError);
   }
+  // From this point onward the old workspace has been moved out of the
+  // destination (or the destination was initially absent). Any failure can
+  // leave the on-disk workspace in an indeterminate state unless rollback
+  // completes, so callers must keep dependent services stopped.
+  if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = true;
   journal.state = "protected";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
   journal.state = "activating";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError) ||
-      !ops.rename(staging, destinationDirectory, primaryError)) {
+       !ops.rename(staging, destinationDirectory, primaryError)) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
   journal.state = "activated";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
@@ -1309,14 +1371,16 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   }
   if (!primaryError.empty()) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
   journal.state = "settings_activated";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
@@ -1324,33 +1388,32 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   // The manifest and sanitized settings belong to the bundle, not to the
   // selected data directory. Remove them only after the active DB/settings
   // have been validated and journaled.
-  SqliteConnection activeConnection;
-  if (!openDatabaseReadOnly(destinationDirectory / "inventory.db", activeConnection) ||
-      !validateInventoryDatabase(activeConnection, &primaryError)) {
-    if (primaryError.empty()) primaryError = "Restored inventory database could not be validated";
+  if (!validateWorkspaceData(destinationDirectory, primaryError)) {
+    if (primaryError.empty()) primaryError = "Restored workspace data could not be validated";
   }
-  AppSettings activeSettings;
-  if (primaryError.empty() &&
-      (!loadAppSettings(appSettingsPath, activeSettings) || activeSettings.dataDirectory != destinationDirectory)) {
-    primaryError = "Restored application settings could not be validated";
+  if (primaryError.empty() && !validateWorkspaceSettings(appSettingsPath, destinationDirectory, primaryError)) {
+    if (primaryError.empty()) primaryError = "Restored application settings could not be validated";
   }
   if (!primaryError.empty()) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
   if (filesystem::exists(destinationDirectory / "manifest.tsv") &&
-      !ops.removeAll(destinationDirectory / "manifest.tsv", primaryError)) {
+       !ops.removeAll(destinationDirectory / "manifest.tsv", primaryError)) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
   if (filesystem::exists(destinationDirectory / "settings.conf") &&
-      !ops.removeAll(destinationDirectory / "settings.conf", primaryError)) {
+       !ops.removeAll(destinationDirectory / "settings.conf", primaryError)) {
     string rollbackError;
-    rollbackRestore(journal, ops, rollbackError);
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
     error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
   }
@@ -1456,13 +1519,9 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
       error = "Restored data is active, but the settings backup is missing";
       return false;
     }
-    SqliteConnection activeConnection;
     string validationError;
-    if (filesystem::exists(journal.destination) &&
-        openDatabaseReadOnly(journal.destination / "inventory.db", activeConnection) &&
-        validateInventoryDatabase(activeConnection, &validationError)) {
-      AppSettings settings;
-      if (loadAppSettings(journal.settings, settings) && settings.dataDirectory == journal.destination) {
+    if (filesystem::exists(journal.destination) && validateWorkspaceData(journal.destination, validationError) &&
+        validateWorkspaceSettings(journal.settings, journal.destination, validationError)) {
         string cleanupError;
         if (journal.destinationExisted &&
             !inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, true,
@@ -1497,8 +1556,8 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
           return false;
         }
         return true;
-      }
-      validationError = "Restored application settings could not be validated";
+    } else if (validationError.empty()) {
+      validationError = "Restored workspace data could not be validated";
     }
     // An activated DB without valid settings is not a committed workspace;
     // roll it back and leave the original validation error visible.

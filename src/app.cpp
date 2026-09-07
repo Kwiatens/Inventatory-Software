@@ -144,7 +144,16 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
                                    : restoreRecoveryNotice;
   }
   activateWorkspaceContext(makeInventatoryDataPaths(dataPath_));
-  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+  error_code quickLabelsError;
+  const bool quickLabelsFileExists = filesystem::exists(quickLabelsPath_, quickLabelsError);
+  if (quickLabelsError ||
+      (quickLabelsFileExists &&
+       !loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision))) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not read Quick Labels settings: " + quickLabelsPath_.string() +
+                               ". The original file was preserved.";
+    persistenceError_ = inventoryRecoveryDetail_;
+  }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
@@ -227,7 +236,7 @@ ftxui::Element App::renderUi() const {
         styledText("INVENTORY RECOVERY REQUIRED", uiDangerColor()),
         ftxui::separator(),
         styledText(inventoryRecoveryDetail_, uiTitleColor()),
-        styledText("The database was preserved and Inventatory is locked to prevent data loss.", uiMutedColor()),
+        styledText("The active workspace was preserved and Inventatory is locked to prevent data loss.", uiMutedColor()),
         styledText("Press D to choose another Inventatory folder, or Esc to exit.", uiAccentColor()),
         ftxui::filler(),
     }) | ftxui::border | ftxui::bgcolor(uiCanvasBg());
