@@ -39,6 +39,8 @@ using namespace std;
 
 namespace {
 
+constexpr size_t kPrinterWorkQueueLimit = 32;
+
 string currentDateTimeText() {
   const auto now = time(nullptr);
   tm localTime{};
@@ -167,7 +169,9 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     }
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
-    printerCheck_ = printerService_.probeConfiguredPrinter();
+    // Queue the potentially slow Windows spooler probe.  Startup must remain
+    // responsive even when a disconnected queue takes seconds to answer.
+    refreshPrinterState();
   }
   if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion)) {
     onboardingActive_ = true;
@@ -606,6 +610,7 @@ void App::processBackgroundWork() {
   processDigiKeyRefresh();
   processImportSync();
   processBomEnrichment();
+  processPrinterWork();
 }
 
 void App::runBackgroundLoop() {
@@ -699,7 +704,202 @@ bool App::workspaceIsCurrent(WorkspaceGeneration generation) const {
   return workspaceContext_ != nullptr && workspaceGenerationMatches(workspaceContext_->generation, generation);
 }
 
+bool App::enqueuePrinterWork(PrinterWork work) {
+  if (work.workspaceGeneration == 0 || !workspaceIsCurrent(work.workspaceGeneration)) {
+    return false;
+  }
+  {
+    lock_guard<mutex> lock(printerWorkMutex_);
+    if (printerWorkQueue_.size() >= kPrinterWorkQueueLimit) {
+      return false;
+    }
+    printerWorkQueue_.push_back(move(work));
+  }
+  return true;
+}
+
+void App::processPrinterWork() {
+  if (printerWorkFuture_.valid()) {
+    if (printerWorkFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
+      return;
+    }
+
+    PrinterWorkResult result;
+    try {
+      result = printerWorkFuture_.get();
+    } catch (...) {
+      // The worker catches normal service failures; this is only a final
+      // containment shield for an unexpected backend exception.
+      result.success = false;
+      result.error = "Printer operation failed unexpectedly";
+    }
+    printerWorkActiveKind_.reset();
+
+    if (workspaceIsCurrent(result.work.workspaceGeneration)) {
+      switch (result.work.kind) {
+        case PrinterWorkKind::Refresh:
+          printerQueues_ = move(result.queues);
+          printerCheck_ = result.check;
+          if (!result.work.printerName.empty()) {
+            const auto configuredName = toLower(trim(result.work.printerName));
+            const auto it = find_if(printerQueues_.begin(), printerQueues_.end(),
+                                    [&](const PrinterQueueInfo& entry) {
+                                      return toLower(trim(entry.name)) == configuredName;
+                                    });
+            if (it != printerQueues_.end()) {
+              printerSelection_ = static_cast<size_t>(distance(printerQueues_.begin(), it));
+            }
+          }
+          if (printerSelection_ >= printerQueues_.size()) printerSelection_ = 0;
+          if (!result.success && printerCheck_.message.empty()) {
+            printerCheck_.message = result.error.empty() ? "Printer check failed" : result.error;
+          }
+          setMessage(result.success
+                         ? (printerCheck_.ok ? "Printer check complete" : "Printer needs attention")
+                         : (printerCheck_.message.empty() ? "Printer check failed" : printerCheck_.message),
+                     4);
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::Probe:
+          printerCheck_ = result.check;
+          setMessage(result.check.message.empty()
+                         ? (result.success ? "Printer is ready" : "Printer test failed")
+                         : result.check.message,
+                     4);
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::PrintItem:
+          if (result.success) {
+            printerFlashUntil_ = time(nullptr) + 3;
+            logActivity("print", result.work.item.partName + " label printed");
+            saveState();
+            setMessage(result.work.successPrefix + result.work.item.partName, 3);
+          } else {
+            setMessage("Print failed: " +
+                           (result.error.empty() ? string("Printer failed") : result.error),
+                       4);
+          }
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::PrintWire:
+          if (result.success) {
+            printerFlashUntil_ = time(nullptr) + 3;
+            logActivity("print", "wire label printed");
+            saveActivitiesChecked();
+            if (!result.work.requestId.empty()) {
+              storeQuickLabelPrintResult({result.work.requestId, "completed", "", "Label sent"});
+              setMessage("Quick label sent", 3);
+            } else {
+              setMessage(result.work.successPrefix.empty() ? string("Wire label sent")
+                                                            : result.work.successPrefix,
+                         3);
+            }
+          } else {
+            const auto error = result.error.empty() ? string("Printer failed") : result.error;
+            if (!result.work.requestId.empty()) {
+              storeQuickLabelPrintResult({result.work.requestId, "failed", "printer_failed", error});
+              setMessage("Quick label failed: " + error, 4);
+            } else {
+              setMessage(error, 4);
+            }
+          }
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::PrintRack:
+          if (result.success) {
+            printerFlashUntil_ = time(nullptr) + 3;
+            logActivity("print", result.work.rack.code + " rack label printed");
+            saveState();
+            setMessage(result.work.rack.code + " rack label sent", 3);
+          } else {
+            setMessage("Print failed: " +
+                           (result.error.empty() ? string("Printer failed") : result.error),
+                       4);
+          }
+          dirty_ = true;
+          break;
+      }
+    }
+  }
+
+  while (true) {
+    PrinterWork work;
+    {
+      lock_guard<mutex> lock(printerWorkMutex_);
+      if (printerWorkQueue_.empty()) return;
+      work = move(printerWorkQueue_.front());
+      printerWorkQueue_.pop_front();
+    }
+    if (!workspaceIsCurrent(work.workspaceGeneration)) {
+      continue;
+    }
+
+    const auto workKind = work.kind;
+    printerWorkFuture_ = async(launch::async, [work = move(work)]() mutable {
+      PrinterWorkResult result;
+      result.work = work;
+      try {
+        // Constructing a private service also constructs a private Windows
+        // spooler backend.  No worker ever touches the UI-owned service or
+        // borrows App state, configured strings, or inventory references.
+        LabelPrinterService printer;
+        printer.setConfiguredPrinter(work.printerName);
+        switch (work.kind) {
+          case PrinterWorkKind::Refresh:
+            result.queues = printer.enumeratePrinters();
+            result.check = printer.probeConfiguredPrinter();
+            result.success = true;
+            break;
+          case PrinterWorkKind::Probe:
+            result.check = printer.probeConfiguredPrinter();
+            result.success = result.check.ok;
+            result.error = result.check.message;
+            break;
+          case PrinterWorkKind::PrintItem:
+            result.success = printer.printItemLabel(work.item, &result.error, work.rackLocation);
+            break;
+          case PrinterWorkKind::PrintWire:
+            result.success = printer.printWireLabel(work.text, &result.error);
+            break;
+          case PrinterWorkKind::PrintRack:
+            result.success = printer.printRackLabel(work.rack, &result.error);
+            break;
+        }
+      } catch (...) {
+        result.success = false;
+        result.error = "Printer operation failed unexpectedly";
+      }
+      return result;
+    });
+    printerWorkActiveKind_ = workKind;
+    return;
+  }
+}
+
+void App::stopPrinterWork() {
+  {
+    lock_guard<mutex> lock(printerWorkMutex_);
+    printerWorkQueue_.clear();
+  }
+  if (printerWorkFuture_.valid()) {
+    printerWorkFuture_.wait();
+    printerWorkFuture_ = {};
+  }
+  printerWorkActiveKind_.reset();
+  {
+    lock_guard<mutex> lock(quickLabelMutex_);
+    for (auto& entry : quickLabelPrintResults_) {
+      if (entry.second.status == "pending") {
+        entry.second.status = "failed";
+        entry.second.code = "workspace_changed";
+        entry.second.message = "Printing was cancelled while the workspace changed";
+      }
+    }
+  }
+}
+
 void App::stopWorkspaceBoundWork() {
+  stopPrinterWork();
   stopDigiKeyRefresh();
 
   if (importSyncCancelFlag_ != nullptr) {
@@ -726,7 +926,10 @@ void App::stopWorkspaceBoundWork() {
   }
   bomEnrichmentQueue_.clear();
   bomEnrichmentActiveKey_.clear();
+  bomEnrichmentProjectId_.clear();
+  bomEnrichmentActiveProjectId_.clear();
   bomEnrichmentGeneration_ = 0;
+  bomEnrichmentSequence_ = 0;
   bomEnrichmentClient_.reset();
 
   {
