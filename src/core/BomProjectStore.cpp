@@ -66,7 +66,7 @@ bool insertProject(SqliteConnection& connection, const BomProject& project) {
 #endif
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects) {
-  projects.clear();
+  vector<BomProject> loadedProjects;
 #ifdef _WIN32
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection)) {
@@ -94,9 +94,11 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
     project.bomText = sqliteText(statement.stmt, 7);
     project.overrides = deserializeBomMap(sqliteText(statement.stmt, 8));
     project.enrichment = deserializeBomMap(sqliteText(statement.stmt, 9));
-    projects.push_back(move(project));
+    loadedProjects.push_back(move(project));
   }
-  return stepResult == SQLITE_DONE;
+  if (stepResult != SQLITE_DONE) return false;
+  projects = move(loadedProjects);
+  return true;
 #else
   (void)databasePath;
   return false;
