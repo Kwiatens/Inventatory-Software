@@ -19,6 +19,7 @@ using namespace std;
 namespace {
 
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
+constexpr size_t kMaximumDesignatorsPerRow = 10000;
 
 struct BomColumns {
   int designator = -1;
@@ -57,26 +58,28 @@ optional<int> parseCount(const string& value) {
   return result;
 }
 
-vector<string> splitDesignators(const string& value) {
-  vector<string> designators;
+bool splitDesignators(const string& value, vector<string>& designators) {
   string current;
   const auto flush = [&] {
     const auto trimmed = trim(current);
     if (!trimmed.empty()) {
+      if (designators.size() >= kMaximumDesignatorsPerRow) {
+        return false;
+      }
       designators.push_back(trimmed);
     }
     current.clear();
+    return true;
   };
 
   for (const char ch : value) {
     if (ch == ',' || ch == ';' || ch == ' ' || ch == '\t') {
-      flush();
+      if (!flush()) return false;
     } else {
       current.push_back(ch);
     }
   }
-  flush();
-  return designators;
+  return flush();
 }
 
 // Reference prefixes that never map to a purchasable part.
@@ -106,7 +109,8 @@ bool nonOrderablePrefix(const string& designator) {
 
 bool isNonOrderableDesignator(const string& designator, const string& footprint) {
   const auto ref = trim(designator);
-  if (ref.empty() || ref.rfind("REF**", 0) == 0 || ref == "*") {
+  const auto loweredRef = toLower(ref);
+  if (ref.empty() || loweredRef.rfind("ref**", 0) == 0 || ref == "*") {
     return true;
   }
   if (nonOrderablePrefix(ref)) {
@@ -131,6 +135,10 @@ bool isNonOrderableDesignator(const string& designator, const string& footprint)
 KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
   KicadBomFile bom;
   bom.projectName = projectName;
+  if (text.size() > kMaximumImportBytes) {
+    bom.error = "BOM import exceeds the 25 MiB safety limit";
+    return bom;
+  }
 
   const auto cleaned = stripByteOrderMark(text);
   string parseError;
@@ -156,7 +164,10 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
 
     BomLine line;
     line.sourceRow = sourceRow;
-    line.designators = splitDesignators(csvCell(row, columns.designator));
+    if (!splitDesignators(csvCell(row, columns.designator), line.designators)) {
+      bom.warnings.push_back("Row " + to_string(sourceRow) + ": too many designators");
+      continue;
+    }
     line.footprint = csvCell(row, columns.footprint);
     line.designation = csvCell(row, columns.designation);
     line.supplierRef = csvCell(row, columns.supplier);
@@ -200,7 +211,7 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
 }
 
 string projectNameFromPath(const filesystem::path& path) {
-  auto stem = path.stem().string();
+  auto stem = path.stem().u8string();
   replace(stem.begin(), stem.end(), '_', ' ');
   replace(stem.begin(), stem.end(), '-', ' ');
   const auto trimmed = trim(stem);
@@ -209,7 +220,13 @@ string projectNameFromPath(const filesystem::path& path) {
 
 KicadBomFile loadKicadBomFile(const filesystem::path& path) {
   error_code error;
-  if (const auto size = filesystem::file_size(path, error); error || size > kMaximumImportBytes) {
+  const auto size = filesystem::file_size(path, error);
+  if (error) {
+    KicadBomFile bom;
+    bom.error = "Unable to inspect BOM file";
+    return bom;
+  }
+  if (size > kMaximumImportBytes) {
     KicadBomFile bom;
     bom.error = "BOM import exceeds the 25 MiB safety limit";
     return bom;
@@ -223,6 +240,11 @@ KicadBomFile loadKicadBomFile(const filesystem::path& path) {
 
   ostringstream buffer;
   buffer << input.rdbuf();
+  if (input.bad()) {
+    KicadBomFile bom;
+    bom.error = "Unable to read BOM file";
+    return bom;
+  }
   return parseKicadBomText(buffer.str(), projectNameFromPath(path));
 }
 
