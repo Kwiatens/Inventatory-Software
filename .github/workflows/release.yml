@@ -24,14 +24,13 @@ jobs:
         shell: pwsh
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           $tag = $env:RELEASE_TAG
           if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notmatch '\Av\d+\.\d+\.\d+\z') {
             throw 'Release tags must use vX.Y.Z.'
           }
-          $remote = "https://x-access-token:$env:GITHUB_TOKEN@github.com/$env:GITHUB_REPOSITORY.git"
+          $remote = "https://github.com/$env:GITHUB_REPOSITORY.git"
           git ls-remote --exit-code --refs $remote "refs/tags/$tag" | Out-Null
           if ($LASTEXITCODE -ne 0) {
             throw "Release tag $tag does not exist in the repository."
