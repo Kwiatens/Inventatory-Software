@@ -832,13 +832,39 @@ void App::handleStockKey(const KeyEvent& key) {
         }
         break;
       case 'r':
-        store_.load(inventoryPath_);
-        loadInventoryHistory(inventoryPath_, inventoryHistory_);
-        if (inventoryHistory_.empty()) {
-          appendInventoryHistory(inventoryHistory_,
-                                 makeInventoryHistoryPoint(store_.items(), settings_.lowStockThreshold));
+        {
+          InventoryStore loadedStore;
+          vector<InventoryHistoryPoint> loadedHistory;
+          if (!loadedStore.load(inventoryPath_)) {
+            persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
+            setMessage(persistenceError_, 6);
+            break;
+          }
+          if (!loadInventoryHistory(inventoryPath_, loadedHistory)) {
+            inventoryRecoveryRequired_ = true;
+            inventoryRecoveryDetail_ = "Unable to reload inventory history: " + inventoryPath_.string();
+            persistenceError_ = inventoryRecoveryDetail_ + ". The original history was preserved.";
+            setMessage(persistenceError_, 6);
+            break;
+          }
+          if (loadedHistory.empty()) {
+            appendInventoryHistory(loadedHistory,
+                                   makeInventoryHistoryPoint(loadedStore.items(), settings_.lowStockThreshold));
+          }
+          if (!saveInventoryHistory(inventoryPath_, loadedHistory)) {
+            inventoryRecoveryRequired_ = true;
+            inventoryRecoveryDetail_ = "Unable to save the reloaded inventory history: " + inventoryPath_.string();
+            persistenceError_ = inventoryRecoveryDetail_ + ". The original history was preserved.";
+            setMessage(persistenceError_, 6);
+            break;
+          }
+          refreshInventoryCommits();
+          if (inventoryRecoveryRequired_) break;
+          store_ = move(loadedStore);
+          inventoryHistory_ = move(loadedHistory);
+          persistedStore_ = store_;
+          persistedStoreValid_ = true;
         }
-        saveInventoryHistory(inventoryPath_, inventoryHistory_);
         refreshInventoryMovements();
         syncSelectionToFilter();
         setMessage("Inventory refreshed", 2);
