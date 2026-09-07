@@ -91,10 +91,10 @@ class LocalHttpServer {
   // mutex, so application work can safely call back into the server or block
   // on its own persistence/printing queues.
   mutex callbackSerialMutex_;
-  // Credential rotation is serialized with the complete authenticated request
-  // lifecycle. A request that has already captured the old credentials either
-  // finishes before rotation, or is rejected before it can reserve, invoke the
-  // application callback, or advance replay state.
+  // Credential rotation is serialized with authentication, replay reservation,
+  // callback execution, and replay commit. Requests release this lock before
+  // invoking the callback so nested duplicate requests can be rejected by the
+  // replay reservation check instead of deadlocking.
   mutable mutex credentialOperationMutex_;
   mutable mutex replayMutex_;
   uint16_t port_ = 0;
