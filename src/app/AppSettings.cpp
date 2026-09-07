@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <set>
 #include <sstream>
 
 namespace inventatory {
@@ -123,6 +124,50 @@ bool parseBool(const string& value, bool& result) {
   return false;
 }
 
+bool requiredSettingsKey(const string& key) {
+  if (key == "schema_version" || key == "completed_onboarding_version" || key == "data_directory" ||
+      key == "printer_queue" || key == "auto_print_scanned_labels" || key == "background_service_enabled" ||
+      key == "background_consent_asked" || key == "update_checks_enabled" ||
+      key == "last_update_check_unix_seconds" || key == "latest_available_version" ||
+      key == "latest_release_url" || key == "device_service_port" || key == "digikey_client_id" ||
+      key == "digikey_account_id" || key == "digikey_site" || key == "digikey_language" ||
+      key == "digikey_currency" || key == "low_stock_threshold") {
+    return true;
+  }
+  for (size_t index = 0; index < kAppearanceColorCount; ++index) {
+    if (key == string("appearance_") + appearanceColorKey(static_cast<AppearanceColorRole>(index))) return true;
+  }
+  return false;
+}
+
+const set<string>& persistedSettingsKeys() {
+  static const set<string> keys = [] {
+    set<string> result = {"schema_version",
+                          "completed_onboarding_version",
+                          "data_directory",
+                          "printer_queue",
+                          "auto_print_scanned_labels",
+                          "background_service_enabled",
+                          "background_consent_asked",
+                          "update_checks_enabled",
+                          "last_update_check_unix_seconds",
+                          "latest_available_version",
+                          "latest_release_url",
+                          "device_service_port",
+                          "digikey_client_id",
+                          "digikey_account_id",
+                          "digikey_site",
+                          "digikey_language",
+                          "digikey_currency",
+                          "low_stock_threshold"};
+    for (size_t index = 0; index < kAppearanceColorCount; ++index) {
+      result.insert(string("appearance_") + appearanceColorKey(static_cast<AppearanceColorRole>(index)));
+    }
+    return result;
+  }();
+  return keys;
+}
+
 }  // namespace
 
 const char* appearanceColorKey(AppearanceColorRole role) {
@@ -223,19 +268,39 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   if (!input) return false;
 
   AppSettings loaded;
-  bool hasSchemaVersion = false;
+  set<string> seenRequiredKeys;
+  bool legacyFormat = false;
+  bool malformedLine = false;
+  bool malformedAppearance = false;
   string line;
   while (getline(input, line)) {
     if (line.size() > kMaxSettingsFileBytes) return false;
     const auto equals = line.find('=');
-    if (equals == string::npos) continue;
+    if (equals == string::npos) {
+      malformedLine = true;
+      continue;
+    }
     const auto key = line.substr(0, equals);
+    if (key.empty()) return false;
+    if (key == "bridge_port") {
+      legacyFormat = true;
+    } else if (key == "quick_label" || key == "quick_label_revision" || key.rfind("tolerance_", 0) == 0) {
+      // These keys were written by older schema-1 settings and are kept as
+      // ignorable migration inputs. Quick labels now have their own file.
+      legacyFormat = true;
+    } else if (key.rfind("appearance_", 0) == 0 && !requiredSettingsKey(key)) {
+      return false;
+    } else if (!requiredSettingsKey(key)) {
+      return false;
+    }
+    string requiredKey = key == "bridge_port" ? "device_service_port" : key;
+    if (requiredSettingsKey(requiredKey) && !seenRequiredKeys.insert(requiredKey).second) return false;
     istringstream value(line.substr(equals + 1));
     if (key == "schema_version") {
       uint64_t parsed = 0;
       if (!parseUnsignedValue(value, parsed) || parsed > numeric_limits<int>::max()) return false;
       loaded.schemaVersion = static_cast<int>(parsed);
-      hasSchemaVersion = true;
+      if (loaded.schemaVersion == 2) legacyFormat = true;
     } else if (key == "completed_onboarding_version") {
       uint64_t parsed = 0;
       if (!parseUnsignedValue(value, parsed) || parsed > numeric_limits<int>::max()) return false;
@@ -274,7 +339,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       if (!parseQuotedValue(value, loaded.latestReleaseUrl) || loaded.latestReleaseUrl.size() > kMaxUrlBytes) {
         return false;
       }
-    } else if (key == "device_service_port") {
+    } else if (key == "device_service_port" || key == "bridge_port") {
       uint64_t port = 0;
       if (!parseUnsignedValue(value, port) || port < 1 || port > 65535) return false;
       loaded.deviceServicePort = static_cast<uint16_t>(port);
@@ -311,10 +376,11 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
           string trailing;
           if (!(value >> encoded) || (value >> trailing)) return false;
           uint32_t parsed = loaded.appearance.colors[index];
-          // Keep the established forward-compatible behavior for malformed
-          // optional appearance values: use the default role color while
-          // still bounding the input line above.
-          if (parseAppearanceColorHex(encoded, parsed)) loaded.appearance.colors[index] = parsed;
+          if (!parseAppearanceColorHex(encoded, parsed)) {
+            malformedAppearance = true;
+          } else {
+            loaded.appearance.colors[index] = parsed;
+          }
           break;
         }
       }
@@ -326,7 +392,8 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   } catch (...) {
     return false;
   }
-  if (!input.eof() || !hasSchemaVersion || loaded.schemaVersion < 1 || loaded.lowStockThreshold <= 0 ||
+  if (!input.eof() || malformedLine || malformedAppearance && !legacyFormat || loaded.schemaVersion < 1 ||
+      loaded.schemaVersion > 2 || loaded.lowStockThreshold <= 0 ||
       loaded.lastUpdateCheckUnixSeconds < 0 || !validOptionalText(loadedDataDirectory, kMaxDataDirectoryBytes) ||
       !validOptionalText(loaded.printerQueue, kMaxPrinterQueueBytes) ||
       !validOptionalText(loaded.latestAvailableVersion, kMaxVersionBytes) ||
@@ -338,6 +405,9 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       !validOptionalText(loaded.digiKeyCurrency, kMaxLocaleFieldBytes)) {
     return false;
   }
+  if (loaded.schemaVersion == 2) legacyFormat = true;
+  if (!legacyFormat && seenRequiredKeys != persistedSettingsKeys()) return false;
+  if (loaded.schemaVersion == 2) loaded.schemaVersion = 1;
   settings = move(loaded);
   return true;
 }
