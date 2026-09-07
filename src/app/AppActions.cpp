@@ -75,8 +75,12 @@ bool migrateLegacyScannerReplayState(const filesystem::path& workspaceDirectory)
   error_code sizeError;
   const auto replaySize = filesystem::file_size(legacyPath, sizeError);
   if (sizeError || replaySize > 256U) return false;
-  string contents((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
-  if (!input.eof() || contents.size() > 256U) return false;
+  string contents(static_cast<size_t>(replaySize), '\0');
+  if (replaySize != 0) {
+    input.read(contents.data(), static_cast<streamsize>(replaySize));
+    if (input.gcount() != static_cast<streamsize>(replaySize)) return false;
+  }
+  if (input.bad()) return false;
   string ignored;
   // The server validates the fingerprint and counter before accepting the
   // state. Atomic replacement ensures a crash cannot leave a partial scope
@@ -394,9 +398,6 @@ void App::loadState() {
     saveFailures.push_back("scanner pairing token");
   }
   if (scannerReplayStateMigrationPending_) saveFailures.push_back("scanner replay state");
-  if (scannerReplayStateMigrationPending_) {
-    saveFailures.push_back("scanner replay state");
-  }
   if (activityLoadFailed) {
     activitySavePending_ = true;
     saveFailures.push_back("activity history (unreadable; original preserved)");
