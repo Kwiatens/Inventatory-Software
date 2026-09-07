@@ -17,6 +17,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include <winsock2.h>
 #include <windows.h>
@@ -37,6 +38,7 @@ constexpr size_t kMaxHttpHeaderBytes = 8U * 1024U;
 constexpr size_t kMaxHttpBodyBytes = 64U * 1024U;
 constexpr DWORD kClientIoTimeoutMs = 2000U;
 constexpr size_t kWorkerCount = 4;
+constexpr size_t kMaxQueuedClients = 16;
 
 string jsonEscape(const string& value) {
   ostringstream out;
@@ -79,39 +81,71 @@ string trimHttp(const string& value) {
   return value.substr(begin, end - begin);
 }
 
-string headerValue(const string& headers, const string& wantedName) {
+using HttpHeaderMap = unordered_map<string, string>;
+
+bool isHeaderNameCharacter(unsigned char ch) {
+  return isalnum(ch) != 0 || ch == '!' || ch == '#' || ch == '$' || ch == '%' || ch == '&' || ch == '\'' ||
+         ch == '*' || ch == '+' || ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' || ch == '|' ||
+         ch == '~';
+}
+
+bool parseHttpHeaders(const string& headers, string& method, string& target, string& version,
+                      HttpHeaderMap& values) {
+  values.clear();
+  for (size_t index = 0; index < headers.size(); ++index) {
+    if (headers[index] == '\n' && (index == 0 || headers[index - 1] != '\r')) return false;
+  }
   istringstream input(headers);
   string line;
-  const auto wanted = toLower(wantedName);
+  if (!getline(input, line)) return false;
+  if (!line.empty() && line.back() == '\r') line.pop_back();
+  istringstream requestLine(line);
+  string extra;
+  if (!(requestLine >> method >> target >> version) || (requestLine >> extra) || version != "HTTP/1.1") return false;
+  if (method.empty() || target.empty() || method.size() > 16 || target.size() > 256) return false;
+  for (const unsigned char ch : method) {
+    if (!isHeaderNameCharacter(ch)) return false;
+  }
+  for (const unsigned char ch : target) {
+    if (ch <= 0x20U || ch == 0x7fU || ch == '\r' || ch == '\n') return false;
+  }
+
   while (getline(input, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
     const auto separator = line.find(':');
-    if (separator == string::npos) continue;
-    if (toLower(trimHttp(line.substr(0, separator))) == wanted) {
-      return trimHttp(line.substr(separator + 1));
+    if (separator == string::npos || separator == 0 || separator > 128) return false;
+    const auto name = toLower(line.substr(0, separator));
+    for (const unsigned char ch : name) {
+      if (!isHeaderNameCharacter(ch)) return false;
     }
+    const auto value = trimHttp(line.substr(separator + 1));
+    for (const unsigned char ch : value) {
+      if ((ch < 0x20U && ch != '\t') || ch == 0x7fU) return false;
+    }
+    if (!values.emplace(name, value).second) return false;
   }
-  return {};
+  return !input.bad();
 }
 
-optional<size_t> contentLength(const string& headers) {
-  const auto value = headerValue(headers, "Content-Length");
-  if (value.empty()) {
-    return 0U;
+bool parseContentLength(const HttpHeaderMap& headers, size_t& length) {
+  const auto found = headers.find("content-length");
+  if (found == headers.end()) {
+    length = 0;
+    return true;
   }
-
-  size_t length = 0;
-  for (const unsigned char ch : value) {
-    if (!isdigit(ch) || length > (numeric_limits<size_t>::max() - (ch - '0')) / 10U) {
-      return nullopt;
-    }
+  if (found->second.empty()) return false;
+  length = 0;
+  for (const unsigned char ch : found->second) {
+    if (!isdigit(ch) || length > (numeric_limits<size_t>::max() - (ch - '0')) / 10U) return false;
     length = length * 10U + (ch - '0');
   }
-  return length;
+  return true;
 }
 
-optional<uint64_t> headerCounter(const string& headers) {
-  const auto value = headerValue(headers, "X-Inventatory-Counter");
+optional<uint64_t> headerCounter(const HttpHeaderMap& headers) {
+  const auto found = headers.find("x-inventatory-counter");
+  if (found == headers.end() || found->second.empty()) return nullopt;
+  const auto& value = found->second;
   if (value.empty()) return nullopt;
   uint64_t counter = 0;
   for (const unsigned char ch : value) {
@@ -156,6 +190,9 @@ bool loadReplayState(const filesystem::path& path, const string& fingerprint, ui
   const bool exists = filesystem::exists(path, existenceError);
   if (existenceError) return false;
   if (!exists) return true;
+  error_code sizeError;
+  const auto fileSize = filesystem::file_size(path, sizeError);
+  if (sizeError || fileSize > 256U) return false;
 
   ifstream input(path);
   if (!input) return false;
@@ -171,7 +208,8 @@ bool loadReplayState(const filesystem::path& path, const string& fingerprint, ui
     const auto key = line.substr(0, separator);
     const auto value = line.substr(separator + 1);
     if (key == "fingerprint") {
-      if (hasFingerprint || value.empty()) return false;
+      if (hasFingerprint || value.size() != 64 ||
+          any_of(value.begin(), value.end(), [](unsigned char ch) { return !isxdigit(ch); })) return false;
       storedFingerprint = value;
       hasFingerprint = true;
     } else if (key == "counter") {
@@ -195,26 +233,66 @@ bool loadReplayState(const filesystem::path& path, const string& fingerprint, ui
 }
 
 bool saveReplayState(const filesystem::path& path, const string& fingerprint, uint64_t counter) {
-  if (path.empty()) return false;
+  if (path.empty() || fingerprint.size() != 64 ||
+      any_of(fingerprint.begin(), fingerprint.end(), [](unsigned char ch) { return !isxdigit(ch); })) return false;
   error_code error;
   filesystem::create_directories(path.parent_path(), error);
   if (error) return false;
-  const auto temporary = filesystem::path(path.string() + ".tmp");
-  ofstream output(temporary, ios::trunc);
-  if (!output) return false;
-  output << "fingerprint=" << fingerprint << '\n' << "counter=" << counter << '\n';
-  output.close();
-  if (!output) return false;
+
+  const string contents = "fingerprint=" + fingerprint + '\n' + "counter=" + to_string(counter) + '\n';
+  static atomic<uint64_t> temporarySequence{0};
+  auto temporary = path;
+  temporary += L".tmp.";
+  temporary += to_wstring(GetCurrentProcessId());
+  temporary += L".";
+  temporary += to_wstring(GetCurrentThreadId());
+  temporary += L".";
+  temporary += to_wstring(temporarySequence.fetch_add(1, memory_order_relaxed));
 #ifdef _WIN32
-  if (MoveFileExA(temporary.string().c_str(), path.string().c_str(),
+  // CREATE_NEW prevents two writers from sharing a predictable temporary file.
+  // WRITE_THROUGH plus FlushFileBuffers makes a successful replacement durable
+  // enough for the existing replay invariant; the old state is untouched until
+  // the complete temporary file has been closed.
+  HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) return false;
+
+  bool success = contents.size() <= numeric_limits<DWORD>::max();
+  DWORD written = 0;
+  if (success) {
+    success = WriteFile(handle, contents.data(), static_cast<DWORD>(contents.size()), &written, nullptr) != 0 &&
+              written == contents.size();
+  }
+  if (success) success = FlushFileBuffers(handle) != 0;
+  if (CloseHandle(handle) == 0) success = false;
+  if (!success) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
+  if (MoveFileExW(temporary.c_str(), path.c_str(),
                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
     filesystem::remove(temporary, error);
     return false;
   }
   return true;
 #else
+  ofstream output(temporary, ios::binary);
+  if (!output) return false;
+  output.write(contents.data(), static_cast<streamsize>(contents.size()));
+  output.flush();
+  const bool success = output.good();
+  output.close();
+  if (!success || !output) {
+    filesystem::remove(temporary, error);
+    return false;
+  }
   filesystem::rename(temporary, path, error);
-  return !error;
+  const bool renamed = !error;
+  if (!renamed) {
+    error_code cleanupError;
+    filesystem::remove(temporary, cleanupError);
+  }
+  return renamed;
 #endif
 }
 
@@ -234,12 +312,16 @@ bool LocalHttpServer::start(uint16_t preferredPort, SyncCallback onSync) {
   }
   winsockStarted_ = true;
 
-  onSync_ = move(onSync);
+  {
+    lock_guard<mutex> lock(callbackMutex_);
+    onSync_ = move(onSync);
+  }
 
   const unsigned int lastCandidate = min(65535U, static_cast<unsigned int>(preferredPort) + 19U);
   for (unsigned int candidate = preferredPort; candidate <= lastCandidate; ++candidate) {
     if (bindSocket(static_cast<uint16_t>(candidate))) {
       running_.store(true);
+      acceptor_ = thread(&LocalHttpServer::acceptLoop, this);
       workers_.clear();
       workers_.reserve(kWorkerCount);
       for (size_t index = 0; index < kWorkerCount; ++index) {
@@ -260,12 +342,30 @@ bool LocalHttpServer::start(uint16_t preferredPort, SyncCallback onSync) {
 void LocalHttpServer::stop() {
   running_.store(false);
 
-  if (listenSocket_ != INVALID_SOCKET) {
-    shutdown(listenSocket_, SD_BOTH);
-    closesocket(listenSocket_);
+  SOCKET listeningSocket = INVALID_SOCKET;
+  {
+    lock_guard<mutex> lock(socketMutex_);
+    listeningSocket = listenSocket_;
     listenSocket_ = INVALID_SOCKET;
   }
+  if (listeningSocket != INVALID_SOCKET) {
+    shutdown(listeningSocket, SD_BOTH);
+    closesocket(listeningSocket);
+  }
 
+  if (acceptor_.joinable()) acceptor_.join();
+
+  // The acceptor has stopped, so no new socket can be added.  Close every
+  // queued socket before waking workers; only sockets already popped by a
+  // worker are allowed to finish their bounded I/O/callback work during
+  // shutdown.
+  deque<SOCKET> queuedClients;
+  {
+    lock_guard<mutex> lock(clientQueueMutex_);
+    queuedClients.swap(clientQueue_);
+  }
+  for (const auto client : queuedClients) closesocket(client);
+  clientQueueChanged_.notify_all();
   for (auto& worker : workers_) {
     if (worker.joinable()) worker.join();
   }
@@ -278,14 +378,26 @@ void LocalHttpServer::stop() {
 }
 
 void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path replayStatePath) {
+  // Rotation takes the credential operation lock first and only opportunistically
+  // takes callback serialization. If a callback is already running, waiting
+  // here could deadlock the application thread when that callback is waiting
+  // for the UI to process its request. In that case the epoch changes under
+  // replayMutex_; the stale callback can finish, but its replay commit and
+  // reservation release are rejected by the epoch check.
+  lock_guard<mutex> operationLock(credentialOperationMutex_);
+  unique_lock<mutex> callbackLock(callbackSerialMutex_, try_to_lock);
   const auto fingerprint = deviceTransportStateFingerprint(token);
+  bool deviceChanged = false;
   {
     lock_guard<mutex> lock(stateMutex_);
+    deviceChanged = !pairedDeviceId_.empty() && pairedDeviceId_ != deviceId;
     pairedDeviceId_ = move(deviceId);
     deviceToken_ = move(token);
   }
   lock_guard<mutex> lock(replayMutex_);
-  const bool pairingChanged = !replayStateFingerprint_.empty() && replayStateFingerprint_ != fingerprint;
+  ++credentialEpoch_;
+  const bool pairingChanged = deviceChanged ||
+                              (!replayStateFingerprint_.empty() && replayStateFingerprint_ != fingerprint);
   replayStatePath_ = move(replayStatePath);
   replayStateFingerprint_ = fingerprint;
   replayCounterInFlight_.reset();
@@ -305,14 +417,16 @@ bool LocalHttpServer::running() const {
 }
 
 uint16_t LocalHttpServer::port() const {
+  lock_guard<mutex> lock(stateMutex_);
   return port_;
 }
 
 string LocalHttpServer::baseUrl() const {
   const auto addresses = this->addresses();
   const auto host = addresses.empty() ? string("127.0.0.1") : addresses.front();
+  const auto servicePort = port();
   ostringstream out;
-  out << "http://" << host << ':' << port_;
+  out << "http://" << host << ':' << servicePort;
   return out.str();
 }
 
@@ -348,28 +462,67 @@ bool LocalHttpServer::bindSocket(uint16_t port) {
     return false;
   }
 
-  listenSocket_ = socketHandle;
-  port_ = port;
-  addresses_ = localAddresses();
+  {
+    lock_guard<mutex> lock(socketMutex_);
+    listenSocket_ = socketHandle;
+  }
+  {
+    lock_guard<mutex> lock(stateMutex_);
+    port_ = port;
+    addresses_ = localAddresses();
+  }
   return true;
 }
 
-void LocalHttpServer::workerLoop() {
+void LocalHttpServer::acceptLoop() {
   while (running_.load()) {
+    SOCKET listeningSocket = INVALID_SOCKET;
+    {
+      lock_guard<mutex> lock(socketMutex_);
+      listeningSocket = listenSocket_;
+    }
+    if (listeningSocket == INVALID_SOCKET) break;
     sockaddr_in clientAddress{};
     int clientSize = sizeof(clientAddress);
-    SOCKET client = accept(listenSocket_, reinterpret_cast<sockaddr*>(&clientAddress), &clientSize);
+    SOCKET client = accept(listeningSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientSize);
     if (client == INVALID_SOCKET) {
-      if (running_.load()) {
-        continue;
-      }
+      if (running_.load()) continue;
       break;
     }
-
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&kClientIoTimeoutMs),
                sizeof(kClientIoTimeoutMs));
     setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&kClientIoTimeoutMs),
                sizeof(kClientIoTimeoutMs));
+
+    bool queued = false;
+    {
+      lock_guard<mutex> lock(clientQueueMutex_);
+      if (running_.load() && clientQueue_.size() < kMaxQueuedClients) {
+        clientQueue_.push_back(client);
+        queued = true;
+      }
+    }
+    if (queued) {
+      clientQueueChanged_.notify_one();
+    } else {
+      closesocket(client);
+    }
+  }
+}
+
+void LocalHttpServer::workerLoop() {
+  while (true) {
+    SOCKET client = INVALID_SOCKET;
+    {
+      unique_lock<mutex> lock(clientQueueMutex_);
+      clientQueueChanged_.wait(lock, [this] { return !running_.load() || !clientQueue_.empty(); });
+      if (clientQueue_.empty()) {
+        if (!running_.load()) break;
+        continue;
+      }
+      client = clientQueue_.front();
+      clientQueue_.pop_front();
+    }
 
     string request;
     array<char, 4096> buffer{};
@@ -383,9 +536,16 @@ void LocalHttpServer::workerLoop() {
       const auto headerEnd = request.find("\r\n\r\n");
       if (headerEnd != string::npos && headerEnd > kMaxHttpHeaderBytes) break;
       if (headerEnd != string::npos && expectedSize == string::npos) {
-        const auto bodySize = contentLength(request.substr(0, headerEnd));
-        if (!bodySize || *bodySize > kMaxHttpBodyBytes) break;
-        expectedSize = headerEnd + 4 + *bodySize;
+        string method;
+        string target;
+        string version;
+        HttpHeaderMap headers;
+        size_t bodySize = 0;
+        if (!parseHttpHeaders(request.substr(0, headerEnd), method, target, version, headers) ||
+            !parseContentLength(headers, bodySize) || bodySize > kMaxHttpBodyBytes) {
+          break;
+        }
+        expectedSize = headerEnd + 4 + bodySize;
       }
       if (expectedSize != string::npos && request.size() >= expectedSize) break;
       if (request.size() > kMaxHttpHeaderBytes + kMaxHttpBodyBytes) break;
@@ -421,27 +581,29 @@ string LocalHttpServer::authenticatedResponseText(int status, uint64_t counter, 
   return out.str();
 }
 
-bool LocalHttpServer::reserveReplayCounter(uint64_t counter) {
+bool LocalHttpServer::reserveReplayCounter(uint64_t counter, uint64_t credentialEpoch) {
   lock_guard<mutex> lock(replayMutex_);
-  if (!replayStateValid_ || replayStateFingerprint_.empty() || replayCounterInFlight_.has_value() ||
-      counter <= lastAcceptedCounter_) {
+  if (credentialEpoch_ != credentialEpoch || !replayStateValid_ || replayStateFingerprint_.empty() ||
+      replayCounterInFlight_.has_value() || counter <= lastAcceptedCounter_) {
     return false;
   }
-  replayCounterInFlight_ = counter;
+  replayCounterInFlight_ = ReplayReservation{counter, credentialEpoch};
   return true;
 }
 
-void LocalHttpServer::releaseReplayCounter(uint64_t counter) {
+void LocalHttpServer::releaseReplayCounter(uint64_t counter, uint64_t credentialEpoch) {
   lock_guard<mutex> lock(replayMutex_);
-  if (replayCounterInFlight_.has_value() && *replayCounterInFlight_ == counter) {
+  if (replayCounterInFlight_.has_value() && replayCounterInFlight_->counter == counter &&
+      replayCounterInFlight_->credentialEpoch == credentialEpoch) {
     replayCounterInFlight_.reset();
   }
 }
 
-bool LocalHttpServer::advanceReplayCounter(uint64_t counter) {
+bool LocalHttpServer::advanceReplayCounter(uint64_t counter, uint64_t credentialEpoch) {
   lock_guard<mutex> lock(replayMutex_);
-  if (!replayStateValid_ || replayStateFingerprint_.empty() || !replayCounterInFlight_ ||
-      *replayCounterInFlight_ != counter || counter <= lastAcceptedCounter_) {
+  if (credentialEpoch_ != credentialEpoch || !replayStateValid_ || replayStateFingerprint_.empty() ||
+      !replayCounterInFlight_ || replayCounterInFlight_->counter != counter ||
+      replayCounterInFlight_->credentialEpoch != credentialEpoch || counter <= lastAcceptedCounter_) {
     return false;
   }
   if (!saveReplayState(replayStatePath_, replayStateFingerprint_, counter)) {
@@ -454,6 +616,18 @@ bool LocalHttpServer::advanceReplayCounter(uint64_t counter) {
   return true;
 }
 
+bool LocalHttpServer::sendAll(SOCKET clientSocket, const string& response) const {
+  size_t sent = 0;
+  while (sent < response.size()) {
+    const auto remaining = response.size() - sent;
+    const int chunk = static_cast<int>(min(remaining, static_cast<size_t>(numeric_limits<int>::max())));
+    const int written = send(clientSocket, response.data() + sent, chunk, 0);
+    if (written <= 0) return false;
+    sent += static_cast<size_t>(written);
+  }
+  return true;
+}
+
 bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   // Parse the first request line and route only the tiny local API surface.
   const auto headerEnd = requestText.find("\r\n\r\n");
@@ -462,26 +636,44 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   }
   if (headerEnd > kMaxHttpHeaderBytes) {
     const auto response = responseText("413 Payload Too Large", "text/plain; charset=utf-8", "Request too large");
-    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+    sendAll(clientSocket, response);
     return false;
   }
 
   const auto headers = requestText.substr(0, headerEnd);
   const auto body = requestText.substr(headerEnd + 4);
-  const auto declaredBodySize = contentLength(headers);
-  if (!declaredBodySize || *declaredBodySize > kMaxHttpBodyBytes || body.size() != *declaredBodySize) {
-    const auto response = responseText("400 Bad Request", "text/plain; charset=utf-8", "Invalid request body");
-    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
-    return false;
-  }
-  istringstream input(headers);
   string method;
   string target;
   string version;
-  input >> method >> target >> version;
-  (void)version;
+  HttpHeaderMap headerValues;
+  size_t declaredBodySize = 0;
+  if (!parseHttpHeaders(headers, method, target, version, headerValues) ||
+      !parseContentLength(headerValues, declaredBodySize) ||
+      headerValues.find("transfer-encoding") != headerValues.end()) {
+    const auto response = responseText("400 Bad Request", "text/plain; charset=utf-8", "Invalid request body");
+    sendAll(clientSocket, response);
+    return false;
+  }
+  if (declaredBodySize > kMaxHttpBodyBytes) {
+    const auto response = responseText("413 Payload Too Large", "text/plain; charset=utf-8", "Request body too large");
+    sendAll(clientSocket, response);
+    return false;
+  }
+  if (body.size() != declaredBodySize) {
+    const auto response = responseText("400 Bad Request", "text/plain; charset=utf-8", "Invalid request body");
+    sendAll(clientSocket, response);
+    return false;
+  }
 
   if (method == "POST" && target == "/api/v1/device/sync") {
+    // Capture credentials, reserve the counter, and acquire callback
+    // serialization as one operation. Holding callbackSerialMutex_ while the
+    // credential lock is released prevents rotation from crossing the gap
+    // between reservation and callback. The callback/replay path then runs
+    // without the credential lock, so an application callback can issue a
+    // nested duplicate request and have it rejected by the reservation check.
+    unique_lock<mutex> credentialLock(credentialOperationMutex_);
+    const auto credentialEpoch = credentialEpoch_;
     string expectedDevice;
     string expectedToken;
     {
@@ -489,20 +681,24 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       expectedDevice = pairedDeviceId_;
       expectedToken = deviceToken_;
     }
-    const auto deviceId = headerValue(headers, "X-Inventatory-Device");
-    const auto counter = headerCounter(headers);
-    const auto suppliedMac = headerValue(headers, "X-Inventatory-Mac");
-    const auto protocol = headerValue(headers, "X-Inventatory-Protocol");
+    const auto header = [&headerValues](const char* name) {
+      const auto found = headerValues.find(name);
+      return found == headerValues.end() ? string{} : found->second;
+    };
+    const auto deviceId = header("x-inventatory-device");
+    const auto counter = headerCounter(headerValues);
+    const auto suppliedMac = header("x-inventatory-mac");
+    const auto protocol = header("x-inventatory-protocol");
     if (protocol != to_string(kInventatoryScanTransportProtocolVersion) || deviceId.empty() || !counter ||
         !tokensMatch(deviceRequestMac(expectedToken, method, target, deviceId, *counter, body), suppliedMac)) {
       const auto response = responseText("401 Unauthorized", "application/json; charset=utf-8",
                                          statusResultJson(false, "Unauthorized device"));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+      sendAll(clientSocket, response);
       return false;
     }
     const auto reject = [&](int status, const string& error) {
       const auto response = authenticatedResponseText(status, *counter, expectedToken, statusResultJson(false, error));
-      send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+      sendAll(clientSocket, response);
       return false;
     };
     if (!expectedDevice.empty() && deviceId != expectedDevice) {
@@ -514,41 +710,53 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       return reject(error == "Unsupported protocol version" ? 426 : 400,
                     error.empty() ? "Device identity does not match the transport envelope" : error);
     }
-    if (!reserveReplayCounter(*counter)) {
+    if (!reserveReplayCounter(*counter, credentialEpoch)) {
       return reject(409, "Replayed or unavailable request counter");
     }
     DeviceSyncResponse syncResponse;
     bool syncSucceeded = false;
+    SyncCallback callback;
     {
-      lock_guard<mutex> lock(applicationMutex_);
-      syncSucceeded = onSync_ && onSync_(request, syncResponse, error);
+      lock_guard<mutex> lock(callbackMutex_);
+      callback = onSync_;
+    }
+    unique_lock<mutex> callbackLock(callbackSerialMutex_);
+    credentialLock.unlock();
+    try {
+      syncSucceeded = callback && callback(request, syncResponse, error);
+    } catch (...) {
+      // A malformed or unavailable application callback must become a
+      // retryable transport failure; a worker exception must never terminate
+      // the service process while a replay reservation is held.
+      syncSucceeded = false;
+      error = "Device sync service failed";
     }
     if (!syncSucceeded) {
-      releaseReplayCounter(*counter);
+      releaseReplayCounter(*counter, credentialEpoch);
       if (error.empty()) error = "Device sync service unavailable";
       return reject(503, error);
     }
     // Commit the replay marker only after the durable application callback has
     // succeeded. A callback failure releases the reservation so the R1 can retry;
     // marker persistence failure instead disables sync to avoid replaying a side effect.
-    if (!advanceReplayCounter(*counter)) {
+    if (!advanceReplayCounter(*counter, credentialEpoch)) {
       return reject(409, "Request completed but its replay marker could not be saved");
     }
     const auto responseBody = deviceSyncResponseJson(syncResponse);
     const auto response = authenticatedResponseText(200, *counter, expectedToken, responseBody);
-    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+    sendAll(clientSocket, response);
     return true;
   }
 
   if (target.rfind("/api/", 0) == 0) {
     const auto response = responseText("404 Not Found", "application/json; charset=utf-8",
                                        statusResultJson(false, "Unsupported device API route"));
-    send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+    sendAll(clientSocket, response);
     return false;
   }
 
   const auto response = responseText("404 Not Found", "text/plain; charset=utf-8", "Not found");
-  send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);
+  sendAll(clientSocket, response);
   return false;
 }
 

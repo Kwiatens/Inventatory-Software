@@ -1,9 +1,11 @@
 ﻿#include "core/Inventory.h"
+#include "App.h"
 #include "app/AppBootstrap.h"
 #include "app/AppSettings.h"
 #include "platform/UpdateService.h"
 #include "platform/StartupRegistration.h"
 #include "platform/Environment.h"
+#include "platform/DigiKeyApi.h"
 #include "core/InventoryInternals.h"
 #include "core/InventorySqlite.h"
 #include "core/InventoryTransfer.h"
@@ -35,8 +37,11 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <limits>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 
@@ -463,6 +468,29 @@ void testInventoryCommitHistory() {
   assert(commits.front().parentId.empty());
   assert(commits.front().message == "Initial inventory");
 
+  // Commit snapshots retain the pre-v1 structured encoding and must reject
+  // truncated or trailing records instead of silently dropping metadata.
+  {
+    const auto serialized = serializeItem(item);
+    InventoryItem restored;
+    assert(deserializeItemStrict(serialized, restored));
+    assert(restored.parameters.size() == item.parameters.size());
+    assert(restored.parameters[0].name == item.parameters[0].name);
+    assert(restored.parameters[0].value == item.parameters[0].value);
+    assert(restored.vendorMetadata.categoryPath == item.vendorMetadata.categoryPath);
+    assert(!deserializeItemStrict(serialized + " trailing", restored));
+    auto legacySerialized = serialized;
+    size_t prefix = 0;
+    while ((prefix = legacySerialized.find("v1:", prefix)) != string::npos) {
+      legacySerialized.replace(prefix, 3, "v2:");
+      prefix += 3;
+    }
+    assert(deserializeItemStrict(legacySerialized, restored));
+    assert(restored.parameters.size() == item.parameters.size());
+    assert(restored.parameters[0].name == item.parameters[0].name);
+    assert(restored.parameters[0].value == item.parameters[0].value);
+  }
+
   InventoryCommitDraft noOpDraft;
   noOpDraft.source = "manual";
   noOpDraft.message = "Should not be written";
@@ -587,7 +615,546 @@ void testInventoryCommitHistory() {
 #endif
 }
 
+void testSqliteSchemaMigrationAndValidation() {
+#ifdef _WIN32
+  const auto legacyPath = filesystem::temp_directory_path() / "inventatory-legacy-schema-test.db";
+  const auto invalidPath = filesystem::temp_directory_path() / "inventatory-invalid-schema-test.db";
+  error_code cleanupError;
+  filesystem::remove(legacyPath, cleanupError);
+  filesystem::remove(invalidPath, cleanupError);
+  const auto readBytes = [](const filesystem::path& path) {
+    ifstream input(path, ios::binary);
+    return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  };
+  const auto readUserVersion = [](SqliteConnection& connection) {
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db, "PRAGMA user_version", -1, &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    assert(sqliteApi().column_type(statement.stmt, 0) == SQLITE_INTEGER);
+    return sqliteApi().column_int64(statement.stmt, 0);
+  };
+  const auto readSchema = [](SqliteConnection& connection) {
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(
+               connection.db,
+               "SELECT name, sql FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name",
+               -1, &statement.stmt, nullptr) == SQLITE_OK);
+    string schema;
+    int stepResult = SQLITE_OK;
+    while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
+      if (!schema.empty()) schema += '|';
+      schema += sqliteText(statement.stmt, 0) + ':' + sqliteText(statement.stmt, 1);
+    }
+    assert(stepResult == SQLITE_DONE);
+    return schema;
+  };
+
+  {
+    SqliteConnection connection;
+    assert(openDatabase(legacyPath, connection));
+    assert(execSql(connection, R"SQL(
+      CREATE TABLE inventatory_items (
+        id TEXT PRIMARY KEY, part_name TEXT NOT NULL, manufacturer TEXT NOT NULL, category TEXT NOT NULL,
+        quantity INTEGER NOT NULL, reorder_threshold INTEGER NOT NULL, location TEXT NOT NULL,
+        tags TEXT NOT NULL, parameters TEXT NOT NULL, notes TEXT NOT NULL,
+        manufacturer_part_number TEXT NOT NULL, datasheet_url TEXT NOT NULL, enrichment_status TEXT NOT NULL,
+        last_updated INTEGER NOT NULL, inventatory_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,
+        machine_code TEXT NOT NULL DEFAULT '', rack_id TEXT NOT NULL DEFAULT '', rack_slot TEXT NOT NULL DEFAULT '',
+        rack_assignment TEXT NOT NULL DEFAULT 'automatic'
+      );
+      INSERT INTO inventatory_items
+        (id, part_name, manufacturer, category, quantity, reorder_threshold, location, tags, parameters, notes,
+         manufacturer_part_number, datasheet_url, enrichment_status, last_updated)
+      VALUES ('legacy-1', 'Legacy resistor', 'Acme', 'Resistors', 4, 1, '', '', '', '', 'LEGACY-SKU', '', 'synced', 1710000000);
+    )SQL"));
+    assert(ensureInventoryDatabaseSchema(connection));
+  }
+  {
+    const auto beforeBytes = readBytes(legacyPath);
+    {
+      SqliteConnection connection;
+      assert(openDatabaseReadOnly(legacyPath, connection));
+      const auto beforeVersion = readUserVersion(connection);
+      const auto beforeSchema = readSchema(connection);
+      string error;
+      assert(validateInventoryDatabase(connection, &error));
+      assert(readUserVersion(connection) == beforeVersion);
+      assert(readSchema(connection) == beforeSchema);
+      {
+        SqliteStatement statement;
+        assert(sqliteApi().prepare_v2(connection.db, "SELECT sku FROM inventatory_items WHERE id='legacy-1'", -1,
+                                      &statement.stmt, nullptr) == SQLITE_OK);
+        assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+        assert(sqliteText(statement.stmt, 0) == "LEGACY-SKU");
+      }
+    }
+    assert(readBytes(legacyPath) == beforeBytes);
+  }
+  {
+    SqliteConnection connection;
+    assert(openDatabase(legacyPath, connection));
+    assert(execSql(connection, "UPDATE inventatory_items SET quantity=2147483648 WHERE id='legacy-1'"));
+    string error;
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    assert(readUserVersion(connection) == kInventoryDatabaseSchemaVersion);
+    assert(execSql(connection, "UPDATE inventatory_items SET quantity=4, last_updated=-1 WHERE id='legacy-1'"));
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    assert(execSql(connection, "UPDATE inventatory_items SET last_updated=1710000000, quantity='invalid' WHERE id='legacy-1'"));
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+  }
+
+  const auto duplicatePath = filesystem::temp_directory_path() / "inventatory-duplicate-identifiers-test.db";
+  filesystem::remove(duplicatePath, cleanupError);
+  {
+    InventoryStore duplicate;
+    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1});
+    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1});
+    assert(!duplicate.save(duplicatePath));
+  }
+  filesystem::remove(duplicatePath, cleanupError);
+
+  {
+    const auto beforeBytes = readBytes(invalidPath);
+    string migratedBytes;
+    {
+      SqliteConnection connection;
+      assert(openDatabase(invalidPath, connection));
+      assert(execSql(connection, "CREATE TABLE inventatory_items (id TEXT PRIMARY KEY)"));
+      assert(execSql(connection, "INSERT INTO inventatory_items (id) VALUES ('preserved-row')"));
+      migratedBytes = readBytes(invalidPath);
+      const auto beforeVersion = readUserVersion(connection);
+      const auto beforeSchema = readSchema(connection);
+      string error;
+      assert(!ensureInventoryDatabaseSchema(connection, &error));
+      assert(readUserVersion(connection) == beforeVersion);
+      assert(readSchema(connection) == beforeSchema);
+    }
+    assert(readBytes(invalidPath) == migratedBytes);
+    assert(migratedBytes != beforeBytes);
+    {
+      SqliteConnection connection;
+      assert(openDatabaseReadOnly(invalidPath, connection));
+      SqliteStatement statement;
+      assert(sqliteApi().prepare_v2(connection.db, "SELECT id FROM inventatory_items", -1, &statement.stmt, nullptr) ==
+             SQLITE_OK);
+      assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+      assert(sqliteText(statement.stmt, 0) == "preserved-row");
+    }
+  }
+  {
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(invalidPath, connection));
+    assert(readUserVersion(connection) == 0);
+    string error;
+    assert(!validateInventoryDatabase(connection, &error));
+  }
+
+  {
+    const auto completionPath = filesystem::temp_directory_path() / "inventatory-device-event-completion-test.db";
+    filesystem::remove(completionPath, cleanupError);
+    InventoryStore original;
+    InventoryItem item;
+    item.id = "completion-item";
+    item.partName = "Completion part";
+    item.quantity = 1;
+    original.items().push_back(item);
+    assert(original.save(completionPath));
+
+    DeviceSyncRequest request;
+    request.protocolVersion = 1;
+    request.requestId = "completion-sync";
+    request.deviceId = "device-a";
+    request.events = {{"completion-event", "inventory.adjust", "completion-item", 1}};
+    DeviceSyncResponse response;
+    string error;
+    assert(acceptDeviceSyncEvents(completionPath, request, response, error));
+    const auto pendingCompletion = loadPendingDeviceSyncEvents(completionPath);
+    assert(pendingCompletion.size() == 1);
+    assert(pendingCompletion.front().deviceId == "device-a");
+
+    vector<InventoryCommit> commits;
+    assert(loadInventoryCommits(completionPath, commits));
+    const auto initialCommitCount = commits.size();
+
+    DeviceSyncResult mismatched;
+    mismatched.resultId = "completion-result-wrong-device";
+    mismatched.eventId = "completion-event";
+    mismatched.deviceId = "device-b";
+    mismatched.status = "completed";
+    mismatched.requestedDelta = 1;
+    mismatched.appliedDelta = 1;
+    mismatched.quantity = 2;
+    InventoryStore candidate = original;
+    candidate.items().front().quantity = 2;
+    assert(!completeDeviceSyncEvent(candidate, completionPath, mismatched, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    assert(commits.size() == initialCommitCount);
+    assert(loadPendingDeviceSyncEvents(completionPath).size() == 1);
+
+    DeviceSyncResult valid = mismatched;
+    valid.resultId = "completion-result";
+    valid.deviceId = "device-a";
+    assert(completeDeviceSyncEvent(candidate, completionPath, valid, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    // The first versioned write records both the original snapshot and the
+    // scanner mutation in the same transaction.
+    assert(commits.size() == initialCommitCount + 2);
+
+    // A completed event cannot be applied a second time, even if the result
+    // carries the correct device identity.  The failed update must roll back
+    // the snapshot rewrite and must not append another inventory commit.
+    assert(!completeDeviceSyncEvent(candidate, completionPath, valid, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    assert(commits.size() == initialCommitCount + 2);
+
+    DeviceSyncResult nonexistent = valid;
+    nonexistent.eventId = "no-such-event";
+    nonexistent.resultId = "no-such-result";
+    assert(!completeDeviceSyncEvent(candidate, completionPath, nonexistent, &original));
+    assert(loadInventoryCommits(completionPath, commits));
+    assert(commits.size() == initialCommitCount + 2);
+    filesystem::remove(completionPath, cleanupError);
+  }
+
+  filesystem::remove(legacyPath, cleanupError);
+  filesystem::remove(invalidPath, cleanupError);
+#endif
+}
+
+void testPackageGHardening() {
+#ifdef _WIN32
+  {
+    DigiKeyConfig baseline;
+    baseline.clientId = "client-id";
+    baseline.clientSecret = "client-secret";
+    baseline.accountId = "account-id";
+    baseline.site = "US";
+    baseline.language = "en";
+    baseline.currency = "USD";
+    assert(baseline.valid());
+
+    const vector<string DigiKeyConfig::*> headerFields = {
+        &DigiKeyConfig::clientId, &DigiKeyConfig::accountId, &DigiKeyConfig::site,
+        &DigiKeyConfig::language, &DigiKeyConfig::currency,
+    };
+    const vector<string> invalidValues = {"value\r\nnext", string("value") + '\t' + "next",
+                                          string("value") + '\x01' + "next", string("value") + '\x7f' + "next"};
+    for (const auto field : headerFields) {
+      for (const auto& value : invalidValues) {
+        auto invalid = baseline;
+        invalid.*field = value;
+        assert(!invalid.valid());
+      }
+    }
+    auto oversized = baseline;
+    oversized.clientId.assign(4097, 'x');
+    assert(!oversized.valid());
+    oversized = baseline;
+    oversized.clientSecret.assign(4097, 'x');
+    assert(!oversized.valid());
+  }
+
+  {
+    string error;
+    assert(validateDigiKeyJsonPayload(R"({"ok":true,"value":-0.25e+2,"text":"\\u20ac"})", &error));
+    assert(error.empty());
+
+    const vector<string> malformed = {
+        R"({"bad":"\q"})",
+        R"({"bad":"\u12g4"})",
+        R"({"bad":"\uD800"})",
+        R"({"bad":"\uDC00"})",
+        R"({"a":1,"a":2})",
+        R"({"number":01})",
+        R"({"number":1.})",
+        R"({"number":1e})",
+        R"({"number":-})",
+    };
+    for (const auto& payload : malformed) {
+      error.clear();
+      assert(!validateDigiKeyJsonPayload(payload, &error));
+      assert(!error.empty());
+    }
+
+    string deeplyNested = "0";
+    for (size_t index = 0; index < 66; ++index) deeplyNested = "{\"nested\":" + deeplyNested + "}";
+    assert(!validateDigiKeyJsonPayload(deeplyNested, &error));
+    assert(error.find("nesting") != string::npos);
+
+    const string oversizedNumber = "{\"number\":" + string(4097, '1') + "}";
+    assert(!validateDigiKeyJsonPayload(oversizedNumber, &error));
+    assert(error.find("number") != string::npos);
+
+    const string oversizedPayload(4U * 1024U * 1024U + 1U, ' ');
+    assert(!validateDigiKeyJsonPayload(oversizedPayload, &error));
+    assert(error.find("4 MiB") != string::npos);
+  }
+
+  {
+    string error;
+    const string oversizedField = "\"" + string(1024U * 1024U + 1U, 'x') + "\"\n";
+    assert(parseCsv(oversizedField, ',', error).empty());
+    assert(error.find("1 MiB") != string::npos);
+
+    string oversizedRow = "field";
+    for (size_t index = 0; index < 512; ++index) oversizedRow += ",x";
+    oversizedRow.push_back('\n');
+    assert(parseCsv(oversizedRow, ',', error).empty());
+    assert(error.find("too many fields") != string::npos);
+
+    string oversizedRows = "field\n";
+    oversizedRows.reserve(210000);
+    for (size_t index = 0; index < 100000; ++index) oversizedRows += "x\n";
+    assert(parseCsv(oversizedRows, ',', error).empty());
+    assert(error.find("too many rows") != string::npos);
+
+    const string oversizedText(25U * 1024U * 1024U + 1U, 'x');
+    assert(parseCsv(oversizedText, ',', error).empty());
+    assert(error.find("25 MiB") != string::npos);
+
+    const string duplicateQuantityCsv =
+        "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+        "123-ABC-ND,ABC-123,Acme,Overflow receipt,2147483647\n"
+        "123-ABC-ND,ABC-123,Acme,Overflow receipt,1\n";
+    const auto duplicateQuantity = parseDigiKeyCsvText(duplicateQuantityCsv, {});
+    assert(duplicateQuantity.ok);
+    assert(duplicateQuantity.candidates.size() == 1);
+    assert(duplicateQuantity.candidates.front().item.quantity == numeric_limits<int>::max());
+    assert(duplicateQuantity.candidates.front().warnings.size() == 1);
+
+    const auto oversizedDigiKey = parseDigiKeyCsvText(oversizedText, {});
+    assert(!oversizedDigiKey.ok);
+    assert(oversizedDigiKey.error.find("25 MiB") != string::npos);
+
+    const auto oversizedCsvPath = filesystem::temp_directory_path() / "inventatory-package-g-oversized.csv";
+    error_code fileError;
+    filesystem::remove(oversizedCsvPath, fileError);
+    {
+      ofstream output(oversizedCsvPath, ios::binary | ios::trunc);
+      output << 'x';
+    }
+    filesystem::resize_file(oversizedCsvPath, 25U * 1024U * 1024U + 1U, fileError);
+    assert(!fileError);
+    const auto oversizedCsvFile = loadDigiKeyCsvFile(oversizedCsvPath, {});
+    assert(!oversizedCsvFile.ok);
+    assert(oversizedCsvFile.error.find("25 MiB") != string::npos);
+    filesystem::remove(oversizedCsvPath, fileError);
+    assert(!fileError);
+  }
+
+  {
+    const string tooManyDesignators = [&] {
+      string value = "Designator,Designation\n\"";
+      for (size_t index = 0; index < 10001; ++index) {
+        if (index != 0) value.push_back(',');
+        value += "R" + to_string(index + 1);
+      }
+      value += "\",10k\n";
+      return value;
+    }();
+    const auto designatorResult = parseKicadBomText(tooManyDesignators, "bounded");
+    assert(!designatorResult.ok);
+    assert(any_of(designatorResult.warnings.begin(), designatorResult.warnings.end(),
+                  [](const string& warning) { return warning.find("too many designators") != string::npos; }));
+
+    const auto oversizedQuantity = parseKicadBomText(
+        "Designator,Designation,Quantity\nR1,10k,2147483648\n", "overflow");
+    assert(!oversizedQuantity.ok);
+    assert(!oversizedQuantity.warnings.empty());
+
+    const string oversizedText(25U * 1024U * 1024U + 1U, 'x');
+    const auto oversizedTextResult = parseKicadBomText(oversizedText, "oversized");
+    assert(!oversizedTextResult.ok);
+    assert(oversizedTextResult.error.find("25 MiB") != string::npos);
+
+    const auto oversizedBomPath = filesystem::temp_directory_path() / "inventatory-package-g-oversized-bom.csv";
+    error_code fileError;
+    filesystem::remove(oversizedBomPath, fileError);
+    {
+      ofstream output(oversizedBomPath, ios::binary | ios::trunc);
+      output << 'x';
+    }
+    filesystem::resize_file(oversizedBomPath, 25U * 1024U * 1024U + 1U, fileError);
+    assert(!fileError);
+    const auto oversizedBomFile = loadKicadBomFile(oversizedBomPath);
+    assert(!oversizedBomFile.ok);
+    assert(oversizedBomFile.error.find("25 MiB") != string::npos);
+    filesystem::remove(oversizedBomPath, fileError);
+    assert(!fileError);
+
+    const auto oversizedNumber = packageFromFootprint("JST_PH_999999999999999999999x999999999999999999999");
+    assert(oversizedNumber == "JST PH");
+    assert(packageFromFootprint("JST_PH_B8B-PH-K_1x08_P2.00mm") == "JST PH 8");
+
+    InventoryItem resistor;
+    resistor.id = "bom-overflow-resistor";
+    resistor.partName = "10k resistor 0603";
+    resistor.category = "Resistors";
+    resistor.quantity = numeric_limits<int>::max();
+    resistor.parameters = {{"Resistance", "10k"}, {"Package", "0603"}};
+    const vector<InventoryItem> items = {resistor};
+    BomLine line;
+    line.designators = {"R1"};
+    line.footprint = "R_0603_1608Metric";
+    line.designation = "10k";
+    line.quantityPerBoard = numeric_limits<int>::max();
+    KicadBomFile bom;
+    bom.ok = true;
+    bom.lines = {line, line};
+    const auto analysis = analyzeBom(bom, items, 2, {});
+    assert(analysis.matches.size() == 2);
+    assert(analysis.matches[0].needed == numeric_limits<int>::max());
+    assert(analysis.matches[1].needed == numeric_limits<int>::max());
+    assert(analysis.totalPieces == numeric_limits<int>::max());
+  }
+
+  {
+    assert(rackNumberFromCode("R") == 0);
+    assert(rackNumberFromCode("X12") == 0);
+    assert(rackNumberFromCode("R12x") == 0);
+    assert(rackNumberFromCode("R2147483648") == 0);
+    assert(rackNumberFromCode("R2147483647") == numeric_limits<int>::max());
+    assert(rackNumberFromCode("r0012") == 12);
+
+    InventoryStore normalized;
+    InventatoryRack rack;
+    rack.id = "rack-dimension-normalization";
+    rack.code = "R9";
+    rack.componentType = "Resistors";
+    rack.rows = numeric_limits<int>::max();
+    rack.columns = numeric_limits<int>::max();
+    normalized.racks().push_back(rack);
+
+    InventoryItem occupied;
+    occupied.id = "normalized-occupied";
+    occupied.rackId = rack.id;
+    occupied.rackSlot = " a1 ";
+    normalized.items().push_back(occupied);
+    InventoryItem invalidSlot = occupied;
+    invalidSlot.id = "normalized-invalid";
+    invalidSlot.rackSlot = "F1";
+    normalized.items().push_back(invalidSlot);
+    InventoryItem invalidColumn = occupied;
+    invalidColumn.id = "normalized-invalid-column";
+    invalidColumn.rackSlot = "A6";
+    normalized.items().push_back(invalidColumn);
+    assert(rackOccupiedSlotCount(normalized, normalized.racks().front()) == 1);
+    assert(itemAtRackSlot(normalized, rack.id, " A1 ") == &normalized.items().front());
+
+    InventoryItem automatic;
+    automatic.id = "normalized-automatic";
+    automatic.partName = "10k resistor";
+    automatic.category = "Resistors";
+    automatic.parameters = {{"Package", "0603"}};
+    automatic.rackId = rack.id;
+    automatic.rackSlot = " b2 ";
+    normalized.items().push_back(automatic);
+    assert(reconcileRackAssignment(normalized, normalized.items().back()));
+    assert(normalized.items().back().rackSlot == "B2");
+
+    string error;
+    assert(setManualRackLocation(normalized, normalized.items().back(), "r9-c3", error));
+    assert(normalized.items().back().rackSlot == "C3");
+    assert(!setManualRackLocation(normalized, normalized.items().back(), "r9-f1", error));
+    assert(!moveItemToRackSlot(normalized, normalized.items().back(), normalized.racks().front(), "A6", error));
+
+    InventoryStore noWrap;
+    InventatoryRack maxRack;
+    maxRack.id = "rack-max-code";
+    maxRack.code = "R2147483647";
+    maxRack.componentType = "Resistors";
+    maxRack.rows = 0;
+    maxRack.columns = 0;
+    noWrap.racks().push_back(maxRack);
+    InventoryItem pending;
+    pending.id = "rack-no-wrap";
+    pending.partName = "10k resistor";
+    pending.category = "Resistors";
+    pending.parameters = {{"Package", "0603"}};
+    noWrap.items().push_back(pending);
+    assert(!reconcileRackAssignment(noWrap, noWrap.items().back()));
+    assert(noWrap.racks().size() == 1);
+    assert(noWrap.items().back().rackAssignment == RackAssignmentMode::Automatic);
+    assert(noWrap.items().back().rackId.empty());
+  }
+
+  {
+    const auto path = filesystem::temp_directory_path() / "inventatory-package-g-quick-labels.conf";
+    error_code cleanupError;
+    filesystem::remove(path, cleanupError);
+    assert(!saveQuickLabels(path, {"label"}, 0));
+    assert(saveQuickLabels(path, {"label"}, numeric_limits<uint32_t>::max()));
+    vector<string> loaded;
+    uint32_t revision = 0;
+    assert(loadQuickLabels(path, loaded, revision));
+    assert(loaded == vector<string>({"label"}));
+    assert(revision == numeric_limits<uint32_t>::max());
+
+    const auto writeMalformed = [&](const string& contents) {
+      ofstream output(path, ios::binary | ios::trunc);
+      output << contents;
+      output.close();
+      loaded = {"preserved"};
+      revision = 7;
+      assert(!loadQuickLabels(path, loaded, revision));
+      assert(loaded == vector<string>({"preserved"}));
+      assert(revision == 7);
+    };
+    writeMalformed("quick_label_revision=0\n");
+    writeMalformed("quick_label_revision=4294967296\n");
+    writeMalformed("quick_label_revision=1 trailing-token\n");
+    writeMalformed("quick_label_revision=1\nquick_label_revision=2\n");
+    writeMalformed("quick_label_revision=1\nunknown=ignored\n");
+    writeMalformed("quick_label_revision=1\nmalformed record\n");
+    writeMalformed("quick_label_revision=1\nquick_label=\"unterminated\n");
+    filesystem::remove(path, cleanupError);
+  }
+#endif
+}
+
 int main() {
+  {
+    const auto first = advanceWorkspaceGeneration(0);
+    const auto second = advanceWorkspaceGeneration(first);
+    assert(first != 0);
+    assert(second != first);
+    assert(workspaceGenerationMatches(first, first));
+    assert(!workspaceGenerationMatches(second, first));
+    assert(!workspaceGenerationMatches(0, first));
+    assert(advanceWorkspaceGeneration(numeric_limits<WorkspaceGeneration>::max()) == 1);
+    assert(bomEnrichmentScopeMatches("project-a", "project-a", first, first, 7, 7));
+    assert(!bomEnrichmentScopeMatches("project-b", "project-a", first, first, 7, 7));
+    assert(!bomEnrichmentScopeMatches("project-a", "project-a", second, first, 7, 7));
+    assert(!bomEnrichmentScopeMatches("project-a", "project-a", first, first, 8, 7));
+    assert(!bomEnrichmentScopeMatches("", "project-a", first, first, 7, 7));
+    const DeviceQuickLabelPrintResult pending{"request-1", "pending", "queued", "poll again"};
+    const DeviceQuickLabelPrintResult completed{"request-1", "completed", "", "Label sent"};
+    const DeviceQuickLabelPrintResult failed{"request-1", "failed", "printer_failed", "Printer failed"};
+    assert(!quickLabelResultIsTerminal(pending));
+    assert(quickLabelResultIsTerminal(completed));
+    assert(quickLabelResultIsTerminal(failed));
+    assert(quickLabelResultMatchesRequest(pending, "request-1"));
+    assert(!quickLabelResultMatchesRequest(pending, "request-2"));
+    QuickLabelPrintCacheIdentity labelIdentity;
+    labelIdentity.request = {"request-1", 2, 3};
+    labelIdentity.deviceId = "r1-a";
+    labelIdentity.labelText = "GND";
+    labelIdentity.workspaceGeneration = first;
+    assert(quickLabelPrintCacheIdentityMatches(labelIdentity, labelIdentity));
+    auto changedLabelDevice = labelIdentity;
+    changedLabelDevice.deviceId = "r1-b";
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelDevice));
+    auto changedLabelRevision = labelIdentity;
+    changedLabelRevision.request.revision = 4;
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelRevision));
+    auto changedLabelPayload = labelIdentity;
+    changedLabelPayload.request.presetIndex = 3;
+    changedLabelPayload.labelText = "VCC";
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelPayload));
+    auto changedLabelWorkspace = labelIdentity;
+    changedLabelWorkspace.workspaceGeneration = second;
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelWorkspace));
+  }
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));
   assert(!onboardingRequired(false, true, 1));
@@ -611,6 +1178,53 @@ int main() {
     assert(missing);
   }
 
+  {
+    const string key = "release-readiness-scanner-scope-test-" +
+                       to_string(static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count()));
+    const auto scopeRoot = filesystem::temp_directory_path() / ("inventatory-scanner-scope-" + key);
+    const auto workspaceA = scopeRoot / "workspace-a";
+    const auto workspaceB = scopeRoot / "workspace-b";
+    error_code cleanupError;
+    filesystem::remove_all(scopeRoot, cleanupError);
+    assert(filesystem::create_directories(workspaceA));
+    assert(filesystem::create_directories(workspaceB));
+
+    // A legacy global target must never be implicitly visible through a new
+    // workspace scope.  The application migrates it only for an existing
+    // config with a completed device identity.
+    const auto legacyKey = key + "-legacy";
+    CredentialStore::erase(legacyKey);
+    CredentialStore::eraseForWorkspace(workspaceA, key);
+    CredentialStore::eraseForWorkspace(workspaceB, key);
+    assert(CredentialStore::write(legacyKey, "legacy-token"));
+    assert(!CredentialStore::readForWorkspace(workspaceA, key).has_value());
+    assert(!CredentialStore::readForWorkspace(workspaceB, key).has_value());
+
+    assert(CredentialStore::workspaceScopedKey(workspaceA, key) !=
+           CredentialStore::workspaceScopedKey(workspaceB, key));
+    assert(CredentialStore::writeForWorkspace(workspaceA, key, "workspace-a-token"));
+    assert(CredentialStore::writeForWorkspace(workspaceB, key, "workspace-b-token"));
+    const auto scopedA = CredentialStore::readForWorkspace(workspaceA, key);
+    const auto scopedB = CredentialStore::readForWorkspace(workspaceB, key);
+    assert(scopedA.has_value() && *scopedA == "workspace-a-token");
+    assert(scopedB.has_value() && *scopedB == "workspace-b-token");
+    assert(CredentialStore::readForWorkspace(workspaceA / "child" / "..", key).has_value());
+
+    const auto replayA = inventatoryScanReplayStatePath(workspaceA);
+    const auto replayB = inventatoryScanReplayStatePath(workspaceB);
+    assert(replayA != replayB);
+    assert(replayA.parent_path() == workspaceA);
+    assert(replayB.parent_path() == workspaceB);
+    assert(inventatoryScanReplayStatePath(workspaceA / "." / "nested" / "..") == replayA);
+    assert(inventatoryScanReplayStatePath({}).empty());
+
+    assert(CredentialStore::eraseForWorkspace(workspaceA, key));
+    assert(CredentialStore::eraseForWorkspace(workspaceB, key));
+    assert(CredentialStore::erase(legacyKey));
+    filesystem::remove_all(scopeRoot, cleanupError);
+    assert(!cleanupError);
+  }
+
 #ifdef _WIN32
   // The persistence tests below must exercise the statically linked, pinned
   // SQLite amalgamation rather than an ambient sqlite3.dll.
@@ -625,6 +1239,8 @@ int main() {
   testPhysicalValueMatching();
   testPhysicalValueSearchIntegration();
   testInventoryCommitHistory();
+  testSqliteSchemaMigrationAndValidation();
+  testPackageGHardening();
 
   {
     assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "test-value") == 0);
@@ -2136,6 +2752,70 @@ int main() {
   }
 
   {
+    // Printer configuration is replaced only after the complete temporary
+    // file has been written and flushed. A failed replacement must not damage
+    // the existing path, and malformed/oversized files must not be accepted.
+#ifdef _WIN32
+    const auto directory = filesystem::temp_directory_path() / L"inventatory-printer-\u017c\u00f3\u0142\u0107";
+#else
+    const auto directory = filesystem::temp_directory_path() / "inventatory-printer-config-test";
+#endif
+    error_code cleanupError;
+    filesystem::remove_all(directory, cleanupError);
+
+    const auto configPath = directory / "printer.conf";
+    const string configuredName = "Zebra " + string("\xCE\xBB") + " label printer";
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+    service.setConfiguredPrinter(configuredName);
+    assert(service.saveConfig(configPath));
+
+    LabelPrinterService loaded(make_unique<MockPrinterBackend>());
+    assert(loaded.loadConfig(configPath));
+    assert(loaded.configuredPrinter() == configuredName);
+
+    {
+      ofstream malformed(configPath, ios::binary | ios::trunc);
+      assert(malformed);
+      malformed << quoted(configuredName) << " trailing-data\n";
+      malformed.flush();
+      assert(malformed);
+    }
+    LabelPrinterService malformedService(make_unique<MockPrinterBackend>());
+    assert(!malformedService.loadConfig(configPath));
+    assert(!malformedService.hasConfiguredPrinter());
+
+    {
+      ofstream oversized(configPath, ios::binary | ios::trunc);
+      assert(oversized);
+      oversized << '"' << string(5000, 'x') << "\"\n";
+      oversized.flush();
+      assert(oversized);
+    }
+    assert(!malformedService.loadConfig(configPath));
+
+    // A directory at the destination makes the final atomic replacement fail
+    // after the temporary file has been written. It must remain intact.
+    const auto replacementFailurePath = directory / "existing-destination";
+    assert(filesystem::create_directory(replacementFailurePath, cleanupError));
+    assert(!service.saveConfig(replacementFailurePath));
+    assert(filesystem::is_directory(replacementFailurePath, cleanupError));
+    assert(!cleanupError);
+
+    // An unconfigured service still writes the valid empty configuration used
+    // by the normal first-run save path.
+    const auto emptyConfigPath = directory / "empty.conf";
+    LabelPrinterService empty(make_unique<MockPrinterBackend>());
+    assert(empty.saveConfig(emptyConfigPath));
+    ifstream emptyConfig(emptyConfigPath, ios::binary);
+    string emptyContents((istreambuf_iterator<char>(emptyConfig)), istreambuf_iterator<char>());
+    assert(emptyContents == "\"\"\n");
+    emptyConfig.close();
+
+    filesystem::remove_all(directory, cleanupError);
+    assert(!cleanupError);
+  }
+
+  {
     const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-http-test";
     error_code cleanupError;
     filesystem::remove_all(stateDirectory, cleanupError);
@@ -2150,6 +2830,43 @@ int main() {
       response.requestId = request.requestId;
       return true;
     };
+
+    // Workspace-bound replay files must not share counters. A fresh workspace
+    // with a newly scoped token rejects the previous workspace's token and can
+    // start its own counter sequence at one.
+    const auto workspaceA = stateDirectory / "workspace-a";
+    const auto workspaceB = stateDirectory / "workspace-b";
+    const auto replayA = inventatoryScanReplayStatePath(workspaceA);
+    const auto replayB = inventatoryScanReplayStatePath(workspaceB);
+    const string workspaceBToken = "222202030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    atomic<int> isolatedSyncCalls{0};
+    auto isolatedOnSync = [&isolatedSyncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response,
+                                               string&) {
+      ++isolatedSyncCalls;
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer workspaceServerA;
+    workspaceServerA.setDeviceCredentials(deviceId, token, replayA);
+    assert(workspaceServerA.start(19420, isolatedOnSync));
+    const auto workspaceAResponse = sendLocalHttpRequest(
+        workspaceServerA.port(), signedSyncRequest(token, deviceId, 7, body));
+    assert(workspaceAResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
+    workspaceServerA.stop();
+    assert(filesystem::exists(replayA));
+
+    LocalHttpServer workspaceServerB;
+    workspaceServerB.setDeviceCredentials(deviceId, workspaceBToken, replayB);
+    assert(workspaceServerB.start(19421, isolatedOnSync));
+    const auto oldWorkspaceRequest = sendLocalHttpRequest(
+        workspaceServerB.port(), signedSyncRequest(token, deviceId, 8, body));
+    assert(oldWorkspaceRequest.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
+    const auto workspaceBResponse = sendLocalHttpRequest(
+        workspaceServerB.port(), signedSyncRequest(workspaceBToken, deviceId, 1, body));
+    assert(workspaceBResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
+    workspaceServerB.stop();
+    assert(filesystem::exists(replayB));
+    assert(isolatedSyncCalls == 2);
 
     LocalHttpServer server;
     server.setDeviceCredentials(deviceId, token, replayState);
@@ -2167,6 +2884,14 @@ int main() {
     modifiedRequest.replace(firmwareVersion, 5, "9.9.9");
     const auto modified = sendLocalHttpRequest(server.port(), modifiedRequest);
     assert(modified.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
+    assert(syncCalls == 1);
+
+    auto duplicateLength = firstRequest;
+    const auto lengthEnd = duplicateLength.find("\r\n", duplicateLength.find("Content-Length:"));
+    assert(lengthEnd != string::npos);
+    duplicateLength.insert(lengthEnd + 2, "Content-Length: " + to_string(body.size()) + "\r\n");
+    const auto duplicateLengthResponse = sendLocalHttpRequest(server.port(), duplicateLength);
+    assert(duplicateLengthResponse.rfind("HTTP/1.1 400 Bad Request", 0) == 0);
     assert(syncCalls == 1);
 
     const auto replayed = sendLocalHttpRequest(server.port(), firstRequest);
@@ -2224,13 +2949,49 @@ int main() {
     assert(concurrentSyncCalls == 1);
     concurrentServer.stop();
 
+    const auto rotationReplayState = stateDirectory / "rotation-replay.state";
+    atomic<bool> rotationCallbackEntered{false};
+    atomic<bool> releaseRotationCallback{false};
+    atomic<bool> rotationFinished{false};
+    string rotationResponse;
+    auto rotationOnSync = [&](const DeviceSyncRequest& request, DeviceSyncResponse& response, string&) {
+      rotationCallbackEntered.store(true);
+      while (!releaseRotationCallback.load()) this_thread::sleep_for(chrono::milliseconds(1));
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer rotationServer;
+    rotationServer.setDeviceCredentials(deviceId, token, rotationReplayState);
+    assert(rotationServer.start(19461, rotationOnSync));
+    const auto rotationRequest = signedSyncRequest(token, deviceId, 200, body);
+    thread rotationRequestThread([&] { rotationResponse = sendLocalHttpRequest(rotationServer.port(), rotationRequest); });
+    for (int attempt = 0; attempt < 100 && !rotationCallbackEntered.load(); ++attempt) {
+      this_thread::sleep_for(chrono::milliseconds(5));
+    }
+    assert(rotationCallbackEntered.load());
+    thread credentialRotationThread([&] {
+      rotationServer.setDeviceCredentials(deviceId, rotatedToken, rotationReplayState);
+      rotationFinished.store(true);
+    });
+    for (int attempt = 0; attempt < 100 && !rotationFinished.load(); ++attempt) {
+      this_thread::sleep_for(chrono::milliseconds(5));
+    }
+    // Rotation must not wait for a callback that may itself be waiting for
+    // foreground/UI work. The in-flight request is invalidated by the epoch.
+    assert(rotationFinished.load());
+    releaseRotationCallback.store(true);
+    rotationRequestThread.join();
+    credentialRotationThread.join();
+    assert(rotationResponse.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    rotationServer.stop();
+
     const auto retryReplayState = stateDirectory / "retry-replay.state";
     atomic<int> retrySyncCalls{0};
     auto retryOnSync = [&retrySyncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response,
                                          string& error) {
+      (void)error;
       if (++retrySyncCalls == 1) {
-        error = "durable callback unavailable";
-        return false;
+        throw runtime_error("durable callback unavailable");
       }
       response.requestId = request.requestId;
       return true;
@@ -2247,6 +3008,33 @@ int main() {
     assert(retrySyncCalls == 2);
     retryServer.stop();
 
+    // A replay-marker write failure must fail closed after the durable
+    // callback, and the same counter must not invoke the callback again.
+    const auto replayFailureParent = stateDirectory / "replay-failure-parent";
+    {
+      ofstream parentFile(replayFailureParent, ios::binary | ios::trunc);
+      parentFile << "not a directory";
+    }
+    atomic<int> replayFailureSyncCalls{0};
+    auto replayFailureOnSync = [&replayFailureSyncCalls](const DeviceSyncRequest& request,
+                                                         DeviceSyncResponse& response, string&) {
+      ++replayFailureSyncCalls;
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer replayFailureServer;
+    replayFailureServer.setDeviceCredentials(deviceId, token, replayFailureParent / "replay.state");
+    assert(replayFailureServer.start(19481, replayFailureOnSync));
+    const auto markerFailure = sendLocalHttpRequest(
+        replayFailureServer.port(), signedSyncRequest(token, deviceId, 201, body));
+    assert(markerFailure.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(replayFailureSyncCalls == 1);
+    const auto markerFailureReplay = sendLocalHttpRequest(
+        replayFailureServer.port(), signedSyncRequest(token, deviceId, 201, body));
+    assert(markerFailureReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(replayFailureSyncCalls == 1);
+    replayFailureServer.stop();
+
     const auto corruptReplayState = stateDirectory / "corrupt-replay.state";
     {
       ofstream corrupt(corruptReplayState, ios::trunc);
@@ -2262,6 +3050,33 @@ int main() {
     assert(syncCalls == 3);
     corruptStateServer.stop();
 
+    const auto malformedFingerprintState = stateDirectory / "malformed-fingerprint.state";
+    {
+      ofstream malformed(malformedFingerprintState, ios::trunc);
+      malformed << "fingerprint=short\n"
+                << "counter=1\n";
+    }
+    LocalHttpServer malformedFingerprintServer;
+    malformedFingerprintServer.setDeviceCredentials(deviceId, rotatedToken, malformedFingerprintState);
+    assert(malformedFingerprintServer.start(19471, onSync));
+    const auto rejectedWithMalformedFingerprint = sendLocalHttpRequest(
+        malformedFingerprintServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
+    assert(rejectedWithMalformedFingerprint.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(syncCalls == 3);
+    malformedFingerprintServer.stop();
+
+    LocalHttpServer queuedStopServer;
+    queuedStopServer.setDeviceCredentials(deviceId, rotatedToken, stateDirectory / "queued-stop.state");
+    assert(queuedStopServer.start(19472, onSync));
+    vector<SOCKET> queuedSlowClients;
+    for (int index = 0; index < 20; ++index) queuedSlowClients.push_back(connectSlowLocalClient(queuedStopServer.port()));
+    this_thread::sleep_for(chrono::milliseconds(100));
+    const auto stopStarted = chrono::steady_clock::now();
+    queuedStopServer.stop();
+    const auto stopElapsed = chrono::steady_clock::now() - stopStarted;
+    for (const auto client : queuedSlowClients) closesocket(client);
+    assert(stopElapsed < chrono::seconds(4));
+
     filesystem::remove_all(stateDirectory, cleanupError);
   }
 
@@ -2274,17 +3089,51 @@ int main() {
     item.partName = "10k resistor";
     item.quantity = 5;
     store.items().push_back(item);
+    InventoryItem secondItem = item;
+    secondItem.id = "scan-r1-second-item";
+    secondItem.machineCode = "0003";
+    secondItem.partName = "1k resistor";
+    secondItem.quantity = 7;
+    store.items().push_back(secondItem);
 
     DeviceQuantityRequest request{"r1-a", "req-9", "0002", -2};
-    unordered_map<string, DeviceQuantityResult> cache;
+    unordered_map<string, DeviceQuantityCacheEntry> cache;
     deque<string> order;
-    const auto first = applyDeviceQuantityCached(store, request, cache, order);
-    const auto second = applyDeviceQuantityCached(store, request, cache, order);
+    const auto first = applyDeviceQuantityCached(store, request, 1, cache, order);
+    const auto second = applyDeviceQuantityCached(store, request, 1, cache, order);
     assert(first.ok);
     assert(second.ok);
     assert(first.appliedDelta == -2);
     assert(second.appliedDelta == -2);
     assert(store.items().front().quantity == 3);
+
+    auto changedDelta = request;
+    changedDelta.delta = -1;
+    const auto deltaResult = applyDeviceQuantityCached(store, changedDelta, 1, cache, order);
+    assert(deltaResult.ok);
+    assert(deltaResult.appliedDelta == -1);
+    assert(store.items().front().quantity == 2);
+
+    auto changedDevice = changedDelta;
+    changedDevice.deviceId = "r1-b";
+    const auto deviceResult = applyDeviceQuantityCached(store, changedDevice, 1, cache, order);
+    assert(deviceResult.ok);
+    assert(deviceResult.appliedDelta == -1);
+    assert(store.items().front().quantity == 1);
+
+    auto changedCode = changedDevice;
+    changedCode.code = "0003";
+    const auto codeResult = applyDeviceQuantityCached(store, changedCode, 1, cache, order);
+    assert(codeResult.ok);
+    assert(codeResult.item == "1k resistor");
+    assert(codeResult.appliedDelta == -1);
+    assert(store.items().back().quantity == 6);
+
+    auto changedWorkspace = request;
+    const auto workspaceResult = applyDeviceQuantityCached(store, changedWorkspace, 2, cache, order);
+    assert(workspaceResult.ok);
+    assert(workspaceResult.appliedDelta == -1);
+    assert(store.items().front().quantity == 0);
     assert(statusResultJson(false, "Unauthorized device").find("Unauthorized device") != string::npos);
   }
 
@@ -2351,6 +3200,24 @@ int main() {
         R"({"protocolVersion":99,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
         request, error));
     assert(error == "Unsupported protocol version");
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-malformed-array","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[1],"resultAcks":[]})",
+        request, error));
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-malformed-ack","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[1]})",
+        request, error));
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-duplicate-event","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":2,"events":[{"eventId":"same","type":"inventory.adjust","code":"0002","value":1},{"eventId":"same","type":"inventory.adjust","code":"0002","value":1}],"resultAcks":[]})",
+        request, error));
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-missing-comma","deviceId":"r1-a","firmwareVersion":"0.1.0" "mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
+        request, error));
+    string deeplyNested = R"({"protocolVersion":1,"requestId":"sync-deep","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"extra":)";
+    deeplyNested.append(33, '[');
+    deeplyNested += "0";
+    deeplyNested.append(33, ']');
+    deeplyNested += '}';
+    assert(!parseDeviceSyncRequestJson(deeplyNested, request, error));
 
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-device-sync-v1-test.db";
     filesystem::remove(databasePath);
@@ -2412,6 +3279,7 @@ int main() {
     assert(response.results.empty());
     const auto pending = loadPendingDeviceSyncEvents(databasePath);
     assert(pending.size() == 1);
+    assert(pending.front().deviceId == "r1-a");
 
     auto candidate = store;
     DeviceQuantityRequest quantityRequest{"r1-a", pending.front().eventId, pending.front().code,
@@ -2453,6 +3321,7 @@ int main() {
     assert(acceptDeviceSyncEvents(databasePath, request, response, error));
     assert(response.acceptedEventIds.size() == 1);
     assert(response.results.size() == 1);
+    assert(response.results.front().deviceId == "r1-a");
     assert(response.results.front().quantity == 7);
     InventoryStore reloaded;
     assert(reloaded.load(databasePath));
@@ -2623,6 +3492,110 @@ int main() {
   }
 
   {
+    // Small auxiliary files must validate before publication and preserve the
+    // last good bytes when a draft or final replacement is rejected.
+    const auto root = filesystem::temp_directory_path() / "inventatory-atomic-auxiliary-test";
+    error_code cleanupError;
+    filesystem::remove_all(root, cleanupError);
+    assert(!cleanupError);
+    assert(filesystem::create_directories(root));
+
+    const auto readBytes = [](const filesystem::path& path) {
+      ifstream input(path, ios::binary);
+      return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+    };
+
+    AppSettings original;
+    original.dataDirectory = root / "unicode-данные-测试";
+    original.printerQueue = "Queue";
+    const auto settingsPath = root / "settings.conf";
+    assert(saveAppSettings(settingsPath, original));
+    const auto settingsBytes = readBytes(settingsPath);
+
+    auto oversizedSettings = original;
+    oversizedSettings.printerQueue.assign(1025, 'x');
+    assert(!saveAppSettings(settingsPath, oversizedSettings));
+    assert(readBytes(settingsPath) == settingsBytes);
+
+    const auto replacementTarget = root / "replacement-target";
+    assert(filesystem::create_directory(replacementTarget));
+    assert(!saveAppSettings(replacementTarget, original));
+    assert(filesystem::is_directory(replacementTarget));
+
+    const auto quickPath = quickLabelsPath(original.dataDirectory);
+    const vector<string> labels = {"5V", "GND"};
+    assert(saveQuickLabels(quickPath, labels, 4));
+    const auto quickBytes = readBytes(quickPath);
+    auto tooManyLabels = labels;
+    tooManyLabels.resize(kQuickLabelPresetLimit + 1, "extra");
+    assert(!saveQuickLabels(quickPath, tooManyLabels, 4));
+    assert(readBytes(quickPath) == quickBytes);
+    assert(!saveQuickLabels(quickPath, {string(kQuickLabelPresetTextLimit + 1, 'x')}, 4));
+    assert(readBytes(quickPath) == quickBytes);
+
+    const auto malformedQuickPath = root / "malformed-quick-labels.conf";
+    {
+      ofstream malformed(malformedQuickPath, ios::binary | ios::trunc);
+      malformed << "quick_label=\"unterminated\n";
+    }
+    vector<string> preservedLabels = labels;
+    uint32_t preservedRevision = 4;
+    assert(!loadQuickLabels(malformedQuickPath, preservedLabels, preservedRevision));
+    assert(preservedLabels == labels);
+    assert(preservedRevision == 4);
+    {
+      ofstream oversized(malformedQuickPath, ios::binary | ios::trunc);
+      oversized << string(16U * 1024U + 1U, 'x');
+    }
+    assert(!loadQuickLabels(malformedQuickPath, preservedLabels, preservedRevision));
+
+    const auto activityPath = root / "activity.tsv";
+    const vector<ActivityEntry> activities = {{123, "scan", "unicode-данные-测试"}};
+    assert(saveActivities(activityPath, activities));
+    const auto activityBytes = readBytes(activityPath);
+    assert(!saveActivities(activityPath, {{123, "bad\nkind", "message"}}));
+    assert(readBytes(activityPath) == activityBytes);
+    const auto activityReplacementTarget = root / "activity-replacement-target";
+    assert(filesystem::create_directory(activityReplacementTarget));
+    assert(!saveActivities(activityReplacementTarget, activities));
+    assert(filesystem::is_directory(activityReplacementTarget));
+
+    AppSettings loadedSettings;
+    assert(loadAppSettings(settingsPath, loadedSettings));
+    assert(loadedSettings.dataDirectory == original.dataDirectory);
+    vector<string> loadedLabels;
+    uint32_t loadedRevision = 1;
+    assert(loadQuickLabels(quickPath, loadedLabels, loadedRevision));
+    assert(loadedLabels == labels);
+    assert(loadedRevision == 4);
+    vector<ActivityEntry> loadedActivities;
+    assert(loadActivities(activityPath, loadedActivities));
+    assert(loadedActivities.size() == activities.size());
+    assert(loadedActivities[0].timestamp == activities[0].timestamp);
+    assert(loadedActivities[0].kind == activities[0].kind);
+    {
+      ofstream trailingActivity(activityPath, ios::binary | ios::trunc);
+      trailingActivity << "123 \"scan\" \"valid prefix\" trailing-garbage\n";
+    }
+    loadedActivities.clear();
+    assert(!loadActivities(activityPath, loadedActivities));
+    assert(saveActivities(activityPath, activities));
+    assert(loadActivities(activityPath, loadedActivities));
+    assert(loadedActivities[0].message == activities[0].message);
+    {
+      ofstream malformed(activityPath, ios::binary | ios::trunc);
+      malformed << "123 \"scan\" \"unterminated\n";
+    }
+    const vector<ActivityEntry> preservedActivities = loadedActivities;
+    assert(!loadActivities(activityPath, loadedActivities));
+    assert(loadedActivities.size() == preservedActivities.size());
+    assert(loadedActivities[0].message == preservedActivities[0].message);
+
+    filesystem::remove_all(root, cleanupError);
+    assert(!cleanupError);
+  }
+
+  {
     const auto executablePath = L"C:\\Program Files\\Inventatory\\inventatory.exe";
     const auto launcherPath = buildBackgroundStartupLauncherPath(executablePath);
     assert(launcherPath == L"C:\\Program Files\\Inventatory\\inventatory-background.exe");
@@ -2656,7 +3629,6 @@ int main() {
     legacy.close();
     AppSettings loaded;
     assert(loadAppSettings(path, loaded));
-    assert(loaded.lowStockThreshold == kDefaultLowStockThreshold);
     assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] == 0x0D1010);
     assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)] == 0x70403B);
     error_code removeError;
@@ -2671,8 +3643,7 @@ int main() {
     invalid << "low_stock_threshold=0\n";
     invalid.close();
     AppSettings loaded;
-    assert(loadAppSettings(path, loaded));
-    assert(loaded.lowStockThreshold == kDefaultLowStockThreshold);
+    assert(!loadAppSettings(path, loaded));
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
@@ -2948,6 +3919,14 @@ int main() {
     assert(loaded.front().overrides == project.overrides);
     assert(loaded.front().enrichment == project.enrichment);
 
+    {
+      SqliteConnection connection;
+      assert(openDatabase(path, connection));
+      assert(execSql(connection, "UPDATE inventatory_bom_projects SET overrides='v1:malformed'"));
+    }
+    loaded.clear();
+    assert(!loadBomProjects(path, loaded));
+
     // Saving is a full snapshot, so an empty list clears the table.
     assert(saveBomProjects(path, {}));
     vector<BomProject> empty;
@@ -2959,16 +3938,18 @@ int main() {
 
   {
     const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
-    const auto backup = filesystem::temp_directory_path() / "inventatory-transfer-backup";
     const auto bundle = filesystem::temp_directory_path() / "inventatory-transfer-bundle";
     const auto restoreTarget = filesystem::temp_directory_path() / "inventatory-transfer-restore-target";
+    const auto invalidOptionalBundle = filesystem::temp_directory_path() / "inventatory-transfer-invalid-optional-bundle";
+    const auto invalidBomBundle = filesystem::temp_directory_path() / "inventatory-transfer-invalid-bom-bundle";
     const auto settingsPath = filesystem::temp_directory_path() / "inventatory-transfer-settings.conf";
     const auto targetSettingsPath = filesystem::temp_directory_path() / "inventatory-transfer-target-settings.conf";
     const auto csv = filesystem::temp_directory_path() / "inventatory-transfer-export.csv";
     error_code cleanupError;
     filesystem::remove_all(source, cleanupError);
-    filesystem::remove_all(backup, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
+    filesystem::remove_all(invalidOptionalBundle, cleanupError);
+    filesystem::remove_all(invalidBomBundle, cleanupError);
     filesystem::remove_all(restoreTarget, cleanupError);
     filesystem::remove(settingsPath, cleanupError);
     filesystem::remove(targetSettingsPath, cleanupError);
@@ -2998,7 +3979,7 @@ int main() {
     changedDraft.message = "Backup history fixture";
     assert(changedStore.saveWithCommit(source / "inventory.db", store, changedDraft));
     {
-      ofstream(source / "activity.tsv") << "test activity\n";
+      ofstream(source / "activity.tsv") << "1710000000 \"test\" \"test activity\"\n";
       ofstream(source / "quick_labels.conf") << "quick_label_revision=1\n";
     }
 
@@ -3008,26 +3989,55 @@ int main() {
     const string exportedText((istreambuf_iterator<char>(exported)), istreambuf_iterator<char>());
     assert(exportedText.find("Transfer resistor") != string::npos);
     assert(exportedText.find("Quantity") != string::npos);
-    assert(backupInventatoryData(source, backup, error));
-    assert(filesystem::exists(backup / "inventory.db"));
-    vector<InventoryCommit> backupCommits;
-    assert(loadInventoryCommits(backup / "inventory.db", backupCommits));
-    assert(backupCommits.size() == 2);
-    assert(filesystem::exists(backup / "activity.tsv"));
-    assert(filesystem::exists(backup / "quick_labels.conf"));
-
     AppSettings backupSettings;
     backupSettings.dataDirectory = source;
     backupSettings.completedOnboardingVersion = 1;
     assert(saveAppSettings(settingsPath, backupSettings));
-    assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
+    const bool bundleCreated = createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error);
+    if (!bundleCreated) cerr << "Backup creation failed: " << error << '\n';
+    assert(bundleCreated);
     assert(filesystem::exists(bundle / "manifest.tsv"));
     assert(filesystem::exists(bundle / "inventory.db"));
-    vector<InventoryCommit> bundleCommits;
-    assert(loadInventoryCommits(bundle / "inventory.db", bundleCommits));
-    assert(bundleCommits.size() == 2);
     assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
     assert(validateInventatoryBackup(bundle, error));
+    {
+      SqliteConnection bundleConnection;
+      assert(openDatabaseReadOnly(bundle / "inventory.db", bundleConnection));
+      SqliteStatement countStatement;
+      assert(sqliteApi().prepare_v2(bundleConnection.db,
+                                    "SELECT COUNT(*) FROM inventatory_inventory_commits", -1,
+                                    &countStatement.stmt, nullptr) == SQLITE_OK);
+      assert(sqliteApi().step(countStatement.stmt) == SQLITE_ROW);
+      assert(sqliteApi().column_int64(countStatement.stmt, 0) == 2);
+    }
+    {
+      ifstream snapshotInput(bundle / "inventory.db", ios::binary);
+      const string snapshotBytes((istreambuf_iterator<char>(snapshotInput)), istreambuf_iterator<char>());
+      assert(validateInventatoryBackup(bundle, error));
+      ifstream snapshotInputAgain(bundle / "inventory.db", ios::binary);
+      const string snapshotBytesAgain((istreambuf_iterator<char>(snapshotInputAgain)), istreambuf_iterator<char>());
+      assert(snapshotBytes == snapshotBytesAgain);
+    }
+    {
+      ofstream extra(bundle / "unexpected.txt", ios::binary);
+      extra << "must not be silently included";
+      extra.close();
+      assert(!validateInventatoryBackup(bundle, error));
+      filesystem::remove(bundle / "unexpected.txt", cleanupError);
+      assert(validateInventatoryBackup(bundle, error));
+    }
+    {
+      ifstream manifestInput(bundle / "manifest.tsv", ios::binary);
+      const string manifest((istreambuf_iterator<char>(manifestInput)), istreambuf_iterator<char>());
+      ofstream malformed(bundle / "manifest.tsv", ios::binary | ios::trunc);
+      malformed << manifest << "unknown\trow\n";
+      malformed.close();
+      assert(!validateInventatoryBackup(bundle, error));
+      ofstream restoredManifest(bundle / "manifest.tsv", ios::binary | ios::trunc);
+      restoredManifest << manifest;
+      restoredManifest.close();
+      assert(validateInventatoryBackup(bundle, error));
+    }
     filesystem::create_directories(restoreTarget);
     InventoryStore protectedStore;
     InventoryItem protectedItem;
@@ -3050,6 +4060,117 @@ int main() {
     filesystem::remove_all(bundle, cleanupError);
     assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
     assert(validateInventatoryBackup(bundle, error));
+    {
+      ofstream malformedQuickLabels(source / "quick_labels.conf", ios::trunc);
+      malformedQuickLabels << "quick_label_revision=1\nunknown=value\n";
+      malformedQuickLabels.close();
+      assert(!createInventatoryBackup(source, settingsPath, invalidOptionalBundle, "1.0.0", error));
+      assert(!filesystem::exists(invalidOptionalBundle));
+      ofstream validQuickLabels(source / "quick_labels.conf", ios::trunc);
+      validQuickLabels << "quick_label_revision=1\n";
+      validQuickLabels.close();
+    }
+    {
+      SqliteConnection malformedBomConnection;
+      assert(openDatabase(source / "inventory.db", malformedBomConnection));
+      assert(execSql(malformedBomConnection,
+                     "INSERT INTO inventatory_bom_projects "
+                     "(id,name,source_path,boards,created_at,last_opened,last_built,bom_text,overrides,enrichment) "
+                     "VALUES ('malformed-bom','Malformed BOM','',1,1710000000,1710000000,0,'R1','v1:malformed','')"));
+    }
+    assert(!createInventatoryBackup(source, settingsPath, invalidBomBundle, "1.0.0", error));
+    assert(!filesystem::exists(invalidBomBundle));
+    {
+      SqliteConnection cleanupBomConnection;
+      assert(openDatabase(source / "inventory.db", cleanupBomConnection));
+      assert(execSql(cleanupBomConnection, "DELETE FROM inventatory_bom_projects WHERE id='malformed-bom'"));
+    }
+    {
+      InventoryTransferTestHooks hooks;
+      hooks.renamePath = [](const filesystem::path& sourcePath, const filesystem::path& targetPath, string& injectedError) {
+        if (sourcePath.filename().u8string().find(".restore-staging-") != string::npos) {
+          injectedError = "injected activation failure";
+          return false;
+        }
+        error_code injectedFilesystemError;
+        filesystem::rename(sourcePath, targetPath, injectedFilesystemError);
+        if (injectedFilesystemError) {
+          injectedError = injectedFilesystemError.message();
+          return false;
+        }
+        return true;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      InventoryStore stillProtected;
+      assert(stillProtected.load(restoreTarget / "inventory.db"));
+      assert(stillProtected.items().front().id == "protected-restore-item");
+    }
+    {
+      InventoryTransferTestHooks hooks;
+      hooks.saveSettings = [](const filesystem::path&, const AppSettings&, string& injectedError) {
+        injectedError = "injected settings activation failure";
+        return false;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      InventoryStore stillProtected;
+      assert(stillProtected.load(restoreTarget / "inventory.db"));
+      assert(stillProtected.items().front().id == "protected-restore-item");
+    }
+    {
+      InventoryTransferTestHooks hooks;
+      bool replacementWorkspaceActive = false;
+      hooks.removeAll = [](const filesystem::path& path, string& injectedError) {
+        if (path.filename().u8string().find(".restore-old-data-") != string::npos) {
+          injectedError = "injected cleanup failure";
+          return false;
+        }
+        error_code injectedFilesystemError;
+        filesystem::remove_all(path, injectedFilesystemError);
+        if (injectedFilesystemError) {
+          injectedError = injectedFilesystemError.message();
+          return false;
+        }
+        return true;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks,
+                                       &replacementWorkspaceActive));
+      assert(replacementWorkspaceActive);
+      assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
+    }
+    {
+      // A failure after the settings backup has been created must clean that
+      // owned artifact along with staging, without touching the active data.
+      InventoryTransferTestHooks hooks;
+      bool settingsBackupCreated = false;
+      hooks.copyFile = [&targetSettingsPath, &settingsBackupCreated](const filesystem::path& sourcePath,
+                                                                       const filesystem::path& targetPath,
+                                                                       string& injectedError) {
+        error_code injectedFilesystemError;
+        filesystem::copy_file(sourcePath, targetPath, filesystem::copy_options::overwrite_existing,
+                              injectedFilesystemError);
+        if (injectedFilesystemError) {
+          injectedError = injectedFilesystemError.message();
+          return false;
+        }
+        if (sourcePath == targetSettingsPath) {
+          settingsBackupCreated = true;
+          injectedError = "injected settings-backup staging failure";
+          return false;
+        }
+        return true;
+      };
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      assert(settingsBackupCreated);
+      const auto targetJournal = targetSettingsPath.parent_path() /
+                                 filesystem::u8path(targetSettingsPath.filename().u8string() + ".restore-journal");
+      assert(!filesystem::exists(targetJournal));
+      for (const auto& entry : filesystem::directory_iterator(targetSettingsPath.parent_path())) {
+        assert(entry.path().filename().u8string().find(targetSettingsPath.filename().u8string() + ".restore-old-") != 0);
+      }
+      InventoryStore stillProtected;
+      assert(stillProtected.load(restoreTarget / "inventory.db"));
+      assert(stillProtected.items().front().id == "transfer-item");
+    }
     assert(restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error));
     InventoryStore restoredStore;
     assert(restoredStore.load(restoreTarget / "inventory.db"));
@@ -3060,14 +4181,290 @@ int main() {
     AppSettings restoredSettings;
     assert(loadAppSettings(targetSettingsPath, restoredSettings));
     assert(restoredSettings.dataDirectory == restoreTarget);
+    assert(!filesystem::exists(restoreTarget / "manifest.tsv"));
+    assert(!filesystem::exists(restoreTarget / "settings.conf"));
+
+    // If the protected old directory disappears before rollback, the active
+    // destination must remain intact rather than being deleted blindly.
+    const auto missingOldTarget = filesystem::temp_directory_path() / "inventatory-transfer-missing-old-target";
+    const auto missingOldSettings = filesystem::temp_directory_path() / "inventatory-transfer-missing-old-settings.conf";
+    filesystem::remove_all(missingOldTarget, cleanupError);
+    filesystem::remove(missingOldSettings, cleanupError);
+    filesystem::create_directories(missingOldTarget);
+    InventoryStore missingOldProtected;
+    InventoryItem missingOldItem;
+    missingOldItem.id = "protected-missing-old";
+    missingOldItem.partName = "Protected missing-old item";
+    missingOldProtected.items().push_back(missingOldItem);
+    assert(missingOldProtected.save(missingOldTarget / "inventory.db"));
+    AppSettings missingOldAppSettings;
+    missingOldAppSettings.dataDirectory = missingOldTarget;
+    assert(saveAppSettings(missingOldSettings, missingOldAppSettings));
+    InventoryTransferTestHooks missingOldHooks;
+    missingOldHooks.saveSettings = [missingOldTarget](const filesystem::path&, const AppSettings&, string& injectedError) {
+      error_code removeError;
+      for (const auto& entry : filesystem::directory_iterator(missingOldTarget.parent_path(), removeError)) {
+        if (removeError) break;
+        if (entry.path().filename().u8string().find(missingOldTarget.filename().u8string() + ".restore-old-data-") == 0) {
+          filesystem::remove_all(entry.path(), removeError);
+          break;
+        }
+      }
+      injectedError = "injected settings activation failure after old-data loss";
+      return false;
+    };
+    assert(!restoreInventatoryBackup(bundle, missingOldTarget, missingOldSettings, error, &missingOldHooks));
+    InventoryStore stillActiveAfterLostRollback;
+    assert(stillActiveAfterLostRollback.load(missingOldTarget / "inventory.db"));
+    assert(stillActiveAfterLostRollback.items().front().id == "transfer-item");
+    assert(!recoverInventatoryRestore(missingOldTarget, missingOldSettings, error));
+    filesystem::remove_all(missingOldTarget, cleanupError);
+    filesystem::remove(missingOldSettings, cleanupError);
+    filesystem::remove(missingOldSettings.parent_path() /
+                           filesystem::u8path(missingOldSettings.filename().u8string() + ".restore-journal"),
+                       cleanupError);
+
+    const auto preparedTarget = filesystem::temp_directory_path() / "inventatory-transfer-prepared-target";
+    const auto preparedSettings = filesystem::temp_directory_path() / "inventatory-transfer-prepared-settings.conf";
+    filesystem::remove_all(preparedTarget, cleanupError);
+    filesystem::remove(preparedSettings, cleanupError);
+    filesystem::create_directories(preparedTarget);
+    InventoryStore preparedStore;
+    InventoryItem preparedItem;
+    preparedItem.id = "prepared-protected";
+    preparedItem.partName = "Prepared protected item";
+    preparedStore.items().push_back(preparedItem);
+    assert(preparedStore.save(preparedTarget / "inventory.db"));
+    AppSettings preparedAppSettings;
+    preparedAppSettings.dataDirectory = preparedTarget;
+    assert(saveAppSettings(preparedSettings, preparedAppSettings));
+    InventoryTransferTestHooks preparedHooks;
+    preparedHooks.copyFile = [](const filesystem::path&, const filesystem::path&, string& injectedError) {
+      injectedError = "injected staging copy failure";
+      return false;
+    };
+    preparedHooks.removeAll = [](const filesystem::path& path, string& injectedError) {
+      if (path.filename().u8string().find(".restore-staging-") != string::npos) {
+        injectedError = "injected staging cleanup failure";
+        return false;
+      }
+      error_code removeError;
+      filesystem::remove_all(path, removeError);
+      if (removeError) {
+        injectedError = removeError.message();
+        return false;
+      }
+      return true;
+    };
+    assert(!restoreInventatoryBackup(bundle, preparedTarget, preparedSettings, error, &preparedHooks));
+    InventoryStore preparedStillProtected;
+    assert(preparedStillProtected.load(preparedTarget / "inventory.db"));
+    assert(preparedStillProtected.items().front().id == "prepared-protected");
+    assert(recoverInventatoryRestore(preparedTarget, preparedSettings, error));
+    filesystem::remove_all(preparedTarget, cleanupError);
+    filesystem::remove(preparedSettings, cleanupError);
+
+    // Online backup must capture the last committed WAL state without waiting
+    // for or including a writer's uncommitted transaction.
+    const auto liveBundle = filesystem::temp_directory_path() / "inventatory-transfer-live-bundle";
+    filesystem::remove_all(liveBundle, cleanupError);
+    SqliteConnection liveConnection;
+    assert(openDatabase(source / "inventory.db", liveConnection));
+    assert(execSql(liveConnection, "PRAGMA journal_mode=WAL"));
+    assert(execSql(liveConnection, "BEGIN IMMEDIATE"));
+    assert(execSql(liveConnection, "UPDATE inventatory_items SET quantity=999 WHERE id='transfer-item'"));
+    assert(createInventatoryBackup(source, settingsPath, liveBundle, "1.0.0", error));
+    InventoryStore liveSnapshot;
+    assert(liveSnapshot.load(liveBundle / "inventory.db"));
+    assert(liveSnapshot.items().front().quantity == 13);
+    assert(execSql(liveConnection, "ROLLBACK"));
+    filesystem::remove_all(liveBundle, cleanupError);
 
     filesystem::remove_all(source, cleanupError);
-    filesystem::remove_all(backup, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
     filesystem::remove_all(restoreTarget, cleanupError);
     filesystem::remove(settingsPath, cleanupError);
     filesystem::remove(targetSettingsPath, cleanupError);
     filesystem::remove(csv, cleanupError);
+  }
+
+  {
+    const auto root = filesystem::temp_directory_path();
+    const auto emptySource = root / "inventatory-transfer-empty-source";
+    const auto emptyBundle = root / "inventatory-transfer-empty-bundle";
+    const auto noSchemaSource = root / "inventatory-transfer-no-schema-source";
+    const auto noSchemaBundle = root / "inventatory-transfer-no-schema-bundle";
+    const auto invalidBundle = root / "inventatory-transfer-invalid-bundle";
+    const auto foreignBundle = root / "inventatory-transfer-foreign-bundle";
+    const auto malformedBundle = root / "inventatory-transfer-malformed-bundle";
+    const auto missingBundle = root / "inventatory-transfer-missing-bundle";
+    const auto unicodeSource = root / filesystem::u8path("inventatory-transfer-źródło");
+    const auto unicodeBundle = root / filesystem::u8path("inventatory-transfer-kopia-保存");
+    const auto emptySettingsPath = root / "inventatory-transfer-empty-settings.conf";
+    const auto noSchemaSettingsPath = root / "inventatory-transfer-no-schema-settings.conf";
+    const auto unicodeSettingsPath = root / filesystem::u8path("inventatory-transfer-ustawienia-保存.conf");
+    error_code cleanupError;
+    const vector<filesystem::path> cleanupPaths = {emptySource,       emptyBundle,       noSchemaSource,
+                                                   noSchemaBundle,     invalidBundle,     foreignBundle,
+                                                   malformedBundle,    missingBundle,     unicodeSource,
+                                                   unicodeBundle,      emptySettingsPath, noSchemaSettingsPath,
+                                                   unicodeSettingsPath};
+    for (const auto& path : cleanupPaths) filesystem::remove_all(path, cleanupError);
+    filesystem::create_directories(emptySource);
+    InventoryStore emptyStore;
+    assert(emptyStore.save(emptySource / "inventory.db"));
+    AppSettings emptySettings;
+    emptySettings.dataDirectory = emptySource;
+    emptySettings.completedOnboardingVersion = 1;
+    assert(saveAppSettings(emptySettingsPath, emptySettings));
+    string error;
+    const auto nestedDestination = emptySource / "unsafe-backup";
+    assert(!createInventatoryBackup(emptySource, emptySettingsPath, nestedDestination, "1.0.0", error));
+    assert(createInventatoryBackup(emptySource, emptySettingsPath, emptyBundle, "1.0.0", error));
+    assert(validateInventatoryBackup(emptyBundle, error));
+    assert(!restoreInventatoryBackup(emptyBundle, emptyBundle, emptySettingsPath, error));
+
+    // A readable SQLite file without the Inventatory schema is rejected by
+    // the staged public backup workflow, and the source is not modified.
+    filesystem::create_directories(noSchemaSource);
+    {
+      SqliteConnection noSchemaConnection;
+      assert(openDatabase(noSchemaSource / "inventory.db", noSchemaConnection));
+      assert(execSql(noSchemaConnection, "CREATE TABLE foreign_table(value TEXT)"));
+    }
+    AppSettings noSchemaSettings;
+    noSchemaSettings.dataDirectory = noSchemaSource;
+    noSchemaSettings.completedOnboardingVersion = 1;
+    assert(saveAppSettings(noSchemaSettingsPath, noSchemaSettings));
+    ifstream noSchemaBefore(noSchemaSource / "inventory.db", ios::binary);
+    const string noSchemaBytesBefore((istreambuf_iterator<char>(noSchemaBefore)), istreambuf_iterator<char>());
+    assert(!createInventatoryBackup(noSchemaSource, noSchemaSettingsPath, noSchemaBundle, "1.0.0", error));
+    ifstream noSchemaAfter(noSchemaSource / "inventory.db", ios::binary);
+    const string noSchemaBytesAfter((istreambuf_iterator<char>(noSchemaAfter)), istreambuf_iterator<char>());
+    assert(noSchemaBytesBefore == noSchemaBytesAfter);
+    assert(!filesystem::exists(noSchemaBundle));
+
+    const auto rewriteInventoryManifest = [](const filesystem::path& bundle, uintmax_t size, const string& hash) {
+      ifstream input(bundle / "manifest.tsv", ios::binary);
+      const string original((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+      const string prefix = "file\tinventory.db\t";
+      const auto start = original.find(prefix);
+      if (start == string::npos) return false;
+      const auto end = original.find('\n', start);
+      const string replacement = prefix + to_string(size) + '\t' + hash;
+      string rewritten = original.substr(0, start) + replacement;
+      if (end != string::npos) rewritten += original.substr(end);
+      ofstream output(bundle / "manifest.tsv", ios::binary | ios::trunc);
+      output << rewritten;
+      output.close();
+      return static_cast<bool>(output);
+    };
+    const string emptyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    const string foreignHash = "656771905e1ef731f65cd0a0d9fb061238380a1a012e6abdf846ecc7d2ea36fd";
+    filesystem::copy(emptyBundle, invalidBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    ofstream zeroDatabase(invalidBundle / "inventory.db", ios::binary | ios::trunc);
+    zeroDatabase.close();
+    assert(rewriteInventoryManifest(invalidBundle, 0, emptyHash));
+    ifstream zeroBefore(invalidBundle / "inventory.db", ios::binary);
+    const string zeroBytesBefore((istreambuf_iterator<char>(zeroBefore)), istreambuf_iterator<char>());
+    assert(!validateInventatoryBackup(invalidBundle, error));
+    ifstream zeroAfter(invalidBundle / "inventory.db", ios::binary);
+    const string zeroBytesAfter((istreambuf_iterator<char>(zeroAfter)), istreambuf_iterator<char>());
+    assert(zeroBytesBefore == zeroBytesAfter);
+
+    filesystem::copy(emptyBundle, foreignBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    ofstream foreignDatabase(foreignBundle / "inventory.db", ios::binary | ios::trunc);
+    foreignDatabase << "foreign";
+    foreignDatabase.close();
+    assert(rewriteInventoryManifest(foreignBundle, 7, foreignHash));
+    ifstream foreignBefore(foreignBundle / "inventory.db", ios::binary);
+    const string foreignBytesBefore((istreambuf_iterator<char>(foreignBefore)), istreambuf_iterator<char>());
+    assert(!validateInventatoryBackup(foreignBundle, error));
+    ifstream foreignAfter(foreignBundle / "inventory.db", ios::binary);
+    const string foreignBytesAfter((istreambuf_iterator<char>(foreignAfter)), istreambuf_iterator<char>());
+    assert(foreignBytesBefore == foreignBytesAfter);
+
+    filesystem::copy(emptyBundle, malformedBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    ifstream manifestInput(malformedBundle / "manifest.tsv", ios::binary);
+    const string validManifest((istreambuf_iterator<char>(manifestInput)), istreambuf_iterator<char>());
+    const vector<string> badRows = {"inventatory_backup_format\t1\n", "application_version\t1.0.0\n",
+                                    "file\tactivity.tsv\tnot-a-size\t" + string(64, '0') + "\n",
+                                    "file\tinventory.db\t0\tbad\n", "file\tinventory.db\t0\t" + emptyHash + "\n"};
+    for (const auto& badRow : badRows) {
+      ofstream output(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+      output << validManifest << badRow;
+      output.close();
+      assert(!validateInventatoryBackup(malformedBundle, error));
+    }
+    ofstream restoreManifest(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+    restoreManifest << validManifest;
+    restoreManifest.close();
+    string uppercaseManifest = validManifest;
+    size_t lineStart = 0;
+    while (lineStart < uppercaseManifest.size()) {
+      const auto lineEnd = uppercaseManifest.find('\n', lineStart);
+      const auto end = lineEnd == string::npos ? uppercaseManifest.size() : lineEnd;
+      if (uppercaseManifest.compare(lineStart, 5, "file\t") == 0) {
+        const auto hashStart = uppercaseManifest.rfind('\t', end == 0 ? 0 : end - 1);
+        if (hashStart != string::npos && hashStart >= lineStart) {
+          transform(uppercaseManifest.begin() + static_cast<ptrdiff_t>(hashStart + 1),
+                    uppercaseManifest.begin() + static_cast<ptrdiff_t>(end), uppercaseManifest.begin() +
+                    static_cast<ptrdiff_t>(hashStart + 1),
+                    [](unsigned char ch) { return static_cast<char>(toupper(ch)); });
+        }
+      }
+      if (lineEnd == string::npos) break;
+      lineStart = lineEnd + 1;
+    }
+    ofstream uppercaseOutput(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+    uppercaseOutput << uppercaseManifest;
+    uppercaseOutput.close();
+    assert(validateInventatoryBackup(malformedBundle, error));
+    ofstream restoreManifestAgain(malformedBundle / "manifest.tsv", ios::binary | ios::trunc);
+    restoreManifestAgain << validManifest;
+    restoreManifestAgain.close();
+    filesystem::copy(emptyBundle, missingBundle, filesystem::copy_options::recursive, cleanupError);
+    assert(!cleanupError);
+    filesystem::remove(missingBundle / "settings.conf", cleanupError);
+    assert(!validateInventatoryBackup(missingBundle, error));
+
+    ofstream secret(emptySource / "inventatory_scan.conf", ios::binary);
+    secret << "token=must-not-leak";
+    secret.close();
+    const auto secretBundle = root / "inventatory-transfer-secret-bundle";
+    filesystem::remove_all(secretBundle, cleanupError);
+    assert(createInventatoryBackup(emptySource, emptySettingsPath, secretBundle, "1.0.0", error));
+    assert(!filesystem::exists(secretBundle / "inventatory_scan.conf"));
+    InventoryTransferTestHooks copyFailureHooks;
+    copyFailureHooks.copyFile = [](const filesystem::path&, const filesystem::path&, string& injectedError) {
+      injectedError = "injected copy failure";
+      return false;
+    };
+    const auto failedBundle = root / "inventatory-transfer-failed-bundle";
+    filesystem::remove_all(failedBundle, cleanupError);
+    ofstream optionalFile(emptySource / "activity.tsv", ios::binary);
+    optionalFile << "activity";
+    optionalFile.close();
+    assert(!createInventatoryBackup(emptySource, emptySettingsPath, failedBundle, "1.0.0", error,
+                                    &copyFailureHooks));
+    assert(!filesystem::exists(failedBundle));
+
+    filesystem::create_directories(unicodeSource);
+    InventoryStore unicodeStore;
+    assert(unicodeStore.save(unicodeSource / "inventory.db"));
+    AppSettings unicodeSettings;
+    unicodeSettings.dataDirectory = unicodeSource;
+    unicodeSettings.completedOnboardingVersion = 1;
+    assert(saveAppSettings(unicodeSettingsPath, unicodeSettings));
+    assert(createInventatoryBackup(unicodeSource, unicodeSettingsPath, unicodeBundle, "1.0.0", error));
+    assert(validateInventatoryBackup(unicodeBundle, error));
+
+    for (const auto& path : cleanupPaths) filesystem::remove_all(path, cleanupError);
+    filesystem::remove_all(secretBundle, cleanupError);
+    filesystem::remove_all(failedBundle, cleanupError);
   }
 
   {
@@ -3097,6 +4494,7 @@ int main() {
     assert(acceptDeviceSyncEvents(path, request, response, error));
     const auto pending = loadPendingDeviceSyncEvents(path);
     assert(pending.size() == 1);
+    assert(pending.front().deviceId == "r1-recovery");
 
     DeviceSyncResult failed;
     failed.resultId = "recovery-event-result";

@@ -41,23 +41,7 @@ vector<App::Action> App::currentActions() const {
   const bool hasItem = selectedItem() != nullptr;
 
   auto reloadInventory = [self] {
-    if (!self->store_.load(self->inventoryPath_)) {
-      self->persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
-      self->setMessage(self->persistenceError_, 5);
-      return false;
-    }
-    loadInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
-    self->refreshInventoryMovements();
-    self->persistedStore_ = self->store_;
-    self->persistedStoreValid_ = true;
-    self->refreshInventoryCommits();
-    if (self->inventoryHistory_.empty()) {
-      appendInventoryHistory(self->inventoryHistory_,
-                             makeInventoryHistoryPoint(self->store_.items(), self->settings_.lowStockThreshold));
-    }
-    saveInventoryHistory(self->inventoryPath_, self->inventoryHistory_);
-    self->persistenceError_.clear();
-    return true;
+    return self->reloadInventoryState();
   };
   auto openDatasheet = [self] {
     if (const auto* item = self->selectedItem()) self->openCurrentUrl(item->datasheetUrl, "datasheet");
@@ -240,30 +224,34 @@ vector<App::Action> App::currentActions() const {
         add("reset all colors", "Appearance", "d", chr('d'), [self] { self->resetAppearanceColors(); });
       }
       if (settingsCategory_ == SettingsCategory::Printer) {
-      add("refresh", "Printer", "r", chr('r'), [self] {
-        self->refreshPrinterState();
-        self->setMessage("Printer list refreshed", 2);
-      });
-      if (selectedPrinterQueue() != nullptr) {
-        add("test", "Printer", "t", chr('t'), [self] {
-          if (const auto* printer = self->selectedPrinterQueue()) {
-            self->printerService_.setConfiguredPrinter(printer->name);
-            self->printerCheck_ = self->printerService_.probeConfiguredPrinter();
-            self->setMessage(self->printerCheck_.message.empty() ? "Printer checked" : self->printerCheck_.message, 3);
-            self->dirty_ = true;
-          }
-        });
-        add("save", "Printer", "s", chr('s'), [self] {
-          if (const auto* printer = self->selectedPrinterQueue()) {
-            self->printerService_.setConfiguredPrinter(printer->name);
-            self->printerCheck_ = self->printerService_.probeConfiguredPrinter();
-            self->saveState();
-            self->settingsDraft_.printerQueue = printer->name;
-            self->settingsDirty_ = true;
-            self->setMessage(self->printerCheck_.ok ? "Printer saved and ready" : "Printer saved, but not ready", 3);
-          }
-        });
-      }
+        add("refresh", "Printer", "r", chr('r'), [self] { self->refreshPrinterState(); });
+        if (selectedPrinterQueue() != nullptr) {
+          add("test", "Printer", "t", chr('t'), [self] {
+            if (const auto* printer = self->selectedPrinterQueue()) {
+              self->printerCheck_ = {false, "Testing printer queue..."};
+              if (self->enqueuePrinterProbe(printer->name)) {
+                self->setMessage("Testing printer queue...", 4);
+              } else {
+                self->setMessage("Printer request queue is full; try again shortly", 4);
+              }
+              self->dirty_ = true;
+            }
+          });
+          add("save", "Printer", "s", chr('s'), [self] {
+            if (const auto* printer = self->selectedPrinterQueue()) {
+              self->printerService_.setConfiguredPrinter(printer->name);
+              self->settingsDraft_.printerQueue = printer->name;
+              self->settingsDirty_ = true;
+              self->saveState();
+              self->printerCheck_ = {false, "Checking printer queue..."};
+              if (self->enqueuePrinterProbe(printer->name)) {
+                self->setMessage("Printer saved; checking queue...", 4);
+              } else {
+                self->setMessage("Printer saved, but the queue check could not be queued", 5);
+              }
+            }
+          });
+        }
       }
       if (settingsCategory_ == SettingsCategory::InventatoryScan) {
         add("refresh event queue", "Device", "v", chr('v'), [self] { self->refreshDeviceEventRecords(); });

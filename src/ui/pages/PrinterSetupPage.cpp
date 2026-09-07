@@ -16,23 +16,34 @@ namespace inventatory {
 using namespace std;
 
 void App::refreshPrinterState() {
-  printerQueues_ = printerService_.enumeratePrinters();
-  const auto configured = printerService_.configuredPrinterInfo();
-  if (configured) {
-    const auto configuredName = toLower(trim(configured->name));
-    const auto it = find_if(printerQueues_.begin(), printerQueues_.end(), [&](const PrinterQueueInfo& entry) {
-      return toLower(trim(entry.name)) == configuredName;
-    });
-    if (it != printerQueues_.end()) {
-      printerSelection_ = static_cast<size_t>(distance(printerQueues_.begin(), it));
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) return;
+
+  // Enumeration and probing can enter the Windows spooler and take seconds.
+  // Capture only the queue name and let the UI-tick worker publish a result.
+  {
+    lock_guard<mutex> lock(printerWorkMutex_);
+    for (const auto& queued : printerWorkQueue_) {
+      if (queued.kind == PrinterWorkKind::Refresh &&
+          queued.workspaceGeneration == context->generation) {
+        return;
+      }
     }
   }
-
-  if (printerSelection_ >= printerQueues_.size()) {
-    printerSelection_ = 0;
+  if (printerWorkActiveKind_.has_value() && *printerWorkActiveKind_ == PrinterWorkKind::Refresh) {
+    return;
   }
-
-  printerCheck_ = printerService_.probeConfiguredPrinter();
+  printerCheck_ = {false, "Checking printer queues..."};
+  PrinterWork work;
+  work.kind = PrinterWorkKind::Refresh;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerService_.configuredPrinter();
+  if (!enqueuePrinterWork(move(work))) {
+    printerCheck_ = {false, "Printer request queue is full"};
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return;
+  }
+  setMessage("Checking printer queues...", 3);
   dirty_ = true;
 }
 
@@ -83,17 +94,28 @@ bool App::printLabelForItem(const InventoryItem& item, const string& successPref
     return false;
   }
 
-  string error;
-  if (!printerService_.printItemLabel(item, &error, rackLocation(item, store_.racks()))) {
-    setMessage("Print failed: " + error, 4);
-    refreshPrinterState();
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("Printer unavailable while the workspace is changing", 4);
+    return false;
+  }
+  if (printerWorkCompletion_ != nullptr) {
+    setMessage("A printer job is already running; try again shortly", 3);
     return false;
   }
 
-  logActivity("print", item.partName + " label printed");
-  saveState();
-  refreshPrinterState();
-  setMessage(successPrefix + item.partName, 2);
+  PrinterWork work;
+  work.kind = PrinterWorkKind::PrintItem;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerService_.configuredPrinter();
+  work.item = item;
+  work.rackLocation = rackLocation(item, store_.racks());
+  work.successPrefix = successPrefix;
+  if (!enqueuePrinterWork(move(work))) {
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return false;
+  }
+  setMessage("Printer job queued", 3);
   return true;
 }
 

@@ -5,8 +5,6 @@ project(InventatorySoftware VERSION 0.1.0 LANGUAGES C CXX)
 option(INVENTATORY_PARALLEL_MSVC "Enable MSVC parallel compilation" ON)
 
 if(MSVC)
-    add_compile_options(/W4 /permissive-)
-
     if(INVENTATORY_PARALLEL_MSVC)
         add_compile_options(/MP)
     endif()
@@ -79,6 +77,7 @@ add_executable(inventatory
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
   src/core/InventoryMovements.cpp
+  src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp
@@ -149,6 +148,7 @@ add_executable(inventatory_tests
   src/platform/Console.cpp
   src/platform/Environment.cpp
   src/platform/CredentialStore.cpp
+  src/platform/DigiKeyApi.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
@@ -166,6 +166,7 @@ add_executable(inventatory_tests
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
   src/core/InventoryMovements.cpp
+  src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
   src/core/InventoryScan.cpp
@@ -182,7 +183,7 @@ target_compile_definitions(inventatory_tests PRIVATE
 )
 
 if(WIN32)
-  target_link_libraries(inventatory_tests PRIVATE ws2_32 winspool bcrypt advapi32)
+  target_link_libraries(inventatory_tests PRIVATE ws2_32 winspool winhttp bcrypt advapi32)
 endif()
 
 target_link_libraries(inventatory_tests PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
