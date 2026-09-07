@@ -10,10 +10,10 @@ an HTTP request or response.
 
 Each `POST /api/v1/device/sync` carries the device id, a monotonic request
 counter, and an HMAC-SHA-256 MAC over the method, path, device id, counter, and
-exact JSON body. The PC stores the highest accepted counter under its local
-application settings and refuses lower or equal counters, including after
-restart. The R1 reserves the next counter in NVS before sending, so a failed
-attempt can be retried only with a newer counter.
+exact JSON body. The PC stores the highest accepted counter in the selected
+workspace's `inventatory-scan-replay.state` file and refuses lower or equal
+counters, including after restart. The R1 reserves the next counter in NVS
+before sending, so a failed attempt can be retried only with a newer counter.
 
 The PC signs each response with a distinct, derived server-to-client key and
 the same request counter. The R1 rejects unsigned, altered, mismatched, or
@@ -34,3 +34,9 @@ trust/bootstrap model remains a future enhancement.
 
 Regenerate-secret and clear-device actions rotate the pairing secret, reset
 replay state, clear the paired device identity, and require a fresh pairing.
+
+For compatibility with older installations, a legacy machine-wide pairing
+credential is migrated only when the selected workspace still records a
+completed pairing and device identity. A newly created workspace never adopts
+that legacy credential; users who copy an already-paired workspace should
+clear and pair the device again if the copy is intended to be independent.

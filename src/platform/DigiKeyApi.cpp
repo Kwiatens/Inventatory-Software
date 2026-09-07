@@ -17,10 +17,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <initializer_list>
+#include <limits>
 #include <iomanip>
 #include <memory>
 #include <regex>
@@ -29,6 +31,7 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -45,7 +48,9 @@ string trimCopy(string value) {
 string encodeComponent(const string& value, bool formEncoding) {
   ostringstream out;
   for (unsigned char ch : value) {
-    if (isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+    const bool asciiAlphaNumeric = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+                                   (ch >= '0' && ch <= '9');
+    if (asciiAlphaNumeric || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
       out << static_cast<char>(ch);
     } else if (ch == ' ' && formEncoding) {
       out << '+';
@@ -105,7 +110,7 @@ string escapeJsonString(const string& value) {
 }
 
 wstring widen(const string& value) {
-  if (value.empty()) {
+  if (value.empty() || value.size() > static_cast<size_t>(numeric_limits<int>::max())) {
     return {};
   }
   const int required = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
@@ -133,9 +138,17 @@ string narrow(const wstring& value) {
 struct HttpResponse {
   DWORD statusCode = 0;
   string body;
+  DWORD retryAfterSeconds = 0;
 };
 
 constexpr size_t kMaximumDigiKeyResponseBytes = 4U * 1024U * 1024U;
+constexpr unsigned kMaximumJsonDepth = 64;
+constexpr size_t kMaximumJsonContainerEntries = 100000;
+constexpr size_t kMaximumDigiKeyFieldBytes = 4096;
+constexpr size_t kMaximumDigiKeyRequestBodyBytes = 64U * 1024U;
+constexpr size_t kMaximumDigiKeyUrlBytes = 64U * 1024U;
+constexpr size_t kMaximumCategoryPathEntries = 256;
+constexpr unsigned kMaximumDigiKeyHttpAttempts = 2;
 
 string httpErrorMessage(const string& prefix) {
   const DWORD code = GetLastError();
@@ -144,8 +157,20 @@ string httpErrorMessage(const string& prefix) {
   return out.str();
 }
 
-bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
-                 HttpResponse& response, string* error) {
+bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& headers, const string& body,
+                     HttpResponse& response, string* error) {
+  response = {};
+  if (url.empty() || url.size() > kMaximumDigiKeyUrlBytes ||
+      url.size() > static_cast<size_t>(numeric_limits<DWORD>::max()) ||
+      url.size() > static_cast<size_t>(numeric_limits<int>::max()) ||
+      headers.size() > static_cast<size_t>(numeric_limits<int>::max())) {
+    if (error != nullptr) *error = "DigiKey request URL or headers are too large";
+    return false;
+  }
+  if (body.size() > kMaximumDigiKeyRequestBodyBytes) {
+    if (error != nullptr) *error = "DigiKey request body is too large";
+    return false;
+  }
   URL_COMPONENTS components{};
   components.dwStructSize = sizeof(components);
   components.dwSchemeLength = static_cast<DWORD>(-1);
@@ -243,6 +268,43 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
     return false;
   }
 
+  // Retry-After is advisory and may also be an HTTP date. Accept only a
+  // small decimal delay so a hostile or broken server cannot hold the caller
+  // indefinitely. The retry loop remains bounded regardless of this header.
+  if (statusCode == 429 || statusCode >= 500) {
+    wchar_t retryAfter[32]{};
+    DWORD retryAfterSize = sizeof(retryAfter);
+    if (WinHttpQueryHeaders(request, WINHTTP_QUERY_RETRY_AFTER, WINHTTP_HEADER_NAME_BY_INDEX, retryAfter,
+                            &retryAfterSize, WINHTTP_NO_HEADER_INDEX)) {
+      size_t characters = retryAfterSize / sizeof(wchar_t);
+      if (characters > 0 && retryAfter[characters - 1] == L'\0') {
+        --characters;
+      }
+      unsigned long long seconds = 0;
+      bool valid = characters > 0 && characters < _countof(retryAfter);
+      for (size_t index = 0; valid && index < characters; ++index) {
+        const auto character = retryAfter[index];
+        if (character < L'0' || character > L'9') {
+          valid = false;
+          break;
+        }
+        const auto digit = static_cast<unsigned long long>(character - L'0');
+        if (seconds > (numeric_limits<unsigned long long>::max() - digit) / 10U) {
+          valid = false;
+          break;
+        }
+        seconds = seconds * 10U + digit;
+        if (seconds > 2U) {
+          seconds = 2U;
+          break;
+        }
+      }
+      if (valid) {
+        response.retryAfterSeconds = static_cast<DWORD>(seconds);
+      }
+    }
+  }
+
   string bodyText;
   for (;;) {
     DWORD available = 0;
@@ -291,17 +353,50 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
   return true;
 }
 
+bool isRetryableHttpStatus(DWORD statusCode) {
+  return statusCode == 408 || statusCode == 425 || statusCode == 429 || statusCode == 500 || statusCode == 502 ||
+         statusCode == 503 || statusCode == 504;
+}
+
+bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
+                 HttpResponse& response, string* error) {
+  // ProductDetails is a GET and therefore safe to repeat after a transport
+  // failure. OAuth token issuance and keyword search are POSTs; DigiKey does
+  // not publish an idempotency contract for either endpoint, so do not replay
+  // them automatically if a response may have been processed already.
+  const bool retryableMethod = method == L"GET";
+  for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
+    string attemptError;
+    if (!requestHttpOnce(method, url, headers, body, response, &attemptError)) {
+      if (error != nullptr) *error = move(attemptError);
+      return false;
+    }
+    if (!retryableMethod || !isRetryableHttpStatus(response.statusCode) ||
+        attempt + 1U >= kMaximumDigiKeyHttpAttempts) {
+      return true;
+    }
+
+    const DWORD delayMs = response.retryAfterSeconds > 0 ? response.retryAfterSeconds * 1000U : 250U;
+    Sleep(delayMs);
+  }
+  return false;
+}
+
 struct JsonValue {
+  struct Number {
+    string text;
+  };
   using Object = unordered_map<string, shared_ptr<JsonValue>>;
   using Array = vector<shared_ptr<JsonValue>>;
 
   JsonValue() = default;
   explicit JsonValue(string text) : data(move(text)) {}
+  explicit JsonValue(Number number) : data(move(number)) {}
   explicit JsonValue(bool flag) : data(flag) {}
   explicit JsonValue(Object object) : data(move(object)) {}
   explicit JsonValue(Array array) : data(move(array)) {}
 
-  variant<nullptr_t, bool, string, Object, Array> data = nullptr;
+  variant<nullptr_t, bool, string, Number, Object, Array> data = nullptr;
 };
 
 using JsonPtr = shared_ptr<JsonValue>;
@@ -327,7 +422,11 @@ class JsonParser {
   }
 
  private:
-  JsonPtr parseValue(string* error) {
+  JsonPtr parseValue(string* error, unsigned depth = 0) {
+    if (depth > kMaximumJsonDepth) {
+      if (error != nullptr) *error = "JSON nesting exceeds the safety limit";
+      return nullptr;
+    }
     skipWhitespace();
     if (eof()) {
       if (error != nullptr) {
@@ -345,17 +444,17 @@ class JsonParser {
       return make_shared<JsonValue>(move(value));
     }
     if (ch == '{') {
-      return parseObject(error);
+      return parseObject(error, depth);
     }
     if (ch == '[') {
-      return parseArray(error);
+      return parseArray(error, depth);
     }
     if (isdigit(static_cast<unsigned char>(ch)) || ch == '-') {
       string value;
       if (!parseNumber(value, error)) {
         return nullptr;
       }
-      return make_shared<JsonValue>(move(value));
+      return make_shared<JsonValue>(JsonValue::Number{move(value)});
     }
     if (matchLiteral("true")) {
       return make_shared<JsonValue>(true);
@@ -373,7 +472,7 @@ class JsonParser {
     return nullptr;
   }
 
-  JsonPtr parseObject(string* error) {
+  JsonPtr parseObject(string* error, unsigned depth) {
     if (!consume('{')) {
       return nullptr;
     }
@@ -397,11 +496,18 @@ class JsonParser {
         }
         return nullptr;
       }
-      auto child = parseValue(error);
+      if (object.size() >= kMaximumJsonContainerEntries) {
+        if (error != nullptr) *error = "JSON object has too many members";
+        return nullptr;
+      }
+      auto child = parseValue(error, depth + 1U);
       if (child == nullptr) {
         return nullptr;
       }
-      object.emplace(move(key), move(child));
+      if (!object.emplace(move(key), move(child)).second) {
+        if (error != nullptr) *error = "JSON object contains a duplicate key";
+        return nullptr;
+      }
       skipWhitespace();
       if (consume('}')) {
         value->data = move(object);
@@ -417,7 +523,7 @@ class JsonParser {
     }
   }
 
-  JsonPtr parseArray(string* error) {
+  JsonPtr parseArray(string* error, unsigned depth) {
     if (!consume('[')) {
       return nullptr;
     }
@@ -430,7 +536,11 @@ class JsonParser {
     }
 
     for (;;) {
-      auto child = parseValue(error);
+      if (array.size() >= kMaximumJsonContainerEntries) {
+        if (error != nullptr) *error = "JSON array has too many values";
+        return nullptr;
+      }
+      auto child = parseValue(error, depth + 1U);
       if (child == nullptr) {
         return nullptr;
       }
@@ -459,13 +569,25 @@ class JsonParser {
     }
 
     out.clear();
+    const auto append = [&](char value) {
+      if (out.size() >= kMaximumDigiKeyFieldBytes) {
+        if (error != nullptr) *error = "JSON string exceeds the 4 KiB field limit";
+        return false;
+      }
+      out.push_back(value);
+      return true;
+    };
     while (!eof()) {
       const char ch = advance();
       if (ch == '"') {
         return true;
       }
       if (ch != '\\') {
-        out.push_back(ch);
+        if (static_cast<unsigned char>(ch) < 0x20U) {
+          if (error != nullptr) *error = "Unescaped control character in JSON string";
+          return false;
+        }
+        if (!append(ch)) return false;
         continue;
       }
 
@@ -481,31 +603,89 @@ class JsonParser {
         case '"':
         case '\\':
         case '/':
-          out.push_back(escaped);
+          if (!append(escaped)) return false;
           break;
         case 'b':
-          out.push_back('\b');
+          if (!append('\b')) return false;
           break;
         case 'f':
-          out.push_back('\f');
+          if (!append('\f')) return false;
           break;
         case 'n':
-          out.push_back('\n');
+          if (!append('\n')) return false;
           break;
         case 'r':
-          out.push_back('\r');
+          if (!append('\r')) return false;
           break;
         case 't':
-          out.push_back('\t');
+          if (!append('\t')) return false;
           break;
-        case 'u':
-          for (int index = 0; index < 4 && !eof(); ++index) {
-            advance();
+        case 'u': {
+          const auto hexDigit = [](char value) -> int {
+            if (value >= '0' && value <= '9') return value - '0';
+            if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+            if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+            return -1;
+          };
+          auto readCodeUnit = [&](unsigned& codeUnit) {
+            if (text_.size() - pos_ < 4U) return false;
+            codeUnit = 0;
+            for (unsigned index = 0; index < 4U; ++index) {
+              const int digit = hexDigit(advance());
+              if (digit < 0) return false;
+              codeUnit = (codeUnit << 4U) | static_cast<unsigned>(digit);
+            }
+            return true;
+          };
+          unsigned codeUnit = 0;
+          if (!readCodeUnit(codeUnit)) {
+            if (error != nullptr) *error = "Invalid JSON Unicode escape";
+            return false;
+          }
+          unsigned codePoint = codeUnit;
+          if (codeUnit >= 0xD800U && codeUnit <= 0xDBFFU) {
+            if (text_.size() - pos_ < 6U || text_[pos_] != '\\' || text_[pos_ + 1U] != 'u') {
+              if (error != nullptr) *error = "JSON high surrogate is missing its pair";
+              return false;
+            }
+            pos_ += 2U;
+            unsigned low = 0;
+            if (!readCodeUnit(low) || low < 0xDC00U || low > 0xDFFFU) {
+              if (error != nullptr) *error = "Invalid JSON surrogate pair";
+              return false;
+            }
+            codePoint = 0x10000U + ((codeUnit - 0xD800U) << 10U) + (low - 0xDC00U);
+          } else if (codeUnit >= 0xDC00U && codeUnit <= 0xDFFFU) {
+            if (error != nullptr) *error = "JSON string contains an unpaired low surrogate";
+            return false;
+          }
+
+          if (codePoint <= 0x7FU) {
+            if (!append(static_cast<char>(codePoint))) return false;
+          } else if (codePoint <= 0x7FFU) {
+            if (!append(static_cast<char>(0xC0U | (codePoint >> 6U))) ||
+                !append(static_cast<char>(0x80U | (codePoint & 0x3FU)))) {
+              return false;
+            }
+          } else if (codePoint <= 0xFFFFU) {
+            if (!append(static_cast<char>(0xE0U | (codePoint >> 12U))) ||
+                !append(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU))) ||
+                !append(static_cast<char>(0x80U | (codePoint & 0x3FU)))) {
+              return false;
+            }
+          } else {
+            if (!append(static_cast<char>(0xF0U | (codePoint >> 18U))) ||
+                !append(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3FU))) ||
+                !append(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU))) ||
+                !append(static_cast<char>(0x80U | (codePoint & 0x3FU)))) {
+              return false;
+            }
           }
           break;
+        }
         default:
-          out.push_back(escaped);
-          break;
+          if (error != nullptr) *error = "Invalid JSON escape";
+          return false;
       }
     }
 
@@ -520,11 +700,27 @@ class JsonParser {
     if (peek() == '-') {
       advance();
     }
-    while (!eof() && isdigit(static_cast<unsigned char>(peek()))) {
+    if (peek() == '0') {
       advance();
+      if (!eof() && isdigit(static_cast<unsigned char>(peek()))) {
+        if (error != nullptr) *error = "Invalid JSON number";
+        return false;
+      }
+    } else {
+      if (eof() || !isdigit(static_cast<unsigned char>(peek()))) {
+        if (error != nullptr) *error = "Invalid JSON number";
+        return false;
+      }
+      while (!eof() && isdigit(static_cast<unsigned char>(peek()))) {
+        advance();
+      }
     }
     if (!eof() && peek() == '.') {
       advance();
+      if (eof() || !isdigit(static_cast<unsigned char>(peek()))) {
+        if (error != nullptr) *error = "Invalid JSON number";
+        return false;
+      }
       while (!eof() && isdigit(static_cast<unsigned char>(peek()))) {
         advance();
       }
@@ -534,15 +730,23 @@ class JsonParser {
       if (!eof() && (peek() == '+' || peek() == '-')) {
         advance();
       }
+      if (eof() || !isdigit(static_cast<unsigned char>(peek()))) {
+        if (error != nullptr) *error = "Invalid JSON number";
+        return false;
+      }
       while (!eof() && isdigit(static_cast<unsigned char>(peek()))) {
         advance();
       }
     }
 
-    if (pos_ == start) {
+    if (pos_ == start || (pos_ == start + 1U && text_[start] == '-')) {
       if (error != nullptr) {
         *error = "Invalid JSON number";
       }
+      return false;
+    }
+    if (pos_ - start > kMaximumDigiKeyFieldBytes) {
+      if (error != nullptr) *error = "JSON number exceeds the 4 KiB field limit";
       return false;
     }
 
@@ -609,7 +813,12 @@ const JsonValue::Array* asArray(const JsonPtr& value) {
 string valueText(const JsonPtr& value) {
   if (const auto* json = asValue(value); json != nullptr) {
     if (const auto* text = get_if<string>(&json->data)) {
+      if (text->size() > kMaximumDigiKeyFieldBytes) return {};
       return trimCopy(*text);
+    }
+    if (const auto* number = get_if<JsonValue::Number>(&json->data)) {
+      if (number->text.size() > kMaximumDigiKeyFieldBytes) return {};
+      return number->text;
     }
     if (const auto* flag = get_if<bool>(&json->data)) {
       return *flag ? "true" : "false";
@@ -643,6 +852,19 @@ optional<string> readPath(const JsonPtr& root, initializer_list<const char*> pat
   return text;
 }
 
+optional<string> readStringPath(const JsonPtr& root, initializer_list<const char*> path) {
+  JsonPtr current = root;
+  for (const auto* element : path) {
+    const auto* next = findMember(current, element);
+    if (next == nullptr) return nullopt;
+    current = *next;
+  }
+  const auto* json = asValue(current);
+  const auto* text = json == nullptr ? nullptr : get_if<string>(&json->data);
+  if (text == nullptr || text->empty() || text->size() > kMaximumDigiKeyFieldBytes) return nullopt;
+  return trimCopy(*text);
+}
+
 optional<string> readFirstMember(const JsonPtr& root, initializer_list<const char*> keys) {
   for (const auto* key : keys) {
     if (const auto* member = findMember(root, key); member != nullptr) {
@@ -656,7 +878,7 @@ optional<string> readFirstMember(const JsonPtr& root, initializer_list<const cha
 }
 
 void appendCategoryPathFromNode(const JsonPtr& node, vector<string>& path) {
-  if (node == nullptr) {
+  if (node == nullptr || path.size() >= kMaximumCategoryPathEntries) {
     return;
   }
   if (const auto name = readFirstMember(node, {"Name", "CategoryName"}); name.has_value()) {
@@ -667,6 +889,7 @@ void appendCategoryPathFromNode(const JsonPtr& node, vector<string>& path) {
   if (const auto* children = asArray(findMember(node, "Children") == nullptr ? nullptr : *findMember(node, "Children"));
       children != nullptr) {
     for (const auto& child : *children) {
+      if (path.size() >= kMaximumCategoryPathEntries) break;
       appendCategoryPathFromNode(child, path);
     }
   }
@@ -1112,6 +1335,7 @@ vector<Parameter> extractParameters(const JsonPtr& product) {
   }
 
   for (const auto& entry : *entries) {
+    if (parameters.size() >= 256U) break;
     const auto label = readFirstMember(entry, {"Parameter", "ParameterText"});
     const auto value = readParameterText(entry, label.value_or(""));
     if (label.has_value() && value.has_value()) {
@@ -1234,6 +1458,10 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
 }
 
 optional<JsonPtr> parseJson(const string& body, string* error) {
+  if (body.size() > kMaximumDigiKeyResponseBytes) {
+    if (error != nullptr) *error = "DigiKey response exceeds the 4 MiB safety limit";
+    return nullopt;
+  }
   JsonParser parser(body);
   JsonPtr root;
   if (!parser.parse(root, error)) {
@@ -1242,10 +1470,80 @@ optional<JsonPtr> parseJson(const string& body, string* error) {
   return root;
 }
 
+bool isSafeHeaderValue(const string& value) {
+  if (value.size() > kMaximumDigiKeyFieldBytes) return false;
+  for (const unsigned char character : value) {
+    // Reject all controls, not only CR/LF. WinHTTP header parsing has had
+    // different tolerance across Windows versions, and accepting a control
+    // byte here would make configuration an HTTP request-structure input.
+    if (character < 0x20U || character > 0x7EU) return false;
+  }
+  return true;
+}
+
+bool appendHeader(ostringstream& headers, const char* name, const string& value, string* error) {
+  if (!isSafeHeaderValue(value)) {
+    if (error != nullptr) *error = "DigiKey configuration contains invalid header characters";
+    return false;
+  }
+  headers << name << ": " << value << "\r\n";
+  return true;
+}
+
+bool appendAuthorizationHeader(ostringstream& headers, const string& token, string* error) {
+  if (token.size() > 2048U || !isSafeHeaderValue(token)) {
+    if (error != nullptr) *error = "DigiKey returned an invalid access token";
+    return false;
+  }
+  headers << "Authorization: Bearer " << token << "\r\n";
+  return true;
+}
+
+bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
+  const auto trimmed = trimCopy(value);
+  if (trimmed.empty()) return false;
+  unsigned long long parsed = 0;
+  for (const unsigned char character : trimmed) {
+    if (character < '0' || character > '9') return false;
+    const auto digit = static_cast<unsigned long long>(character - '0');
+    if (parsed > (numeric_limits<unsigned long long>::max() - digit) / 10U) return false;
+    parsed = parsed * 10U + digit;
+    if (parsed > maximum) return false;
+  }
+  return true;
+}
+
+bool isFiniteDecimal(const string& value, double maximum) {
+  const auto trimmed = trimCopy(value);
+  if (trimmed.empty()) return false;
+  try {
+    size_t consumed = 0;
+    const double parsed = stod(trimmed, &consumed);
+    return consumed == trimmed.size() && isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;
+  } catch (...) {
+    return false;
+  }
+}
+
 }  // namespace
 
 bool DigiKeyConfig::valid() const {
-  return !trimCopy(clientId).empty() && !trimCopy(clientSecret).empty();
+  return !trimCopy(clientId).empty() && !trimCopy(clientSecret).empty() &&
+         clientId.size() <= kMaximumDigiKeyFieldBytes && clientSecret.size() <= kMaximumDigiKeyFieldBytes &&
+         accountId.size() <= kMaximumDigiKeyFieldBytes && site.size() <= kMaximumDigiKeyFieldBytes &&
+         language.size() <= kMaximumDigiKeyFieldBytes && currency.size() <= kMaximumDigiKeyFieldBytes &&
+         isSafeHeaderValue(clientId) && isSafeHeaderValue(accountId) && isSafeHeaderValue(site) &&
+         isSafeHeaderValue(language) && isSafeHeaderValue(currency);
+}
+
+bool validateDigiKeyJsonPayload(const string& payload, string* error) {
+  if (error != nullptr) error->clear();
+  string parseError;
+  if (!parseJson(payload, &parseError).has_value()) {
+    if (error != nullptr) *error = move(parseError);
+    return false;
+  }
+  return true;
 }
 
 DigiKeyConfig loadDigiKeyConfig() {
@@ -1286,6 +1584,10 @@ bool DigiKeyApiClient::testConnection(string* error) {
 }
 
 optional<string> DigiKeyApiClient::requestToken(string* error) {
+  if (!config_.valid()) {
+    if (error != nullptr) *error = "DigiKey configuration is incomplete or too large";
+    return nullopt;
+  }
   const wstring url = L"https://api.digikey.com/v1/oauth2/token";
   ostringstream body;
   body << "client_id=" << encodeFormValue(config_.clientId) << "&client_secret=" << encodeFormValue(config_.clientSecret)
@@ -1299,9 +1601,6 @@ optional<string> DigiKeyApiClient::requestToken(string* error) {
     if (error != nullptr) {
       ostringstream out;
       out << "DigiKey token request failed with HTTP " << response.statusCode;
-      if (!response.body.empty()) {
-        out << ": " << response.body;
-      }
       *error = out.str();
     }
     return nullopt;
@@ -1316,8 +1615,8 @@ optional<string> DigiKeyApiClient::requestToken(string* error) {
     return nullopt;
   }
 
-  const auto token = readPath(*root, {"access_token"});
-  if (!token.has_value() || token->empty()) {
+  const auto token = readStringPath(*root, {"access_token"});
+  if (!token.has_value() || token->empty() || token->size() > 2048U) {
     if (error != nullptr) {
       *error = "DigiKey token response did not include an access token";
     }
@@ -1343,8 +1642,13 @@ bool DigiKeyApiClient::ensureAccessToken(string* error) {
 }
 
 optional<string> DigiKeyApiClient::requestProductDetails(const string& productNumber,
-                                                                   string* error,
-                                                                   const string& manufacturerId) {
+                                                                    string* error,
+                                                                    const string& manufacturerId) {
+  if (trimCopy(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes ||
+      manufacturerId.size() > kMaximumDigiKeyFieldBytes) {
+    if (error != nullptr) *error = "DigiKey product identifier is empty or too large";
+    return nullopt;
+  }
   if (!ensureAccessToken(error)) {
     return nullopt;
   }
@@ -1356,13 +1660,15 @@ optional<string> DigiKeyApiClient::requestProductDetails(const string& productNu
   }
 
   ostringstream headers;
-  headers << "Authorization: Bearer " << accessToken_ << "\r\n";
-  headers << "X-DIGIKEY-Client-Id: " << config_.clientId << "\r\n";
-  headers << "X-DIGIKEY-Locale-Language: " << config_.language << "\r\n";
-  headers << "X-DIGIKEY-Locale-Currency: " << config_.currency << "\r\n";
-  headers << "X-DIGIKEY-Locale-Site: " << config_.site << "\r\n";
-  if (!config_.accountId.empty()) {
-    headers << "X-DIGIKEY-Account-Id: " << config_.accountId << "\r\n";
+  if (!appendAuthorizationHeader(headers, accessToken_, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, error)) {
+    return nullopt;
+  }
+  if (!config_.accountId.empty() && !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, error)) {
+    return nullopt;
   }
 
   HttpResponse response;
@@ -1374,9 +1680,6 @@ optional<string> DigiKeyApiClient::requestProductDetails(const string& productNu
     if (error != nullptr) {
       ostringstream out;
       out << "DigiKey details request failed with HTTP " << response.statusCode;
-      if (!response.body.empty()) {
-        out << ": " << response.body;
-      }
       *error = out.str();
     }
     return nullopt;
@@ -1386,6 +1689,10 @@ optional<string> DigiKeyApiClient::requestProductDetails(const string& productNu
 }
 
 optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, string* error) {
+  if (trimCopy(keywords).empty() || keywords.size() > kMaximumDigiKeyFieldBytes) {
+    if (error != nullptr) *error = "DigiKey search keywords are empty or too large";
+    return nullopt;
+  }
   if (!ensureAccessToken(error)) {
     return nullopt;
   }
@@ -1394,13 +1701,15 @@ optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, 
   body << "{\"Keywords\":\"" << escapeJsonString(keywords) << "\",\"Limit\":10,\"Offset\":0}";
 
   ostringstream headers;
-  headers << "Authorization: Bearer " << accessToken_ << "\r\n";
-  headers << "X-DIGIKEY-Client-Id: " << config_.clientId << "\r\n";
-  headers << "X-DIGIKEY-Locale-Language: " << config_.language << "\r\n";
-  headers << "X-DIGIKEY-Locale-Currency: " << config_.currency << "\r\n";
-  headers << "X-DIGIKEY-Locale-Site: " << config_.site << "\r\n";
-  if (!config_.accountId.empty()) {
-    headers << "X-DIGIKEY-Account-Id: " << config_.accountId << "\r\n";
+  if (!appendAuthorizationHeader(headers, accessToken_, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, error) ||
+      !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, error)) {
+    return nullopt;
+  }
+  if (!config_.accountId.empty() && !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, error)) {
+    return nullopt;
   }
   headers << "Content-Type: application/json\r\n";
 
@@ -1414,9 +1723,6 @@ optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, 
     if (error != nullptr) {
       ostringstream out;
       out << "DigiKey keyword search failed with HTTP " << response.statusCode;
-      if (!response.body.empty()) {
-        out << ": " << response.body;
-      }
       *error = out.str();
     }
     return nullopt;
@@ -1427,6 +1733,10 @@ optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, 
 
 optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const string& productNumber,
                                                                            string* error) {
+  if (trimCopy(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes) {
+    if (error != nullptr) *error = "DigiKey product identifier is empty or too large";
+    return nullopt;
+  }
   const auto parseDetails = [this](const string& lookupKey, const string& bodyText, string* parseError) {
     string bodyParseError;
     const auto root = parseJson(bodyText, &bodyParseError);
@@ -1437,12 +1747,30 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
       return optional<DigiKeyProductDetails>{};
     }
 
+    const auto* rootObject = asObject(*root);
+    if (rootObject == nullptr) {
+      if (parseError != nullptr) *parseError = "DigiKey details response root is not an object";
+      return optional<DigiKeyProductDetails>{};
+    }
+    if (const auto* product = findMember(*root, "Product"); product != nullptr && asObject(*product) == nullptr) {
+      if (parseError != nullptr) *parseError = "DigiKey details response has an invalid Product object";
+      return optional<DigiKeyProductDetails>{};
+    }
+
     auto details = parseProductDetails(lookupKey, *root);
     details.vendorMetadata.locale = config_.language;
     if (details.productDescription.empty() && details.parameters.empty()) {
       if (parseError != nullptr) {
         *parseError = "DigiKey returned an empty details payload";
       }
+      return optional<DigiKeyProductDetails>{};
+    }
+
+    if ((!details.quantityAvailable.empty() && !isUnsignedDecimal(details.quantityAvailable, 1000000000000ULL)) ||
+        (!details.manufacturerLeadWeeks.empty() &&
+         !isUnsignedDecimal(details.manufacturerLeadWeeks, 1000000ULL)) ||
+        (!details.unitPrice.empty() && !isFiniteDecimal(details.unitPrice, 1000000000000.0))) {
+      if (parseError != nullptr) *parseError = "DigiKey details response contains an invalid numeric field";
       return optional<DigiKeyProductDetails>{};
     }
 
@@ -1508,6 +1836,11 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
 namespace inventatory {
 
 bool DigiKeyConfig::valid() const {
+  return false;
+}
+
+bool validateDigiKeyJsonPayload(const string&, string* error) {
+  if (error != nullptr) *error = "DigiKey integration is only available on Windows";
   return false;
 }
 

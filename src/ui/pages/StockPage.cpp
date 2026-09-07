@@ -832,13 +832,39 @@ void App::handleStockKey(const KeyEvent& key) {
         }
         break;
       case 'r':
-        store_.load(inventoryPath_);
-        loadInventoryHistory(inventoryPath_, inventoryHistory_);
-        if (inventoryHistory_.empty()) {
-          appendInventoryHistory(inventoryHistory_,
-                                 makeInventoryHistoryPoint(store_.items(), settings_.lowStockThreshold));
+        {
+          InventoryStore loadedStore;
+          vector<InventoryHistoryPoint> loadedHistory;
+          if (!loadedStore.load(inventoryPath_)) {
+            persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
+            setMessage(persistenceError_, 6);
+            break;
+          }
+          if (!loadInventoryHistory(inventoryPath_, loadedHistory)) {
+            inventoryRecoveryRequired_ = true;
+            inventoryRecoveryDetail_ = "Unable to reload inventory history: " + inventoryPath_.string();
+            persistenceError_ = inventoryRecoveryDetail_ + ". The original history was preserved.";
+            setMessage(persistenceError_, 6);
+            break;
+          }
+          if (loadedHistory.empty()) {
+            appendInventoryHistory(loadedHistory,
+                                   makeInventoryHistoryPoint(loadedStore.items(), settings_.lowStockThreshold));
+          }
+          if (!saveInventoryHistory(inventoryPath_, loadedHistory)) {
+            inventoryRecoveryRequired_ = true;
+            inventoryRecoveryDetail_ = "Unable to save the reloaded inventory history: " + inventoryPath_.string();
+            persistenceError_ = inventoryRecoveryDetail_ + ". The original history was preserved.";
+            setMessage(persistenceError_, 6);
+            break;
+          }
+          refreshInventoryCommits();
+          if (inventoryRecoveryRequired_) break;
+          store_ = move(loadedStore);
+          inventoryHistory_ = move(loadedHistory);
+          persistedStore_ = store_;
+          persistedStoreValid_ = true;
         }
-        saveInventoryHistory(inventoryPath_, inventoryHistory_);
         refreshInventoryMovements();
         syncSelectionToFilter();
         setMessage("Inventory refreshed", 2);
@@ -976,15 +1002,17 @@ void App::cancelStocktake() {
   if (!stocktakeActive_) return;
   const bool hadPendingCommit = stocktakeCommitPending_;
   bool revertedUnsavedChanges = false;
+  bool activitySaveFailed = false;
   if (stocktakeCommitPending_ && !pendingMovementSource_.empty() && undoSnapshot_.valid) {
     store_.items() = undoSnapshot_.items;
     store_.racks() = undoSnapshot_.racks;
     activities_ = undoSnapshot_.activities;
-    saveActivities(activityPath_, activities_);
+    const bool activitiesSaved = saveActivitiesChecked(false);
+    activitySaveFailed = !activitiesSaved;
     undoSnapshot_.valid = false;
     pendingMovementSource_.clear();
     pendingMovementReference_.clear();
-    persistenceError_.clear();
+    if (activitiesSaved) persistenceError_.clear();
     revertedUnsavedChanges = true;
   }
   stocktakeActive_ = false;
@@ -993,11 +1021,12 @@ void App::cancelStocktake() {
   stocktakeCounts_.clear();
   inputBuffer_.clear();
   inputMode_ = InputMode::None;
-  setMessage(revertedUnsavedChanges
-                 ? "Stocktake cancelled; unsaved inventory changes were discarded"
-                 : hadPendingCommit ? "Stocktake closed; inventory changes were already saved"
-                                    : "Stocktake cancelled; inventory was not changed",
-             4);
+  setMessage(activitySaveFailed
+                 ? "Stocktake cancelled; inventory changes were discarded, but activity history was not saved; press R to retry"
+                 : revertedUnsavedChanges ? "Stocktake cancelled; unsaved inventory changes were discarded"
+                                          : hadPendingCommit ? "Stocktake closed; inventory changes were already saved"
+                                                             : "Stocktake cancelled; inventory was not changed",
+             activitySaveFailed ? 6 : 4);
   dirty_ = true;
 }
 

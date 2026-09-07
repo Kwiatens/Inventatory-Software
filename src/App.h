@@ -26,12 +26,14 @@
 #include <ftxui/screen/box.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
 #include <functional>
 #include <future>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -45,6 +47,64 @@ namespace inventatory {
 
 std::filesystem::path documentsInventatoryPath();
 std::filesystem::path discoverInventatoryDataPath();
+
+using WorkspaceGeneration = std::uint64_t;
+
+// Shared by the controller and focused tests. Generation zero is never a
+// valid captured workspace, which makes an uninitialized result fail closed.
+inline WorkspaceGeneration advanceWorkspaceGeneration(WorkspaceGeneration current) {
+  return current == std::numeric_limits<WorkspaceGeneration>::max() ? 1 : current + 1;
+}
+
+inline bool workspaceGenerationMatches(WorkspaceGeneration current, WorkspaceGeneration captured) {
+  return current != 0 && current == captured;
+}
+
+// Async BOM work must match both the workspace and the stable project/run
+// identity that initiated it.  Keeping this predicate free of App state makes
+// the stale-result rule easy to exercise independently.
+inline bool bomEnrichmentScopeMatches(const std::string& currentProjectId,
+                                      const std::string& resultProjectId,
+                                      WorkspaceGeneration currentWorkspaceGeneration,
+                                      WorkspaceGeneration resultWorkspaceGeneration,
+                                      std::uint64_t currentRequestSequence,
+                                      std::uint64_t resultRequestSequence) {
+  return !currentProjectId.empty() && currentProjectId == resultProjectId &&
+         workspaceGenerationMatches(currentWorkspaceGeneration, resultWorkspaceGeneration) &&
+         currentRequestSequence != 0 && currentRequestSequence == resultRequestSequence;
+}
+
+// The device can poll a queued label with the same request id.  Only these
+// two states complete that idempotent exchange; "pending" remains retryable.
+inline bool quickLabelResultIsTerminal(const DeviceQuickLabelPrintResult& result) {
+  return result.status == "completed" || result.status == "failed";
+}
+
+inline bool quickLabelResultMatchesRequest(const DeviceQuickLabelPrintResult& result,
+                                           const std::string& requestId) {
+  return !requestId.empty() && result.requestId == requestId;
+}
+
+// Quick-label polling is idempotent only for the same request payload and
+// the same device/workspace context.  This predicate is kept independent of
+// App so the cache boundary can be regression-tested without constructing the
+// terminal controller.
+struct QuickLabelPrintCacheIdentity {
+  DeviceQuickLabelPrintRequest request;
+  std::string deviceId;
+  std::string labelText;
+  WorkspaceGeneration workspaceGeneration = 0;
+};
+
+inline bool quickLabelPrintCacheIdentityMatches(const QuickLabelPrintCacheIdentity& cached,
+                                                const QuickLabelPrintCacheIdentity& requested) {
+  return cached.workspaceGeneration == requested.workspaceGeneration &&
+         cached.deviceId == requested.deviceId &&
+         cached.request.requestId == requested.request.requestId &&
+         cached.request.presetIndex == requested.request.presetIndex &&
+         cached.request.revision == requested.request.revision &&
+         cached.labelText == requested.labelText;
+}
 
 class App {
  public:
@@ -222,25 +282,107 @@ class App {
   struct PendingDeviceQuantity {
     DeviceQuantityRequest request;
     DeviceQuantityResult result;
+    WorkspaceGeneration workspaceGeneration = 0;
     std::mutex mutex;
     std::condition_variable ready;
     bool complete = false;
+    bool cancelled = false;
+  };
+
+  // Immutable once published. Background work captures one snapshot so a
+  // later data-directory change cannot redirect its completion to a new DB.
+  struct WorkspaceContext {
+    InventatoryDataPaths paths;
+    WorkspaceGeneration generation = 0;
+  };
+
+  struct QueuedScan {
+    DeviceScanRequest request;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct QueuedDeviceStatus {
+    DeviceStatusReport report;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct QueuedDeviceDebug {
+    DeviceDebugReport report;
+    WorkspaceGeneration workspaceGeneration = 0;
   };
 
   struct DigiKeyRefreshResult {
     std::string itemId;
     std::optional<DigiKeyProductDetails> details;
     std::string error;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct ScanDigiKeyEnrichmentResult {
+    std::string itemId;
+    std::optional<DigiKeyProductDetails> details;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct BomEnrichmentResult {
+    std::string key;
+    std::string suggestion;
+    std::string projectId;
+    WorkspaceGeneration workspaceGeneration = 0;
+    std::uint64_t requestSequence = 0;
+  };
+
+  // Printer work is always executed against a value snapshot.  The worker
+  // creates its own LabelPrinterService so it never races the UI-owned
+  // configured queue or holds a pointer into App while a workspace changes.
+  enum class PrinterWorkKind { Refresh, Probe, PrintItem, PrintWire, PrintRack };
+
+  struct QuickLabelPrintCacheEntry {
+    QuickLabelPrintCacheIdentity identity;
+    DeviceQuickLabelPrintResult result;
+  };
+
+  struct PrinterWork {
+    PrinterWorkKind kind = PrinterWorkKind::Refresh;
+    WorkspaceGeneration workspaceGeneration = 0;
+    std::string printerName;
+    InventoryItem item;
+    InventatoryRack rack;
+    std::string text;
+    std::string rackLocation;
+    std::string successPrefix;
+    std::string requestId;
+    std::optional<QuickLabelPrintCacheIdentity> quickLabelIdentity;
+  };
+
+  struct PrinterWorkResult {
+    PrinterWork work;
+    std::vector<PrinterQueueInfo> queues;
+    PrinterCheckResult check;
+    bool success = false;
+    std::string error;
+  };
+
+  // Detached printer workers publish into this shared state only.  Shutdown
+  // marks it cancelled and drops the App-owned reference, so a spooler call
+  // that ignores cancellation can finish without touching App or a new
+  // workspace.
+  struct PrinterWorkCompletion {
+    std::mutex completionMutex;
+    std::optional<PrinterWorkResult> result;
+    bool cancelled = false;
   };
 
   struct ImportSyncBatchResult {
     std::vector<std::pair<std::string, std::optional<DigiKeyProductDetails>>> results;
     std::vector<std::string> failedItemIds;
+    WorkspaceGeneration workspaceGeneration = 0;
   };
 
   void loadState();
   bool saveState(const std::string& movementSource = "manual",
                  const std::string& movementReference = {}, const std::string& commitMessage = {});
+  bool reloadInventoryState();
   bool saveInventoryState(const InventoryCommitDraft& draft);
   void refreshHistoryDetail();
   void moveHistorySelection(int delta);
@@ -317,6 +459,7 @@ class App {
   void completeSettingsExit(bool saveChanges);
   void restartDeviceService();
   void processBackgroundWork();
+  void processPrinterWork();
   void processScanDigiKeyEnrichment();
   void beginDigiKeyRefresh();
   void processDigiKeyRefresh();
@@ -329,14 +472,30 @@ class App {
   std::string scanFirmwareStatus() const;
   void runBackgroundLoop();
   void runInteractiveLoop();
+  void stopWorkspaceBoundWork();
+  void stopPrinterWork();
+  std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
+  void activateWorkspaceContext(const InventatoryDataPaths& paths);
+  bool workspaceIsCurrent(WorkspaceGeneration generation) const;
+  bool saveActivitiesChecked(bool notify = true);
+  bool saveScannerCredentialChecked(bool notify = false);
+  bool saveScannerConfigChecked(bool notify = false);
+  bool savePendingAppSettings();
+  bool hasPendingPersistence() const;
   void markDirty();
   void refreshPrinterState();
+  bool enqueuePrinterProbe(const std::string& printerName);
+  bool enqueuePrinterWork(PrinterWork work);
   void refreshInventoryMovements();
   void refreshInventoryCommits();
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);
-  bool printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, DeviceQuickLabelPrintResult& result);
+  bool printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, const std::string& deviceId,
+                             WorkspaceGeneration workspaceGeneration, DeviceQuickLabelPrintResult& result);
+  void storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result,
+                                  const QuickLabelPrintCacheIdentity& identity);
+  void clearQuickLabelPrintCache();
   void addQuickLabelPreset();
   void deleteQuickLabelPreset();
   void moveQuickLabelPreset(int direction);
@@ -360,9 +519,9 @@ class App {
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
   DeviceQuantityResult enqueueDeviceQuantity(const DeviceQuantityRequest& request);
-  void enqueueDeviceStatus(const DeviceStatusReport& report);
+  void enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration);
   void processDeviceRequests();
-  void enqueueDeviceDebug(const DeviceDebugReport& report);
+  void enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration);
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
   void processDeviceSyncEvents();
   void refreshDeviceEventRecords();
@@ -564,6 +723,13 @@ class App {
   bool pendingCommitDraftValid_ = false;
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
+  bool activitySavePending_ = false;
+  bool scannerCredentialSavePending_ = false;
+  bool scannerReplayStateMigrationPending_ = false;
+  bool scannerConfigSavePending_ = false;
+  bool appSettingsSavePending_ = false;
+  bool activityPersistenceBlocked_ = false;
+  bool exitSavePending_ = false;
   time_t messageUntil_ = 0;
   long long messageFlashStartedAt_ = -1;
   size_t selectedPosition_ = 0;
@@ -580,7 +746,7 @@ class App {
   std::string movingRackItemId_;
   std::string movingRackSource_;
   std::string rackFilter_;
-  std::vector<DeviceScanRequest> scanQueue_;
+  std::vector<QueuedScan> scanQueue_;
   std::vector<CsvImportCandidate> importCandidates_;
   std::vector<std::string> importAcceptedItemIds_;
   std::filesystem::path importSourcePath_;
@@ -602,11 +768,11 @@ class App {
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
   std::vector<std::shared_ptr<PendingDeviceQuantity>> deviceQuantityQueue_;
-  std::vector<DeviceStatusReport> deviceStatusQueue_;
-  std::vector<DeviceDebugReport> deviceDebugQueue_;
+  std::vector<QueuedDeviceStatus> deviceStatusQueue_;
+  std::vector<QueuedDeviceDebug> deviceDebugQueue_;
   std::vector<DeviceSyncEventRecord> deviceEventRecords_;
   std::vector<std::string> deviceDebugLog_;
-  std::unordered_map<std::string, DeviceQuantityResult> deviceRequestCache_;
+  std::unordered_map<std::string, DeviceQuantityCacheEntry> deviceRequestCache_;
   std::deque<std::string> deviceRequestOrder_;
   time_t deviceLastSeen_ = 0;
   std::string deviceFirmwareVersion_;
@@ -642,6 +808,7 @@ class App {
   bool importSyncRunning_ = false;
   bool importSyncHasRun_ = false;
   bool importSyncCancelRequested_ = false;
+  WorkspaceGeneration importSyncGeneration_ = 0;
   std::vector<BomProject> bomProjects_;
   std::string activeBomProjectId_;
   size_t bomProjectSelection_ = 0;
@@ -667,14 +834,18 @@ class App {
   std::vector<std::string> bomEnrichmentQueue_;
   size_t bomEnrichmentTotal_ = 0;
   std::string bomEnrichmentActiveKey_;
+  WorkspaceGeneration bomEnrichmentGeneration_ = 0;
   // One lookup in flight at a time, off the render thread. A DigiKey call takes
   // seconds and would otherwise freeze the terminal for the whole shortage run.
   // The client is declared first on purpose: members are destroyed in reverse,
   // so the future (which joins its task) must outlive the client it borrows.
   std::unique_ptr<DigiKeyApiClient> bomEnrichmentClient_;
-  std::future<std::pair<std::string, std::string>> bomEnrichmentFuture_;
+  std::future<BomEnrichmentResult> bomEnrichmentFuture_;
+  std::string bomEnrichmentProjectId_;
+  std::string bomEnrichmentActiveProjectId_;
+  std::uint64_t bomEnrichmentSequence_ = 0;
   std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
-  std::future<std::pair<std::string, std::optional<DigiKeyProductDetails>>> scanDigiKeyEnrichmentFuture_;
+  std::future<ScanDigiKeyEnrichmentResult> scanDigiKeyEnrichmentFuture_;
   // Inventory-wide DigiKey recovery runs one lookup per tick so restoring
   // lost vendor metadata never blocks the terminal or changes stock counts.
   std::deque<std::pair<std::string, std::string>> digiKeyRefreshQueue_;
@@ -683,6 +854,7 @@ class App {
   size_t digiKeyRefreshSucceeded_ = 0;
   size_t digiKeyRefreshFailed_ = 0;
   bool digiKeyRefreshChanged_ = false;
+  WorkspaceGeneration digiKeyRefreshGeneration_ = 0;
   std::string digiKeyRefreshActiveKey_;
   std::string digiKeyRefreshLastError_;
   std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
@@ -694,6 +866,10 @@ class App {
   std::string deleteConfirmationItemId_;
   time_t deleteConfirmationUntil_ = 0;
   size_t printerSelection_ = 0;
+  std::deque<PrinterWork> printerWorkQueue_;
+  mutable std::mutex printerWorkMutex_;
+  std::shared_ptr<PrinterWorkCompletion> printerWorkCompletion_;
+  std::optional<PrinterWorkKind> printerWorkActiveKind_;
   size_t bleSetupSelection_ = 0;
   std::string bleWifiSsid_;
   std::string bleWifiPassword_;
@@ -723,7 +899,7 @@ class App {
   std::string stagedDigiKeySecret_;
   bool stagedDigiKeySecretChanged_ = false;
   bool hasStoredDigiKeySecret_ = false;
-  std::unordered_map<std::string, DeviceQuickLabelPrintResult> quickLabelPrintResults_;
+  std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;
@@ -732,6 +908,8 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
+  mutable std::mutex workspaceMutex_;
+  std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckChecked_ = false;
   bool updateCheckFailed_ = false;
   std::string scanFirmwareLatestVersion_;

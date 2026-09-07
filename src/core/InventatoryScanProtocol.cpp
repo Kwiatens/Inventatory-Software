@@ -2,6 +2,7 @@
 // Inventatory Scan R1 protocol types, validation, persistence, and stock mutation rules.
 
 #include "core/InventatoryScanProtocol.h"
+#include "core/AtomicFile.h"
 #include "core/InventoryInternals.h"
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 #include <optional>
 #include <random>
 #include <sstream>
+#include <unordered_set>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -31,6 +33,15 @@ namespace inventatory {
 using namespace std;
 
 namespace {
+
+// The transport body is already bounded by the HTTP server, but a bounded
+// nesting depth keeps malformed JSON from consuming unbounded parser work and
+// makes the accepted wire shape explicit.
+constexpr size_t kMaxJsonNestingDepth = 32;
+constexpr size_t kMaxJsonBodyBytes = 64U * 1024U;
+constexpr size_t kMaxScanConfigFileBytes = 8U * 1024U;
+constexpr size_t kMaxScanConfigDeviceIdBytes = 128U;
+constexpr size_t kMaxScanConfigHostBytes = 256U;
 
 int hexDigit(char ch) {
   if (ch >= '0' && ch <= '9') return ch - '0';
@@ -132,52 +143,156 @@ string transportMac(const string& token, const char* direction, const string& in
 #endif
 }
 
-bool jsonObjectIsComplete(const string& body) {
-  const auto begin = body.find_first_not_of(" \t\r\n");
-  const auto end = body.find_last_not_of(" \t\r\n");
-  if (begin == string::npos || body[begin] != '{' || body[end] != '}') {
+class JsonSyntaxParser {
+ public:
+  explicit JsonSyntaxParser(const string& input) : input_(input) {}
+
+  bool parseObjectDocument() {
+    skipWhitespace();
+    if (!parseObject(0)) return false;
+    skipWhitespace();
+    return position_ == input_.size();
+  }
+
+ private:
+  void skipWhitespace() {
+    while (position_ < input_.size() && (input_[position_] == ' ' || input_[position_] == '\t' ||
+                                         input_[position_] == '\r' || input_[position_] == '\n')) {
+      ++position_;
+    }
+  }
+
+  bool parseString() {
+    if (position_ >= input_.size() || input_[position_] != '"') return false;
+    ++position_;
+    while (position_ < input_.size()) {
+      const unsigned char ch = static_cast<unsigned char>(input_[position_++]);
+      if (ch == '"') return true;
+      if (ch < 0x20U) return false;
+      if (ch != '\\') continue;
+      if (position_ >= input_.size()) return false;
+      const char escaped = input_[position_++];
+      if (escaped == 'u') {
+        if (position_ + 4U > input_.size() || hexDigit(input_[position_]) < 0 ||
+            hexDigit(input_[position_ + 1U]) < 0 || hexDigit(input_[position_ + 2U]) < 0 ||
+            hexDigit(input_[position_ + 3U]) < 0) {
+          return false;
+        }
+        position_ += 4U;
+      } else if (escaped != '"' && escaped != '\\' && escaped != '/' && escaped != 'b' && escaped != 'f' &&
+                 escaped != 'n' && escaped != 'r' && escaped != 't') {
+        return false;
+      }
+    }
     return false;
   }
 
-  int objectDepth = 0;
-  int arrayDepth = 0;
-  bool inString = false;
-  bool escaped = false;
-  for (size_t index = begin; index <= end; ++index) {
-    const unsigned char ch = static_cast<unsigned char>(body[index]);
-    if (inString) {
-      if (escaped) {
-        if (ch == 'u') {
-          if (index + 4U > end || hexDigit(body[index + 1U]) < 0 || hexDigit(body[index + 2U]) < 0 ||
-              hexDigit(body[index + 3U]) < 0 || hexDigit(body[index + 4U]) < 0) return false;
-          index += 4U;
-        } else if (ch != '"' && ch != '\\' && ch != '/' && ch != 'b' && ch != 'f' && ch != 'n' &&
-                   ch != 'r' && ch != 't') {
-          return false;
-        }
-        escaped = false;
-      } else if (ch == '\\') {
-        escaped = true;
-      } else if (ch == '"') {
-        inString = false;
-      } else if (ch < 0x20U) {
-        return false;
-      }
-      continue;
+  bool parseNumber() {
+    const auto begin = position_;
+    if (position_ < input_.size() && input_[position_] == '-') ++position_;
+    if (position_ >= input_.size()) return false;
+    if (input_[position_] == '0') {
+      ++position_;
+      if (position_ < input_.size() && isdigit(static_cast<unsigned char>(input_[position_]))) return false;
+    } else {
+      if (!isdigit(static_cast<unsigned char>(input_[position_])) || input_[position_] == '0') return false;
+      while (position_ < input_.size() && isdigit(static_cast<unsigned char>(input_[position_]))) ++position_;
     }
-    if (ch == '"') {
-      inString = true;
-    } else if (ch == '{') {
-      ++objectDepth;
-    } else if (ch == '}') {
-      if (--objectDepth < 0) return false;
-    } else if (ch == '[') {
-      ++arrayDepth;
-    } else if (ch == ']') {
-      if (--arrayDepth < 0) return false;
+    if (position_ < input_.size() && input_[position_] == '.') {
+      ++position_;
+      const auto fractionBegin = position_;
+      while (position_ < input_.size() && isdigit(static_cast<unsigned char>(input_[position_]))) ++position_;
+      if (position_ == fractionBegin) return false;
+    }
+    if (position_ < input_.size() && (input_[position_] == 'e' || input_[position_] == 'E')) {
+      ++position_;
+      if (position_ < input_.size() && (input_[position_] == '+' || input_[position_] == '-')) ++position_;
+      const auto exponentBegin = position_;
+      while (position_ < input_.size() && isdigit(static_cast<unsigned char>(input_[position_]))) ++position_;
+      if (position_ == exponentBegin) return false;
+    }
+    return position_ > begin;
+  }
+
+  bool parseLiteral(const char* literal) {
+    const size_t length = strlen(literal);
+    if (input_.compare(position_, length, literal) != 0) return false;
+    position_ += length;
+    return true;
+  }
+
+  bool parseValue(size_t depth) {
+    skipWhitespace();
+    if (position_ >= input_.size()) return false;
+    switch (input_[position_]) {
+      case '{': return parseObject(depth);
+      case '[': return parseArray(depth);
+      case '"': return parseString();
+      case 't': return parseLiteral("true");
+      case 'f': return parseLiteral("false");
+      case 'n': return parseLiteral("null");
+      default:
+        return input_[position_] == '-' || isdigit(static_cast<unsigned char>(input_[position_]))
+                   ? parseNumber()
+                   : false;
     }
   }
-  return !inString && !escaped && objectDepth == 0 && arrayDepth == 0;
+
+  bool parseObject(size_t depth) {
+    if (depth >= kMaxJsonNestingDepth || position_ >= input_.size() || input_[position_] != '{') return false;
+    ++position_;
+    skipWhitespace();
+    if (position_ < input_.size() && input_[position_] == '}') {
+      ++position_;
+      return true;
+    }
+    while (true) {
+      if (!parseString()) return false;
+      skipWhitespace();
+      if (position_ >= input_.size() || input_[position_] != ':') return false;
+      ++position_;
+      if (!parseValue(depth + 1U)) return false;
+      skipWhitespace();
+      if (position_ >= input_.size()) return false;
+      if (input_[position_] == '}') {
+        ++position_;
+        return true;
+      }
+      if (input_[position_] != ',') return false;
+      ++position_;
+      skipWhitespace();
+    }
+  }
+
+  bool parseArray(size_t depth) {
+    if (depth >= kMaxJsonNestingDepth || position_ >= input_.size() || input_[position_] != '[') return false;
+    ++position_;
+    skipWhitespace();
+    if (position_ < input_.size() && input_[position_] == ']') {
+      ++position_;
+      return true;
+    }
+    while (true) {
+      if (!parseValue(depth + 1U)) return false;
+      skipWhitespace();
+      if (position_ >= input_.size()) return false;
+      if (input_[position_] == ']') {
+        ++position_;
+        return true;
+      }
+      if (input_[position_] != ',') return false;
+      ++position_;
+      skipWhitespace();
+    }
+  }
+
+  const string& input_;
+  size_t position_ = 0;
+};
+
+bool jsonObjectIsComplete(const string& body) {
+  if (body.size() > kMaxJsonBodyBytes) return false;
+  return JsonSyntaxParser(body).parseObjectDocument();
 }
 
 optional<size_t> jsonMemberValuePosition(const string& body, const string& key) {
@@ -362,60 +477,115 @@ optional<string> jsonObjectBody(const string& body, const string& key) {
   return nullopt;
 }
 
-vector<string> jsonObjectArray(const string& body, const string& key) {
-  vector<string> objects;
+optional<vector<string>> jsonObjectArray(const string& body, const string& key) {
   const auto array = jsonArrayBody(body, key);
-  if (!array) return objects;
-  bool inString = false;
-  bool escaped = false;
-  int depth = 0;
-  size_t begin = string::npos;
-  for (size_t index = 0; index < array->size(); ++index) {
-    const char ch = (*array)[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch == '\\') escaped = true;
-      else if (ch == '"') inString = false;
-      continue;
+  if (!array) return nullopt;
+  vector<string> objects;
+  size_t position = 0;
+  const auto skipWhitespace = [&]() {
+    while (position < array->size() && isspace(static_cast<unsigned char>((*array)[position])) != 0) ++position;
+  };
+  skipWhitespace();
+  if (position == array->size()) return objects;
+  while (position < array->size()) {
+    if ((*array)[position] != '{') return nullopt;
+    const size_t begin = position;
+    vector<char> nesting;
+    bool inString = false;
+    bool escaped = false;
+    for (; position < array->size(); ++position) {
+      const char ch = (*array)[position];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == '\\') {
+          escaped = true;
+        } else if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+      } else if (ch == '{' || ch == '[') {
+        if (nesting.size() >= kMaxJsonNestingDepth) return nullopt;
+        nesting.push_back(ch);
+      } else if (ch == '}' || ch == ']') {
+        if (nesting.empty() || (ch == '}' && nesting.back() != '{') ||
+            (ch == ']' && nesting.back() != '[')) {
+          return nullopt;
+        }
+        nesting.pop_back();
+        if (nesting.empty()) {
+          ++position;
+          break;
+        }
+      }
     }
-    if (ch == '"') inString = true;
-    else if (ch == '{') {
-      if (depth++ == 0) begin = index;
-    } else if (ch == '}' && depth > 0 && --depth == 0 && begin != string::npos) {
-      objects.push_back(array->substr(begin, index - begin + 1));
-      begin = string::npos;
-    }
+    if (inString || escaped || !nesting.empty() || position <= begin) return nullopt;
+    objects.push_back(array->substr(begin, position - begin));
+    skipWhitespace();
+    if (position == array->size()) return objects;
+    if ((*array)[position] != ',') return nullopt;
+    ++position;
+    skipWhitespace();
+    if (position == array->size()) return nullopt;
   }
   return objects;
 }
 
-vector<string> jsonStringArray(const string& body, const string& key) {
-  vector<string> values;
+optional<vector<string>> jsonStringArray(const string& body, const string& key) {
   const auto array = jsonArrayBody(body, key);
-  if (!array) return values;
+  if (!array) return nullopt;
+  vector<string> values;
   size_t position = 0;
+  const auto skipWhitespace = [&]() {
+    while (position < array->size() && isspace(static_cast<unsigned char>((*array)[position])) != 0) ++position;
+  };
+  skipWhitespace();
+  if (position == array->size()) return values;
   while (position < array->size()) {
-    const auto quote = array->find('"', position);
-    if (quote == string::npos) break;
+    if ((*array)[position] != '"') return nullopt;
     string value;
     bool escaped = false;
-    size_t index = quote + 1;
+    bool closed = false;
+    size_t index = position + 1;
     for (; index < array->size(); ++index) {
       const char ch = (*array)[index];
       if (escaped) {
-        value.push_back(ch);
+        if (ch == 'u') {
+          if (index + 4 >= array->size() || hexDigit((*array)[index + 1]) < 0 ||
+              hexDigit((*array)[index + 2]) < 0 || hexDigit((*array)[index + 3]) < 0 ||
+              hexDigit((*array)[index + 4]) < 0) return nullopt;
+          value.push_back(ch);
+          index += 4;
+        } else if (ch != '"' && ch != '\\' && ch != '/' && ch != 'b' && ch != 'f' && ch != 'n' &&
+                   ch != 'r' && ch != 't') {
+          return nullopt;
+        } else {
+          value.push_back(ch);
+        }
         escaped = false;
       } else if (ch == '\\') {
         escaped = true;
       } else if (ch == '"') {
-        values.push_back(value);
+        closed = true;
         ++index;
         break;
       } else {
+        if (static_cast<unsigned char>(ch) < 0x20U) return nullopt;
         value.push_back(ch);
       }
     }
+    if (!closed || escaped) return nullopt;
+    values.push_back(move(value));
     position = index;
+    skipWhitespace();
+    if (position == array->size()) return values;
+    if ((*array)[position] != ',') return nullopt;
+    ++position;
+    skipWhitespace();
+    if (position == array->size()) return nullopt;
   }
   return values;
 }
@@ -460,6 +630,18 @@ bool looksLikeSupportedLookupCode(const string& code) {
   return looksLikeManufacturerPartNumber(trimmed);
 }
 
+bool validScanConfigText(const string& value, size_t maximum) {
+  return value.size() <= maximum &&
+         all_of(value.begin(), value.end(), [](unsigned char ch) {
+           return ch != 0 && ch != '\r' && ch != '\n';
+         });
+}
+
+bool validScanConfig(const InventatoryScanConfig& config) {
+  return validScanConfigText(config.deviceId, kMaxScanConfigDeviceIdBytes) &&
+         validScanConfigText(config.fallbackHost, kMaxScanConfigHostBytes) && config.fallbackPort <= 65535;
+}
+
 }  // namespace
 
 bool InventatoryScanConfig::paired() const {
@@ -467,9 +649,14 @@ bool InventatoryScanConfig::paired() const {
 }
 
 bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConfig& config) {
+  error_code sizeError;
+  const auto fileSize = filesystem::file_size(path, sizeError);
+  if (sizeError || fileSize > kMaxScanConfigFileBytes) return false;
   ifstream input(path);
   if (!input) return false;
   InventatoryScanConfig loaded;
+  bool malformedLine = false;
+  unordered_set<string> seenKeys;
   bool hasDeviceId = false;
   bool hasFallbackHost = false;
   bool hasFallbackPort = false;
@@ -477,30 +664,48 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
   string line;
   while (getline(input, line)) {
     const auto separator = line.find('=');
-    if (separator == string::npos) continue;
+    if (line.size() > kMaxScanConfigFileBytes || separator == string::npos || separator == 0) {
+      malformedLine = true;
+      continue;
+    }
     const auto key = trim(line.substr(0, separator));
     const auto value = trim(line.substr(separator + 1));
+    if ((key != "device_id" && key != "fallback_host" && key != "fallback_port" && key != "setup_complete") ||
+        !seenKeys.insert(key).second) {
+      return false;
+    }
     if (key == "device_id") {
+      if (!validScanConfigText(value, kMaxScanConfigDeviceIdBytes)) return false;
       loaded.deviceId = value;
       hasDeviceId = true;
     } else if (key == "fallback_host") {
+      if (!validScanConfigText(value, kMaxScanConfigHostBytes)) return false;
       loaded.fallbackHost = value;
       hasFallbackHost = true;
     } else if (key == "fallback_port") {
+      if (value.empty() || any_of(value.begin(), value.end(), [](unsigned char ch) { return !isdigit(ch); })) return false;
+      uint64_t port = 0;
       try {
-        const auto port = stoul(value);
-        if (port <= 65535) {
-          loaded.fallbackPort = static_cast<uint16_t>(port);
-          hasFallbackPort = true;
-        }
+        size_t consumed = 0;
+        port = stoull(value, &consumed, 10);
+        if (consumed != value.size() || port > 65535) return false;
       } catch (...) {
+        return false;
       }
+      loaded.fallbackPort = static_cast<uint16_t>(port);
+      hasFallbackPort = true;
     } else if (key == "setup_complete") {
-      loaded.setupComplete = value == "true" || value == "1";
+      if (value == "true" || value == "1") {
+        loaded.setupComplete = true;
+      } else if (value == "false" || value == "0") {
+        loaded.setupComplete = false;
+      } else {
+        return false;
+      }
       hasSetupComplete = true;
     }
   }
-  if (!(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
+  if (!input.eof() || malformedLine || !(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
   // Older config files had no setup marker. A stored device identity means
   // that pairing had already completed before the marker was introduced.
   if (!hasSetupComplete) loaded.setupComplete = !loaded.deviceId.empty();
@@ -509,29 +714,16 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
 }
 
 bool saveInventatoryScanConfig(const filesystem::path& path, const InventatoryScanConfig& config) {
-  error_code error;
-  filesystem::create_directories(path.parent_path(), error);
-  if (error) return false;
-  const auto temporary = filesystem::path(path.string() + ".tmp");
-  ofstream output(temporary, ios::trunc);
-  if (!output) return false;
+  if (!validScanConfig(config)) return false;
+  ostringstream output;
   output << "device_id=" << config.deviceId << '\n'
          << "fallback_host=" << config.fallbackHost << '\n'
          << "fallback_port=" << config.fallbackPort << '\n'
          << "setup_complete=" << (config.setupComplete ? "true" : "false") << '\n';
-  output.close();
-  if (!output) return false;
-#ifdef _WIN32
-  if (MoveFileExA(temporary.string().c_str(), path.string().c_str(),
-                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
-    filesystem::remove(temporary, error);
-    return false;
-  }
-  return true;
-#else
-  filesystem::rename(temporary, path, error);
-  return !error;
-#endif
+  const auto text = output.str();
+  if (text.size() > kMaxScanConfigFileBytes) return false;
+  string error;
+  return writeFileAtomically(path, text, &error);
 }
 
 string generateInventatoryScanToken() {
@@ -544,6 +736,14 @@ string generateInventatoryScanToken() {
   random_device source;
   for (auto& byte : bytes) byte = static_cast<unsigned char>(source());
   return hexToken(bytes);
+}
+
+filesystem::path inventatoryScanReplayStatePath(const filesystem::path& workspaceDirectory) {
+  if (workspaceDirectory.empty()) return {};
+  error_code error;
+  const auto absoluteDirectory = filesystem::absolute(workspaceDirectory, error);
+  if (error || absoluteDirectory.empty()) return {};
+  return absoluteDirectory.lexically_normal() / "inventatory-scan-replay.state";
 }
 
 string deviceRequestMac(const string& token, const string& method, const string& path, const string& deviceId,
@@ -688,20 +888,40 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
   parsed.mode = *mode;
   parsed.rssi = *rssi;
   parsed.queueDepth = *queueDepth;
-  parsed.resultAcks = jsonStringArray(body, "resultAcks");
-  if (parsed.resultAcks.size() > 4) {
-    error = "Too many result acknowledgements";
+  const auto resultAcks = jsonStringArray(body, "resultAcks");
+  if (!resultAcks) {
+    error = "Invalid result acknowledgements";
+    return false;
+  }
+  parsed.resultAcks = *resultAcks;
+  if (parsed.resultAcks.size() > 4 ||
+      any_of(parsed.resultAcks.begin(), parsed.resultAcks.end(), [](const string& value) {
+        return value.empty() || value.size() > 96;
+      })) {
+    error = parsed.resultAcks.size() > 4 ? "Too many result acknowledgements"
+                                        : "Invalid result acknowledgement";
     return false;
   }
 
-  for (const auto& object : jsonObjectArray(body, "events")) {
+  const auto eventObjects = jsonObjectArray(body, "events");
+  if (!eventObjects) {
+    error = "Invalid sync events";
+    return false;
+  }
+  for (const auto& object : *eventObjects) {
     const auto eventId = jsonString(object, "eventId");
     const auto type = jsonString(object, "type");
     const auto code = jsonString(object, "code");
     const auto value = jsonInt(object, "value");
-    if (!eventId || trim(*eventId).empty() || !type || !code || trim(*code).empty() || !value ||
-        eventId->size() > 96 || code->size() > 128) {
+    if (!eventId || trim(*eventId).empty() || !type || trim(*type).empty() || !code || trim(*code).empty() ||
+        !value || eventId->size() > 96 || type->size() > 48 || code->size() > 128) {
       error = "Invalid sync event";
+      return false;
+    }
+    if (any_of(parsed.events.begin(), parsed.events.end(), [&](const DeviceSyncEvent& event) {
+          return event.eventId == *eventId;
+        })) {
+      error = "Duplicate sync event id";
       return false;
     }
     parsed.events.push_back({*eventId, *type, *code, *value});
@@ -864,16 +1084,23 @@ DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuan
 }
 
 DeviceQuantityResult applyDeviceQuantityCached(InventoryStore& store, const DeviceQuantityRequest& request,
-                                               unordered_map<string, DeviceQuantityResult>& cache,
+                                               uint64_t workspaceGeneration,
+                                               unordered_map<string, DeviceQuantityCacheEntry>& cache,
                                                deque<string>& order, size_t maxEntries) {
   const auto cached = cache.find(request.requestId);
-  if (cached != cache.end()) {
-    return cached->second;
+  if (cached != cache.end() && cached->second.workspaceGeneration == workspaceGeneration &&
+      cached->second.request.deviceId == request.deviceId &&
+      cached->second.request.requestId == request.requestId &&
+      cached->second.request.code == request.code &&
+      cached->second.request.delta == request.delta) {
+    return cached->second.result;
   }
 
   const auto result = applyDeviceQuantity(store, request);
-  cache[request.requestId] = result;
-  order.push_back(request.requestId);
+  if (find(order.begin(), order.end(), request.requestId) == order.end()) {
+    order.push_back(request.requestId);
+  }
+  cache[request.requestId] = {request, workspaceGeneration, result};
   while (order.size() > maxEntries) {
     cache.erase(order.front());
     order.pop_front();

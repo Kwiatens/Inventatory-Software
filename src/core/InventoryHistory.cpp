@@ -38,16 +38,7 @@ bool deserializeHistoryPoint(const string& line, InventoryHistoryPoint& point) {
 #ifdef _WIN32
 
 bool createHistoryTable(SqliteConnection& connection) {
-  return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_inventory_history (
-      timestamp INTEGER NOT NULL,
-      item_count INTEGER NOT NULL,
-      total_units INTEGER NOT NULL,
-      low_stock_count INTEGER NOT NULL,
-      out_of_stock_count INTEGER NOT NULL,
-      data_error_count INTEGER NOT NULL
-    )
-  )SQL");
+  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool loadHistoryFromInventatoryTable(SqliteConnection& connection, vector<InventoryHistoryPoint>& history) {
@@ -66,18 +57,18 @@ bool loadHistoryFromInventatoryTable(SqliteConnection& connection, vector<Invent
     return false;
   }
 
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     InventoryHistoryPoint point;
-    point.timestamp = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 0));
-    point.itemCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 1));
-    point.totalUnits = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 2));
-    point.lowStockCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 3));
-    point.outOfStockCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 4));
-    point.dataErrorCount = static_cast<size_t>(sqliteApi().column_int64(statement.stmt, 5));
+    if (!sqliteTime(statement.stmt, 0, point.timestamp) || !sqliteSize(statement.stmt, 1, point.itemCount) ||
+        !sqliteSize(statement.stmt, 2, point.totalUnits) || !sqliteSize(statement.stmt, 3, point.lowStockCount) ||
+        !sqliteSize(statement.stmt, 4, point.outOfStockCount) || !sqliteSize(statement.stmt, 5, point.dataErrorCount)) {
+      return false;
+    }
     history.push_back(move(point));
   }
 
-  return true;
+  return stepResult == SQLITE_DONE;
 }
 
 bool writeHistoryToInventatoryTable(SqliteConnection& connection, const vector<InventoryHistoryPoint>& history) {
