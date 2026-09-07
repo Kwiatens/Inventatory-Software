@@ -366,7 +366,11 @@ bool deserializeActivity(const string& line, ActivityEntry& entry) {
   if (!(input >> entry.timestamp >> quoted(entry.kind) >> quoted(entry.message))) {
     return false;
   }
-  return true;
+  // A record is a complete line, not merely a valid prefix.  Without this
+  // check a valid entry followed by arbitrary bytes was accepted and then
+  // preserved/re-written as if the file were trustworthy.
+  input >> ws;
+  return input.eof();
 }
 
 bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activities) {

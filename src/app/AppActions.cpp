@@ -932,16 +932,36 @@ bool App::restoreData() {
     setMessage("Restore stopped; automatic pre-restore backup failed: " + error, 7);
     return false;
   }
-  if (!restoreInventatoryBackup(selectedBackup, dataPath_, settingsPath_, error)) {
-    if (serviceWasRunning) restartDeviceService();
-    setMessage("Restore failed; current data was left unchanged: " + error, 7);
+  bool replacementWorkspaceActiveOnFailure = false;
+  if (!restoreInventatoryBackup(selectedBackup, dataPath_, settingsPath_, error, nullptr,
+                                &replacementWorkspaceActiveOnFailure)) {
+    if (replacementWorkspaceActiveOnFailure) {
+      // The replacement directory was published but cleanup or rollback did
+      // not complete.  The old in-memory state no longer describes the files
+      // on disk, so starting the service here could expose a stale workspace.
+      server_.stop();
+      mdnsService_.stop();
+      inventoryRecoveryRequired_ = true;
+      inventoryRecoveryDetail_ = "Restore activated but could not finish safely; the active workspace must be "
+                                 "reloaded before saving. " + error;
+      persistenceError_ = inventoryRecoveryDetail_;
+      setMessage(inventoryRecoveryDetail_, 7);
+    } else {
+      if (serviceWasRunning) restartDeviceService();
+      setMessage("Restore failed; current data was left unchanged: " + error, 7);
+    }
     return false;
   }
 
   AppSettings restored;
   if (!loadAppSettings(settingsPath_, restored)) {
-    if (serviceWasRunning) restartDeviceService();
-    setMessage("Restore activated, but restored settings could not be loaded; use the pre-restore backup", 7);
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Restore activated, but restored application settings could not be loaded. "
+                               "Use the pre-restore backup.";
+    persistenceError_ = inventoryRecoveryDetail_;
+    server_.stop();
+    mdnsService_.stop();
+    setMessage(inventoryRecoveryDetail_, 7);
     return false;
   }
   settings_ = restored;
@@ -955,8 +975,13 @@ bool App::restoreData() {
   if (quickLabelsError ||
       (quickLabelsFileExists &&
        !loadQuickLabels(quickLabelsPath_, restoredQuickLabels, restoredQuickLabelRevision))) {
-    restartDeviceService();
-    setMessage("Backup activated, but restored Quick Labels could not be loaded; use the pre-restore backup", 7);
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Backup activated, but restored Quick Labels could not be loaded. "
+                               "The Scan R1 service remains stopped; use the pre-restore backup.";
+    persistenceError_ = inventoryRecoveryDetail_;
+    server_.stop();
+    mdnsService_.stop();
+    setMessage(inventoryRecoveryDetail_, 7);
     return false;
   }
   settings_.quickLabelPresets = move(restoredQuickLabels);
@@ -974,8 +999,11 @@ bool App::restoreData() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), cleanupError);
   loadState();
   if (inventoryRecoveryRequired_) {
-    restartDeviceService();
-    setMessage("Backup activated, but restored data could not be loaded safely; use the pre-restore backup", 7);
+    server_.stop();
+    mdnsService_.stop();
+    setMessage("Backup activated, but restored data could not be loaded safely; Scan R1 remains stopped. "
+                   "Use the pre-restore backup",
+               7);
     return false;
   }
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();

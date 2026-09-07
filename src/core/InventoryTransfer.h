@@ -36,7 +36,13 @@ bool validateInventatoryBackup(const std::filesystem::path& backupDirectory, std
 bool restoreInventatoryBackup(const std::filesystem::path& backupDirectory,
                              const std::filesystem::path& destinationDirectory,
                              const std::filesystem::path& appSettingsPath, std::string& error,
-                             const InventoryTransferTestHooks* testHooks = nullptr);
+                             const InventoryTransferTestHooks* testHooks = nullptr,
+                             // Set only when the function returns false after
+                             // publishing the replacement workspace and the
+                             // rollback/cleanup could not make the outcome
+                             // unambiguous. Callers must keep services stopped
+                             // until the active workspace has been reloaded.
+                             bool* replacementWorkspaceActiveOnFailure = nullptr);
 
 // Called by startup before loading the active workspace. It completes a
 // committed restore cleanup or rolls back an interrupted activation using the

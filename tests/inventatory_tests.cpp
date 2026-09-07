@@ -3573,6 +3573,14 @@ int main() {
     assert(loadedActivities.size() == activities.size());
     assert(loadedActivities[0].timestamp == activities[0].timestamp);
     assert(loadedActivities[0].kind == activities[0].kind);
+    {
+      ofstream trailingActivity(activityPath, ios::binary | ios::trunc);
+      trailingActivity << "123 \"scan\" \"valid prefix\" trailing-garbage\n";
+    }
+    loadedActivities.clear();
+    assert(!loadActivities(activityPath, loadedActivities));
+    assert(saveActivities(activityPath, activities));
+    assert(loadActivities(activityPath, loadedActivities));
     assert(loadedActivities[0].message == activities[0].message);
     {
       ofstream malformed(activityPath, ios::binary | ios::trunc);
@@ -4110,6 +4118,7 @@ int main() {
     }
     {
       InventoryTransferTestHooks hooks;
+      bool replacementWorkspaceActive = false;
       hooks.removeAll = [](const filesystem::path& path, string& injectedError) {
         if (path.filename().u8string().find(".restore-old-data-") != string::npos) {
           injectedError = "injected cleanup failure";
@@ -4123,7 +4132,9 @@ int main() {
         }
         return true;
       };
-      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks));
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks,
+                                       &replacementWorkspaceActive));
+      assert(replacementWorkspaceActive);
       assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
     }
     {
