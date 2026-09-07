@@ -743,10 +743,15 @@ bool equivalentPath(const filesystem::path& first, const filesystem::path& secon
 bool validateWorkspaceData(const filesystem::path& directory, string& error) {
   error.clear();
   const auto rejectLinkedArtifact = [&](const filesystem::path& path, const char* label) {
-    error_code linkError;
-    if (filesystem::is_symlink(path, linkError) || linkError) {
-      error = linkError ? "Unable to inspect workspace " + string(label) + ": " + linkError.message()
-                        : "Workspace " + string(label) + " must not be a symbolic link";
+    error_code statusError;
+    const auto status = filesystem::symlink_status(path, statusError);
+    if (status.type() == filesystem::file_type::not_found) return true;
+    if (statusError) {
+      error = "Unable to inspect workspace " + string(label) + ": " + statusError.message();
+      return false;
+    }
+    if (status.type() == filesystem::file_type::symlink) {
+      error = "Workspace " + string(label) + " must not be a symbolic link";
       return false;
     }
     return true;
