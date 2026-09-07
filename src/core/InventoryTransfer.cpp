@@ -62,6 +62,7 @@ struct BackupEntry {
 
 constexpr uintmax_t kMaximumBackupManifestBytes = 1U * 1024U * 1024U;
 constexpr uintmax_t kMaximumBackupPayloadBytes = 512U * 1024U * 1024U;
+constexpr uintmax_t kMaximumRestoreJournalBytes = 64U * 1024U;
 
 string hexBytes(const unsigned char* data, size_t count) {
   ostringstream output;
@@ -674,6 +675,12 @@ bool writeRestoreJournal(const filesystem::path& path, const RestoreJournal& jou
 }
 
 bool readRestoreJournal(const filesystem::path& path, RestoreJournal& journal, string& error) {
+  error_code sizeError;
+  const auto journalSize = filesystem::file_size(path, sizeError);
+  if (sizeError || journalSize > kMaximumRestoreJournalBytes) {
+    error = "Restore journal is missing or too large";
+    return false;
+  }
   ifstream input(path, ios::binary);
   if (!input) {
     error = "Restore journal is unreadable";
