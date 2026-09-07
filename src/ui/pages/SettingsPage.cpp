@@ -1042,9 +1042,7 @@ ftxui::Element App::renderSettingsUi() const {
         rows.push_back(target(printerQueueLine(printer.name, printer.statusText, contentWidth, selected),
                               "settings.printer." + to_string(index), UiTargetKind::Row, [self, index] {
                                 self->printerSelection_ = index;
-                                self->settingsDraft_.printerQueue = self->printerQueues_[index].name;
-                                self->settingsDirty_ = true;
-                                self->dirty_ = true;
+                                self->stageSelectedPrinterQueue();
                               }));
       }
     }
@@ -1228,6 +1226,12 @@ ftxui::Element App::renderSettingsUi() const {
   });
 }
 
+void App::stageSelectedPrinterQueue() {
+  if (stagePrinterQueueSelection(printerQueues_, printerSelection_, settingsDraft_.printerQueue, settingsDirty_)) {
+    dirty_ = true;
+  }
+}
+
 void App::handleSettingsKey(const KeyEvent& key) {
   if (appearancePickerOpen_) {
     if (key.type == KeyType::Left) {
@@ -1293,9 +1297,10 @@ void App::handleSettingsKey(const KeyEvent& key) {
       if (ch == 'k' && settingsField_ > 0) --settingsField_;
       dirty_ = true;
     } else if (settingsCategory_ == SettingsCategory::Printer) {
+      const auto previousSelection = printerSelection_;
       if (ch == 'j' && printerSelection_ + 1 < printerQueues_.size()) ++printerSelection_;
       if (ch == 'k' && printerSelection_ > 0) --printerSelection_;
-      dirty_ = true;
+      if (printerSelection_ != previousSelection) stageSelectedPrinterQueue();
     }
     return;
   }

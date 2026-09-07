@@ -1340,9 +1340,10 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       }
     }
     else if (page_ == Page::Settings && settingsCategory_ == SettingsCategory::Printer) {
+      const auto previousSelection = printerSelection_;
       if (delta < 0 && printerSelection_ > 0) --printerSelection_;
       if (delta > 0 && printerSelection_ + 1 < printerQueues_.size()) ++printerSelection_;
-      dirty_ = true;
+      if (printerSelection_ != previousSelection) stageSelectedPrinterQueue();
     }
     return true;
   }
