@@ -3879,12 +3879,14 @@ int main() {
     const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
     const auto bundle = filesystem::temp_directory_path() / "inventatory-transfer-bundle";
     const auto restoreTarget = filesystem::temp_directory_path() / "inventatory-transfer-restore-target";
+    const auto invalidOptionalBundle = filesystem::temp_directory_path() / "inventatory-transfer-invalid-optional-bundle";
     const auto settingsPath = filesystem::temp_directory_path() / "inventatory-transfer-settings.conf";
     const auto targetSettingsPath = filesystem::temp_directory_path() / "inventatory-transfer-target-settings.conf";
     const auto csv = filesystem::temp_directory_path() / "inventatory-transfer-export.csv";
     error_code cleanupError;
     filesystem::remove_all(source, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
+    filesystem::remove_all(invalidOptionalBundle, cleanupError);
     filesystem::remove_all(restoreTarget, cleanupError);
     filesystem::remove(settingsPath, cleanupError);
     filesystem::remove(targetSettingsPath, cleanupError);
@@ -3914,7 +3916,7 @@ int main() {
     changedDraft.message = "Backup history fixture";
     assert(changedStore.saveWithCommit(source / "inventory.db", store, changedDraft));
     {
-      ofstream(source / "activity.tsv") << "test activity\n";
+      ofstream(source / "activity.tsv") << "1710000000 \"test\" \"test activity\"\n";
       ofstream(source / "quick_labels.conf") << "quick_label_revision=1\n";
     }
 
@@ -3995,6 +3997,16 @@ int main() {
     filesystem::remove_all(bundle, cleanupError);
     assert(createInventatoryBackup(source, settingsPath, bundle, "1.0.0", error));
     assert(validateInventatoryBackup(bundle, error));
+    {
+      ofstream malformedQuickLabels(source / "quick_labels.conf", ios::trunc);
+      malformedQuickLabels << "quick_label_revision=1\nunknown=value\n";
+      malformedQuickLabels.close();
+      assert(!createInventatoryBackup(source, settingsPath, invalidOptionalBundle, "1.0.0", error));
+      assert(!filesystem::exists(invalidOptionalBundle));
+      ofstream validQuickLabels(source / "quick_labels.conf", ios::trunc);
+      validQuickLabels << "quick_label_revision=1\n";
+      validQuickLabels.close();
+    }
     {
       InventoryTransferTestHooks hooks;
       hooks.renamePath = [](const filesystem::path& sourcePath, const filesystem::path& targetPath, string& injectedError) {

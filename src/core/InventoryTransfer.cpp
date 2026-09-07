@@ -4,6 +4,7 @@
 
 #include "app/AppSettings.h"
 #include "core/InventorySqlite.h"
+#include "label_printer/LabelPrinter.h"
 
 #include <algorithm>
 #include <array>
@@ -57,6 +58,9 @@ struct BackupEntry {
   uintmax_t size = 0;
   string hash;
 };
+
+constexpr uintmax_t kMaximumBackupManifestBytes = 1U * 1024U * 1024U;
+constexpr uintmax_t kMaximumBackupPayloadBytes = 512U * 1024U * 1024U;
 
 string hexBytes(const unsigned char* data, size_t count) {
   ostringstream output;
@@ -321,6 +325,12 @@ bool writeManifest(const filesystem::path& destination, const string& applicatio
 }
 
 bool readManifest(const filesystem::path& backupDirectory, vector<BackupEntry>& entries, string& error) {
+  error_code sizeError;
+  const auto manifestSize = filesystem::file_size(backupDirectory / "manifest.tsv", sizeError);
+  if (sizeError || manifestSize > kMaximumBackupManifestBytes) {
+    error = "Backup manifest is missing or too large";
+    return false;
+  }
   ifstream input(backupDirectory / "manifest.tsv", ios::binary);
   if (!input) {
     error = "Backup manifest is missing";
@@ -383,6 +393,7 @@ bool readManifest(const filesystem::path& backupDirectory, vector<BackupEntry>& 
 
 bool validateEntries(const filesystem::path& directory, const vector<BackupEntry>& entries, string& error) {
   set<string> listed;
+  uintmax_t aggregateSize = 0;
   for (const auto& entry : entries) listed.insert(entry.name);
   error_code enumerationError;
   for (filesystem::directory_iterator iterator(directory, enumerationError), end; iterator != end;
@@ -404,6 +415,12 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
     }
   }
   for (const auto& entry : entries) {
+    if (entry.size > kMaximumBackupPayloadBytes ||
+        aggregateSize > kMaximumBackupPayloadBytes - entry.size) {
+      error = "Backup payload is too large";
+      return false;
+    }
+    aggregateSize += entry.size;
     const auto path = directory / entry.name;
     error_code filesystemError;
     if (filesystem::is_symlink(path, filesystemError) || filesystemError ||
@@ -428,6 +445,29 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
   if (!loadAppSettings(directory / "settings.conf", settings)) {
     error = "Backup settings are invalid";
     return false;
+  }
+  const auto optionalPath = [&](const char* name) { return directory / name; };
+  if (listed.count("activity.tsv") != 0) {
+    vector<ActivityEntry> activities;
+    if (!loadActivities(optionalPath("activity.tsv"), activities)) {
+      error = "Backup activity history is invalid";
+      return false;
+    }
+  }
+  if (listed.count("quick_labels.conf") != 0) {
+    vector<string> presets;
+    uint32_t revision = 1;
+    if (!loadQuickLabels(optionalPath("quick_labels.conf"), presets, revision)) {
+      error = "Backup Quick Labels settings are invalid";
+      return false;
+    }
+  }
+  if (listed.count("printer.conf") != 0) {
+    LabelPrinterService printer;
+    if (!printer.loadConfig(optionalPath("printer.conf"))) {
+      error = "Backup printer settings are invalid";
+      return false;
+    }
   }
   return true;
 }

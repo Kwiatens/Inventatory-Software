@@ -907,7 +907,19 @@ bool App::restoreData() {
   settings_.dataDirectory = dataPath_;
   settingsDraft_ = settings_;
   activateWorkspaceContext(makeInventatoryDataPaths(dataPath_));
-  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+  error_code quickLabelsError;
+  const bool quickLabelsFileExists = filesystem::exists(quickLabelsPath_, quickLabelsError);
+  vector<string> restoredQuickLabels;
+  uint32_t restoredQuickLabelRevision = 1;
+  if (quickLabelsError ||
+      (quickLabelsFileExists &&
+       !loadQuickLabels(quickLabelsPath_, restoredQuickLabels, restoredQuickLabelRevision))) {
+    restartDeviceService();
+    setMessage("Backup activated, but restored Quick Labels could not be loaded; use the pre-restore backup", 7);
+    return false;
+  }
+  settings_.quickLabelPresets = move(restoredQuickLabels);
+  settings_.quickLabelRevision = restoredQuickLabelRevision;
   inventatoryScanConfig_ = {};
   inventatoryScanConfig_.token = generateInventatoryScanToken();
   const bool scannerTokenStored = CredentialStore::writeForWorkspace(
@@ -920,6 +932,11 @@ bool App::restoreData() {
   error_code cleanupError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), cleanupError);
   loadState();
+  if (inventoryRecoveryRequired_) {
+    restartDeviceService();
+    setMessage("Backup activated, but restored data could not be loaded safely; use the pre-restore backup", 7);
+    return false;
+  }
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
   applyUiAppearance(settings_.appearance);
   settingsDirty_ = false;
