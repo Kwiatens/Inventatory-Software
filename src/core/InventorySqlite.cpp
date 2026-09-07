@@ -2,6 +2,7 @@
 // Internal SQLite helpers shared by inventory persistence files.
 
 #include "core/InventorySqlite.h"
+#include "core/InventoryVersionInternal.h"
 
 #include <initializer_list>
 #include <limits>
@@ -641,7 +642,8 @@ bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
       return false;
     }
   }
-  return readIntegrityOk(connection, error) && validateDataValues(connection, error);
+  if (!readIntegrityOk(connection, error) || !validateDataValues(connection, error)) return false;
+  return validateInventoryCommitHistory(connection, error);
 }
 
 bool sqliteInt32(sqlite3_stmt* statement, int column, int& value) {

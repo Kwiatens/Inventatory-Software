@@ -355,6 +355,7 @@ class App {
   void loadState();
   bool saveState(const std::string& movementSource = "manual",
                  const std::string& movementReference = {}, const std::string& commitMessage = {});
+  bool reloadInventoryState();
   bool saveInventoryState(const InventoryCommitDraft& draft);
   void refreshHistoryDetail();
   void moveHistorySelection(int delta);
@@ -450,6 +451,8 @@ class App {
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
   bool workspaceIsCurrent(WorkspaceGeneration generation) const;
   bool saveActivitiesChecked(bool notify = true);
+  bool saveScannerConfigChecked(bool notify = false);
+  bool savePendingAppSettings();
   bool hasPendingPersistence() const;
   void markDirty();
   void refreshPrinterState();
@@ -690,6 +693,8 @@ class App {
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
   bool activitySavePending_ = false;
+  bool scannerConfigSavePending_ = false;
+  bool appSettingsSavePending_ = false;
   bool activityPersistenceBlocked_ = false;
   bool exitSavePending_ = false;
   time_t messageUntil_ = 0;

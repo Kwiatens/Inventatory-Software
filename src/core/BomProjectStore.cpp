@@ -11,6 +11,48 @@ namespace inventatory {
 
 using namespace std;
 
+namespace {
+
+bool parseLegacyBomMap(const string& value, map<string, string>& values) {
+  size_t start = 0;
+  while (start <= value.size()) {
+    const auto end = value.find(';', start);
+    const auto entry = value.substr(start, end == string::npos ? string::npos : end - start);
+    const auto equals = entry.find('=');
+    if (equals == string::npos ||
+        (entry.find(':') != string::npos && entry.find(':') < equals)) return false;
+    const auto key = trim(entry.substr(0, equals));
+    if (key.empty() || !values.emplace(key, trim(entry.substr(equals + 1))).second) return false;
+    if (end == string::npos) break;
+    start = end + 1;
+  }
+  return true;
+}
+
+bool deserializeBomMapChecked(const string& value, map<string, string>& values) {
+  if (value.empty()) {
+    values.clear();
+    return true;
+  }
+  const bool structured = value.rfind("v1:", 0) == 0 || value.rfind("v2:", 0) == 0;
+  if (structured) {
+    vector<Parameter> parameters;
+    if (!deserializeParametersFromStorageStrict(value, parameters)) return false;
+    map<string, string> parsed;
+    for (const auto& parameter : parameters) {
+      if (parameter.name.empty() || !parsed.emplace(parameter.name, parameter.value).second) return false;
+    }
+    values = move(parsed);
+    return true;
+  }
+  map<string, string> parsed;
+  if (!parseLegacyBomMap(value, parsed)) return false;
+  values = move(parsed);
+  return true;
+}
+
+}  // namespace
+
 string serializeBomMap(const map<string, string>& values) {
   // Reuses the parameter encoding so escaping rules stay in one place.
   vector<Parameter> parameters;
@@ -23,9 +65,7 @@ string serializeBomMap(const map<string, string>& values) {
 
 map<string, string> deserializeBomMap(const string& value) {
   map<string, string> values;
-  for (const auto& parameter : deserializeParametersFromStorage(value)) {
-    values[parameter.name] = parameter.value;
-  }
+  if (!deserializeBomMapChecked(value, values)) values.clear();
   return values;
 }
 
@@ -92,8 +132,8 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
         !sqliteTime(statement.stmt, 4, project.createdAt) || !sqliteTime(statement.stmt, 5, project.lastOpened) ||
         !sqliteTime(statement.stmt, 6, project.lastBuilt)) return false;
     project.bomText = sqliteText(statement.stmt, 7);
-    project.overrides = deserializeBomMap(sqliteText(statement.stmt, 8));
-    project.enrichment = deserializeBomMap(sqliteText(statement.stmt, 9));
+    if (!deserializeBomMapChecked(sqliteText(statement.stmt, 8), project.overrides) ||
+        !deserializeBomMapChecked(sqliteText(statement.stmt, 9), project.enrichment)) return false;
     loadedProjects.push_back(move(project));
   }
   if (stepResult != SQLITE_DONE) return false;

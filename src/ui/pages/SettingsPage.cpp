@@ -622,6 +622,7 @@ bool App::saveSettingsDraft() {
     setMessage("Unable to save Inventatory settings", 5);
     return false;
   }
+  appSettingsSavePending_ = false;
 
   if (dataChanged && quickLabelsChanged &&
       !saveQuickLabels(quickLabelsPath(settingsDraft_.dataDirectory), settingsDraft_.quickLabelPresets,
@@ -721,7 +722,28 @@ bool App::saveSettingsDraft() {
   }
   if (backgroundChanged) {
     if (settings_.backgroundServiceEnabled) {
-      backgroundController_.start(true, false, [this] { backgroundQuitRequested_.store(true); });
+      const bool backgroundStarted = backgroundController_.start(true, false, [this] {
+        backgroundQuitRequested_.store(true);
+      });
+      if (!backgroundStarted) {
+        // Keep the setting truthful if the tray/controller could not be
+        // created.  A later launch should not repeatedly claim an available
+        // background service that never started.
+        settings_.backgroundServiceEnabled = false;
+        settingsDraft_.backgroundServiceEnabled = false;
+        string startupError;
+        setBackgroundStartupEnabled(false, startupError);
+        if (!saveAppSettings(settingsPath_, settings_)) {
+          appSettingsSavePending_ = true;
+          persistenceError_ = "Background service could not start and its disabled state could not be saved.";
+          setMessage(persistenceError_ + " Press R to retry.", 7);
+          settingsDirty_ = true;
+          return false;
+        }
+        setMessage("Settings saved, but the background service could not start; it was disabled", 7);
+        settingsDirty_ = false;
+        return false;
+      }
     } else {
       backgroundController_.stop();
     }
