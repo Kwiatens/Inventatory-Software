@@ -371,10 +371,7 @@ void App::loadState() {
       inventatoryScanConfig_.token = generateInventatoryScanToken();
     }
   }
-  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential,
-                                          inventatoryScanConfig_.token)) {
-    setMessage("Unable to save the scanner pairing token securely", 5);
-  }
+  saveScannerCredentialChecked(false);
 
   vector<string> saveFailures;
   bool inventorySaved = false;
@@ -384,6 +381,9 @@ void App::loadState() {
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveScannerConfigChecked(false)) saveFailures.push_back("scanner settings");
+  if (scannerCredentialSavePending_ && !saveScannerCredentialChecked(false)) {
+    saveFailures.push_back("scanner pairing token");
+  }
   if (activityLoadFailed) {
     activitySavePending_ = true;
     saveFailures.push_back("activity history (unreadable; original preserved)");
@@ -731,6 +731,20 @@ bool App::saveScannerConfigChecked(bool notify) {
   return false;
 }
 
+bool App::saveScannerCredentialChecked(bool notify) {
+  if (!inventatoryScanConfig_.token.empty() &&
+      CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential,
+                                         inventatoryScanConfig_.token)) {
+    scannerCredentialSavePending_ = false;
+    return true;
+  }
+  scannerCredentialSavePending_ = true;
+  persistenceError_ =
+      "Could not save the scanner pairing token securely; the Scan R1 service is disabled until it succeeds.";
+  if (notify) setMessage(persistenceError_ + " Press R to retry.", 6);
+  return false;
+}
+
 bool App::savePendingAppSettings() {
   if (!appSettingsSavePending_) return true;
   if (saveAppSettings(settingsPath_, settings_)) {
@@ -765,7 +779,8 @@ bool App::saveActivitiesChecked(bool notify) {
 }
 
 bool App::hasPendingPersistence() const {
-  return pendingCommitDraftValid_ || activitySavePending_ || scannerConfigSavePending_ || appSettingsSavePending_ ||
+  return pendingCommitDraftValid_ || activitySavePending_ || scannerCredentialSavePending_ ||
+         scannerConfigSavePending_ || appSettingsSavePending_ ||
          !persistenceError_.empty();
 }
 
@@ -785,7 +800,8 @@ void App::retrySaveState() {
   const bool projectsSaved = !bomProjectsDirty_ || saveBomProjects();
   const bool appSettingsSaved = savePendingAppSettings();
   const bool scannerSaved = !scannerConfigSavePending_ || saveScannerConfigChecked(false);
-  if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved) {
+  const bool scannerCredentialSaved = !scannerCredentialSavePending_ || saveScannerCredentialChecked(false);
+  if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved && scannerCredentialSaved) {
     setMessage("All Inventatory changes are saved", 3);
   } else if (!projectsSaved) {
     setMessage("BOM project changes are still unsaved; press R to retry", 5);
@@ -1130,7 +1146,13 @@ bool App::chooseInventatoryFolder() {
   }
   if (trim(inventatoryScanConfig_.token).empty()) {
     inventatoryScanConfig_.token = generateInventatoryScanToken();
-    saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
+    if (!saveScannerCredentialChecked(false)) {
+      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
+                                   inventatoryScanReplayStatePath(dataPath_));
+      setMessage("Loaded folder, but scanner token storage failed; pair Scan R1 again", 7);
+      return true;
+    }
+    saveScannerConfigChecked(false);
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));

@@ -451,6 +451,7 @@ class App {
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
   bool workspaceIsCurrent(WorkspaceGeneration generation) const;
   bool saveActivitiesChecked(bool notify = true);
+  bool saveScannerCredentialChecked(bool notify = false);
   bool saveScannerConfigChecked(bool notify = false);
   bool savePendingAppSettings();
   bool hasPendingPersistence() const;
@@ -693,6 +694,7 @@ class App {
   bool inventoryRecoveryRequired_ = false;
   std::string inventoryRecoveryDetail_;
   bool activitySavePending_ = false;
+  bool scannerCredentialSavePending_ = false;
   bool scannerConfigSavePending_ = false;
   bool appSettingsSavePending_ = false;
   bool activityPersistenceBlocked_ = false;
