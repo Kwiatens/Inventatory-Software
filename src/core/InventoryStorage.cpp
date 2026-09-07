@@ -145,7 +145,9 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
                            const vector<InventatoryRack>& racks, const DeviceEventCommit* deviceEvent = nullptr,
                            const vector<InventoryMovement>* movements = nullptr,
                            const InventoryCommitDraft* commitDraft = nullptr,
-                           InventoryCommit* committed = nullptr, bool ensureInitialHistory = false) {
+                           InventoryCommit* committed = nullptr, bool ensureInitialHistory = false,
+                           const vector<InventoryItem>* initialItems = nullptr,
+                           const vector<InventatoryRack>* initialRacks = nullptr) {
   if (!ensureInventatoryTableSchema(connection)) {
     return false;
   }
@@ -301,7 +303,9 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
       initialDraft.source = "system";
       initialDraft.message = "Initial inventory";
       InventoryCommit initialCommit;
-      if (!writeInventoryCommit(connection, items, racks, initialDraft, initialCommit)) {
+      const auto& baselineItems = initialItems == nullptr ? items : *initialItems;
+      const auto& baselineRacks = initialRacks == nullptr ? racks : *initialRacks;
+      if (!writeInventoryCommit(connection, baselineItems, baselineRacks, initialDraft, initialCommit)) {
         execSql(connection, "ROLLBACK");
         return false;
       }
@@ -510,7 +514,8 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
   return writeItemsToInventatoryTable(connection, items, racks_, deviceEvent, &movements,
-                                      shouldCommit ? &enriched : nullptr, committed, true);
+                                      shouldCommit ? &enriched : nullptr, committed, true,
+                                      &normalizedPrevious.items(), &normalizedPrevious.racks());
 #else
   (void)previous;
   (void)draft;
