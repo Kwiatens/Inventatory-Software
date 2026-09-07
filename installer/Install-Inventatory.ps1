@@ -3,8 +3,10 @@ param([switch]$NoLaunch, [switch]$DesktopShortcut,
       [string]$Repository = '__INVENTATORY_RELEASE_REPOSITORY__')
 
 $ErrorActionPreference = 'Stop'
+$officialRepository = 'Kwiatens/Inventatory-Software'
 if ($Repository -eq '__INVENTATORY_RELEASE_REPOSITORY__' -or
-    $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+    $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
+    $Repository -ine $officialRepository) {
   throw 'This installer must be downloaded from an official Inventatory release.'
 }
 $repo = $Repository
