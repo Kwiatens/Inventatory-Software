@@ -900,6 +900,7 @@ bool App::restoreData() {
 
   AppSettings restored;
   if (!loadAppSettings(settingsPath_, restored)) {
+    if (serviceWasRunning) restartDeviceService();
     setMessage("Restore activated, but restored settings could not be loaded; use the pre-restore backup", 7);
     return false;
   }
@@ -965,6 +966,41 @@ bool App::chooseInventatoryFolder() {
   }
 
   const auto selectedInventoryPath = resolveInventoryDatabasePath(selectedPath);
+  const auto selectedDataDirectory = selectedInventoryPath.parent_path();
+  vector<string> selectedQuickLabels;
+  uint32_t selectedQuickLabelRevision = 1;
+  error_code selectedQuickLabelsError;
+  const auto selectedQuickLabelsPath = quickLabelsPath(selectedDataDirectory);
+  const bool selectedQuickLabelsExists = filesystem::exists(selectedQuickLabelsPath, selectedQuickLabelsError);
+  if (selectedQuickLabelsError ||
+      (selectedQuickLabelsExists &&
+       !loadQuickLabels(selectedQuickLabelsPath, selectedQuickLabels, selectedQuickLabelRevision))) {
+    setMessage("The selected folder contains unreadable Quick Labels settings", 6);
+    return false;
+  }
+  vector<ActivityEntry> selectedActivities;
+  error_code selectedActivityError;
+  const auto selectedActivityPath = selectedDataDirectory / "activity.tsv";
+  const bool selectedActivityExists = filesystem::exists(selectedActivityPath, selectedActivityError);
+  if (selectedActivityError ||
+      (selectedActivityExists && !loadActivities(selectedActivityPath, selectedActivities))) {
+    setMessage("The selected folder contains unreadable activity history", 6);
+    return false;
+  }
+  error_code selectedPrinterError;
+  const auto selectedPrinterPath = selectedDataDirectory / "printer.conf";
+  const bool selectedPrinterExists = filesystem::exists(selectedPrinterPath, selectedPrinterError);
+  if (selectedPrinterError) {
+    setMessage("Unable to inspect the selected printer settings", 6);
+    return false;
+  }
+  if (selectedPrinterExists) {
+    LabelPrinterService selectedPrinter;
+    if (!selectedPrinter.loadConfig(selectedPrinterPath)) {
+      setMessage("The selected folder contains unreadable printer settings", 6);
+      return false;
+    }
+  }
   auto activePaths = InventatoryDataPaths{dataPath_, inventoryPath_, printerPath_, activityPath_, inventatoryScanConfigPath_};
   const auto oldPaths = makeInventatoryDataPaths(dataPath_);
   const auto oldSettings = settings_;
@@ -1014,9 +1050,8 @@ bool App::chooseInventatoryFolder() {
   settingsDraft_ = settings_;
   activateWorkspaceContext(activePaths);
   inventatoryScanConfig_ = {};
-  settings_.quickLabelPresets.clear();
-  settings_.quickLabelRevision = 1;
-  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+  settings_.quickLabelPresets = move(selectedQuickLabels);
+  settings_.quickLabelRevision = selectedQuickLabelRevision;
 
   printerQueues_.clear();
   printerCheck_ = {};
