@@ -378,10 +378,16 @@ void LocalHttpServer::stop() {
 }
 
 void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path replayStatePath) {
-  // Do not let a request that authenticated with the previous credential set
-  // continue while the pairing is being rotated. The lock covers the request
-  // callback and replay commit as well as the credential snapshot below.
+  // Rotation takes the same lock order as an authenticated request: first the
+  // credential operation lock, then callback serialization. This lets a
+  // request that already reserved a counter finish its callback and replay
+  // commit, while preventing a request that has not reached its callback from
+  // crossing the rotation boundary. The callback lock is deliberately not
+  // held while taking the request operation lock in the nested duplicate
+  // path; that path rejects from reserveReplayCounter before it needs the
+  // callback lock.
   lock_guard<mutex> operationLock(credentialOperationMutex_);
+  lock_guard<mutex> callbackLock(callbackSerialMutex_);
   const auto fingerprint = deviceTransportStateFingerprint(token);
   ++credentialEpoch_;
   bool deviceChanged = false;
@@ -662,10 +668,12 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   }
 
   if (method == "POST" && target == "/api/v1/device/sync") {
-    // Capture credentials and complete the authenticated request lifecycle as
-    // one serialized operation. If rotation wins this lock first, this request
-    // verifies against the new token and cannot reach replay reservation or the
-    // application callback with the old token.
+    // Capture credentials, reserve the counter, and acquire callback
+    // serialization as one operation. Holding callbackSerialMutex_ while the
+    // credential lock is released prevents rotation from crossing the gap
+    // between reservation and callback. The callback/replay path then runs
+    // without the credential lock, so an application callback can issue a
+    // nested duplicate request and have it rejected by the reservation check.
     unique_lock<mutex> credentialLock(credentialOperationMutex_);
     const auto credentialEpoch = credentialEpoch_;
     string expectedDevice;
@@ -714,17 +722,16 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       lock_guard<mutex> lock(callbackMutex_);
       callback = onSync_;
     }
-    {
-      lock_guard<mutex> lock(callbackSerialMutex_);
-      try {
-        syncSucceeded = callback && callback(request, syncResponse, error);
-      } catch (...) {
-        // A malformed or unavailable application callback must become a
-        // retryable transport failure; a worker exception must never terminate
-        // the service process while a replay reservation is held.
-        syncSucceeded = false;
-        error = "Device sync service failed";
-      }
+    unique_lock<mutex> callbackLock(callbackSerialMutex_);
+    credentialLock.unlock();
+    try {
+      syncSucceeded = callback && callback(request, syncResponse, error);
+    } catch (...) {
+      // A malformed or unavailable application callback must become a
+      // retryable transport failure; a worker exception must never terminate
+      // the service process while a replay reservation is held.
+      syncSucceeded = false;
+      error = "Device sync service failed";
     }
     if (!syncSucceeded) {
       releaseReplayCounter(*counter, credentialEpoch);
