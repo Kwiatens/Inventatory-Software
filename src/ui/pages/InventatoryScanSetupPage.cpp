@@ -32,10 +32,13 @@ bool App::regenerateInventatoryScanToken() {
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
   const auto previousToken = inventatoryScanConfig_.token;
+  const bool previousCredentialPending = scannerCredentialSavePending_;
+  const auto previousPersistenceError = persistenceError_;
   inventatoryScanConfig_.token = generateInventatoryScanToken();
   if (!saveScannerCredentialChecked(true)) {
     inventatoryScanConfig_.token = previousToken;
-    scannerCredentialSavePending_ = false;
+    scannerCredentialSavePending_ = previousCredentialPending;
+    persistenceError_ = previousPersistenceError;
     return false;
   }
   inventatoryScanConfig_.deviceId.clear();
@@ -82,10 +85,13 @@ bool App::clearInventatoryScanPairing() {
 
   const auto rotatedToken = generateInventatoryScanToken();
   const auto previousToken = inventatoryScanConfig_.token;
+  const bool previousCredentialPending = scannerCredentialSavePending_;
+  const auto previousPersistenceError = persistenceError_;
   inventatoryScanConfig_.token = rotatedToken;
   if (!saveScannerCredentialChecked(true)) {
     inventatoryScanConfig_.token = previousToken;
-    scannerCredentialSavePending_ = false;
+    scannerCredentialSavePending_ = previousCredentialPending;
+    persistenceError_ = previousPersistenceError;
     return false;
   }
   inventatoryScanConfig_.deviceId.clear();
