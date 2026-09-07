@@ -3156,6 +3156,9 @@ int main() {
     assert(!parseDeviceSyncRequestJson(
         R"({"protocolVersion":1,"requestId":"sync-duplicate-event","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":2,"events":[{"eventId":"same","type":"inventory.adjust","code":"0002","value":1},{"eventId":"same","type":"inventory.adjust","code":"0002","value":1}],"resultAcks":[]})",
         request, error));
+    assert(!parseDeviceSyncRequestJson(
+        R"({"protocolVersion":1,"requestId":"sync-missing-comma","deviceId":"r1-a","firmwareVersion":"0.1.0" "mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
+        request, error));
     string deeplyNested = R"({"protocolVersion":1,"requestId":"sync-deep","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"extra":)";
     deeplyNested.append(33, '[');
     deeplyNested += "0";
