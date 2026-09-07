@@ -807,6 +807,11 @@ int main() {
     assert(!workspaceGenerationMatches(second, first));
     assert(!workspaceGenerationMatches(0, first));
     assert(advanceWorkspaceGeneration(numeric_limits<WorkspaceGeneration>::max()) == 1);
+    assert(bomEnrichmentScopeMatches("project-a", "project-a", first, first, 7, 7));
+    assert(!bomEnrichmentScopeMatches("project-b", "project-a", first, first, 7, 7));
+    assert(!bomEnrichmentScopeMatches("project-a", "project-a", second, first, 7, 7));
+    assert(!bomEnrichmentScopeMatches("project-a", "project-a", first, first, 8, 7));
+    assert(!bomEnrichmentScopeMatches("", "project-a", first, first, 7, 7));
   }
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));
