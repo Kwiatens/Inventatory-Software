@@ -238,8 +238,13 @@ bool App::provisionSelectedBleSetupDevice() {
   const bool configSaved = saveScannerConfigChecked(false);
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
-  server_.setDeviceCredentials({}, inventatoryScanConfig_.token,
-                               inventatoryScanReplayStatePath(dataPath_));
+  if (tokenSaved) {
+    server_.setDeviceCredentials({}, inventatoryScanConfig_.token,
+                                 inventatoryScanReplayStatePath(dataPath_));
+  } else {
+    mdnsService_.stop();
+    server_.stop();
+  }
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   blePairingCode_.clear();
