@@ -5,6 +5,7 @@
 #include "platform/UpdateService.h"
 #include "platform/StartupRegistration.h"
 #include "platform/Environment.h"
+#include "platform/DigiKeyApi.h"
 #include "core/InventoryInternals.h"
 #include "core/InventorySqlite.h"
 #include "core/InventoryTransfer.h"
@@ -797,6 +798,293 @@ void testSqliteSchemaMigrationAndValidation() {
 #endif
 }
 
+void testPackageGHardening() {
+#ifdef _WIN32
+  {
+    DigiKeyConfig baseline;
+    baseline.clientId = "client-id";
+    baseline.clientSecret = "client-secret";
+    baseline.accountId = "account-id";
+    baseline.site = "US";
+    baseline.language = "en";
+    baseline.currency = "USD";
+    assert(baseline.valid());
+
+    const vector<string DigiKeyConfig::*> headerFields = {
+        &DigiKeyConfig::clientId, &DigiKeyConfig::accountId, &DigiKeyConfig::site,
+        &DigiKeyConfig::language, &DigiKeyConfig::currency,
+    };
+    const vector<string> invalidValues = {"value\r\nnext", string("value") + '\t' + "next",
+                                          string("value") + '\x01' + "next", string("value") + '\x7f' + "next"};
+    for (const auto field : headerFields) {
+      for (const auto& value : invalidValues) {
+        auto invalid = baseline;
+        invalid.*field = value;
+        assert(!invalid.valid());
+      }
+    }
+    auto oversized = baseline;
+    oversized.clientId.assign(4097, 'x');
+    assert(!oversized.valid());
+    oversized = baseline;
+    oversized.clientSecret.assign(4097, 'x');
+    assert(!oversized.valid());
+  }
+
+  {
+    string error;
+    assert(validateDigiKeyJsonPayload(R"({"ok":true,"value":-0.25e+2,"text":"\\u20ac"})", &error));
+    assert(error.empty());
+
+    const vector<string> malformed = {
+        R"({"bad":"\q"})",
+        R"({"bad":"\u12g4"})",
+        R"({"bad":"\uD800"})",
+        R"({"bad":"\uDC00"})",
+        R"({"a":1,"a":2})",
+        R"({"number":01})",
+        R"({"number":1.})",
+        R"({"number":1e})",
+        R"({"number":-})",
+    };
+    for (const auto& payload : malformed) {
+      error.clear();
+      assert(!validateDigiKeyJsonPayload(payload, &error));
+      assert(!error.empty());
+    }
+
+    string deeplyNested = "0";
+    for (size_t index = 0; index < 66; ++index) deeplyNested = "{\"nested\":" + deeplyNested + "}";
+    assert(!validateDigiKeyJsonPayload(deeplyNested, &error));
+    assert(error.find("nesting") != string::npos);
+
+    const string oversizedNumber = "{\"number\":" + string(4097, '1') + "}";
+    assert(!validateDigiKeyJsonPayload(oversizedNumber, &error));
+    assert(error.find("number") != string::npos);
+
+    const string oversizedPayload(4U * 1024U * 1024U + 1U, ' ');
+    assert(!validateDigiKeyJsonPayload(oversizedPayload, &error));
+    assert(error.find("4 MiB") != string::npos);
+  }
+
+  {
+    string error;
+    const string oversizedField = "\"" + string(1024U * 1024U + 1U, 'x') + "\"\n";
+    assert(parseCsv(oversizedField, ',', error).empty());
+    assert(error.find("1 MiB") != string::npos);
+
+    string oversizedRow = "field";
+    for (size_t index = 0; index < 512; ++index) oversizedRow += ",x";
+    oversizedRow.push_back('\n');
+    assert(parseCsv(oversizedRow, ',', error).empty());
+    assert(error.find("too many fields") != string::npos);
+
+    string oversizedRows = "field\n";
+    oversizedRows.reserve(210000);
+    for (size_t index = 0; index < 100000; ++index) oversizedRows += "x\n";
+    assert(parseCsv(oversizedRows, ',', error).empty());
+    assert(error.find("too many rows") != string::npos);
+
+    const string oversizedText(25U * 1024U * 1024U + 1U, 'x');
+    assert(parseCsv(oversizedText, ',', error).empty());
+    assert(error.find("25 MiB") != string::npos);
+
+    const string duplicateQuantityCsv =
+        "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+        "123-ABC-ND,ABC-123,Acme,Overflow receipt,2147483647\n"
+        "123-ABC-ND,ABC-123,Acme,Overflow receipt,1\n";
+    const auto duplicateQuantity = parseDigiKeyCsvText(duplicateQuantityCsv, {});
+    assert(duplicateQuantity.ok);
+    assert(duplicateQuantity.candidates.size() == 1);
+    assert(duplicateQuantity.candidates.front().item.quantity == numeric_limits<int>::max());
+    assert(duplicateQuantity.candidates.front().warnings.size() == 1);
+
+    const auto oversizedDigiKey = parseDigiKeyCsvText(oversizedText, {});
+    assert(!oversizedDigiKey.ok);
+    assert(oversizedDigiKey.error.find("25 MiB") != string::npos);
+
+    const auto oversizedCsvPath = filesystem::temp_directory_path() / "inventatory-package-g-oversized.csv";
+    error_code fileError;
+    filesystem::remove(oversizedCsvPath, fileError);
+    {
+      ofstream output(oversizedCsvPath, ios::binary | ios::trunc);
+      output << 'x';
+    }
+    filesystem::resize_file(oversizedCsvPath, 25U * 1024U * 1024U + 1U, fileError);
+    assert(!fileError);
+    const auto oversizedCsvFile = loadDigiKeyCsvFile(oversizedCsvPath, {});
+    assert(!oversizedCsvFile.ok);
+    assert(oversizedCsvFile.error.find("25 MiB") != string::npos);
+    filesystem::remove(oversizedCsvPath, fileError);
+    assert(!fileError);
+  }
+
+  {
+    const string tooManyDesignators = [&] {
+      string value = "Designator,Designation\n\"";
+      for (size_t index = 0; index < 10001; ++index) {
+        if (index != 0) value.push_back(',');
+        value += "R" + to_string(index + 1);
+      }
+      value += "\",10k\n";
+      return value;
+    }();
+    const auto designatorResult = parseKicadBomText(tooManyDesignators, "bounded");
+    assert(!designatorResult.ok);
+    assert(any_of(designatorResult.warnings.begin(), designatorResult.warnings.end(),
+                  [](const string& warning) { return warning.find("too many designators") != string::npos; }));
+
+    const auto oversizedQuantity = parseKicadBomText(
+        "Designator,Designation,Quantity\nR1,10k,2147483648\n", "overflow");
+    assert(!oversizedQuantity.ok);
+    assert(!oversizedQuantity.warnings.empty());
+
+    const string oversizedText(25U * 1024U * 1024U + 1U, 'x');
+    const auto oversizedTextResult = parseKicadBomText(oversizedText, "oversized");
+    assert(!oversizedTextResult.ok);
+    assert(oversizedTextResult.error.find("25 MiB") != string::npos);
+
+    const auto oversizedBomPath = filesystem::temp_directory_path() / "inventatory-package-g-oversized-bom.csv";
+    error_code fileError;
+    filesystem::remove(oversizedBomPath, fileError);
+    {
+      ofstream output(oversizedBomPath, ios::binary | ios::trunc);
+      output << 'x';
+    }
+    filesystem::resize_file(oversizedBomPath, 25U * 1024U * 1024U + 1U, fileError);
+    assert(!fileError);
+    const auto oversizedBomFile = loadKicadBomFile(oversizedBomPath);
+    assert(!oversizedBomFile.ok);
+    assert(oversizedBomFile.error.find("25 MiB") != string::npos);
+    filesystem::remove(oversizedBomPath, fileError);
+    assert(!fileError);
+
+    const auto oversizedNumber = packageFromFootprint("JST_PH_999999999999999999999x999999999999999999999");
+    assert(oversizedNumber == "JST PH");
+    assert(packageFromFootprint("JST_PH_B8B-PH-K_1x08_P2.00mm") == "JST PH 8");
+
+    InventoryItem resistor;
+    resistor.id = "bom-overflow-resistor";
+    resistor.partName = "10k resistor 0603";
+    resistor.category = "Resistors";
+    resistor.quantity = numeric_limits<int>::max();
+    resistor.parameters = {{"Resistance", "10k"}, {"Package", "0603"}};
+    const vector<InventoryItem> items = {resistor};
+    BomLine line;
+    line.designators = {"R1"};
+    line.footprint = "R_0603_1608Metric";
+    line.designation = "10k";
+    line.quantityPerBoard = numeric_limits<int>::max();
+    KicadBomFile bom;
+    bom.ok = true;
+    bom.lines = {line, line};
+    const auto analysis = analyzeBom(bom, items, 2, {});
+    assert(analysis.matches.size() == 2);
+    assert(analysis.matches[0].needed == numeric_limits<int>::max());
+    assert(analysis.matches[1].needed == numeric_limits<int>::max());
+    assert(analysis.totalPieces == numeric_limits<int>::max());
+  }
+
+  {
+    assert(rackNumberFromCode("R") == 0);
+    assert(rackNumberFromCode("X12") == 0);
+    assert(rackNumberFromCode("R12x") == 0);
+    assert(rackNumberFromCode("R2147483648") == 0);
+    assert(rackNumberFromCode("R2147483647") == numeric_limits<int>::max());
+    assert(rackNumberFromCode("r0012") == 12);
+
+    InventoryStore normalized;
+    InventatoryRack rack;
+    rack.id = "rack-dimension-normalization";
+    rack.code = "R9";
+    rack.componentType = "Resistors";
+    rack.rows = numeric_limits<int>::max();
+    rack.columns = numeric_limits<int>::max();
+    normalized.racks().push_back(rack);
+
+    InventoryItem occupied;
+    occupied.id = "normalized-occupied";
+    occupied.rackId = rack.id;
+    occupied.rackSlot = " a1 ";
+    normalized.items().push_back(occupied);
+    InventoryItem invalidSlot = occupied;
+    invalidSlot.id = "normalized-invalid";
+    invalidSlot.rackSlot = "F1";
+    normalized.items().push_back(invalidSlot);
+    InventoryItem invalidColumn = occupied;
+    invalidColumn.id = "normalized-invalid-column";
+    invalidColumn.rackSlot = "A6";
+    normalized.items().push_back(invalidColumn);
+    assert(rackOccupiedSlotCount(normalized, normalized.racks().front()) == 1);
+    assert(itemAtRackSlot(normalized, rack.id, " A1 ") == &normalized.items().front());
+
+    InventoryItem automatic;
+    automatic.id = "normalized-automatic";
+    automatic.partName = "10k resistor";
+    automatic.category = "Resistors";
+    automatic.parameters = {{"Package", "0603"}};
+    automatic.rackId = rack.id;
+    automatic.rackSlot = " b2 ";
+    normalized.items().push_back(automatic);
+    assert(reconcileRackAssignment(normalized, normalized.items().back()));
+    assert(normalized.items().back().rackSlot == "B2");
+
+    string error;
+    assert(setManualRackLocation(normalized, normalized.items().back(), "r9-c3", error));
+    assert(normalized.items().back().rackSlot == "C3");
+    assert(!setManualRackLocation(normalized, normalized.items().back(), "r9-f1", error));
+    assert(!moveItemToRackSlot(normalized, normalized.items().back(), normalized.racks().front(), "A6", error));
+
+    InventoryStore noWrap;
+    InventatoryRack maxRack;
+    maxRack.id = "rack-max-code";
+    maxRack.code = "R2147483647";
+    maxRack.componentType = "Resistors";
+    maxRack.rows = 0;
+    maxRack.columns = 0;
+    noWrap.racks().push_back(maxRack);
+    InventoryItem pending;
+    pending.id = "rack-no-wrap";
+    pending.partName = "10k resistor";
+    pending.category = "Resistors";
+    pending.parameters = {{"Package", "0603"}};
+    noWrap.items().push_back(pending);
+    assert(!reconcileRackAssignment(noWrap, noWrap.items().back()));
+    assert(noWrap.racks().size() == 1);
+    assert(noWrap.items().back().rackAssignment == RackAssignmentMode::Automatic);
+    assert(noWrap.items().back().rackId.empty());
+  }
+
+  {
+    const auto path = filesystem::temp_directory_path() / "inventatory-package-g-quick-labels.conf";
+    error_code cleanupError;
+    filesystem::remove(path, cleanupError);
+    assert(!saveQuickLabels(path, {"label"}, 0));
+    assert(saveQuickLabels(path, {"label"}, numeric_limits<uint32_t>::max()));
+    vector<string> loaded;
+    uint32_t revision = 0;
+    assert(loadQuickLabels(path, loaded, revision));
+    assert(loaded == vector<string>({"label"}));
+    assert(revision == numeric_limits<uint32_t>::max());
+
+    const auto writeMalformed = [&](const string& contents) {
+      ofstream output(path, ios::binary | ios::trunc);
+      output << contents;
+      output.close();
+      loaded = {"preserved"};
+      revision = 7;
+      assert(!loadQuickLabels(path, loaded, revision));
+      assert(loaded == vector<string>({"preserved"}));
+      assert(revision == 7);
+    };
+    writeMalformed("quick_label_revision=0\n");
+    writeMalformed("quick_label_revision=4294967296\n");
+    writeMalformed("quick_label_revision=1\nquick_label=\"unterminated\n");
+    filesystem::remove(path, cleanupError);
+  }
+#endif
+}
+
 int main() {
   {
     const auto first = advanceWorkspaceGeneration(0);
@@ -859,6 +1147,7 @@ int main() {
   testPhysicalValueSearchIntegration();
   testInventoryCommitHistory();
   testSqliteSchemaMigrationAndValidation();
+  testPackageGHardening();
 
   {
     assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "test-value") == 0);
@@ -2552,6 +2841,33 @@ int main() {
     assert(retriedSync.rfind("HTTP/1.1 200 OK", 0) == 0);
     assert(retrySyncCalls == 2);
     retryServer.stop();
+
+    // A replay-marker write failure must fail closed after the durable
+    // callback, and the same counter must not invoke the callback again.
+    const auto replayFailureParent = stateDirectory / "replay-failure-parent";
+    {
+      ofstream parentFile(replayFailureParent, ios::binary | ios::trunc);
+      parentFile << "not a directory";
+    }
+    atomic<int> replayFailureSyncCalls{0};
+    auto replayFailureOnSync = [&replayFailureSyncCalls](const DeviceSyncRequest& request,
+                                                         DeviceSyncResponse& response, string&) {
+      ++replayFailureSyncCalls;
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer replayFailureServer;
+    replayFailureServer.setDeviceCredentials(deviceId, token, replayFailureParent / "replay.state");
+    assert(replayFailureServer.start(19481, replayFailureOnSync));
+    const auto markerFailure = sendLocalHttpRequest(
+        replayFailureServer.port(), signedSyncRequest(token, deviceId, 201, body));
+    assert(markerFailure.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(replayFailureSyncCalls == 1);
+    const auto markerFailureReplay = sendLocalHttpRequest(
+        replayFailureServer.port(), signedSyncRequest(token, deviceId, 201, body));
+    assert(markerFailureReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(replayFailureSyncCalls == 1);
+    replayFailureServer.stop();
 
     const auto corruptReplayState = stateDirectory / "corrupt-replay.state";
     {

@@ -148,6 +148,7 @@ add_executable(inventatory_tests
   src/platform/Console.cpp
   src/platform/Environment.cpp
   src/platform/CredentialStore.cpp
+  src/platform/DigiKeyApi.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
@@ -182,7 +183,7 @@ target_compile_definitions(inventatory_tests PRIVATE
 )
 
 if(WIN32)
-  target_link_libraries(inventatory_tests PRIVATE ws2_32 winspool bcrypt advapi32)
+  target_link_libraries(inventatory_tests PRIVATE ws2_32 winspool winhttp bcrypt advapi32)
 endif()
 
 target_link_libraries(inventatory_tests PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
