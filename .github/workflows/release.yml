@@ -11,67 +11,130 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish:
+  validate:
+    runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.validate-tag.outputs.tag }}
+      sha: ${{ steps.validate-tag.outputs.sha }}
+    steps:
+      - name: Validate release tag
+        id: validate-tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notmatch '\Av\d+\.\d+\.\d+\z') {
+            throw 'Release tags must use vX.Y.Z.'
+          }
+          $remote = "https://github.com/$env:GITHUB_REPOSITORY.git"
+          $match = git ls-remote --exit-code --refs $remote "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tag $tag does not exist in the repository."
+          }
+          $sha = ($match -split '\s+')[0]
+          if ($sha -notmatch '\A[0-9a-fA-F]{40}\z') {
+            throw "Release tag $tag did not resolve to an immutable Git object."
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+  build:
+    needs: validate
+    permissions:
+      contents: read
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.validate.outputs.sha }}
+          persist-credentials: false
       - name: Build and test x64 release
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
-          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Release tags must use vX.Y.Z.' }
+          $tag = $env:RELEASE_TAG
           $version = $tag.Substring(1)
           cmake -S . -B build "-DINVENTATORY_VERSION=$version" `
-            "-DINVENTATORY_RELEASE_REPOSITORY=${{ github.repository }}" `
-            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=${{ github.repository_owner }}/Inventatory-Hardware"
+            "-DINVENTATORY_RELEASE_REPOSITORY=$env:GITHUB_REPOSITORY" `
+            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=$env:GITHUB_REPOSITORY_OWNER/Inventatory-Hardware"
           cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
           ctest --test-dir build -C Release --output-on-failure
       - name: Package release assets
         shell: pwsh
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          $licensePath = 'dist\Inventatory\LICENSE'
-          if (-not (Test-Path $licensePath)) { throw 'Tracked GPL license text is missing.' }
-          $licenseText = Get-Content -Raw $licensePath
-          Remove-Item -LiteralPath dist\Inventatory -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path dist\Inventatory | Out-Null
-          Copy-Item build\Release\inventatory.exe dist\Inventatory\
-          Copy-Item build\Release\inventatory-background.exe dist\Inventatory\
-          Copy-Item installer\Uninstall-Inventatory.cmd,installer\Uninstall-Inventatory.ps1 dist\Inventatory\
-          Copy-Item README.md,LICENSE.md,THIRD_PARTY_NOTICES.md dist\Inventatory\
-          New-Item -ItemType Directory -Force -Path dist\Inventatory\docs | Out-Null
-          Copy-Item docs\public-beta.md dist\Inventatory\docs\
-          Set-Content -NoNewline -Path dist\Inventatory\LICENSE -Value $licenseText
+          $packageRoot = Join-Path $PWD 'dist\Inventatory'
+          $trackedLicense = Join-Path $PWD 'LICENSE'
+          if (-not (Test-Path -LiteralPath $trackedLicense -PathType Leaf)) {
+            throw 'Tracked GPL license text is missing from the checkout.'
+          }
+          Remove-Item -LiteralPath $packageRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+          Copy-Item -LiteralPath 'build\Release\inventatory.exe' -Destination $packageRoot -Force
+          Copy-Item -LiteralPath 'build\Release\inventatory-background.exe' -Destination $packageRoot -Force
+          Copy-Item -LiteralPath 'installer\Uninstall-Inventatory.cmd','installer\Uninstall-Inventatory.ps1' -Destination $packageRoot -Force
+          Copy-Item -LiteralPath 'README.md','LICENSE.md','THIRD_PARTY_NOTICES.md' -Destination $packageRoot -Force
+          # The package-level LICENSE is sourced from the tracked complete
+          # GPL text so a clean release run never depends on stale dist output.
+          Copy-Item -LiteralPath $trackedLicense -Destination (Join-Path $packageRoot 'LICENSE') -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'docs') | Out-Null
+          Copy-Item -LiteralPath 'docs\public-beta.md' -Destination (Join-Path $packageRoot 'docs') -Force
           $requiredFiles = @(
             'inventatory.exe', 'inventatory-background.exe', 'LICENSE', 'LICENSE.md', 'README.md', 'THIRD_PARTY_NOTICES.md',
             'Uninstall-Inventatory.cmd', 'Uninstall-Inventatory.ps1', 'docs\public-beta.md'
           )
           foreach ($requiredFile in $requiredFiles) {
-            if (-not (Test-Path (Join-Path 'dist\Inventatory' $requiredFile))) {
+            if (-not (Test-Path (Join-Path $packageRoot $requiredFile))) {
               throw "Release package is missing $requiredFile."
             }
           }
           $unexpectedFiles = @('data\iecd.sqlite3', 'data\iecd-manifest.json', 'MONOCYPHER-LICENSE.md', 'sqlite3.dll')
           foreach ($unexpectedFile in $unexpectedFiles) {
-            if (Test-Path (Join-Path 'dist\Inventatory' $unexpectedFile)) {
+            if (Test-Path (Join-Path $packageRoot $unexpectedFile)) {
               throw "Release package unexpectedly contains $unexpectedFile."
             }
           }
-          Compress-Archive -Path dist\Inventatory -DestinationPath dist\Inventatory-win-x64.zip -Force
+          Compress-Archive -Path $packageRoot -DestinationPath 'dist\Inventatory-win-x64.zip' -Force
           $hash = (Get-FileHash dist\Inventatory-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -NoNewline -Path dist\SHA256SUMS.txt -Value "$hash  Inventatory-win-x64.zip"
           Copy-Item installer\Install-Inventatory.cmd dist\
           $installer = Get-Content -Raw installer\Install-Inventatory.ps1
           $installer = $installer.Replace('__INVENTATORY_RELEASE_REPOSITORY__', $env:GITHUB_REPOSITORY)
           Set-Content -NoNewline -Path dist\Install-Inventatory.ps1 -Value $installer
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventatory-release-assets
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, build]
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: inventatory-release-assets
+          path: dist
       - name: Create public GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          $tag = $env:RELEASE_TAG
           gh release create $tag --repo $env:GITHUB_REPOSITORY --title "Inventatory $tag" --generate-notes dist\Inventatory-win-x64.zip dist\SHA256SUMS.txt dist\Install-Inventatory.cmd dist\Install-Inventatory.ps1

@@ -58,6 +58,15 @@ struct DeviceQuantityResult {
   int quantity = 0;
 };
 
+// A request id is only idempotent for the exact operation that created it.
+// Keep the request and workspace generation beside the cached result so a
+// reused id cannot replay a result for another device, payload, or workspace.
+struct DeviceQuantityCacheEntry {
+  DeviceQuantityRequest request;
+  std::uint64_t workspaceGeneration = 0;
+  DeviceQuantityResult result;
+};
+
 struct DeviceStatusReport {
   std::string deviceId;
   std::string firmwareVersion;
@@ -73,6 +82,10 @@ struct DeviceSyncEvent {
   std::string type;
   std::string code;
   int value = 0;
+  // Filled from the durable inbox for pending events.  It is intentionally
+  // not part of the on-wire event object: the authenticated sync envelope
+  // already carries the sender identity.
+  std::string deviceId;
 };
 
 struct DeviceSyncEventRecord {
@@ -133,6 +146,7 @@ struct DeviceSyncRequest {
 struct DeviceSyncResult {
   std::string resultId;
   std::string eventId;
+  std::string deviceId;
   std::string status;
   bool existing = false;
   std::string itemName;
@@ -161,6 +175,7 @@ struct DeviceSyncResponse {
 bool loadInventatoryScanConfig(const std::filesystem::path& path, InventatoryScanConfig& config);
 bool saveInventatoryScanConfig(const std::filesystem::path& path, const InventatoryScanConfig& config);
 std::string generateInventatoryScanToken();
+std::filesystem::path inventatoryScanReplayStatePath(const std::filesystem::path& workspaceDirectory);
 
 std::string deviceRequestMac(const std::string& token, const std::string& method, const std::string& path,
                              const std::string& deviceId, std::uint64_t counter, const std::string& body);
@@ -190,7 +205,8 @@ DeviceLookupResult lookupDeviceItem(const std::filesystem::path& databasePath,
 DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuantityRequest& request);
 DeviceQuantityResult applyDeviceQuantityCached(
     InventoryStore& store, const DeviceQuantityRequest& request,
-    std::unordered_map<std::string, DeviceQuantityResult>& cache, std::deque<std::string>& order,
+    std::uint64_t workspaceGeneration,
+    std::unordered_map<std::string, DeviceQuantityCacheEntry>& cache, std::deque<std::string>& order,
     std::size_t maxEntries = 64);
 std::string debugResultJson(bool ok, const std::string& error = {});
 std::string scanResultJson(bool ok, const std::string& error = {});

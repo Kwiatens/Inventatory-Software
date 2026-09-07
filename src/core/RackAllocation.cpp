@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <optional>
 
 namespace inventatory {
@@ -98,19 +99,44 @@ optional<string> componentTypeFor(const InventoryItem& item) {
 
 int rackNumber(const string& code) {
   if (code.size() < 2 || toupper(static_cast<unsigned char>(code.front())) != 'R') return 0;
-  try { return stoi(code.substr(1)); } catch (...) { return 0; }
+  int result = 0;
+  for (size_t index = 1; index < code.size(); ++index) {
+    const auto character = static_cast<unsigned char>(code[index]);
+    if (!isdigit(character)) return 0;
+    const int digit = static_cast<int>(character - '0');
+    if (result > (numeric_limits<int>::max() - digit) / 10) return 0;
+    result = result * 10 + digit;
+  }
+  return result;
 }
 
 bool slotOccupied(const InventoryStore& store, const string& rackId, const string& slot, const InventoryItem* except) {
+  const auto normalizedSlot = toUpper(trim(slot));
   return any_of(store.items().begin(), store.items().end(), [&](const InventoryItem& candidate) {
     return &candidate != except && (except == nullptr || candidate.id != except->id) &&
-           candidate.rackId == rackId && candidate.rackSlot == slot;
+           candidate.rackId == rackId && toUpper(trim(candidate.rackSlot)) == normalizedSlot;
   });
 }
 
+bool rackSupportsSlot(const InventatoryRack& rack, const string& slot) {
+  const auto normalized = toUpper(trim(slot));
+  if (normalized.size() != 2 || normalized.front() < 'A' || normalized.front() > 'E' || normalized.back() < '1' ||
+      normalized.back() > '5' || rack.rows <= 0 || rack.columns <= 0) {
+    return false;
+  }
+  const int row = normalized.front() - 'A';
+  const int column = normalized.back() - '0';
+  // The supported rack UI exposes a five-by-five address space. Clamp
+  // persisted dimensions to that space so a corrupt/legacy dimension cannot
+  // produce invalid letters or an unbounded allocation loop.
+  return row < min(rack.rows, 5) && column <= min(rack.columns, 5);
+}
+
 string firstFreeSlot(const InventoryStore& store, const InventatoryRack& rack, const InventoryItem* except) {
-  for (int row = 0; row < rack.rows; ++row) {
-    for (int column = 1; column <= rack.columns; ++column) {
+  const int rows = min(max(rack.rows, 0), 5);
+  const int columns = min(max(rack.columns, 0), 5);
+  for (int row = 0; row < rows; ++row) {
+    for (int column = 1; column <= columns; ++column) {
       const string slot = string(1, static_cast<char>('A' + row)) + to_string(column);
       if (!slotOccupied(store, rack.id, slot, except)) return slot;
     }
@@ -161,8 +187,13 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
     item.rackAssignment = RackAssignmentMode::Unassigned;
     return changed;
   }
-  if (currentRack != nullptr && sameRackType(currentRack->componentType, *componentType) && isValidRackSlot(item.rackSlot) &&
-      !slotOccupied(store, item.rackId, item.rackSlot, &item)) return false;
+  if (currentRack != nullptr && sameRackType(currentRack->componentType, *componentType) &&
+      rackSupportsSlot(*currentRack, item.rackSlot) && !slotOccupied(store, item.rackId, item.rackSlot, &item)) {
+    const auto canonicalSlot = toUpper(trim(item.rackSlot));
+    const bool changed = item.rackSlot != canonicalSlot;
+    item.rackSlot = canonicalSlot;
+    return changed;
+  }
 
   item.rackId.clear();
   item.rackSlot.clear();
@@ -183,7 +214,17 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
   }
 
   int nextNumber = 1;
-  for (const auto& rack : store.racks()) nextNumber = max(nextNumber, rackNumber(rack.code) + 1);
+  for (const auto& rack : store.racks()) {
+    const int number = rackNumber(rack.code);
+    if (number < nextNumber) continue;
+    if (number == numeric_limits<int>::max()) {
+      // There is no representable rack code after R2147483647. Leave the
+      // automatic assignment pending rather than wrapping into a duplicate or
+      // negative code.
+      return false;
+    }
+    nextNumber = number + 1;
+  }
   InventatoryRack rack;
   rack.id = makeId();
   rack.code = "R" + to_string(nextNumber);
@@ -236,6 +277,10 @@ bool setManualRackLocation(InventoryStore& store, InventoryItem& item, const str
     error = "Rack " + requested.substr(0, dash) + " does not exist";
     return false;
   }
+  if (!rackSupportsSlot(*rack, slot)) {
+    error = rack->code + " does not contain slot " + slot;
+    return false;
+  }
   if (slotOccupied(store, rack->id, slot, &item)) {
     error = rack->code + "-" + slot + " is already occupied";
     return false;
@@ -257,14 +302,14 @@ string rackSlotLabel(int row, int column) {
 
 size_t rackOccupiedSlotCount(const InventoryStore& store, const InventatoryRack& rack) {
   return static_cast<size_t>(count_if(store.items().begin(), store.items().end(), [&](const InventoryItem& item) {
-    return item.rackId == rack.id && isValidRackSlot(item.rackSlot);
+    return item.rackId == rack.id && rackSupportsSlot(rack, item.rackSlot);
   }));
 }
 
 InventoryItem* itemAtRackSlot(InventoryStore& store, const string& rackId, const string& slot) {
   const auto normalizedSlot = trim(slot);
   const auto it = find_if(store.items().begin(), store.items().end(), [&](const InventoryItem& item) {
-    return item.rackId == rackId && item.rackSlot == normalizedSlot;
+    return item.rackId == rackId && toUpper(trim(item.rackSlot)) == toUpper(normalizedSlot);
   });
   return it == store.items().end() ? nullptr : &*it;
 }
@@ -272,7 +317,7 @@ InventoryItem* itemAtRackSlot(InventoryStore& store, const string& rackId, const
 const InventoryItem* itemAtRackSlot(const InventoryStore& store, const string& rackId, const string& slot) {
   const auto normalizedSlot = trim(slot);
   const auto it = find_if(store.items().begin(), store.items().end(), [&](const InventoryItem& item) {
-    return item.rackId == rackId && item.rackSlot == normalizedSlot;
+    return item.rackId == rackId && toUpper(trim(item.rackSlot)) == toUpper(normalizedSlot);
   });
   return it == store.items().end() ? nullptr : &*it;
 }
@@ -284,12 +329,16 @@ bool moveItemToRackSlot(InventoryStore& store, InventoryItem& item, const Invent
     error = "Rack slot must be A1 through E5";
     return false;
   }
+  if (!rackSupportsSlot(rack, slot)) {
+    error = rack.code + " does not contain slot " + toUpper(trim(slot));
+    return false;
+  }
   if (slotOccupied(store, rack.id, slot, &item)) {
     error = rack.code + "-" + slot + " is already occupied";
     return false;
   }
   item.rackId = rack.id;
-  item.rackSlot = slot;
+  item.rackSlot = toUpper(trim(slot));
   item.rackAssignment = RackAssignmentMode::Manual;
   return true;
 }
