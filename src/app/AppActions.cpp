@@ -2542,15 +2542,30 @@ bool App::printWireLabel(const string& text) {
   return true;
 }
 
-void App::storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result) {
+void App::storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result,
+                                     const QuickLabelPrintCacheIdentity& identity) {
+  if (result.requestId.empty() || identity.workspaceGeneration == 0 ||
+      identity.request.requestId != result.requestId) {
+    return;
+  }
   lock_guard<mutex> lock(quickLabelMutex_);
-  const bool known = quickLabelPrintResults_.find(result.requestId) != quickLabelPrintResults_.end();
-  quickLabelPrintResults_[result.requestId] = result;
-  if (!known) quickLabelPrintOrder_.push_back(result.requestId);
+  const auto known = quickLabelPrintResults_.find(result.requestId);
+  const bool wasKnown = known != quickLabelPrintResults_.end();
+  if (known != quickLabelPrintResults_.end()) {
+    // A late completion from an older operation must not overwrite a newer
+    // operation that reused the same request id.
+    if (!quickLabelPrintCacheIdentityMatches(known->second.identity, identity)) return;
+  }
+  quickLabelPrintResults_[result.requestId] = {identity, result};
+  if (!wasKnown &&
+      find(quickLabelPrintOrder_.begin(), quickLabelPrintOrder_.end(), result.requestId) ==
+          quickLabelPrintOrder_.end()) {
+    quickLabelPrintOrder_.push_back(result.requestId);
+  }
   while (quickLabelPrintOrder_.size() > 64) {
     const auto evict = find_if(quickLabelPrintOrder_.begin(), quickLabelPrintOrder_.end(), [&](const string& id) {
       const auto entry = quickLabelPrintResults_.find(id);
-      return entry == quickLabelPrintResults_.end() || entry->second.status != "pending";
+      return entry == quickLabelPrintResults_.end() || entry->second.result.status != "pending";
     });
     if (evict == quickLabelPrintOrder_.end()) break;
     quickLabelPrintResults_.erase(*evict);
@@ -2558,16 +2573,35 @@ void App::storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result) 
   }
 }
 
-bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, DeviceQuickLabelPrintResult& result) {
+void App::clearQuickLabelPrintCache() {
+  lock_guard<mutex> lock(quickLabelMutex_);
+  quickLabelPrintResults_.clear();
+  quickLabelPrintOrder_.clear();
+}
+
+bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, const string& deviceId,
+                                WorkspaceGeneration workspaceGeneration,
+                                DeviceQuickLabelPrintResult& result) {
   result.requestId = request.requestId;
   string text;
+  QuickLabelPrintCacheIdentity identity;
+  identity.request = request;
+  identity.deviceId = deviceId;
+  identity.workspaceGeneration = workspaceGeneration;
   {
     lock_guard<mutex> lock(quickLabelMutex_);
     const auto known = quickLabelPrintResults_.find(request.requestId);
-    if (known != quickLabelPrintResults_.end() &&
-        quickLabelResultMatchesRequest(known->second, request.requestId)) {
-      result = known->second;
-      return result.status == "completed";
+    if (request.presetIndex >= 1 && request.presetIndex <= static_cast<int>(settings_.quickLabelPresets.size())) {
+      identity.labelText = settings_.quickLabelPresets[static_cast<size_t>(request.presetIndex - 1)];
+    }
+    if (known != quickLabelPrintResults_.end()) {
+      if (quickLabelPrintCacheIdentityMatches(known->second.identity, identity)) {
+        result = known->second.result;
+        return result.status == "completed";
+      }
+      // This request id is being reused for a different operation.  Remove
+      // the old entry while retaining its order slot for bounded eviction.
+      quickLabelPrintResults_.erase(known);
     }
     if (request.revision != settings_.quickLabelRevision) {
       result = {request.requestId, "failed", "stale_presets", "Refresh quick labels"};
@@ -2579,7 +2613,7 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, Dev
   }
 
   if (!result.status.empty()) {
-    storeQuickLabelPrintResult(result);
+    storeQuickLabelPrintResult(result, identity);
     return false;
   }
 
@@ -2602,13 +2636,14 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, Dev
       work.printerName = move(printerName);
       work.text = move(text);
       work.requestId = request.requestId;
+      work.quickLabelIdentity = identity;
       if (!enqueuePrinterWork(move(work))) {
         result = {request.requestId, "failed", "printer_queue_full", "Printer queue is full"};
       }
     }
   }
 
-  storeQuickLabelPrintResult(result);
+  storeQuickLabelPrintResult(result, identity);
   return result.status == "completed";
 }
 
@@ -2799,7 +2834,8 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   }
   if (request.hasQuickLabelPrint) {
     response.hasQuickLabelPrintResult = true;
-    printDeviceQuickLabel(request.quickLabelPrint, response.quickLabelPrintResult);
+    printDeviceQuickLabel(request.quickLabelPrint, request.deviceId, context->generation,
+                          response.quickLabelPrintResult);
   }
   return true;
 }
@@ -3001,6 +3037,9 @@ void App::processDeviceRequests() {
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(status.deviceId);
       inventatoryScanConfig_.setupComplete = true;
+      deviceRequestCache_.clear();
+      deviceRequestOrder_.clear();
+      clearQuickLabelPrintCache();
       saveScannerConfigChecked(true);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                    inventatoryScanReplayStatePath(dataPath_));
@@ -3044,9 +3083,13 @@ void App::processDeviceRequests() {
       inventatoryScanConfig_.deviceId = trim(pending->request.deviceId);
       inventatoryScanConfig_.setupComplete = true;
       pairingChanged = true;
+      deviceRequestCache_.clear();
+      deviceRequestOrder_.clear();
+      clearQuickLabelPrintCache();
     }
     const auto before = store_;
-    auto result = applyDeviceQuantityCached(store_, pending->request, deviceRequestCache_, deviceRequestOrder_);
+    auto result = applyDeviceQuantityCached(store_, pending->request, pending->workspaceGeneration,
+                                             deviceRequestCache_, deviceRequestOrder_);
     if (pairingChanged) {
       saveScannerConfigChecked(false);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,

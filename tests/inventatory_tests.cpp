@@ -1135,6 +1135,25 @@ int main() {
     assert(quickLabelResultIsTerminal(failed));
     assert(quickLabelResultMatchesRequest(pending, "request-1"));
     assert(!quickLabelResultMatchesRequest(pending, "request-2"));
+    QuickLabelPrintCacheIdentity labelIdentity;
+    labelIdentity.request = {"request-1", 2, 3};
+    labelIdentity.deviceId = "r1-a";
+    labelIdentity.labelText = "GND";
+    labelIdentity.workspaceGeneration = first;
+    assert(quickLabelPrintCacheIdentityMatches(labelIdentity, labelIdentity));
+    auto changedLabelDevice = labelIdentity;
+    changedLabelDevice.deviceId = "r1-b";
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelDevice));
+    auto changedLabelRevision = labelIdentity;
+    changedLabelRevision.request.revision = 4;
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelRevision));
+    auto changedLabelPayload = labelIdentity;
+    changedLabelPayload.request.presetIndex = 3;
+    changedLabelPayload.labelText = "VCC";
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelPayload));
+    auto changedLabelWorkspace = labelIdentity;
+    changedLabelWorkspace.workspaceGeneration = second;
+    assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelWorkspace));
   }
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));
@@ -3070,17 +3089,51 @@ int main() {
     item.partName = "10k resistor";
     item.quantity = 5;
     store.items().push_back(item);
+    InventoryItem secondItem = item;
+    secondItem.id = "scan-r1-second-item";
+    secondItem.machineCode = "0003";
+    secondItem.partName = "1k resistor";
+    secondItem.quantity = 7;
+    store.items().push_back(secondItem);
 
     DeviceQuantityRequest request{"r1-a", "req-9", "0002", -2};
-    unordered_map<string, DeviceQuantityResult> cache;
+    unordered_map<string, DeviceQuantityCacheEntry> cache;
     deque<string> order;
-    const auto first = applyDeviceQuantityCached(store, request, cache, order);
-    const auto second = applyDeviceQuantityCached(store, request, cache, order);
+    const auto first = applyDeviceQuantityCached(store, request, 1, cache, order);
+    const auto second = applyDeviceQuantityCached(store, request, 1, cache, order);
     assert(first.ok);
     assert(second.ok);
     assert(first.appliedDelta == -2);
     assert(second.appliedDelta == -2);
     assert(store.items().front().quantity == 3);
+
+    auto changedDelta = request;
+    changedDelta.delta = -1;
+    const auto deltaResult = applyDeviceQuantityCached(store, changedDelta, 1, cache, order);
+    assert(deltaResult.ok);
+    assert(deltaResult.appliedDelta == -1);
+    assert(store.items().front().quantity == 2);
+
+    auto changedDevice = changedDelta;
+    changedDevice.deviceId = "r1-b";
+    const auto deviceResult = applyDeviceQuantityCached(store, changedDevice, 1, cache, order);
+    assert(deviceResult.ok);
+    assert(deviceResult.appliedDelta == -1);
+    assert(store.items().front().quantity == 1);
+
+    auto changedCode = changedDevice;
+    changedCode.code = "0003";
+    const auto codeResult = applyDeviceQuantityCached(store, changedCode, 1, cache, order);
+    assert(codeResult.ok);
+    assert(codeResult.item == "1k resistor");
+    assert(codeResult.appliedDelta == -1);
+    assert(store.items().back().quantity == 6);
+
+    auto changedWorkspace = request;
+    const auto workspaceResult = applyDeviceQuantityCached(store, changedWorkspace, 2, cache, order);
+    assert(workspaceResult.ok);
+    assert(workspaceResult.appliedDelta == -1);
+    assert(store.items().front().quantity == 0);
     assert(statusResultJson(false, "Unauthorized device").find("Unauthorized device") != string::npos);
   }
 

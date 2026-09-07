@@ -85,6 +85,27 @@ inline bool quickLabelResultMatchesRequest(const DeviceQuickLabelPrintResult& re
   return !requestId.empty() && result.requestId == requestId;
 }
 
+// Quick-label polling is idempotent only for the same request payload and
+// the same device/workspace context.  This predicate is kept independent of
+// App so the cache boundary can be regression-tested without constructing the
+// terminal controller.
+struct QuickLabelPrintCacheIdentity {
+  DeviceQuickLabelPrintRequest request;
+  std::string deviceId;
+  std::string labelText;
+  WorkspaceGeneration workspaceGeneration = 0;
+};
+
+inline bool quickLabelPrintCacheIdentityMatches(const QuickLabelPrintCacheIdentity& cached,
+                                                const QuickLabelPrintCacheIdentity& requested) {
+  return cached.workspaceGeneration == requested.workspaceGeneration &&
+         cached.deviceId == requested.deviceId &&
+         cached.request.requestId == requested.request.requestId &&
+         cached.request.presetIndex == requested.request.presetIndex &&
+         cached.request.revision == requested.request.revision &&
+         cached.labelText == requested.labelText;
+}
+
 class App {
  public:
   App(bool startInBackground, BackgroundController& backgroundController);
@@ -316,6 +337,11 @@ class App {
   // configured queue or holds a pointer into App while a workspace changes.
   enum class PrinterWorkKind { Refresh, Probe, PrintItem, PrintWire, PrintRack };
 
+  struct QuickLabelPrintCacheEntry {
+    QuickLabelPrintCacheIdentity identity;
+    DeviceQuickLabelPrintResult result;
+  };
+
   struct PrinterWork {
     PrinterWorkKind kind = PrinterWorkKind::Refresh;
     WorkspaceGeneration workspaceGeneration = 0;
@@ -326,6 +352,7 @@ class App {
     std::string rackLocation;
     std::string successPrefix;
     std::string requestId;
+    std::optional<QuickLabelPrintCacheIdentity> quickLabelIdentity;
   };
 
   struct PrinterWorkResult {
@@ -464,8 +491,11 @@ class App {
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);
-  bool printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, DeviceQuickLabelPrintResult& result);
-  void storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result);
+  bool printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, const std::string& deviceId,
+                             WorkspaceGeneration workspaceGeneration, DeviceQuickLabelPrintResult& result);
+  void storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result,
+                                  const QuickLabelPrintCacheIdentity& identity);
+  void clearQuickLabelPrintCache();
   void addQuickLabelPreset();
   void deleteQuickLabelPreset();
   void moveQuickLabelPreset(int direction);
@@ -742,7 +772,7 @@ class App {
   std::vector<QueuedDeviceDebug> deviceDebugQueue_;
   std::vector<DeviceSyncEventRecord> deviceEventRecords_;
   std::vector<std::string> deviceDebugLog_;
-  std::unordered_map<std::string, DeviceQuantityResult> deviceRequestCache_;
+  std::unordered_map<std::string, DeviceQuantityCacheEntry> deviceRequestCache_;
   std::deque<std::string> deviceRequestOrder_;
   time_t deviceLastSeen_ = 0;
   std::string deviceFirmwareVersion_;
@@ -869,7 +899,7 @@ class App {
   std::string stagedDigiKeySecret_;
   bool stagedDigiKeySecretChanged_ = false;
   bool hasStoredDigiKeySecret_ = false;
-  std::unordered_map<std::string, DeviceQuickLabelPrintResult> quickLabelPrintResults_;
+  std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   mutable std::mutex quickLabelMutex_;
   std::string settingsConfirmAction_;

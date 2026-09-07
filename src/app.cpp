@@ -721,18 +721,28 @@ shared_ptr<const App::WorkspaceContext> App::currentWorkspaceContext() const {
 }
 
 void App::activateWorkspaceContext(const InventatoryDataPaths& paths) {
-  lock_guard<mutex> lock(workspaceMutex_);
-  const auto previousGeneration = workspaceContext_ == nullptr ? 0 : workspaceContext_->generation;
-  auto context = make_shared<WorkspaceContext>();
-  context->paths = paths;
-  context->generation = advanceWorkspaceGeneration(previousGeneration);
-  workspaceContext_ = move(context);
-  dataPath_ = paths.dataDirectory;
-  inventoryPath_ = paths.inventory;
-  printerPath_ = paths.printer;
-  activityPath_ = paths.activity;
-  inventatoryScanConfigPath_ = paths.scanConfig;
-  quickLabelsPath_ = paths.dataDirectory / "quick_labels.conf";
+  {
+    lock_guard<mutex> lock(workspaceMutex_);
+    const auto previousGeneration = workspaceContext_ == nullptr ? 0 : workspaceContext_->generation;
+    auto context = make_shared<WorkspaceContext>();
+    context->paths = paths;
+    context->generation = advanceWorkspaceGeneration(previousGeneration);
+    workspaceContext_ = move(context);
+    dataPath_ = paths.dataDirectory;
+    inventoryPath_ = paths.inventory;
+    printerPath_ = paths.printer;
+    activityPath_ = paths.activity;
+    inventatoryScanConfigPath_ = paths.scanConfig;
+    quickLabelsPath_ = paths.dataDirectory / "quick_labels.conf";
+  }
+  // Cached idempotency results belong to the old context even if their
+  // request id happens to be reused in the newly selected workspace.
+  {
+    lock_guard<mutex> lock(deviceQueueMutex_);
+    deviceRequestCache_.clear();
+    deviceRequestOrder_.clear();
+  }
+  clearQuickLabelPrintCache();
 }
 
 bool App::workspaceIsCurrent(WorkspaceGeneration generation) const {
@@ -838,8 +848,9 @@ void App::processPrinterWork() {
             printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", "wire label printed");
             const bool saved = saveActivitiesChecked(false);
-            if (!result.work.requestId.empty()) {
-              storeQuickLabelPrintResult({result.work.requestId, "completed", "", "Label sent"});
+            if (result.work.quickLabelIdentity.has_value()) {
+              storeQuickLabelPrintResult({result.work.requestId, "completed", "", "Label sent"},
+                                         *result.work.quickLabelIdentity);
               setMessage(saved ? "Quick label sent" :
                                    "Quick label sent; activity not saved, press R to retry",
                          saved ? 3 : 6);
@@ -851,8 +862,9 @@ void App::processPrinterWork() {
             }
           } else {
             const auto error = result.error.empty() ? string("Printer failed") : result.error;
-            if (!result.work.requestId.empty()) {
-              storeQuickLabelPrintResult({result.work.requestId, "failed", "printer_failed", error});
+            if (result.work.quickLabelIdentity.has_value()) {
+              storeQuickLabelPrintResult({result.work.requestId, "failed", "printer_failed", error},
+                                         *result.work.quickLabelIdentity);
               setMessage("Quick label failed: " + error, 4);
             } else {
               setMessage(error, 4);
@@ -964,10 +976,10 @@ void App::stopPrinterWork() {
   {
     lock_guard<mutex> lock(quickLabelMutex_);
     for (auto& entry : quickLabelPrintResults_) {
-      if (entry.second.status == "pending") {
-        entry.second.status = "failed";
-        entry.second.code = "workspace_changed";
-        entry.second.message = "Printing was cancelled while the workspace changed";
+      if (entry.second.result.status == "pending") {
+        entry.second.result.status = "failed";
+        entry.second.result.code = "workspace_changed";
+        entry.second.result.message = "Printing was cancelled while the workspace changed";
       }
     }
   }

@@ -1084,16 +1084,23 @@ DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuan
 }
 
 DeviceQuantityResult applyDeviceQuantityCached(InventoryStore& store, const DeviceQuantityRequest& request,
-                                               unordered_map<string, DeviceQuantityResult>& cache,
+                                               uint64_t workspaceGeneration,
+                                               unordered_map<string, DeviceQuantityCacheEntry>& cache,
                                                deque<string>& order, size_t maxEntries) {
   const auto cached = cache.find(request.requestId);
-  if (cached != cache.end()) {
-    return cached->second;
+  if (cached != cache.end() && cached->second.workspaceGeneration == workspaceGeneration &&
+      cached->second.request.deviceId == request.deviceId &&
+      cached->second.request.requestId == request.requestId &&
+      cached->second.request.code == request.code &&
+      cached->second.request.delta == request.delta) {
+    return cached->second.result;
   }
 
   const auto result = applyDeviceQuantity(store, request);
-  cache[request.requestId] = result;
-  order.push_back(request.requestId);
+  if (find(order.begin(), order.end(), request.requestId) == order.end()) {
+    order.push_back(request.requestId);
+  }
+  cache[request.requestId] = {request, workspaceGeneration, result};
   while (order.size() > maxEntries) {
     cache.erase(order.front());
     order.pop_front();
