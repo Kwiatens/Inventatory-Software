@@ -11,24 +11,55 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish:
+  validate:
+    runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.validate-tag.outputs.tag }}
+    steps:
+      - name: Validate release tag
+        id: validate-tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notmatch '\Av\d+\.\d+\.\d+\z') {
+            throw 'Release tags must use vX.Y.Z.'
+          }
+          $remote = "https://x-access-token:$env:GITHUB_TOKEN@github.com/$env:GITHUB_REPOSITORY.git"
+          git ls-remote --exit-code --refs $remote "refs/tags/$tag" | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tag $tag does not exist in the repository."
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+  build:
+    needs: validate
+    permissions:
+      contents: read
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
       - name: Build and test x64 release
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
-          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Release tags must use vX.Y.Z.' }
+          $tag = $env:RELEASE_TAG
           $version = $tag.Substring(1)
           cmake -S . -B build "-DINVENTATORY_VERSION=$version" `
-            "-DINVENTATORY_RELEASE_REPOSITORY=${{ github.repository }}" `
-            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=${{ github.repository_owner }}/Inventatory-Hardware"
+            "-DINVENTATORY_RELEASE_REPOSITORY=$env:GITHUB_REPOSITORY" `
+            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=$env:GITHUB_REPOSITORY_OWNER/Inventatory-Hardware"
           cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
           ctest --test-dir build -C Release --output-on-failure
       - name: Package release assets
@@ -72,10 +103,31 @@ jobs:
           $installer = Get-Content -Raw installer\Install-Inventatory.ps1
           $installer = $installer.Replace('__INVENTATORY_RELEASE_REPOSITORY__', $env:GITHUB_REPOSITORY)
           Set-Content -NoNewline -Path dist\Install-Inventatory.ps1 -Value $installer
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventatory-release-assets
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, build]
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: inventatory-release-assets
+          path: dist
       - name: Create public GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          $tag = $env:RELEASE_TAG
           gh release create $tag --repo $env:GITHUB_REPOSITORY --title "Inventatory $tag" --generate-notes dist\Inventatory-win-x64.zip dist\SHA256SUMS.txt dist\Install-Inventatory.cmd dist\Install-Inventatory.ps1
