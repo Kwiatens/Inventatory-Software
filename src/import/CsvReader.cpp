@@ -11,6 +11,15 @@ namespace inventatory {
 
 using namespace std;
 
+namespace {
+
+constexpr size_t kMaximumCsvRows = 100000;
+constexpr size_t kMaximumCsvFieldsPerRow = 512;
+constexpr size_t kMaximumCsvFieldBytes = 1024U * 1024U;
+constexpr size_t kMaximumCsvInputBytes = 25U * 1024U * 1024U;
+
+}  // namespace
+
 string stripByteOrderMark(string text) {
   if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
       static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF) {
@@ -20,6 +29,10 @@ string stripByteOrderMark(string text) {
 }
 
 char sniffDelimiter(const string& text) {
+  if (text.size() > kMaximumCsvInputBytes) {
+    return ',';
+  }
+
   size_t comma = 0;
   size_t semicolon = 0;
   size_t tab = 0;
@@ -68,10 +81,24 @@ char sniffDelimiter(const string& text) {
 }
 
 vector<vector<string>> parseCsv(const string& text, char delimiter, string& error) {
+  error.clear();
+  if (text.size() > kMaximumCsvInputBytes) {
+    error = "CSV exceeds the 25 MiB safety limit";
+    return {};
+  }
+
   vector<vector<string>> rows;
   vector<string> row;
   string field;
   bool inQuotes = false;
+
+  const auto fieldTooLarge = [&]() {
+    if (field.size() > kMaximumCsvFieldBytes) {
+      error = "CSV contains a field larger than the 1 MiB safety limit";
+      return true;
+    }
+    return false;
+  };
 
   for (size_t index = 0; index < text.size(); ++index) {
     const char ch = text[index];
@@ -81,6 +108,7 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
         if (index + 1 < text.size() && text[index + 1] == '"') {
           field.push_back('"');
           ++index;
+          if (fieldTooLarge()) return {};
         } else if (index + 1 >= text.size() || text[index + 1] == delimiter || text[index + 1] == '\r' ||
                    text[index + 1] == '\n') {
           inQuotes = false;
@@ -93,6 +121,7 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
       } else {
         field.push_back(ch);
       }
+      if (fieldTooLarge()) return {};
       continue;
     }
 
@@ -101,15 +130,28 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
     } else if (ch == delimiter) {
       row.push_back(trim(field));
       field.clear();
+      if (row.size() > kMaximumCsvFieldsPerRow) {
+        error = "CSV row contains too many fields";
+        return {};
+      }
     } else if (ch == '\n') {
       row.push_back(trim(field));
       field.clear();
+      if (row.size() > kMaximumCsvFieldsPerRow) {
+        error = "CSV row contains too many fields";
+        return {};
+      }
       if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
+        if (rows.size() >= kMaximumCsvRows) {
+          error = "CSV contains too many rows";
+          return {};
+        }
         rows.push_back(move(row));
       }
       row.clear();
     } else if (ch != '\r') {
       field.push_back(ch);
+      if (fieldTooLarge()) return {};
     }
   }
 
@@ -119,7 +161,15 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
   }
 
   row.push_back(trim(field));
+  if (row.size() > kMaximumCsvFieldsPerRow) {
+    error = "CSV row contains too many fields";
+    return {};
+  }
   if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
+    if (rows.size() >= kMaximumCsvRows) {
+      error = "CSV contains too many rows";
+      return {};
+    }
     rows.push_back(move(row));
   }
 
