@@ -178,6 +178,10 @@ struct InventoryFieldChange {
 // inventory snapshot so retrying a sync event can never repeat its stock effect.
 struct DeviceEventCommit {
   string eventId;
+  // Identity of the scanner that owns the inbox row.  Callers processing an
+  // event should carry this through so completion cannot finalize another
+  // device's event if storage is ever copied or repaired incorrectly.
+  string deviceId;
   string resultId;
   string status;
   bool existing = false;
@@ -207,6 +211,7 @@ string inventatoryCategoryPrefix(const string& category);
 string makeInventatoryId(const string& category, size_t sequence);
 bool isInventatoryId(const string& value);
 void ensureInventoryIdentifiers(vector<InventoryItem>& items);
+bool validateInventoryIdentifiers(const vector<InventoryItem>& items, const vector<InventatoryRack>& racks);
 string join(const vector<string>& values, char delimiter);
 vector<string> split(const string& value, char delimiter);
 vector<string> tokenizeQuery(const string& query);
@@ -313,10 +318,16 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);
+// Historical commit snapshots use a complete, fixed-width item record.  The
+// strict form rejects truncated records, trailing fields, and malformed
+// structured values instead of silently dropping data.
+bool deserializeItemStrict(const string& line, InventoryItem& item);
 string serializeTagsForStorage(const vector<string>& tags);
 vector<string> deserializeTagsFromStorage(const string& value);
+bool deserializeTagsFromStorageStrict(const string& value, vector<string>& tags);
 string serializeParametersForStorage(const vector<Parameter>& parameters);
 vector<Parameter> deserializeParametersFromStorage(const string& value);
+bool deserializeParametersFromStorageStrict(const string& value, vector<Parameter>& parameters);
 string serializeActivity(const ActivityEntry& entry);
 bool deserializeActivity(const string& line, ActivityEntry& entry);
 
