@@ -1046,6 +1046,55 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
   return true;
 }
 
+bool cleanupCommittedRestore(const RestoreJournal& journal, const TransferOps& ops, string& error) {
+  string stepError;
+  bool oldDataExists = false;
+  if (!inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, false, oldDataExists,
+                            stepError)) {
+    error = "Restored data is active, but old-data cleanup is pending: " + stepError;
+    return false;
+  }
+  if (!journal.destinationExisted && oldDataExists) {
+    error = "Restored data is active, but unexpected old-data cleanup is pending";
+    return false;
+  }
+
+  bool settingsBackupExists = false;
+  if (!inspectOwnedArtifact(journal.settingsBackup, journal.settings, ".restore-old", false, false,
+                            settingsBackupExists, stepError)) {
+    error = "Restored data is active, but settings backup cleanup is pending: " + stepError;
+    return false;
+  }
+  if (!journal.settingsExisted && settingsBackupExists) {
+    error = "Restored data is active, but unexpected settings backup cleanup is pending";
+    return false;
+  }
+
+  bool stagingExists = false;
+  if (!inspectOwnedArtifact(journal.staging, journal.destination, ".restore-staging", true, false, stagingExists,
+                            stepError)) {
+    error = "Restored data is active, but staging cleanup is pending: " + stepError;
+    return false;
+  }
+  if (stagingExists && !ops.removeAll(journal.staging, stepError)) {
+    error = "Restored data is active, but staging cleanup failed: " + stepError;
+    return false;
+  }
+  if (oldDataExists && !ops.removeAll(journal.oldData, stepError)) {
+    error = "Restored data is active, but old data cleanup failed: " + stepError;
+    return false;
+  }
+  if (settingsBackupExists && !ops.removeAll(journal.settingsBackup, stepError)) {
+    error = "Restored data is active, but settings backup cleanup failed: " + stepError;
+    return false;
+  }
+  if (!ops.removeAll(restoreJournalPath(journal.settings), stepError)) {
+    error = "Restored data is active, but restore journal cleanup failed: " + stepError;
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& path, string& error) {
@@ -1443,21 +1492,7 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     error = "Restored data is active, but cleanup is pending: " + primaryError;
     return false;
   }
-  string cleanupError;
-  bool oldDataExists = false;
-  if (journal.destinationExisted &&
-      !inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, true, oldDataExists,
-                            cleanupError)) {
-    error = "Restored data is active, but cleanup is pending: " + cleanupError;
-    return false;
-  }
-  if ((journal.destinationExisted && !ops.removeAll(journal.oldData, cleanupError)) ||
-      (journal.settingsExisted && !ops.removeAll(journal.settingsBackup, cleanupError)) ||
-      !ops.removeAll(journalPath, cleanupError)) {
-    error = "Restored data is active, but cleanup is pending: " + cleanupError;
-    return false;
-  }
-  return true;
+  return cleanupCommittedRestore(journal, ops, error);
   } catch (const filesystem::filesystem_error& exception) {
     error = string("Restore filesystem error: ") + exception.what();
     return false;
@@ -1535,7 +1570,7 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
     return true;
   }
   if (journal.state == "settings_activated" || journal.state == "cleanup_pending") {
-    if (journal.settingsExisted && !settingsBackupExists) {
+    if (journal.state == "settings_activated" && journal.settingsExisted && !settingsBackupExists) {
       error = "Restored data is active, but the settings backup is missing";
       return false;
     }
@@ -1543,14 +1578,8 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
     if (filesystem::exists(journal.destination) && validateWorkspaceData(journal.destination, validationError) &&
         validateWorkspaceSettings(journal.settings, journal.destination, validationError)) {
         string cleanupError;
-        if (journal.destinationExisted &&
-            !inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, true,
-                                  oldDataExists, cleanupError)) {
-          error = "Restored data is active, but old-data cleanup is pending: " + cleanupError;
-          return false;
-        }
-        if (!journal.destinationExisted && oldDataExists) {
-          error = "Restored data is active, but unexpected old-data cleanup is pending";
+        if (journal.state == "settings_activated" && journal.destinationExisted && !oldDataExists) {
+          error = "Restored data is active, but the protected old data is missing";
           return false;
         }
         if (filesystem::exists(journal.destination / "manifest.tsv") &&
@@ -1563,19 +1592,14 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
           error = cleanupError;
           return false;
         }
-        if (journal.destinationExisted && !ops.removeAll(journal.oldData, cleanupError)) {
-          error = "Restored data is active, but old data cleanup failed: " + cleanupError;
-          return false;
+        if (journal.state == "settings_activated") {
+          journal.state = "cleanup_pending";
+          if (!writeRestoreJournal(journalPath, journal, ops, cleanupError)) {
+            error = "Restored data is active, but cleanup could not be committed: " + cleanupError;
+            return false;
+          }
         }
-        if (settingsBackupExists && !ops.removeAll(journal.settingsBackup, cleanupError)) {
-          error = "Restored data is active, but settings backup cleanup failed: " + cleanupError;
-          return false;
-        }
-        if (!ops.removeAll(journalPath, cleanupError)) {
-          error = "Restored data is active, but restore journal cleanup failed: " + cleanupError;
-          return false;
-        }
-        return true;
+        return cleanupCommittedRestore(journal, ops, error);
     } else if (validationError.empty()) {
       validationError = "Restored workspace data could not be validated";
     }

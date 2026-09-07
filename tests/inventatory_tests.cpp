@@ -4138,6 +4138,75 @@ int main() {
       assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
     }
     {
+      // cleanup_pending is the restore commit point. Recovery must tolerate a
+      // crash after old data was deleted but before the settings backup.
+      InventoryStore cleanupOldStore;
+      InventoryItem cleanupOldItem;
+      cleanupOldItem.id = "cleanup-old-item";
+      cleanupOldItem.partName = "Cleanup old item";
+      cleanupOldStore.items().push_back(cleanupOldItem);
+      assert(cleanupOldStore.save(restoreTarget / "inventory.db"));
+      InventoryTransferTestHooks hooks;
+      hooks.removeAll = [](const filesystem::path& path, string& injectedError) {
+        if (path.filename().u8string().find(".restore-old-") != string::npos &&
+            path.filename().u8string().find(".restore-old-data-") == string::npos) {
+          injectedError = "injected interruption after old-data cleanup";
+          return false;
+        }
+        error_code removeError;
+        filesystem::remove_all(path, removeError);
+        if (removeError) {
+          injectedError = removeError.message();
+          return false;
+        }
+        return true;
+      };
+      bool replacementWorkspaceActive = false;
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks,
+                                       &replacementWorkspaceActive));
+      assert(replacementWorkspaceActive);
+      assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
+      InventoryStore recoveredStore;
+      assert(recoveredStore.load(restoreTarget / "inventory.db"));
+      assert(recoveredStore.items().front().id == "transfer-item");
+    }
+    {
+      // A crash after every rollback artifact is gone but before journal
+      // removal must also leave the committed workspace recoverable.
+      InventoryStore cleanupOldStore;
+      InventoryItem cleanupOldItem;
+      cleanupOldItem.id = "journal-cleanup-old-item";
+      cleanupOldItem.partName = "Journal cleanup old item";
+      cleanupOldStore.items().push_back(cleanupOldItem);
+      assert(cleanupOldStore.save(restoreTarget / "inventory.db"));
+      const auto targetJournal = targetSettingsPath.parent_path() /
+                                 filesystem::u8path(targetSettingsPath.filename().u8string() + ".restore-journal");
+      InventoryTransferTestHooks hooks;
+      hooks.removeAll = [&targetJournal](const filesystem::path& path, string& injectedError) {
+        if (path == targetJournal) {
+          injectedError = "injected journal cleanup interruption";
+          return false;
+        }
+        error_code removeError;
+        filesystem::remove_all(path, removeError);
+        if (removeError) {
+          injectedError = removeError.message();
+          return false;
+        }
+        return true;
+      };
+      bool replacementWorkspaceActive = false;
+      assert(!restoreInventatoryBackup(bundle, restoreTarget, targetSettingsPath, error, &hooks,
+                                       &replacementWorkspaceActive));
+      assert(replacementWorkspaceActive);
+      assert(filesystem::exists(targetJournal));
+      assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
+      assert(!filesystem::exists(targetJournal));
+      InventoryStore recoveredStore;
+      assert(recoveredStore.load(restoreTarget / "inventory.db"));
+      assert(recoveredStore.items().front().id == "transfer-item");
+    }
+    {
       // A failure after the settings backup has been created must clean that
       // owned artifact along with staging, without touching the active data.
       InventoryTransferTestHooks hooks;
