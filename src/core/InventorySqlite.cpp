@@ -460,13 +460,20 @@ bool migrateLegacyColumns(SqliteConnection& connection, string* error) {
   // the current columns with safe defaults.
   if (!tableExists(connection, "inventatory_items") ||
       !tableColumnExists(connection, "inventatory_items", "manufacturer_part_number")) return true;
+  const bool hadSyncStatus = tableColumnExists(connection, "inventatory_items", "sync_status");
   if (!addColumnIfMissing(connection, "inventatory_items", "digikey_part_number", "TEXT NOT NULL DEFAULT ''", error) ||
       !addColumnIfMissing(connection, "inventatory_items", "product_url", "TEXT NOT NULL DEFAULT ''", error) ||
       !addColumnIfMissing(connection, "inventatory_items", "sync_status", "TEXT NOT NULL DEFAULT 'synced'", error) ||
       !addColumnIfMissing(connection, "inventatory_items", "sku", "TEXT NOT NULL DEFAULT ''", error)) return false;
-  return execSql(connection,
-                 "UPDATE inventatory_items SET sku=manufacturer_part_number WHERE trim(sku)='' AND "
-                 "trim(manufacturer_part_number)<>''");
+  if (!execSql(connection,
+               "UPDATE inventatory_items SET sku=manufacturer_part_number WHERE trim(sku)='' AND "
+               "trim(manufacturer_part_number)<>''")) return false;
+  if (!hadSyncStatus && tableColumnExists(connection, "inventatory_items", "enrichment_status")) {
+    return execSql(connection,
+                   "UPDATE inventatory_items SET sync_status=enrichment_status "
+                   "WHERE trim(enrichment_status)<>''");
+  }
+  return true;
 }
 
 bool validateExistingColumns(SqliteConnection& connection, string* error) {
