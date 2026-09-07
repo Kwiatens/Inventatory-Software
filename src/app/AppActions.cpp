@@ -262,6 +262,17 @@ void App::loadState() {
   }
   inventoryRecoveryRequired_ = false;
   inventoryRecoveryDetail_.clear();
+  error_code scanConfigError;
+  const bool scanConfigFileExists = filesystem::exists(inventatoryScanConfigPath_, scanConfigError);
+  InventatoryScanConfig loadedScanConfig;
+  if (scanConfigError || (scanConfigFileExists && !loadInventatoryScanConfig(inventatoryScanConfigPath_, loadedScanConfig))) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not read the existing scanner configuration: " +
+                               inventatoryScanConfigPath_.string();
+    persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
+    return;
+  }
+  if (scanConfigFileExists) inventatoryScanConfig_ = move(loadedScanConfig);
   vector<ActivityEntry> loadedActivities;
   error_code activityError;
   const bool activityFileExists = filesystem::exists(activityPath_, activityError);
@@ -269,11 +280,28 @@ void App::loadState() {
                                   (activityFileExists && !loadActivities(activityPath_, loadedActivities));
   activityPersistenceBlocked_ = activityLoadFailed;
   activities_ = activityLoadFailed ? vector<ActivityEntry>{} : move(loadedActivities);
-  inventatory::loadBomProjects(inventoryPath_, bomProjects_);
+  vector<BomProject> loadedBomProjects;
+  const bool bomProjectsLoaded = !inventoryFileExists || inventatory::loadBomProjects(inventoryPath_, loadedBomProjects);
+  if (!bomProjectsLoaded) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not read the existing BOM projects from: " + inventoryPath_.string();
+    persistenceError_ = inventoryRecoveryDetail_ + ". They have not been changed.";
+    return;
+  }
+  bomProjects_ = move(loadedBomProjects);
+  bomProjectsDirty_ = false;
   refreshDeviceEventRecords();
   refreshInventoryMovements();
   const bool commitHistoryReady = ensureInventoryCommitHistory(inventoryPath_, store_);
   refreshInventoryCommits();
+  if (!commitHistoryReady || inventoryRecoveryRequired_) {
+    if (!inventoryRecoveryRequired_) {
+      inventoryRecoveryRequired_ = true;
+      inventoryRecoveryDetail_ = "Inventatory could not prepare inventory history: " + inventoryPath_.string();
+      persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
+    }
+    return;
+  }
   printerService_.loadConfig(printerPath_);
   refreshPrinterState();
   if (activities_.empty()) {
@@ -323,21 +351,36 @@ void App::refreshInventoryMovements() {
 }
 
 void App::refreshInventoryCommits() {
-  historyRecordSelection_ = 0;
-  historyRecordOpen_ = false;
-  if (!loadInventoryCommits(inventoryPath_, inventoryCommits_)) {
-    inventoryCommits_.clear();
-    historyDetailValid_ = false;
-    historySelection_ = 0;
+  vector<InventoryCommit> loadedCommits;
+  if (!loadInventoryCommits(inventoryPath_, loadedCommits)) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.string();
+    persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
     return;
   }
+  InventoryCommitDetail loadedDetail;
+  size_t loadedSelection = 0;
+  if (!loadedCommits.empty()) {
+    loadedSelection = min(historySelection_, loadedCommits.size() - 1);
+    if (!loadInventoryCommit(inventoryPath_, loadedCommits[loadedSelection].id, loadedDetail)) {
+      inventoryRecoveryRequired_ = true;
+      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.string();
+      persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
+      return;
+    }
+  }
+  inventoryCommits_ = move(loadedCommits);
+  historyRecordSelection_ = 0;
+  historyRecordOpen_ = false;
+  historySelection_ = loadedSelection;
   if (inventoryCommits_.empty()) {
     historySelection_ = 0;
     historyDetailValid_ = false;
+    historyDetail_ = {};
     return;
   }
-  historySelection_ = min(historySelection_, inventoryCommits_.size() - 1);
-  refreshHistoryDetail();
+  historyDetail_ = move(loadedDetail);
+  historyDetailValid_ = true;
 }
 
 void App::refreshHistoryDetail() {
@@ -348,8 +391,15 @@ void App::refreshHistoryDetail() {
     return;
   }
   historySelection_ = min(historySelection_, inventoryCommits_.size() - 1);
-  historyDetailValid_ = loadInventoryCommit(inventoryPath_, inventoryCommits_[historySelection_].id, historyDetail_);
-  if (!historyDetailValid_) historyDetail_ = {};
+  InventoryCommitDetail loadedDetail;
+  if (!loadInventoryCommit(inventoryPath_, inventoryCommits_[historySelection_].id, loadedDetail)) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.string();
+    persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
+    return;
+  }
+  historyDetail_ = move(loadedDetail);
+  historyDetailValid_ = true;
 }
 
 void App::moveHistorySelection(int delta) {
@@ -3222,6 +3272,12 @@ const BomProject* App::activeBomProject() const {
 }
 
 bool App::saveBomProjects() {
+  if (inventoryRecoveryRequired_) {
+    persistenceError_ = inventoryRecoveryDetail_.empty()
+                            ? "Inventory recovery is required before BOM projects can be saved."
+                            : inventoryRecoveryDetail_ + ". BOM projects were not changed.";
+    return false;
+  }
   const bool saved = inventatory::saveBomProjects(inventoryPath_, bomProjects_);
   if (!saved) {
     bomProjectsDirty_ = true;
