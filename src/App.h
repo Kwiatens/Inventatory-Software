@@ -695,6 +695,7 @@ class App {
   std::string inventoryRecoveryDetail_;
   bool activitySavePending_ = false;
   bool scannerCredentialSavePending_ = false;
+  bool scannerReplayStateMigrationPending_ = false;
   bool scannerConfigSavePending_ = false;
   bool appSettingsSavePending_ = false;
   bool activityPersistenceBlocked_ = false;
