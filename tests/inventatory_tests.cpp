@@ -812,6 +812,14 @@ int main() {
     assert(!bomEnrichmentScopeMatches("project-a", "project-a", second, first, 7, 7));
     assert(!bomEnrichmentScopeMatches("project-a", "project-a", first, first, 8, 7));
     assert(!bomEnrichmentScopeMatches("", "project-a", first, first, 7, 7));
+    const DeviceQuickLabelPrintResult pending{"request-1", "pending", "queued", "poll again"};
+    const DeviceQuickLabelPrintResult completed{"request-1", "completed", "", "Label sent"};
+    const DeviceQuickLabelPrintResult failed{"request-1", "failed", "printer_failed", "Printer failed"};
+    assert(!quickLabelResultIsTerminal(pending));
+    assert(quickLabelResultIsTerminal(completed));
+    assert(quickLabelResultIsTerminal(failed));
+    assert(quickLabelResultMatchesRequest(pending, "request-1"));
+    assert(!quickLabelResultMatchesRequest(pending, "request-2"));
   }
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));

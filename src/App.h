@@ -74,6 +74,17 @@ inline bool bomEnrichmentScopeMatches(const std::string& currentProjectId,
          currentRequestSequence != 0 && currentRequestSequence == resultRequestSequence;
 }
 
+// The device can poll a queued label with the same request id.  Only these
+// two states complete that idempotent exchange; "pending" remains retryable.
+inline bool quickLabelResultIsTerminal(const DeviceQuickLabelPrintResult& result) {
+  return result.status == "completed" || result.status == "failed";
+}
+
+inline bool quickLabelResultMatchesRequest(const DeviceQuickLabelPrintResult& result,
+                                           const std::string& requestId) {
+  return !requestId.empty() && result.requestId == requestId;
+}
+
 class App {
  public:
   App(bool startInBackground, BackgroundController& backgroundController);
@@ -325,6 +336,16 @@ class App {
     std::string error;
   };
 
+  // Detached printer workers publish into this shared state only.  Shutdown
+  // marks it cancelled and drops the App-owned reference, so a spooler call
+  // that ignores cancellation can finish without touching App or a new
+  // workspace.
+  struct PrinterWorkCompletion {
+    std::mutex completionMutex;
+    std::optional<PrinterWorkResult> result;
+    bool cancelled = false;
+  };
+
   struct ImportSyncBatchResult {
     std::vector<std::pair<std::string, std::optional<DigiKeyProductDetails>>> results;
     std::vector<std::string> failedItemIds;
@@ -432,6 +453,7 @@ class App {
   bool hasPendingPersistence() const;
   void markDirty();
   void refreshPrinterState();
+  bool enqueuePrinterProbe(const std::string& printerName);
   bool enqueuePrinterWork(PrinterWork work);
   void refreshInventoryMovements();
   void refreshInventoryCommits();
@@ -808,7 +830,7 @@ class App {
   size_t printerSelection_ = 0;
   std::deque<PrinterWork> printerWorkQueue_;
   mutable std::mutex printerWorkMutex_;
-  std::future<PrinterWorkResult> printerWorkFuture_;
+  std::shared_ptr<PrinterWorkCompletion> printerWorkCompletion_;
   std::optional<PrinterWorkKind> printerWorkActiveKind_;
   size_t bleSetupSelection_ = 0;
   std::string bleWifiSsid_;

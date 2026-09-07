@@ -240,30 +240,34 @@ vector<App::Action> App::currentActions() const {
         add("reset all colors", "Appearance", "d", chr('d'), [self] { self->resetAppearanceColors(); });
       }
       if (settingsCategory_ == SettingsCategory::Printer) {
-      add("refresh", "Printer", "r", chr('r'), [self] {
-        self->refreshPrinterState();
-        self->setMessage("Printer list refreshed", 2);
-      });
-      if (selectedPrinterQueue() != nullptr) {
-        add("test", "Printer", "t", chr('t'), [self] {
-          if (const auto* printer = self->selectedPrinterQueue()) {
-            self->printerService_.setConfiguredPrinter(printer->name);
-            self->printerCheck_ = self->printerService_.probeConfiguredPrinter();
-            self->setMessage(self->printerCheck_.message.empty() ? "Printer checked" : self->printerCheck_.message, 3);
-            self->dirty_ = true;
-          }
-        });
-        add("save", "Printer", "s", chr('s'), [self] {
-          if (const auto* printer = self->selectedPrinterQueue()) {
-            self->printerService_.setConfiguredPrinter(printer->name);
-            self->printerCheck_ = self->printerService_.probeConfiguredPrinter();
-            self->saveState();
-            self->settingsDraft_.printerQueue = printer->name;
-            self->settingsDirty_ = true;
-            self->setMessage(self->printerCheck_.ok ? "Printer saved and ready" : "Printer saved, but not ready", 3);
-          }
-        });
-      }
+        add("refresh", "Printer", "r", chr('r'), [self] { self->refreshPrinterState(); });
+        if (selectedPrinterQueue() != nullptr) {
+          add("test", "Printer", "t", chr('t'), [self] {
+            if (const auto* printer = self->selectedPrinterQueue()) {
+              self->printerCheck_ = {false, "Testing printer queue..."};
+              if (self->enqueuePrinterProbe(printer->name)) {
+                self->setMessage("Testing printer queue...", 4);
+              } else {
+                self->setMessage("Printer request queue is full; try again shortly", 4);
+              }
+              self->dirty_ = true;
+            }
+          });
+          add("save", "Printer", "s", chr('s'), [self] {
+            if (const auto* printer = self->selectedPrinterQueue()) {
+              self->printerService_.setConfiguredPrinter(printer->name);
+              self->settingsDraft_.printerQueue = printer->name;
+              self->settingsDirty_ = true;
+              self->saveState();
+              self->printerCheck_ = {false, "Checking printer queue..."};
+              if (self->enqueuePrinterProbe(printer->name)) {
+                self->setMessage("Printer saved; checking queue...", 4);
+              } else {
+                self->setMessage("Printer saved, but the queue check could not be queued", 5);
+              }
+            }
+          });
+        }
       }
       if (settingsCategory_ == SettingsCategory::InventatoryScan) {
         add("refresh event queue", "Device", "v", chr('v'), [self] { self->refreshDeviceEventRecords(); });

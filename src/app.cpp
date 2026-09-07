@@ -718,21 +718,34 @@ bool App::enqueuePrinterWork(PrinterWork work) {
   return true;
 }
 
+bool App::enqueuePrinterProbe(const string& printerName) {
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr || trim(printerName).empty()) return false;
+  PrinterWork work;
+  work.kind = PrinterWorkKind::Probe;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerName;
+  return enqueuePrinterWork(move(work));
+}
+
 void App::processPrinterWork() {
-  if (printerWorkFuture_.valid()) {
-    if (printerWorkFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
+  optional<PrinterWorkResult> completedResult;
+  if (printerWorkCompletion_ != nullptr) {
+    const auto completion = printerWorkCompletion_;
+    lock_guard<mutex> lock(completion->completionMutex);
+    if (completion->result.has_value()) {
+      completedResult = move(completion->result);
+      completion->result.reset();
+    } else if (completion->cancelled) {
+      printerWorkCompletion_.reset();
+      printerWorkActiveKind_.reset();
+    } else {
       return;
     }
-
-    PrinterWorkResult result;
-    try {
-      result = printerWorkFuture_.get();
-    } catch (...) {
-      // The worker catches normal service failures; this is only a final
-      // containment shield for an unexpected backend exception.
-      result.success = false;
-      result.error = "Printer operation failed unexpectedly";
-    }
+  }
+  if (completedResult.has_value()) {
+    const auto result = move(*completedResult);
+    printerWorkCompletion_.reset();
     printerWorkActiveKind_.reset();
 
     if (workspaceIsCurrent(result.work.workspaceGeneration)) {
@@ -772,8 +785,11 @@ void App::processPrinterWork() {
           if (result.success) {
             printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", result.work.item.partName + " label printed");
-            saveState();
-            setMessage(result.work.successPrefix + result.work.item.partName, 3);
+            const bool saved = saveState();
+            setMessage(saved ? result.work.successPrefix + result.work.item.partName
+                             : result.work.successPrefix + result.work.item.partName +
+                                   "; activity not saved, press R to retry",
+                       saved ? 3 : 6);
           } else {
             setMessage("Print failed: " +
                            (result.error.empty() ? string("Printer failed") : result.error),
@@ -785,14 +801,17 @@ void App::processPrinterWork() {
           if (result.success) {
             printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", "wire label printed");
-            saveActivitiesChecked();
+            const bool saved = saveActivitiesChecked(false);
             if (!result.work.requestId.empty()) {
               storeQuickLabelPrintResult({result.work.requestId, "completed", "", "Label sent"});
-              setMessage("Quick label sent", 3);
+              setMessage(saved ? "Quick label sent" :
+                                   "Quick label sent; activity not saved, press R to retry",
+                         saved ? 3 : 6);
             } else {
-              setMessage(result.work.successPrefix.empty() ? string("Wire label sent")
-                                                            : result.work.successPrefix,
-                         3);
+              const auto message = result.work.successPrefix.empty() ? string("Wire label sent")
+                                                                      : result.work.successPrefix;
+              setMessage(saved ? message : message + "; activity not saved, press R to retry",
+                         saved ? 3 : 6);
             }
           } else {
             const auto error = result.error.empty() ? string("Printer failed") : result.error;
@@ -809,8 +828,10 @@ void App::processPrinterWork() {
           if (result.success) {
             printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", result.work.rack.code + " rack label printed");
-            saveState();
-            setMessage(result.work.rack.code + " rack label sent", 3);
+            const bool saved = saveState();
+            const auto message = result.work.rack.code + " rack label sent";
+            setMessage(saved ? message : message + "; activity not saved, press R to retry",
+                       saved ? 3 : 6);
           } else {
             setMessage("Print failed: " +
                            (result.error.empty() ? string("Printer failed") : result.error),
@@ -835,7 +856,10 @@ void App::processPrinterWork() {
     }
 
     const auto workKind = work.kind;
-    printerWorkFuture_ = async(launch::async, [work = move(work)]() mutable {
+    auto completion = make_shared<PrinterWorkCompletion>();
+    PrinterWork workerWork = work;
+    try {
+      thread([completion, work = move(workerWork)]() mutable {
       PrinterWorkResult result;
       result.work = work;
       try {
@@ -869,8 +893,20 @@ void App::processPrinterWork() {
         result.success = false;
         result.error = "Printer operation failed unexpectedly";
       }
-      return result;
-    });
+      lock_guard<mutex> lock(completion->completionMutex);
+      if (!completion->cancelled) completion->result = move(result);
+      }).detach();
+    } catch (...) {
+      // Preserve the work identity when thread creation itself fails.  This
+      // keeps a pending quick-label request from being stranded forever.
+      PrinterWorkResult result;
+      result.work = move(work);
+      result.success = false;
+      result.error = "Printer worker could not be started";
+      lock_guard<mutex> lock(completion->completionMutex);
+      completion->result = move(result);
+    }
+    printerWorkCompletion_ = move(completion);
     printerWorkActiveKind_ = workKind;
     return;
   }
@@ -881,9 +917,12 @@ void App::stopPrinterWork() {
     lock_guard<mutex> lock(printerWorkMutex_);
     printerWorkQueue_.clear();
   }
-  if (printerWorkFuture_.valid()) {
-    printerWorkFuture_.wait();
-    printerWorkFuture_ = {};
+  if (printerWorkCompletion_ != nullptr) {
+    const auto completion = printerWorkCompletion_;
+    lock_guard<mutex> lock(completion->completionMutex);
+    completion->cancelled = true;
+    completion->result.reset();
+    printerWorkCompletion_.reset();
   }
   printerWorkActiveKind_.reset();
   {

@@ -38,7 +38,11 @@ void App::refreshPrinterState() {
   work.kind = PrinterWorkKind::Refresh;
   work.workspaceGeneration = context->generation;
   work.printerName = printerService_.configuredPrinter();
-  if (!enqueuePrinterWork(move(work))) return;
+  if (!enqueuePrinterWork(move(work))) {
+    printerCheck_ = {false, "Printer request queue is full"};
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return;
+  }
   setMessage("Checking printer queues...", 3);
   dirty_ = true;
 }
@@ -95,7 +99,7 @@ bool App::printLabelForItem(const InventoryItem& item, const string& successPref
     setMessage("Printer unavailable while the workspace is changing", 4);
     return false;
   }
-  if (printerWorkFuture_.valid()) {
+  if (printerWorkCompletion_ != nullptr) {
     setMessage("A printer job is already running; try again shortly", 3);
     return false;
   }
@@ -107,7 +111,10 @@ bool App::printLabelForItem(const InventoryItem& item, const string& successPref
   work.item = item;
   work.rackLocation = rackLocation(item, store_.racks());
   work.successPrefix = successPrefix;
-  if (!enqueuePrinterWork(move(work))) return false;
+  if (!enqueuePrinterWork(move(work))) {
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return false;
+  }
   setMessage("Printer job queued", 3);
   return true;
 }
