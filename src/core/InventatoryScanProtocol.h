@@ -58,6 +58,15 @@ struct DeviceQuantityResult {
   int quantity = 0;
 };
 
+// A request id is only idempotent for the exact operation that created it.
+// Keep the request and workspace generation beside the cached result so a
+// reused id cannot replay a result for another device, payload, or workspace.
+struct DeviceQuantityCacheEntry {
+  DeviceQuantityRequest request;
+  std::uint64_t workspaceGeneration = 0;
+  DeviceQuantityResult result;
+};
+
 struct DeviceStatusReport {
   std::string deviceId;
   std::string firmwareVersion;
@@ -196,7 +205,8 @@ DeviceLookupResult lookupDeviceItem(const std::filesystem::path& databasePath,
 DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuantityRequest& request);
 DeviceQuantityResult applyDeviceQuantityCached(
     InventoryStore& store, const DeviceQuantityRequest& request,
-    std::unordered_map<std::string, DeviceQuantityResult>& cache, std::deque<std::string>& order,
+    std::uint64_t workspaceGeneration,
+    std::unordered_map<std::string, DeviceQuantityCacheEntry>& cache, std::deque<std::string>& order,
     std::size_t maxEntries = 64);
 std::string debugResultJson(bool ok, const std::string& error = {});
 std::string scanResultJson(bool ok, const std::string& error = {});
