@@ -360,13 +360,19 @@ bool isRetryableHttpStatus(DWORD statusCode) {
 
 bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
                  HttpResponse& response, string* error) {
+  // ProductDetails is a GET and therefore safe to repeat after a transport
+  // failure. OAuth token issuance and keyword search are POSTs; DigiKey does
+  // not publish an idempotency contract for either endpoint, so do not replay
+  // them automatically if a response may have been processed already.
+  const bool retryableMethod = method == L"GET";
   for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
     string attemptError;
     if (!requestHttpOnce(method, url, headers, body, response, &attemptError)) {
       if (error != nullptr) *error = move(attemptError);
       return false;
     }
-    if (!isRetryableHttpStatus(response.statusCode) || attempt + 1U >= kMaximumDigiKeyHttpAttempts) {
+    if (!retryableMethod || !isRetryableHttpStatus(response.statusCode) ||
+        attempt + 1U >= kMaximumDigiKeyHttpAttempts) {
       return true;
     }
 
@@ -1530,6 +1536,16 @@ bool DigiKeyConfig::valid() const {
          isSafeHeaderValue(language) && isSafeHeaderValue(currency);
 }
 
+bool validateDigiKeyJsonPayload(const string& payload, string* error) {
+  if (error != nullptr) error->clear();
+  string parseError;
+  if (!parseJson(payload, &parseError).has_value()) {
+    if (error != nullptr) *error = move(parseError);
+    return false;
+  }
+  return true;
+}
+
 DigiKeyConfig loadDigiKeyConfig() {
   DigiKeyConfig config;
   if (const auto value = environmentValue("DIGIKEY_CLIENT_ID"); value.has_value()) {
@@ -1820,6 +1836,11 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
 namespace inventatory {
 
 bool DigiKeyConfig::valid() const {
+  return false;
+}
+
+bool validateDigiKeyJsonPayload(const string&, string* error) {
+  if (error != nullptr) *error = "DigiKey integration is only available on Windows";
   return false;
 }
 
