@@ -1080,6 +1080,9 @@ void testPackageGHardening() {
     writeMalformed("quick_label_revision=0\n");
     writeMalformed("quick_label_revision=4294967296\n");
     writeMalformed("quick_label_revision=1 trailing-token\n");
+    writeMalformed("quick_label_revision=1\nquick_label_revision=2\n");
+    writeMalformed("quick_label_revision=1\nunknown=ignored\n");
+    writeMalformed("quick_label_revision=1\nmalformed record\n");
     writeMalformed("quick_label_revision=1\nquick_label=\"unterminated\n");
     filesystem::remove(path, cleanupError);
   }
@@ -2819,6 +2822,42 @@ int main() {
     assert(duplicateResponse.rfind("HTTP/1.1 409 Conflict", 0) == 0);
     assert(concurrentSyncCalls == 1);
     concurrentServer.stop();
+
+    const auto rotationReplayState = stateDirectory / "rotation-replay.state";
+    atomic<bool> rotationCallbackEntered{false};
+    atomic<bool> releaseRotationCallback{false};
+    atomic<bool> rotationFinished{false};
+    string rotationResponse;
+    auto rotationOnSync = [&](const DeviceSyncRequest& request, DeviceSyncResponse& response, string&) {
+      rotationCallbackEntered.store(true);
+      while (!releaseRotationCallback.load()) this_thread::sleep_for(chrono::milliseconds(1));
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer rotationServer;
+    rotationServer.setDeviceCredentials(deviceId, token, rotationReplayState);
+    assert(rotationServer.start(19461, rotationOnSync));
+    const auto rotationRequest = signedSyncRequest(token, deviceId, 200, body);
+    thread rotationRequestThread([&] { rotationResponse = sendLocalHttpRequest(rotationServer.port(), rotationRequest); });
+    for (int attempt = 0; attempt < 100 && !rotationCallbackEntered.load(); ++attempt) {
+      this_thread::sleep_for(chrono::milliseconds(5));
+    }
+    assert(rotationCallbackEntered.load());
+    thread credentialRotationThread([&] {
+      rotationServer.setDeviceCredentials(deviceId, rotatedToken, rotationReplayState);
+      rotationFinished.store(true);
+    });
+    for (int attempt = 0; attempt < 100 && !rotationFinished.load(); ++attempt) {
+      this_thread::sleep_for(chrono::milliseconds(5));
+    }
+    // Rotation must not wait for a callback that may itself be waiting for
+    // foreground/UI work. The in-flight request is invalidated by the epoch.
+    assert(rotationFinished.load());
+    releaseRotationCallback.store(true);
+    rotationRequestThread.join();
+    credentialRotationThread.join();
+    assert(rotationResponse.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    rotationServer.stop();
 
     const auto retryReplayState = stateDirectory / "retry-replay.state";
     atomic<int> retrySyncCalls{0};
