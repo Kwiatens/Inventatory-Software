@@ -802,6 +802,9 @@ void App::retrySaveState() {
   const bool scannerSaved = !scannerConfigSavePending_ || saveScannerConfigChecked(false);
   const bool scannerCredentialSaved = !scannerCredentialSavePending_ || saveScannerCredentialChecked(false);
   if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved && scannerCredentialSaved) {
+    if (scannerCredentialSaved && !server_.running() && !inventatoryScanConfig_.token.empty()) {
+      restartDeviceService();
+    }
     setMessage("All Inventatory changes are saved", 3);
   } else if (!projectsSaved) {
     setMessage("BOM project changes are still unsaved; press R to retry", 5);
