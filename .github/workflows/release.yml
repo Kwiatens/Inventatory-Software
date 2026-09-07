@@ -63,6 +63,8 @@ jobs:
           ctest --test-dir build -C Release --output-on-failure
       - name: Package release assets
         shell: pwsh
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           $packageRoot = Join-Path $PWD 'dist\Inventatory'
           $trackedLicense = Join-Path $PWD 'LICENSE'
