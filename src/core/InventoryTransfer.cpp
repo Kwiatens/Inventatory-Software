@@ -742,6 +742,16 @@ bool equivalentPath(const filesystem::path& first, const filesystem::path& secon
 // semantic gate so an optional sidecar cannot bypass one of those paths.
 bool validateWorkspaceData(const filesystem::path& directory, string& error) {
   error.clear();
+  const auto rejectLinkedArtifact = [&](const filesystem::path& path, const char* label) {
+    error_code linkError;
+    if (filesystem::is_symlink(path, linkError) || linkError) {
+      error = linkError ? "Unable to inspect workspace " + string(label) + ": " + linkError.message()
+                        : "Workspace " + string(label) + " must not be a symbolic link";
+      return false;
+    }
+    return true;
+  };
+  if (!rejectLinkedArtifact(directory / "inventory.db", "inventory database")) return false;
   SqliteConnection connection;
   if (!openDatabaseReadOnly(directory / "inventory.db", connection) ||
       !validateInventoryDatabase(connection, &error)) {
@@ -755,6 +765,11 @@ bool validateWorkspaceData(const filesystem::path& directory, string& error) {
 
   const auto optionalPath = [&](const char* name) { return directory / name; };
   error_code filesystemError;
+  if (!rejectLinkedArtifact(optionalPath("activity.tsv"), "activity history") ||
+      !rejectLinkedArtifact(optionalPath("quick_labels.conf"), "Quick Labels settings") ||
+      !rejectLinkedArtifact(optionalPath("printer.conf"), "printer settings")) {
+    return false;
+  }
   if (filesystem::exists(optionalPath("activity.tsv"), filesystemError)) {
     if (filesystemError) {
       error = "Unable to inspect workspace activity history: " + filesystemError.message();
@@ -1342,7 +1357,7 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   }
   journal.state = "activating";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError) ||
-       !ops.rename(staging, destinationDirectory, primaryError)) {
+      !ops.rename(staging, destinationDirectory, primaryError)) {
     string rollbackError;
     const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
     if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
@@ -1402,7 +1417,7 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     return false;
   }
   if (filesystem::exists(destinationDirectory / "manifest.tsv") &&
-       !ops.removeAll(destinationDirectory / "manifest.tsv", primaryError)) {
+      !ops.removeAll(destinationDirectory / "manifest.tsv", primaryError)) {
     string rollbackError;
     const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
     if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
@@ -1410,7 +1425,7 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     return false;
   }
   if (filesystem::exists(destinationDirectory / "settings.conf") &&
-       !ops.removeAll(destinationDirectory / "settings.conf", primaryError)) {
+      !ops.removeAll(destinationDirectory / "settings.conf", primaryError)) {
     string rollbackError;
     const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
     if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
