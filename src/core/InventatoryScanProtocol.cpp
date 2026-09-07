@@ -639,6 +639,14 @@ string generateInventatoryScanToken() {
   return hexToken(bytes);
 }
 
+filesystem::path inventatoryScanReplayStatePath(const filesystem::path& workspaceDirectory) {
+  if (workspaceDirectory.empty()) return {};
+  error_code error;
+  const auto absoluteDirectory = filesystem::absolute(workspaceDirectory, error);
+  if (error || absoluteDirectory.empty()) return {};
+  return absoluteDirectory.lexically_normal() / "inventatory-scan-replay.state";
+}
+
 string deviceRequestMac(const string& token, const string& method, const string& path, const string& deviceId,
                         uint64_t counter, const string& body) {
   return transportMac(token, "client-to-server",

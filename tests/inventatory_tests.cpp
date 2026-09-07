@@ -1136,6 +1136,53 @@ int main() {
     assert(missing);
   }
 
+  {
+    const string key = "release-readiness-scanner-scope-test-" +
+                       to_string(static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count()));
+    const auto scopeRoot = filesystem::temp_directory_path() / ("inventatory-scanner-scope-" + key);
+    const auto workspaceA = scopeRoot / "workspace-a";
+    const auto workspaceB = scopeRoot / "workspace-b";
+    error_code cleanupError;
+    filesystem::remove_all(scopeRoot, cleanupError);
+    assert(filesystem::create_directories(workspaceA));
+    assert(filesystem::create_directories(workspaceB));
+
+    // A legacy global target must never be implicitly visible through a new
+    // workspace scope.  The application migrates it only for an existing
+    // config with a completed device identity.
+    const auto legacyKey = key + "-legacy";
+    CredentialStore::erase(legacyKey);
+    CredentialStore::eraseForWorkspace(workspaceA, key);
+    CredentialStore::eraseForWorkspace(workspaceB, key);
+    assert(CredentialStore::write(legacyKey, "legacy-token"));
+    assert(!CredentialStore::readForWorkspace(workspaceA, key).has_value());
+    assert(!CredentialStore::readForWorkspace(workspaceB, key).has_value());
+
+    assert(CredentialStore::workspaceScopedKey(workspaceA, key) !=
+           CredentialStore::workspaceScopedKey(workspaceB, key));
+    assert(CredentialStore::writeForWorkspace(workspaceA, key, "workspace-a-token"));
+    assert(CredentialStore::writeForWorkspace(workspaceB, key, "workspace-b-token"));
+    const auto scopedA = CredentialStore::readForWorkspace(workspaceA, key);
+    const auto scopedB = CredentialStore::readForWorkspace(workspaceB, key);
+    assert(scopedA.has_value() && *scopedA == "workspace-a-token");
+    assert(scopedB.has_value() && *scopedB == "workspace-b-token");
+    assert(CredentialStore::readForWorkspace(workspaceA / "child" / "..", key).has_value());
+
+    const auto replayA = inventatoryScanReplayStatePath(workspaceA);
+    const auto replayB = inventatoryScanReplayStatePath(workspaceB);
+    assert(replayA != replayB);
+    assert(replayA.parent_path() == workspaceA);
+    assert(replayB.parent_path() == workspaceB);
+    assert(inventatoryScanReplayStatePath(workspaceA / "." / "nested" / "..") == replayA);
+    assert(inventatoryScanReplayStatePath({}).empty());
+
+    assert(CredentialStore::eraseForWorkspace(workspaceA, key));
+    assert(CredentialStore::eraseForWorkspace(workspaceB, key));
+    assert(CredentialStore::erase(legacyKey));
+    filesystem::remove_all(scopeRoot, cleanupError);
+    assert(!cleanupError);
+  }
+
 #ifdef _WIN32
   // The persistence tests below must exercise the statically linked, pinned
   // SQLite amalgamation rather than an ambient sqlite3.dll.
@@ -2741,6 +2788,43 @@ int main() {
       response.requestId = request.requestId;
       return true;
     };
+
+    // Workspace-bound replay files must not share counters. A fresh workspace
+    // with a newly scoped token rejects the previous workspace's token and can
+    // start its own counter sequence at one.
+    const auto workspaceA = stateDirectory / "workspace-a";
+    const auto workspaceB = stateDirectory / "workspace-b";
+    const auto replayA = inventatoryScanReplayStatePath(workspaceA);
+    const auto replayB = inventatoryScanReplayStatePath(workspaceB);
+    const string workspaceBToken = "222202030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    atomic<int> isolatedSyncCalls{0};
+    auto isolatedOnSync = [&isolatedSyncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response,
+                                               string&) {
+      ++isolatedSyncCalls;
+      response.requestId = request.requestId;
+      return true;
+    };
+    LocalHttpServer workspaceServerA;
+    workspaceServerA.setDeviceCredentials(deviceId, token, replayA);
+    assert(workspaceServerA.start(19420, isolatedOnSync));
+    const auto workspaceAResponse = sendLocalHttpRequest(
+        workspaceServerA.port(), signedSyncRequest(token, deviceId, 7, body));
+    assert(workspaceAResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
+    workspaceServerA.stop();
+    assert(filesystem::exists(replayA));
+
+    LocalHttpServer workspaceServerB;
+    workspaceServerB.setDeviceCredentials(deviceId, workspaceBToken, replayB);
+    assert(workspaceServerB.start(19421, isolatedOnSync));
+    const auto oldWorkspaceRequest = sendLocalHttpRequest(
+        workspaceServerB.port(), signedSyncRequest(token, deviceId, 8, body));
+    assert(oldWorkspaceRequest.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
+    const auto workspaceBResponse = sendLocalHttpRequest(
+        workspaceServerB.port(), signedSyncRequest(workspaceBToken, deviceId, 1, body));
+    assert(workspaceBResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
+    workspaceServerB.stop();
+    assert(filesystem::exists(replayB));
+    assert(isolatedSyncCalls == 2);
 
     LocalHttpServer server;
     server.setDeviceCredentials(deviceId, token, replayState);

@@ -166,6 +166,7 @@ struct DeviceSyncResponse {
 bool loadInventatoryScanConfig(const std::filesystem::path& path, InventatoryScanConfig& config);
 bool saveInventatoryScanConfig(const std::filesystem::path& path, const InventatoryScanConfig& config);
 std::string generateInventatoryScanToken();
+std::filesystem::path inventatoryScanReplayStatePath(const std::filesystem::path& workspaceDirectory);
 
 std::string deviceRequestMac(const std::string& token, const std::string& method, const std::string& path,
                              const std::string& deviceId, std::uint64_t counter, const std::string& body);

@@ -182,7 +182,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   const bool backgroundServiceAlreadyRunning = !startInBackground_ && backgroundController_.backgroundServiceRunning();
   if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning) {
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                                 appSettingsDirectory() / "inventatory-scan-replay.state");
+                                 inventatoryScanReplayStatePath(dataPath_));
 
     if (!server_.start(settings_.deviceServicePort,
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
@@ -1022,7 +1022,7 @@ void App::restartDeviceService() {
   mdnsService_.stop();
   server_.stop();
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                               appSettingsDirectory() / "inventatory-scan-replay.state");
+                               inventatoryScanReplayStatePath(dataPath_));
   if (!server_.start(settings_.deviceServicePort,
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
                        return handleDeviceSync(request, response, error);
