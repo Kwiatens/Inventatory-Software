@@ -447,13 +447,22 @@ void recomputeBomTotals(BomAnalysis& analysis, const vector<InventoryItem>& item
 
   // One inventory part can serve several BOM lines, so sufficiency has to be
   // judged against the total draw on that part, not line by line.
-  unordered_map<string, int> demand;
+  // Keep aggregate demand wider than the public per-line `int` fields. A
+  // saturating int sum would make two INT_MAX BOM lines look satisfiable by
+  // INT_MAX stock even though their combined draw is larger.
+  unordered_map<string, uint64_t> demand;
   for (size_t index = 0; index < analysis.matches.size(); ++index) {
     auto& match = analysis.matches[index];
     match.needed = saturatingMultiplyNonNegative(analysis.lines[index].quantityPerBoard, max(1, analysis.boards));
     const auto itemId = match.chosenItemId();
     if (!itemId.empty()) {
-      demand[itemId] = saturatingAdd(demand[itemId], match.needed);
+      auto& total = demand[itemId];
+      const auto needed = static_cast<uint64_t>(match.needed);
+      if (total > numeric_limits<uint64_t>::max() - needed) {
+        total = numeric_limits<uint64_t>::max();
+      } else {
+        total += needed;
+      }
     }
   }
 
@@ -465,7 +474,8 @@ void recomputeBomTotals(BomAnalysis& analysis, const vector<InventoryItem>& item
     const auto itemId = match.chosenItemId();
     const auto found = itemId.empty() ? byId.end() : byId.find(itemId);
     match.available = found == byId.end() ? 0 : found->second->quantity;
-    match.sufficient = found != byId.end() && found->second->quantity >= demand[itemId];
+    match.sufficient = found != byId.end() && found->second->quantity >= 0 &&
+                       static_cast<uint64_t>(found->second->quantity) >= demand[itemId];
     if (match.sufficient) {
       ++analysis.readyCount;
     } else {
