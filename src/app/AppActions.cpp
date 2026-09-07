@@ -1060,14 +1060,20 @@ bool App::chooseInventatoryFolder() {
   if (inventoryRecoveryRequired_) {
     settings_ = oldSettings;
     settingsDraft_ = oldSettings;
-    saveAppSettings(settingsPath_, oldSettings);
+    const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
     if (oldContext != nullptr) activateWorkspaceContext(oldContext->paths);
     else activateWorkspaceContext(oldPaths);
     inventatoryScanConfig_ = {};
     loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
     loadState();
+    if (!rollbackSaved) {
+      appSettingsSavePending_ = true;
+      persistenceError_ = "Unable to restore the previous application settings; press R to retry saving.";
+    }
     if (serviceWasRunning) restartDeviceService();
-    setMessage("Selected folder also contains an unreadable inventory database", 6);
+    setMessage(rollbackSaved ? "Selected folder also contains an unreadable inventory database"
+                             : "Selected folder failed and previous settings could not be restored; press R to retry saving",
+               7);
     return false;
   }
   if (trim(inventatoryScanConfig_.token).empty()) {
