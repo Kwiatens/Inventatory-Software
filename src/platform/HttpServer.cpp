@@ -378,7 +378,12 @@ void LocalHttpServer::stop() {
 }
 
 void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path replayStatePath) {
+  // Do not let a request that authenticated with the previous credential set
+  // continue while the pairing is being rotated. The lock covers the request
+  // callback and replay commit as well as the credential snapshot below.
+  lock_guard<mutex> operationLock(credentialOperationMutex_);
   const auto fingerprint = deviceTransportStateFingerprint(token);
+  ++credentialEpoch_;
   bool deviceChanged = false;
   {
     lock_guard<mutex> lock(stateMutex_);
@@ -572,27 +577,29 @@ string LocalHttpServer::authenticatedResponseText(int status, uint64_t counter, 
   return out.str();
 }
 
-bool LocalHttpServer::reserveReplayCounter(uint64_t counter) {
+bool LocalHttpServer::reserveReplayCounter(uint64_t counter, uint64_t credentialEpoch) {
   lock_guard<mutex> lock(replayMutex_);
-  if (!replayStateValid_ || replayStateFingerprint_.empty() || replayCounterInFlight_.has_value() ||
-      counter <= lastAcceptedCounter_) {
+  if (credentialEpoch_ != credentialEpoch || !replayStateValid_ || replayStateFingerprint_.empty() ||
+      replayCounterInFlight_.has_value() || counter <= lastAcceptedCounter_) {
     return false;
   }
-  replayCounterInFlight_ = counter;
+  replayCounterInFlight_ = ReplayReservation{counter, credentialEpoch};
   return true;
 }
 
-void LocalHttpServer::releaseReplayCounter(uint64_t counter) {
+void LocalHttpServer::releaseReplayCounter(uint64_t counter, uint64_t credentialEpoch) {
   lock_guard<mutex> lock(replayMutex_);
-  if (replayCounterInFlight_.has_value() && *replayCounterInFlight_ == counter) {
+  if (replayCounterInFlight_.has_value() && replayCounterInFlight_->counter == counter &&
+      replayCounterInFlight_->credentialEpoch == credentialEpoch) {
     replayCounterInFlight_.reset();
   }
 }
 
-bool LocalHttpServer::advanceReplayCounter(uint64_t counter) {
+bool LocalHttpServer::advanceReplayCounter(uint64_t counter, uint64_t credentialEpoch) {
   lock_guard<mutex> lock(replayMutex_);
-  if (!replayStateValid_ || replayStateFingerprint_.empty() || !replayCounterInFlight_ ||
-      *replayCounterInFlight_ != counter || counter <= lastAcceptedCounter_) {
+  if (credentialEpoch_ != credentialEpoch || !replayStateValid_ || replayStateFingerprint_.empty() ||
+      !replayCounterInFlight_ || replayCounterInFlight_->counter != counter ||
+      replayCounterInFlight_->credentialEpoch != credentialEpoch || counter <= lastAcceptedCounter_) {
     return false;
   }
   if (!saveReplayState(replayStatePath_, replayStateFingerprint_, counter)) {
@@ -655,6 +662,12 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
   }
 
   if (method == "POST" && target == "/api/v1/device/sync") {
+    // Capture credentials and complete the authenticated request lifecycle as
+    // one serialized operation. If rotation wins this lock first, this request
+    // verifies against the new token and cannot reach replay reservation or the
+    // application callback with the old token.
+    unique_lock<mutex> credentialLock(credentialOperationMutex_);
+    const auto credentialEpoch = credentialEpoch_;
     string expectedDevice;
     string expectedToken;
     {
@@ -691,7 +704,7 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       return reject(error == "Unsupported protocol version" ? 426 : 400,
                     error.empty() ? "Device identity does not match the transport envelope" : error);
     }
-    if (!reserveReplayCounter(*counter)) {
+    if (!reserveReplayCounter(*counter, credentialEpoch)) {
       return reject(409, "Replayed or unavailable request counter");
     }
     DeviceSyncResponse syncResponse;
@@ -714,14 +727,14 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       }
     }
     if (!syncSucceeded) {
-      releaseReplayCounter(*counter);
+      releaseReplayCounter(*counter, credentialEpoch);
       if (error.empty()) error = "Device sync service unavailable";
       return reject(503, error);
     }
     // Commit the replay marker only after the durable application callback has
     // succeeded. A callback failure releases the reservation so the R1 can retry;
     // marker persistence failure instead disables sync to avoid replaying a side effect.
-    if (!advanceReplayCounter(*counter)) {
+    if (!advanceReplayCounter(*counter, credentialEpoch)) {
       return reject(409, "Request completed but its replay marker could not be saved");
     }
     const auto responseBody = deviceSyncResponseJson(syncResponse);
