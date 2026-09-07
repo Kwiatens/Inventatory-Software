@@ -58,25 +58,30 @@ optional<string> loadWorkspaceScannerToken(const filesystem::path& workspaceDire
   return nullopt;
 }
 
-void migrateLegacyScannerReplayState(const filesystem::path& workspaceDirectory) {
+bool migrateLegacyScannerReplayState(const filesystem::path& workspaceDirectory) {
   const auto legacyPath = appSettingsDirectory() / "inventatory-scan-replay.state";
   const auto scopedPath = inventatoryScanReplayStatePath(workspaceDirectory);
-  if (scopedPath.empty() || scopedPath == legacyPath) return;
+  if (scopedPath.empty() || scopedPath == legacyPath) return true;
 
   error_code error;
-  if (filesystem::exists(scopedPath, error) || error) return;
+  if (filesystem::exists(scopedPath, error)) return true;
+  if (error) return false;
   error.clear();
-  if (!filesystem::exists(legacyPath, error) || error) return;
+  if (!filesystem::exists(legacyPath, error)) return !error;
+  if (error) return false;
 
   ifstream input(legacyPath, ios::binary);
-  if (!input) return;
+  if (!input) return false;
+  error_code sizeError;
+  const auto replaySize = filesystem::file_size(legacyPath, sizeError);
+  if (sizeError || replaySize > 256U) return false;
   string contents((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
-  if (!input.eof() || contents.size() > 256U) return;
+  if (!input.eof() || contents.size() > 256U) return false;
   string ignored;
   // The server validates the fingerprint and counter before accepting the
   // state. Atomic replacement ensures a crash cannot leave a partial scope
   // marker that is mistaken for durable replay state.
-  writeFileAtomically(scopedPath, contents, &ignored);
+  return writeFileAtomically(scopedPath, contents, &ignored);
 }
 
 filesystem::path resolveInventoryDatabasePath(const filesystem::path& selectedPath) {
@@ -295,6 +300,7 @@ void App::loadState() {
   appSettingsSavePending_ = false;
   pendingMovementSource_.clear();
   pendingMovementReference_.clear();
+  scannerReplayStateMigrationPending_ = false;
   error_code inventoryError;
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
   InventoryStore loadedStore;
@@ -366,7 +372,10 @@ void App::loadState() {
     if (const auto stored = loadWorkspaceScannerToken(dataPath_, inventatoryScanConfig_, migratedLegacyToken);
         stored.has_value()) {
       inventatoryScanConfig_.token = *stored;
-      if (migratedLegacyToken) migrateLegacyScannerReplayState(dataPath_);
+      if (migratedLegacyToken && !migrateLegacyScannerReplayState(dataPath_)) {
+        scannerReplayStateMigrationPending_ = true;
+        persistenceError_ = "Could not migrate scanner replay state; the Scan R1 service is disabled until it succeeds.";
+      }
     } else {
       inventatoryScanConfig_.token = generateInventatoryScanToken();
     }
@@ -383,6 +392,10 @@ void App::loadState() {
   if (!saveScannerConfigChecked(false)) saveFailures.push_back("scanner settings");
   if (scannerCredentialSavePending_ && !saveScannerCredentialChecked(false)) {
     saveFailures.push_back("scanner pairing token");
+  }
+  if (scannerReplayStateMigrationPending_) saveFailures.push_back("scanner replay state");
+  if (scannerReplayStateMigrationPending_) {
+    saveFailures.push_back("scanner replay state");
   }
   if (activityLoadFailed) {
     activitySavePending_ = true;
@@ -780,6 +793,7 @@ bool App::saveActivitiesChecked(bool notify) {
 
 bool App::hasPendingPersistence() const {
   return pendingCommitDraftValid_ || activitySavePending_ || scannerCredentialSavePending_ ||
+         scannerReplayStateMigrationPending_ ||
          scannerConfigSavePending_ || appSettingsSavePending_ ||
          !persistenceError_.empty();
 }
@@ -801,7 +815,13 @@ void App::retrySaveState() {
   const bool appSettingsSaved = savePendingAppSettings();
   const bool scannerSaved = !scannerConfigSavePending_ || saveScannerConfigChecked(false);
   const bool scannerCredentialSaved = !scannerCredentialSavePending_ || saveScannerCredentialChecked(false);
-  if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved && scannerCredentialSaved) {
+  const bool replayStateSaved = !scannerReplayStateMigrationPending_ ||
+                                migrateLegacyScannerReplayState(dataPath_);
+  if (replayStateSaved) scannerReplayStateMigrationPending_ = false;
+  if (!replayStateSaved) {
+    persistenceError_ = "Could not migrate scanner replay state; the Scan R1 service is disabled until it succeeds.";
+  }
+  if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved && scannerCredentialSaved && replayStateSaved) {
     if (scannerCredentialSaved && !server_.running() && !inventatoryScanConfig_.token.empty()) {
       restartDeviceService();
     }
