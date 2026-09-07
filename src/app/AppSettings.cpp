@@ -468,7 +468,7 @@ bool loadQuickLabels(const filesystem::path& path, vector<string>& presets, uint
   while (getline(input, line)) {
     if (line.size() > kMaxQuickLabelsFileBytes) return false;
     const auto equals = line.find('=');
-    if (equals == string::npos) continue;
+    if (equals == string::npos || equals == 0) return false;
     const auto key = line.substr(0, equals);
     istringstream value(line.substr(equals + 1));
     if (key == "quick_label") {
@@ -480,12 +480,14 @@ bool loadQuickLabels(const filesystem::path& path, vector<string>& presets, uint
       loadedPresets.push_back(move(preset));
     } else if (key == "quick_label_revision") {
       uint64_t parsedRevision = 0;
-      if (!parseUnsignedValue(value, parsedRevision) || parsedRevision == 0 ||
+      if (hasRevision || !parseUnsignedValue(value, parsedRevision) || parsedRevision == 0 ||
           parsedRevision > numeric_limits<uint32_t>::max()) {
         return false;
       }
       loadedRevision = static_cast<uint32_t>(parsedRevision);
       hasRevision = true;
+    } else {
+      return false;
     }
   }
   if (!input.eof() || !hasRevision || !validQuickLabels(loadedPresets, loadedRevision)) return false;
