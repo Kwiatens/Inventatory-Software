@@ -468,6 +468,29 @@ void testInventoryCommitHistory() {
   assert(commits.front().parentId.empty());
   assert(commits.front().message == "Initial inventory");
 
+  // Commit snapshots retain the pre-v1 structured encoding and must reject
+  // truncated or trailing records instead of silently dropping metadata.
+  {
+    const auto serialized = serializeItem(item);
+    InventoryItem restored;
+    assert(deserializeItemStrict(serialized, restored));
+    assert(restored.parameters.size() == item.parameters.size());
+    assert(restored.parameters[0].name == item.parameters[0].name);
+    assert(restored.parameters[0].value == item.parameters[0].value);
+    assert(restored.vendorMetadata.categoryPath == item.vendorMetadata.categoryPath);
+    assert(!deserializeItemStrict(serialized + " trailing", restored));
+    auto legacySerialized = serialized;
+    size_t prefix = 0;
+    while ((prefix = legacySerialized.find("v1:", prefix)) != string::npos) {
+      legacySerialized.replace(prefix, 3, "v2:");
+      prefix += 3;
+    }
+    assert(deserializeItemStrict(legacySerialized, restored));
+    assert(restored.parameters.size() == item.parameters.size());
+    assert(restored.parameters[0].name == item.parameters[0].name);
+    assert(restored.parameters[0].value == item.parameters[0].value);
+  }
+
   InventoryCommitDraft noOpDraft;
   noOpDraft.source = "manual";
   noOpDraft.message = "Should not be written";
@@ -3831,6 +3854,14 @@ int main() {
     assert(loaded.front().bomText == kicadBom);
     assert(loaded.front().overrides == project.overrides);
     assert(loaded.front().enrichment == project.enrichment);
+
+    {
+      SqliteConnection connection;
+      assert(openDatabase(path, connection));
+      assert(execSql(connection, "UPDATE inventatory_bom_projects SET overrides='v1:malformed'"));
+    }
+    loaded.clear();
+    assert(!loadBomProjects(path, loaded));
 
     // Saving is a full snapshot, so an empty list clears the table.
     assert(saveBomProjects(path, {}));
