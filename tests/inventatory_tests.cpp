@@ -1079,6 +1079,7 @@ void testPackageGHardening() {
     };
     writeMalformed("quick_label_revision=0\n");
     writeMalformed("quick_label_revision=4294967296\n");
+    writeMalformed("quick_label_revision=1 trailing-token\n");
     writeMalformed("quick_label_revision=1\nquick_label=\"unterminated\n");
     filesystem::remove(path, cleanupError);
   }
