@@ -106,6 +106,19 @@ inline bool quickLabelPrintCacheIdentityMatches(const QuickLabelPrintCacheIdenti
          cached.labelText == requested.labelText;
 }
 
+// Printer selection is staged before the shared Settings Save action runs.
+// Keeping this boundary independent makes row clicks and keyboard/mouse
+// selection movement feed the same draft state.
+inline bool stagePrinterQueueSelection(const std::vector<PrinterQueueInfo>& queues,
+                                       std::size_t selection,
+                                       std::string& draftPrinterQueue,
+                                       bool& settingsDirty) {
+  if (selection >= queues.size()) return false;
+  draftPrinterQueue = queues[selection].name;
+  settingsDirty = true;
+  return true;
+}
+
 class App {
  public:
   App(bool startInBackground, BackgroundController& backgroundController);
@@ -504,6 +517,7 @@ class App {
   void toggleAutoPrintScannedLabels();
   bool autoPrintScannedLabel(const std::string& itemId);
   std::string printerSummary() const;
+  void stageSelectedPrinterQueue();
   void openInventatoryScanSetup();
   void openDigiKeySetup();
   void advanceOnboarding();

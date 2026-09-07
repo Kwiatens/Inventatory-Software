@@ -237,20 +237,6 @@ vector<App::Action> App::currentActions() const {
               self->dirty_ = true;
             }
           });
-          add("save", "Printer", "s", chr('s'), [self] {
-            if (const auto* printer = self->selectedPrinterQueue()) {
-              self->printerService_.setConfiguredPrinter(printer->name);
-              self->settingsDraft_.printerQueue = printer->name;
-              self->settingsDirty_ = true;
-              self->saveState();
-              self->printerCheck_ = {false, "Checking printer queue..."};
-              if (self->enqueuePrinterProbe(printer->name)) {
-                self->setMessage("Printer saved; checking queue...", 4);
-              } else {
-                self->setMessage("Printer saved, but the queue check could not be queued", 5);
-              }
-            }
-          });
         }
       }
       if (settingsCategory_ == SettingsCategory::InventatoryScan) {
