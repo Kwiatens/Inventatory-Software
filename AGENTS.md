@@ -14,8 +14,7 @@ terminal UI, an optional Windows background/tray process, local SQLite
 persistence, import workflows, label printing, and the authenticated physical
 Inventatory Scan R1 device service.
 
-The user-facing interface is the terminal UI. The retired phone/web scanner is
-not part of the product. The current normal workspace navigation is:
+The user-facing interface is the terminal UI. The current normal workspace navigation is:
 
 `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 History`,
 `7 Settings`.
