@@ -94,7 +94,8 @@ bool parseUnsignedValue(istringstream& input, uint64_t& value) {
   } catch (...) {
     return false;
   }
-  return consumed == encoded.size();
+  string trailing;
+  return consumed == encoded.size() && !(input >> trailing);
 }
 
 bool parseBool(const string& value, bool& result);
