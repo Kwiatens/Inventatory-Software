@@ -185,7 +185,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       startInBackground_ && backgroundController_.interactiveInstanceRunning();
   const bool backgroundServiceAlreadyRunning = !startInBackground_ && backgroundController_.backgroundServiceRunning();
   if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning &&
-      !inventatoryScanConfig_.token.empty() && !scannerCredentialSavePending_) {
+      !inventatoryScanConfig_.token.empty() && !scannerCredentialSavePending_ &&
+      !scannerReplayStateMigrationPending_) {
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                  inventatoryScanReplayStatePath(dataPath_));
 
@@ -202,7 +203,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       }
     }
   } else if (!inventoryRecoveryRequired_ &&
-             (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_)) {
+             (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_ ||
+              scannerReplayStateMigrationPending_)) {
     setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
   }
   beginUpdateCheckIfDue();
@@ -1055,7 +1057,8 @@ void App::requestUserExit() {
 void App::restartDeviceService() {
   mdnsService_.stop();
   server_.stop();
-  if (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_) {
+  if (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_ ||
+      scannerReplayStateMigrationPending_) {
     setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
     return;
   }
