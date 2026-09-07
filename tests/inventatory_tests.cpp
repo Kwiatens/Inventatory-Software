@@ -665,7 +665,7 @@ void testSqliteSchemaMigrationAndValidation() {
       INSERT INTO inventatory_items
         (id, part_name, manufacturer, category, quantity, reorder_threshold, location, tags, parameters, notes,
          manufacturer_part_number, datasheet_url, enrichment_status, last_updated)
-      VALUES ('legacy-1', 'Legacy resistor', 'Acme', 'Resistors', 4, 1, '', '', '', '', 'LEGACY-SKU', '', 'synced', 1710000000);
+      VALUES ('legacy-1', 'Legacy resistor', 'Acme', 'Resistors', 4, 1, '', '', '', '', 'LEGACY-SKU', '', 'needs_metadata', 1710000000);
     )SQL"));
     assert(ensureInventoryDatabaseSchema(connection));
   }
@@ -682,10 +682,11 @@ void testSqliteSchemaMigrationAndValidation() {
       assert(readSchema(connection) == beforeSchema);
       {
         SqliteStatement statement;
-        assert(sqliteApi().prepare_v2(connection.db, "SELECT sku FROM inventatory_items WHERE id='legacy-1'", -1,
+        assert(sqliteApi().prepare_v2(connection.db, "SELECT sku, sync_status FROM inventatory_items WHERE id='legacy-1'", -1,
                                       &statement.stmt, nullptr) == SQLITE_OK);
         assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
         assert(sqliteText(statement.stmt, 0) == "LEGACY-SKU");
+        assert(sqliteText(statement.stmt, 1) == "needs_metadata");
       }
     }
     assert(readBytes(legacyPath) == beforeBytes);
@@ -3358,6 +3359,24 @@ int main() {
     assert(uiBoxContains(box, 4, 6));
     assert(!uiBoxContains(box, 1, 6));
     assert(!uiBoxContains(box, 4, 9));
+  }
+
+  {
+    const vector<PrinterQueueInfo> queues = {
+        {"Queue A", "Driver A", "PORTA", "Ready", false, true},
+        {"Queue B", "Driver B", "PORTB", "Ready", false, true},
+    };
+    string draft = "Existing queue";
+    bool dirty = false;
+    assert(stagePrinterQueueSelection(queues, 1, draft, dirty));
+    assert(draft == "Queue B");
+    assert(dirty);
+
+    draft = "Existing queue";
+    dirty = false;
+    assert(!stagePrinterQueueSelection(queues, queues.size(), draft, dirty));
+    assert(draft == "Existing queue");
+    assert(!dirty);
   }
 
   {
