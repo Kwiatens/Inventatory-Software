@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <limits>
 
 namespace inventatory {
 
@@ -16,42 +17,31 @@ using namespace std;
 #ifdef _WIN32
 namespace {
 
-bool ensureDeviceSyncSchema(SqliteConnection& connection) {
-  return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_device_events (
-      event_id TEXT PRIMARY KEY,
-      device_id TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      event_code TEXT NOT NULL,
-      event_value INTEGER NOT NULL,
-      state TEXT NOT NULL DEFAULT 'received',
-      result_id TEXT NOT NULL DEFAULT '',
-      result_status TEXT NOT NULL DEFAULT '',
-      result_existing INTEGER NOT NULL DEFAULT 0,
-      result_item_name TEXT NOT NULL DEFAULT '',
-      result_requested_delta INTEGER NOT NULL DEFAULT 0,
-      result_applied_delta INTEGER NOT NULL DEFAULT 0,
-      result_quantity INTEGER NOT NULL DEFAULT 0,
-      result_location TEXT NOT NULL DEFAULT '',
-      result_code TEXT NOT NULL DEFAULT '',
-      result_message TEXT NOT NULL DEFAULT '',
-      result_acknowledged INTEGER NOT NULL DEFAULT 0,
-      received_at INTEGER NOT NULL DEFAULT 0,
-      completed_at INTEGER NOT NULL DEFAULT 0
-    )
-  )SQL") && execSql(connection,
-      "CREATE INDEX IF NOT EXISTS idx_inventatory_device_events_delivery "
-      "ON inventatory_device_events(device_id, state, result_acknowledged, completed_at)");
+int boundedSqliteLimit(size_t limit) {
+  return static_cast<int>(min(limit, static_cast<size_t>(numeric_limits<int>::max())));
 }
 
-bool eventExists(SqliteConnection& connection, const string& eventId) {
+bool ensureDeviceSyncSchema(SqliteConnection& connection) {
+  return ensureInventoryDatabaseSchema(connection);
+}
+
+bool eventIdentityMatches(SqliteConnection& connection, const string& eventId, const string& deviceId,
+                          bool& exists) {
   SqliteStatement statement;
   if (sqliteApi().prepare_v2(connection.db,
-      "SELECT 1 FROM inventatory_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt, nullptr) != SQLITE_OK) {
+      "SELECT device_id FROM inventatory_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt,
+      nullptr) != SQLITE_OK) {
     return false;
   }
   sqliteApi().bind_text(statement.stmt, 1, eventId.c_str(), -1, SQLITE_TRANSIENT);
-  return sqliteApi().step(statement.stmt) == SQLITE_ROW;
+  const auto step = sqliteApi().step(statement.stmt);
+  if (step == SQLITE_DONE) {
+    exists = false;
+    return true;
+  }
+  if (step != SQLITE_ROW || sqliteApi().column_type(statement.stmt, 0) != SQLITE_TEXT) return false;
+  exists = true;
+  return sqliteText(statement.stmt, 0) == deviceId;
 }
 
 bool insertEvent(SqliteConnection& connection, const string& deviceId, const DeviceSyncEvent& event) {
@@ -97,11 +87,24 @@ bool pruneAcknowledgedResults(SqliteConnection& connection, const string& device
   return sqliteApi().step(statement.stmt) == SQLITE_DONE;
 }
 
+bool loadReceivedEventDeviceId(SqliteConnection& connection, const string& eventId, string& deviceId) {
+  SqliteStatement statement;
+  const char* sql = "SELECT device_id FROM inventatory_device_events "
+                    "WHERE event_id=? AND state='received' LIMIT 1";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return false;
+  sqliteApi().bind_text(statement.stmt, 1, eventId.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqliteApi().step(statement.stmt) != SQLITE_ROW ||
+      sqliteApi().column_type(statement.stmt, 0) != SQLITE_TEXT) return false;
+  deviceId = sqliteText(statement.stmt, 0);
+  return !deviceId.empty();
+}
+
 vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string& deviceId, size_t limit) {
   vector<DeviceSyncResult> results;
+  if (limit == 0) return results;
   SqliteStatement statement;
   const char* sql = R"SQL(
-    SELECT result_id, event_id, result_status, result_existing, result_item_name,
+    SELECT result_id, event_id, device_id, result_status, result_existing, result_item_name,
            result_requested_delta, result_applied_delta, result_quantity, result_location,
            result_code, result_message
     FROM inventatory_device_events
@@ -110,22 +113,27 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return results;
   sqliteApi().bind_text(statement.stmt, 1, deviceId.c_str(), -1, SQLITE_TRANSIENT);
-  sqliteApi().bind_int(statement.stmt, 2, static_cast<int>(limit));
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  sqliteApi().bind_int(statement.stmt, 2, boundedSqliteLimit(limit));
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     DeviceSyncResult result;
     result.resultId = sqliteText(statement.stmt, 0);
     result.eventId = sqliteText(statement.stmt, 1);
-    result.status = sqliteText(statement.stmt, 2);
-    result.existing = sqliteApi().column_int(statement.stmt, 3) != 0;
-    result.itemName = sqliteText(statement.stmt, 4);
-    result.requestedDelta = sqliteApi().column_int(statement.stmt, 5);
-    result.appliedDelta = sqliteApi().column_int(statement.stmt, 6);
-    result.quantity = sqliteApi().column_int(statement.stmt, 7);
-    result.location = sqliteText(statement.stmt, 8);
-    result.code = sqliteText(statement.stmt, 9);
-    result.message = sqliteText(statement.stmt, 10);
+    result.deviceId = sqliteText(statement.stmt, 2);
+    result.status = sqliteText(statement.stmt, 3);
+    int existing = 0;
+    if (!sqliteInt32(statement.stmt, 4, existing) || !sqliteInt32(statement.stmt, 6, result.requestedDelta) ||
+        !sqliteInt32(statement.stmt, 7, result.appliedDelta) || !sqliteInt32(statement.stmt, 8, result.quantity)) {
+      return {};
+    }
+    result.existing = existing != 0;
+    result.itemName = sqliteText(statement.stmt, 5);
+    result.location = sqliteText(statement.stmt, 9);
+    result.code = sqliteText(statement.stmt, 10);
+    result.message = sqliteText(statement.stmt, 11);
     results.push_back(move(result));
   }
+  if (stepResult != SQLITE_DONE) results.clear();
   return results;
 }
 
@@ -148,7 +156,8 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
   for (const auto& resultId : request.resultAcks) ok = acknowledgeResult(connection, request.deviceId, resultId) && ok;
   ok = pruneAcknowledgedResults(connection, request.deviceId) && ok;
   for (const auto& event : request.events) {
-    const bool alreadyStored = eventExists(connection, event.eventId);
+    bool alreadyStored = false;
+    if (!eventIdentityMatches(connection, event.eventId, request.deviceId, alreadyStored)) ok = false;
     if (!alreadyStored) ok = insertEvent(connection, request.deviceId, event) && ok;
     if (ok) response.acceptedEventIds.push_back(event.eventId);
   }
@@ -172,17 +181,25 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
 #ifdef _WIN32
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return events;
+  if (limit == 0) return events;
   SqliteStatement statement;
   const char* sql = R"SQL(
-    SELECT event_id, event_type, event_code, event_value
+    SELECT event_id, device_id, event_type, event_code, event_value
     FROM inventatory_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return events;
-  sqliteApi().bind_int(statement.stmt, 1, static_cast<int>(limit));
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
-    events.push_back({sqliteText(statement.stmt, 0), sqliteText(statement.stmt, 1),
-                      sqliteText(statement.stmt, 2), sqliteApi().column_int(statement.stmt, 3)});
+  sqliteApi().bind_int(statement.stmt, 1, boundedSqliteLimit(limit));
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
+    DeviceSyncEvent event;
+    event.eventId = sqliteText(statement.stmt, 0);
+    event.deviceId = sqliteText(statement.stmt, 1);
+    event.type = sqliteText(statement.stmt, 2);
+    event.code = sqliteText(statement.stmt, 3);
+    if (!sqliteInt32(statement.stmt, 4, event.value)) return {};
+    events.push_back(move(event));
   }
+  if (stepResult != SQLITE_DONE) events.clear();
 #else
   (void)databasePath;
   (void)limit;
@@ -195,6 +212,7 @@ vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path&
 #ifdef _WIN32
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return records;
+  if (limit == 0) return records;
   SqliteStatement statement;
   const char* sql = R"SQL(
     SELECT event_id, device_id, event_type, event_code, event_value, state,
@@ -203,23 +221,26 @@ vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path&
     ORDER BY CASE WHEN state='received' THEN 0 ELSE 1 END, received_at DESC, event_id DESC LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return records;
-  sqliteApi().bind_int(statement.stmt, 1, static_cast<int>(limit));
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  sqliteApi().bind_int(statement.stmt, 1, boundedSqliteLimit(limit));
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     DeviceSyncEventRecord record;
     record.event.eventId = sqliteText(statement.stmt, 0);
     record.deviceId = sqliteText(statement.stmt, 1);
     record.event.type = sqliteText(statement.stmt, 2);
     record.event.code = sqliteText(statement.stmt, 3);
-    record.event.value = sqliteApi().column_int(statement.stmt, 4);
+    if (!sqliteInt32(statement.stmt, 4, record.event.value) ||
+        !sqliteTime(statement.stmt, 9, record.receivedAt) || !sqliteTime(statement.stmt, 10, record.completedAt)) return {};
     record.state = sqliteText(statement.stmt, 5);
     record.resultStatus = sqliteText(statement.stmt, 6);
     record.resultCode = sqliteText(statement.stmt, 7);
     record.resultMessage = sqliteText(statement.stmt, 8);
-    record.receivedAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 9));
-    record.completedAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 10));
-    record.acknowledged = sqliteApi().column_int(statement.stmt, 11) != 0;
+    int acknowledged = 0;
+    if (!sqliteInt32(statement.stmt, 11, acknowledged)) return {};
+    record.acknowledged = acknowledged != 0;
     records.push_back(move(record));
   }
+  if (stepResult != SQLITE_DONE) records.clear();
 #else
   (void)databasePath;
   (void)limit;
@@ -241,7 +262,10 @@ bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& r
     execSql(connection, "ROLLBACK");
     return false;
   }
-  retriedCount = static_cast<size_t>(sqliteApi().column_int(countStatement.stmt, 0));
+  if (!sqliteSize(countStatement.stmt, 0, retriedCount)) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
 
   if (!execSql(connection, R"SQL(
       UPDATE inventatory_device_events
@@ -279,7 +303,10 @@ bool discardFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t&
     execSql(connection, "ROLLBACK");
     return false;
   }
-  discardedCount = static_cast<size_t>(sqliteApi().column_int(countStatement.stmt, 0));
+  if (!sqliteSize(countStatement.stmt, 0, discardedCount)) {
+    execSql(connection, "ROLLBACK");
+    return false;
+  }
   if (!execSql(connection,
                "DELETE FROM inventatory_device_events WHERE state='completed' AND result_status='failed'")) {
     execSql(connection, "ROLLBACK");
@@ -347,8 +374,27 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   auto finalized = store;
   ensureInventoryIdentifiers(finalized.items());
 
+#ifdef _WIN32
+  if (result.eventId.empty()) return false;
+  string deviceId = result.deviceId;
+  if (deviceId.empty()) {
+    SqliteConnection identityConnection;
+    if (!openDatabaseReadOnly(databasePath, identityConnection) ||
+        !validateInventoryDatabase(identityConnection) ||
+        !loadReceivedEventDeviceId(identityConnection, result.eventId, deviceId)) {
+      // A result without an explicit identity is accepted only when the
+      // still-pending inbox row supplies it.  This keeps legacy callers safe
+      // while preventing a completion from matching an arbitrary event ID.
+      return false;
+    }
+  }
+#else
+  const string deviceId = result.deviceId;
+#endif
+
   DeviceEventCommit commit;
   commit.eventId = result.eventId;
+  commit.deviceId = deviceId;
   commit.resultId = result.resultId;
   commit.status = result.status;
   commit.existing = result.existing;

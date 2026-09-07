@@ -456,6 +456,32 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
   }
 }
 
+bool validateInventoryIdentifiers(const vector<InventoryItem>& items, const vector<InventatoryRack>& racks) {
+  unordered_set<string> itemIds;
+  unordered_set<string> inventatoryIds;
+  unordered_set<string> machineCodes;
+  for (const auto& item : items) {
+    const auto id = toLower(trim(item.id));
+    if (id.empty() || !itemIds.insert(id).second) return false;
+
+    const auto inventatoryId = toLower(trim(item.inventatoryId));
+    if (!inventatoryId.empty() && !inventatoryIds.insert(inventatoryId).second) return false;
+
+    const auto machineCode = normalizeMachineCode(item.machineCode);
+    if (!machineCode.empty() && !machineCodes.insert(machineCode).second) return false;
+  }
+
+  unordered_set<string> rackIds;
+  unordered_set<string> rackCodes;
+  for (const auto& rack : racks) {
+    const auto id = toLower(trim(rack.id));
+    const auto code = toLower(trim(rack.code));
+    if (id.empty() || code.empty() || !rackIds.insert(id).second || !rackCodes.insert(code).second) return false;
+    if (rack.rows <= 0 || rack.columns <= 0 || rack.rows > 10000 || rack.columns > 10000) return false;
+  }
+  return true;
+}
+
 string join(const vector<string>& values, char delimiter) {
   ostringstream out;
   for (size_t index = 0; index < values.size(); ++index) {
