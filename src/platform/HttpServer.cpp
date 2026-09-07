@@ -378,18 +378,15 @@ void LocalHttpServer::stop() {
 }
 
 void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path replayStatePath) {
-  // Rotation takes the same lock order as an authenticated request: first the
-  // credential operation lock, then callback serialization. This lets a
-  // request that already reserved a counter finish its callback and replay
-  // commit, while preventing a request that has not reached its callback from
-  // crossing the rotation boundary. The callback lock is deliberately not
-  // held while taking the request operation lock in the nested duplicate
-  // path; that path rejects from reserveReplayCounter before it needs the
-  // callback lock.
+  // Rotation takes the credential operation lock first and only opportunistically
+  // takes callback serialization. If a callback is already running, waiting
+  // here could deadlock the application thread when that callback is waiting
+  // for the UI to process its request. In that case the epoch changes under
+  // replayMutex_; the stale callback can finish, but its replay commit and
+  // reservation release are rejected by the epoch check.
   lock_guard<mutex> operationLock(credentialOperationMutex_);
-  lock_guard<mutex> callbackLock(callbackSerialMutex_);
+  unique_lock<mutex> callbackLock(callbackSerialMutex_, try_to_lock);
   const auto fingerprint = deviceTransportStateFingerprint(token);
-  ++credentialEpoch_;
   bool deviceChanged = false;
   {
     lock_guard<mutex> lock(stateMutex_);
@@ -398,6 +395,7 @@ void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path r
     deviceToken_ = move(token);
   }
   lock_guard<mutex> lock(replayMutex_);
+  ++credentialEpoch_;
   const bool pairingChanged = deviceChanged ||
                               (!replayStateFingerprint_.empty() && replayStateFingerprint_ != fingerprint);
   replayStatePath_ = move(replayStatePath);
