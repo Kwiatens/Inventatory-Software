@@ -60,6 +60,20 @@ inline bool workspaceGenerationMatches(WorkspaceGeneration current, WorkspaceGen
   return current != 0 && current == captured;
 }
 
+// Async BOM work must match both the workspace and the stable project/run
+// identity that initiated it.  Keeping this predicate free of App state makes
+// the stale-result rule easy to exercise independently.
+inline bool bomEnrichmentScopeMatches(const std::string& currentProjectId,
+                                      const std::string& resultProjectId,
+                                      WorkspaceGeneration currentWorkspaceGeneration,
+                                      WorkspaceGeneration resultWorkspaceGeneration,
+                                      std::uint64_t currentRequestSequence,
+                                      std::uint64_t resultRequestSequence) {
+  return !currentProjectId.empty() && currentProjectId == resultProjectId &&
+         workspaceGenerationMatches(currentWorkspaceGeneration, resultWorkspaceGeneration) &&
+         currentRequestSequence != 0 && currentRequestSequence == resultRequestSequence;
+}
+
 class App {
  public:
   App(bool startInBackground, BackgroundController& backgroundController);
@@ -281,7 +295,34 @@ class App {
   struct BomEnrichmentResult {
     std::string key;
     std::string suggestion;
+    std::string projectId;
     WorkspaceGeneration workspaceGeneration = 0;
+    std::uint64_t requestSequence = 0;
+  };
+
+  // Printer work is always executed against a value snapshot.  The worker
+  // creates its own LabelPrinterService so it never races the UI-owned
+  // configured queue or holds a pointer into App while a workspace changes.
+  enum class PrinterWorkKind { Refresh, Probe, PrintItem, PrintWire, PrintRack };
+
+  struct PrinterWork {
+    PrinterWorkKind kind = PrinterWorkKind::Refresh;
+    WorkspaceGeneration workspaceGeneration = 0;
+    std::string printerName;
+    InventoryItem item;
+    InventatoryRack rack;
+    std::string text;
+    std::string rackLocation;
+    std::string successPrefix;
+    std::string requestId;
+  };
+
+  struct PrinterWorkResult {
+    PrinterWork work;
+    std::vector<PrinterQueueInfo> queues;
+    PrinterCheckResult check;
+    bool success = false;
+    std::string error;
   };
 
   struct ImportSyncBatchResult {
@@ -369,6 +410,7 @@ class App {
   void completeSettingsExit(bool saveChanges);
   void restartDeviceService();
   void processBackgroundWork();
+  void processPrinterWork();
   void processScanDigiKeyEnrichment();
   void beginDigiKeyRefresh();
   void processDigiKeyRefresh();
@@ -382,6 +424,7 @@ class App {
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
+  void stopPrinterWork();
   std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
   bool workspaceIsCurrent(WorkspaceGeneration generation) const;
@@ -389,12 +432,14 @@ class App {
   bool hasPendingPersistence() const;
   void markDirty();
   void refreshPrinterState();
+  bool enqueuePrinterWork(PrinterWork work);
   void refreshInventoryMovements();
   void refreshInventoryCommits();
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);
   bool printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, DeviceQuickLabelPrintResult& result);
+  void storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result);
   void addQuickLabelPreset();
   void deleteQuickLabelPreset();
   void moveQuickLabelPreset(int direction);
@@ -736,6 +781,9 @@ class App {
   // so the future (which joins its task) must outlive the client it borrows.
   std::unique_ptr<DigiKeyApiClient> bomEnrichmentClient_;
   std::future<BomEnrichmentResult> bomEnrichmentFuture_;
+  std::string bomEnrichmentProjectId_;
+  std::string bomEnrichmentActiveProjectId_;
+  std::uint64_t bomEnrichmentSequence_ = 0;
   std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
   std::future<ScanDigiKeyEnrichmentResult> scanDigiKeyEnrichmentFuture_;
   // Inventory-wide DigiKey recovery runs one lookup per tick so restoring
@@ -758,6 +806,10 @@ class App {
   std::string deleteConfirmationItemId_;
   time_t deleteConfirmationUntil_ = 0;
   size_t printerSelection_ = 0;
+  std::deque<PrinterWork> printerWorkQueue_;
+  mutable std::mutex printerWorkMutex_;
+  std::future<PrinterWorkResult> printerWorkFuture_;
+  std::optional<PrinterWorkKind> printerWorkActiveKind_;
   size_t bleSetupSelection_ = 0;
   std::string bleWifiSsid_;
   std::string bleWifiPassword_;

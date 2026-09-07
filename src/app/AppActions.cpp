@@ -1505,18 +1505,23 @@ bool App::printSelectedRackLabel() {
     return false;
   }
 
-  string error;
-  if (!printerService_.printRackLabel(*rack, &error)) {
-    setMessage("Print failed: " + error, 4);
-    refreshPrinterState();
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("Printer unavailable while the workspace is changing", 4);
+    return false;
+  }
+  if (printerWorkFuture_.valid()) {
+    setMessage("A printer job is already running; try again shortly", 3);
     return false;
   }
 
-  const auto code = rack->code;
-  logActivity("print", code + " rack label printed");
-  saveState();
-  refreshPrinterState();
-  setMessage(code + " rack label sent", 2);
+  PrinterWork work;
+  work.kind = PrinterWorkKind::PrintRack;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerService_.configuredPrinter();
+  work.rack = *rack;
+  if (!enqueuePrinterWork(move(work))) return false;
+  setMessage("Printer job queued", 3);
   return true;
 }
 
@@ -2200,20 +2205,44 @@ bool App::printWireLabel(const string& text) {
     openSettings(SettingsCategory::Printer);
     return false;
   }
-  string error;
-  if (!printerService_.printWireLabel(text, &error)) {
-    setMessage(error.empty() ? "Wire label could not be printed" : error, 4);
-    refreshPrinterState();
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("Printer unavailable while the workspace is changing", 4);
     return false;
   }
-  printerFlashUntil_ = time(nullptr) + 3;
-  logActivity("print", "wire label printed");
-  setMessage("Wire label sent", 3);
+  if (printerWorkFuture_.valid()) {
+    setMessage("A printer job is already running; try again shortly", 3);
+    return false;
+  }
+  PrinterWork work;
+  work.kind = PrinterWorkKind::PrintWire;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerService_.configuredPrinter();
+  work.text = text;
+  if (!enqueuePrinterWork(move(work))) return false;
+  setMessage("Printer job queued", 3);
   return true;
+}
+
+void App::storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result) {
+  lock_guard<mutex> lock(quickLabelMutex_);
+  const bool known = quickLabelPrintResults_.find(result.requestId) != quickLabelPrintResults_.end();
+  quickLabelPrintResults_[result.requestId] = result;
+  if (!known) quickLabelPrintOrder_.push_back(result.requestId);
+  while (quickLabelPrintOrder_.size() > 64) {
+    const auto evict = find_if(quickLabelPrintOrder_.begin(), quickLabelPrintOrder_.end(), [&](const string& id) {
+      const auto entry = quickLabelPrintResults_.find(id);
+      return entry == quickLabelPrintResults_.end() || entry->second.status != "pending";
+    });
+    if (evict == quickLabelPrintOrder_.end()) break;
+    quickLabelPrintResults_.erase(*evict);
+    quickLabelPrintOrder_.erase(evict);
+  }
 }
 
 bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, DeviceQuickLabelPrintResult& result) {
   result.requestId = request.requestId;
+  string text;
   {
     lock_guard<mutex> lock(quickLabelMutex_);
     const auto known = quickLabelPrintResults_.find(request.requestId);
@@ -2225,34 +2254,42 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, Dev
       result = {request.requestId, "failed", "stale_presets", "Refresh quick labels"};
     } else if (request.presetIndex < 1 || request.presetIndex > static_cast<int>(settings_.quickLabelPresets.size())) {
       result = {request.requestId, "failed", "missing_preset", "Quick label not found"};
-    }
-  }
-
-  if (result.status.empty()) {
-    string text;
-    {
-      lock_guard<mutex> lock(quickLabelMutex_);
-      text = settings_.quickLabelPresets[request.presetIndex - 1];
-    }
-    string error;
-    if (!printerService_.hasConfiguredPrinter()) {
-      result = {request.requestId, "failed", "printer_unconfigured", "No printer configured"};
-    } else if (!printerService_.printWireLabel(text, &error)) {
-      result = {request.requestId, "failed", "printer_failed", error.empty() ? "Printer failed" : error};
     } else {
-      result = {request.requestId, "completed", "", "Label sent"};
+      text = settings_.quickLabelPresets[static_cast<size_t>(request.presetIndex - 1)];
     }
   }
 
+  if (!result.status.empty()) {
+    storeQuickLabelPrintResult(result);
+    return false;
+  }
+
+  string printerName;
   {
     lock_guard<mutex> lock(quickLabelMutex_);
-    quickLabelPrintResults_[request.requestId] = result;
-    quickLabelPrintOrder_.push_back(request.requestId);
-    while (quickLabelPrintOrder_.size() > 64) {
-      quickLabelPrintResults_.erase(quickLabelPrintOrder_.front());
-      quickLabelPrintOrder_.pop_front();
+    printerName = settings_.printerQueue;
+  }
+  if (trim(printerName).empty()) {
+    result = {request.requestId, "failed", "printer_unconfigured", "No printer configured"};
+  } else {
+    const auto context = currentWorkspaceContext();
+    if (context == nullptr) {
+      result = {request.requestId, "failed", "workspace_unavailable", "Workspace is changing"};
+    } else {
+      result = {request.requestId, "pending", "queued", "Label queued; poll with the same requestId"};
+      PrinterWork work;
+      work.kind = PrinterWorkKind::PrintWire;
+      work.workspaceGeneration = context->generation;
+      work.printerName = move(printerName);
+      work.text = move(text);
+      work.requestId = request.requestId;
+      if (!enqueuePrinterWork(move(work))) {
+        result = {request.requestId, "failed", "printer_queue_full", "Printer queue is full"};
+      }
     }
   }
+
+  storeQuickLabelPrintResult(result);
   return result.status == "completed";
 }
 
@@ -2375,13 +2412,27 @@ void App::testQuickLabelPreset() {
     setMessage("Select a quick label first", 3);
     return;
   }
-  const auto original = printerService_.configuredPrinter();
-  if (!settingsDraft_.printerQueue.empty()) printerService_.setConfiguredPrinter(settingsDraft_.printerQueue);
-  string error;
-  const bool printed = printerService_.hasConfiguredPrinter() &&
-                       printerService_.printWireLabel(settingsDraft_.quickLabelPresets[settingsField_], &error);
-  printerService_.setConfiguredPrinter(original);
-  setMessage(printed ? "Quick label sent" : (error.empty() ? "No printer configured" : error), 4);
+  if (settingsDraft_.printerQueue.empty()) {
+    setMessage("No printer configured", 4);
+    return;
+  }
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("Printer unavailable while the workspace is changing", 4);
+    return;
+  }
+  if (printerWorkFuture_.valid()) {
+    setMessage("A printer job is already running; try again shortly", 3);
+    return;
+  }
+  PrinterWork work;
+  work.kind = PrinterWorkKind::PrintWire;
+  work.workspaceGeneration = context->generation;
+  work.printerName = settingsDraft_.printerQueue;
+  work.text = settingsDraft_.quickLabelPresets[settingsField_];
+  work.successPrefix = "Quick label sent";
+  if (enqueuePrinterWork(move(work))) setMessage("Printer job queued", 3);
+  else setMessage("Printer request queue is full; try again shortly", 4);
 }
 
 void App::enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration) {
@@ -3645,11 +3696,22 @@ bool App::exportBomShortages() {
 void App::queueBomEnrichment() {
   bomEnrichmentQueue_.clear();
   bomEnrichmentTotal_ = 0;
-  bomEnrichmentActiveKey_.clear();
   const auto* project = activeBomProject();
   if (project == nullptr || !bomAnalysisValid_) {
+    bomEnrichmentProjectId_.clear();
+    ++bomEnrichmentSequence_;
+    if (!bomEnrichmentFuture_.valid()) {
+      bomEnrichmentActiveKey_.clear();
+      bomEnrichmentActiveProjectId_.clear();
+      bomEnrichmentClient_.reset();
+    }
     return;
   }
+  bomEnrichmentProjectId_ = project->id;
+  // A new queue run invalidates any result still in flight.  The old future is
+  // allowed to finish against its captured client, then its project/sequence
+  // pair is checked before anything is applied or saved.
+  ++bomEnrichmentSequence_;
   // Silently skipped without credentials, so an offline user never sees an
   // error they cannot act on.
   if (!loadDigiKeyConfig().valid()) {
@@ -3660,7 +3722,6 @@ void App::queueBomEnrichment() {
   } else {
     return;
   }
-
   for (const auto& match : bomAnalysis_.matches) {
     if (match.sufficient) {
       continue;
@@ -3677,14 +3738,6 @@ void App::queueBomEnrichment() {
 }
 
 void App::processBomEnrichment() {
-  auto* project = activeBomProject();
-  if (project == nullptr || !bomAnalysisValid_) {
-    bomEnrichmentQueue_.clear();
-    bomEnrichmentTotal_ = 0;
-    bomEnrichmentActiveKey_.clear();
-    return;
-  }
-
   // Collect a finished lookup first, then start the next one. Only ever one
   // request is outstanding, so the shared client's cached token is safe.
   if (bomEnrichmentFuture_.valid()) {
@@ -3692,22 +3745,56 @@ void App::processBomEnrichment() {
       return;
     }
     const auto result = bomEnrichmentFuture_.get();
-    if (!workspaceIsCurrent(result.workspaceGeneration)) {
-      bomEnrichmentQueue_.clear();
+    const auto context = currentWorkspaceContext();
+    if (result.requestSequence != bomEnrichmentSequence_) {
+      // A project reopen/re-import superseded this lookup.  It is safe to
+      // release the old client now that its future has been joined, ensuring
+      // a subsequent run uses the current credentials.
+      bomEnrichmentClient_.reset();
+    }
+    if (bomEnrichmentScopeMatches(bomEnrichmentProjectId_, result.projectId,
+                                  context == nullptr ? 0 : context->generation,
+                                  result.workspaceGeneration, bomEnrichmentSequence_,
+                                  result.requestSequence)) {
+      const auto targetProject = find_if(bomProjects_.begin(), bomProjects_.end(), [&](BomProject& candidate) {
+        return candidate.id == result.projectId;
+      });
+      if (targetProject != bomProjects_.end() && !result.key.empty()) {
+        targetProject->enrichment[result.key] = result.suggestion;
+        dirty_ = true;
+      }
+    }
+    if (result.projectId == bomEnrichmentActiveProjectId_) {
       bomEnrichmentActiveKey_.clear();
+      bomEnrichmentActiveProjectId_.clear();
+    }
+    if (context == nullptr || !workspaceGenerationMatches(context->generation, result.workspaceGeneration)) {
+      bomEnrichmentQueue_.clear();
+      bomEnrichmentTotal_ = 0;
+      bomEnrichmentActiveKey_.clear();
+      bomEnrichmentActiveProjectId_.clear();
       bomEnrichmentClient_.reset();
       return;
     }
-    bomEnrichmentActiveKey_.clear();
-    if (!result.key.empty()) {
-      project->enrichment[result.key] = result.suggestion;
-      dirty_ = true;
-    }
-    if (bomEnrichmentQueue_.empty()) {
+    if (bomEnrichmentQueue_.empty() && result.requestSequence == bomEnrichmentSequence_) {
       bomEnrichmentClient_.reset();
-      saveBomProjects();
+      // Persist the project identified by the result, never whichever project
+      // happens to be selected when the future completes.
+      if (!result.projectId.empty()) saveBomProjects();
       return;
     }
+  }
+
+  auto* project = activeBomProject();
+  if (project == nullptr || !bomAnalysisValid_ || project->id != bomEnrichmentProjectId_) {
+    if (!bomEnrichmentFuture_.valid()) {
+      bomEnrichmentQueue_.clear();
+      bomEnrichmentTotal_ = 0;
+      bomEnrichmentActiveKey_.clear();
+      bomEnrichmentActiveProjectId_.clear();
+      bomEnrichmentClient_.reset();
+    }
+    return;
   }
 
   if (bomEnrichmentQueue_.empty()) {
@@ -3728,6 +3815,7 @@ void App::processBomEnrichment() {
   const auto key = bomEnrichmentQueue_.front();
   bomEnrichmentQueue_.erase(bomEnrichmentQueue_.begin());
   bomEnrichmentActiveKey_ = key;
+  bomEnrichmentActiveProjectId_ = project->id;
 
   const auto line = find_if(bomAnalysis_.lines.begin(), bomAnalysis_.lines.end(),
                             [&](const BomLine& candidate) { return bomLineKey(candidate) == key; });
@@ -3740,14 +3828,17 @@ void App::processBomEnrichment() {
   const auto keywords = trim(line->designation + " " + packageFromFootprint(line->footprint));
   auto* client = bomEnrichmentClient_.get();
   const auto generation = bomEnrichmentGeneration_;
-  bomEnrichmentFuture_ = async(launch::async, [client, key, keywords, generation] {
+  const auto projectId = project->id;
+  const auto requestSequence = bomEnrichmentSequence_;
+  bomEnrichmentFuture_ = async(launch::async, [client, key, keywords, projectId, generation, requestSequence] {
     string error;
     if (const auto details = client->fetchProductDetails(keywords, &error)) {
       const auto suggestion =
           details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
-      return BomEnrichmentResult{key, suggestion.empty() ? string("-") : suggestion, generation};
+      return BomEnrichmentResult{key, suggestion.empty() ? string("-") : suggestion, projectId, generation,
+                                 requestSequence};
     }
-    return BomEnrichmentResult{key, string("-"), generation};  // remembered so the lookup is not retried
+    return BomEnrichmentResult{key, string("-"), projectId, generation, requestSequence};
   });
   dirty_ = true;
 }
