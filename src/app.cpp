@@ -163,7 +163,11 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     settings_.digiKeyCurrency = environment.currency;
     settingsDraft_ = settings_;
     if (!settingsFileExists) {
-      saveAppSettings(settingsPath_, settings_);
+      if (!saveAppSettings(settingsPath_, settings_)) {
+        appSettingsSavePending_ = true;
+        persistenceError_ = "Could not save initial application settings; they remain in memory.";
+        setMessage(persistenceError_ + " Press R to retry.", 6);
+      }
     } else {
       setMessage("Settings file is invalid; defaults are in use temporarily. Finish setup or reset it explicitly.", 8);
     }
