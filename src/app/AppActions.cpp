@@ -1510,7 +1510,7 @@ bool App::printSelectedRackLabel() {
     setMessage("Printer unavailable while the workspace is changing", 4);
     return false;
   }
-  if (printerWorkFuture_.valid()) {
+  if (printerWorkCompletion_ != nullptr) {
     setMessage("A printer job is already running; try again shortly", 3);
     return false;
   }
@@ -1520,7 +1520,10 @@ bool App::printSelectedRackLabel() {
   work.workspaceGeneration = context->generation;
   work.printerName = printerService_.configuredPrinter();
   work.rack = *rack;
-  if (!enqueuePrinterWork(move(work))) return false;
+  if (!enqueuePrinterWork(move(work))) {
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return false;
+  }
   setMessage("Printer job queued", 3);
   return true;
 }
@@ -2210,7 +2213,7 @@ bool App::printWireLabel(const string& text) {
     setMessage("Printer unavailable while the workspace is changing", 4);
     return false;
   }
-  if (printerWorkFuture_.valid()) {
+  if (printerWorkCompletion_ != nullptr) {
     setMessage("A printer job is already running; try again shortly", 3);
     return false;
   }
@@ -2219,7 +2222,10 @@ bool App::printWireLabel(const string& text) {
   work.workspaceGeneration = context->generation;
   work.printerName = printerService_.configuredPrinter();
   work.text = text;
-  if (!enqueuePrinterWork(move(work))) return false;
+  if (!enqueuePrinterWork(move(work))) {
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return false;
+  }
   setMessage("Printer job queued", 3);
   return true;
 }
@@ -2246,7 +2252,8 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, Dev
   {
     lock_guard<mutex> lock(quickLabelMutex_);
     const auto known = quickLabelPrintResults_.find(request.requestId);
-    if (known != quickLabelPrintResults_.end()) {
+    if (known != quickLabelPrintResults_.end() &&
+        quickLabelResultMatchesRequest(known->second, request.requestId)) {
       result = known->second;
       return result.status == "completed";
     }
@@ -2421,7 +2428,7 @@ void App::testQuickLabelPreset() {
     setMessage("Printer unavailable while the workspace is changing", 4);
     return;
   }
-  if (printerWorkFuture_.valid()) {
+  if (printerWorkCompletion_ != nullptr) {
     setMessage("A printer job is already running; try again shortly", 3);
     return;
   }

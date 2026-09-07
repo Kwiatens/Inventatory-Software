@@ -264,16 +264,15 @@ bool App::testStagedPrinter() {
     setMessage("Select a detected printer first", 3);
     return false;
   }
-  const auto original = printerService_.configuredPrinter();
   settingsDraft_.printerQueue = printerQueues_[printerSelection_].name;
-  printerService_.setConfiguredPrinter(settingsDraft_.printerQueue);
-  printerCheck_ = printerService_.probeConfiguredPrinter();
-  printerService_.setConfiguredPrinter(original);
   settingsDirty_ = settingsDraft_.printerQueue != settings_.printerQueue || settingsDirty_;
-  setMessage(printerCheck_.message.empty() ? (printerCheck_.ok ? "Printer is ready" : "Printer test failed")
-                                           : printerCheck_.message,
-             4);
-  return printerCheck_.ok;
+  printerCheck_ = {false, "Testing printer queue..."};
+  if (!enqueuePrinterProbe(settingsDraft_.printerQueue)) {
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return false;
+  }
+  setMessage("Testing printer queue...", 4);
+  return false;  // The result is published by the UI tick.
 }
 
 bool App::testStagedDigiKey() {
@@ -729,12 +728,15 @@ bool App::saveSettingsDraft() {
   }
   if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
-    printerCheck_ = printerService_.probeConfiguredPrinter();
     if (!printerService_.saveConfig(printerPath_)) {
       persistenceError_ = "Could not save printer settings; changes remain in memory.";
       setMessage(persistenceError_ + " Press R to retry.", 6);
       settingsDirty_ = true;
       return false;
+    }
+    printerCheck_ = {false, "Checking printer queue..."};
+    if (!enqueuePrinterProbe(settings_.printerQueue)) {
+      setMessage("Settings saved, but the printer check could not be queued", 5);
     }
   }
   settingsDirty_ = false;
