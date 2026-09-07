@@ -8,6 +8,9 @@ transaction is in progress. The bundle contains the
 SQLite inventory database (including BOM projects), activity history, printer
 configuration, quick-label configuration, and sanitized application settings.
 Each file is listed in `manifest.tsv` with its size and SHA-256 hash.
+Validation enforces bounded manifest (1 MiB) and aggregate payload (512 MiB)
+sizes before hashing, and parses each optional activity, printer, and Quick
+Labels sidecar before activation.
 
 Inventory commit history is stored inside `inventory.db`, so every backup and
 restore preserves the complete local version history automatically. Older
