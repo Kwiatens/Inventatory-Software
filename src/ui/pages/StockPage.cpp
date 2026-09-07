@@ -976,15 +976,17 @@ void App::cancelStocktake() {
   if (!stocktakeActive_) return;
   const bool hadPendingCommit = stocktakeCommitPending_;
   bool revertedUnsavedChanges = false;
+  bool activitySaveFailed = false;
   if (stocktakeCommitPending_ && !pendingMovementSource_.empty() && undoSnapshot_.valid) {
     store_.items() = undoSnapshot_.items;
     store_.racks() = undoSnapshot_.racks;
     activities_ = undoSnapshot_.activities;
-    saveActivities(activityPath_, activities_);
+    const bool activitiesSaved = saveActivitiesChecked(false);
+    activitySaveFailed = !activitiesSaved;
     undoSnapshot_.valid = false;
     pendingMovementSource_.clear();
     pendingMovementReference_.clear();
-    persistenceError_.clear();
+    if (activitiesSaved) persistenceError_.clear();
     revertedUnsavedChanges = true;
   }
   stocktakeActive_ = false;
@@ -993,11 +995,12 @@ void App::cancelStocktake() {
   stocktakeCounts_.clear();
   inputBuffer_.clear();
   inputMode_ = InputMode::None;
-  setMessage(revertedUnsavedChanges
-                 ? "Stocktake cancelled; unsaved inventory changes were discarded"
-                 : hadPendingCommit ? "Stocktake closed; inventory changes were already saved"
-                                    : "Stocktake cancelled; inventory was not changed",
-             4);
+  setMessage(activitySaveFailed
+                 ? "Stocktake cancelled; inventory changes were discarded, but activity history was not saved; press R to retry"
+                 : revertedUnsavedChanges ? "Stocktake cancelled; unsaved inventory changes were discarded"
+                                          : hadPendingCommit ? "Stocktake closed; inventory changes were already saved"
+                                                             : "Stocktake cancelled; inventory was not changed",
+             activitySaveFailed ? 6 : 4);
   dirty_ = true;
 }
 
