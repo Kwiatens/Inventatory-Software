@@ -145,6 +145,47 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
 #endif
 }
 
+#ifdef _WIN32
+bool validateBomProjects(SqliteConnection& connection, string* error) {
+  if (connection.db == nullptr) {
+    if (error != nullptr) *error = "SQLite connection is not open";
+    return false;
+  }
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    SELECT id, name, source_path, boards, created_at, last_opened, last_built, bom_text, overrides, enrichment
+    FROM inventatory_bom_projects
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
+    if (error != nullptr) *error = "Unable to read BOM projects for validation";
+    return false;
+  }
+
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
+    int boards = 0;
+    time_t createdAt = 0;
+    time_t lastOpened = 0;
+    time_t lastBuilt = 0;
+    map<string, string> ignored;
+    if (sqliteText(statement.stmt, 0).empty() || sqliteText(statement.stmt, 1).empty() ||
+        !sqliteInt32(statement.stmt, 3, boards) || boards <= 0 ||
+        !sqliteTime(statement.stmt, 4, createdAt) || !sqliteTime(statement.stmt, 5, lastOpened) ||
+        !sqliteTime(statement.stmt, 6, lastBuilt) ||
+        !deserializeBomMapChecked(sqliteText(statement.stmt, 8), ignored) ||
+        !deserializeBomMapChecked(sqliteText(statement.stmt, 9), ignored)) {
+      if (error != nullptr) *error = "BOM project data is malformed";
+      return false;
+    }
+  }
+  if (stepResult != SQLITE_DONE) {
+    if (error != nullptr) *error = "Unable to finish reading BOM projects for validation";
+    return false;
+  }
+  return true;
+}
+#endif
+
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects) {
 #ifdef _WIN32
   SqliteConnection connection;

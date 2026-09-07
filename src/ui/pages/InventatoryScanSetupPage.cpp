@@ -3,7 +3,6 @@
 
 #include "App.h"
 
-#include "platform/CredentialStore.h"
 #include "platform/UpdateService.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -19,7 +18,6 @@ using namespace std;
 namespace {
 
 constexpr size_t kDebugWindowLines = 14;
-constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 }  // namespace
 
@@ -33,9 +31,11 @@ bool App::regenerateInventatoryScanToken() {
   }
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
+  const auto previousToken = inventatoryScanConfig_.token;
   inventatoryScanConfig_.token = generateInventatoryScanToken();
-  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential, inventatoryScanConfig_.token)) {
-    setMessage("Unable to save the new pairing token securely", 4);
+  if (!saveScannerCredentialChecked(true)) {
+    inventatoryScanConfig_.token = previousToken;
+    scannerCredentialSavePending_ = false;
     return false;
   }
   inventatoryScanConfig_.deviceId.clear();
@@ -55,7 +55,7 @@ bool App::regenerateInventatoryScanToken() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
-  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
+  if (!saveScannerConfigChecked(true)) {
     setMessage("Generated a new token, but Inventatory could not save it", 4);
     return false;
   }
@@ -81,11 +81,13 @@ bool App::clearInventatoryScanPairing() {
   settingsConfirmUntil_ = 0;
 
   const auto rotatedToken = generateInventatoryScanToken();
-  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential, rotatedToken)) {
-    setMessage("Unable to rotate the scanner token securely; pairing was not cleared", 5);
+  const auto previousToken = inventatoryScanConfig_.token;
+  inventatoryScanConfig_.token = rotatedToken;
+  if (!saveScannerCredentialChecked(true)) {
+    inventatoryScanConfig_.token = previousToken;
+    scannerCredentialSavePending_ = false;
     return false;
   }
-  inventatoryScanConfig_.token = rotatedToken;
   inventatoryScanConfig_.deviceId.clear();
   inventatoryScanConfig_.setupComplete = false;
   deviceLastSeen_ = 0;
@@ -103,7 +105,7 @@ bool App::clearInventatoryScanPairing() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
-  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
+  if (!saveScannerConfigChecked(true)) {
     setMessage("Cleared pairing in memory, but Inventatory could not save it", 4);
     return false;
   }
@@ -229,19 +231,11 @@ bool App::provisionSelectedBleSetupDevice() {
     setMessage(error.empty() ? "Bluetooth setup failed" : error, 5);
     return false;
   }
-  if (!CredentialStore::writeForWorkspace(dataPath_, kInventatoryScanTokenCredential, candidateToken)) {
-    setMessage("Scanner accepted setup, but Inventatory could not save its token securely", 6);
-    return false;
-  }
-  const bool previousSetupComplete = inventatoryScanConfig_.setupComplete;
   inventatoryScanConfig_.token = candidateToken;
   inventatoryScanConfig_.deviceId.clear();
   inventatoryScanConfig_.setupComplete = true;
-  if (!saveInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_)) {
-    inventatoryScanConfig_.setupComplete = previousSetupComplete;
-    setMessage("Scanner setup was sent, but Inventatory could not save pairing metadata", 6);
-    return false;
-  }
+  const bool tokenSaved = saveScannerCredentialChecked(false);
+  const bool configSaved = saveScannerConfigChecked(false);
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials({}, inventatoryScanConfig_.token,
@@ -253,6 +247,12 @@ bool App::provisionSelectedBleSetupDevice() {
   bleSetupMessage_ = bleSetupOutcomeUncertain_
                          ? "Setup result was not confirmed; the token was retained so the R1 can recover if it accepted it"
                          : "Wi-Fi setup confirmed securely; waiting for the R1 to join the PC service";
+  if (!tokenSaved || !configSaved) {
+    bleSetupMessage_ = "Scanner setup was sent, but pairing data is not fully saved; press R to retry saving";
+    setMessage(bleSetupMessage_, 7);
+    dirty_ = true;
+    return false;
+  }
   setMessage(bleSetupMessage_, 6);
   dirty_ = true;
   return true;

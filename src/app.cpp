@@ -184,7 +184,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   const bool anotherInteractiveInstanceRunning =
       startInBackground_ && backgroundController_.interactiveInstanceRunning();
   const bool backgroundServiceAlreadyRunning = !startInBackground_ && backgroundController_.backgroundServiceRunning();
-  if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning) {
+  if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning &&
+      !inventatoryScanConfig_.token.empty() && !scannerCredentialSavePending_) {
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                  inventatoryScanReplayStatePath(dataPath_));
 
@@ -200,6 +201,9 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
         setMessage("Inventatory Scan R1 service ready; network discovery unavailable", 5);
       }
     }
+  } else if (!inventoryRecoveryRequired_ &&
+             (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_)) {
+    setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
   }
   beginUpdateCheckIfDue();
 }
@@ -1051,6 +1055,10 @@ void App::requestUserExit() {
 void App::restartDeviceService() {
   mdnsService_.stop();
   server_.stop();
+  if (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_) {
+    setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
+    return;
+  }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
   if (!server_.start(settings_.deviceServicePort,

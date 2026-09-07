@@ -3880,6 +3880,7 @@ int main() {
     const auto bundle = filesystem::temp_directory_path() / "inventatory-transfer-bundle";
     const auto restoreTarget = filesystem::temp_directory_path() / "inventatory-transfer-restore-target";
     const auto invalidOptionalBundle = filesystem::temp_directory_path() / "inventatory-transfer-invalid-optional-bundle";
+    const auto invalidBomBundle = filesystem::temp_directory_path() / "inventatory-transfer-invalid-bom-bundle";
     const auto settingsPath = filesystem::temp_directory_path() / "inventatory-transfer-settings.conf";
     const auto targetSettingsPath = filesystem::temp_directory_path() / "inventatory-transfer-target-settings.conf";
     const auto csv = filesystem::temp_directory_path() / "inventatory-transfer-export.csv";
@@ -3887,6 +3888,7 @@ int main() {
     filesystem::remove_all(source, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
     filesystem::remove_all(invalidOptionalBundle, cleanupError);
+    filesystem::remove_all(invalidBomBundle, cleanupError);
     filesystem::remove_all(restoreTarget, cleanupError);
     filesystem::remove(settingsPath, cleanupError);
     filesystem::remove(targetSettingsPath, cleanupError);
@@ -4006,6 +4008,21 @@ int main() {
       ofstream validQuickLabels(source / "quick_labels.conf", ios::trunc);
       validQuickLabels << "quick_label_revision=1\n";
       validQuickLabels.close();
+    }
+    {
+      SqliteConnection malformedBomConnection;
+      assert(openDatabase(source / "inventory.db", malformedBomConnection));
+      assert(execSql(malformedBomConnection,
+                     "INSERT INTO inventatory_bom_projects "
+                     "(id,name,source_path,boards,created_at,last_opened,last_built,bom_text,overrides,enrichment) "
+                     "VALUES ('malformed-bom','Malformed BOM','',1,1710000000,1710000000,0,'R1','v1:malformed','')"));
+    }
+    assert(!createInventatoryBackup(source, settingsPath, invalidBomBundle, "1.0.0", error));
+    assert(!filesystem::exists(invalidBomBundle));
+    {
+      SqliteConnection cleanupBomConnection;
+      assert(openDatabase(source / "inventory.db", cleanupBomConnection));
+      assert(execSql(cleanupBomConnection, "DELETE FROM inventatory_bom_projects WHERE id='malformed-bom'"));
     }
     {
       InventoryTransferTestHooks hooks;
