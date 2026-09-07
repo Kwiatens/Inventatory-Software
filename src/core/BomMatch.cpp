@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 namespace inventatory {
@@ -77,11 +78,24 @@ string pinCountToken(const vector<string>& tokens) {
         !all_of(columns.begin(), columns.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) {
       continue;
     }
-    try {
-      return to_string(stoi(rows) * stoi(columns));
-    } catch (...) {
+    unsigned long long rowCount = 0;
+    unsigned long long columnCount = 0;
+    for (const unsigned char ch : rows) {
+      const auto digit = static_cast<unsigned long long>(ch - '0');
+      if (rowCount > (numeric_limits<unsigned long long>::max() - digit) / 10U) return {};
+      rowCount = rowCount * 10U + digit;
+    }
+    for (const unsigned char ch : columns) {
+      const auto digit = static_cast<unsigned long long>(ch - '0');
+      if (columnCount > (numeric_limits<unsigned long long>::max() - digit) / 10U) return {};
+      columnCount = columnCount * 10U + digit;
+    }
+    if (rowCount == 0 || columnCount == 0 || rowCount > numeric_limits<unsigned long long>::max() / columnCount) {
       return {};
     }
+    const auto pinCount = rowCount * columnCount;
+    if (pinCount > static_cast<unsigned long long>(numeric_limits<int>::max())) return {};
+    return to_string(pinCount);
   }
   return {};
 }
@@ -162,7 +176,9 @@ optional<double> parseNumberWithMultiplier(const string& body, bool resistanceLi
     if (consumed != numberText.size()) {
       return nullopt;
     }
-    return number * multiplier;
+    const double result = number * multiplier;
+    if (!isfinite(result) || result < 0.0) return nullopt;
+    return result;
   } catch (...) {
     return nullopt;
   }
@@ -281,6 +297,18 @@ int scoreItem(const InventoryItem& item, const BomLine& line, const string& bomP
   return packageMatches(bomPackage, *package) ? 90 : 30;
 }
 
+int saturatingAdd(int lhs, int rhs) {
+  if (lhs < 0 || rhs < 0) return numeric_limits<int>::min();
+  if (lhs > numeric_limits<int>::max() - rhs) return numeric_limits<int>::max();
+  return lhs + rhs;
+}
+
+int saturatingMultiplyNonNegative(int lhs, int rhs) {
+  if (lhs <= 0 || rhs <= 0) return 0;
+  if (lhs > numeric_limits<int>::max() / rhs) return numeric_limits<int>::max();
+  return lhs * rhs;
+}
+
 }  // namespace
 
 string packageFromFootprint(const string& footprint) {
@@ -294,7 +322,7 @@ string packageFromFootprint(const string& footprint) {
   // Chip passives: the imperial code is a standalone token.
   for (const auto& token : tokens) {
     for (const auto* code : kChipCodes) {
-      if (token == code) {
+      if (toLower(token) == toLower(code)) {
         return code;
       }
     }
@@ -419,13 +447,22 @@ void recomputeBomTotals(BomAnalysis& analysis, const vector<InventoryItem>& item
 
   // One inventory part can serve several BOM lines, so sufficiency has to be
   // judged against the total draw on that part, not line by line.
-  unordered_map<string, int> demand;
+  // Keep aggregate demand wider than the public per-line `int` fields. A
+  // saturating int sum would make two INT_MAX BOM lines look satisfiable by
+  // INT_MAX stock even though their combined draw is larger.
+  unordered_map<string, uint64_t> demand;
   for (size_t index = 0; index < analysis.matches.size(); ++index) {
     auto& match = analysis.matches[index];
-    match.needed = analysis.lines[index].quantityPerBoard * max(1, analysis.boards);
+    match.needed = saturatingMultiplyNonNegative(analysis.lines[index].quantityPerBoard, max(1, analysis.boards));
     const auto itemId = match.chosenItemId();
     if (!itemId.empty()) {
-      demand[itemId] += match.needed;
+      auto& total = demand[itemId];
+      const auto needed = static_cast<uint64_t>(match.needed);
+      if (total > numeric_limits<uint64_t>::max() - needed) {
+        total = numeric_limits<uint64_t>::max();
+      } else {
+        total += needed;
+      }
     }
   }
 
@@ -433,11 +470,12 @@ void recomputeBomTotals(BomAnalysis& analysis, const vector<InventoryItem>& item
   analysis.shortCount = 0;
   analysis.totalPieces = 0;
   for (auto& match : analysis.matches) {
-    analysis.totalPieces += match.needed;
+    analysis.totalPieces = saturatingAdd(analysis.totalPieces, match.needed);
     const auto itemId = match.chosenItemId();
     const auto found = itemId.empty() ? byId.end() : byId.find(itemId);
     match.available = found == byId.end() ? 0 : found->second->quantity;
-    match.sufficient = found != byId.end() && found->second->quantity >= demand[itemId];
+    match.sufficient = found != byId.end() && found->second->quantity >= 0 &&
+                       static_cast<uint64_t>(found->second->quantity) >= demand[itemId];
     if (match.sufficient) {
       ++analysis.readyCount;
     } else {

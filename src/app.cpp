@@ -39,6 +39,8 @@ using namespace std;
 
 namespace {
 
+constexpr size_t kPrinterWorkQueueLimit = 32;
+
 string currentDateTimeText() {
   const auto now = time(nullptr);
   tm localTime{};
@@ -134,12 +136,32 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   } else {
     settings_.dataDirectory = dataPath_;
   }
-  loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision);
+  string restoreRecoveryNotice;
+  if (!recoverInventatoryRestore(dataPath_, settingsPath_, restoreRecoveryNotice)) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = restoreRecoveryNotice.empty()
+                                   ? "An interrupted restore could not be recovered safely"
+                                   : restoreRecoveryNotice;
+  }
+  activateWorkspaceContext(makeInventatoryDataPaths(dataPath_));
+  error_code quickLabelsError;
+  const bool quickLabelsFileExists = filesystem::exists(quickLabelsPath_, quickLabelsError);
+  if (quickLabelsError ||
+      (quickLabelsFileExists &&
+       !loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision))) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not read Quick Labels settings: " + quickLabelsPath_.string() +
+                               ". The original file was preserved.";
+    persistenceError_ = inventoryRecoveryDetail_;
+  }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
-  loadState();
+  if (!inventoryRecoveryRequired_) {
+    loadState();
+    if (!restoreRecoveryNotice.empty()) setMessage(restoreRecoveryNotice, 8);
+  }
   if (!loadedSettings) {
     settings_.printerQueue = printerService_.configuredPrinter();
     const auto environment = loadDigiKeyConfig();
@@ -150,13 +172,19 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     settings_.digiKeyCurrency = environment.currency;
     settingsDraft_ = settings_;
     if (!settingsFileExists) {
-      saveAppSettings(settingsPath_, settings_);
+      if (!saveAppSettings(settingsPath_, settings_)) {
+        appSettingsSavePending_ = true;
+        persistenceError_ = "Could not save initial application settings; they remain in memory.";
+        setMessage(persistenceError_ + " Press R to retry.", 6);
+      }
     } else {
       setMessage("Settings file is invalid; defaults are in use temporarily. Finish setup or reset it explicitly.", 8);
     }
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
-    printerCheck_ = printerService_.probeConfiguredPrinter();
+    // Queue the potentially slow Windows spooler probe.  Startup must remain
+    // responsive even when a disconnected queue takes seconds to answer.
+    refreshPrinterState();
   }
   if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion)) {
     onboardingActive_ = true;
@@ -165,9 +193,11 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   const bool anotherInteractiveInstanceRunning =
       startInBackground_ && backgroundController_.interactiveInstanceRunning();
   const bool backgroundServiceAlreadyRunning = !startInBackground_ && backgroundController_.backgroundServiceRunning();
-  if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning) {
+  if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning &&
+      !inventatoryScanConfig_.token.empty() && !scannerCredentialSavePending_ &&
+      !scannerReplayStateMigrationPending_) {
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                                 appSettingsDirectory() / "inventatory-scan-replay.state");
+                                 inventatoryScanReplayStatePath(dataPath_));
 
     if (!server_.start(settings_.deviceServicePort,
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
@@ -181,6 +211,10 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
         setMessage("Inventatory Scan R1 service ready; network discovery unavailable", 5);
       }
     }
+  } else if (!inventoryRecoveryRequired_ &&
+             (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_ ||
+              scannerReplayStateMigrationPending_)) {
+    setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
   }
   beginUpdateCheckIfDue();
 }
@@ -202,7 +236,7 @@ ftxui::Element App::renderUi() const {
         styledText("INVENTORY RECOVERY REQUIRED", uiDangerColor()),
         ftxui::separator(),
         styledText(inventoryRecoveryDetail_, uiTitleColor()),
-        styledText("The database was preserved and Inventatory is locked to prevent data loss.", uiMutedColor()),
+        styledText("The active workspace was preserved and Inventatory is locked to prevent data loss.", uiMutedColor()),
         styledText("Press D to choose another Inventatory folder, or Esc to exit.", uiAccentColor()),
         ftxui::filler(),
     }) | ftxui::border | ftxui::bgcolor(uiCanvasBg());
@@ -547,9 +581,24 @@ int App::run() {
   }
   // Windows sign-in launches this process with --background. Keep that path
   // free of FTXUI so only the Scan R1 bridge and notification-area handler run.
-  backgroundController_.start(startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
-    backgroundQuitRequested_.store(true);
-  }, [this] { foregroundRequested_.store(true); });
+  const bool backgroundStarted = backgroundController_.start(
+      startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
+        backgroundQuitRequested_.store(true);
+      }, [this] { foregroundRequested_.store(true); });
+  if (!backgroundStarted && (startInBackground_ || settings_.backgroundServiceEnabled)) {
+    // A tray/controller startup failure must not leave the persisted setting
+    // claiming that the background bridge is available on the next launch.
+    settings_.backgroundServiceEnabled = false;
+    settingsDraft_.backgroundServiceEnabled = false;
+    string startupError;
+    setBackgroundStartupEnabled(false, startupError);
+    if (!saveAppSettings(settingsPath_, settings_)) {
+      appSettingsSavePending_ = true;
+    }
+    setMessage(startInBackground_ ? "Background service could not start; it was disabled"
+                                  : "Background service unavailable; it was disabled",
+               7);
+  }
 
   if (startInBackground_) {
     runBackgroundLoop();
@@ -557,14 +606,36 @@ int App::run() {
     runInteractiveLoop();
   }
 
-  saveState();
-  backgroundController_.stop();
+  // Stop producers before the final save.  LocalHttpServer joins all request
+  // workers, and the workspace-bound futures are joined here as well, so no
+  // late callback can mutate the store after the final snapshot was written.
   mdnsService_.stop();
   server_.stop();
-  if (!startInBackground_ && settings_.backgroundServiceEnabled) {
-    backgroundController_.restartAsBackgroundService();
+  stopWorkspaceBoundWork();
+  const bool finalSaveSucceeded = saveState();
+  if (!finalSaveSucceeded) {
+    // There is no interactive frame left to display this error.  Keep the
+    // process result and stderr actionable for launchers, and retain the
+    // in-memory state until App destruction for the caller's recovery path.
+    cerr << "Inventatory shutdown save failed: "
+         << (persistenceError_.empty() ? "unknown persistence error" : persistenceError_) << '\n';
   }
-  return 0;
+  backgroundController_.stop();
+  if (finalSaveSucceeded && !startInBackground_ && settings_.backgroundServiceEnabled) {
+    if (!backgroundController_.restartAsBackgroundService()) {
+      settings_.backgroundServiceEnabled = false;
+      settingsDraft_.backgroundServiceEnabled = false;
+      string startupError;
+      setBackgroundStartupEnabled(false, startupError);
+      if (!saveAppSettings(settingsPath_, settings_)) {
+        cerr << "Inventatory could not disable the unavailable background service preference: "
+             << (startupError.empty() ? "settings save failed" : startupError) << '\n';
+      }
+      cerr << "Inventatory background service failed to start after shutdown" << '\n';
+      return 1;
+    }
+  }
+  return finalSaveSucceeded ? 0 : 1;
 }
 
 void App::processBackgroundWork() {
@@ -584,6 +655,7 @@ void App::processBackgroundWork() {
   processDigiKeyRefresh();
   processImportSync();
   processBomEnrichment();
+  processPrinterWork();
 }
 
 void App::runBackgroundLoop() {
@@ -652,6 +724,331 @@ void App::runInteractiveLoop() {
   }
 }
 
+shared_ptr<const App::WorkspaceContext> App::currentWorkspaceContext() const {
+  lock_guard<mutex> lock(workspaceMutex_);
+  return workspaceContext_;
+}
+
+void App::activateWorkspaceContext(const InventatoryDataPaths& paths) {
+  {
+    lock_guard<mutex> lock(workspaceMutex_);
+    const auto previousGeneration = workspaceContext_ == nullptr ? 0 : workspaceContext_->generation;
+    auto context = make_shared<WorkspaceContext>();
+    context->paths = paths;
+    context->generation = advanceWorkspaceGeneration(previousGeneration);
+    workspaceContext_ = move(context);
+    dataPath_ = paths.dataDirectory;
+    inventoryPath_ = paths.inventory;
+    printerPath_ = paths.printer;
+    activityPath_ = paths.activity;
+    inventatoryScanConfigPath_ = paths.scanConfig;
+    quickLabelsPath_ = paths.dataDirectory / "quick_labels.conf";
+  }
+  // Cached idempotency results belong to the old context even if their
+  // request id happens to be reused in the newly selected workspace.
+  {
+    lock_guard<mutex> lock(deviceQueueMutex_);
+    deviceRequestCache_.clear();
+    deviceRequestOrder_.clear();
+  }
+  clearQuickLabelPrintCache();
+}
+
+bool App::workspaceIsCurrent(WorkspaceGeneration generation) const {
+  lock_guard<mutex> lock(workspaceMutex_);
+  return workspaceContext_ != nullptr && workspaceGenerationMatches(workspaceContext_->generation, generation);
+}
+
+bool App::enqueuePrinterWork(PrinterWork work) {
+  if (work.workspaceGeneration == 0 || !workspaceIsCurrent(work.workspaceGeneration)) {
+    return false;
+  }
+  {
+    lock_guard<mutex> lock(printerWorkMutex_);
+    if (printerWorkQueue_.size() >= kPrinterWorkQueueLimit) {
+      return false;
+    }
+    printerWorkQueue_.push_back(move(work));
+  }
+  return true;
+}
+
+bool App::enqueuePrinterProbe(const string& printerName) {
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr || trim(printerName).empty()) return false;
+  PrinterWork work;
+  work.kind = PrinterWorkKind::Probe;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerName;
+  return enqueuePrinterWork(move(work));
+}
+
+void App::processPrinterWork() {
+  optional<PrinterWorkResult> completedResult;
+  if (printerWorkCompletion_ != nullptr) {
+    const auto completion = printerWorkCompletion_;
+    lock_guard<mutex> lock(completion->completionMutex);
+    if (completion->result.has_value()) {
+      completedResult = move(completion->result);
+      completion->result.reset();
+    } else if (completion->cancelled) {
+      printerWorkCompletion_.reset();
+      printerWorkActiveKind_.reset();
+    } else {
+      return;
+    }
+  }
+  if (completedResult.has_value()) {
+    const auto result = move(*completedResult);
+    printerWorkCompletion_.reset();
+    printerWorkActiveKind_.reset();
+
+    if (workspaceIsCurrent(result.work.workspaceGeneration)) {
+      switch (result.work.kind) {
+        case PrinterWorkKind::Refresh:
+          printerQueues_ = move(result.queues);
+          printerCheck_ = result.check;
+          if (!result.work.printerName.empty()) {
+            const auto configuredName = toLower(trim(result.work.printerName));
+            const auto it = find_if(printerQueues_.begin(), printerQueues_.end(),
+                                    [&](const PrinterQueueInfo& entry) {
+                                      return toLower(trim(entry.name)) == configuredName;
+                                    });
+            if (it != printerQueues_.end()) {
+              printerSelection_ = static_cast<size_t>(distance(printerQueues_.begin(), it));
+            }
+          }
+          if (printerSelection_ >= printerQueues_.size()) printerSelection_ = 0;
+          if (!result.success && printerCheck_.message.empty()) {
+            printerCheck_.message = result.error.empty() ? "Printer check failed" : result.error;
+          }
+          setMessage(result.success
+                         ? (printerCheck_.ok ? "Printer check complete" : "Printer needs attention")
+                         : (printerCheck_.message.empty() ? "Printer check failed" : printerCheck_.message),
+                     4);
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::Probe:
+          printerCheck_ = result.check;
+          setMessage(result.check.message.empty()
+                         ? (result.success ? "Printer is ready" : "Printer test failed")
+                         : result.check.message,
+                     4);
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::PrintItem:
+          if (result.success) {
+            printerFlashUntil_ = time(nullptr) + 3;
+            logActivity("print", result.work.item.partName + " label printed");
+            const bool saved = saveState();
+            setMessage(saved ? result.work.successPrefix + result.work.item.partName
+                             : result.work.successPrefix + result.work.item.partName +
+                                   "; activity not saved, press R to retry",
+                       saved ? 3 : 6);
+          } else {
+            setMessage("Print failed: " +
+                           (result.error.empty() ? string("Printer failed") : result.error),
+                       4);
+          }
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::PrintWire:
+          if (result.success) {
+            printerFlashUntil_ = time(nullptr) + 3;
+            logActivity("print", "wire label printed");
+            const bool saved = saveActivitiesChecked(false);
+            if (result.work.quickLabelIdentity.has_value()) {
+              storeQuickLabelPrintResult({result.work.requestId, "completed", "", "Label sent"},
+                                         *result.work.quickLabelIdentity);
+              setMessage(saved ? "Quick label sent" :
+                                   "Quick label sent; activity not saved, press R to retry",
+                         saved ? 3 : 6);
+            } else {
+              const auto message = result.work.successPrefix.empty() ? string("Wire label sent")
+                                                                      : result.work.successPrefix;
+              setMessage(saved ? message : message + "; activity not saved, press R to retry",
+                         saved ? 3 : 6);
+            }
+          } else {
+            const auto error = result.error.empty() ? string("Printer failed") : result.error;
+            if (result.work.quickLabelIdentity.has_value()) {
+              storeQuickLabelPrintResult({result.work.requestId, "failed", "printer_failed", error},
+                                         *result.work.quickLabelIdentity);
+              setMessage("Quick label failed: " + error, 4);
+            } else {
+              setMessage(error, 4);
+            }
+          }
+          dirty_ = true;
+          break;
+        case PrinterWorkKind::PrintRack:
+          if (result.success) {
+            printerFlashUntil_ = time(nullptr) + 3;
+            logActivity("print", result.work.rack.code + " rack label printed");
+            const bool saved = saveState();
+            const auto message = result.work.rack.code + " rack label sent";
+            setMessage(saved ? message : message + "; activity not saved, press R to retry",
+                       saved ? 3 : 6);
+          } else {
+            setMessage("Print failed: " +
+                           (result.error.empty() ? string("Printer failed") : result.error),
+                       4);
+          }
+          dirty_ = true;
+          break;
+      }
+    }
+  }
+
+  while (true) {
+    PrinterWork work;
+    {
+      lock_guard<mutex> lock(printerWorkMutex_);
+      if (printerWorkQueue_.empty()) return;
+      work = move(printerWorkQueue_.front());
+      printerWorkQueue_.pop_front();
+    }
+    if (!workspaceIsCurrent(work.workspaceGeneration)) {
+      continue;
+    }
+
+    const auto workKind = work.kind;
+    auto completion = make_shared<PrinterWorkCompletion>();
+    PrinterWork workerWork = work;
+    try {
+      thread([completion, work = move(workerWork)]() mutable {
+      PrinterWorkResult result;
+      result.work = work;
+      try {
+        // Constructing a private service also constructs a private Windows
+        // spooler backend.  No worker ever touches the UI-owned service or
+        // borrows App state, configured strings, or inventory references.
+        LabelPrinterService printer;
+        printer.setConfiguredPrinter(work.printerName);
+        switch (work.kind) {
+          case PrinterWorkKind::Refresh:
+            result.queues = printer.enumeratePrinters();
+            result.check = printer.probeConfiguredPrinter();
+            result.success = true;
+            break;
+          case PrinterWorkKind::Probe:
+            result.check = printer.probeConfiguredPrinter();
+            result.success = result.check.ok;
+            result.error = result.check.message;
+            break;
+          case PrinterWorkKind::PrintItem:
+            result.success = printer.printItemLabel(work.item, &result.error, work.rackLocation);
+            break;
+          case PrinterWorkKind::PrintWire:
+            result.success = printer.printWireLabel(work.text, &result.error);
+            break;
+          case PrinterWorkKind::PrintRack:
+            result.success = printer.printRackLabel(work.rack, &result.error);
+            break;
+        }
+      } catch (...) {
+        result.success = false;
+        result.error = "Printer operation failed unexpectedly";
+      }
+      lock_guard<mutex> lock(completion->completionMutex);
+      if (!completion->cancelled) completion->result = move(result);
+      }).detach();
+    } catch (...) {
+      // Preserve the work identity when thread creation itself fails.  This
+      // keeps a pending quick-label request from being stranded forever.
+      PrinterWorkResult result;
+      result.work = move(work);
+      result.success = false;
+      result.error = "Printer worker could not be started";
+      lock_guard<mutex> lock(completion->completionMutex);
+      completion->result = move(result);
+    }
+    printerWorkCompletion_ = move(completion);
+    printerWorkActiveKind_ = workKind;
+    return;
+  }
+}
+
+void App::stopPrinterWork() {
+  {
+    lock_guard<mutex> lock(printerWorkMutex_);
+    printerWorkQueue_.clear();
+  }
+  if (printerWorkCompletion_ != nullptr) {
+    const auto completion = printerWorkCompletion_;
+    lock_guard<mutex> lock(completion->completionMutex);
+    completion->cancelled = true;
+    completion->result.reset();
+    printerWorkCompletion_.reset();
+  }
+  printerWorkActiveKind_.reset();
+  {
+    lock_guard<mutex> lock(quickLabelMutex_);
+    for (auto& entry : quickLabelPrintResults_) {
+      if (entry.second.result.status == "pending") {
+        entry.second.result.status = "failed";
+        entry.second.result.code = "workspace_changed";
+        entry.second.result.message = "Printing was cancelled while the workspace changed";
+      }
+    }
+  }
+}
+
+void App::stopWorkspaceBoundWork() {
+  stopPrinterWork();
+  stopDigiKeyRefresh();
+
+  if (importSyncCancelFlag_ != nullptr) {
+    importSyncCancelFlag_->store(true);
+  }
+  if (importSyncFuture_.valid()) {
+    importSyncFuture_.wait();
+    importSyncFuture_ = {};
+  }
+  importSyncCancelFlag_.reset();
+  importSyncRunning_ = false;
+  importSyncCancelRequested_ = false;
+  importSyncGeneration_ = 0;
+
+  if (scanDigiKeyEnrichmentFuture_.valid()) {
+    scanDigiKeyEnrichmentFuture_.wait();
+    scanDigiKeyEnrichmentFuture_ = {};
+  }
+  scanDigiKeyEnrichmentQueue_.clear();
+
+  if (bomEnrichmentFuture_.valid()) {
+    bomEnrichmentFuture_.wait();
+    bomEnrichmentFuture_ = {};
+  }
+  bomEnrichmentQueue_.clear();
+  bomEnrichmentActiveKey_.clear();
+  bomEnrichmentProjectId_.clear();
+  bomEnrichmentActiveProjectId_.clear();
+  bomEnrichmentGeneration_ = 0;
+  bomEnrichmentSequence_ = 0;
+  bomEnrichmentClient_.reset();
+
+  {
+    lock_guard<mutex> lock(scanMutex_);
+    scanQueue_.clear();
+  }
+  {
+    lock_guard<mutex> lock(deviceQueueMutex_);
+    for (const auto& pending : deviceQuantityQueue_) {
+      lock_guard<mutex> pendingLock(pending->mutex);
+      pending->cancelled = true;
+      pending->result = {};
+      pending->result.httpStatus = 503;
+      pending->result.error = "Inventatory workspace is changing";
+      pending->complete = true;
+      pending->ready.notify_one();
+    }
+    deviceQuantityQueue_.clear();
+    deviceStatusQueue_.clear();
+    deviceDebugQueue_.clear();
+  }
+}
+
 void App::requestUserExit() {
   if (importSyncRunning_) {
     setMessage("DigiKey sync is still running; cancel it or wait for completion", 4);
@@ -659,8 +1056,16 @@ void App::requestUserExit() {
   }
   if (settingsDirty_) {
     pendingPageAfterSettings_.reset();
+    exitSavePending_ = false;
     inputMode_ = InputMode::ExitConfirmation;
     setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
+    return;
+  }
+  if (hasPendingPersistence()) {
+    pendingPageAfterSettings_.reset();
+    exitSavePending_ = true;
+    inputMode_ = InputMode::ExitConfirmation;
+    setMessage("Unsaved data could not be persisted: press S to retry, D to exit, or Esc to stay", 6);
     return;
   }
   if (backgroundController_.enabled()) {
@@ -673,8 +1078,13 @@ void App::requestUserExit() {
 void App::restartDeviceService() {
   mdnsService_.stop();
   server_.stop();
+  if (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_ ||
+      scannerReplayStateMigrationPending_) {
+    setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
+    return;
+  }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                               appSettingsDirectory() / "inventatory-scan-replay.state");
+                               inventatoryScanReplayStatePath(dataPath_));
   if (!server_.start(settings_.deviceServicePort,
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
                        return handleDeviceSync(request, response, error);
@@ -1217,6 +1627,21 @@ void App::handleExitConfirmationKey(const KeyEvent& key) {
   }
   if (key.type != KeyType::Character) return;
   const auto ch = static_cast<char>(tolower(static_cast<unsigned char>(key.ch)));
+  if (exitSavePending_) {
+    if (ch == 's') {
+      if (saveState()) {
+        exitSavePending_ = false;
+        inputMode_ = InputMode::None;
+        requestUserExit();
+      }
+    } else if (ch == 'd') {
+      exitSavePending_ = false;
+      inputMode_ = InputMode::None;
+      setMessage("Exiting with unsaved data; retry persistence from the previous session", 8);
+      running_ = false;
+    }
+    return;
+  }
   if (ch == 's') {
     completeSettingsExit(true);
   } else if (ch == 'd') {

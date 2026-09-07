@@ -26,8 +26,13 @@ struct SqliteApi {
   decltype(&::sqlite3_bind_null) bind_null = &::sqlite3_bind_null;
   decltype(&::sqlite3_column_int) column_int = &::sqlite3_column_int;
   decltype(&::sqlite3_column_int64) column_int64 = &::sqlite3_column_int64;
+  decltype(&::sqlite3_column_type) column_type = &::sqlite3_column_type;
   decltype(&::sqlite3_column_text) column_text = &::sqlite3_column_text;
+  decltype(&::sqlite3_changes) changes = &::sqlite3_changes;
   decltype(&::sqlite3_busy_timeout) busy_timeout = &::sqlite3_busy_timeout;
+  decltype(&::sqlite3_backup_init) backup_init = &::sqlite3_backup_init;
+  decltype(&::sqlite3_backup_step) backup_step = &::sqlite3_backup_step;
+  decltype(&::sqlite3_backup_finish) backup_finish = &::sqlite3_backup_finish;
   decltype(&::sqlite3_free) free = &::sqlite3_free;
 
   bool load();
@@ -47,9 +52,31 @@ struct SqliteStatement {
 
 string sqliteText(sqlite3_stmt* stmt, int column);
 bool openDatabase(const filesystem::path& path, SqliteConnection& connection);
+bool openDatabaseReadOnly(const filesystem::path& path, SqliteConnection& connection);
+// Creates a consistent SQLite snapshot without mutating the source database.
+// The destination must not exist; callers should validate the closed snapshot
+// through validateInventoryDatabase() before publishing it.
+bool createSqliteSnapshot(const filesystem::path& sourcePath, const filesystem::path& destinationPath,
+                          string* error = nullptr);
 bool execSql(SqliteConnection& connection, const string& sql);
 bool tableExists(SqliteConnection& connection, const string& tableName);
 bool tableColumnExists(SqliteConnection& connection, const string& tableName, const string& columnName);
+
+// All SQLite persistence modules share this versioned schema.  The migration
+// is transactional and must be run only on a read-write connection.  Backup
+// validation uses validateInventoryDatabase() instead; it never creates or
+// alters objects.
+constexpr int kInventoryDatabaseSchemaVersion = 1;
+bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error = nullptr);
+bool validateInventoryDatabase(SqliteConnection& connection, string* error = nullptr);
+
+// sqlite3_column_int()/column_int64() silently coerce and truncate values.
+// Persistence loaders use these checked conversions so malformed databases
+// cannot wrap into application-sized integers.
+bool sqliteInt32(sqlite3_stmt* statement, int column, int& value);
+bool sqliteUInt64(sqlite3_stmt* statement, int column, std::uint64_t& value);
+bool sqliteSize(sqlite3_stmt* statement, int column, size_t& value);
+bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value);
 
 #endif
 

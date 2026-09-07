@@ -324,7 +324,13 @@ void App::processUpdateCheck() {
     settingsDraft_.lastUpdateCheckUnixSeconds = settings_.lastUpdateCheckUnixSeconds;
     settingsDraft_.latestAvailableVersion = settings_.latestAvailableVersion;
     settingsDraft_.latestReleaseUrl = settings_.latestReleaseUrl;
-    saveAppSettings(settingsPath_, settings_);
+    if (!saveAppSettings(settingsPath_, settings_)) {
+      appSettingsSavePending_ = true;
+      persistenceError_ = "Could not save update-check results; they remain in memory.";
+      setMessage(persistenceError_ + " Press R to retry.", 5);
+    } else {
+      appSettingsSavePending_ = false;
+    }
     if (result.updateAvailable) setMessage("Inventatory " + result.latestVersion + " is available in Updates", 6);
   }
   dirty_ = true;

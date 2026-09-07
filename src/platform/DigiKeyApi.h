@@ -51,6 +51,10 @@ struct DigiKeyProductDetails {
 
 DigiKeyConfig loadDigiKeyConfig();
 
+// Validates a DigiKey JSON payload without issuing a network request. This
+// keeps the bounded parser independently testable for malformed responses.
+bool validateDigiKeyJsonPayload(const string& payload, string* error = nullptr);
+
 class DigiKeyApiClient {
  public:
   explicit DigiKeyApiClient(DigiKeyConfig config);

@@ -11,6 +11,48 @@ namespace inventatory {
 
 using namespace std;
 
+namespace {
+
+bool parseLegacyBomMap(const string& value, map<string, string>& values) {
+  size_t start = 0;
+  while (start <= value.size()) {
+    const auto end = value.find(';', start);
+    const auto entry = value.substr(start, end == string::npos ? string::npos : end - start);
+    const auto equals = entry.find('=');
+    if (equals == string::npos ||
+        (entry.find(':') != string::npos && entry.find(':') < equals)) return false;
+    const auto key = trim(entry.substr(0, equals));
+    if (key.empty() || !values.emplace(key, trim(entry.substr(equals + 1))).second) return false;
+    if (end == string::npos) break;
+    start = end + 1;
+  }
+  return true;
+}
+
+bool deserializeBomMapChecked(const string& value, map<string, string>& values) {
+  if (value.empty()) {
+    values.clear();
+    return true;
+  }
+  const bool structured = value.rfind("v1:", 0) == 0 || value.rfind("v2:", 0) == 0;
+  if (structured) {
+    vector<Parameter> parameters;
+    if (!deserializeParametersFromStorageStrict(value, parameters)) return false;
+    map<string, string> parsed;
+    for (const auto& parameter : parameters) {
+      if (parameter.name.empty() || !parsed.emplace(parameter.name, parameter.value).second) return false;
+    }
+    values = move(parsed);
+    return true;
+  }
+  map<string, string> parsed;
+  if (!parseLegacyBomMap(value, parsed)) return false;
+  values = move(parsed);
+  return true;
+}
+
+}  // namespace
+
 string serializeBomMap(const map<string, string>& values) {
   // Reuses the parameter encoding so escaping rules stay in one place.
   vector<Parameter> parameters;
@@ -23,9 +65,7 @@ string serializeBomMap(const map<string, string>& values) {
 
 map<string, string> deserializeBomMap(const string& value) {
   map<string, string> values;
-  for (const auto& parameter : deserializeParametersFromStorage(value)) {
-    values[parameter.name] = parameter.value;
-  }
+  if (!deserializeBomMapChecked(value, values)) values.clear();
   return values;
 }
 
@@ -33,20 +73,7 @@ map<string, string> deserializeBomMap(const string& value) {
 namespace {
 
 bool ensureBomProjectSchema(SqliteConnection& connection) {
-  return execSql(connection, R"SQL(
-    CREATE TABLE IF NOT EXISTS inventatory_bom_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      source_path TEXT NOT NULL,
-      boards INTEGER NOT NULL DEFAULT 1,
-      created_at INTEGER NOT NULL DEFAULT 0,
-      last_opened INTEGER NOT NULL DEFAULT 0,
-      last_built INTEGER NOT NULL DEFAULT 0,
-      bom_text TEXT NOT NULL,
-      overrides TEXT NOT NULL DEFAULT '',
-      enrichment TEXT NOT NULL DEFAULT ''
-    )
-  )SQL");
+  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool insertProject(SqliteConnection& connection, const BomProject& project) {
@@ -79,7 +106,7 @@ bool insertProject(SqliteConnection& connection, const BomProject& project) {
 #endif
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects) {
-  projects.clear();
+  vector<BomProject> loadedProjects;
 #ifdef _WIN32
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection)) {
@@ -95,26 +122,69 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
     return false;
   }
 
-  while (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     BomProject project;
     project.id = sqliteText(statement.stmt, 0);
     project.name = sqliteText(statement.stmt, 1);
     project.sourcePath = sqliteText(statement.stmt, 2);
-    project.boards = max(1, sqliteApi().column_int(statement.stmt, 3));
-    project.createdAt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 4));
-    project.lastOpened = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 5));
-    project.lastBuilt = static_cast<time_t>(sqliteApi().column_int64(statement.stmt, 6));
+    if (!sqliteInt32(statement.stmt, 3, project.boards) || project.boards <= 0 ||
+        !sqliteTime(statement.stmt, 4, project.createdAt) || !sqliteTime(statement.stmt, 5, project.lastOpened) ||
+        !sqliteTime(statement.stmt, 6, project.lastBuilt)) return false;
     project.bomText = sqliteText(statement.stmt, 7);
-    project.overrides = deserializeBomMap(sqliteText(statement.stmt, 8));
-    project.enrichment = deserializeBomMap(sqliteText(statement.stmt, 9));
-    projects.push_back(move(project));
+    if (!deserializeBomMapChecked(sqliteText(statement.stmt, 8), project.overrides) ||
+        !deserializeBomMapChecked(sqliteText(statement.stmt, 9), project.enrichment)) return false;
+    loadedProjects.push_back(move(project));
   }
+  if (stepResult != SQLITE_DONE) return false;
+  projects = move(loadedProjects);
   return true;
 #else
   (void)databasePath;
   return false;
 #endif
 }
+
+#ifdef _WIN32
+bool validateBomProjects(SqliteConnection& connection, string* error) {
+  if (connection.db == nullptr) {
+    if (error != nullptr) *error = "SQLite connection is not open";
+    return false;
+  }
+  SqliteStatement statement;
+  const char* sql = R"SQL(
+    SELECT id, name, source_path, boards, created_at, last_opened, last_built, bom_text, overrides, enrichment
+    FROM inventatory_bom_projects
+  )SQL";
+  if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
+    if (error != nullptr) *error = "Unable to read BOM projects for validation";
+    return false;
+  }
+
+  int stepResult = SQLITE_OK;
+  while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
+    int boards = 0;
+    time_t createdAt = 0;
+    time_t lastOpened = 0;
+    time_t lastBuilt = 0;
+    map<string, string> ignored;
+    if (sqliteText(statement.stmt, 0).empty() || sqliteText(statement.stmt, 1).empty() ||
+        !sqliteInt32(statement.stmt, 3, boards) || boards <= 0 ||
+        !sqliteTime(statement.stmt, 4, createdAt) || !sqliteTime(statement.stmt, 5, lastOpened) ||
+        !sqliteTime(statement.stmt, 6, lastBuilt) ||
+        !deserializeBomMapChecked(sqliteText(statement.stmt, 8), ignored) ||
+        !deserializeBomMapChecked(sqliteText(statement.stmt, 9), ignored)) {
+      if (error != nullptr) *error = "BOM project data is malformed";
+      return false;
+    }
+  }
+  if (stepResult != SQLITE_DONE) {
+    if (error != nullptr) *error = "Unable to finish reading BOM projects for validation";
+    return false;
+  }
+  return true;
+}
+#endif
 
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects) {
 #ifdef _WIN32

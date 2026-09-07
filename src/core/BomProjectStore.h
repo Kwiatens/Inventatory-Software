@@ -19,6 +19,10 @@ using std::string;
 using std::time_t;
 using std::vector;
 
+#ifdef _WIN32
+struct SqliteConnection;
+#endif
+
 // A pinned project keeps the BOM text rather than a file reference, so the
 // analysis can be rebuilt against current stock without the original file.
 struct BomProject {
@@ -36,6 +40,11 @@ struct BomProject {
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects);
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects);
+#ifdef _WIN32
+// Validate the persisted BOM rows without migrating or mutating the database.
+// Backup validation uses this read-only seam before a bundle can be activated.
+bool validateBomProjects(SqliteConnection& connection, string* error = nullptr);
+#endif
 
 // Shared with the tests: escaped round trip for the two string maps.
 string serializeBomMap(const map<string, string>& values);

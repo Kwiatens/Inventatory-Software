@@ -127,7 +127,22 @@ string productSearchUrl(const string& digikeyPart) {
   if (part.empty()) {
     return {};
   }
-  return "https://www.digikey.com/en/products/result?keywords=" + part;
+
+  string encoded;
+  encoded.reserve(part.size());
+  static constexpr char kHex[] = "0123456789ABCDEF";
+  for (const unsigned char character : part) {
+    const bool asciiAlphaNumeric = (character >= 'A' && character <= 'Z') ||
+                                   (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9');
+    if (asciiAlphaNumeric || character == '-' || character == '_' || character == '.' || character == '~') {
+      encoded.push_back(static_cast<char>(character));
+    } else {
+      encoded.push_back('%');
+      encoded.push_back(kHex[(character >> 4U) & 0x0FU]);
+      encoded.push_back(kHex[character & 0x0FU]);
+    }
+  }
+  return "https://www.digikey.com/en/products/result?keywords=" + encoded;
 }
 
 int addQuantities(int current, int incoming) {
@@ -249,6 +264,10 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
 
 CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryItem>& existingItems) {
   CsvImportResult result;
+  if (text.size() > kMaximumImportBytes) {
+    result.error = "CSV import exceeds the 25 MiB safety limit";
+    return result;
+  }
   string parseError;
   const auto cleaned = stripByteOrderMark(text);
   const auto rows = parseCsv(cleaned, sniffDelimiter(cleaned), parseError);
@@ -315,7 +334,13 @@ CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryIt
 
 CsvImportResult loadDigiKeyCsvFile(const filesystem::path& path, const vector<InventoryItem>& existingItems) {
   error_code error;
-  if (const auto size = filesystem::file_size(path, error); error || size > kMaximumImportBytes) {
+  const auto size = filesystem::file_size(path, error);
+  if (error) {
+    CsvImportResult result;
+    result.error = "Unable to inspect CSV file";
+    return result;
+  }
+  if (size > kMaximumImportBytes) {
     CsvImportResult result;
     result.error = "CSV import exceeds the 25 MiB safety limit";
     return result;
@@ -329,6 +354,11 @@ CsvImportResult loadDigiKeyCsvFile(const filesystem::path& path, const vector<In
 
   ostringstream buffer;
   buffer << input.rdbuf();
+  if (input.bad()) {
+    CsvImportResult result;
+    result.error = "Unable to read CSV file";
+    return result;
+  }
   return parseDigiKeyCsvText(buffer.str(), existingItems);
 }
 

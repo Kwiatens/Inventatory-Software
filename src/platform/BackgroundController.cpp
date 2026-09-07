@@ -8,6 +8,7 @@
 #include <shellapi.h>
 
 #include <cstdio>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -145,10 +146,10 @@ BackgroundController::~BackgroundController() {
 }
 
 bool BackgroundController::acquireSingleInstance(bool backgroundMode) {
-  backgroundMode_ = backgroundMode;
   const auto* mutexName = backgroundMode ? kBackgroundMutexName : kInteractiveMutexName;
   const HANDLE mutex = CreateMutexW(nullptr, TRUE, mutexName);
-  if (mutex == nullptr) return true;
+  if (mutex == nullptr) return false;
+  backgroundMode_ = backgroundMode;
   instanceMutex_ = mutex;
   return GetLastError() != ERROR_ALREADY_EXISTS;
 }
@@ -216,16 +217,47 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
     onQuit_ = std::move(onQuit);
     onOpen_ = std::move(onOpen);
   }
+  {
+    std::lock_guard<std::mutex> lock(trayReadyMutex_);
+    trayReady_ = false;
+  }
+  trayStartupCancelled_.store(false);
   trayThread_ = std::thread(&BackgroundController::trayThreadMain, this);
-  while (trayWindow_.load() == nullptr) Sleep(5);
+  {
+    std::unique_lock<std::mutex> lock(trayReadyMutex_);
+    if (!trayReadyChanged_.wait_for(lock, std::chrono::seconds(2), [this] { return trayReady_; })) {
+      enabled_.store(false);
+      trayStartupCancelled_.store(true);
+      lock.unlock();
+      if (const HWND window = trayWindow_.load(); window != nullptr) {
+        PostMessageW(window, kStopMessage, 0, 0);
+      }
+      if (trayThread_.joinable()) trayThread_.join();
+      trayWindow_.store(nullptr);
+      std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+      onQuit_ = {};
+      onOpen_ = {};
+      return false;
+    }
+  }
+  if (trayWindow_.load() == nullptr) {
+    enabled_.store(false);
+    trayStartupCancelled_.store(true);
+    if (trayThread_.joinable()) trayThread_.join();
+    trayWindow_.store(nullptr);
+    std::lock_guard<std::mutex> callbackLock(callbackMutex_);
+    onQuit_ = {};
+    onOpen_ = {};
+    return false;
+  }
   SetConsoleCtrlHandler(consoleControlHandler, TRUE);
   if (hideInitially) hideConsole(false);
   return true;
 }
 
 void BackgroundController::stop() {
-  if (!enabled_.exchange(false)) return;
-  SetConsoleCtrlHandler(consoleControlHandler, FALSE);
+  const bool wasEnabled = enabled_.exchange(false);
+  if (wasEnabled) SetConsoleCtrlHandler(consoleControlHandler, FALSE);
   if (const HWND window = trayWindow_.load(); window != nullptr) PostMessageW(window, kStopMessage, 0, 0);
   if (trayThread_.joinable()) trayThread_.join();
   trayWindow_.store(nullptr);
@@ -290,6 +322,15 @@ void BackgroundController::trayThreadMain() {
   HWND window = CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClass, kWindowTitle, WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
                                 instance, this);
   trayWindow_.store(window);
+  {
+    std::lock_guard<std::mutex> lock(trayReadyMutex_);
+    trayReady_ = true;
+  }
+  trayReadyChanged_.notify_all();
+  if (window == nullptr || trayStartupCancelled_.load()) {
+    if (window != nullptr) DestroyWindow(window);
+    return;
+  }
 
   NOTIFYICONDATAW icon{};
   icon.cbSize = sizeof(icon);

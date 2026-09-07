@@ -21,7 +21,13 @@ int main(int argc, char* argv[]) {
   }
   if (!startInBackground && backgroundController.backgroundServiceRunning()) {
     backgroundController.requestBackgroundServiceQuit();
-    backgroundController.waitForBackgroundServiceToStop(5000);
+    if (!backgroundController.waitForBackgroundServiceToStop(5000)) {
+      // Never open the shared workspace while the background bridge may still
+      // be using it. Releasing the interactive mutex on return lets the
+      // background process remain the sole owner until the user retries.
+      std::cerr << "Inventatory background service did not stop; refusing concurrent startup.\n";
+      return 1;
+    }
   }
   inventatory::App app(startInBackground, backgroundController);
   return app.run();
