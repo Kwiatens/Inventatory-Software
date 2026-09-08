@@ -104,6 +104,8 @@ add_executable(inventatory
   src/core/InventoryStorage.cpp
   src/core/InventoryStorageSqlite.cpp
   src/core/InventoryTransfer.cpp
+  src/core/InventoryBackup.cpp
+  src/core/InventoryRestore.cpp
   src/core/InventoryTransferManifest.cpp
   src/core/InventoryTransferOps.cpp
   src/core/InventoryTransferRecovery.cpp
@@ -248,6 +250,8 @@ add_executable(inventatory_tests
   src/core/InventoryStorage.cpp
   src/core/InventoryStorageSqlite.cpp
   src/core/InventoryTransfer.cpp
+  src/core/InventoryBackup.cpp
+  src/core/InventoryRestore.cpp
   src/core/InventoryTransferManifest.cpp
   src/core/InventoryTransferOps.cpp
   src/core/InventoryTransferRecovery.cpp
