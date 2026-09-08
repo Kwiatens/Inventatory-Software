@@ -81,6 +81,7 @@ add_executable(inventatory
   src/app/AppBomEnrichment.cpp
   src/app/AppBomActions.cpp
   src/app/AppBomProjectActions.cpp
+  src/app/AppBomBuildActions.cpp
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/core/Inventory.cpp
