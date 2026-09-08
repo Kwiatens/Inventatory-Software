@@ -4,7 +4,6 @@
 #include "App.h"
 
 #include "import/CsvFormat.h"
-#include "core/AtomicFile.h"
 #include "core/InventorySqlite.h"
 #include "platform/DigiKeyApi.h"
 #include "platform/CredentialStore.h"
@@ -37,55 +36,33 @@ constexpr size_t kDeviceQuantityQueueLimit = 64;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
-optional<string> loadWorkspaceScannerToken(const filesystem::path& workspaceDirectory,
-                                            const InventatoryScanConfig& config, bool& migratedLegacy) {
-  migratedLegacy = false;
-  if (const auto scoped = CredentialStore::readForWorkspace(workspaceDirectory, kInventatoryScanTokenCredential);
-      scoped.has_value()) {
-    return scoped;
-  }
+enum class WorkspaceScannerCredentialStatus {
+  Loaded,
+  FreshCredential,
+  RequiresPairing,
+};
 
-  // Versions before workspace-scoped credentials stored one global token.  It
-  // is safe to migrate that token only when the workspace carries a completed
-  // pairing identity; a fresh/empty workspace must receive a new token.
-  if (config.setupComplete && !trim(config.deviceId).empty()) {
-    if (const auto legacy = CredentialStore::read(kInventatoryScanTokenCredential); legacy.has_value() &&
-        CredentialStore::writeForWorkspace(workspaceDirectory, kInventatoryScanTokenCredential, *legacy)) {
-      migratedLegacy = true;
-      return legacy;
-    }
-  }
-  return nullopt;
+struct WorkspaceScannerCredentialResolution {
+  WorkspaceScannerCredentialStatus status = WorkspaceScannerCredentialStatus::RequiresPairing;
+  optional<string> token;
+};
+
+bool validScannerToken(const string& token) {
+  return token.size() == 64U &&
+         all_of(token.begin(), token.end(), [](unsigned char ch) { return isxdigit(ch) != 0; });
 }
 
-bool migrateLegacyScannerReplayState(const filesystem::path& workspaceDirectory) {
-  const auto legacyPath = appSettingsDirectory() / "inventatory-scan-replay.state";
-  const auto scopedPath = inventatoryScanReplayStatePath(workspaceDirectory);
-  if (scopedPath.empty() || scopedPath == legacyPath) return true;
-
-  error_code error;
-  if (filesystem::exists(scopedPath, error)) return true;
-  if (error) return false;
-  error.clear();
-  if (!filesystem::exists(legacyPath, error)) return !error;
-  if (error) return false;
-
-  ifstream input(legacyPath, ios::binary);
-  if (!input) return false;
-  error_code sizeError;
-  const auto replaySize = filesystem::file_size(legacyPath, sizeError);
-  if (sizeError || replaySize > 256U) return false;
-  string contents(static_cast<size_t>(replaySize), '\0');
-  if (replaySize != 0) {
-    input.read(contents.data(), static_cast<streamsize>(replaySize));
-    if (input.gcount() != static_cast<streamsize>(replaySize)) return false;
+WorkspaceScannerCredentialResolution resolveWorkspaceScannerCredential(const filesystem::path& workspaceDirectory,
+                                                                        const InventatoryScanConfig& config) {
+  const auto scopedCredential =
+      CredentialStore::readForWorkspace(workspaceDirectory, kInventatoryScanTokenCredential);
+  if (scopedCredential.has_value() && validScannerToken(*scopedCredential)) {
+    return {WorkspaceScannerCredentialStatus::Loaded, scopedCredential};
   }
-  if (input.bad()) return false;
-  string ignored;
-  // The server validates the fingerprint and counter before accepting the
-  // state. Atomic replacement ensures a crash cannot leave a partial scope
-  // marker that is mistaken for durable replay state.
-  return writeFileAtomically(scopedPath, contents, &ignored);
+  if (scopedCredential.has_value() || config.setupComplete || !trim(config.deviceId).empty()) {
+    return {WorkspaceScannerCredentialStatus::RequiresPairing, nullopt};
+  }
+  return {WorkspaceScannerCredentialStatus::FreshCredential, nullopt};
 }
 
 filesystem::path resolveInventoryDatabasePath(const filesystem::path& selectedPath) {
@@ -304,7 +281,6 @@ void App::loadState() {
   appSettingsSavePending_ = false;
   pendingMovementSource_.clear();
   pendingMovementReference_.clear();
-  scannerReplayStateMigrationPending_ = false;
   error_code inventoryError;
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
   InventoryStore loadedStore;
@@ -372,19 +348,23 @@ void App::loadState() {
   // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 
   if (trim(inventatoryScanConfig_.token).empty()) {
-    bool migratedLegacyToken = false;
-    if (const auto stored = loadWorkspaceScannerToken(dataPath_, inventatoryScanConfig_, migratedLegacyToken);
-        stored.has_value()) {
-      inventatoryScanConfig_.token = *stored;
-      if (migratedLegacyToken && !migrateLegacyScannerReplayState(dataPath_)) {
-        scannerReplayStateMigrationPending_ = true;
-        persistenceError_ = "Could not migrate scanner replay state; the Scan R1 service is disabled until it succeeds.";
-      }
-    } else {
-      inventatoryScanConfig_.token = generateInventatoryScanToken();
+    const auto resolution = resolveWorkspaceScannerCredential(dataPath_, inventatoryScanConfig_);
+    switch (resolution.status) {
+      case WorkspaceScannerCredentialStatus::Loaded:
+        inventatoryScanConfig_.token = resolution.token.value_or(string());
+        break;
+      case WorkspaceScannerCredentialStatus::FreshCredential:
+        inventatoryScanConfig_.token = generateInventatoryScanToken();
+        break;
+      case WorkspaceScannerCredentialStatus::RequiresPairing:
+        inventatoryScanConfig_.token.clear();
+        inventatoryScanConfig_.deviceId.clear();
+        inventatoryScanConfig_.setupComplete = false;
+        setMessage("This workspace does not carry its Scan R1 credential; pair the scanner again", 7);
+        break;
     }
   }
-  saveScannerCredentialChecked(false);
+  if (!inventatoryScanConfig_.token.empty()) saveScannerCredentialChecked(false);
 
   vector<string> saveFailures;
   bool inventorySaved = false;
@@ -397,7 +377,6 @@ void App::loadState() {
   if (scannerCredentialSavePending_ && !saveScannerCredentialChecked(false)) {
     saveFailures.push_back("scanner pairing token");
   }
-  if (scannerReplayStateMigrationPending_) saveFailures.push_back("scanner replay state");
   if (activityLoadFailed) {
     activitySavePending_ = true;
     saveFailures.push_back("activity history (unreadable; original preserved)");
@@ -794,7 +773,6 @@ bool App::saveActivitiesChecked(bool notify) {
 
 bool App::hasPendingPersistence() const {
   return pendingCommitDraftValid_ || activitySavePending_ || scannerCredentialSavePending_ ||
-         scannerReplayStateMigrationPending_ ||
          scannerConfigSavePending_ || appSettingsSavePending_ ||
          !persistenceError_.empty();
 }
@@ -816,13 +794,7 @@ void App::retrySaveState() {
   const bool appSettingsSaved = savePendingAppSettings();
   const bool scannerSaved = !scannerConfigSavePending_ || saveScannerConfigChecked(false);
   const bool scannerCredentialSaved = !scannerCredentialSavePending_ || saveScannerCredentialChecked(false);
-  const bool replayStateSaved = !scannerReplayStateMigrationPending_ ||
-                                migrateLegacyScannerReplayState(dataPath_);
-  if (replayStateSaved) scannerReplayStateMigrationPending_ = false;
-  if (!replayStateSaved) {
-    persistenceError_ = "Could not migrate scanner replay state; the Scan R1 service is disabled until it succeeds.";
-  }
-  if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved && scannerCredentialSaved && replayStateSaved) {
+  if (stateSaved && projectsSaved && appSettingsSaved && scannerSaved && scannerCredentialSaved) {
     if (scannerCredentialSaved && !server_.running() && !inventatoryScanConfig_.token.empty()) {
       restartDeviceService();
     }
@@ -1074,7 +1046,6 @@ bool App::chooseInventatoryFolder() {
   const auto oldSettings = settings_;
   const auto oldContext = currentWorkspaceContext();
   InventoryStore candidate;
-  bool candidateNeedsMigration = false;
   if (filesystem::exists(selectedInventoryPath)) {
     SqliteConnection candidateConnection;
     string candidateValidationError;
@@ -1082,9 +1053,8 @@ bool App::chooseInventatoryFolder() {
       setMessage("The selected folder contains an inventory database Inventatory cannot load", 6);
       return false;
     }
-    if (!validateInventoryDatabase(candidateConnection, &candidateValidationError)) {
-      candidateNeedsMigration = true;
-    } else if (!candidate.load(selectedInventoryPath)) {
+    if (!validateInventoryDatabase(candidateConnection, &candidateValidationError) ||
+        !candidate.load(selectedInventoryPath)) {
       setMessage("The selected folder contains an inventory database Inventatory cannot load", 6);
       return false;
     }
@@ -1093,11 +1063,6 @@ bool App::chooseInventatoryFolder() {
   mdnsService_.stop();
   server_.stop();
   stopWorkspaceBoundWork();
-  if (candidateNeedsMigration && !candidate.load(selectedInventoryPath)) {
-    if (serviceWasRunning) restartDeviceService();
-    setMessage("The selected folder contains an inventory database that could not be migrated", 6);
-    return false;
-  }
   if (inventoryRecoveryRequired_) {
     activePaths = makeInventatoryDataPaths(selectedInventoryPath.parent_path());
   } else if (!switchInventatoryDataPathsAfterSaving(activePaths, selectedInventoryPath.parent_path(),
@@ -1195,6 +1160,10 @@ bool App::chooseInventatoryFolder() {
                              : "Selected folder failed and previous settings could not be restored; press R to retry saving",
                7);
     return false;
+  }
+  if (!inventatoryScanConfig_.setupComplete) {
+    setMessage("Loaded folder; its Scan R1 pairing was not carried over. Pair the scanner again", 7);
+    return true;
   }
   if (trim(inventatoryScanConfig_.token).empty()) {
     inventatoryScanConfig_.token = generateInventatoryScanToken();
@@ -2080,16 +2049,13 @@ void App::commitEditField(EditField field, const string& value) {
       workingCopy_.item.category = trimmed;
       break;
     case EditField::Quantity:
-      try {
-        workingCopy_.item.quantity = max(0, stoi(trimmed));
-      } catch (...) {
+      if (!parseIntegerInRange(trimmed, 0, (numeric_limits<int>::max)(), workingCopy_.item.quantity)) {
         valid = false;
       }
       break;
     case EditField::ReorderThreshold:
-      try {
-        workingCopy_.item.reorderThreshold = max(0, stoi(trimmed));
-      } catch (...) {
+      if (!parseIntegerInRange(trimmed, 0, (numeric_limits<int>::max)(),
+                               workingCopy_.item.reorderThreshold)) {
         valid = false;
       }
       break;
@@ -2645,11 +2611,9 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
     return false;
   }
 
-  string printerName;
-  {
-    lock_guard<mutex> lock(quickLabelMutex_);
-    printerName = settings_.printerQueue;
-  }
+  // printer.conf belongs to the active workspace. The app-settings copy can
+  // still describe the previously selected workspace during a switch.
+  string printerName = printerService_.configuredPrinter();
   if (trim(printerName).empty()) {
     result = {request.requestId, "failed", "printer_unconfigured", "No printer configured"};
   } else {

@@ -350,14 +350,12 @@ void App::commitSettingsFieldEdit() {
     wireLabelText_ = trim(inputBuffer_);
   } else if (settingsCategory_ == SettingsCategory::General) {
     if (settingsField_ == 0) {
-      try {
-        const auto threshold = stoi(trim(inputBuffer_));
-        if (threshold <= 0) throw out_of_range("threshold");
-        settingsDraft_.lowStockThreshold = threshold;
-      } catch (...) {
+      int threshold = 0;
+      if (!parseIntegerInRange(trim(inputBuffer_), 1, (numeric_limits<int>::max)(), threshold)) {
         setMessage("Low-stock threshold must be a positive whole number", 4);
         return;
       }
+      settingsDraft_.lowStockThreshold = threshold;
     }
   } else if (settingsCategory_ == SettingsCategory::Appearance) {
     if (settingsField_ < 0 || settingsField_ >= static_cast<int>(kAppearanceColorCount)) return;
@@ -380,14 +378,12 @@ void App::commitSettingsFieldEdit() {
     }
   } else if (settingsCategory_ == SettingsCategory::InventatoryScan) {
     if (settingsField_ == 0) {
-      try {
-        const auto port = stoi(inputBuffer_);
-        if (port < 1 || port > 65535) throw out_of_range("port");
-        settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
-      } catch (...) {
+      int port = 0;
+      if (!parseIntegerInRange(trim(inputBuffer_), 1, 65535, port)) {
         setMessage("Device service port must be between 1 and 65535", 4);
         return;
       }
+      settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
     }
   } else if (settingsCategory_ == SettingsCategory::DigiKey) {
     switch (settingsField_) {
@@ -513,7 +509,6 @@ bool App::saveSettingsDraft() {
   vector<string> candidateQuickLabels;
   uint32_t candidateQuickLabelRevision = settingsDraft_.quickLabelRevision;
   bool candidateQuickLabelsLoaded = false;
-  bool candidateNeedsMigration = false;
   auto candidatePaths = makeInventatoryDataPaths(settingsDraft_.dataDirectory);
   if (dataChanged) {
     if (filesystem::exists(candidatePaths.inventory, error)) {
@@ -524,10 +519,8 @@ bool App::saveSettingsDraft() {
         return false;
       }
       if (!validateInventoryDatabase(candidateConnection, &candidateValidationError)) {
-        // Legacy databases are migrated only after the active service is
-        // quiesced. A structurally unreadable database is rejected by the
-        // migration/load step before settings activation below.
-        candidateNeedsMigration = true;
+        setMessage("The selected folder contains an unsupported or invalid inventory database", 6);
+        return false;
       } else if (!candidateStore.load(candidatePaths.inventory)) {
         setMessage("The selected folder contains an inventory database Inventatory cannot load", 5);
         return false;
@@ -581,11 +574,6 @@ bool App::saveSettingsDraft() {
     if (!saveState()) {
       restartOldService();
       setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5);
-      return false;
-    }
-    if (candidateNeedsMigration && !candidateStore.load(candidatePaths.inventory)) {
-      restartOldService();
-      setMessage("The selected folder contains an inventory database that could not be migrated", 6);
       return false;
     }
   }
