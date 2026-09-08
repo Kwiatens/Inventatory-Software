@@ -39,6 +39,14 @@ constexpr size_t kMaxHttpBodyBytes = 64U * 1024U;
 constexpr DWORD kClientIoTimeoutMs = 2000U;
 constexpr size_t kWorkerCount = 4;
 constexpr size_t kMaxQueuedClients = 16;
+constexpr DWORD kReaderSelectIntervalMs = 100U;
+
+struct PendingClient {
+  SOCKET socket = INVALID_SOCKET;
+  string request;
+  size_t expectedSize = string::npos;
+  chrono::steady_clock::time_point deadline;
+};
 
 string jsonEscape(const string& value) {
   ostringstream out;
@@ -322,6 +330,7 @@ bool LocalHttpServer::start(uint16_t preferredPort, SyncCallback onSync) {
     if (bindSocket(static_cast<uint16_t>(candidate))) {
       running_.store(true);
       acceptor_ = thread(&LocalHttpServer::acceptLoop, this);
+      reader_ = thread(&LocalHttpServer::readerLoop, this);
       workers_.clear();
       workers_.reserve(kWorkerCount);
       for (size_t index = 0; index < kWorkerCount; ++index) {
@@ -355,16 +364,19 @@ void LocalHttpServer::stop() {
 
   if (acceptor_.joinable()) acceptor_.join();
 
+  pendingClientChanged_.notify_all();
+  if (reader_.joinable()) reader_.join();
+
   // The acceptor has stopped, so no new socket can be added.  Close every
   // queued socket before waking workers; only sockets already popped by a
   // worker are allowed to finish their bounded I/O/callback work during
   // shutdown.
-  deque<SOCKET> queuedClients;
+  deque<ReadyClient> queuedClients;
   {
     lock_guard<mutex> lock(clientQueueMutex_);
     queuedClients.swap(clientQueue_);
   }
-  for (const auto client : queuedClients) closesocket(client);
+  for (const auto& client : queuedClients) closesocket(client.socket);
   clientQueueChanged_.notify_all();
   for (auto& worker : workers_) {
     if (worker.joinable()) worker.join();
@@ -493,26 +505,177 @@ void LocalHttpServer::acceptLoop() {
                sizeof(kClientIoTimeoutMs));
     setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&kClientIoTimeoutMs),
                sizeof(kClientIoTimeoutMs));
+    u_long nonBlocking = 1;
+    if (ioctlsocket(client, FIONBIO, &nonBlocking) != 0) {
+      closesocket(client);
+      continue;
+    }
 
     bool queued = false;
     {
-      lock_guard<mutex> lock(clientQueueMutex_);
-      if (running_.load() && clientQueue_.size() < kMaxQueuedClients) {
-        clientQueue_.push_back(client);
+      lock_guard<mutex> lock(pendingClientMutex_);
+      if (running_.load() && pendingClientCount_ < kMaxQueuedClients) {
+        pendingClientQueue_.push_back(client);
+        ++pendingClientCount_;
         queued = true;
       }
     }
     if (queued) {
-      clientQueueChanged_.notify_one();
+      pendingClientChanged_.notify_one();
     } else {
       closesocket(client);
     }
   }
 }
 
+void LocalHttpServer::readerLoop() {
+  vector<PendingClient> pending;
+  pending.reserve(kMaxQueuedClients);
+
+  const auto releasePendingSlot = [this] {
+    lock_guard<mutex> lock(pendingClientMutex_);
+    if (pendingClientCount_ > 0) --pendingClientCount_;
+  };
+  const auto closePendingClient = [&releasePendingSlot](PendingClient& client) {
+    if (client.socket != INVALID_SOCKET) {
+      closesocket(client.socket);
+      client.socket = INVALID_SOCKET;
+      releasePendingSlot();
+    }
+  };
+
+  while (true) {
+    {
+      unique_lock<mutex> lock(pendingClientMutex_);
+      if (pending.empty() && pendingClientQueue_.empty() && running_.load()) {
+        pendingClientChanged_.wait(lock, [this] { return !running_.load() || !pendingClientQueue_.empty(); });
+      }
+      while (!pendingClientQueue_.empty()) {
+        pending.push_back({pendingClientQueue_.front(), {}, string::npos,
+                           chrono::steady_clock::now() + chrono::milliseconds(kClientIoTimeoutMs)});
+        pendingClientQueue_.pop_front();
+      }
+    }
+
+    if (!running_.load()) {
+      for (auto& client : pending) closePendingClient(client);
+      while (true) {
+        SOCKET client = INVALID_SOCKET;
+        {
+          lock_guard<mutex> lock(pendingClientMutex_);
+          if (pendingClientQueue_.empty()) break;
+          client = pendingClientQueue_.front();
+          pendingClientQueue_.pop_front();
+        }
+        PendingClient queued{client};
+        closePendingClient(queued);
+      }
+      return;
+    }
+    if (pending.empty()) continue;
+
+    fd_set readable;
+    FD_ZERO(&readable);
+    auto earliestDeadline = chrono::steady_clock::now() + chrono::milliseconds(kReaderSelectIntervalMs);
+    for (const auto& client : pending) {
+      FD_SET(client.socket, &readable);
+      earliestDeadline = min(earliestDeadline, client.deadline);
+    }
+    const auto now = chrono::steady_clock::now();
+    const auto waitDuration = max(chrono::milliseconds(0),
+                                  chrono::duration_cast<chrono::milliseconds>(earliestDeadline - now));
+    timeval timeout{};
+    timeout.tv_sec = static_cast<long>(waitDuration.count() / 1000);
+    timeout.tv_usec = static_cast<long>((waitDuration.count() % 1000) * 1000);
+    const int selected = select(0, &readable, nullptr, nullptr, &timeout);
+    if (selected == SOCKET_ERROR) {
+      for (auto& client : pending) closePendingClient(client);
+      pending.clear();
+      continue;
+    }
+
+    for (size_t index = 0; index < pending.size();) {
+      auto& client = pending[index];
+      bool ready = false;
+      bool close = chrono::steady_clock::now() >= client.deadline;
+      if (!close && selected > 0 && FD_ISSET(client.socket, &readable)) {
+        array<char, 4096> buffer{};
+        const int received = recv(client.socket, buffer.data(), static_cast<int>(buffer.size()), 0);
+        if (received == 0) {
+          close = true;
+        } else if (received == SOCKET_ERROR) {
+          const auto error = WSAGetLastError();
+          close = error != WSAEWOULDBLOCK && error != WSAEINPROGRESS;
+        } else {
+          client.request.append(buffer.data(), buffer.data() + received);
+          if (client.request.size() > kMaxHttpHeaderBytes + kMaxHttpBodyBytes) {
+            ready = true;
+          } else {
+            const auto headerEnd = client.request.find("\r\n\r\n");
+            if (headerEnd != string::npos) {
+              if (headerEnd > kMaxHttpHeaderBytes) {
+                ready = true;
+              } else {
+                string method;
+                string target;
+                string version;
+                HttpHeaderMap headers;
+                size_t bodySize = 0;
+                if (!parseHttpHeaders(client.request.substr(0, headerEnd), method, target, version, headers) ||
+                    !parseContentLength(headers, bodySize)) {
+                  ready = true;
+                } else if (bodySize > kMaxHttpBodyBytes ||
+                           headers.find("transfer-encoding") != headers.end()) {
+                  ready = true;
+                } else {
+                  client.expectedSize = headerEnd + 4 + bodySize;
+                  ready = client.request.size() >= client.expectedSize;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (close) {
+        closePendingClient(client);
+      } else if (ready) {
+        u_long blocking = 0;
+        if (ioctlsocket(client.socket, FIONBIO, &blocking) != 0) {
+          closePendingClient(client);
+        } else {
+          ReadyClient completed{client.socket, move(client.request)};
+          client.socket = INVALID_SOCKET;
+          releasePendingSlot();
+          bool queued = false;
+          {
+            lock_guard<mutex> lock(clientQueueMutex_);
+            if (running_.load() && clientQueue_.size() < kMaxQueuedClients) {
+              clientQueue_.push_back(move(completed));
+              queued = true;
+            }
+          }
+          if (queued) {
+            clientQueueChanged_.notify_one();
+          } else {
+            closesocket(completed.socket);
+          }
+        }
+      }
+
+      if (client.socket == INVALID_SOCKET) {
+        pending[index] = move(pending.back());
+        pending.pop_back();
+      } else {
+        ++index;
+      }
+    }
+  }
+}
+
 void LocalHttpServer::workerLoop() {
   while (true) {
-    SOCKET client = INVALID_SOCKET;
+    ReadyClient client;
     {
       unique_lock<mutex> lock(clientQueueMutex_);
       clientQueueChanged_.wait(lock, [this] { return !running_.load() || !clientQueue_.empty(); });
@@ -520,39 +683,11 @@ void LocalHttpServer::workerLoop() {
         if (!running_.load()) break;
         continue;
       }
-      client = clientQueue_.front();
+      client = move(clientQueue_.front());
       clientQueue_.pop_front();
     }
-
-    string request;
-    array<char, 4096> buffer{};
-    size_t expectedSize = string::npos;
-    const auto deadline = chrono::steady_clock::now() + chrono::milliseconds(kClientIoTimeoutMs);
-    while (true) {
-      if (chrono::steady_clock::now() >= deadline) break;
-      const int received = recv(client, buffer.data(), static_cast<int>(buffer.size()), 0);
-      if (received <= 0) break;
-      request.append(buffer.data(), buffer.data() + received);
-      const auto headerEnd = request.find("\r\n\r\n");
-      if (headerEnd != string::npos && headerEnd > kMaxHttpHeaderBytes) break;
-      if (headerEnd != string::npos && expectedSize == string::npos) {
-        string method;
-        string target;
-        string version;
-        HttpHeaderMap headers;
-        size_t bodySize = 0;
-        if (!parseHttpHeaders(request.substr(0, headerEnd), method, target, version, headers) ||
-            !parseContentLength(headers, bodySize) || bodySize > kMaxHttpBodyBytes) {
-          break;
-        }
-        expectedSize = headerEnd + 4 + bodySize;
-      }
-      if (expectedSize != string::npos && request.size() >= expectedSize) break;
-      if (request.size() > kMaxHttpHeaderBytes + kMaxHttpBodyBytes) break;
-    }
-
-    serveConnection(client, move(request));
-    closesocket(client);
+    serveConnection(client.socket, move(client.request));
+    closesocket(client.socket);
   }
 }
 

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <filesystem>
 #include <cstdint>
@@ -64,7 +65,13 @@ class LocalHttpServer {
   vector<string> addresses() const;
 
  private:
+  struct ReadyClient {
+    SOCKET socket = INVALID_SOCKET;
+    string request;
+  };
+
   void workerLoop();
+  void readerLoop();
   void acceptLoop();
   bool serveConnection(SOCKET clientSocket, string requestText);
   string responseText(const string& status, const string& contentType, const string& body) const;
@@ -78,11 +85,16 @@ class LocalHttpServer {
   atomic<bool> running_{false};
   bool winsockStarted_ = false;
   thread acceptor_;
+  thread reader_;
   vector<thread> workers_;
   mutable mutex socketMutex_;
+  mutable mutex pendingClientMutex_;
+  condition_variable pendingClientChanged_;
+  deque<SOCKET> pendingClientQueue_;
+  size_t pendingClientCount_ = 0;
   mutable mutex clientQueueMutex_;
   condition_variable clientQueueChanged_;
-  deque<SOCKET> clientQueue_;
+  deque<ReadyClient> clientQueue_;
   SyncCallback onSync_;
   mutable mutex callbackMutex_;
   mutable mutex stateMutex_;
