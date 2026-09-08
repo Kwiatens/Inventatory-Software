@@ -74,7 +74,9 @@ add_executable(inventatory
   src/app/AppQuickLabelActions.cpp
   src/app/AppScanEnrichment.cpp
   src/app/AppImportActions.cpp
+  src/app/AppBomEnrichment.cpp
   src/app/AppBomActions.cpp
+  src/app/AppBomProjectActions.cpp
   src/app/AppSettings.cpp
   src/platform/StartupRegistration.cpp
   src/core/Inventory.cpp
