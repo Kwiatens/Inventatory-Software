@@ -4,8 +4,8 @@
 
 Page rendering and page-local input remain under `src/ui/pages`. Shared visual
 roles and formatting belong under `src/ui/shared`. The application shell and
-event dispatch live in `src/app.cpp`; cross-page workflows live in
-`src/app/AppActions.cpp`.
+event dispatch live in `src/app.cpp`; cross-page workflows live in the
+feature folders under `src/app/`.
 
 ## Adding an action
 
