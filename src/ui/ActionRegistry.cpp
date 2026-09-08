@@ -5,7 +5,7 @@
 
 #include "App.h"
 
-#include "platform/DigiKeyApi.h"
+#include "platform/digikey/DigiKeyApi.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/dom/elements.hpp>
