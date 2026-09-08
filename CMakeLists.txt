@@ -106,6 +106,9 @@ add_executable(inventatory
   src/platform/HttpServer.cpp
   src/platform/MdnsService.cpp
   src/platform/DigiKeyApi.cpp
+  src/platform/DigiKeyJson.cpp
+  src/platform/DigiKeyProduct.cpp
+  src/platform/DigiKeyTransport.cpp
   src/platform/Console.cpp
   src/platform/Environment.cpp
   src/platform/BackgroundController.cpp
@@ -161,6 +164,9 @@ add_executable(inventatory_tests
   src/platform/Environment.cpp
   src/platform/CredentialStore.cpp
   src/platform/DigiKeyApi.cpp
+  src/platform/DigiKeyJson.cpp
+  src/platform/DigiKeyProduct.cpp
+  src/platform/DigiKeyTransport.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
