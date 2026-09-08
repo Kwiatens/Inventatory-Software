@@ -89,6 +89,7 @@ add_executable(inventatory
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
+  src/core/InventoryVersionDiff.cpp
   src/core/InventoryMovements.cpp
   src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
@@ -204,6 +205,7 @@ add_executable(inventatory_tests
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
+  src/core/InventoryVersionDiff.cpp
   src/core/InventoryMovements.cpp
   src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
