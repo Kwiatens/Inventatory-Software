@@ -114,6 +114,7 @@ add_executable(inventatory
   src/core/InventatoryScanProtocol.cpp
   src/core/InventatoryScanProtocolConfig.cpp
   src/core/InventatoryScanProtocolJson.cpp
+  src/core/InventatoryScanProtocolJsonParser.cpp
   src/core/InventatoryScanProtocolSecurity.cpp
   src/core/DeviceSyncStore.cpp
   src/core/BomMatch.cpp
@@ -257,6 +258,7 @@ add_executable(inventatory_tests
   src/core/InventatoryScanProtocol.cpp
   src/core/InventatoryScanProtocolConfig.cpp
   src/core/InventatoryScanProtocolJson.cpp
+  src/core/InventatoryScanProtocolJsonParser.cpp
   src/core/InventatoryScanProtocolSecurity.cpp
   src/core/DeviceSyncStore.cpp
   src/label_printer/LabelPrinter.cpp
