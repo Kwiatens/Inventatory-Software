@@ -86,4 +86,6 @@ string makeRackJobName(const InventatoryRack& rack);
 string partContextHeader(const InventoryItem& item);
 
 }  // namespace label_printer_detail
+
+std::unique_ptr<PrinterBackend> createPlatformPrinterBackend();
 }  // namespace inventatory

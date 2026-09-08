@@ -122,6 +122,7 @@ add_executable(inventatory
   src/label_printer/LabelPrinterContext.cpp
   src/label_printer/LabelPrinterDetails.cpp
   src/label_printer/LabelPrinterPlatform.cpp
+  src/label_printer/LabelPrinterWindows.cpp
   src/label_printer/LabelPrinterRack.cpp
   src/label_printer/LabelPrinterText.cpp
   src/platform/HttpServer.cpp
@@ -246,6 +247,7 @@ add_executable(inventatory_tests
   src/label_printer/LabelPrinterContext.cpp
   src/label_printer/LabelPrinterDetails.cpp
   src/label_printer/LabelPrinterPlatform.cpp
+  src/label_printer/LabelPrinterWindows.cpp
   src/label_printer/LabelPrinterRack.cpp
   src/label_printer/LabelPrinterText.cpp
 )
