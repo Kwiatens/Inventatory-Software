@@ -131,6 +131,7 @@ add_executable(inventatory
   src/label_printer/LabelPrinterText.cpp
   src/label_printer/LabelPrinterTextLayout.cpp
   src/platform/HttpServer.cpp
+  src/platform/HttpServerConnection.cpp
   src/platform/HttpServerProtocol.cpp
   src/platform/HttpServerLifecycle.cpp
   src/platform/MdnsService.cpp
@@ -205,6 +206,7 @@ add_executable(inventatory_tests
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
   src/platform/HttpServer.cpp
+  src/platform/HttpServerConnection.cpp
   src/platform/HttpServerProtocol.cpp
   src/platform/HttpServerLifecycle.cpp
   src/platform/Console.cpp
