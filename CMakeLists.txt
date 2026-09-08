@@ -83,6 +83,10 @@ add_executable(inventatory
   src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
+  src/core/InventoryTransferManifest.cpp
+  src/core/InventoryTransferOps.cpp
+  src/core/InventoryTransferRecovery.cpp
+  src/core/InventoryTransferValidation.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
   src/core/InventatoryScanProtocol.cpp
@@ -177,6 +181,10 @@ add_executable(inventatory_tests
   src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
   src/core/InventoryTransfer.cpp
+  src/core/InventoryTransferManifest.cpp
+  src/core/InventoryTransferOps.cpp
+  src/core/InventoryTransferRecovery.cpp
+  src/core/InventoryTransferValidation.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
   src/core/InventatoryScanProtocol.cpp
