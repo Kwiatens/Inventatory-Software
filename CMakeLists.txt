@@ -102,6 +102,7 @@ add_executable(inventatory
   src/core/InventoryTransferValidation.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
+  src/core/InventorySqliteSchema.cpp
   src/core/InventatoryScanProtocol.cpp
   src/core/InventatoryScanProtocolConfig.cpp
   src/core/InventatoryScanProtocolJson.cpp
@@ -222,6 +223,7 @@ add_executable(inventatory_tests
   src/core/InventoryTransferValidation.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
+  src/core/InventorySqliteSchema.cpp
   src/core/InventatoryScanProtocol.cpp
   src/core/InventatoryScanProtocolConfig.cpp
   src/core/InventatoryScanProtocolJson.cpp
