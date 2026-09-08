@@ -74,6 +74,8 @@ add_executable(inventatory
   src/app/AppInventoryEdit.cpp
   src/app/AppInventorySelection.cpp
   src/app/AppRackActions.cpp
+  src/app/AppRackPrintingActions.cpp
+  src/app/AppRackPlacementActions.cpp
   src/app/AppDeviceActions.cpp
   src/app/AppQuickLabelActions.cpp
   src/app/AppScanEnrichment.cpp
