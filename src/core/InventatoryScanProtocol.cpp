@@ -2,31 +2,14 @@
 // Inventatory Scan R1 protocol types, validation, persistence, and stock mutation rules.
 
 #include "core/InventatoryScanProtocol.h"
-#include "core/AtomicFile.h"
 #include "core/InventoryInternals.h"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstring>
-#include <fstream>
 #include <limits>
 #include <optional>
-#include <random>
 #include <sstream>
-#include <unordered_set>
-
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <bcrypt.h>
-#pragma comment(lib, "Bcrypt.lib")
-#endif
 
 namespace inventatory {
 
@@ -39,9 +22,6 @@ namespace {
 // makes the accepted wire shape explicit.
 constexpr size_t kMaxJsonNestingDepth = 32;
 constexpr size_t kMaxJsonBodyBytes = 64U * 1024U;
-constexpr size_t kMaxScanConfigFileBytes = 8U * 1024U;
-constexpr size_t kMaxScanConfigDeviceIdBytes = 128U;
-constexpr size_t kMaxScanConfigHostBytes = 256U;
 
 int hexDigit(char ch) {
   if (ch >= '0' && ch <= '9') return ch - '0';
@@ -70,77 +50,6 @@ string jsonEscape(const string& value) {
     }
   }
   return out.str();
-}
-
-string hexBytes(const unsigned char* bytes, size_t size) {
-  static constexpr char kHex[] = "0123456789abcdef";
-  string out;
-  out.reserve(size * 2U);
-  for (size_t index = 0; index < size; ++index) {
-    out.push_back(kHex[(bytes[index] >> 4U) & 0x0fU]);
-    out.push_back(kHex[bytes[index] & 0x0fU]);
-  }
-  return out;
-}
-
-bool decodeToken(const string& token, array<unsigned char, 32>& bytes) {
-  if (token.size() != bytes.size() * 2U) return false;
-  for (size_t index = 0; index < bytes.size(); ++index) {
-    const auto high = hexDigit(token[index * 2U]);
-    const auto low = hexDigit(token[index * 2U + 1U]);
-    if (high < 0 || low < 0) return false;
-    bytes[index] = static_cast<unsigned char>((high << 4U) | low);
-  }
-  return true;
-}
-
-#ifdef _WIN32
-bool hmacSha256(const unsigned char* key, size_t keySize, const string& input, array<unsigned char, 32>& output) {
-  BCRYPT_ALG_HANDLE algorithm = nullptr;
-  BCRYPT_HASH_HANDLE hash = nullptr;
-  DWORD objectSize = 0;
-  DWORD hashSize = 0;
-  ULONG ignored = 0;
-  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG) != 0 ||
-      BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectSize), sizeof(objectSize),
-                        &ignored, 0) != 0 ||
-      BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashSize), sizeof(hashSize),
-                        &ignored, 0) != 0 || hashSize != output.size()) {
-    if (algorithm != nullptr) BCryptCloseAlgorithmProvider(algorithm, 0);
-    return false;
-  }
-  vector<unsigned char> object(objectSize);
-  if (BCryptCreateHash(algorithm, &hash, object.data(), objectSize, const_cast<PUCHAR>(key),
-                       static_cast<ULONG>(keySize), 0) != 0 ||
-      BCryptHashData(hash, reinterpret_cast<PUCHAR>(const_cast<char*>(input.data())),
-                     static_cast<ULONG>(input.size()), 0) != 0 ||
-      BCryptFinishHash(hash, output.data(), static_cast<ULONG>(output.size()), 0) != 0) {
-    if (hash != nullptr) BCryptDestroyHash(hash);
-    BCryptCloseAlgorithmProvider(algorithm, 0);
-    return false;
-  }
-  BCryptDestroyHash(hash);
-  BCryptCloseAlgorithmProvider(algorithm, 0);
-  return true;
-}
-#endif
-
-string transportMac(const string& token, const char* direction, const string& input) {
-  array<unsigned char, 32> root{};
-  array<unsigned char, 32> key{};
-  array<unsigned char, 32> mac{};
-  if (!decodeToken(token, root)) return {};
-#ifdef _WIN32
-  if (!hmacSha256(root.data(), root.size(), string("Inventatory Scan R1 transport v1 ") + direction, key) ||
-      !hmacSha256(key.data(), key.size(), input, mac)) {
-    return {};
-  }
-  return hexBytes(mac.data(), mac.size());
-#else
-  (void)direction;
-  (void)input;
-  return {};
-#endif
 }
 
 class JsonSyntaxParser {
@@ -590,17 +499,6 @@ optional<vector<string>> jsonStringArray(const string& body, const string& key) 
   return values;
 }
 
-string hexToken(const array<unsigned char, 32>& bytes) {
-  static constexpr char kHex[] = "0123456789abcdef";
-  string result;
-  result.reserve(bytes.size() * 2);
-  for (const auto byte : bytes) {
-    result.push_back(kHex[(byte >> 4U) & 0x0fU]);
-    result.push_back(kHex[byte & 0x0fU]);
-  }
-  return result;
-}
-
 bool looksLikeSupportedInventatoryScanCode(const string& code) {
   const auto trimmed = trim(code);
   return !trimmed.empty() &&
@@ -630,138 +528,7 @@ bool looksLikeSupportedLookupCode(const string& code) {
   return looksLikeManufacturerPartNumber(trimmed);
 }
 
-bool validScanConfigText(const string& value, size_t maximum) {
-  return value.size() <= maximum &&
-         all_of(value.begin(), value.end(), [](unsigned char ch) {
-           return ch != 0 && ch != '\r' && ch != '\n';
-         });
-}
-
-bool validScanConfig(const InventatoryScanConfig& config) {
-  return validScanConfigText(config.deviceId, kMaxScanConfigDeviceIdBytes) &&
-         validScanConfigText(config.fallbackHost, kMaxScanConfigHostBytes) && config.fallbackPort <= 65535;
-}
-
 }  // namespace
-
-bool InventatoryScanConfig::paired() const {
-  return setupComplete;
-}
-
-bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConfig& config) {
-  error_code sizeError;
-  const auto fileSize = filesystem::file_size(path, sizeError);
-  if (sizeError || fileSize > kMaxScanConfigFileBytes) return false;
-  ifstream input(path);
-  if (!input) return false;
-  InventatoryScanConfig loaded;
-  bool malformedLine = false;
-  unordered_set<string> seenKeys;
-  bool hasDeviceId = false;
-  bool hasFallbackHost = false;
-  bool hasFallbackPort = false;
-  bool hasSetupComplete = false;
-  string line;
-  while (getline(input, line)) {
-    const auto separator = line.find('=');
-    if (line.size() > kMaxScanConfigFileBytes || separator == string::npos || separator == 0) {
-      malformedLine = true;
-      continue;
-    }
-    const auto key = trim(line.substr(0, separator));
-    const auto value = trim(line.substr(separator + 1));
-    if ((key != "device_id" && key != "fallback_host" && key != "fallback_port" && key != "setup_complete") ||
-        !seenKeys.insert(key).second) {
-      return false;
-    }
-    if (key == "device_id") {
-      if (!validScanConfigText(value, kMaxScanConfigDeviceIdBytes)) return false;
-      loaded.deviceId = value;
-      hasDeviceId = true;
-    } else if (key == "fallback_host") {
-      if (!validScanConfigText(value, kMaxScanConfigHostBytes)) return false;
-      loaded.fallbackHost = value;
-      hasFallbackHost = true;
-    } else if (key == "fallback_port") {
-      if (value.empty() || any_of(value.begin(), value.end(), [](unsigned char ch) { return !isdigit(ch); })) return false;
-      uint64_t port = 0;
-      try {
-        size_t consumed = 0;
-        port = stoull(value, &consumed, 10);
-        if (consumed != value.size() || port > 65535) return false;
-      } catch (...) {
-        return false;
-      }
-      loaded.fallbackPort = static_cast<uint16_t>(port);
-      hasFallbackPort = true;
-    } else if (key == "setup_complete") {
-      if (value == "true" || value == "1") {
-        loaded.setupComplete = true;
-      } else if (value == "false" || value == "0") {
-        loaded.setupComplete = false;
-      } else {
-        return false;
-      }
-      hasSetupComplete = true;
-    }
-  }
-  if (!input.eof() || malformedLine || !(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
-  // Older config files had no setup marker. A stored device identity means
-  // that pairing had already completed before the marker was introduced.
-  if (!hasSetupComplete) loaded.setupComplete = !loaded.deviceId.empty();
-  config = move(loaded);
-  return true;
-}
-
-bool saveInventatoryScanConfig(const filesystem::path& path, const InventatoryScanConfig& config) {
-  if (!validScanConfig(config)) return false;
-  ostringstream output;
-  output << "device_id=" << config.deviceId << '\n'
-         << "fallback_host=" << config.fallbackHost << '\n'
-         << "fallback_port=" << config.fallbackPort << '\n'
-         << "setup_complete=" << (config.setupComplete ? "true" : "false") << '\n';
-  const auto text = output.str();
-  if (text.size() > kMaxScanConfigFileBytes) return false;
-  string error;
-  return writeFileAtomically(path, text, &error);
-}
-
-string generateInventatoryScanToken() {
-  array<unsigned char, 32> bytes{};
-#ifdef _WIN32
-  if (BCryptGenRandom(nullptr, bytes.data(), static_cast<ULONG>(bytes.size()), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
-    return hexToken(bytes);
-  }
-#endif
-  random_device source;
-  for (auto& byte : bytes) byte = static_cast<unsigned char>(source());
-  return hexToken(bytes);
-}
-
-filesystem::path inventatoryScanReplayStatePath(const filesystem::path& workspaceDirectory) {
-  if (workspaceDirectory.empty()) return {};
-  error_code error;
-  const auto absoluteDirectory = filesystem::absolute(workspaceDirectory, error);
-  if (error || absoluteDirectory.empty()) return {};
-  return absoluteDirectory.lexically_normal() / "inventatory-scan-replay.state";
-}
-
-string deviceRequestMac(const string& token, const string& method, const string& path, const string& deviceId,
-                        uint64_t counter, const string& body) {
-  return transportMac(token, "client-to-server",
-                      "Inventatory Scan R1/v1\nrequest\n" + method + '\n' + path + '\n' + deviceId + '\n' +
-                          to_string(counter) + '\n' + body);
-}
-
-string deviceResponseMac(const string& token, uint64_t counter, int status, const string& body) {
-  return transportMac(token, "server-to-client",
-                      "Inventatory Scan R1/v1\nresponse\n" + to_string(counter) + '\n' + to_string(status) + '\n' +
-                          body);
-}
-
-string deviceTransportStateFingerprint(const string& token) {
-  return transportMac(token, "replay-state", "Inventatory Scan R1/v1 replay state");
-}
 
 bool parseQuantityRequestJson(const string& body, DeviceQuantityRequest& request, string& error) {
   if (!jsonObjectIsComplete(body)) {
