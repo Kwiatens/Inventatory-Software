@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <atomic>
 #include <condition_variable>
+#include <charconv>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -104,6 +105,31 @@ inline bool quickLabelPrintCacheIdentityMatches(const QuickLabelPrintCacheIdenti
          cached.request.presetIndex == requested.request.presetIndex &&
          cached.request.revision == requested.request.revision &&
          cached.labelText == requested.labelText;
+}
+
+// Printer selection is staged before the shared Settings Save action runs.
+// Keeping this boundary independent makes row clicks and keyboard/mouse
+// selection movement feed the same draft state.
+inline bool stagePrinterQueueSelection(const std::vector<PrinterQueueInfo>& queues,
+                                       std::size_t selection,
+                                       std::string& draftPrinterQueue,
+                                       bool& settingsDirty) {
+  if (selection >= queues.size()) return false;
+  draftPrinterQueue = queues[selection].name;
+  settingsDirty = true;
+  return true;
+}
+
+inline bool parseIntegerInRange(const std::string& text, int minimum, int maximum, int& value) {
+  if (text.empty()) return false;
+  int parsed = 0;
+  const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed, 10);
+  if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+      parsed < minimum || parsed > maximum) {
+    return false;
+  }
+  value = parsed;
+  return true;
 }
 
 class App {
@@ -418,6 +444,14 @@ class App {
   std::string pageName() const;
   ftxui::Element renderDashboardUi() const;
   ftxui::Element renderStockUi() const;
+  ftxui::Elements renderStockListRows(const std::vector<InventorySearchMatch>& searchMatches,
+                                      const std::vector<size_t>& filtered, bool rankedView,
+                                      size_t activeSelection, int qtyWidth,
+                                      int partWidth, int categoryWidth, int matchWidth,
+                                      bool groupByCategory) const;
+  ftxui::Elements renderStockDetailRows(const std::vector<InventorySearchMatch>& searchMatches,
+                                        bool rankedView, size_t activeSelection,
+                                        int detailInnerWidth) const;
   ftxui::Element renderRackManagementUi() const;
   ftxui::Element renderInventatoryScanSetupUi() const;
   ftxui::Element renderDigiKeySetupUi() const;
@@ -425,6 +459,7 @@ class App {
   ftxui::Element renderBomProjectUi() const;
   ftxui::Element renderHistoryUi() const;
   ftxui::Element renderSettingsUi() const;
+  ftxui::Elements renderSettingsAppearanceRows(int contentWidth) const;
   ftxui::Element renderOnboardingWordmark() const;
   ftxui::Element renderOnboardingFrame(ftxui::Element content) const;
   ftxui::Element renderOnboardingContent() const;
@@ -504,6 +539,7 @@ class App {
   void toggleAutoPrintScannedLabels();
   bool autoPrintScannedLabel(const std::string& itemId);
   std::string printerSummary() const;
+  void stageSelectedPrinterQueue();
   void openInventatoryScanSetup();
   void openDigiKeySetup();
   void advanceOnboarding();
@@ -725,7 +761,6 @@ class App {
   std::string inventoryRecoveryDetail_;
   bool activitySavePending_ = false;
   bool scannerCredentialSavePending_ = false;
-  bool scannerReplayStateMigrationPending_ = false;
   bool scannerConfigSavePending_ = false;
   bool appSettingsSavePending_ = false;
   bool activityPersistenceBlocked_ = false;

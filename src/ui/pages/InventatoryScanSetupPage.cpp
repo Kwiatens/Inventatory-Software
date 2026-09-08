@@ -3,6 +3,7 @@
 
 #include "App.h"
 
+#include "platform/CredentialStore.h"
 #include "platform/UpdateService.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -18,6 +19,7 @@ using namespace std;
 namespace {
 
 constexpr size_t kDebugWindowLines = 14;
+constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 }  // namespace
 
@@ -31,18 +33,28 @@ bool App::regenerateInventatoryScanToken() {
   }
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
-  const auto previousToken = inventatoryScanConfig_.token;
+  const auto previousConfig = inventatoryScanConfig_;
   const bool previousCredentialPending = scannerCredentialSavePending_;
+  const bool previousConfigPending = scannerConfigSavePending_;
   const auto previousPersistenceError = persistenceError_;
+  const bool serviceWasRunning = server_.running();
+  mdnsService_.stop();
+  server_.stop();
   inventatoryScanConfig_.token = generateInventatoryScanToken();
-  if (!saveScannerCredentialChecked(true)) {
-    inventatoryScanConfig_.token = previousToken;
-    scannerCredentialSavePending_ = previousCredentialPending;
-    persistenceError_ = previousPersistenceError;
-    return false;
-  }
   inventatoryScanConfig_.deviceId.clear();
   inventatoryScanConfig_.setupComplete = false;
+  if (!saveScannerConfigChecked(true)) {
+    inventatoryScanConfig_ = previousConfig;
+    scannerCredentialSavePending_ = previousCredentialPending;
+    scannerConfigSavePending_ = previousConfigPending;
+    persistenceError_ = previousPersistenceError;
+    if (serviceWasRunning) restartDeviceService();
+    return false;
+  }
+  if (!saveScannerCredentialChecked(true)) {
+    setMessage("Generated a new token, but it could not be stored securely; pair again after saving succeeds", 7);
+    return false;
+  }
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
@@ -59,11 +71,7 @@ bool App::regenerateInventatoryScanToken() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
-  if (!saveScannerConfigChecked(true)) {
-    setMessage("Generated a new token, but Inventatory could not save it", 4);
-    return false;
-  }
-  setMessage("Generated a new pairing token", 3);
+  setMessage("Generated a new pairing token; pair the scanner again", 5);
   dirty_ = true;
   return true;
 }
@@ -85,18 +93,28 @@ bool App::clearInventatoryScanPairing() {
   settingsConfirmUntil_ = 0;
 
   const auto rotatedToken = generateInventatoryScanToken();
-  const auto previousToken = inventatoryScanConfig_.token;
+  const auto previousConfig = inventatoryScanConfig_;
   const bool previousCredentialPending = scannerCredentialSavePending_;
+  const bool previousConfigPending = scannerConfigSavePending_;
   const auto previousPersistenceError = persistenceError_;
+  const bool serviceWasRunning = server_.running();
+  mdnsService_.stop();
+  server_.stop();
   inventatoryScanConfig_.token = rotatedToken;
-  if (!saveScannerCredentialChecked(true)) {
-    inventatoryScanConfig_.token = previousToken;
-    scannerCredentialSavePending_ = previousCredentialPending;
-    persistenceError_ = previousPersistenceError;
-    return false;
-  }
   inventatoryScanConfig_.deviceId.clear();
   inventatoryScanConfig_.setupComplete = false;
+  if (!saveScannerConfigChecked(true)) {
+    inventatoryScanConfig_ = previousConfig;
+    scannerCredentialSavePending_ = previousCredentialPending;
+    scannerConfigSavePending_ = previousConfigPending;
+    persistenceError_ = previousPersistenceError;
+    if (serviceWasRunning) restartDeviceService();
+    return false;
+  }
+  if (!saveScannerCredentialChecked(true)) {
+    setMessage("Cleared pairing, but the replacement token could not be stored securely", 7);
+    return false;
+  }
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
@@ -113,11 +131,7 @@ bool App::clearInventatoryScanPairing() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
-  if (!saveScannerConfigChecked(true)) {
-    setMessage("Cleared pairing in memory, but Inventatory could not save it", 4);
-    return false;
-  }
-  setMessage("Cleared paired device identity", 3);
+  setMessage("Cleared paired device identity; pair the scanner again", 5);
   dirty_ = true;
   return true;
 }
@@ -241,14 +255,31 @@ bool App::provisionSelectedBleSetupDevice() {
   }
   inventatoryScanConfig_.token = candidateToken;
   inventatoryScanConfig_.deviceId.clear();
-  inventatoryScanConfig_.setupComplete = true;
-  const bool tokenSaved = saveScannerCredentialChecked(false);
-  const bool configSaved = saveScannerConfigChecked(false);
+  // Persist the unpaired state before replacing the workspace credential. If
+  // the final paired-state write fails, a restart remains fail-closed even if
+  // Credential Manager has already accepted the new token.
+  inventatoryScanConfig_.setupComplete = false;
+  const bool unpairedConfigSaved = saveScannerConfigChecked(false);
+  const bool tokenSaved = unpairedConfigSaved && saveScannerCredentialChecked(false);
+  bool configSaved = false;
+  if (tokenSaved) {
+    inventatoryScanConfig_.setupComplete = true;
+    configSaved = saveScannerConfigChecked(false);
+  }
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
-  if (tokenSaved) {
+  if (tokenSaved && !configSaved) {
+    CredentialStore::eraseForWorkspace(dataPath_, kInventatoryScanTokenCredential);
+    inventatoryScanConfig_.token.clear();
+    inventatoryScanConfig_.deviceId.clear();
+    inventatoryScanConfig_.setupComplete = false;
+    scannerCredentialSavePending_ = false;
+    saveScannerConfigChecked(false);
+  }
+  if (tokenSaved && configSaved) {
     server_.setDeviceCredentials({}, inventatoryScanConfig_.token,
                                  inventatoryScanReplayStatePath(dataPath_));
+    restartDeviceService();
   } else {
     mdnsService_.stop();
     server_.stop();
@@ -269,116 +300,6 @@ bool App::provisionSelectedBleSetupDevice() {
   setMessage(bleSetupMessage_, 6);
   dirty_ = true;
   return true;
-}
-
-ftxui::Element App::renderInventatoryScanSetupContent() const {
-  ftxui::Elements rows;
-  switch (scanSetupStep_) {
-    case ScanSetupStep::Introduction:
-      rows.push_back(styledText("Connect your Scan R1", uiTitleColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Power on the scanner, keep Bluetooth enabled, and have the Wi-Fi details ready.", uiSecondaryText()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("[ Enter ] Begin   [ Esc ] Cancel", uiInteractiveColor()));
-      break;
-    case ScanSetupStep::WifiName:
-      rows.push_back(styledText("Wi-Fi network for the Scan R1", uiTitleColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("network> " + inputBuffer_ + "_", uiInteractiveColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Enter continues   Esc cancels", uiMutedText()));
-      break;
-    case ScanSetupStep::WifiPassword:
-      rows.push_back(styledText("Wi-Fi password", uiTitleColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("password> " + string(inputBuffer_.size(), '*') + "_", uiInteractiveColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Enter continues   Esc cancels", uiMutedText()));
-      break;
-    case ScanSetupStep::PairingCode:
-      rows.push_back(styledText("Six-digit code shown on the Scan R1", uiTitleColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("r1-code> " + inputBuffer_ + "_", uiInteractiveColor()));
-      break;
-    case ScanSetupStep::FindScanner: {
-      const auto devices = bleProvisioning_.devices();
-      rows.push_back(styledText("Looking for nearby Scan R1 devices " + uiLoadingSpinner(),
-                                uiTitleColor()));
-      rows.push_back(ftxui::text(""));
-      if (devices.empty()) {
-        rows.push_back(styledText("bluetooth> waiting for an unconfigured Scan R1", uiWarnColor()));
-      } else {
-        for (size_t index = 0; index < devices.size(); ++index) {
-          const auto& device = devices[index];
-          rows.push_back(styledText(string(index == bleSetupSelection_ ? "> " : "  ") + device.name + "  " +
-                                    to_string(device.rssi) + " dBm",
-                                    index == bleSetupSelection_ ? uiFocusColor() : uiTitleColor()));
-        }
-      }
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Up/Down selects   R refreshes   Enter continues", uiMutedText()));
-      break;
-    }
-    case ScanSetupStep::Confirm: {
-      const auto devices = bleProvisioning_.devices();
-      const auto scanner = bleSetupSelection_ < devices.size() ? devices[bleSetupSelection_].name : string("No scanner selected");
-      rows.push_back(styledText("Scanner: " + scanner, uiTitleColor()));
-      rows.push_back(styledText("Wi-Fi network: " + bleWifiSsid_, uiTitleColor()));
-      rows.push_back(styledText("Wi-Fi password: " + string(bleWifiPassword_.empty() ? 0 : 12, '*'), uiTitleColor()));
-      rows.push_back(styledText("Verification code: " + blePairingCode_, uiTitleColor()));
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("[ Enter ] Transfer configuration   [ Esc ] Cancel", uiInteractiveColor()));
-      break;
-    }
-    case ScanSetupStep::Complete:
-      if (bleSetupOutcomeUncertain_) {
-        rows.push_back(uiHeaderText("Setup result was not confirmed.", uiWarnColor()));
-        rows.push_back(styledText("The token was retained because the R1 may already own it. If it does not connect, run setup again.",
-                                  uiTitleColor()));
-      } else {
-        rows.push_back(uiHeaderText("Setup request accepted.", uiSuccessColor()));
-        rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect automatically.", uiTitleColor()));
-      }
-      rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("[ Enter ] Continue", uiLinkColor()));
-      break;
-  }
-
-  return ftxui::vbox(move(rows));
-}
-
-ftxui::Element App::renderInventatoryScanSetupUi() const {
-  const bool onboardingTerminal = returnToOnboardingAfterScan_;
-  const auto setupBackground = onboardingTerminal ? uiCanvasBg() : uiPanelLeftBg();
-  auto body = renderInventatoryScanSetupContent();
-  if (onboardingTerminal) return renderOnboardingFrame(body | ftxui::bgcolor(setupBackground));
-  body = body | ftxui::bgcolor(setupBackground) | ftxui::flex;
-  return ftxui::window(ftxui::text(""), body) | ftxui::bgcolor(uiCanvasBg());
-}
-
-ftxui::Element App::renderDeviceDebugConsoleUi() const {
-  ftxui::Elements lines;
-  const auto total = deviceDebugLog_.size();
-  const auto visible = min(kDebugWindowLines, total == 0 ? size_t(1) : total);
-  const auto maxScroll = total > visible ? total - visible : 0;
-  const auto start = min(deviceDebugScroll_, maxScroll);
-  const auto end = min(start + visible, total);
-
-  lines.push_back(fullLine("Wi-Fi debug console", uiAccentColor(), uiPanelLeftBg()));
-  lines.push_back(fullLine("Up/Down scroll  PageUp/PageDown faster  Home/End jump  focus stays on pairing page",
-                           uiMutedColor(), uiPanelLeftBg()));
-  if (total == 0) {
-    lines.push_back(fullLine("[waiting for device log messages]", uiMutedColor(), uiPanelLeftBg()));
-  } else {
-    for (size_t index = start; index < end; ++index) {
-      const auto& line = deviceDebugLog_[index];
-      lines.push_back(fullLine(line, uiTitleColor(), index % 2 == 0 ? uiRowDarkBg() : uiRowLightBg()));
-    }
-  }
-
-  return ftxui::window(styledText(" Wi-Fi terminal ", uiAccentColor()),
-                       ftxui::vbox(move(lines)) | ftxui::yframe | ftxui::vscroll_indicator) |
-         ftxui::bgcolor(uiPanelLeftBg());
 }
 
 void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
