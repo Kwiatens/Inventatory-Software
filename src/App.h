@@ -459,6 +459,7 @@ class App {
   ftxui::Element renderBomProjectUi() const;
   ftxui::Element renderHistoryUi() const;
   ftxui::Element renderSettingsUi() const;
+  ftxui::Elements renderSettingsAppearanceRows(int contentWidth) const;
   ftxui::Element renderOnboardingWordmark() const;
   ftxui::Element renderOnboardingFrame(ftxui::Element content) const;
   ftxui::Element renderOnboardingContent() const;
