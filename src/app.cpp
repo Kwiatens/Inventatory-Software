@@ -194,8 +194,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       startInBackground_ && backgroundController_.interactiveInstanceRunning();
   const bool backgroundServiceAlreadyRunning = !startInBackground_ && backgroundController_.backgroundServiceRunning();
   if (!inventoryRecoveryRequired_ && !anotherInteractiveInstanceRunning && !backgroundServiceAlreadyRunning &&
-      !inventatoryScanConfig_.token.empty() && !scannerCredentialSavePending_ &&
-      !scannerReplayStateMigrationPending_) {
+      inventatoryScanConfig_.setupComplete && !inventatoryScanConfig_.token.empty() &&
+      !scannerCredentialSavePending_) {
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                  inventatoryScanReplayStatePath(dataPath_));
 
@@ -212,9 +212,12 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       }
     }
   } else if (!inventoryRecoveryRequired_ &&
-             (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_ ||
-              scannerReplayStateMigrationPending_)) {
-    setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
+             (!inventatoryScanConfig_.setupComplete || inventatoryScanConfig_.token.empty() ||
+              scannerCredentialSavePending_)) {
+    setMessage(!inventatoryScanConfig_.setupComplete
+                   ? "Scan R1 service is disabled until this workspace is paired"
+                   : "Scan R1 service is disabled until its pairing token is stored securely",
+               6);
   }
   beginUpdateCheckIfDue();
 }
@@ -1078,9 +1081,11 @@ void App::requestUserExit() {
 void App::restartDeviceService() {
   mdnsService_.stop();
   server_.stop();
-  if (inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_ ||
-      scannerReplayStateMigrationPending_) {
-    setMessage("Scan R1 service is disabled until its pairing token is stored securely", 6);
+  if (!inventatoryScanConfig_.setupComplete || inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_) {
+    setMessage(!inventatoryScanConfig_.setupComplete
+                   ? "Scan R1 service is disabled until this workspace is paired"
+                   : "Scan R1 service is disabled until its pairing token is stored securely",
+               6);
     return;
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,

@@ -724,8 +724,8 @@ bool readRestoreJournal(const filesystem::path& path, RestoreJournal& journal, s
 bool equivalentPath(const filesystem::path& first, const filesystem::path& second) {
   error_code firstError;
   error_code secondError;
-  auto firstAbsolute = filesystem::absolute(first, firstError).lexically_normal();
-  auto secondAbsolute = filesystem::absolute(second, secondError).lexically_normal();
+  auto firstAbsolute = filesystem::weakly_canonical(first, firstError).lexically_normal();
+  auto secondAbsolute = filesystem::weakly_canonical(second, secondError).lexically_normal();
   if (firstError || secondError) return false;
   string lhs = firstAbsolute.u8string();
   string rhs = secondAbsolute.u8string();
@@ -734,6 +734,36 @@ bool equivalentPath(const filesystem::path& first, const filesystem::path& secon
   transform(rhs.begin(), rhs.end(), rhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
 #endif
   return lhs == rhs;
+}
+
+bool isLinkedOrReparseArtifact(const filesystem::path& path, error_code& error) {
+  error.clear();
+  const auto status = filesystem::symlink_status(path, error);
+  if (error) {
+#ifdef _WIN32
+    if (error.value() == ERROR_FILE_NOT_FOUND || error.value() == ERROR_PATH_NOT_FOUND) {
+      error.clear();
+      return false;
+    }
+#else
+    if (error == make_error_code(errc::no_such_file_or_directory)) {
+      error.clear();
+      return false;
+    }
+#endif
+    return false;
+  }
+  if (status.type() == filesystem::file_type::symlink) return true;
+#ifdef _WIN32
+  const DWORD attributes = GetFileAttributesW(path.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES) {
+    error = error_code(static_cast<int>(GetLastError()), system_category());
+    return false;
+  }
+  return (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+  return false;
+#endif
 }
 
 // Validate the complete data-directory portion of a workspace without
@@ -750,8 +780,13 @@ bool validateWorkspaceData(const filesystem::path& directory, string& error) {
       error = "Unable to inspect workspace " + string(label) + ": " + statusError.message();
       return false;
     }
-    if (status.type() == filesystem::file_type::symlink) {
-      error = "Workspace " + string(label) + " must not be a symbolic link";
+    error_code linkError;
+    if (isLinkedOrReparseArtifact(path, linkError)) {
+      error = "Workspace " + string(label) + " must not be a link or reparse point";
+      return false;
+    }
+    if (linkError) {
+      error = "Unable to inspect workspace " + string(label) + ": " + linkError.message();
       return false;
     }
     return true;
@@ -842,8 +877,8 @@ bool pathContains(const filesystem::path& ancestor, const filesystem::path& cand
                   string& error) {
   error_code ancestorError;
   error_code candidateError;
-  const auto ancestorAbsolute = filesystem::absolute(ancestor, ancestorError).lexically_normal();
-  const auto candidateAbsolute = filesystem::absolute(candidate, candidateError).lexically_normal();
+  const auto ancestorAbsolute = filesystem::weakly_canonical(ancestor, ancestorError).lexically_normal();
+  const auto candidateAbsolute = filesystem::weakly_canonical(candidate, candidateError).lexically_normal();
   if (ancestorError || candidateError) {
     error = "Unable to resolve backup path overlap: " +
             (ancestorError ? ancestorError.message() : candidateError.message());
@@ -890,17 +925,35 @@ bool inspectOwnedArtifact(const filesystem::path& artifact, const filesystem::pa
     return false;
   }
   error_code filesystemError;
-  exists = filesystem::exists(artifact, filesystemError);
+  const auto status = filesystem::symlink_status(artifact, filesystemError);
   if (filesystemError) {
+#ifdef _WIN32
+    if (filesystemError.value() == ERROR_FILE_NOT_FOUND || filesystemError.value() == ERROR_PATH_NOT_FOUND) {
+      exists = false;
+      if (required) error = "Required restore artifact is missing";
+      return !required;
+    }
+#else
+    if (filesystemError == make_error_code(errc::no_such_file_or_directory)) {
+      exists = false;
+      if (required) error = "Required restore artifact is missing";
+      return !required;
+    }
+#endif
     error = "Unable to inspect restore artifact: " + filesystemError.message();
     return false;
   }
+  if (status.type() == filesystem::file_type::symlink) {
+    error = "Restore artifact is a link or reparse point";
+    return false;
+  }
+  exists = status.type() != filesystem::file_type::not_found;
   if (!exists) {
     if (required) error = "Required restore artifact is missing";
     return !required;
   }
-  if (filesystem::is_symlink(artifact, filesystemError) || filesystemError) {
-    error = "Restore artifact is a symbolic link";
+  if (isLinkedOrReparseArtifact(artifact, filesystemError) || filesystemError) {
+    error = "Restore artifact is a link or reparse point";
     return false;
   }
   const bool correctType = expectedDirectory ? filesystem::is_directory(artifact, filesystemError)
@@ -1134,8 +1187,12 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
     error = "Inventatory data folder does not exist: " + dataDirectory.string();
     return false;
   }
+  if (isLinkedOrReparseArtifact(dataDirectory, filesystemError) || filesystemError) {
+    error = "Inventatory data folder must not be a link or reparse point";
+    return false;
+  }
   const auto inventorySource = dataDirectory / "inventory.db";
-  if (filesystem::is_symlink(inventorySource, filesystemError) || filesystemError ||
+  if (isLinkedOrReparseArtifact(inventorySource, filesystemError) || filesystemError ||
       !filesystem::is_regular_file(inventorySource, filesystemError) || filesystemError) {
     error = "Inventory database is missing";
     return false;
@@ -1189,14 +1246,29 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   const vector<string> optionalNames = {"activity.tsv", "printer.conf", "quick_labels.conf"};
   for (const auto& name : optionalNames) {
     const auto source = dataDirectory / name;
+    const auto sourceStatus = filesystem::symlink_status(source, filesystemError);
+    if (filesystemError && sourceStatus.type() != filesystem::file_type::not_found) {
+      error = "Unable to inspect backup source file: " + name;
+      return false;
+    }
+    filesystemError.clear();
+    if (sourceStatus.type() == filesystem::file_type::symlink ||
+        (sourceStatus.type() != filesystem::file_type::not_found &&
+         isLinkedOrReparseArtifact(source, filesystemError))) {
+      error = "Backup source contains an invalid optional file: " + name;
+      return false;
+    }
+    if (filesystemError) {
+      error = "Unable to inspect backup source file: " + name;
+      return false;
+    }
     const bool sourceExists = filesystem::exists(source, filesystemError);
     if (filesystemError) {
       error = "Unable to inspect backup source file: " + name;
       return false;
     }
     if (!sourceExists) continue;
-    if (filesystem::is_symlink(source, filesystemError) || filesystemError ||
-        !filesystem::is_regular_file(source, filesystemError) || filesystemError) {
+    if (!filesystem::is_regular_file(source, filesystemError) || filesystemError) {
       error = "Backup source contains an invalid optional file: " + name;
       return false;
     }
@@ -1268,7 +1340,7 @@ bool validateInventatoryBackup(const filesystem::path& backupDirectory, string& 
   try {
   error.clear();
   error_code filesystemError;
-  if (filesystem::is_symlink(backupDirectory, filesystemError) || filesystemError ||
+  if (isLinkedOrReparseArtifact(backupDirectory, filesystemError) || filesystemError ||
       !filesystem::is_directory(backupDirectory, filesystemError) || filesystemError) {
     error = "Backup folder does not exist";
     return false;
@@ -1328,13 +1400,18 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
-  if (destinationExists && (filesystem::is_symlink(destinationDirectory, filesystemError) ||
+  if (destinationExists && (isLinkedOrReparseArtifact(destinationDirectory, filesystemError) ||
                             !filesystem::is_directory(destinationDirectory, filesystemError))) {
     error = "Restore destination is not a directory";
     return false;
   }
   if (filesystemError) {
     error = "Unable to inspect restore destination: " + filesystemError.message();
+    return false;
+  }
+  if (destinationExists &&
+      (isLinkedOrReparseArtifact(destinationDirectory, filesystemError) || filesystemError)) {
+    error = "Restore destination must not be a link or reparse point";
     return false;
   }
   filesystem::path staging;

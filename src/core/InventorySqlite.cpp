@@ -91,38 +91,6 @@ bool requireColumns(SqliteConnection& connection, const string& table, initializ
   return true;
 }
 
-bool addColumnIfMissing(SqliteConnection& connection, const string& table, const string& column,
-                        const string& declaration, string* error) {
-  if (tableColumnExists(connection, table, column)) return true;
-  if (!execSql(connection, "ALTER TABLE " + quoteIdentifier(table) + " ADD COLUMN " + quoteIdentifier(column) + " " +
-                            declaration)) {
-    setSqlError(connection, error, "Unable to migrate SQLite column: " + table + "." + column);
-    return false;
-  }
-  return true;
-}
-
-bool migrateLegacyNames(SqliteConnection& connection, string* error) {
-  const auto renameIfNeeded = [&](const string& oldName, const string& newName) {
-    if (tableExists(connection, newName) || !tableExists(connection, oldName)) return true;
-    if (!execSql(connection, "ALTER TABLE " + quoteIdentifier(oldName) + " RENAME TO " + quoteIdentifier(newName))) {
-      setSqlError(connection, error, "Unable to migrate SQLite table " + oldName);
-      return false;
-    }
-    return true;
-  };
-  if (!renameIfNeeded("hims_items", "inventatory_items") || !renameIfNeeded("hims_racks", "inventatory_racks") ||
-      !renameIfNeeded("hims_device_events", "inventatory_device_events")) return false;
-  if (tableExists(connection, "inventatory_items") && tableColumnExists(connection, "inventatory_items", "hims_id") &&
-      !tableColumnExists(connection, "inventatory_items", "inventatory_id")) {
-    if (!execSql(connection, "ALTER TABLE \"inventatory_items\" RENAME COLUMN \"hims_id\" TO \"inventatory_id\"")) {
-      setSqlError(connection, error, "Unable to migrate inventatory item identifiers");
-      return false;
-    }
-  }
-  return true;
-}
-
 }  // namespace
 
 bool SqliteApi::load() {
@@ -387,95 +355,6 @@ bool createSchemaIndexes(SqliteConnection& connection, string* error) {
   return true;
 }
 
-bool migrateOptionalColumns(SqliteConnection& connection, string* error) {
-  const pair<const char*, const char*> itemColumns[] = {
-      {"label_override", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_provider", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_product_number", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_manufacturer_part_number", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_category_id", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_category_path", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_title", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_detailed_description", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_parameters", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_product_url", "TEXT NOT NULL DEFAULT ''"},
-      {"vendor_locale", "TEXT NOT NULL DEFAULT ''"},
-      {"inventatory_id", "TEXT NOT NULL DEFAULT ''"},
-      {"created_at", "INTEGER NOT NULL DEFAULT 0"},
-      {"machine_code", "TEXT NOT NULL DEFAULT ''"},
-      {"rack_id", "TEXT NOT NULL DEFAULT ''"},
-      {"rack_slot", "TEXT NOT NULL DEFAULT ''"},
-      {"rack_assignment", "TEXT NOT NULL DEFAULT 'automatic'"},
-  };
-  for (const auto& column : itemColumns) {
-    if (!addColumnIfMissing(connection, "inventatory_items", column.first, column.second, error)) return false;
-  }
-  const pair<const char*, const char*> rackColumns[] = {
-      {"rows_count", "INTEGER NOT NULL DEFAULT 5"},
-      {"columns_count", "INTEGER NOT NULL DEFAULT 5"},
-      {"created_at", "INTEGER NOT NULL DEFAULT 0"},
-  };
-  for (const auto& column : rackColumns) {
-    if (!addColumnIfMissing(connection, "inventatory_racks", column.first, column.second, error)) return false;
-  }
-  if (!addColumnIfMissing(connection, "inventatory_stock_movements", "reference", "TEXT NOT NULL DEFAULT ''", error)) {
-    return false;
-  }
-  const pair<const char*, const char*> deviceColumns[] = {
-      {"result_id", "TEXT NOT NULL DEFAULT ''"}, {"result_status", "TEXT NOT NULL DEFAULT ''"},
-      {"result_existing", "INTEGER NOT NULL DEFAULT 0"}, {"result_item_name", "TEXT NOT NULL DEFAULT ''"},
-      {"result_requested_delta", "INTEGER NOT NULL DEFAULT 0"}, {"result_applied_delta", "INTEGER NOT NULL DEFAULT 0"},
-      {"result_quantity", "INTEGER NOT NULL DEFAULT 0"}, {"result_location", "TEXT NOT NULL DEFAULT ''"},
-      {"result_code", "TEXT NOT NULL DEFAULT ''"}, {"result_message", "TEXT NOT NULL DEFAULT ''"},
-      {"result_acknowledged", "INTEGER NOT NULL DEFAULT 0"}, {"received_at", "INTEGER NOT NULL DEFAULT 0"},
-      {"completed_at", "INTEGER NOT NULL DEFAULT 0"},
-  };
-  for (const auto& column : deviceColumns) {
-    if (!addColumnIfMissing(connection, "inventatory_device_events", column.first, column.second, error)) return false;
-  }
-  const pair<const char*, const char*> commitColumns[] = {
-      {"reference", "TEXT NOT NULL DEFAULT ''"}, {"checkpoint", "INTEGER NOT NULL DEFAULT 0"},
-      {"corrective", "INTEGER NOT NULL DEFAULT 0"}, {"reverted_commit_id", "TEXT NOT NULL DEFAULT ''"},
-      {"changed_item_count", "INTEGER NOT NULL DEFAULT 0"}, {"changed_rack_count", "INTEGER NOT NULL DEFAULT 0"},
-      {"snapshot_version", "INTEGER NOT NULL DEFAULT 1"},
-  };
-  for (const auto& column : commitColumns) {
-    if (!addColumnIfMissing(connection, "inventatory_inventory_commits", column.first, column.second, error)) return false;
-  }
-  const pair<const char*, const char*> projectColumns[] = {
-      {"boards", "INTEGER NOT NULL DEFAULT 1"}, {"created_at", "INTEGER NOT NULL DEFAULT 0"},
-      {"last_opened", "INTEGER NOT NULL DEFAULT 0"}, {"last_built", "INTEGER NOT NULL DEFAULT 0"},
-      {"overrides", "TEXT NOT NULL DEFAULT ''"}, {"enrichment", "TEXT NOT NULL DEFAULT ''"},
-  };
-  for (const auto& column : projectColumns) {
-    if (!addColumnIfMissing(connection, "inventatory_bom_projects", column.first, column.second, error)) return false;
-  }
-  return true;
-}
-
-bool migrateLegacyColumns(SqliteConnection& connection, string* error) {
-  // Releases before the vendor-neutral catalogue used
-  // manufacturer_part_number/enrichment_status instead of the current
-  // DigiKey fields. Preserve the old part number as the SKU while exposing
-  // the current columns with safe defaults.
-  if (!tableExists(connection, "inventatory_items") ||
-      !tableColumnExists(connection, "inventatory_items", "manufacturer_part_number")) return true;
-  const bool hadSyncStatus = tableColumnExists(connection, "inventatory_items", "sync_status");
-  if (!addColumnIfMissing(connection, "inventatory_items", "digikey_part_number", "TEXT NOT NULL DEFAULT ''", error) ||
-      !addColumnIfMissing(connection, "inventatory_items", "product_url", "TEXT NOT NULL DEFAULT ''", error) ||
-      !addColumnIfMissing(connection, "inventatory_items", "sync_status", "TEXT NOT NULL DEFAULT 'synced'", error) ||
-      !addColumnIfMissing(connection, "inventatory_items", "sku", "TEXT NOT NULL DEFAULT ''", error)) return false;
-  if (!execSql(connection,
-               "UPDATE inventatory_items SET sku=manufacturer_part_number WHERE trim(sku)='' AND "
-               "trim(manufacturer_part_number)<>''")) return false;
-  if (!hadSyncStatus && tableColumnExists(connection, "inventatory_items", "enrichment_status")) {
-    return execSql(connection,
-                   "UPDATE inventatory_items SET sync_status=enrichment_status "
-                   "WHERE trim(enrichment_status)<>''");
-  }
-  return true;
-}
-
 bool validateExistingColumns(SqliteConnection& connection, string* error) {
   if (!requireColumns(connection, "inventatory_items",
                      {"id", "part_name", "manufacturer", "category", "quantity", "reorder_threshold", "location",
@@ -580,47 +459,7 @@ bool readIntegrityOk(SqliteConnection& connection, string* error) {
   return true;
 }
 
-}  // namespace
-
-bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error) {
-  if (connection.db == nullptr) {
-    if (error != nullptr) *error = "SQLite connection is not open";
-    return false;
-  }
-  sqlite3_int64 version = 0;
-  if (!queryInt64(connection, "PRAGMA user_version", version) || version > kInventoryDatabaseSchemaVersion) {
-    setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
-    return false;
-  }
-  if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
-    setSqlError(connection, error, "Unable to begin SQLite schema migration");
-    return false;
-  }
-  const auto fail = [&]() {
-    execSql(connection, "ROLLBACK");
-    return false;
-  };
-  if (!migrateLegacyNames(connection, error) || !createSchemaObjects(connection, error) ||
-      !migrateLegacyColumns(connection, error) ||
-      !validateExistingColumns(connection, error) || !migrateOptionalColumns(connection, error) ||
-      !createSchemaIndexes(connection, error) || !validateDataValues(connection, error)) return fail();
-  if (!execSql(connection, "PRAGMA user_version = 1") || !execSql(connection, "COMMIT")) {
-    setSqlError(connection, error, "Unable to commit SQLite schema migration");
-    return fail();
-  }
-  return true;
-}
-
-bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
-  if (connection.db == nullptr) {
-    if (error != nullptr) *error = "SQLite connection is not open";
-    return false;
-  }
-  sqlite3_int64 version = 0;
-  if (!queryInt64(connection, "PRAGMA user_version", version) || version > kInventoryDatabaseSchemaVersion) {
-    setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
-    return false;
-  }
+bool validateCurrentSchema(SqliteConnection& connection, string* error) {
   if (!validateExistingColumns(connection, error)) return false;
   if (!requireColumns(connection, "inventatory_racks", {"rows_count", "columns_count", "created_at"}, error) ||
       !requireColumns(connection, "inventatory_stock_movements", {"reference"}, error) ||
@@ -649,7 +488,67 @@ bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
       return false;
     }
   }
-  if (!readIntegrityOk(connection, error) || !validateDataValues(connection, error)) return false;
+  return validateDataValues(connection, error);
+}
+
+}  // namespace
+
+bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error) {
+  if (connection.db == nullptr) {
+    if (error != nullptr) *error = "SQLite connection is not open";
+    return false;
+  }
+  sqlite3_int64 version = 0;
+  if (!queryInt64(connection, "PRAGMA user_version", version) || version > kInventoryDatabaseSchemaVersion) {
+    setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
+    return false;
+  }
+  bool hasUserTables = false;
+  if (!queryHasRows(connection,
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
+                    hasUserTables)) {
+    setSqlError(connection, error, "Unable to inspect the Inventatory SQLite schema");
+    return false;
+  }
+  if (hasUserTables) {
+    if (version != kInventoryDatabaseSchemaVersion || !validateCurrentSchema(connection, error)) {
+      if (error != nullptr && error->empty()) *error = "Unsupported or invalid Inventatory SQLite schema";
+      return false;
+    }
+    return true;
+  }
+  if (version != 0) {
+    setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
+    return false;
+  }
+  if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
+    setSqlError(connection, error, "Unable to begin SQLite schema initialization");
+    return false;
+  }
+  const auto fail = [&]() {
+    execSql(connection, "ROLLBACK");
+    return false;
+  };
+  if (!createSchemaObjects(connection, error) || !createSchemaIndexes(connection, error) ||
+      !execSql(connection, "PRAGMA user_version = 1") || !validateInventoryDatabase(connection, error)) return fail();
+  if (!execSql(connection, "COMMIT")) {
+    setSqlError(connection, error, "Unable to commit SQLite schema initialization");
+    return fail();
+  }
+  return true;
+}
+
+bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
+  if (connection.db == nullptr) {
+    if (error != nullptr) *error = "SQLite connection is not open";
+    return false;
+  }
+  sqlite3_int64 version = 0;
+  if (!queryInt64(connection, "PRAGMA user_version", version) || version != kInventoryDatabaseSchemaVersion) {
+    setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
+    return false;
+  }
+  if (!validateCurrentSchema(connection, error) || !readIntegrityOk(connection, error)) return false;
   return validateInventoryCommitHistory(connection, error);
 }
 
