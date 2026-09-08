@@ -154,6 +154,7 @@ add_executable(inventatory
   src/ui/pages/OnboardingPage.cpp
   src/ui/pages/ImportCsvPage.cpp
   src/ui/pages/BomProjectPage.cpp
+  src/ui/pages/BomProjectPageRender.cpp
   src/ui/pages/HistoryPage.cpp
   src/ui/pages/HistoryPageRender.cpp
   src/ui/pages/SettingsPage.cpp
