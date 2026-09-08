@@ -444,6 +444,14 @@ class App {
   std::string pageName() const;
   ftxui::Element renderDashboardUi() const;
   ftxui::Element renderStockUi() const;
+  ftxui::Elements renderStockListRows(const std::vector<InventorySearchMatch>& searchMatches,
+                                      const std::vector<size_t>& filtered, bool rankedView,
+                                      size_t activeSelection, int qtyWidth,
+                                      int partWidth, int categoryWidth, int matchWidth,
+                                      bool groupByCategory) const;
+  ftxui::Elements renderStockDetailRows(const std::vector<InventorySearchMatch>& searchMatches,
+                                        bool rankedView, size_t activeSelection,
+                                        int detailInnerWidth) const;
   ftxui::Element renderRackManagementUi() const;
   ftxui::Element renderInventatoryScanSetupUi() const;
   ftxui::Element renderDigiKeySetupUi() const;
