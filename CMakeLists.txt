@@ -131,6 +131,8 @@ add_executable(inventatory
   src/ui/pages/BomProjectPage.cpp
   src/ui/pages/HistoryPage.cpp
   src/ui/pages/SettingsPage.cpp
+  src/ui/pages/SettingsPageInput.cpp
+  src/ui/pages/SettingsPageState.cpp
 )
 
 if(WIN32)
