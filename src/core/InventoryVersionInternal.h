@@ -8,6 +8,9 @@
 
 namespace inventatory {
 
+// Shared by the SQLite commit writer and the commit-diff/reversal unit.
+std::string serializeRackSnapshot(const InventatoryRack& rack);
+
 #ifdef _WIN32
 
 bool ensureInventoryCommitSchema(SqliteConnection& connection);

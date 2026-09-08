@@ -49,51 +49,105 @@ add_library(sqlite3_amalgamation STATIC
 )
 target_include_directories(sqlite3_amalgamation PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
 
-find_package(ftxui CONFIG QUIET)
-if(NOT ftxui_FOUND)
-  FetchContent_Declare(ftxui
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
-    # FTXUI v6.1.9. Pinning the commit makes source builds reproducible even
-    # if its upstream tag is later moved.
-    GIT_TAG 5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6
-  )
-  FetchContent_MakeAvailable(ftxui)
-endif()
+FetchContent_Declare(ftxui
+  GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+  # FTXUI v6.1.9. Pinning the commit makes source builds reproducible even
+  # if its upstream tag is later moved.
+  GIT_TAG 5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6
+)
+set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "Do not package FTXUI separately" FORCE)
+FetchContent_MakeAvailable(ftxui)
 
 add_executable(inventatory
   src/main.cpp
   src/app.cpp
+  src/app/AppInput.cpp
+  src/app/AppInputModes.cpp
+  src/app/AppRuntime.cpp
+  src/app/AppShell.cpp
+  src/app/AppShellRender.cpp
   src/app/AppBootstrap.cpp
-  src/app/AppActions.cpp
+  src/app/AppPersistence.cpp
+  src/app/AppHistoryPersistence.cpp
+  src/app/AppBackupRestore.cpp
+  src/app/AppWorkspace.cpp
+  src/app/AppInventoryEdit.cpp
+  src/app/AppInventorySelection.cpp
+  src/app/AppRackActions.cpp
+  src/app/AppRackPrintingActions.cpp
+  src/app/AppRackPlacementActions.cpp
+  src/app/AppDeviceActions.cpp
+  src/app/AppQuickLabelActions.cpp
+  src/app/AppScanEnrichment.cpp
+  src/app/AppImportActions.cpp
+  src/app/AppBomEnrichment.cpp
+  src/app/AppBomActions.cpp
+  src/app/AppBomProjectActions.cpp
+  src/app/AppBomBuildActions.cpp
   src/app/AppSettings.cpp
+  src/app/AppSettingsAppearance.cpp
   src/platform/StartupRegistration.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
+  src/core/InventoryIdentifiers.cpp
   src/core/PartDescriptor.cpp
+  src/core/PartDescriptorContext.cpp
+  src/core/PartDescriptorRules.cpp
   src/core/InventoryQuery.cpp
+  src/core/InventoryQueryMatching.cpp
   src/core/PhysicalValue.cpp
   src/core/RackAllocation.cpp
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
+  src/core/InventoryVersionHistory.cpp
+  src/core/InventoryVersionDiff.cpp
   src/core/InventoryMovements.cpp
   src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
+  src/core/InventoryStorageSqlite.cpp
   src/core/InventoryTransfer.cpp
+  src/core/InventoryBackup.cpp
+  src/core/InventoryRestore.cpp
+  src/core/InventoryTransferManifest.cpp
+  src/core/InventoryTransferOps.cpp
+  src/core/InventoryTransferRecovery.cpp
+  src/core/InventoryTransferValidation.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
+  src/core/InventorySqliteSchema.cpp
   src/core/InventatoryScanProtocol.cpp
+  src/core/InventatoryScanProtocolConfig.cpp
+  src/core/InventatoryScanProtocolJson.cpp
+  src/core/InventatoryScanProtocolJsonParser.cpp
+  src/core/InventatoryScanProtocolSecurity.cpp
   src/core/DeviceSyncStore.cpp
   src/core/BomMatch.cpp
+  src/core/BomMatchHelpers.cpp
   src/core/BomProjectStore.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
   src/import/DigiKeyCsvImport.cpp
   src/label_printer/LabelPrinter.cpp
+  src/label_printer/LabelPrinterContext.cpp
+  src/label_printer/LabelPrinterDetails.cpp
+  src/label_printer/LabelPrinterPlatform.cpp
+  src/label_printer/LabelPrinterWindows.cpp
+  src/label_printer/LabelPrinterRack.cpp
+  src/label_printer/LabelPrinterText.cpp
+  src/label_printer/LabelPrinterTextLayout.cpp
   src/platform/HttpServer.cpp
+  src/platform/HttpServerConnection.cpp
+  src/platform/HttpServerProtocol.cpp
+  src/platform/HttpServerLifecycle.cpp
   src/platform/MdnsService.cpp
   src/platform/DigiKeyApi.cpp
+  src/platform/DigiKeyJson.cpp
+  src/platform/DigiKeyJsonParser.cpp
+  src/platform/DigiKeyProduct.cpp
+  src/platform/DigiKeyProductDetails.cpp
+  src/platform/DigiKeyTransport.cpp
   src/platform/Console.cpp
   src/platform/Environment.cpp
   src/platform/BackgroundController.cpp
@@ -101,18 +155,32 @@ add_executable(inventatory
   src/platform/BleProvisioningService.cpp
   src/platform/UpdateService.cpp
   src/ui/shared/AppUiShared.cpp
+  src/ui/shared/AppUiItemDetails.cpp
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
+  src/ui/pages/DashboardPageRender.cpp
+  src/ui/pages/DashboardPageComponents.cpp
   src/ui/pages/StockPage.cpp
+  src/ui/pages/StockPageList.cpp
+  src/ui/pages/StockPageDetail.cpp
+  src/ui/pages/StockPageInput.cpp
+  src/ui/pages/StockPageStocktake.cpp
   src/ui/pages/RackManagementPage.cpp
   src/ui/pages/PrinterSetupPage.cpp
   src/ui/pages/InventatoryScanSetupPage.cpp
+  src/ui/pages/InventatoryScanSetupPageRender.cpp
   src/ui/pages/DigiKeySetupPage.cpp
   src/ui/pages/OnboardingPage.cpp
   src/ui/pages/ImportCsvPage.cpp
   src/ui/pages/BomProjectPage.cpp
+  src/ui/pages/BomProjectPageRender.cpp
   src/ui/pages/HistoryPage.cpp
+  src/ui/pages/HistoryPageRender.cpp
   src/ui/pages/SettingsPage.cpp
+  src/ui/pages/SettingsPageAppearance.cpp
+  src/ui/pages/SettingsPageInput.cpp
+  src/ui/pages/SettingsPageState.cpp
+  src/ui/pages/SettingsPageSave.cpp
 )
 
 if(WIN32)
@@ -142,38 +210,74 @@ add_executable(inventatory_tests
   tests/inventatory_tests.cpp
   src/app/AppBootstrap.cpp
   src/app/AppSettings.cpp
+  src/app/AppSettingsAppearance.cpp
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
   src/platform/HttpServer.cpp
+  src/platform/HttpServerConnection.cpp
+  src/platform/HttpServerProtocol.cpp
+  src/platform/HttpServerLifecycle.cpp
   src/platform/Console.cpp
   src/platform/Environment.cpp
   src/platform/CredentialStore.cpp
   src/platform/DigiKeyApi.cpp
+  src/platform/DigiKeyJson.cpp
+  src/platform/DigiKeyJsonParser.cpp
+  src/platform/DigiKeyProduct.cpp
+  src/platform/DigiKeyProductDetails.cpp
+  src/platform/DigiKeyTransport.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
   src/import/KicadBom.cpp
   src/import/DigiKeyCsvImport.cpp
   src/core/BomMatch.cpp
+  src/core/BomMatchHelpers.cpp
   src/core/BomProjectStore.cpp
   src/ui/shared/AppUiShared.cpp
+  src/ui/shared/AppUiItemDetails.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
+  src/core/InventoryIdentifiers.cpp
   src/core/PartDescriptor.cpp
+  src/core/PartDescriptorContext.cpp
+  src/core/PartDescriptorRules.cpp
   src/core/InventoryQuery.cpp
+  src/core/InventoryQueryMatching.cpp
   src/core/PhysicalValue.cpp
   src/core/RackAllocation.cpp
   src/core/InventorySerialization.cpp
   src/core/InventoryHistory.cpp
   src/core/InventoryVersion.cpp
+  src/core/InventoryVersionHistory.cpp
+  src/core/InventoryVersionDiff.cpp
   src/core/InventoryMovements.cpp
   src/core/AtomicFile.cpp
   src/core/InventoryStorage.cpp
+  src/core/InventoryStorageSqlite.cpp
   src/core/InventoryTransfer.cpp
+  src/core/InventoryBackup.cpp
+  src/core/InventoryRestore.cpp
+  src/core/InventoryTransferManifest.cpp
+  src/core/InventoryTransferOps.cpp
+  src/core/InventoryTransferRecovery.cpp
+  src/core/InventoryTransferValidation.cpp
   src/core/InventoryScan.cpp
   src/core/InventorySqlite.cpp
+  src/core/InventorySqliteSchema.cpp
   src/core/InventatoryScanProtocol.cpp
+  src/core/InventatoryScanProtocolConfig.cpp
+  src/core/InventatoryScanProtocolJson.cpp
+  src/core/InventatoryScanProtocolJsonParser.cpp
+  src/core/InventatoryScanProtocolSecurity.cpp
   src/core/DeviceSyncStore.cpp
   src/label_printer/LabelPrinter.cpp
+  src/label_printer/LabelPrinterContext.cpp
+  src/label_printer/LabelPrinterDetails.cpp
+  src/label_printer/LabelPrinterPlatform.cpp
+  src/label_printer/LabelPrinterWindows.cpp
+  src/label_printer/LabelPrinterRack.cpp
+  src/label_printer/LabelPrinterText.cpp
+  src/label_printer/LabelPrinterTextLayout.cpp
 )
 
 target_include_directories(inventatory_tests PRIVATE src)
