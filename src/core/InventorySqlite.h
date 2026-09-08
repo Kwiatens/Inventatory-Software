@@ -62,9 +62,9 @@ bool execSql(SqliteConnection& connection, const string& sql);
 bool tableExists(SqliteConnection& connection, const string& tableName);
 bool tableColumnExists(SqliteConnection& connection, const string& tableName, const string& columnName);
 
-// All SQLite persistence modules share this versioned schema.  The migration
-// is transactional and must be run only on a read-write connection.  Backup
-// validation uses validateInventoryDatabase() instead; it never creates or
+// All SQLite persistence modules share this versioned schema. A fresh empty
+// database is created transactionally on a read-write connection. Existing
+// databases must already match the current schema; validation never creates or
 // alters objects.
 constexpr int kInventoryDatabaseSchemaVersion = 1;
 bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error = nullptr);
