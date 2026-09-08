@@ -124,6 +124,8 @@ add_executable(inventatory
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
   src/ui/pages/StockPage.cpp
+  src/ui/pages/StockPageInput.cpp
+  src/ui/pages/StockPageStocktake.cpp
   src/ui/pages/RackManagementPage.cpp
   src/ui/pages/PrinterSetupPage.cpp
   src/ui/pages/InventatoryScanSetupPage.cpp
