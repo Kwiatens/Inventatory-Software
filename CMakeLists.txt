@@ -61,6 +61,9 @@ FetchContent_MakeAvailable(ftxui)
 add_executable(inventatory
   src/main.cpp
   src/app.cpp
+  src/app/AppInput.cpp
+  src/app/AppRuntime.cpp
+  src/app/AppShell.cpp
   src/app/AppBootstrap.cpp
   src/app/AppPersistence.cpp
   src/app/AppWorkspace.cpp
