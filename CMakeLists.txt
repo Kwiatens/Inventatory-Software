@@ -129,6 +129,7 @@ add_executable(inventatory
   src/platform/MdnsService.cpp
   src/platform/DigiKeyApi.cpp
   src/platform/DigiKeyJson.cpp
+  src/platform/DigiKeyJsonParser.cpp
   src/platform/DigiKeyProduct.cpp
   src/platform/DigiKeyTransport.cpp
   src/platform/Console.cpp
@@ -200,6 +201,7 @@ add_executable(inventatory_tests
   src/platform/CredentialStore.cpp
   src/platform/DigiKeyApi.cpp
   src/platform/DigiKeyJson.cpp
+  src/platform/DigiKeyJsonParser.cpp
   src/platform/DigiKeyProduct.cpp
   src/platform/DigiKeyTransport.cpp
   src/import/CsvReader.cpp
