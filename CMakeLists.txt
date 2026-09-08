@@ -94,6 +94,11 @@ add_executable(inventatory
   src/import/KicadBom.cpp
   src/import/DigiKeyCsvImport.cpp
   src/label_printer/LabelPrinter.cpp
+  src/label_printer/LabelPrinterContext.cpp
+  src/label_printer/LabelPrinterDetails.cpp
+  src/label_printer/LabelPrinterPlatform.cpp
+  src/label_printer/LabelPrinterRack.cpp
+  src/label_printer/LabelPrinterText.cpp
   src/platform/HttpServer.cpp
   src/platform/MdnsService.cpp
   src/platform/DigiKeyApi.cpp
@@ -177,6 +182,11 @@ add_executable(inventatory_tests
   src/core/InventatoryScanProtocol.cpp
   src/core/DeviceSyncStore.cpp
   src/label_printer/LabelPrinter.cpp
+  src/label_printer/LabelPrinterContext.cpp
+  src/label_printer/LabelPrinterDetails.cpp
+  src/label_printer/LabelPrinterPlatform.cpp
+  src/label_printer/LabelPrinterRack.cpp
+  src/label_printer/LabelPrinterText.cpp
 )
 
 target_include_directories(inventatory_tests PRIVATE src)
