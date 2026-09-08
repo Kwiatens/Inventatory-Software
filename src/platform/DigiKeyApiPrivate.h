@@ -88,6 +88,13 @@ optional<string> readStringPath(const JsonPtr& root, initializer_list<const char
 optional<string> readFirstMember(const JsonPtr& root, initializer_list<const char*> keys);
 vector<string> extractCategoryPath(const JsonPtr& product);
 
+string normalizeParameterKey(const string& value);
+bool looksLikeInductanceValue(const string& value);
+optional<string> readParameterText(const JsonPtr& entry, const string& label);
+bool looksLikePackagingType(const string& value);
+optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names);
+optional<string> extractInductanceFromText(const string& text);
+
 optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& query);
 DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr& root);
 
