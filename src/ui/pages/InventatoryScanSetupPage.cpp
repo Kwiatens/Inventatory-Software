@@ -3,6 +3,7 @@
 
 #include "App.h"
 
+#include "platform/CredentialStore.h"
 #include "platform/UpdateService.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -18,6 +19,7 @@ using namespace std;
 namespace {
 
 constexpr size_t kDebugWindowLines = 14;
+constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 }  // namespace
 
@@ -31,18 +33,28 @@ bool App::regenerateInventatoryScanToken() {
   }
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
-  const auto previousToken = inventatoryScanConfig_.token;
+  const auto previousConfig = inventatoryScanConfig_;
   const bool previousCredentialPending = scannerCredentialSavePending_;
+  const bool previousConfigPending = scannerConfigSavePending_;
   const auto previousPersistenceError = persistenceError_;
+  const bool serviceWasRunning = server_.running();
+  mdnsService_.stop();
+  server_.stop();
   inventatoryScanConfig_.token = generateInventatoryScanToken();
-  if (!saveScannerCredentialChecked(true)) {
-    inventatoryScanConfig_.token = previousToken;
-    scannerCredentialSavePending_ = previousCredentialPending;
-    persistenceError_ = previousPersistenceError;
-    return false;
-  }
   inventatoryScanConfig_.deviceId.clear();
   inventatoryScanConfig_.setupComplete = false;
+  if (!saveScannerConfigChecked(true)) {
+    inventatoryScanConfig_ = previousConfig;
+    scannerCredentialSavePending_ = previousCredentialPending;
+    scannerConfigSavePending_ = previousConfigPending;
+    persistenceError_ = previousPersistenceError;
+    if (serviceWasRunning) restartDeviceService();
+    return false;
+  }
+  if (!saveScannerCredentialChecked(true)) {
+    setMessage("Generated a new token, but it could not be stored securely; pair again after saving succeeds", 7);
+    return false;
+  }
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
@@ -59,11 +71,7 @@ bool App::regenerateInventatoryScanToken() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
-  if (!saveScannerConfigChecked(true)) {
-    setMessage("Generated a new token, but Inventatory could not save it", 4);
-    return false;
-  }
-  setMessage("Generated a new pairing token", 3);
+  setMessage("Generated a new pairing token; pair the scanner again", 5);
   dirty_ = true;
   return true;
 }
@@ -85,18 +93,28 @@ bool App::clearInventatoryScanPairing() {
   settingsConfirmUntil_ = 0;
 
   const auto rotatedToken = generateInventatoryScanToken();
-  const auto previousToken = inventatoryScanConfig_.token;
+  const auto previousConfig = inventatoryScanConfig_;
   const bool previousCredentialPending = scannerCredentialSavePending_;
+  const bool previousConfigPending = scannerConfigSavePending_;
   const auto previousPersistenceError = persistenceError_;
+  const bool serviceWasRunning = server_.running();
+  mdnsService_.stop();
+  server_.stop();
   inventatoryScanConfig_.token = rotatedToken;
-  if (!saveScannerCredentialChecked(true)) {
-    inventatoryScanConfig_.token = previousToken;
-    scannerCredentialSavePending_ = previousCredentialPending;
-    persistenceError_ = previousPersistenceError;
-    return false;
-  }
   inventatoryScanConfig_.deviceId.clear();
   inventatoryScanConfig_.setupComplete = false;
+  if (!saveScannerConfigChecked(true)) {
+    inventatoryScanConfig_ = previousConfig;
+    scannerCredentialSavePending_ = previousCredentialPending;
+    scannerConfigSavePending_ = previousConfigPending;
+    persistenceError_ = previousPersistenceError;
+    if (serviceWasRunning) restartDeviceService();
+    return false;
+  }
+  if (!saveScannerCredentialChecked(true)) {
+    setMessage("Cleared pairing, but the replacement token could not be stored securely", 7);
+    return false;
+  }
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
@@ -113,11 +131,7 @@ bool App::clearInventatoryScanPairing() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
-  if (!saveScannerConfigChecked(true)) {
-    setMessage("Cleared pairing in memory, but Inventatory could not save it", 4);
-    return false;
-  }
-  setMessage("Cleared paired device identity", 3);
+  setMessage("Cleared paired device identity; pair the scanner again", 5);
   dirty_ = true;
   return true;
 }
@@ -241,14 +255,31 @@ bool App::provisionSelectedBleSetupDevice() {
   }
   inventatoryScanConfig_.token = candidateToken;
   inventatoryScanConfig_.deviceId.clear();
-  inventatoryScanConfig_.setupComplete = true;
-  const bool tokenSaved = saveScannerCredentialChecked(false);
-  const bool configSaved = saveScannerConfigChecked(false);
+  // Persist the unpaired state before replacing the workspace credential. If
+  // the final paired-state write fails, a restart remains fail-closed even if
+  // Credential Manager has already accepted the new token.
+  inventatoryScanConfig_.setupComplete = false;
+  const bool unpairedConfigSaved = saveScannerConfigChecked(false);
+  const bool tokenSaved = unpairedConfigSaved && saveScannerCredentialChecked(false);
+  bool configSaved = false;
+  if (tokenSaved) {
+    inventatoryScanConfig_.setupComplete = true;
+    configSaved = saveScannerConfigChecked(false);
+  }
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
-  if (tokenSaved) {
+  if (tokenSaved && !configSaved) {
+    CredentialStore::eraseForWorkspace(dataPath_, kInventatoryScanTokenCredential);
+    inventatoryScanConfig_.token.clear();
+    inventatoryScanConfig_.deviceId.clear();
+    inventatoryScanConfig_.setupComplete = false;
+    scannerCredentialSavePending_ = false;
+    saveScannerConfigChecked(false);
+  }
+  if (tokenSaved && configSaved) {
     server_.setDeviceCredentials({}, inventatoryScanConfig_.token,
                                  inventatoryScanReplayStatePath(dataPath_));
+    restartDeviceService();
   } else {
     mdnsService_.stop();
     server_.stop();

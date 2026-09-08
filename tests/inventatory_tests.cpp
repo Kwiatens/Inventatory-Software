@@ -615,12 +615,12 @@ void testInventoryCommitHistory() {
 #endif
 }
 
-void testSqliteSchemaMigrationAndValidation() {
+void testSqliteSchemaValidation() {
 #ifdef _WIN32
-  const auto legacyPath = filesystem::temp_directory_path() / "inventatory-legacy-schema-test.db";
+  const auto unsupportedPath = filesystem::temp_directory_path() / "inventatory-unsupported-schema-test.db";
   const auto invalidPath = filesystem::temp_directory_path() / "inventatory-invalid-schema-test.db";
   error_code cleanupError;
-  filesystem::remove(legacyPath, cleanupError);
+  filesystem::remove(unsupportedPath, cleanupError);
   filesystem::remove(invalidPath, cleanupError);
   const auto readBytes = [](const filesystem::path& path) {
     ifstream input(path, ios::binary);
@@ -651,57 +651,29 @@ void testSqliteSchemaMigrationAndValidation() {
 
   {
     SqliteConnection connection;
-    assert(openDatabase(legacyPath, connection));
+    assert(openDatabase(unsupportedPath, connection));
     assert(execSql(connection, R"SQL(
       CREATE TABLE inventatory_items (
         id TEXT PRIMARY KEY, part_name TEXT NOT NULL, manufacturer TEXT NOT NULL, category TEXT NOT NULL,
         quantity INTEGER NOT NULL, reorder_threshold INTEGER NOT NULL, location TEXT NOT NULL,
         tags TEXT NOT NULL, parameters TEXT NOT NULL, notes TEXT NOT NULL,
         manufacturer_part_number TEXT NOT NULL, datasheet_url TEXT NOT NULL, enrichment_status TEXT NOT NULL,
-        last_updated INTEGER NOT NULL, inventatory_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,
-        machine_code TEXT NOT NULL DEFAULT '', rack_id TEXT NOT NULL DEFAULT '', rack_slot TEXT NOT NULL DEFAULT '',
-        rack_assignment TEXT NOT NULL DEFAULT 'automatic'
+        last_updated INTEGER NOT NULL
       );
-      INSERT INTO inventatory_items
-        (id, part_name, manufacturer, category, quantity, reorder_threshold, location, tags, parameters, notes,
-         manufacturer_part_number, datasheet_url, enrichment_status, last_updated)
-      VALUES ('legacy-1', 'Legacy resistor', 'Acme', 'Resistors', 4, 1, '', '', '', '', 'LEGACY-SKU', '', 'needs_metadata', 1710000000);
     )SQL"));
-    assert(ensureInventoryDatabaseSchema(connection));
   }
   {
-    const auto beforeBytes = readBytes(legacyPath);
-    {
-      SqliteConnection connection;
-      assert(openDatabaseReadOnly(legacyPath, connection));
-      const auto beforeVersion = readUserVersion(connection);
-      const auto beforeSchema = readSchema(connection);
-      string error;
-      assert(validateInventoryDatabase(connection, &error));
-      assert(readUserVersion(connection) == beforeVersion);
-      assert(readSchema(connection) == beforeSchema);
-      {
-        SqliteStatement statement;
-        assert(sqliteApi().prepare_v2(connection.db, "SELECT sku, sync_status FROM inventatory_items WHERE id='legacy-1'", -1,
-                                      &statement.stmt, nullptr) == SQLITE_OK);
-        assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
-        assert(sqliteText(statement.stmt, 0) == "LEGACY-SKU");
-        assert(sqliteText(statement.stmt, 1) == "needs_metadata");
-      }
-    }
-    assert(readBytes(legacyPath) == beforeBytes);
-  }
-  {
+    const auto beforeBytes = readBytes(unsupportedPath);
     SqliteConnection connection;
-    assert(openDatabase(legacyPath, connection));
-    assert(execSql(connection, "UPDATE inventatory_items SET quantity=2147483648 WHERE id='legacy-1'"));
+    assert(openDatabase(unsupportedPath, connection));
+    const auto beforeVersion = readUserVersion(connection);
+    const auto beforeSchema = readSchema(connection);
     string error;
     assert(!ensureInventoryDatabaseSchema(connection, &error));
-    assert(readUserVersion(connection) == kInventoryDatabaseSchemaVersion);
-    assert(execSql(connection, "UPDATE inventatory_items SET quantity=4, last_updated=-1 WHERE id='legacy-1'"));
-    assert(!ensureInventoryDatabaseSchema(connection, &error));
-    assert(execSql(connection, "UPDATE inventatory_items SET last_updated=1710000000, quantity='invalid' WHERE id='legacy-1'"));
-    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    assert(readUserVersion(connection) == beforeVersion);
+    assert(readSchema(connection) == beforeSchema);
+    assert(!validateInventoryDatabase(connection, &error));
+    assert(readBytes(unsupportedPath) == beforeBytes);
   }
 
   const auto duplicatePath = filesystem::temp_directory_path() / "inventatory-duplicate-identifiers-test.db";
@@ -716,13 +688,13 @@ void testSqliteSchemaMigrationAndValidation() {
 
   {
     const auto beforeBytes = readBytes(invalidPath);
-    string migratedBytes;
+    string invalidBytes;
     {
       SqliteConnection connection;
       assert(openDatabase(invalidPath, connection));
       assert(execSql(connection, "CREATE TABLE inventatory_items (id TEXT PRIMARY KEY)"));
       assert(execSql(connection, "INSERT INTO inventatory_items (id) VALUES ('preserved-row')"));
-      migratedBytes = readBytes(invalidPath);
+      invalidBytes = readBytes(invalidPath);
       const auto beforeVersion = readUserVersion(connection);
       const auto beforeSchema = readSchema(connection);
       string error;
@@ -730,8 +702,8 @@ void testSqliteSchemaMigrationAndValidation() {
       assert(readUserVersion(connection) == beforeVersion);
       assert(readSchema(connection) == beforeSchema);
     }
-    assert(readBytes(invalidPath) == migratedBytes);
-    assert(migratedBytes != beforeBytes);
+    assert(readBytes(invalidPath) == invalidBytes);
+    assert(invalidBytes != beforeBytes);
     {
       SqliteConnection connection;
       assert(openDatabaseReadOnly(invalidPath, connection));
@@ -817,7 +789,7 @@ void testSqliteSchemaMigrationAndValidation() {
     filesystem::remove(completionPath, cleanupError);
   }
 
-  filesystem::remove(legacyPath, cleanupError);
+  filesystem::remove(unsupportedPath, cleanupError);
   filesystem::remove(invalidPath, cleanupError);
 #endif
 }
@@ -1190,9 +1162,8 @@ int main() {
     assert(filesystem::create_directories(workspaceA));
     assert(filesystem::create_directories(workspaceB));
 
-    // A legacy global target must never be implicitly visible through a new
-    // workspace scope.  The application migrates it only for an existing
-    // config with a completed device identity.
+    // A global target must never be implicitly visible through a workspace
+    // scope. Scanner pairing is deliberately workspace-local.
     const auto legacyKey = key + "-legacy";
     CredentialStore::erase(legacyKey);
     CredentialStore::eraseForWorkspace(workspaceA, key);
@@ -1240,7 +1211,7 @@ int main() {
   testPhysicalValueMatching();
   testPhysicalValueSearchIntegration();
   testInventoryCommitHistory();
-  testSqliteSchemaMigrationAndValidation();
+  testSqliteSchemaValidation();
   testPackageGHardening();
 
   {
@@ -2899,11 +2870,13 @@ int main() {
     assert(replayed.rfind("HTTP/1.1 409 Conflict", 0) == 0);
     assert(syncCalls == 1);
 
-    const auto slowClient = connectSlowLocalClient(server.port());
+    vector<SOCKET> slowClients;
+    for (int index = 0; index < 4; ++index) slowClients.push_back(connectSlowLocalClient(server.port()));
+    this_thread::sleep_for(chrono::milliseconds(100));
     const auto before = chrono::steady_clock::now();
     const auto nextResponse = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 43, body));
     const auto elapsed = chrono::steady_clock::now() - before;
-    closesocket(slowClient);
+    for (const auto client : slowClients) closesocket(client);
     assert(nextResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
     assert(elapsed < chrono::seconds(1));
     assert(syncCalls == 2);
@@ -3377,6 +3350,16 @@ int main() {
     assert(!stagePrinterQueueSelection(queues, queues.size(), draft, dirty));
     assert(draft == "Existing queue");
     assert(!dirty);
+  }
+
+  {
+    int parsed = 0;
+    assert(parseIntegerInRange("42", 0, 100, parsed) && parsed == 42);
+    assert(!parseIntegerInRange("42x", 0, 100, parsed));
+    assert(!parseIntegerInRange(" 42", 0, 100, parsed));
+    assert(!parseIntegerInRange("", 0, 100, parsed));
+    assert(!parseIntegerInRange("2147483648", 0, (numeric_limits<int>::max)(), parsed));
+    assert(!parseIntegerInRange("-1", 0, 100, parsed));
   }
 
   {

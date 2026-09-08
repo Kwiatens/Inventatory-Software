@@ -49,16 +49,14 @@ add_library(sqlite3_amalgamation STATIC
 )
 target_include_directories(sqlite3_amalgamation PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
 
-find_package(ftxui CONFIG QUIET)
-if(NOT ftxui_FOUND)
-  FetchContent_Declare(ftxui
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
-    # FTXUI v6.1.9. Pinning the commit makes source builds reproducible even
-    # if its upstream tag is later moved.
-    GIT_TAG 5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6
-  )
-  FetchContent_MakeAvailable(ftxui)
-endif()
+FetchContent_Declare(ftxui
+  GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+  # FTXUI v6.1.9. Pinning the commit makes source builds reproducible even
+  # if its upstream tag is later moved.
+  GIT_TAG 5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6
+)
+set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "Do not package FTXUI separately" FORCE)
+FetchContent_MakeAvailable(ftxui)
 
 add_executable(inventatory
   src/main.cpp

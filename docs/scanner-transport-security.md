@@ -35,8 +35,7 @@ trust/bootstrap model remains a future enhancement.
 Regenerate-secret and clear-device actions rotate the pairing secret, reset
 replay state, clear the paired device identity, and require a fresh pairing.
 
-For compatibility with older installations, a legacy machine-wide pairing
-credential is migrated only when the selected workspace still records a
-completed pairing and device identity. A newly created workspace never adopts
-that legacy credential; users who copy an already-paired workspace should
-clear and pair the device again if the copy is intended to be independent.
+Pairing credentials are always scoped to the selected workspace. A newly
+created or copied workspace does not inherit another workspace's credential or
+replay state; if its pairing metadata has no matching scoped credential, the
+Scan R1 service remains disabled until the user pairs that workspace again.

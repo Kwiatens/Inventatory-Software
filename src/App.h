@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <atomic>
 #include <condition_variable>
+#include <charconv>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -116,6 +117,18 @@ inline bool stagePrinterQueueSelection(const std::vector<PrinterQueueInfo>& queu
   if (selection >= queues.size()) return false;
   draftPrinterQueue = queues[selection].name;
   settingsDirty = true;
+  return true;
+}
+
+inline bool parseIntegerInRange(const std::string& text, int minimum, int maximum, int& value) {
+  if (text.empty()) return false;
+  int parsed = 0;
+  const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed, 10);
+  if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+      parsed < minimum || parsed > maximum) {
+    return false;
+  }
+  value = parsed;
   return true;
 }
 
@@ -739,7 +752,6 @@ class App {
   std::string inventoryRecoveryDetail_;
   bool activitySavePending_ = false;
   bool scannerCredentialSavePending_ = false;
-  bool scannerReplayStateMigrationPending_ = false;
   bool scannerConfigSavePending_ = false;
   bool appSettingsSavePending_ = false;
   bool activityPersistenceBlocked_ = false;
