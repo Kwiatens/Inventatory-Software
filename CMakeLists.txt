@@ -158,6 +158,7 @@ add_executable(inventatory
   src/ui/pages/RackManagementPage.cpp
   src/ui/pages/PrinterSetupPage.cpp
   src/ui/pages/InventatoryScanSetupPage.cpp
+  src/ui/pages/InventatoryScanSetupPageRender.cpp
   src/ui/pages/DigiKeySetupPage.cpp
   src/ui/pages/OnboardingPage.cpp
   src/ui/pages/ImportCsvPage.cpp
