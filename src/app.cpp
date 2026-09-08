@@ -2,10 +2,10 @@
 
 #include "App.h"
 
-#include "platform/DigiKeyApi.h"
-#include "platform/CredentialStore.h"
-#include "platform/StartupRegistration.h"
-#include "platform/UpdateService.h"
+#include "platform/digikey/DigiKeyApi.h"
+#include "platform/security/CredentialStore.h"
+#include "platform/system/StartupRegistration.h"
+#include "platform/system/UpdateService.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/component/component.hpp>

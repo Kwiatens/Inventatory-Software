@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "app/AppSettings.h"
-#include "core/Inventory.h"
+#include "app/settings/AppSettings.h"
+#include "core/inventory/Inventory.h"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/dom/elements.hpp>

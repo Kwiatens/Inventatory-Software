@@ -1,7 +1,7 @@
 // Inventatory - item-detail field selection and rendering helpers.
 
 #include "ui/shared/AppUiShared.h"
-#include "core/PartDescriptor.h"
+#include "core/parts/PartDescriptor.h"
 
 #include <algorithm>
 #include <cctype>

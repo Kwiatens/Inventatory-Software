@@ -3,7 +3,7 @@
 
 #include "ui/shared/AppUiShared.h"
 
-#include "core/PartDescriptor.h"
+#include "core/parts/PartDescriptor.h"
 
 #include <algorithm>
 #include <cctype>
