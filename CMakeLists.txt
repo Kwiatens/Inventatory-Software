@@ -150,6 +150,7 @@ add_executable(inventatory
   src/ui/pages/SettingsPage.cpp
   src/ui/pages/SettingsPageInput.cpp
   src/ui/pages/SettingsPageState.cpp
+  src/ui/pages/SettingsPageSave.cpp
 )
 
 if(WIN32)
