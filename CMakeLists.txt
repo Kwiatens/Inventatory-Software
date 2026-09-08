@@ -125,6 +125,7 @@ add_executable(inventatory
   src/label_printer/LabelPrinterWindows.cpp
   src/label_printer/LabelPrinterRack.cpp
   src/label_printer/LabelPrinterText.cpp
+  src/label_printer/LabelPrinterTextLayout.cpp
   src/platform/HttpServer.cpp
   src/platform/HttpServerProtocol.cpp
   src/platform/HttpServerLifecycle.cpp
@@ -250,6 +251,7 @@ add_executable(inventatory_tests
   src/label_printer/LabelPrinterWindows.cpp
   src/label_printer/LabelPrinterRack.cpp
   src/label_printer/LabelPrinterText.cpp
+  src/label_printer/LabelPrinterTextLayout.cpp
 )
 
 target_include_directories(inventatory_tests PRIVATE src)
