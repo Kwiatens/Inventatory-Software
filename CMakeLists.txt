@@ -83,6 +83,7 @@ add_executable(inventatory
   src/app/AppBomProjectActions.cpp
   src/app/AppBomBuildActions.cpp
   src/app/AppSettings.cpp
+  src/app/AppSettingsAppearance.cpp
   src/platform/StartupRegistration.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
@@ -200,6 +201,7 @@ add_executable(inventatory_tests
   tests/inventatory_tests.cpp
   src/app/AppBootstrap.cpp
   src/app/AppSettings.cpp
+  src/app/AppSettingsAppearance.cpp
   src/platform/StartupRegistration.cpp
   src/platform/UpdateService.cpp
   src/platform/HttpServer.cpp
