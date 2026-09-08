@@ -86,6 +86,7 @@ add_executable(inventatory
   src/platform/StartupRegistration.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
+  src/core/InventoryIdentifiers.cpp
   src/core/PartDescriptor.cpp
   src/core/PartDescriptorContext.cpp
   src/core/PartDescriptorRules.cpp
@@ -223,6 +224,7 @@ add_executable(inventatory_tests
   src/ui/shared/AppUiItemDetails.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
+  src/core/InventoryIdentifiers.cpp
   src/core/PartDescriptor.cpp
   src/core/PartDescriptorContext.cpp
   src/core/PartDescriptorRules.cpp
