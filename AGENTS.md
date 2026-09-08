@@ -48,9 +48,9 @@ security, persistence, or UI invariants below.
   results.
 - `src/App.h` defines the central application state and the interfaces shared
   by the shell, pages, and actions.
-- `src/app/AppActions.cpp` owns cross-page workflows and user-facing
-  operations that need to coordinate persistence, imports, printing, settings,
-  history, or the device service.
+- `src/app/` owns cross-page workflows grouped by feature: persistence,
+  workspace, inventory, racks, scanner, imports, BOM, labels, settings, and
+  shell/runtime coordination.
 - `src/ui/pages/` owns page rendering and page-local input. Keep page-specific
   presentation and input here rather than growing the shell.
 - `src/ui/shared/` owns shared visual roles, formatting, layout helpers, and
@@ -220,7 +220,8 @@ another worker reads concurrently.
 ## Inventatory Scan R1 security invariants
 
 Treat `docs/scanner-transport-security.md` and the code in
-`src/core/InventatoryScanProtocol.cpp` and `src/platform/HttpServer.cpp` as a
+`src/core/scanner/InventatoryScanProtocol.cpp` and
+`src/platform/scanner/HttpServer.cpp` as a
 security boundary. Changes must preserve all of the following:
 
 - BLE provisioning is physically verified and provisions a random 32-byte
