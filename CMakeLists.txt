@@ -84,6 +84,8 @@ add_executable(inventatory
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
   src/core/PartDescriptor.cpp
+  src/core/PartDescriptorContext.cpp
+  src/core/PartDescriptorRules.cpp
   src/core/InventoryQuery.cpp
   src/core/PhysicalValue.cpp
   src/core/RackAllocation.cpp
@@ -209,6 +211,8 @@ add_executable(inventatory_tests
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
   src/core/PartDescriptor.cpp
+  src/core/PartDescriptorContext.cpp
+  src/core/PartDescriptorRules.cpp
   src/core/InventoryQuery.cpp
   src/core/PhysicalValue.cpp
   src/core/RackAllocation.cpp
