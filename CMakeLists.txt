@@ -162,6 +162,7 @@ add_executable(inventatory
   src/ui/pages/HistoryPage.cpp
   src/ui/pages/HistoryPageRender.cpp
   src/ui/pages/SettingsPage.cpp
+  src/ui/pages/SettingsPageAppearance.cpp
   src/ui/pages/SettingsPageInput.cpp
   src/ui/pages/SettingsPageState.cpp
   src/ui/pages/SettingsPageSave.cpp

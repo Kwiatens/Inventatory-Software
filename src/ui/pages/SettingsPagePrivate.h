@@ -11,6 +11,14 @@
 namespace inventatory {
 namespace settings_page_detail {
 
+int settingsLabelWidth(int width);
+ftxui::Element settingLine(const std::string& label, const std::string& value, int width, bool selected = false);
+ftxui::Element versionLine(const std::string& label, const std::string& installedVersion,
+                           const std::string& availableVersion, int width);
+ftxui::Element printerQueueLine(const std::string& name, const std::string& status, int width, bool selected);
+ftxui::Element buttonRow(ftxui::Element button);
+ftxui::Element appearanceColorLine(AppearanceColorRole role, int width, bool selected);
+
 inline constexpr const char* kDigiKeySecretName = "digikey-client-secret";
 inline constexpr int kAppearancePickerHueSteps = 12;
 inline constexpr int kAppearancePickerValueSteps = 6;
