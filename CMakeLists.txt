@@ -62,6 +62,7 @@ add_executable(inventatory
   src/main.cpp
   src/app.cpp
   src/app/AppInput.cpp
+  src/app/AppInputModes.cpp
   src/app/AppRuntime.cpp
   src/app/AppShell.cpp
   src/app/AppShellRender.cpp
