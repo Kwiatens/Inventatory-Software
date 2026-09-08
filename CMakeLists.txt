@@ -67,7 +67,9 @@ add_executable(inventatory
   src/app/AppBootstrap.cpp
   src/app/AppPersistence.cpp
   src/app/AppWorkspace.cpp
-  src/app/AppInventoryActions.cpp
+  src/app/AppInventoryEdit.cpp
+  src/app/AppInventorySelection.cpp
+  src/app/AppRackActions.cpp
   src/app/AppScanActions.cpp
   src/app/AppImportActions.cpp
   src/app/AppBomActions.cpp
