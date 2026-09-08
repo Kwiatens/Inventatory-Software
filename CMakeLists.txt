@@ -138,6 +138,7 @@ add_executable(inventatory
   src/ui/shared/AppUiItemDetails.cpp
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
+  src/ui/pages/DashboardPageRender.cpp
   src/ui/pages/StockPage.cpp
   src/ui/pages/StockPageList.cpp
   src/ui/pages/StockPageDetail.cpp
