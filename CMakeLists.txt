@@ -113,6 +113,7 @@ add_executable(inventatory
   src/core/InventatoryScanProtocolSecurity.cpp
   src/core/DeviceSyncStore.cpp
   src/core/BomMatch.cpp
+  src/core/BomMatchHelpers.cpp
   src/core/BomProjectStore.cpp
   src/import/CsvReader.cpp
   src/import/CsvFormat.cpp
@@ -213,6 +214,7 @@ add_executable(inventatory_tests
   src/import/KicadBom.cpp
   src/import/DigiKeyCsvImport.cpp
   src/core/BomMatch.cpp
+  src/core/BomMatchHelpers.cpp
   src/core/BomProjectStore.cpp
   src/ui/shared/AppUiShared.cpp
   src/ui/shared/AppUiItemDetails.cpp
