@@ -129,6 +129,7 @@ add_executable(inventatory
   src/platform/BleProvisioningService.cpp
   src/platform/UpdateService.cpp
   src/ui/shared/AppUiShared.cpp
+  src/ui/shared/AppUiItemDetails.cpp
   src/ui/ActionRegistry.cpp
   src/ui/pages/DashboardPage.cpp
   src/ui/pages/StockPage.cpp
@@ -192,6 +193,7 @@ add_executable(inventatory_tests
   src/core/BomMatch.cpp
   src/core/BomProjectStore.cpp
   src/ui/shared/AppUiShared.cpp
+  src/ui/shared/AppUiItemDetails.cpp
   src/core/Inventory.cpp
   src/core/InventoryHelpers.cpp
   src/core/PartDescriptor.cpp
