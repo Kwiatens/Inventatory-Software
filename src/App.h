@@ -151,8 +151,8 @@ class App {
     Onboarding,
   };
 
-  // The Projects page hosts three surfaces: the pinned list, the have/need
-  // split, and the rack-by-rack build walkthrough.
+  // The Projects page hosts three surfaces: the pinned list, the unified BOM
+  // analysis, and the rack-by-rack build walkthrough.
   enum class BomView { List, Split, Build };
 
   enum class ScanSetupStep {
@@ -852,10 +852,10 @@ class App {
   BomAnalysis bomAnalysis_;
   KicadBomFile bomFile_;
   size_t bomSplitSelection_ = 0;
-  // Keep wheel/key navigation within the active half of the BOM split view.
-  bool bomSplitShortFocused_ = false;
-  mutable ftxui::Box bomReadyPanelBounds_;
-  mutable ftxui::Box bomShortPanelBounds_;
+  // The unified BOM table owns wheel/key navigation. On narrow terminals its
+  // contextual details open as a dedicated view instead of crushing columns.
+  bool bomInspectorOpen_ = false;
+  mutable ftxui::Box bomTableBounds_;
   mutable ftxui::Box dashboardWarningPanelBounds_;
   mutable ftxui::Box dashboardActivityPanelBounds_;
   size_t bomBuildStep_ = 0;

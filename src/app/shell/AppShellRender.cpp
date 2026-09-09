@@ -256,9 +256,7 @@ ftxui::Element App::renderSearchBarUi() const {
         } else {
           contextText = to_string(bomAnalysis_.lines.size()) + " lines · " +
                         to_string(bomAnalysis_.boards) +
-                        (bomAnalysis_.boards == 1 ? " board · " : " boards · ") +
-                        to_string(bomAnalysis_.readyCount) + " ready · " +
-                        to_string(bomAnalysis_.shortCount) + " short";
+                        (bomAnalysis_.boards == 1 ? " board" : " boards");
         }
         break;
       case Page::History:
@@ -356,6 +354,12 @@ ftxui::Element App::renderMessageUi() const {
   }
   if (!persistenceError_.empty()) {
     return fullLine(persistenceError_, uiDangerColor(), uiPanelLeftBg());
+  }
+  if (page_ == Page::Projects && bomView_ == BomView::Build && bomAnalysisValid_ &&
+      !bomBuildReady(bomAnalysis_) && message_.empty()) {
+    return fullLine(to_string(bomAnalysis_.shortCount) +
+                        " shortages · stock will not be deducted",
+                    uiWarnColor(), uiPanelLeftBg());
   }
   if (message_.empty()) {
     return ftxui::text("");
