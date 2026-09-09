@@ -322,7 +322,7 @@ vector<App::Action> App::currentActions() const {
         add("next rack", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
         add("previous rack", "Build", "Bksp", special(KeyType::Backspace), [self] { self->advanceBomBuild(-1); });
       } else if (bomView_ == BomView::Split && bomAnalysisValid_) {
-        add("build", "Project", "b", chr('b'), [self] { self->beginBomBuild(); });
+        add("build walkthrough", "Project", "b", chr('b'), [self] { self->beginBomBuild(); });
         add("more boards", "Project", "+", chr('+'), [self] { self->adjustBomBoards(1); });
         add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
         add("alternate match", "Match", "a", chr('a'), [self] { self->cycleBomAlternate(); });
