@@ -32,6 +32,11 @@ navigation; sage, amber, and coral are reserved for real state. Use one surface
 for normal rows and reserve hover/selection backgrounds for interaction. Prefer
 alignment and a single dim divider over windows nested inside windows.
 
+Projects uses one BOM table rather than parallel ready/shortage panels. Its status
+column is followed by a compact `Need / Have` cell, and selected-line actions live
+in the contextual detail pane. The build walkthrough shows the current rack and
+pick list once; incomplete-build warnings belong in the shared bottom status row.
+
 The terminal font is controlled by the host. JetBrains Mono is the recommended
 Windows Terminal font; use the repository profile snippet when setting up a
 developer terminal, and do not add font installation or terminal-settings writes

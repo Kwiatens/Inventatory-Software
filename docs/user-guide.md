@@ -76,17 +76,23 @@ returning to inventory.
 ## Project workflow
 
 A KiCad BOM becomes a project on the Projects page. Every line is matched against
-stock by manufacturer part number, or by value and package for passives, and the
-result splits into what is pickable now and what has to be ordered. Shortages are
-looked up on DigiKey in the background; `o` writes them to a CSV beside the BOM.
+stock by manufacturer part number, or by value and package for passives. One BOM
+table shows each line's status, compact need/on-hand quantities, and its stock
+location or suggested DigiKey match. Shortages are looked up on DigiKey in the
+background; `o` writes them to a CSV beside the BOM.
 
 `+` and `-` change the board count and re-run the analysis. `a` cycles to the next
 matching part when one line has several candidates, and that choice is remembered.
 
-`b` starts the build walkthrough. It stops at one rack at a time, pulsing the slots
-holding parts this build needs, and lists what to take out of each. Enter advances,
-Backspace goes back. Parts that live outside a rack come last, grouped by location.
-At the end, answer whether to subtract the picked parts from stock; Ctrl+Z undoes it.
+`b` starts the build walkthrough, or previews it while shortages remain. It focuses
+on one rack at a time, pulsing the slots holding parts this build needs and listing
+only the current picks. Enter advances and Backspace goes back. Parts that live
+outside a rack come last, grouped by location. At the end, answer whether to
+subtract the picked parts from stock; Ctrl+Z undoes it.
+
+On wide terminals the selected BOM line's details and shortage action appear beside
+the table. At the 100-column minimum, Enter opens that focused detail view and
+Escape returns to the table.
 
 Projects persist in the inventory database, so reopening the app restores the
 analysis against current stock with no re-upload. `d` forgets one.

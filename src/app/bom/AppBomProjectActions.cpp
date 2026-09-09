@@ -104,7 +104,7 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   activeBomProjectId_ = project.id;
   bomProjectSelection_ = 0;
   bomSplitSelection_ = 0;
-  bomSplitShortFocused_ = false;
+  bomInspectorOpen_ = false;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
   bomView_ = BomView::Split;
@@ -155,7 +155,7 @@ void App::openSelectedBomProject() {
   project.lastOpened = time(nullptr);
   activeBomProjectId_ = project.id;
   bomSplitSelection_ = 0;
-  bomSplitShortFocused_ = false;
+  bomInspectorOpen_ = false;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
   bomView_ = BomView::Split;
@@ -180,20 +180,9 @@ void App::moveBomSelection(int delta) {
       dirty_ = true;
       return;
     }
-    vector<size_t> visibleIndices;
-    for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
-      if (bomAnalysis_.matches[index].sufficient != bomSplitShortFocused_) {
-        visibleIndices.push_back(index);
-      }
-    }
-    if (visibleIndices.empty()) {
-      dirty_ = true;
-      return;
-    }
-    const auto selected = find(visibleIndices.begin(), visibleIndices.end(), bomSplitSelection_);
-    const int current = selected == visibleIndices.end() ? 0 : static_cast<int>(distance(visibleIndices.begin(), selected));
-    const auto next = clamp(current + delta, 0, static_cast<int>(visibleIndices.size() - 1));
-    bomSplitSelection_ = visibleIndices[static_cast<size_t>(next)];
+    const auto current = static_cast<int>(min(bomSplitSelection_, bomAnalysis_.matches.size() - 1));
+    bomSplitSelection_ = static_cast<size_t>(
+        clamp(current + delta, 0, static_cast<int>(bomAnalysis_.matches.size() - 1)));
   }
   dirty_ = true;
 }
