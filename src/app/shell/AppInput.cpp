@@ -248,13 +248,7 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
     }
     else if (page_ == Page::Projects) {
       if (bomView_ == BomView::Split) {
-        if (uiBoxContains(bomReadyPanelBounds_, mouse.x, mouse.y)) {
-          bomSplitShortFocused_ = false;
-          moveBomSelection(delta);
-        } else if (uiBoxContains(bomShortPanelBounds_, mouse.x, mouse.y)) {
-          bomSplitShortFocused_ = true;
-          moveBomSelection(delta);
-        }
+        if (uiBoxContains(bomTableBounds_, mouse.x, mouse.y)) moveBomSelection(delta);
       } else {
         moveBomSelection(delta);
       }
