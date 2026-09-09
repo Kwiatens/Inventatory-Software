@@ -153,7 +153,7 @@ bool App::chooseInventatoryFolder() {
   bomView_ = BomView::List;
   bomProjectSelection_ = 0;
   bomSplitSelection_ = 0;
-  bomSplitShortFocused_ = false;
+  bomInspectorOpen_ = false;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
   bomEnrichmentQueue_.clear();
