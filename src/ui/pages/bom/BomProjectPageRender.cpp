@@ -33,6 +33,16 @@ ftxui::Element centered(ftxui::Element element) {
   return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
 }
 
+ftxui::Element bomStepBanner(const string& title, int width) {
+  return ftxui::hbox({
+             ftxui::filler(),
+             uiHeaderText(" " + title + " ", uiFocusColor()),
+             ftxui::filler(),
+         }) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
+         ftxui::bgcolor(uiActiveBg());
+}
+
 // Pulse fill for a rack slot the current build needs opened. Kept page-local
 // alongside the rack page's own state backgrounds.
 ftxui::Color bomLitSlotBg() {
@@ -184,12 +194,24 @@ ftxui::Element App::renderBomProjectUi() const {
       litSlots.insert(pick.slot);
     }
 
-    const int sideWidth = clamp(screenWidth / 3, 32, 46);
+    // The loose-item summary needs more room for its location and package
+    // columns than a rack stop does. Keep the rail wide enough to preserve
+    // those labels without taking the whole workspace away from the main pane.
+    const int sideWidth = loose ? clamp(screenWidth / 3, 54, 64) : clamp(screenWidth / 3, 42, 52);
+    const int sideContentWidth = max(20, sideWidth - 1);  // reserve the rail's scroll marker column
+    const int slotColumn = loose ? clamp(sideWidth / 3, 14, 18) : 8;
+    const int quantityColumn = 8;
+    const int detailColumn = loose ? clamp(sideWidth / 5, 10, 14) : clamp(sideWidth / 5, 8, 12);
+    const int labelColumn = max(8, sideContentWidth - slotColumn - quantityColumn - detailColumn - 1);
+    auto sideListHeader = ftxui::hbox({
+        bomCell(" " + string(loose ? "Location" : "Slot"), slotColumn, uiMutedColor()),
+        bomCell("Part", labelColumn, uiMutedColor()),
+        bomCell("Package", detailColumn, uiMutedColor()),
+        ftxui::filler(),
+        bomCell("Need", quantityColumn, uiMutedColor(), true),
+    }) | ftxui::bgcolor(uiPanelLeftBg());
+
     ftxui::Elements sideRows;
-    const int slotColumn = 10;
-    const int quantityColumn = 7;
-    const int detailColumn = clamp(sideWidth / 5, 6, 12);
-    const int labelColumn = max(8, sideWidth - slotColumn - quantityColumn - detailColumn - 1);
     for (const auto& pick : step.picks) {
       sideRows.push_back(ftxui::hbox({
           bomCell(" " + pick.slot, slotColumn, uiAccentColor()),
@@ -199,13 +221,20 @@ ftxui::Element App::renderBomProjectUi() const {
           bomCell("x" + to_string(pick.quantity), quantityColumn, uiFocusColor(), true),
       }));
     }
-    sideRows.push_back(uiDivider());
+
+    auto sideList = ftxui::vbox(move(sideRows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                    ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+
+    ftxui::Elements sideFooter;
+    sideFooter.push_back(uiDivider());
     if (stepIndex + 1 < steps.size()) {
-      sideRows.push_back(fullLine("Next: " + steps[stepIndex + 1].title + " · " +
-                                      to_string(steps[stepIndex + 1].picks.size()) + " slots",
-                                  uiMutedColor(), uiSurfaceBg()));
+      sideFooter.push_back(fullLine("Next: " + steps[stepIndex + 1].title + " · " +
+                                        to_string(steps[stepIndex + 1].picks.size()) + " slots",
+                                    uiMutedColor(), uiSurfaceBg()));
+    } else {
+      sideFooter.push_back(fullLine("End of pick list", uiMutedColor(), uiSurfaceBg()));
     }
-    sideRows.push_back(ftxui::hbox({
+    sideFooter.push_back(ftxui::hbox({
         target(styledText(" Next stop  Enter ", uiCanvasBg(), uiInteractiveColor()), "bom.build.next",
                UiTargetKind::Button, [self] { self->advanceBomBuild(1); }),
         ftxui::text(" "),
@@ -215,16 +244,21 @@ ftxui::Element App::renderBomProjectUi() const {
     }));
 
     ftxui::Elements mainRows;
-    mainRows.push_back(centered(uiHeaderText(step.title, uiAccentColor())) | ftxui::bgcolor(uiPanelRightBg()));
-    mainRows.push_back(uiDivider());
 
     if (loose) {
+      const int mainContentWidth = max(30, screenWidth - sideWidth - 3);
+      const int mainLabelColumn = max(12, mainContentWidth - 18 - quantityColumn);
+      mainRows.push_back(ftxui::hbox({
+          bomCell(" Location", 18, uiMutedColor()),
+          bomCell("Part", mainLabelColumn, uiMutedColor()),
+          bomCell("Need", quantityColumn, uiMutedColor(), true),
+      }) | ftxui::bgcolor(uiPanelLeftBg()));
       for (const auto& pick : step.picks) {
         mainRows.push_back(ftxui::hbox({
             bomCell(" " + pick.slot, 18, uiMutedColor()),
-            bomCell(pick.label, max(12, screenWidth - sideWidth - 34), uiPrimaryText()),
-            ftxui::filler(),
-            bomCell("x" + to_string(pick.quantity), 8, blink ? uiFocusColor() : uiInteractiveColor(), true),
+            bomCell(pick.label, mainLabelColumn, uiPrimaryText()),
+            bomCell("x" + to_string(pick.quantity), quantityColumn,
+                    blink ? uiFocusColor() : uiInteractiveColor(), true),
         }));
       }
     } else {
@@ -273,7 +307,14 @@ ftxui::Element App::renderBomProjectUi() const {
 
     auto mainPanel = ftxui::vbox(move(mainRows)) | ftxui::yframe | ftxui::vscroll_indicator |
                      ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
-    auto sidePanel = ftxui::vbox(move(sideRows)) | ftxui::bgcolor(uiSurfaceBg()) |
+    auto sidePanel = ftxui::vbox({
+                         bomStepBanner(step.title, sideWidth),
+                         uiDivider(),
+                         move(sideListHeader),
+                         move(sideList),
+                         move(ftxui::vbox(move(sideFooter))),
+                     }) |
+                     ftxui::bgcolor(uiSurfaceBg()) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, sideWidth);
 
     return ftxui::vbox({
