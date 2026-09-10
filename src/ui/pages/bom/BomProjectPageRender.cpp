@@ -475,13 +475,19 @@ ftxui::Element App::renderBomProjectUi() const {
   string previousAvailability;
   string previousCategory;
   const auto needHaveCell = [&](const BomMatch& match) {
-    constexpr int countFieldWidth = 3;
+    const int countFieldWidth = match.needed > 99 || match.available > 99 ? 3 : 2;
+    const auto padCount = [countFieldWidth](const string& value) {
+      const auto width = static_cast<size_t>(countFieldWidth);
+      return value.size() < width ? string(width - value.size(), '0') + value : value;
+    };
+    const auto needText = padCount(to_string(match.needed));
+    const auto haveText = padCount(to_string(match.available));
     const auto need = ftxui::hbox({
         ftxui::filler(),
-        styledText(to_string(match.needed), uiMutedColor()),
+        styledText(needText, uiMutedColor()),
     }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countFieldWidth);
     const auto have = ftxui::hbox({
-        styledText(to_string(match.available),
+        styledText(haveText,
                    match.sufficient ? uiSuccessColor() : uiDangerColor()),
         ftxui::filler(),
     }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countFieldWidth);
