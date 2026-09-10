@@ -56,7 +56,7 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
   ftxui::Elements listRows;
   if (rankedView) {
     listRows.push_back(ftxui::hbox({
-                           fixedCell("Part", partWidth, uiMutedColor()),
+                           fixedCell("Component Category", partWidth, uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
                            fixedCell("Fit", matchWidth, uiMutedColor(), CellAlign::Center),
                            ftxui::separator() | ftxui::color(uiDimColor()),
@@ -65,14 +65,14 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
                        ftxui::bgcolor(uiPanelLeftBg()));
   } else if (groupByCategory) {
     listRows.push_back(ftxui::hbox({
-                           fixedCell("Part", partWidth, uiMutedColor()),
+                           fixedCell("Component Category", partWidth, uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
                            qtyHeaderCell,
                        }) |
                        ftxui::bgcolor(uiPanelLeftBg()));
   } else {
     listRows.push_back(ftxui::hbox({
-                           fixedCell("Part", partWidth, uiMutedColor()),
+                           fixedCell("Component Category", partWidth, uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
                            fixedCell("Category", categoryWidth, uiMutedColor()),
                            ftxui::filler(),
