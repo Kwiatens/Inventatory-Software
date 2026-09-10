@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <sstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -37,6 +38,63 @@ ftxui::Element centered(ftxui::Element element) {
 // alongside the rack page's own state backgrounds.
 ftxui::Color bomLitSlotBg() {
   return uiActiveBg();
+}
+
+vector<string> bomRackTitleLines(const string& value, int width) {
+  const int lineWidth = max(1, width);
+  vector<string> lines;
+  istringstream words(value);
+  string word;
+  string line;
+
+  const auto flushLine = [&] {
+    if (!line.empty()) {
+      lines.push_back(move(line));
+      line.clear();
+    }
+  };
+
+  while (words >> word) {
+    if (static_cast<int>(word.size()) > lineWidth) {
+      flushLine();
+      for (size_t offset = 0; offset < word.size(); offset += static_cast<size_t>(lineWidth)) {
+        lines.push_back(word.substr(offset, static_cast<size_t>(lineWidth)));
+      }
+      continue;
+    }
+    if (!line.empty() && static_cast<int>(line.size() + word.size() + 1) > lineWidth) flushLine();
+    if (!line.empty()) line.push_back(' ');
+    line += word;
+  }
+
+  flushLine();
+  if (lines.empty()) lines.push_back({});
+  return lines;
+}
+
+ftxui::Element centeredBomRackText(const string& value, int width, ftxui::Color color) {
+  const auto lines = bomRackTitleLines(value, max(1, width - 2));
+  string wrapped;
+  for (size_t index = 0; index < lines.size(); ++index) {
+    if (index > 0) wrapped.push_back('\n');
+    wrapped += lines[index];
+  }
+  return (ftxui::paragraphAlignCenter(wrapped) | ftxui::color(color)) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+}
+
+ftxui::Element bomRackQuantityIndicator(const InventoryItem& item, bool active, int lowStockThreshold) {
+  const auto foreground = item.quantity <= 0 ? uiDangerColor()
+                        : isLowStock(item, lowStockThreshold) ? uiWarnColor()
+                                                              : uiPrimaryText();
+  const auto background = active ? uiSelectionBg() : uiRaisedSurfaceBg();
+  auto indicator = styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background);
+  if (active) indicator = indicator | ftxui::bold;
+  return indicator;
+}
+
+ftxui::Element bomRackSlotLabel(const string& value, ftxui::Color color) {
+  return ftxui::hbox({uiHeaderText(value, color), ftxui::text(" ")});
 }
 
 }  // namespace
@@ -228,38 +286,66 @@ ftxui::Element App::renderBomProjectUi() const {
         }));
       }
     } else {
-      const auto rackIt = find_if(store_.racks().begin(), store_.racks().end(),
-                                  [&](const InventatoryRack& candidate) { return candidate.id == step.rackId; });
-      // Honour the rack's own geometry rather than assuming a 5x5 grid.
-      const int rows = rackIt == store_.racks().end() ? 5 : max(1, rackIt->rows);
-      const int columns = rackIt == store_.racks().end() ? 5 : max(1, rackIt->columns);
+      // Keep the walkthrough grid identical to the Racks page: five columns,
+      // five rows, centered part names, and the quantity/slot strip at the
+      // bottom of every cell.
+      const int rows = 5;
+      const int columns = 5;
       const int gridWidth = max(30, screenWidth - sideWidth - 3);
       const int slotSpace = gridWidth - (columns - 1);
       const int slotWidth = max(7, slotSpace / columns);
       const int extraColumns = max(0, slotSpace - slotWidth * columns);
-      const int slotHeight = max(2, (screenHeight - 8) / max(1, rows));
+      // The page frame reserves five rows for the shared shell and this view's
+      // project header. The rack title/divider and four row dividers consume
+      // four more rows, leaving the same slot-space calculation as Racks.
+      // Truncating to a multiple keeps every slot exactly the same height.
+      const int availableSlotRows = max(15, screenHeight - 13);
+      const int slotHeight = max(3, availableSlotRows / rows);
+
+      int maxTitleLines = 1;
+      for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+          const auto slot = rackSlotLabel(column, row);
+          const auto* item = itemAtRackSlot(store_, step.rackId, slot);
+          const auto itemText = item == nullptr ? string("[ empty ]") : item->partName;
+          maxTitleLines = max(maxTitleLines,
+                              static_cast<int>(bomRackTitleLines(itemText, max(1, slotWidth - 2)).size()));
+        }
+      }
+      const int rowHeight = max(slotHeight, maxTitleLines + 1);
 
       for (int row = 0; row < rows; ++row) {
         ftxui::Elements rowCells;
         for (int column = 0; column < columns; ++column) {
-          const auto slot = string(1, static_cast<char>('A' + row)) + to_string(column + 1);
+          const auto slot = rackSlotLabel(column, row);
           const auto* item = itemAtRackSlot(store_, step.rackId, slot);
           const bool lit = litSlots.count(slot) != 0;
           // A lit slot pulses between a filled highlight and the resting
           // surface, so the eye lands on exactly what to open.
           const auto bg = lit ? (blink ? bomLitSlotBg() : uiSurfaceBg()) : uiCanvasBg();
-          const auto slotColor = lit ? (blink ? uiPrimaryText() : uiSuccessColor())
-                                     : (item == nullptr ? uiDimColor() : uiMutedColor());
-          const auto bodyColor = lit ? (blink ? uiPrimaryText() : uiSecondaryText()) : uiDimColor();
-
-          ftxui::Elements cellRows;
-          cellRows.push_back(centered(uiHeaderText(slot, slotColor)));
-          cellRows.push_back(ftxui::paragraphAlignLeft(item == nullptr ? string("--") : item->partName) |
-                             ftxui::color(bodyColor));
+          const auto titleColor = lit ? (blink ? uiPrimaryText() : uiSuccessColor())
+                                     : (item == nullptr ? uiMutedColor() : uiAccentColor());
+          const auto nameColor = item == nullptr ? uiDimColor() : uiPrimaryText();
           const int cellWidth = slotWidth + (column < extraColumns ? 1 : 0);
-          rowCells.push_back(ftxui::vbox(move(cellRows)) | ftxui::bgcolor(bg) |
+
+          auto nameArea = ftxui::vbox({
+                                ftxui::filler(),
+                                centeredBomRackText(item == nullptr ? string("[ empty ]") : item->partName,
+                                                    cellWidth, nameColor),
+                                ftxui::filler(),
+                            }) |
+                          ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, max(1, rowHeight - 1));
+          auto quantity = item == nullptr
+                              ? styledText(" available ", uiDimColor())
+                              : bomRackQuantityIndicator(*item, lit && blink, settings_.lowStockThreshold);
+          auto bottom = ftxui::hbox({
+              move(quantity),
+              ftxui::filler(),
+              bomRackSlotLabel(slot, titleColor),
+          }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth);
+          rowCells.push_back(ftxui::vbox({move(nameArea), move(bottom)}) | ftxui::bgcolor(bg) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
-                             ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, slotHeight));
+                             ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rowHeight));
           if (column + 1 < columns) {
             rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
           }
