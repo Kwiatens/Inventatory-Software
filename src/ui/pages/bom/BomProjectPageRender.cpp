@@ -480,7 +480,7 @@ ftxui::Element App::renderBomProjectUi() const {
     }
 
     auto row = ftxui::hbox({
-        bomCell(line.designation, partWidth, fg),
+        bomCell("    " + line.designation, partWidth, fg),
         bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
         bomCell(to_string(match.needed), quantityWidth,
                 match.sufficient ? uiMutedColor() : uiDangerColor(), true),
