@@ -19,6 +19,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <sstream>
 #include <system_error>
 #include <unordered_set>
@@ -27,6 +28,78 @@ namespace inventatory {
 
 using namespace std;
 using namespace app_actions;
+
+string App::bomComparisonCategory(const BomLine& line, const BomMatch& match,
+                                  const vector<InventoryItem>& items) {
+  const auto itemId = match.chosenItemId();
+  const auto item = find_if(items.begin(), items.end(), [&](const InventoryItem& candidate) {
+    return candidate.id == itemId;
+  });
+  if (item != items.end() && !trim(item->category).empty()) {
+    return displayCategory(item->category);
+  }
+
+  ValueKind kind = ValueKind::None;
+  parseElectricalValue(line.designation, kind);
+  switch (kind) {
+    case ValueKind::Capacitance: return "Capacitors";
+    case ValueKind::Resistance: return "Resistors";
+    case ValueKind::Inductance: return "Inductors";
+    case ValueKind::Frequency: return "Crystals";
+    case ValueKind::None: break;
+  }
+
+  const auto designator = line.designators.empty() ? string() : toLower(trim(line.designators.front()));
+  if (!designator.empty()) {
+    switch (designator.front()) {
+      case 'c': return "Capacitors";
+      case 'd': return "Diodes";
+      case 'j':
+      case 'p': return "Connectors";
+      case 'l': return "Inductors";
+      case 'q': return "Transistors";
+      case 'r': return "Resistors";
+      case 'u': return "Integrated Circuits";
+      case 'y': return "Crystals";
+      default: break;
+    }
+  }
+  return "Other";
+}
+
+void App::sortBomAnalysisForProject(BomAnalysis& analysis, const vector<InventoryItem>& items) {
+  vector<size_t> order(analysis.matches.size());
+  iota(order.begin(), order.end(), 0);
+  stable_sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
+    const auto& leftMatch = analysis.matches[lhs];
+    const auto& rightMatch = analysis.matches[rhs];
+    if (leftMatch.sufficient != rightMatch.sufficient) return leftMatch.sufficient > rightMatch.sufficient;
+
+    const auto leftCategory = bomComparisonCategory(analysis.lines[leftMatch.lineIndex], leftMatch, items);
+    const auto rightCategory = bomComparisonCategory(analysis.lines[rightMatch.lineIndex], rightMatch, items);
+    const auto leftCategoryKey = toLower(leftCategory);
+    const auto rightCategoryKey = toLower(rightCategory);
+    if (leftCategoryKey != rightCategoryKey) return leftCategoryKey < rightCategoryKey;
+
+    const auto leftPart = toLower(analysis.lines[leftMatch.lineIndex].designation);
+    const auto rightPart = toLower(analysis.lines[rightMatch.lineIndex].designation);
+    if (leftPart != rightPart) return leftPart < rightPart;
+    return lhs < rhs;
+  });
+
+  vector<BomLine> lines;
+  vector<BomMatch> matches;
+  lines.reserve(order.size());
+  matches.reserve(order.size());
+  for (size_t newIndex = 0; newIndex < order.size(); ++newIndex) {
+    auto match = analysis.matches[order[newIndex]];
+    lines.push_back(analysis.lines[match.lineIndex]);
+    match.lineIndex = newIndex;
+    matches.push_back(move(match));
+  }
+  analysis.lines = move(lines);
+  analysis.matches = move(matches);
+}
 
 BomProject* App::activeBomProject() {
   if (activeBomProjectId_.empty()) {
@@ -130,10 +203,30 @@ void App::refreshBomAnalysis() {
     return;
   }
 
+  string selectedLineKey;
+  if (bomAnalysisValid_ && !bomAnalysis_.matches.empty()) {
+    const auto selectedIndex = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
+    const auto& selectedMatch = bomAnalysis_.matches[selectedIndex];
+    if (selectedMatch.lineIndex < bomAnalysis_.lines.size()) {
+      selectedLineKey = bomLineKey(bomAnalysis_.lines[selectedMatch.lineIndex]);
+    }
+  }
+
   bomAnalysis_ = analyzeBom(bomFile_, store_.items(), project->boards, project->overrides);
+  sortBomAnalysisForProject(bomAnalysis_, store_.items());
   bomAnalysisValid_ = true;
   if (!bomAnalysis_.matches.empty()) {
-    bomSplitSelection_ = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
+    bomSplitSelection_ = 0;
+    if (!selectedLineKey.empty()) {
+      for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
+        const auto& match = bomAnalysis_.matches[index];
+        if (match.lineIndex < bomAnalysis_.lines.size() &&
+            bomLineKey(bomAnalysis_.lines[match.lineIndex]) == selectedLineKey) {
+          bomSplitSelection_ = index;
+          break;
+        }
+      }
+    }
   } else {
     bomSplitSelection_ = 0;
   }
@@ -214,14 +307,25 @@ void App::cycleBomAlternate() {
     return;
   }
 
+  const auto selectedLineKey = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
   match.chosen = (match.chosen + 1) % match.candidates.size();
   project->overrides[bomLineKey(bomAnalysis_.lines[match.lineIndex])] = match.chosenItemId();
   recomputeBomTotals(bomAnalysis_, store_.items());
+  sortBomAnalysisForProject(bomAnalysis_, store_.items());
+  for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
+    const auto& sortedMatch = bomAnalysis_.matches[index];
+    if (sortedMatch.lineIndex < bomAnalysis_.lines.size() &&
+        bomLineKey(bomAnalysis_.lines[sortedMatch.lineIndex]) == selectedLineKey) {
+      bomSplitSelection_ = index;
+      break;
+    }
+  }
   const bool saved = saveBomProjects();
 
-  const auto* item = store_.findById(match.chosenItemId());
+  const auto* item = store_.findById(project->overrides[selectedLineKey]);
+  const auto& selectedMatch = bomAnalysis_.matches[bomSplitSelection_];
   setMessage(saved ? "Matched to " + (item == nullptr ? string("unknown part") : item->partName) + "  (" +
-                         to_string(match.chosen + 1) + "/" + to_string(match.candidates.size()) + ")"
+                         to_string(selectedMatch.chosen + 1) + "/" + to_string(selectedMatch.candidates.size()) + ")"
                   : "Alternate match changed in memory; press R to retry saving the project",
              5);
 }
