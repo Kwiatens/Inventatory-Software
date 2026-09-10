@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// KiCad BOM project rendering: pinned list, unified analysis, build walkthrough.
+// KiCad BOM project rendering: pinned list, BOM comparison, Find in racks workflow.
 
 #include "App.h"
 
@@ -163,7 +163,7 @@ ftxui::Element App::renderBomProjectUi() const {
         promptRows.push_back(fullLine("Press Escape to return to the shortage list.", uiMutedColor(), uiPanelRightBg()));
       }
 
-      auto prompt = panel("Build", move(promptRows), uiAccentColor(), uiAccentColor()) |
+      auto prompt = panel("Find in racks", move(promptRows), uiAccentColor(), uiAccentColor()) |
                     ftxui::bgcolor(uiPanelRightBg()) |
                     ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, max(48, min(screenWidth - 8, 72)));
       return ftxui::vbox({
@@ -286,7 +286,17 @@ ftxui::Element App::renderBomProjectUi() const {
     });
   }
 
-  // --------------------------------------------------------------- split ---
+  // ------------------------------------------------------------ compare ---
+  // The open-project screen has one job: make the stock comparison readable
+  // and put the rack workflow at the point where the user needs it.
+  const int tableWidth = screenWidth;
+  const int partWidth = clamp(tableWidth / 4, 24, 34);
+  const int packageWidth = clamp(tableWidth / 8, 12, 16);
+  const int quantityWidth = 9;
+  const int statusWidth = 14;
+  const int detailWidth = max(18, tableWidth - partWidth - packageWidth -
+                                      quantityWidth * 2 - statusWidth);
+
   ftxui::Elements headerRows;
   headerRows.push_back(ftxui::hbox({
       uiHeaderText(" " + projectName + " ", uiPrimaryText()),
@@ -300,33 +310,34 @@ ftxui::Element App::renderBomProjectUi() const {
       target(styledText(" + ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.boards.more",
              UiTargetKind::Button, [self] { self->adjustBomBoards(1); }),
       ftxui::filler(),
-      bomAnalysis_.shortCount > 0
-          ? styledText(to_string(bomAnalysis_.shortCount) +
-                           " lines need attention before stock can be deducted ",
-                       uiWarnColor())
-          : styledText("Ready to build ", uiSuccessColor()),
+      styledText(to_string(bomAnalysis_.readyCount) + " ready", uiSuccessColor()),
+      styledText("  ·  ", uiDimColor()),
+      styledText(to_string(bomAnalysis_.shortCount) + " missing ",
+                 bomAnalysis_.shortCount == 0 ? uiSuccessColor() : uiWarnColor()),
   }) | ftxui::bgcolor(uiSurfaceBg()));
   headerRows.push_back(uiDivider());
   if (bomProjectsDirty_) {
     headerRows.push_back(fullLine("UNSAVED PROJECT CHANGES  Press R to retry saving", uiDangerColor(), uiDangerBg()));
     headerRows.push_back(uiDivider());
   }
-  const bool wide = screenWidth >= 132;
-  const int inspectorWidth = wide ? clamp(screenWidth / 4, 32, 44) : screenWidth;
-  const int tableWidth = wide ? screenWidth - inspectorWidth - 1 : screenWidth;
-  const int statusWidth = 9;
-  const int quantityWidth = 14;
-  const int packageWidth = clamp(tableWidth / 7, 10, 16);
-  const int valueWidth = clamp(tableWidth / 4, 16, 28);
-  const int detailWidth = max(12, tableWidth - statusWidth - quantityWidth - packageWidth - valueWidth);
+
+  headerRows.push_back(ftxui::hbox({
+      styledText("Compare BOM with stock", uiSecondaryText()),
+      styledText("  ·  " + to_string(bomAnalysis_.lines.size()) + " lines", uiMutedColor()),
+      ftxui::filler(),
+      target(styledText(" Find in racks  f ", uiCanvasBg(), uiInteractiveColor()),
+             "bom.find-in-racks", UiTargetKind::Button, [self] { self->beginBomBuild(); }),
+  }) | ftxui::bgcolor(uiPanelRightBg()));
+  headerRows.push_back(uiDivider());
 
   ftxui::Elements tableRows;
   tableRows.push_back(ftxui::hbox({
-      bomCell(" Status", statusWidth, uiMutedColor()),
-      bomCell("Need / Have", quantityWidth, uiMutedColor()),
-      bomCell("Part", valueWidth, uiMutedColor()),
+      bomCell(" Part", partWidth, uiMutedColor()),
       bomCell("Package", packageWidth, uiMutedColor()),
-      bomCell("Location / Suggested match", detailWidth, uiMutedColor()),
+      bomCell("Need", quantityWidth, uiMutedColor(), true),
+      bomCell("Have", quantityWidth, uiMutedColor(), true),
+      bomCell("Status", statusWidth, uiMutedColor()),
+      bomCell("Where / suggested match", detailWidth, uiMutedColor()),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
   for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
@@ -336,7 +347,6 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto bg = selected ? uiSelectionBg() : uiSurfaceBg();
     const auto fg = selected ? uiFocusColor() : uiPrimaryText();
     const auto package = packageFromFootprint(line.footprint);
-
     const auto* item = store_.findById(match.chosenItemId());
     string detail = "-";
     if (match.sufficient) {
@@ -350,80 +360,29 @@ ftxui::Element App::renderBomProjectUi() const {
       else if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), lineKey) !=
                bomEnrichmentQueue_.end()) detail = "In lookup queue";
     }
-    auto quantities = ftxui::hbox({
-        styledText(" " + to_string(match.needed), match.sufficient ? uiMutedColor() : uiDangerColor()),
-        styledText(" / ", uiDimColor()),
-        styledText(to_string(match.available), match.sufficient ? uiSuccessColor() : uiMutedColor()),
-        ftxui::filler(),
-    }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, quantityWidth);
+
     auto row = ftxui::hbox({
-        bomCell(match.sufficient ? " READY" : " SHORT", statusWidth,
-                match.sufficient ? uiSuccessColor() : uiDangerColor()),
-        move(quantities),
-        bomCell(line.designation, valueWidth, fg),
+        bomCell(line.designation, partWidth, fg),
         bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
+        bomCell(to_string(match.needed), quantityWidth,
+                match.sufficient ? uiMutedColor() : uiDangerColor(), true),
+        bomCell(to_string(match.available), quantityWidth,
+                match.sufficient ? uiSuccessColor() : uiMutedColor(), true),
+        bomCell(match.sufficient ? "READY" : "MISSING", statusWidth,
+                match.sufficient ? uiSuccessColor() : uiDangerColor()),
         bomCell(detail, detailWidth, match.sufficient ? uiAccentColor() : uiLinkColor()),
     }) | ftxui::bgcolor(bg);
-
-    if (selected) {
-      row = row | ftxui::select;
-    }
+    if (selected) row = row | ftxui::select;
     row = target(row, "bom.line." + to_string(index), UiTargetKind::Row, [self, index] {
       self->bomSplitSelection_ = index;
       self->dirty_ = true;
     });
     tableRows.push_back(move(row));
   }
+
   auto table = ftxui::vbox(move(tableRows)) | ftxui::yframe | ftxui::vscroll_indicator |
                ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex | ftxui::reflect(bomTableBounds_);
-
-  const auto selectedIndex = bomAnalysis_.matches.empty() ? 0 :
-                             min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
-  const auto details = [&]() -> ftxui::Element {
-    if (bomAnalysis_.matches.empty()) return fullLine("No BOM lines", uiMutedColor(), uiSurfaceBg());
-    const auto& match = bomAnalysis_.matches[selectedIndex];
-    const auto& line = bomAnalysis_.lines[match.lineIndex];
-    const auto package = packageFromFootprint(line.footprint);
-    const auto* item = store_.findById(match.chosenItemId());
-    ftxui::Elements rows;
-    rows.push_back(uiHeaderText(" " + line.designation, uiPrimaryText()));
-    rows.push_back(fullLine(" " + package, uiMutedColor(), uiSurfaceBg()));
-    rows.push_back(uiDivider());
-    rows.push_back(fullLine(" Need " + to_string(match.needed) + "   Have " +
-                                to_string(match.available) +
-                                (match.sufficient ? "   Ready" : "   Short " +
-                                     to_string(max(0, match.needed - match.available))),
-                            match.sufficient ? uiSuccessColor() : uiDangerColor(), uiSurfaceBg()));
-    if (item != nullptr) {
-      const auto slot = rackLocation(*item, store_.racks());
-      rows.push_back(fullLine(" Match  " + item->partName, uiLinkColor(), uiSurfaceBg()));
-      rows.push_back(fullLine(" Location  " + (slot.empty() ? item->location : slot), uiMutedColor(), uiSurfaceBg()));
-    }
-    if (match.candidates.size() > 1) {
-      rows.push_back(fullLine(" Alternate  " + to_string(match.chosen + 1) + " / " +
-                                  to_string(match.candidates.size()), uiMutedColor(), uiSurfaceBg()));
-    }
-    rows.push_back(ftxui::filler());
-    if (!match.sufficient) {
-      rows.push_back(target(styledText(match.chosenItemId().empty() ? " Add missing in Stock  Enter "
-                                                                   : " Resolve shortage  Enter ",
-                                       uiCanvasBg(), uiInteractiveColor()),
-                            "bom.restock", UiTargetKind::Button, [self] { self->beginBomRestock(); }));
-    }
-    rows.push_back(target(styledText(" Export shortages  o ", uiLinkColor(), uiRaisedSurfaceBg()),
-                          "bom.export", UiTargetKind::Button, [self] { self->exportBomShortages(); }));
-    return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg());
-  };
-
-  if (!wide && bomInspectorOpen_) {
-    return ftxui::vbox({ftxui::vbox(move(headerRows)), details() | ftxui::flex});
-  }
-  if (!wide) return ftxui::vbox({ftxui::vbox(move(headerRows)), move(table)});
-  return ftxui::vbox({
-      ftxui::vbox(move(headerRows)),
-      ftxui::hbox({move(table), ftxui::separator() | ftxui::color(uiDimColor()),
-                   details() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, inspectorWidth)}) | ftxui::flex,
-  });
+  return ftxui::vbox({ftxui::vbox(move(headerRows)), move(table)}) | ftxui::flex;
 }
 
 }  // namespace inventatory

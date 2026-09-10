@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// KiCad BOM project input: pinned list, unified analysis, build walkthrough.
+// KiCad BOM project input: pinned list, BOM comparison, Find in racks workflow.
 
 #include "App.h"
 
@@ -11,8 +11,6 @@
 #include <set>
 #include <string>
 #include <vector>
-
-#include <ftxui/component/screen_interactive.hpp>
 
 namespace inventatory {
 
@@ -49,19 +47,6 @@ void App::handleBomProjectKey(const KeyEvent& key) {
       bomView_ = BomView::Split;
       bomBuildStep_ = 0;
       dirty_ = true;
-    }
-    return;
-  }
-
-  const auto* activeScreen = ftxui::ScreenInteractive::Active();
-  const bool narrowAnalysis = activeScreen != nullptr && activeScreen->dimx() < 132;
-  if (narrowAnalysis && bomInspectorOpen_) {
-    if (key.type == KeyType::Escape || key.type == KeyType::Left) {
-      bomInspectorOpen_ = false;
-      dirty_ = true;
-    } else if (key.type == KeyType::Enter && !bomAnalysis_.matches.empty() &&
-               !bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)].sufficient) {
-      beginBomRestock();
     }
     return;
   }
@@ -132,10 +117,7 @@ void App::handleBomProjectKey(const KeyEvent& key) {
       dirty_ = true;
     }
   } else if (key.type == KeyType::Enter) {
-    if (narrowAnalysis) {
-      bomInspectorOpen_ = true;
-      dirty_ = true;
-    } else if (!bomAnalysis_.matches.empty() &&
+    if (!bomAnalysis_.matches.empty() &&
                !bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)].sufficient) {
       beginBomRestock();
     }
