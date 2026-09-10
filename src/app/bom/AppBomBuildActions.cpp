@@ -124,7 +124,7 @@ void App::advanceBomBuild(int delta) {
   }
   if (next >= static_cast<int>(steps.size())) {
     if (!bomBuildReady(bomAnalysis_)) {
-      setMessage("Build walkthrough viewed; completion is disabled while BOM shortages remain", 6);
+      setMessage("Find in racks viewed; completion is disabled while BOM shortages remain", 6);
       bomBuildStep_ = steps.size() - 1;
       dirty_ = true;
       return;
