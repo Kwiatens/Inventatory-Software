@@ -65,7 +65,9 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
                        ftxui::bgcolor(uiPanelLeftBg()));
   } else if (groupByCategory) {
     listRows.push_back(ftxui::hbox({
-                           fixedCell("Component Category", partWidth, uiMutedColor()),
+                           treeCell("│   ", 4, uiDividerColor()),
+                           treeCell("", 4, uiMutedColor()),
+                           fixedCell("", max(1, partWidth - 8), uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
                            qtyHeaderCell,
                        }) |
@@ -177,7 +179,7 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
           const auto categoryBranch = treeCell(categoryIsLast(index, category) ? "└──" : "├──",
                                                4, uiDividerColor());
           const auto categoryTitle =
-              ftxui::hbox({uiHeaderText(toUpper(category), uiSecondaryText()), ftxui::filler()}) |
+              ftxui::hbox({uiHeaderText(category, uiSecondaryText()), ftxui::filler()}) |
               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, max(1, partWidth - 4));
           listRows.push_back(ruledRow(ftxui::hbox({categoryBranch, categoryTitle}), uiRaisedSurfaceBg()));
         }
