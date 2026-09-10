@@ -437,7 +437,7 @@ ftxui::Element App::renderBomProjectUi() const {
                bomCell("", statusWidth, uiMutedColor()),
                bomCell("", detailWidth, uiMutedColor()),
            }) |
-           ftxui::bgcolor(nested ? uiSurfaceBg() : uiRaisedSurfaceBg());
+           ftxui::bgcolor(uiRaisedSurfaceBg());
   };
 
   string previousAvailability;
@@ -463,6 +463,10 @@ ftxui::Element App::renderBomProjectUi() const {
       previousCategory.clear();
     }
     if (toLower(category) != toLower(previousCategory)) {
+      if (!previousCategory.empty()) {
+        tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
+                            ftxui::bgcolor(uiSurfaceBg()));
+      }
       tableRows.push_back(groupRow(category, uiSecondaryText(), true));
       previousCategory = category;
     }
