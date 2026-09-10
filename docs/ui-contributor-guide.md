@@ -32,9 +32,11 @@ navigation; sage, amber, and coral are reserved for real state. Use one surface
 for normal rows and reserve hover/selection backgrounds for interaction. Prefer
 alignment and a single dim divider over windows nested inside windows.
 
-Projects uses one BOM comparison table rather than parallel ready/shortage panels.
-Keep Part, Package, Need, Have, Status, and location or suggested match aligned in
-one surface, with one prominent `Find in racks` action. That action opens the
+Projects uses the Stock page's split list/detail rhythm rather than parallel
+ready/shortage panels. The comparison list groups rows first into `In Stock` and
+`Missing`, then into component categories such as `Capacitors`, while keeping
+Part, Package, Need, Have, Status, and location or suggested match aligned in
+one surface. Keep one prominent `Find in racks` action. That action opens the
 rack-by-rack pick workflow. Keep the comparison keyboard-first, preserve the
 shared action sheet, and do not add a persistent shortcut wall or a separate
 inspector pane. Incomplete workflow warnings belong in the shared bottom status

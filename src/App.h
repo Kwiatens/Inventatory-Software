@@ -677,6 +677,9 @@ class App {
   void beginBomProject(const std::string& bomText, const std::string& name,
                        const std::filesystem::path& sourcePath);
   void refreshBomAnalysis();
+  static std::string bomComparisonCategory(const BomLine& line, const BomMatch& match,
+                                           const std::vector<InventoryItem>& items);
+  static void sortBomAnalysisForProject(BomAnalysis& analysis, const std::vector<InventoryItem>& items);
   void adjustBomBoards(int delta);
   void cycleBomAlternate();
   void beginBomRestock();

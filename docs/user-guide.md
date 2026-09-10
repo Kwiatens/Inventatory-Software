@@ -76,11 +76,13 @@ returning to inventory.
 ## Project workflow
 
 A KiCad BOM becomes a project on the Projects page. Open it to compare each line
-with stock: the table keeps Part, Package, Need, Have, Status, and the rack
-location or suggested match together. The primary action is **Find in racks**
-(`f`), which walks the available parts rack by rack and highlights the slots to
-pick. Shortages are looked up on DigiKey in the background; `o` writes them to a
-CSV beside the BOM.
+with stock in the same split list/detail rhythm as Stock. Rows are grouped first
+by availability (`In Stock` and `Missing`) and then by component category, such
+as `Capacitors` or `Resistors`. Each row keeps Part, Package, Need, Have, Status,
+and the rack location or suggested match together. The primary action is
+**Find in racks** (`f`), which walks the available parts rack by rack and
+highlights the slots to pick. Shortages are looked up on DigiKey in the
+background; `o` writes them to a CSV beside the BOM.
 
 `+` and `-` change the board count and re-run the analysis. `a` cycles to the next
 matching part when one line has several candidates, and that choice is remembered.

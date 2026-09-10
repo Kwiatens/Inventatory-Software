@@ -426,6 +426,23 @@ ftxui::Element App::renderBomProjectUi() const {
       bomCell("Where / suggested match", detailWidth, uiMutedColor()),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
+  const auto groupRow = [&](const string& label, ftxui::Color color, bool nested) {
+    const auto title = nested ? uiHeaderText("  " + label, color) : uiSectionHeader(" " + label, color);
+    return ftxui::hbox({
+               ftxui::hbox({title, ftxui::filler()}) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth),
+               bomCell("", packageWidth, uiMutedColor()),
+               bomCell("", quantityWidth, uiMutedColor(), true),
+               bomCell("", quantityWidth, uiMutedColor(), true),
+               bomCell("", statusWidth, uiMutedColor()),
+               bomCell("", detailWidth, uiMutedColor()),
+           }) |
+           ftxui::bgcolor(nested ? uiSurfaceBg() : uiRaisedSurfaceBg());
+  };
+
+  string previousAvailability;
+  string previousCategory;
+
   for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
     const auto& match = bomAnalysis_.matches[index];
     const auto& line = bomAnalysis_.lines[match.lineIndex];
@@ -434,6 +451,21 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto fg = selected ? uiFocusColor() : uiPrimaryText();
     const auto package = packageFromFootprint(line.footprint);
     const auto* item = store_.findById(match.chosenItemId());
+    const auto availability = match.sufficient ? string("In Stock") : string("Missing");
+    const auto category = bomComparisonCategory(line, match, store_.items());
+    if (availability != previousAvailability) {
+      if (!previousAvailability.empty()) {
+        tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
+                            ftxui::bgcolor(uiSurfaceBg()));
+      }
+      tableRows.push_back(groupRow(availability, match.sufficient ? uiSuccessColor() : uiDangerColor(), false));
+      previousAvailability = availability;
+      previousCategory.clear();
+    }
+    if (toLower(category) != toLower(previousCategory)) {
+      tableRows.push_back(groupRow(category, uiSecondaryText(), true));
+      previousCategory = category;
+    }
     string detail = "-";
     if (match.sufficient) {
       const auto slot = item == nullptr ? string() : rackLocation(*item, store_.racks());
