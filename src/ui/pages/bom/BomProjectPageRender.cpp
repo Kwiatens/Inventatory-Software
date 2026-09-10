@@ -384,7 +384,7 @@ ftxui::Element App::renderBomProjectUi() const {
   const int partNameWidth = max(1, partWidth - treeWidth);
   const int packageWidth = clamp(tableWidth / 8, 12, 16);
   const int needHaveWidth = 14;
-  const int statusWidth = 14;
+  const int statusWidth = 10;
   const int detailWidth = max(18, tableWidth - partWidth - packageWidth -
                                       needHaveWidth - statusWidth);
 
@@ -422,7 +422,7 @@ ftxui::Element App::renderBomProjectUi() const {
       bomCell("Package", packageWidth, uiMutedColor()),
       bomCell("Where / suggested match", detailWidth, uiMutedColor()),
       bomCell("Need / Have", needHaveWidth, uiMutedColor(), true),
-      bomCell("Status", statusWidth, uiMutedColor()),
+      bomCell("Status", statusWidth, uiMutedColor(), true),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
   const auto groupRow = [&](const string& label, ftxui::Color color, bool nested,
@@ -447,7 +447,7 @@ ftxui::Element App::renderBomProjectUi() const {
                bomCell("", packageWidth, uiMutedColor()),
                bomCell("", detailWidth, uiMutedColor()),
                bomCell("", needHaveWidth, uiMutedColor(), true),
-               bomCell("", statusWidth, uiMutedColor()),
+               bomCell("", statusWidth, uiMutedColor(), true),
            }) |
            ftxui::bgcolor(uiRaisedSurfaceBg());
   };
@@ -474,6 +474,10 @@ ftxui::Element App::renderBomProjectUi() const {
 
   string previousAvailability;
   string previousCategory;
+  const auto fixedCount = [](const string& value) {
+    constexpr size_t countWidth = 3;
+    return string(value.size() < countWidth ? countWidth - value.size() : 0, ' ') + value;
+  };
 
   for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
     const auto& match = bomAnalysis_.matches[index];
@@ -487,6 +491,8 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto category = bomComparisonCategory(line, match, store_.items());
     const auto categoryLast = categoryIsLast(index, category, match.sufficient);
     const auto partLast = partIsLast(index, category, match.sufficient);
+    const auto needHave = fixedCount(to_string(match.needed)) + " / " +
+                          fixedCount(to_string(match.available));
     if (availability != previousAvailability) {
       if (!previousAvailability.empty()) {
         tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
@@ -526,10 +532,10 @@ ftxui::Element App::renderBomProjectUi() const {
         bomCell(line.designation, partNameWidth, fg),
         bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
         bomCell(detail, detailWidth, match.sufficient ? uiAccentColor() : uiLinkColor()),
-        bomCell(to_string(match.needed) + " / " + to_string(match.available), needHaveWidth,
+        bomCell(needHave, needHaveWidth,
                 match.sufficient ? uiSuccessColor() : uiDangerColor(), true),
         bomCell(match.sufficient ? "READY" : "MISSING", statusWidth,
-                match.sufficient ? uiSuccessColor() : uiDangerColor()),
+                match.sufficient ? uiSuccessColor() : uiDangerColor(), true),
     }) | ftxui::bgcolor(bg);
     if (selected) row = row | ftxui::select;
     row = target(row, "bom.line." + to_string(index), UiTargetKind::Row, [self, index] {
