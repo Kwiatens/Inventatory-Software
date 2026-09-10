@@ -42,6 +42,9 @@ SKU, status, or quantity expression. Select a row to see its complete details.
 Use New, Edit, `-`, `+`, or Print for frequent work; links and administrative
 commands are available through Actions.
 
+When the list is grouped by name, category and part rows use the same connected
+gray branch treatment as the project comparison view.
+
 Editing happens in the detail side of Stock. Choose a field, type its value, and
 save the working copy with `s`. Escape cancels the active field or the edit.
 
