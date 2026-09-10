@@ -376,8 +376,11 @@ ftxui::Element App::renderBomProjectUi() const {
   // The open-project screen has one job: make the stock comparison readable
   // and put the rack workflow at the point where the user needs it.
   const int tableWidth = screenWidth;
-  const int treeWidth = 4;
+  const int categoryTreeWidth = 4;
+  const int partTreeWidth = 4;
+  const int treeWidth = categoryTreeWidth + partTreeWidth;
   const int partWidth = clamp(tableWidth / 4, 24, 34);
+  const int categoryNameWidth = max(1, partWidth - categoryTreeWidth);
   const int partNameWidth = max(1, partWidth - treeWidth);
   const int packageWidth = clamp(tableWidth / 8, 12, 16);
   const int quantityWidth = 9;
@@ -434,14 +437,14 @@ ftxui::Element App::renderBomProjectUi() const {
     ftxui::Element partColumn;
     if (nested) {
       const auto branch = ftxui::hbox({
-          styledText(branchLast ? "└──" : "├──", color),
+          styledText(branchLast ? "└──" : "├──", uiDividerColor()),
           ftxui::filler(),
-      }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, treeWidth);
+      }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryTreeWidth);
       const auto title = uiHeaderText(label, color);
       partColumn = ftxui::hbox({
           branch,
           ftxui::hbox({title, ftxui::filler()}) |
-              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partNameWidth),
+              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryNameWidth),
       });
     } else {
       partColumn = bomCell(" " + label, partWidth, color);
@@ -468,6 +471,15 @@ ftxui::Element App::renderBomProjectUi() const {
     return true;
   };
 
+  const auto partIsLast = [&](size_t index, const string& category, bool sufficient) {
+    if (index + 1 >= bomAnalysis_.matches.size()) return true;
+    const auto& nextMatch = bomAnalysis_.matches[index + 1];
+    if (nextMatch.sufficient != sufficient) return true;
+    const auto& nextLine = bomAnalysis_.lines[nextMatch.lineIndex];
+    const auto nextCategory = bomComparisonCategory(nextLine, nextMatch, store_.items());
+    return toLower(nextCategory) != toLower(category);
+  };
+
   string previousAvailability;
   string previousCategory;
 
@@ -482,6 +494,7 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto availability = match.sufficient ? string("In Stock") : string("Missing");
     const auto category = bomComparisonCategory(line, match, store_.items());
     const auto categoryLast = categoryIsLast(index, category, match.sufficient);
+    const auto partLast = partIsLast(index, category, match.sufficient);
     if (availability != previousAvailability) {
       if (!previousAvailability.empty()) {
         tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
@@ -513,7 +526,11 @@ ftxui::Element App::renderBomProjectUi() const {
         ftxui::hbox({
             styledText(categoryLast ? "    " : "│   ", uiDividerColor()),
             ftxui::filler(),
-        }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, treeWidth),
+        }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryTreeWidth),
+        ftxui::hbox({
+            styledText(partLast ? "└──" : "├──", uiDividerColor()),
+            ftxui::filler(),
+        }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partTreeWidth),
         bomCell(line.designation, partNameWidth, fg),
         bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
         bomCell(to_string(match.needed), quantityWidth,
