@@ -104,7 +104,6 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   activeBomProjectId_ = project.id;
   bomProjectSelection_ = 0;
   bomSplitSelection_ = 0;
-  bomInspectorOpen_ = false;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
   bomView_ = BomView::Split;
@@ -155,7 +154,6 @@ void App::openSelectedBomProject() {
   project.lastOpened = time(nullptr);
   activeBomProjectId_ = project.id;
   bomSplitSelection_ = 0;
-  bomInspectorOpen_ = false;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
   bomView_ = BomView::Split;
