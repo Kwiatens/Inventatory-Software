@@ -41,6 +41,10 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
         ftxui::text(" "),
     }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
   };
+  const auto treeCell = [](const string& value, int width, ftxui::Color color) {
+    return ftxui::hbox({styledText(value, color), ftxui::filler()}) |
+           ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+  };
 
   const auto qtyHeaderCell = ftxui::hbox({
                                   ftxui::filler(),
@@ -61,7 +65,8 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
                        ftxui::bgcolor(uiPanelLeftBg()));
   } else if (groupByCategory) {
     listRows.push_back(ftxui::hbox({
-                           fixedCell("Part", partWidth, uiMutedColor()),
+                           treeCell("", 8, uiMutedColor()),
+                           fixedCell("Part", max(1, partWidth - 8), uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
                            qtyHeaderCell,
                        }) |
@@ -120,6 +125,20 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
     value << showpos << fixed << setprecision(1) << match.signedRelativeDifference * 100.0 << "%";
     return value.str();
   };
+  const auto categoryIsLast = [&](size_t index, const string& category) {
+    for (size_t next = index + 1; next < filtered.size(); ++next) {
+      const auto& nextMatch = searchMatches[next];
+      const auto& nextItem = store_.items()[nextMatch.itemIndex];
+      if (displayCategory(nextItem.category) != category) return false;
+    }
+    return true;
+  };
+  const auto partIsLast = [&](size_t index, const string& category) {
+    if (index + 1 >= filtered.size()) return true;
+    const auto& nextMatch = searchMatches[index + 1];
+    const auto& nextItem = store_.items()[nextMatch.itemIndex];
+    return displayCategory(nextItem.category) != category;
+  };
 
   if (filtered.empty()) {
     string message;
@@ -162,16 +181,29 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
             listRows.push_back(
                 ruledRow(ftxui::text("") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth), uiSurfaceBg()));
           }
-          listRows.push_back(ruledRow(uiHeaderText(" " + toUpper(category), uiSecondaryText()) |
-                                          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth),
-                                      uiRaisedSurfaceBg()));
+          const auto categoryBranch = treeCell(categoryIsLast(index, category) ? "└──" : "├──",
+                                               4, uiDividerColor());
+          const auto categoryTitle =
+              ftxui::hbox({uiHeaderText(" " + toUpper(category), uiSecondaryText()), ftxui::filler()}) |
+              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, max(1, partWidth - 4));
+          listRows.push_back(ruledRow(ftxui::hbox({categoryBranch, categoryTitle}), uiRaisedSurfaceBg()));
         }
       }
       const bool selected = index == activeSelection;
       const auto bg = selected ? uiSelectionBg() : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
-      ftxui::Elements cells = {fixedCell(groupByCategory ? "   " + item.partName : " " + item.partName,
-                                         partWidth, uiPrimaryText()),
-                               ftxui::separator() | ftxui::color(uiDimColor())};
+      ftxui::Element partCell;
+      if (groupByCategory) {
+        const auto categoryLast = categoryIsLast(index, category);
+        const auto partLast = partIsLast(index, category);
+        partCell = ftxui::hbox({
+            treeCell(categoryLast ? "    " : "│   ", 4, uiDividerColor()),
+            treeCell(partLast ? "└──" : "├──", 4, uiDividerColor()),
+            fixedCell(item.partName, max(1, partWidth - 8), uiPrimaryText()),
+        });
+      } else {
+        partCell = fixedCell(" " + item.partName, partWidth, uiPrimaryText());
+      }
+      ftxui::Elements cells = {move(partCell), ftxui::separator() | ftxui::color(uiDimColor())};
       if (rankedView) {
         cells.push_back(fixedCell(matchLabel(searchMatch), matchWidth, bandColor(searchMatch.band), CellAlign::Center));
         cells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
