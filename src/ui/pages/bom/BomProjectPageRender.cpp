@@ -434,7 +434,7 @@ ftxui::Element App::renderBomProjectUi() const {
     ftxui::Element partColumn;
     if (nested) {
       const auto branch = ftxui::hbox({
-          styledText(branchLast ? "└─ " : "├─ ", uiDividerColor()),
+          styledText(branchLast ? "└──" : "├──", color),
           ftxui::filler(),
       }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, treeWidth);
       const auto title = uiHeaderText(label, color);
@@ -457,6 +457,17 @@ ftxui::Element App::renderBomProjectUi() const {
            ftxui::bgcolor(uiRaisedSurfaceBg());
   };
 
+  const auto categoryIsLast = [&](size_t index, const string& category, bool sufficient) {
+    for (size_t next = index + 1; next < bomAnalysis_.matches.size(); ++next) {
+      const auto& nextMatch = bomAnalysis_.matches[next];
+      if (nextMatch.sufficient != sufficient) return true;
+      const auto& nextLine = bomAnalysis_.lines[nextMatch.lineIndex];
+      const auto nextCategory = bomComparisonCategory(nextLine, nextMatch, store_.items());
+      if (toLower(nextCategory) != toLower(category)) return false;
+    }
+    return true;
+  };
+
   string previousAvailability;
   string previousCategory;
 
@@ -470,6 +481,7 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto* item = store_.findById(match.chosenItemId());
     const auto availability = match.sufficient ? string("In Stock") : string("Missing");
     const auto category = bomComparisonCategory(line, match, store_.items());
+    const auto categoryLast = categoryIsLast(index, category, match.sufficient);
     if (availability != previousAvailability) {
       if (!previousAvailability.empty()) {
         tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
@@ -481,15 +493,7 @@ ftxui::Element App::renderBomProjectUi() const {
       previousCategory.clear();
     }
     if (toLower(category) != toLower(previousCategory)) {
-      bool lastCategory = true;
-      if (index + 1 < bomAnalysis_.matches.size()) {
-        const auto& nextMatch = bomAnalysis_.matches[index + 1];
-        const auto& nextLine = bomAnalysis_.lines[nextMatch.lineIndex];
-        const auto nextCategory = bomComparisonCategory(nextLine, nextMatch, store_.items());
-        lastCategory = nextMatch.sufficient != match.sufficient ||
-                       toLower(nextCategory) != toLower(category);
-      }
-      tableRows.push_back(groupRow(category, uiSecondaryText(), true, lastCategory));
+      tableRows.push_back(groupRow(category, uiSecondaryText(), true, categoryLast));
       previousCategory = category;
     }
     string detail = "-";
@@ -506,7 +510,10 @@ ftxui::Element App::renderBomProjectUi() const {
     }
 
     auto row = ftxui::hbox({
-        bomCell("", treeWidth, uiMutedColor()),
+        ftxui::hbox({
+            styledText(categoryLast ? "    " : "│   ", uiDividerColor()),
+            ftxui::filler(),
+        }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, treeWidth),
         bomCell(line.designation, partNameWidth, fg),
         bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
         bomCell(to_string(match.needed), quantityWidth,
