@@ -77,7 +77,7 @@ ftxui::Element App::renderStockUi() const {
                                      ? "CLOSEST TO  " + (closestSearchQuery_.empty() ? string("...") : closestSearchQuery_) +
                                            "  · " + to_string(filtered.size()) + " candidates"
                                      : rankedView ? "STOCK  " + to_string(filtered.size()) + " matches · ranked by value"
-                                                  : string();
+                                                  : groupByCategory ? string("Component Category") : string();
   const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
   auto filterButton = target(styledText(" Sort / Filter ", filtersEnabled ? uiInteractiveColor() : uiMutedColor(),
                                        filtersEnabled ? uiRaisedSurfaceBg() : uiSurfaceBg()),
