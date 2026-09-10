@@ -151,8 +151,8 @@ class App {
     Onboarding,
   };
 
-  // The Projects page hosts three surfaces: the pinned list, the unified BOM
-  // analysis, and the rack-by-rack build walkthrough.
+  // The Projects page hosts a pinned list, a focused BOM comparison, and the
+  // rack-by-rack Find in racks workflow.
   enum class BomView { List, Split, Build };
 
   enum class ScanSetupStep {
@@ -280,7 +280,7 @@ class App {
     size_t originalIndex = 0;
   };
 
-  // One part to pull during the build walkthrough.
+  // One part to pull during the Find in racks workflow.
   struct BuildPick {
     std::string itemId;
     std::string slot;  // rack slot such as "B3"; empty for loose parts
@@ -677,6 +677,9 @@ class App {
   void beginBomProject(const std::string& bomText, const std::string& name,
                        const std::filesystem::path& sourcePath);
   void refreshBomAnalysis();
+  static std::string bomComparisonCategory(const BomLine& line, const BomMatch& match,
+                                           const std::vector<InventoryItem>& items);
+  static void sortBomAnalysisForProject(BomAnalysis& analysis, const std::vector<InventoryItem>& items);
   void adjustBomBoards(int delta);
   void cycleBomAlternate();
   void beginBomRestock();
@@ -852,9 +855,7 @@ class App {
   BomAnalysis bomAnalysis_;
   KicadBomFile bomFile_;
   size_t bomSplitSelection_ = 0;
-  // The unified BOM table owns wheel/key navigation. On narrow terminals its
-  // contextual details open as a dedicated view instead of crushing columns.
-  bool bomInspectorOpen_ = false;
+  // The comparison table owns wheel/key navigation.
   mutable ftxui::Box bomTableBounds_;
   mutable ftxui::Box dashboardWarningPanelBounds_;
   mutable ftxui::Box dashboardActivityPanelBounds_;

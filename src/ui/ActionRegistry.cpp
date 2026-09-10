@@ -305,7 +305,7 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Projects:
-      // The build walkthrough owns the keyboard while it runs, so only the
+      // The Find in racks workflow owns the keyboard while it runs, so only the
       // split and list views expose project commands here.
       if (bomDeductPrompt_) {
         if (bomBuildReady(bomAnalysis_)) {
@@ -322,7 +322,7 @@ vector<App::Action> App::currentActions() const {
         add("next rack", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
         add("previous rack", "Build", "Bksp", special(KeyType::Backspace), [self] { self->advanceBomBuild(-1); });
       } else if (bomView_ == BomView::Split && bomAnalysisValid_) {
-        add("build walkthrough", "Project", "b", chr('b'), [self] { self->beginBomBuild(); });
+        add("find in racks", "Project", "f", chr('f'), [self] { self->beginBomBuild(); });
         add("more boards", "Project", "+", chr('+'), [self] { self->adjustBomBoards(1); });
         add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
         add("alternate match", "Match", "a", chr('a'), [self] { self->cycleBomAlternate(); });
