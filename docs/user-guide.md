@@ -75,24 +75,22 @@ returning to inventory.
 
 ## Project workflow
 
-A KiCad BOM becomes a project on the Projects page. Every line is matched against
-stock by manufacturer part number, or by value and package for passives. One BOM
-table shows each line's status, compact need/on-hand quantities, and its stock
-location or suggested DigiKey match. Shortages are looked up on DigiKey in the
-background; `o` writes them to a CSV beside the BOM.
+A KiCad BOM becomes a project on the Projects page. Open it to compare each line
+with stock: the table keeps Part, Package, Need, Have, Status, and the rack
+location or suggested match together. The primary action is **Find in racks**
+(`f`), which walks the available parts rack by rack and highlights the slots to
+pick. Shortages are looked up on DigiKey in the background; `o` writes them to a
+CSV beside the BOM.
 
 `+` and `-` change the board count and re-run the analysis. `a` cycles to the next
 matching part when one line has several candidates, and that choice is remembered.
 
-`b` starts the build walkthrough, or previews it while shortages remain. It focuses
-on one rack at a time, pulsing the slots holding parts this build needs and listing
-only the current picks. Enter advances and Backspace goes back. Parts that live
-outside a rack come last, grouped by location. At the end, answer whether to
-subtract the picked parts from stock; Ctrl+Z undoes it.
-
-On wide terminals the selected BOM line's details and shortage action appear beside
-the table. At the 100-column minimum, Enter opens that focused detail view and
-Escape returns to the table.
+`f` starts Find in racks, or previews the available picks while shortages remain.
+It focuses on one rack at a time, pulsing the slots holding parts this project
+needs and listing only the current picks. Enter advances and Backspace goes back.
+Parts that live outside a rack come last, grouped by location. At the end, answer
+whether to subtract the picked parts from stock; Ctrl+Z undoes it. Select a missing
+line and press Enter to open its restock flow.
 
 Projects persist in the inventory database, so reopening the app restores the
 analysis against current stock with no re-upload. `d` forgets one.
