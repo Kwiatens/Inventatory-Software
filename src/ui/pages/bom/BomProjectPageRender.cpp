@@ -427,7 +427,7 @@ ftxui::Element App::renderBomProjectUi() const {
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
   const auto groupRow = [&](const string& label, ftxui::Color color, bool nested) {
-    const auto title = nested ? uiHeaderText("  " + label, color) : uiSectionHeader(" " + label, color);
+    const auto title = nested ? uiHeaderText("    " + label, color) : uiSectionHeader(" " + label, color);
     return ftxui::hbox({
                ftxui::hbox({title, ftxui::filler()}) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth),
@@ -463,10 +463,6 @@ ftxui::Element App::renderBomProjectUi() const {
       previousCategory.clear();
     }
     if (toLower(category) != toLower(previousCategory)) {
-      if (!previousCategory.empty()) {
-        tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
-                            ftxui::bgcolor(uiSurfaceBg()));
-      }
       tableRows.push_back(groupRow(category, uiSecondaryText(), true));
       previousCategory = category;
     }
