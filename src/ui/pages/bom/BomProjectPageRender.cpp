@@ -376,7 +376,9 @@ ftxui::Element App::renderBomProjectUi() const {
   // The open-project screen has one job: make the stock comparison readable
   // and put the rack workflow at the point where the user needs it.
   const int tableWidth = screenWidth;
+  const int treeWidth = 4;
   const int partWidth = clamp(tableWidth / 4, 24, 34);
+  const int partNameWidth = max(1, partWidth - treeWidth);
   const int packageWidth = clamp(tableWidth / 8, 12, 16);
   const int quantityWidth = 9;
   const int statusWidth = 14;
@@ -418,7 +420,8 @@ ftxui::Element App::renderBomProjectUi() const {
 
   ftxui::Elements tableRows;
   tableRows.push_back(ftxui::hbox({
-      bomCell(" Part", partWidth, uiMutedColor()),
+      bomCell("", treeWidth, uiMutedColor()),
+      bomCell("Part", partNameWidth, uiMutedColor()),
       bomCell("Package", packageWidth, uiMutedColor()),
       bomCell("Need", quantityWidth, uiMutedColor(), true),
       bomCell("Have", quantityWidth, uiMutedColor(), true),
@@ -426,11 +429,25 @@ ftxui::Element App::renderBomProjectUi() const {
       bomCell("Where / suggested match", detailWidth, uiMutedColor()),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
-  const auto groupRow = [&](const string& label, ftxui::Color color, bool nested) {
-    const auto title = nested ? uiHeaderText("    " + label, color) : uiSectionHeader(" " + label, color);
+  const auto groupRow = [&](const string& label, ftxui::Color color, bool nested,
+                            bool branchLast) {
+    ftxui::Element partColumn;
+    if (nested) {
+      const auto branch = ftxui::hbox({
+          styledText(branchLast ? "└─ " : "├─ ", uiDividerColor()),
+          ftxui::filler(),
+      }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, treeWidth);
+      const auto title = uiHeaderText(label, color);
+      partColumn = ftxui::hbox({
+          branch,
+          ftxui::hbox({title, ftxui::filler()}) |
+              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partNameWidth),
+      });
+    } else {
+      partColumn = bomCell(" " + label, partWidth, color);
+    }
     return ftxui::hbox({
-               ftxui::hbox({title, ftxui::filler()}) |
-                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth),
+               partColumn,
                bomCell("", packageWidth, uiMutedColor()),
                bomCell("", quantityWidth, uiMutedColor(), true),
                bomCell("", quantityWidth, uiMutedColor(), true),
@@ -458,12 +475,21 @@ ftxui::Element App::renderBomProjectUi() const {
         tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
                             ftxui::bgcolor(uiSurfaceBg()));
       }
-      tableRows.push_back(groupRow(availability, match.sufficient ? uiSuccessColor() : uiDangerColor(), false));
+      tableRows.push_back(groupRow(availability, match.sufficient ? uiSuccessColor() : uiDangerColor(), false,
+                                   false));
       previousAvailability = availability;
       previousCategory.clear();
     }
     if (toLower(category) != toLower(previousCategory)) {
-      tableRows.push_back(groupRow(category, uiSecondaryText(), true));
+      bool lastCategory = true;
+      if (index + 1 < bomAnalysis_.matches.size()) {
+        const auto& nextMatch = bomAnalysis_.matches[index + 1];
+        const auto& nextLine = bomAnalysis_.lines[nextMatch.lineIndex];
+        const auto nextCategory = bomComparisonCategory(nextLine, nextMatch, store_.items());
+        lastCategory = nextMatch.sufficient != match.sufficient ||
+                       toLower(nextCategory) != toLower(category);
+      }
+      tableRows.push_back(groupRow(category, uiSecondaryText(), true, lastCategory));
       previousCategory = category;
     }
     string detail = "-";
@@ -480,7 +506,8 @@ ftxui::Element App::renderBomProjectUi() const {
     }
 
     auto row = ftxui::hbox({
-        bomCell("    " + line.designation, partWidth, fg),
+        bomCell("", treeWidth, uiMutedColor()),
+        bomCell(line.designation, partNameWidth, fg),
         bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
         bomCell(to_string(match.needed), quantityWidth,
                 match.sufficient ? uiMutedColor() : uiDangerColor(), true),
