@@ -65,7 +65,8 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
                        ftxui::bgcolor(uiPanelLeftBg()));
   } else if (groupByCategory) {
     listRows.push_back(ftxui::hbox({
-                           treeCell("", 8, uiMutedColor()),
+                           treeCell("│   ", 4, uiDividerColor()),
+                           treeCell("", 4, uiMutedColor()),
                            fixedCell("Part", max(1, partWidth - 8), uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
                            qtyHeaderCell,
@@ -175,16 +176,10 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
         const bool startsGroup =
             index == 0 || category != displayCategory(store_.items()[filtered[index - 1]].category);
         if (startsGroup) {
-          // A blank spacer sets each group apart; the first needs none because
-          // the column header sits directly above it.
-          if (index != 0) {
-            listRows.push_back(
-                ruledRow(ftxui::text("") | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth), uiSurfaceBg()));
-          }
           const auto categoryBranch = treeCell(categoryIsLast(index, category) ? "└──" : "├──",
                                                4, uiDividerColor());
           const auto categoryTitle =
-              ftxui::hbox({uiHeaderText(" " + toUpper(category), uiSecondaryText()), ftxui::filler()}) |
+              ftxui::hbox({uiHeaderText(toUpper(category), uiSecondaryText()), ftxui::filler()}) |
               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, max(1, partWidth - 4));
           listRows.push_back(ruledRow(ftxui::hbox({categoryBranch, categoryTitle}), uiRaisedSurfaceBg()));
         }
