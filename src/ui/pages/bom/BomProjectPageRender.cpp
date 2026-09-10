@@ -474,9 +474,25 @@ ftxui::Element App::renderBomProjectUi() const {
 
   string previousAvailability;
   string previousCategory;
-  const auto fixedCount = [](const string& value) {
-    constexpr size_t countWidth = 3;
-    return string(value.size() < countWidth ? countWidth - value.size() : 0, ' ') + value;
+  const auto needHaveCell = [&](const BomMatch& match) {
+    constexpr int countFieldWidth = 3;
+    const auto need = ftxui::hbox({
+        ftxui::filler(),
+        styledText(to_string(match.needed), uiMutedColor()),
+    }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countFieldWidth);
+    const auto have = ftxui::hbox({
+        styledText(to_string(match.available),
+                   match.sufficient ? uiSuccessColor() : uiDangerColor()),
+        ftxui::filler(),
+    }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countFieldWidth);
+    return ftxui::hbox({
+               ftxui::filler(),
+               need,
+               styledText("/", uiDimColor()),
+               have,
+               ftxui::text(" "),
+           }) |
+           ftxui::size(ftxui::WIDTH, ftxui::EQUAL, needHaveWidth);
   };
 
   for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
@@ -491,8 +507,6 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto category = bomComparisonCategory(line, match, store_.items());
     const auto categoryLast = categoryIsLast(index, category, match.sufficient);
     const auto partLast = partIsLast(index, category, match.sufficient);
-    const auto needHave = fixedCount(to_string(match.needed)) + " / " +
-                          fixedCount(to_string(match.available));
     if (availability != previousAvailability) {
       if (!previousAvailability.empty()) {
         tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
@@ -532,8 +546,7 @@ ftxui::Element App::renderBomProjectUi() const {
         bomCell(line.designation, partNameWidth, fg),
         bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
         bomCell(detail, detailWidth, match.sufficient ? uiAccentColor() : uiLinkColor()),
-        bomCell(needHave, needHaveWidth,
-                match.sufficient ? uiSuccessColor() : uiDangerColor(), true),
+        needHaveCell(match),
         bomCell(match.sufficient ? "READY" : "MISSING", statusWidth,
                 match.sufficient ? uiSuccessColor() : uiDangerColor(), true),
     }) | ftxui::bgcolor(bg);
