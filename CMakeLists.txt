@@ -51,9 +51,9 @@ target_include_directories(sqlite3_amalgamation PUBLIC ${sqlite3_amalgamation_SO
 
 FetchContent_Declare(ftxui
   GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
-  # FTXUI v6.1.9. Pinning the commit makes source builds reproducible even
-  # if its upstream tag is later moved.
-  GIT_TAG 5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6
+  # Keep the parser fix for consecutive/truncated Escape sequences. Pinning
+  # the commit makes source builds reproducible even if its upstream tag moves.
+  GIT_TAG 182ef70cd4dc1109d06e66361a9da86445928578
 )
 set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "Do not package FTXUI separately" FORCE)
 FetchContent_MakeAvailable(ftxui)
@@ -292,6 +292,14 @@ endif()
 
 target_link_libraries(inventatory_tests PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
 
+add_executable(inventatory_input_tests
+  tests/terminal_input_parser_tests.cpp
+)
+
+target_include_directories(inventatory_input_tests PRIVATE ${ftxui_SOURCE_DIR}/src)
+target_link_libraries(inventatory_input_tests PRIVATE ftxui::screen ftxui::dom ftxui::component)
+
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)
+  add_test(NAME inventatory_input COMMAND inventatory_input_tests)
 endif()
