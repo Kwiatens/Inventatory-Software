@@ -63,16 +63,7 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
                            qtyHeaderCell,
                        }) |
                        ftxui::bgcolor(uiPanelLeftBg()));
-  } else if (groupByCategory) {
-    listRows.push_back(ftxui::hbox({
-                           treeCell("│   ", 4, uiDividerColor()),
-                           treeCell("", 4, uiMutedColor()),
-                           fixedCell("", max(1, partWidth - 8), uiMutedColor()),
-                           ftxui::separator() | ftxui::color(uiDimColor()),
-                           qtyHeaderCell,
-                       }) |
-                       ftxui::bgcolor(uiPanelLeftBg()));
-  } else {
+  } else if (!groupByCategory) {
     listRows.push_back(ftxui::hbox({
                            fixedCell("Component Category", partWidth, uiMutedColor()),
                            ftxui::separator() | ftxui::color(uiDimColor()),
