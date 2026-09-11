@@ -83,11 +83,32 @@ ftxui::Element App::renderStockUi() const {
                                        filtersEnabled ? uiRaisedSurfaceBg() : uiSurfaceBg()),
                              "stock.filters.header", UiTargetKind::Button,
                              [self] { self->openStockFilterPanel(); }, filtersEnabled);
-  listRows.insert(listRows.begin(), ftxui::hbox({
-      styledText(stockHeader, stocktakeActive_ ? uiAccentColor() : uiSecondaryText()),
-      ftxui::filler(),
-      filterButton,
-  }) | ftxui::bgcolor(uiSurfaceBg()));
+  if (groupByCategory) {
+    const auto qtyHeaderCell = ftxui::hbox({
+                                      ftxui::filler(),
+                                      styledText(stocktakeActive_ ? "Count" : "Qty", uiMutedColor()),
+                                      ftxui::text(" "),
+                                  }) |
+                               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
+    const auto groupedHeaderLabel = ftxui::hbox({
+                                         styledText(stockHeader, stocktakeActive_ ? uiAccentColor() : uiSecondaryText()),
+                                         ftxui::text(" "),
+                                         filterButton,
+                                         ftxui::filler(),
+                                     }) |
+                                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth);
+    listRows.insert(listRows.begin(), ftxui::hbox({
+        groupedHeaderLabel,
+        ftxui::separator() | ftxui::color(uiDimColor()),
+        qtyHeaderCell,
+    }) | ftxui::bgcolor(uiSurfaceBg()));
+  } else {
+    listRows.insert(listRows.begin(), ftxui::hbox({
+        styledText(stockHeader, stocktakeActive_ ? uiAccentColor() : uiSecondaryText()),
+        ftxui::filler(),
+        filterButton,
+    }) | ftxui::bgcolor(uiSurfaceBg()));
+  }
 
   ftxui::Element filterMenu = ftxui::text("");
   if (inputMode_ == InputMode::StockFilter && !closestSearchActive_) {
