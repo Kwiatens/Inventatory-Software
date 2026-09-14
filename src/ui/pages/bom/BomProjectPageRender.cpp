@@ -6,6 +6,7 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <sstream>
@@ -13,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include <ftxui/dom/canvas.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 
 namespace inventatory {
@@ -34,7 +36,99 @@ ftxui::Element centered(ftxui::Element element) {
   return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
 }
 
+struct BomRackGlyph {
+  char value;
+  int width;
+  array<const char*, 5> rows;
+};
+
+const BomRackGlyph* bomRackGlyph(char value) {
+  static const BomRackGlyph glyphs[] = {
+      {'R', 4, {"1110", "1001", "1110", "1010", "1001"}},
+      {'A', 4, {"0110", "1001", "1111", "1001", "1001"}},
+      {'C', 4, {"0111", "1000", "1000", "1000", "0111"}},
+      {'K', 4, {"1001", "1010", "1100", "1010", "1001"}},
+      {'0', 4, {"0110", "1001", "1011", "1101", "0110"}},
+      {'1', 4, {"0100", "1100", "0100", "0100", "1110"}},
+      {'2', 4, {"1110", "0001", "0110", "1000", "1111"}},
+      {'3', 4, {"1110", "0001", "0110", "0001", "1110"}},
+      {'4', 4, {"0010", "0110", "1010", "1111", "0010"}},
+      {'5', 4, {"1111", "1000", "1110", "0001", "1110"}},
+      {'6', 4, {"0110", "1000", "1110", "1001", "0110"}},
+      {'7', 4, {"1111", "0001", "0010", "0100", "0100"}},
+      {'8', 4, {"0110", "1001", "0110", "1001", "0110"}},
+      {'9', 4, {"0110", "1001", "0111", "0001", "0110"}},
+      {' ', 2, {"00", "00", "00", "00", "00"}},
+  };
+  for (const auto& glyph : glyphs) {
+    if (glyph.value == value) return &glyph;
+  }
+  return nullptr;
+}
+
+bool isBomRackTitle(const string& title) {
+  if (title.size() <= 5 || title.compare(0, 5, "RACK ") != 0) return false;
+  return all_of(title.begin() + 5, title.end(), [](unsigned char value) {
+    return isdigit(value) != 0;
+  });
+}
+
+ftxui::Element bomRackTitleCanvas(const string& title, int width, ftxui::Color color) {
+  constexpr int glyphHeight = 5;
+  constexpr int glyphGap = 1;
+
+  int titleWidth = 0;
+  vector<const BomRackGlyph*> glyphs;
+  for (const char value : title) {
+    const auto* glyph = bomRackGlyph(value);
+    if (glyph == nullptr) return {};
+    glyphs.push_back(glyph);
+    titleWidth += glyph->width;
+  }
+  titleWidth += max(0, static_cast<int>(glyphs.size()) - 1) * glyphGap;
+
+  // Two cells of breathing room keep the block lettering away from the rail.
+  if (titleWidth + 2 > width) return {};
+
+  auto titleCanvas = ftxui::canvas(titleWidth * 2, glyphHeight * 4,
+                                   [glyphs = move(glyphs), color, titleWidth](ftxui::Canvas& canvas) {
+                                     const auto background = uiActiveBg();
+                                     for (int row = 0; row < glyphHeight; ++row) {
+                                       for (int column = 0; column < titleWidth; ++column) {
+                                         // Canvas cells are opaque when rendered, so initialize the
+                                         // whole raster before placing foreground blocks.
+                                         canvas.Style(column * 2, row * 4, [background](ftxui::Cell& cell) {
+                                           cell.background_color = background;
+                                         });
+                                       }
+                                     }
+
+                                     int x = 0;
+                                     for (const auto* glyph : glyphs) {
+                                       for (int row = 0; row < glyphHeight; ++row) {
+                                         for (int column = 0; column < glyph->width; ++column) {
+                                           if (glyph->rows[row][column] != '1') continue;
+                                           // DrawBlock is a native FTXUI canvas primitive. Filling both
+                                           // halves of the terminal cell keeps each raster pixel crisp.
+                                           canvas.DrawBlock((x + column) * 2, row * 4, true, color);
+                                           canvas.DrawBlock((x + column) * 2 + 1, row * 4, true, color);
+                                           canvas.DrawBlock((x + column) * 2, row * 4 + 2, true, color);
+                                           canvas.DrawBlock((x + column) * 2 + 1, row * 4 + 2, true, color);
+                                         }
+                                       }
+                                       x += glyph->width + glyphGap;
+                                     }
+                                   });
+  return ftxui::hbox({ftxui::filler(), move(titleCanvas), ftxui::filler()}) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+}
+
 ftxui::Element bomStepBanner(const string& title, int width) {
+  if (isBomRackTitle(title)) {
+    auto largeTitle = bomRackTitleCanvas(title, width, uiFocusColor());
+    if (largeTitle) return largeTitle | ftxui::bgcolor(uiActiveBg());
+  }
+
   return ftxui::hbox({
              ftxui::filler(),
              uiHeaderText(" " + title + " ", uiFocusColor()),
