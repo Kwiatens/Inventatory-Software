@@ -208,6 +208,13 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(buttonRow(target(uiPrimaryButton(checkLabel, !anythingChecking), "settings.updates.check",
                                                     UiTargetKind::Button,
                                                     [self] { self->beginUpdateChecks(); }, !anythingChecking)));
+    const bool canUpdate = !anythingChecking && isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
+    if (canUpdate) {
+      rows.push_back(buttonRow(target(uiPrimaryButton("Update to " + settings_.latestAvailableVersion),
+                                      "settings.updates.update", UiTargetKind::Button,
+                                      [self] { self->beginSoftwareUpdate(); })));
+      rows.push_back(styledText("The update opens a guided download, verification, and restart flow.", uiMutedText()));
+    }
   } else if (settingsCategory_ == SettingsCategory::Appearance) {
     auto appearanceRows = renderSettingsAppearanceRows(contentWidth);
     for (auto& row : appearanceRows) rows.push_back(move(row));

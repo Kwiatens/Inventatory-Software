@@ -214,6 +214,9 @@ vector<App::Action> App::currentActions() const {
       }
       if (settingsCategory_ == SettingsCategory::Updates) {
         add("check for updates", "Updates", "c", chr('c'), [self] { self->beginUpdateChecks(); });
+        if (isVersionNewer(settings_.latestAvailableVersion, self->softwareVersion())) {
+          add("update Inventatory", "Updates", "u", chr('u'), [self] { self->beginSoftwareUpdate(); });
+        }
       }
       if (settingsCategory_ == SettingsCategory::Appearance) {
         add("edit hex color", "Appearance", "e", chr('e'),

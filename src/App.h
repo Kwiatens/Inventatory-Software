@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <charconv>
 #include <deque>
@@ -149,6 +150,7 @@ class App {
     DigiKeySetup,
     Settings,
     Onboarding,
+    Update,
   };
 
   // The Projects page hosts a pinned list, a focused BOM comparison, and the
@@ -191,6 +193,43 @@ class App {
     OnboardingStep targetOnboardingStep = OnboardingStep::Welcome;
     ScanSetupStep targetScanSetupStep = ScanSetupStep::Introduction;
     bool targetReturnToOnboardingAfterScan = false;
+  };
+
+  enum class UpdateWizardStep {
+    Preparing,
+    SavePrompt,
+    Preview,
+    Downloading,
+    Verifying,
+    HandingOff,
+    Complete,
+    Failed,
+  };
+
+  struct UpdatePackage {
+    UpdateCheckResult release;
+    std::filesystem::path downloadDirectory;
+    std::filesystem::path archivePath;
+    std::filesystem::path checksumsPath;
+    std::filesystem::path installerPath;
+  };
+
+  struct UpdateOperationResult {
+    bool success = false;
+    bool cancelled = false;
+    UpdatePackage package;
+    std::string error;
+  };
+
+  struct UpdateDownloadState {
+    std::mutex mutex;
+    std::atomic<bool> cancelRequested{false};
+    std::string assetName;
+    std::uint64_t downloadedBytes = 0;
+    std::uint64_t totalBytes = 0;
+    double bytesPerSecond = 0.0;
+    std::chrono::steady_clock::time_point startedAt;
+    bool verifying = false;
   };
 
   enum class SettingsCategory {
@@ -428,6 +467,7 @@ class App {
   void handleBomProjectKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
   void handleOnboardingKey(const KeyEvent& key);
+  void handleUpdateKey(const KeyEvent& key);
   void handleSearchKey(const KeyEvent& key);
   void handleEditMenuKey(const KeyEvent& key);
   void handleEditValueKey(const KeyEvent& key);
@@ -466,6 +506,8 @@ class App {
   ftxui::Element renderOnboardingUi() const;
   ftxui::Element renderWizardUi() const;
   ftxui::Element renderWizardContent() const;
+  ftxui::Element renderUpdateUi() const;
+  ftxui::Element renderUpdateContent() const;
   ftxui::Element renderInventatoryScanSetupContent() const;
   std::string settingsCategoryName(SettingsCategory category) const;
   std::string stockDateFilterName(StockDateFilter filter) const;
@@ -502,6 +544,18 @@ class App {
   void beginUpdateCheckIfDue();
   void beginUpdateChecks();
   void processUpdateCheck();
+  void beginSoftwareUpdate();
+  void beginUpdatePreparation();
+  void beginUpdateDownload();
+  void beginUpdateVerification();
+  void processSoftwareUpdate();
+  void cancelSoftwareUpdate();
+  void retrySoftwareUpdate();
+  void dismissUpdateResult();
+  void loadUpdateCompletionMarker();
+  bool writeUpdateMarker(const std::string& state, const std::string& version,
+                         const std::string& error = {});
+  bool prepareUpdateHandoff();
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
   std::string scanFirmwareStatus() const;
@@ -948,6 +1002,19 @@ class App {
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckChecked_ = false;
   bool updateCheckFailed_ = false;
+  UpdateWizardStep updateStep_ = UpdateWizardStep::Preparing;
+  std::future<UpdateOperationResult> updateOperationFuture_;
+  std::shared_ptr<UpdateDownloadState> updateDownloadState_;
+  std::optional<UpdatePackage> updatePackage_;
+  std::string updateError_;
+  std::string updateCompletionVersion_;
+  std::string updateCompletionNotes_;
+  std::size_t updateNotesScroll_ = 0;
+  std::filesystem::path updateMarkerPath_;
+  std::filesystem::path updateNotesPath_;
+  ftxui::Box updateNotesBounds_;
+  bool updateCompletionPending_ = false;
+  bool updateInstallerLaunched_ = false;
   std::string scanFirmwareLatestVersion_;
   bool scanFirmwareChecked_ = false;
   bool scanFirmwareCheckFailed_ = false;
