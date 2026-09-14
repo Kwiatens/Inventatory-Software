@@ -29,8 +29,11 @@ using namespace std;
 using namespace app_actions;
 
 void App::moveRackSlot(int rowDelta, int columnDelta) {
-  rackRow_ = clamp(rackRow_ + rowDelta, 0, 4);
-  rackColumn_ = clamp(rackColumn_ + columnDelta, 0, 4);
+  const auto* rack = selectedRack();
+  const int rows = rack == nullptr ? 0 : clamp(rack->rows, 0, 5);
+  const int columns = rack == nullptr ? 0 : clamp(rack->columns, 0, 5);
+  rackRow_ = clamp(rackRow_ + rowDelta, 0, max(0, rows - 1));
+  rackColumn_ = clamp(rackColumn_ + columnDelta, 0, max(0, columns - 1));
   dirty_ = true;
 }
 

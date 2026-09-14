@@ -128,6 +128,11 @@ InventatoryRack* App::selectedRack() {
 }
 
 string App::selectedRackSlot() const {
+  const auto* rack = selectedRack();
+  if (rack == nullptr) return {};
+  const int rows = clamp(rack->rows, 0, 5);
+  const int columns = clamp(rack->columns, 0, 5);
+  if (rackRow_ >= rows || rackColumn_ >= columns) return {};
   return rackSlotLabel(rackRow_, rackColumn_);
 }
 
@@ -152,8 +157,11 @@ void App::syncRackSelection() {
     return;
   }
   rackSelection_ = min(rackSelection_, indices.size() - 1);
-  rackRow_ = clamp(rackRow_, 0, 4);
-  rackColumn_ = clamp(rackColumn_, 0, 4);
+  const auto* rack = selectedRack();
+  const int rows = rack == nullptr ? 0 : clamp(rack->rows, 0, 5);
+  const int columns = rack == nullptr ? 0 : clamp(rack->columns, 0, 5);
+  rackRow_ = clamp(rackRow_, 0, max(0, rows - 1));
+  rackColumn_ = clamp(rackColumn_, 0, max(0, columns - 1));
   dirty_ = true;
 }
 
