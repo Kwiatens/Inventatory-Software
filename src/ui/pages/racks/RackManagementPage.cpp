@@ -44,11 +44,14 @@ size_t rackCapacity(const InventatoryRack& rack) {
   return static_cast<size_t>(rackRowCount(rack)) * static_cast<size_t>(rackColumnCount(rack));
 }
 
-string rackOccupancyText(size_t occupied, size_t capacity) {
-  if (capacity == 0) return "[.....] 0/0";
-  const auto filled = min<size_t>(5, (occupied * 5 + capacity - 1) / capacity);
-  return "[" + string(filled, '#') + string(5 - filled, '.') + "] " + to_string(occupied) + "/" +
-         to_string(capacity);
+ftxui::Element rackOccupancyIndicator(size_t occupied, size_t capacity, int width, ftxui::Color occupiedColor) {
+  return ftxui::hbox({
+             ftxui::filler(),
+             ftxui::text(to_string(occupied)) | ftxui::color(occupiedColor),
+             ftxui::text("/") | ftxui::color(uiDimColor()),
+             ftxui::text(to_string(capacity)) | ftxui::color(uiMutedColor()),
+         }) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
 string assignmentLabel(RackAssignmentMode mode) {
@@ -137,8 +140,13 @@ vector<string> rackTitleLines(const string& value, int width) {
   return lines;
 }
 
-ftxui::Element centeredRackText(const string& value, int width, ftxui::Color color) {
-  const auto lines = rackTitleLines(value, max(1, width - 2));
+ftxui::Element centeredRackText(const string& value, int width, ftxui::Color color, int maxLines = 0) {
+  const int lineWidth = max(1, width - 2);
+  auto lines = rackTitleLines(value, lineWidth);
+  if (maxLines > 0 && static_cast<int>(lines.size()) > maxLines) {
+    lines.resize(maxLines);
+    lines.back() = ellipsize(lines.back() + "...", static_cast<size_t>(lineWidth));
+  }
   string wrapped;
   for (size_t index = 0; index < lines.size(); ++index) {
     if (index > 0) {
@@ -150,30 +158,35 @@ ftxui::Element centeredRackText(const string& value, int width, ftxui::Color col
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-ftxui::Element rightAlignedRackText(const string& value, ftxui::Color color) {
-  return ftxui::hbox({uiHeaderText(value, color), ftxui::text(" ")});
-}
-
 }  // namespace
 
 ftxui::Element App::renderRackManagementUi() const {
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 40;
-  // The supported 100-column terminal still keeps the rack matrix beside its
-  // context panels. Stacking would make the 5x5 grid taller than the viewport.
-  const bool compact = screenWidth < 100;
-  const int listWidth = screenWidth < 118 ? 24 : 30;
-  const int detailWidth = screenWidth < 118 ? 30 : 36;
-  // In the horizontal layout, account for its two one-column separators. The
-  // compact layout stacks the grid below the side panels, so it uses the full
-  // screen width instead.
-  const int gridWidth = compact ? screenWidth : max(42, screenWidth - listWidth - detailWidth - 2);
   const auto rackIndices = sortedRackIndices();
   const bool inventoryHasNoRacks = store_.racks().empty();
   const auto* rack = selectedRack();
   const auto selectedSlot = selectedRackSlot();
   const auto* selectedSlotItem = selectedRackItem();
+  // The supported 100-column terminal still keeps the rack matrix beside its
+  // context panels. Stacking would make the 5x5 grid taller than the viewport.
+  const bool compact = screenWidth < 100;
+  const int listWidth = screenWidth < 118 ? 24 : 30;
+  int detailWidth = screenWidth < 118 ? 30 : 36;
+  // In the horizontal layout, account for its two one-column separators. The
+  // compact layout stacks the grid below the side panels, so it uses the full
+  // screen width instead.
+  int gridWidth = compact ? screenWidth : max(42, screenWidth - listWidth - detailWidth - 2);
+  if (!compact && rack != nullptr && rackRowCount(*rack) > 0) {
+    constexpr int rowDesignatorWidth = 3;
+    const int columnCount = rackRowCount(*rack);
+    const int separatorCount = columnCount;
+    const int slotWidth = max(7, (gridWidth - rowDesignatorWidth - separatorCount) / columnCount);
+    const int fittedGridWidth = rowDesignatorWidth + separatorCount + slotWidth * columnCount;
+    detailWidth += gridWidth - fittedGridWidth;
+    gridWidth = fittedGridWidth;
+  }
 
   // Rack code, type, and a right-aligned occupancy column that ends one cell
   // short of the panel edge. Type absorbs the remaining width so the numbers
@@ -201,8 +214,8 @@ ftxui::Element App::renderRackManagementUi() const {
           rackFixedCell(" " + candidate.code, rackCodeWidth, fg),
           rackFixedCell(toTitleCase(candidate.componentType), rackTypeWidth,
                         selected ? uiTitleColor() : uiLabelColor()),
-          rackFixedCell(rackOccupancyText(occupied, capacity), rackUsedWidth,
-                        occupied >= capacity && capacity != 0 ? uiWarnColor() : uiPrimaryText(), true),
+          rackOccupancyIndicator(occupied, capacity, rackUsedWidth,
+                                 occupied >= capacity && capacity != 0 ? uiWarnColor() : uiPrimaryText()),
           ftxui::text(" "),
       }) | ftxui::bgcolor(bg);
       auto self = const_cast<App*>(this);
@@ -218,12 +231,6 @@ ftxui::Element App::renderRackManagementUi() const {
   }
 
   ftxui::Elements gridRows;
-  auto pageContext = rack == nullptr
-                         ? uiSectionHeader("RACK VIEW  No selected rack", uiSecondaryText(), uiPanelLeftBg())
-                         : uiSectionHeader("RACK VIEW  " + rack->code + "  ·  " + toTitleCase(rack->componentType) +
-                                               "  ·  " + rackOccupancyText(rackOccupiedSlotCount(store_, *rack),
-                                                                            rackCapacity(*rack)),
-                                           uiTitleColor(), uiRowSelectedBg());
   if (rack == nullptr) {
     const auto emptyState = inventoryHasNoRacks ? "Add or import an eligible small component to create racks automatically."
                                                 : "No racks match filter.";
@@ -238,126 +245,113 @@ ftxui::Element App::renderRackManagementUi() const {
     if (!rackFilter_.empty()) {
       gridRows.push_back(fullLine("Filter: " + rackFilter_, uiWarnColor(), uiPanelRightBg()));
     }
-    ftxui::Elements gridActions;
-    auto selfGrid = const_cast<App*>(this);
-    gridActions.push_back(target(styledText(" Place / Move ", rack != nullptr ? uiInteractiveColor() : uiMutedText(),
-                                                    uiRaisedSurfaceBg()),
-                                   "racks.move", UiTargetKind::Button, [selfGrid] { selfGrid->beginOrCompleteRackMove(); },
-                                   rack != nullptr));
-    gridActions.push_back(ftxui::text(" "));
-    gridActions.push_back(target(styledText(" Print part ", selectedSlotItem != nullptr ? uiInteractiveColor() : uiMutedText(),
-                                                    uiRaisedSurfaceBg()),
-                                   "racks.print.part", UiTargetKind::Button,
-                                   [selfGrid] { selfGrid->printSelectedRackPartLabel(); }, selectedSlotItem != nullptr));
-    if (selectedSlotItem != nullptr) {
-      gridActions.push_back(ftxui::text(" "));
-      gridActions.push_back(target(styledText(" - ", uiInteractiveColor(), uiRaisedSurfaceBg()),
-                                   "racks.part.minus", UiTargetKind::Button,
-                                   [selfGrid] { selfGrid->adjustSelectedRackItemQuantity(-1); }));
-      gridActions.push_back(target(styledText(" + ", uiInteractiveColor(), uiRaisedSurfaceBg()),
-                                   "racks.part.plus", UiTargetKind::Button,
-                                   [selfGrid] { selfGrid->adjustSelectedRackItemQuantity(1); }));
-      gridActions.push_back(ftxui::text(" "));
-      gridActions.push_back(target(styledText(" Details ", uiInteractiveColor(), uiRaisedSurfaceBg()),
-                                   "racks.part.details", UiTargetKind::Button,
-                                   [selfGrid] { selfGrid->openSelectedRackItemDetail(); }));
-    }
-    gridRows.push_back(ftxui::hbox(move(gridActions)));
-    gridRows.push_back(uiDivider());
-    const int rackRows = rackRowCount(*rack);
-    const int rackColumns = rackColumnCount(*rack);
-    if (rackRows == 0 || rackColumns == 0) {
+    const int rackGridRows = rackRowCount(*rack);
+    const int rackGridColumns = rackColumnCount(*rack);
+    if (rackGridRows == 0 || rackGridColumns == 0) {
       gridRows.push_back(fullLine("Rack dimensions are unavailable.", uiWarnColor(), uiPanelRightBg()));
     } else {
       // The left header cell labels the physical row numbers; the header cells
       // above them label the lettered rack columns. Both dimensions come from
       // the selected rack instead of assuming the default five-by-five size.
       constexpr int rowHeaderWidth = 3;
-      const int separatorCount = max(0, rackRows - 1);
-      const int slotSpace = max(rackRows, gridWidth - rowHeaderWidth - separatorCount);
-      const int slotWidth = max(7, slotSpace / rackRows);
-      const int extraSlotColumns = max(0, slotSpace - slotWidth * rackRows);
-      // The page frame reserves the context, action, divider, and column-header
-      // rows. Distribute a remainder so the visualizer reaches the bottom of
-      // the available panel without changing the slot card internals.
-      const int slotRowsSpace = max(rackColumns * 3, screenHeight - 12 - (!rackFilter_.empty() ? 1 : 0));
-      const int slotHeight = max(3, slotRowsSpace / rackColumns);
-      const int extraSlotRows = max(0, slotRowsSpace - slotHeight * rackColumns);
+      // Include the divider between the numeric row labels and the slot cells.
+      const int separatorCount = rackGridRows;
+      const int slotSpace = max(rackGridRows, gridWidth - rowHeaderWidth - separatorCount);
+      const int slotWidth = max(7, slotSpace / rackGridRows);
+      // Keep every slot column identical. The designator lane absorbs the
+      // indivisible terminal-width remainder so the complete rack width still
+      // matches the available grid width exactly.
+      const int designatorWidth = rowHeaderWidth;
+      // Keep the letter headers to one row immediately below the controls.
+      // Keep the letter headers to one plain row immediately below the
+      // controls. A single grid-wide divider below it gives the column axis
+      // the same clean separation as the numbered row axis.
+      // The shell permanently reserves its notification row, even when it is
+      // quiet. Leave that row, the search row, dividers, and rack controls
+      // outside the slot matrix so the last slot line remains visible.
+      const int slotRowsSpace = max(rackGridColumns * 3,
+                                    screenHeight - 12 - (!rackFilter_.empty() ? 1 : 0));
+      const int slotHeight = max(3, slotRowsSpace / rackGridColumns);
       ftxui::Elements columnHeaders;
-      columnHeaders.push_back(rackCenteredCell("", rowHeaderWidth, uiMutedColor()));
-      for (int displayColumn = 0; displayColumn < rackRows; ++displayColumn) {
-        const int cellWidth = slotWidth + (displayColumn < extraSlotColumns ? 1 : 0);
-        columnHeaders.push_back(rackCenteredCell(string(1, static_cast<char>('A' + displayColumn)), cellWidth,
+      columnHeaders.push_back(rackCenteredCell("", designatorWidth, uiDimColor()));
+      columnHeaders.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+      for (int displayColumn = 0; displayColumn < rackGridRows; ++displayColumn) {
+        columnHeaders.push_back(rackCenteredCell(string(1, static_cast<char>('A' + displayColumn)), slotWidth,
                                                   uiAccentColor()));
-        if (displayColumn < rackRows - 1) {
+        if (displayColumn < rackGridRows - 1) {
           columnHeaders.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
         }
       }
       gridRows.push_back(ftxui::hbox(move(columnHeaders)) | ftxui::bgcolor(uiPanelRightBg()));
+      gridRows.push_back(uiDivider());
       // Display the rack like the physical unit: slot numbers run downward
       // within each lettered column, while letters advance from left to right.
       // Keep the existing rackRow_/rackColumn_ state and slot lookup untouched
       // by translating the visual coordinates back to storage coordinates here.
-      for (int displayRow = 0; displayRow < rackColumns; ++displayRow) {
-      int titleLines = 1;
-      for (int displayColumn = 0; displayColumn < rackRows; ++displayColumn) {
-        const auto slot = rackSlotLabel(displayColumn, displayRow);
-        const auto* item = itemAtRackSlot(store_, rack->id, slot);
-        const auto itemText = item == nullptr ? string("[ empty ]") : item->partName;
-        const int cellWidth = slotWidth + (displayColumn < extraSlotColumns ? 1 : 0);
-        titleLines = max(titleLines, static_cast<int>(rackTitleLines(itemText, max(1, cellWidth - 2)).size()));
-      }
-      const int rowHeight = max(slotHeight + (displayRow < extraSlotRows ? 1 : 0), titleLines + 1);
-      ftxui::Elements rowCells;
-      rowCells.push_back(rackCenteredCell(to_string(displayRow + 1), rowHeaderWidth, uiAccentColor()));
-      for (int displayColumn = 0; displayColumn < rackRows; ++displayColumn) {
-        const auto slot = rackSlotLabel(displayColumn, displayRow);
-        const auto* item = itemAtRackSlot(store_, rack->id, slot);
-        const bool selected = displayColumn == rackRow_ && displayRow == rackColumn_;
-        const bool movingSource = item != nullptr && item->id == movingRackItemId_;
-        const auto bg = movingSource ? rackMovingSourceBg()
-                        : selected ? uiSelectionBg()
-                                   : (item == nullptr ? uiCanvasBg() : uiSurfaceBg());
-        const auto titleColor = selected ? uiTitleColor() : (item == nullptr ? uiMutedColor() : uiAccentColor());
-        const auto itemText = item == nullptr ? string("[ empty ]") : item->partName;
-        const int cellWidth = slotWidth + (displayColumn < extraSlotColumns ? 1 : 0);
-        ftxui::Elements cellRows;
-        const auto nameColor = item == nullptr ? uiDimColor() : uiPrimaryText();
-        auto nameArea = ftxui::vbox({
-                              ftxui::filler(),
-                              centeredRackText(itemText, cellWidth, nameColor),
-                              ftxui::filler(),
-                          }) |
-                        ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, max(1, rowHeight - 1));
-        cellRows.push_back(move(nameArea));
-        auto quantity = item == nullptr
-                            ? styledText(" available ", uiDimColor())
-                            : rackQuantityIndicator(*item, selected, settings_.lowStockThreshold);
-        cellRows.push_back(ftxui::hbox({
-            move(quantity),
-            ftxui::filler(),
-            rightAlignedRackText(slot, titleColor),
-        }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth));
-        auto cell = ftxui::vbox(move(cellRows)) | ftxui::bgcolor(bg) |
-                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
-                    ftxui::size(ftxui::HEIGHT, ftxui::GREATER_THAN, rowHeight);
-        if (selected) {
-          cell = cell | ftxui::select;
+      for (int displayRow = 0; displayRow < rackGridColumns; ++displayRow) {
+        // Keep every physical slot row identical. Distributing a terminal-row
+        // remainder to the first rows makes the top row taller and can leave
+        // the final row clipped by the page boundary.
+        const int rowHeight = slotHeight;
+        ftxui::Elements rowCells;
+        auto rowDesignator = ftxui::vbox({
+                                  ftxui::filler(),
+                                  rackCenteredCell(to_string(displayRow + 1), designatorWidth, uiAccentColor()),
+                                  ftxui::filler(),
+                              }) |
+                             ftxui::size(ftxui::WIDTH, ftxui::EQUAL, designatorWidth) |
+                             ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rowHeight);
+        rowCells.push_back(move(rowDesignator));
+        rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+        for (int displayColumn = 0; displayColumn < rackGridRows; ++displayColumn) {
+          const auto slot = rackSlotLabel(displayColumn, displayRow);
+          const auto* item = itemAtRackSlot(store_, rack->id, slot);
+          const bool selected = displayColumn == rackRow_ && displayRow == rackColumn_;
+          const bool movingSource = item != nullptr && item->id == movingRackItemId_;
+          const auto bg = movingSource ? rackMovingSourceBg()
+                          : selected ? uiSelectionBg()
+                                     : (item == nullptr ? uiCanvasBg() : uiSurfaceBg());
+          const auto itemText = item == nullptr ? string("[ empty ]") : item->partName;
+          const int cellWidth = slotWidth;
+          ftxui::Elements cellRows;
+          const auto nameColor = item == nullptr ? uiDimColor() : uiPrimaryText();
+          auto nameArea = ftxui::vbox({
+                                ftxui::filler(),
+                                centeredRackText(itemText, cellWidth, nameColor, max(1, rowHeight - 1)),
+                                ftxui::filler(),
+                            }) |
+                          ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, max(1, rowHeight - 1));
+          cellRows.push_back(move(nameArea));
+          auto quantity = item == nullptr
+                              ? styledText(" available ", uiDimColor())
+                              : rackQuantityIndicator(*item, selected, settings_.lowStockThreshold);
+          cellRows.push_back(ftxui::hbox({
+              move(quantity),
+              ftxui::filler(),
+          }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth));
+          // Apply the fill after the fixed geometry so every slot, including
+          // the selected one, paints its complete equal-sized rectangle.
+          auto cell = ftxui::vbox(move(cellRows)) |
+                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
+                      ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rowHeight) |
+                      ftxui::bgcolor(bg);
+          if (selected) {
+            cell = cell | ftxui::select;
+          }
+          auto self = const_cast<App*>(this);
+          rowCells.push_back(target(cell, "racks.cell." + slot, UiTargetKind::Cell, [self, displayColumn, displayRow] {
+            self->rackRow_ = displayColumn;
+            self->rackColumn_ = displayRow;
+            self->dirty_ = true;
+          }));
+          if (displayColumn < rackGridRows - 1) {
+            rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+          }
         }
-        auto self = const_cast<App*>(this);
-        rowCells.push_back(target(cell, "racks.cell." + slot, UiTargetKind::Cell, [self, displayColumn, displayRow] {
-          self->rackRow_ = displayColumn;
-          self->rackColumn_ = displayRow;
-          self->dirty_ = true;
-        }));
-        if (displayColumn < rackRows - 1) {
-          rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+        gridRows.push_back(ftxui::hbox(move(rowCells)));
+        if (displayRow < rackGridColumns - 1) {
+          gridRows.push_back(uiDivider());
         }
-      }
-      gridRows.push_back(ftxui::hbox(move(rowCells)));
-      if (displayRow < rackColumns - 1) {
-        gridRows.push_back(uiDivider());
-      }
       }
     }
   }
@@ -368,43 +362,45 @@ ftxui::Element App::renderRackManagementUi() const {
       detailRows.push_back(detailFieldLine({"Status: ", "No racks match filter", uiWarnColor(), uiTitleColor()}, detailWidth - 2));
     }
   } else {
-    detailRows.push_back(uiSectionHeader("SELECTED SLOT", uiSecondaryText(), uiSurfaceBg()));
-    detailRows.push_back(fullLine(ellipsize(rack->code + " / " + selectedSlot, static_cast<size_t>(max(1, detailWidth - 1))),
-                                  uiTitleColor(), uiRowSelectedBg()));
     detailRows.push_back(detailFieldLine({"Rack: ", rack->code, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
-    detailRows.push_back(detailFieldLine({"Type: ", toTitleCase(rack->componentType), uiLabelColor(), uiTitleColor()},
-                                         detailWidth - 2));
-    detailRows.push_back(detailFieldLine({"Occupancy: ", rackOccupancyText(rackOccupiedSlotCount(store_, *rack),
-                                                                             rackCapacity(*rack)),
-                                          uiLabelColor(), uiAccentColor()},
-                                         detailWidth - 2));
+    detailRows.push_back(detailFieldLine({"Slot: ", selectedSlot, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
+    detailRows.push_back(detailFieldLine({"Type: ", rack->componentType, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
     detailRows.push_back(uiDivider());
     if (selectedSlotItem == nullptr) {
-      detailRows.push_back(uiSectionHeader("EMPTY SLOT", uiMutedColor(), uiRowDarkBg()));
+      detailRows.push_back(fullLine("Empty slot", uiMutedColor(), uiRowDarkBg()));
       detailRows.push_back(ftxui::paragraphAlignLeft(movingRackItemId_.empty()
                                                          ? "Press v on an occupied slot to start moving a part."
                                                          : "Press v here to place the moving part.") |
                            ftxui::color(movingRackItemId_.empty() ? uiMutedColor() : uiAccentColor()));
     } else {
-      detailRows.push_back(uiSectionHeader("PART DETAILS", uiSecondaryText(), uiSurfaceBg()));
-      detailRows.push_back(fullLine(ellipsize("In " + rack->code + " / " + selectedSlot,
-                                             static_cast<size_t>(max(1, detailWidth - 1))),
-                                    uiFocusColor(), uiRowSelectedBg()));
+      detailRows.push_back(fullLine("Inventatory RACK: " + rack->code + "-" + selectedSlot, uiTitleColor(), uiRowSelectedBg()));
       detailRows.push_back(detailFieldLine({"Part: ", selectedSlotItem->partName, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
       detailRows.push_back(detailFieldLine({"Category: ", displayCategory(selectedSlotItem->category), uiLabelColor(), uiTitleColor()},
                                           detailWidth - 2));
       detailRows.push_back(detailFieldLine({"Package: ", packageSummary(*selectedSlotItem), uiLabelColor(), uiTitleColor()},
                                           detailWidth - 2));
-      detailRows.push_back(detailFieldLine({"Quantity: ", to_string(selectedSlotItem->quantity), uiLabelColor(),
-                                            selectedSlotItem->quantity <= 0 ? uiDangerColor()
-                                            : isLowStock(*selectedSlotItem, settings_.lowStockThreshold) ? uiWarnColor()
-                                                                                                        : uiPrimaryText()},
-                                           detailWidth - 2));
       detailRows.push_back(detailFieldLine({"Mode: ", assignmentLabel(selectedSlotItem->rackAssignment), uiLabelColor(),
                                             selectedSlotItem->rackAssignment == RackAssignmentMode::Manual ? uiWarnColor()
                                                                                                           : uiSuccessColor()},
                                            detailWidth - 2));
     }
+    auto selfDetail = const_cast<App*>(this);
+    ftxui::Elements slotActions;
+    slotActions.push_back(target(uiSecondaryButton("Move"), "racks.move", UiTargetKind::Button,
+                                 [selfDetail] { selfDetail->beginOrCompleteRackMove(); }));
+    if (selectedSlotItem != nullptr) {
+      slotActions.push_back(ftxui::text(" "));
+      slotActions.push_back(styledText("Qty", uiMutedColor()));
+      slotActions.push_back(ftxui::text(" "));
+      slotActions.push_back(target(uiSecondaryButton("-"), "racks.part.minus", UiTargetKind::Button,
+                                   [selfDetail] { selfDetail->adjustSelectedRackItemQuantity(-1); }));
+      slotActions.push_back(target(uiSecondaryButton("+"), "racks.part.plus", UiTargetKind::Button,
+                                   [selfDetail] { selfDetail->adjustSelectedRackItemQuantity(1); }));
+      slotActions.push_back(ftxui::text(" "));
+      slotActions.push_back(target(uiSecondaryButton("Remove", uiWarnColor()), "racks.part.remove", UiTargetKind::Button,
+                                   [selfDetail] { selfDetail->unassignSelectedRackItem(); }));
+    }
+    detailRows.push_back(ftxui::hbox(move(slotActions)));
     if (!movingRackItemId_.empty()) {
       detailRows.push_back(uiDivider());
       const auto* moving = store_.findById(movingRackItemId_);
@@ -415,30 +411,28 @@ ftxui::Element App::renderRackManagementUi() const {
   }
 
   rackRows.insert(rackRows.begin(), fullLine("RACKS", uiSecondaryText(), uiSurfaceBg()));
-  if (!inventoryHasNoRacks) detailRows.insert(detailRows.begin(), fullLine("INSPECTOR", uiSecondaryText(), uiSurfaceBg()));
+  if (!inventoryHasNoRacks) detailRows.insert(detailRows.begin(), fullLine("SLOT DETAIL", uiSecondaryText(), uiSurfaceBg()));
   auto rackPanel = ftxui::vbox(move(rackRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth);
-  auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::bgcolor(uiSurfaceBg()) |
+  auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, gridWidth);
   auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailWidth);
 
   if (compact) {
     return ftxui::vbox({
-        pageContext,
         ftxui::hbox({rackPanel, uiDivider(), detailPanel}),
         uiDivider(),
         gridPanel,
     });
   }
 
-  return ftxui::vbox({
-      pageContext,
-      ftxui::hbox({rackPanel,
-                   ftxui::separator() | ftxui::color(uiDimColor()),
-                   gridPanel,
-                   ftxui::separator() | ftxui::color(uiDimColor()),
-                   detailPanel}),
+  return ftxui::hbox({
+      rackPanel,
+      ftxui::separator() | ftxui::color(uiDimColor()),
+      gridPanel,
+      ftxui::separator() | ftxui::color(uiDimColor()),
+      detailPanel,
   });
 }
 
