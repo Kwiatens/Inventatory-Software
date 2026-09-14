@@ -44,6 +44,9 @@ ftxui::Element App::renderUi() const {
   uiTargets_.reserve(512);
   // Fresh setup is intentionally a dedicated terminal surface. It must not
   // inherit any workspace navigation, operational state, or search chrome.
+  if (page_ == Page::Update && !inventoryRecoveryRequired_) {
+    return renderUpdateUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
+  }
   if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
     return renderWizardUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
@@ -116,6 +119,8 @@ std::string App::pageName() const {
       return "Settings";
     case Page::Onboarding:
       return "First-time setup";
+    case Page::Update:
+      return "Update";
   }
   return "";
 }
@@ -173,6 +178,8 @@ ftxui::Element App::renderPageUi() const {
       return renderSettingsUi();
     case Page::Onboarding:
       return renderOnboardingUi();
+    case Page::Update:
+      return renderUpdateUi();
   }
 
   return ftxui::text("");
@@ -278,6 +285,10 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Settings";
         contextText = settingsCategoryName(settingsCategory_) +
                       (settingsDirty_ ? " · unsaved changes" : " · saved");
+        break;
+      case Page::Update:
+        contextTitle = "Update wizard";
+        contextText = "Inventatory release update";
         break;
     }
   }

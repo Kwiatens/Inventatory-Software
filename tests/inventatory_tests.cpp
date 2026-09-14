@@ -3654,12 +3654,100 @@ int main() {
   {
     assert(isVersionNewer("v0.1.1", "0.1.0"));
     assert(isVersionNewer("0.1.1", "0.1.0"));
+    assert(isVersionNewer("v1.2.3.1", "1.2.3"));
     assert(!isVersionNewer("0.1.0", "0.1.0"));
     assert(!isVersionNewer("preview", "0.1.0"));
     assert(isUpdateCheckDue(true, 0, 100));
     assert(!isUpdateCheckDue(false, 0, 100));
     assert(!isUpdateCheckDue(true, 100, 100 + 60));
     assert(isUpdateCheckDue(true, 100, 100 + 24 * 60 * 60));
+    assert(updateEtaSeconds(50, 100, 10.0) == 5.0);
+    assert(updateEtaSeconds(100, 100, 10.0) == 0.0);
+    assert(updateEtaSeconds(0, 0, 10.0) == 0.0);
+  }
+
+  {
+    const string releaseJson =
+        R"({
+          "tag_name": "v1.2.3",
+          "html_url": "https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3",
+          "body": "Fixes\n\u2605 safer updates",
+          "assets": [
+            {"name": "Inventatory-win-x64.zip"},
+            {"name": "SHA256SUMS.txt"},
+            {"name": "Install-Inventatory.ps1"}
+          ]
+        })";
+    const auto metadata = parseReleaseMetadata(releaseJson, "1.2.0", "Kwiatens/Inventatory-Software");
+    assert(metadata.completed);
+    assert(metadata.updateAvailable);
+    assert(metadata.latestVersion == "v1.2.3");
+    assert(metadata.releaseNotes == "Fixes\n\xE2\x98\x85 safer updates");
+
+    const auto prereleaseMetadata = parseReleaseMetadata(
+        R"([{"tag_name":"v1.2.4-rc.1","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.4-rc.1","body":"candidate","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]}])",
+        "1.2.3", "Kwiatens/Inventatory-Software");
+    assert(prereleaseMetadata.completed);
+    assert(prereleaseMetadata.updateAvailable);
+    assert(prereleaseMetadata.latestVersion == "v1.2.4-rc.1");
+    assert(isVersionNewer("v1.2.0-rc.2", "v1.2.0-rc.1"));
+    assert(isVersionNewer("v1.2.0", "v1.2.0-rc.1"));
+    assert(!isVersionNewer("v1.2.0-rc.1", "v1.2.0"));
+
+    const auto missingAsset = parseReleaseMetadata(
+        R"({"tag_name":"v1.2.3","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"}]})",
+        "1.2.0", "Kwiatens/Inventatory-Software");
+    assert(!missingAsset.completed);
+    const auto invalidTag = parseReleaseMetadata(
+        R"({"tag_name":"release","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/release","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})",
+        "1.2.0", "Kwiatens/Inventatory-Software");
+    assert(!invalidTag.completed);
+    const auto invalidUrl = parseReleaseMetadata(
+        R"({"tag_name":"v1.2.3","html_url":"https://example.com/release","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})",
+        "1.2.0", "Kwiatens/Inventatory-Software");
+    assert(!invalidUrl.completed);
+    string oversizedNotes(64U * 1024U + 1U, 'x');
+    const auto oversized = parseReleaseMetadata(
+        "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3\",\"body\":\"" +
+            oversizedNotes +
+            "\",\"assets\":[{\"name\":\"Inventatory-win-x64.zip\"},{\"name\":\"SHA256SUMS.txt\"},{\"name\":\"Install-Inventatory.ps1\"}]}",
+        "1.2.0", "Kwiatens/Inventatory-Software");
+    assert(!oversized.completed);
+    const auto malformedNotes = parseReleaseMetadata(
+        "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3\",\"body\":\"bad\nnotes\",\"assets\":[{\"name\":\"Inventatory-win-x64.zip\"},{\"name\":\"SHA256SUMS.txt\"},{\"name\":\"Install-Inventatory.ps1\"}]}",
+        "1.2.0", "Kwiatens/Inventatory-Software");
+    assert(!malformedNotes.completed);
+
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2.3", "Inventatory-win-x64.zip") ==
+           "https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3/Inventatory-win-x64.zip");
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2.3-rc.1", "Inventatory-win-x64.zip") ==
+           "https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3-rc.1/Inventatory-win-x64.zip");
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2", "Inventatory-win-x64.zip").empty());
+    assert(buildReleaseAssetUrl("evil/repo/extra", "v1.2.3", "Inventatory-win-x64.zip").empty());
+
+    const string archiveHash(64U, 'a');
+    const string installerHash(64U, 'b');
+    string expectedChecksum = archiveHash + "  Inventatory-win-x64.zip\n" + installerHash + " *Install-Inventatory.ps1\n";
+    string parsedHash;
+    assert(parseSha256Checksum(expectedChecksum, "Inventatory-win-x64.zip", parsedHash));
+    assert(parsedHash == archiveHash);
+    assert(parseSha256Checksum(expectedChecksum, "Install-Inventatory.ps1", parsedHash));
+    assert(parsedHash == installerHash);
+    assert(!parseSha256Checksum(expectedChecksum, "SHA256SUMS.txt", parsedHash));
+    assert(!parseSha256Checksum(archiveHash + "  Inventatory-win-x64.zip\n" + archiveHash + "  Inventatory-win-x64.zip\n",
+                                "Inventatory-win-x64.zip", parsedHash));
+
+    const auto hashPath = filesystem::temp_directory_path() / "inventatory-update-hash-test.txt";
+    ofstream hashFile(hashPath, ios::binary | ios::trunc);
+    hashFile << "abc";
+    hashFile.close();
+    string hashError;
+    assert(verifyReleaseFileSha256(hashPath,
+                                   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", hashError));
+    assert(!verifyReleaseFileSha256(hashPath, string(64U, '0'), hashError));
+    error_code removeError;
+    filesystem::remove(hashPath, removeError);
+    assert(!removeError);
   }
 
   // --- KiCad BOM integration -----------------------------------------------

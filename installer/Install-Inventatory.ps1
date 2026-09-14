@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param([switch]$NoLaunch, [switch]$DesktopShortcut,
-      [string]$Repository = '__INVENTATORY_RELEASE_REPOSITORY__')
+      [string]$Repository = '__INVENTATORY_RELEASE_REPOSITORY__',
+      [switch]$UpdateMode, [string]$ArchivePath = '', [string]$ChecksumsPath = '',
+      [string]$ReleaseVersion = '', [string]$CompletionPath = '', [string]$NotesPath = '',
+      [int]$ParentProcessId = 0, [switch]$TestMode, [string]$TestInstallRoot = '',
+      [switch]$TestActivationFailure, [string]$TestLaunchMarker = '')
 
 $ErrorActionPreference = 'Stop'
 $officialRepository = 'Kwiatens/Inventatory-Software'
@@ -10,10 +14,59 @@ if ($Repository -eq '__INVENTATORY_RELEASE_REPOSITORY__' -or
   throw 'This installer must be downloaded from an official Inventatory release.'
 }
 $repo = $Repository
-$installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Inventatory'
-$downloadRoot = Join-Path $env:TEMP ('Inventatory-' + [guid]::NewGuid())
+$installRoot = if ($TestMode -and $TestInstallRoot) { [System.IO.Path]::GetFullPath($TestInstallRoot) } else {
+  Join-Path $env:LOCALAPPDATA 'Programs\Inventatory'
+}
+$downloadRoot = if ($UpdateMode) { $null } else { Join-Path $env:TEMP ('Inventatory-' + [guid]::NewGuid()) }
 $stagingRoot = "$installRoot.staging"
 $backupRoot = "$installRoot.backup." + [guid]::NewGuid().ToString('N')
+$updatePackageRoot = $null
+if ($TestMode -and (-not $UpdateMode -or -not $TestInstallRoot)) {
+  throw 'Test mode requires update mode and a test installation root.'
+}
+
+function Write-UpdateStatus([string]$state, [string]$version, [string]$errorText = '') {
+  if (-not $CompletionPath) { return }
+  $parent = Split-Path -Parent $CompletionPath
+  New-Item -ItemType Directory -Path $parent -Force | Out-Null
+  $safeError = ($errorText -replace '[\r\n]+', ' ').Trim()
+  if ($safeError.Length -gt 512) { $safeError = $safeError.Substring(0, 512) }
+  $contents = @(
+    'schema_version=1'
+    ('state=' + $state)
+    ('version=' + $version)
+    ('error=' + $safeError)
+  ) -join "`n"
+  $temporary = "$CompletionPath.tmp-$([guid]::NewGuid().ToString('N'))"
+  $backup = "$CompletionPath.backup-$([guid]::NewGuid().ToString('N'))"
+  try {
+    [System.IO.File]::WriteAllText($temporary, $contents + "`n", [System.Text.UTF8Encoding]::new($false))
+    if (Test-Path -LiteralPath $CompletionPath -PathType Leaf) {
+      [System.IO.File]::Replace($temporary, $CompletionPath, $backup, $true)
+    } else {
+      [System.IO.File]::Move($temporary, $CompletionPath)
+    }
+  } finally {
+    Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Get-ExpectedChecksum([string]$manifestPath, [string]$assetName) {
+  $matches = @(Get-Content -LiteralPath $manifestPath | Where-Object {
+    $fields = $_ -split '\s+'
+    $fields.Count -eq 2 -and $fields[0] -match '^[0-9A-Fa-f]{64}$' -and
+      ($fields[1].TrimStart('*')) -eq $assetName
+  })
+  if ($matches.Count -ne 1) { throw "Checksum manifest does not contain exactly one entry for $assetName." }
+  return (($matches[0] -split '\s+')[0]).ToLowerInvariant()
+}
+
+function Verify-UpdateAsset([string]$path, [string]$manifestPath, [string]$assetName) {
+  $expectedHash = Get-ExpectedChecksum $manifestPath $assetName
+  $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+  if ($actualHash -ne $expectedHash) { throw "Checksum verification failed for $assetName." }
+}
 
 function ConvertTo-NormalizedPath([string]$path) {
   return [System.IO.Path]::GetFullPath($path).TrimEnd([System.IO.Path]::DirectorySeparatorChar,
@@ -47,7 +100,12 @@ function Wait-InventatoryProcessesStopped([int]$timeoutSeconds = 30) {
   $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
   while ($true) {
     $running = @(Get-InventatoryProcesses)
-    if ($running.Count -eq 0) { return }
+    if ($running.Count -eq 0) {
+      # Give Windows a short interval to release the image section after the
+      # process exits before the directory swap begins.
+      Start-Sleep -Milliseconds 100
+      if (@(Get-InventatoryProcesses).Count -eq 0) { return }
+    }
     if ([DateTime]::UtcNow -ge $deadline) {
       $description = ($running | ForEach-Object { "$($_.Name) (PID $($_.Id))" }) -join ', '
       throw "Inventatory is still running: $description. Close all Inventatory windows and tray services, then run the installer again. The existing installation was left unchanged."
@@ -78,6 +136,10 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments = '', [
 }
 
 function Start-InventatoryClassicConsole([string]$exe, [string]$workingDirectory) {
+  if ($TestMode) {
+    if ($TestLaunchMarker) { Set-Content -LiteralPath $TestLaunchMarker -Value $exe -NoNewline }
+    return
+  }
   # Launch conhost explicitly so installed shortcuts use the classic console
   # even when Windows Terminal is the system default for console applications.
   $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
@@ -106,20 +168,44 @@ function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory
   Start-InventatoryClassicConsole $exe $workingDirectory
 }
 
+$updateActivationCompleted = $false
+$oldInstallExe = Join-Path $installRoot 'inventatory.exe'
 try {
-  New-Item -ItemType Directory -Path $downloadRoot | Out-Null
-  $releaseBase = "https://github.com/$repo/releases/latest/download"
-  Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/Inventatory-win-x64.zip" -OutFile (Join-Path $downloadRoot 'Inventatory-win-x64.zip')
-  Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/SHA256SUMS.txt" -OutFile (Join-Path $downloadRoot 'SHA256SUMS.txt')
-  $tag = 'latest public beta'
-
-  $archive = Join-Path $downloadRoot 'Inventatory-win-x64.zip'
-  $checksums = Join-Path $downloadRoot 'SHA256SUMS.txt'
-  $expected = ((Get-Content $checksums | Where-Object { $_ -match 'Inventatory-win-x64.zip$' } | Select-Object -First 1) -split '\s+')[0]
-  $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
-  if (-not $expected -or $actual -ne $expected.ToLowerInvariant()) { throw 'Release checksum verification failed. The existing installation was left unchanged.' }
-
-  Quiesce-InventatoryProcesses
+  if ($UpdateMode) {
+    if (-not $ArchivePath -or -not $ChecksumsPath -or -not $ReleaseVersion -or -not $CompletionPath -or
+        -not (Test-Path -LiteralPath $ArchivePath) -or -not (Test-Path -LiteralPath $ChecksumsPath) -or
+        -not (Test-Path -LiteralPath $PSCommandPath)) {
+      throw 'The predownloaded update package is incomplete.'
+    }
+    if ($ReleaseVersion -notmatch '^v[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$') { throw 'The update release version is invalid.' }
+    $archive = (ConvertTo-NormalizedPath $ArchivePath)
+    $checksums = (ConvertTo-NormalizedPath $ChecksumsPath)
+    $updatePackageRoot = ConvertTo-NormalizedPath (Split-Path -Parent $archive)
+    $tempRoot = ConvertTo-NormalizedPath ([System.IO.Path]::GetTempPath())
+    $workspaceName = Split-Path -Leaf $updatePackageRoot
+    if (-not $workspaceName.StartsWith('Inventatory-update-', [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not $updatePackageRoot.StartsWith($tempRoot + [System.IO.Path]::DirectorySeparatorChar,
+                                           [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw 'The update package must be inside an Inventatory temporary update folder.'
+    }
+    Verify-UpdateAsset $archive $checksums 'Inventatory-win-x64.zip'
+    Verify-UpdateAsset $PSCommandPath $checksums 'Install-Inventatory.ps1'
+    # The foreground process intentionally remains alive while this script is
+    # started. Waiting here gives it time to save and exit through its normal
+    # shutdown path; the script never force-kills an inventory owner.
+    Wait-InventatoryProcessesStopped -timeoutSeconds 60
+    $tag = $ReleaseVersion
+  } else {
+    New-Item -ItemType Directory -Path $downloadRoot | Out-Null
+    $releaseBase = "https://github.com/$repo/releases/latest/download"
+    Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/Inventatory-win-x64.zip" -OutFile (Join-Path $downloadRoot 'Inventatory-win-x64.zip')
+    Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/SHA256SUMS.txt" -OutFile (Join-Path $downloadRoot 'SHA256SUMS.txt')
+    $tag = 'latest public beta'
+    $archive = Join-Path $downloadRoot 'Inventatory-win-x64.zip'
+    $checksums = Join-Path $downloadRoot 'SHA256SUMS.txt'
+    Verify-UpdateAsset $archive $checksums 'Inventatory-win-x64.zip'
+    Quiesce-InventatoryProcesses
+  }
 
   Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
   Expand-Archive -LiteralPath $archive -DestinationPath $stagingRoot -Force
@@ -130,8 +216,8 @@ try {
   }
 
   # Re-check immediately before replacing files. This closes the race between
-  # the initial user prompt and the directory swap without ever force-killing
-  # a process that may still be saving inventory data.
+  # the initial prompt and the directory swap without terminating a process
+  # that may still be saving inventory data.
   Wait-InventatoryProcessesStopped -timeoutSeconds 1
 
   $oldInstallMoved = $false
@@ -142,11 +228,13 @@ try {
       $oldInstallMoved = $true
     }
     $newInstallMoveAttempted = $true
+    if ($TestMode -and $TestActivationFailure) { throw 'Injected activation failure for installer smoke coverage.' }
     Move-Item -LiteralPath $packageRoot -Destination $installRoot -ErrorAction Stop
+    $updateActivationCompleted = $true
     Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
   } catch {
     # Keep the old installation recoverable if the new directory cannot be
-    # activated. The staged package is disposable; existing user data is not.
+    # activated. The staged package is disposable; user data is elsewhere.
     if ($newInstallMoveAttempted -and (Test-Path -LiteralPath $installRoot)) {
       $failedInstallRoot = "$installRoot.failed." + [guid]::NewGuid().ToString('N')
       try {
@@ -166,35 +254,61 @@ try {
   }
 
   $exe = Join-Path $installRoot 'inventatory.exe'
-  $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-  $legacyStartupNames = @('InventatorySoftware', 'HIMSSoftware')
-  $hasLegacyStartup = $false
-  if (Test-Path $runKey) {
-    foreach ($legacyStartupName in $legacyStartupNames) {
-      if ($null -ne (Get-ItemProperty -Path $runKey -Name $legacyStartupName -ErrorAction SilentlyContinue)) {
-        $hasLegacyStartup = $true
-        break
+  if ($UpdateMode) {
+    try {
+      Write-UpdateStatus 'complete' $ReleaseVersion
+    } catch {
+      Write-Warning "The update completed, but its completion marker could not be written: $($_.Exception.Message)"
+    }
+    Write-Host "Inventatory $ReleaseVersion installed."
+    Start-InventatoryClassicConsole $exe $installRoot
+  } else {
+    $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    $legacyStartupNames = @('InventatorySoftware', 'HIMSSoftware')
+    $hasLegacyStartup = $false
+    if (Test-Path $runKey) {
+      foreach ($legacyStartupName in $legacyStartupNames) {
+        if ($null -ne (Get-ItemProperty -Path $runKey -Name $legacyStartupName -ErrorAction SilentlyContinue)) {
+          $hasLegacyStartup = $true
+          break
+        }
       }
     }
+    if ($hasLegacyStartup) {
+      $launcher = Join-Path $installRoot 'inventatory-background.exe'
+      Set-ItemProperty -Path $runKey -Name 'Inventatory Background Service' -Value ('"{0}" --background' -f $launcher)
+      foreach ($legacyStartupName in $legacyStartupNames) {
+        Remove-ItemProperty -Path $runKey -Name $legacyStartupName -ErrorAction SilentlyContinue
+      }
+    }
+    $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    $consoleArguments = '"{0}" /k title Inventatory && "{1}"' -f $env:ComSpec, $exe
+    $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+    New-Shortcut (Join-Path $programs 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot
+    $makeDesktop = $DesktopShortcut
+    if (-not $DesktopShortcut) { $makeDesktop = (Read-Host 'Create a desktop shortcut? [y/N]') -match '^[Yy]' }
+    if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot }
+
+    Write-Host "Inventatory $tag installed for this Windows user."
+    if (-not $NoLaunch) { Start-InventatoryAfterCountdown $exe $installRoot }
   }
-  if ($hasLegacyStartup) {
-    $launcher = Join-Path $installRoot 'inventatory-background.exe'
-    Set-ItemProperty -Path $runKey -Name 'Inventatory Background Service' -Value ('"{0}" --background' -f $launcher)
-    foreach ($legacyStartupName in $legacyStartupNames) {
-      Remove-ItemProperty -Path $runKey -Name $legacyStartupName -ErrorAction SilentlyContinue
+} catch {
+  if ($UpdateMode) {
+    $failure = $_.Exception.Message
+    if (-not $updateActivationCompleted) {
+      try { Wait-InventatoryProcessesStopped -timeoutSeconds 60 } catch { }
+    }
+    try { Write-UpdateStatus 'failed' $ReleaseVersion $failure } catch { }
+    $relaunch = if ($updateActivationCompleted) { Join-Path $installRoot 'inventatory.exe' } else { $oldInstallExe }
+    if (Test-Path -LiteralPath $relaunch) {
+      try { Start-InventatoryClassicConsole $relaunch $installRoot } catch { }
     }
   }
-  $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
-  $consoleArguments = '"{0}" /k title Inventatory && "{1}"' -f $env:ComSpec, $exe
-  $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-  New-Shortcut (Join-Path $programs 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot
-  $makeDesktop = $DesktopShortcut
-  if (-not $DesktopShortcut) { $makeDesktop = (Read-Host 'Create a desktop shortcut? [y/N]') -match '^[Yy]' }
-  if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot }
-
-  Write-Host "Inventatory $tag installed for this Windows user."
-  if (-not $NoLaunch) { Start-InventatoryAfterCountdown $exe $installRoot }
+  throw
 } finally {
-  Remove-Item -LiteralPath $downloadRoot -Recurse -Force -ErrorAction SilentlyContinue
+  if ($downloadRoot) { Remove-Item -LiteralPath $downloadRoot -Recurse -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+  if ($UpdateMode -and $updatePackageRoot -and (Test-Path -LiteralPath $updatePackageRoot)) {
+      Remove-Item -LiteralPath $updatePackageRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
