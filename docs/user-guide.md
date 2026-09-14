@@ -102,7 +102,7 @@ analysis against current stock with no re-upload. `d` forgets one.
 
 ## Settings workflow
 
-Settings has five categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
+Settings has seven categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
 R1 service port, auto-label behavior, and DigiKey configuration are staged until Save. Cancel
 restores the saved values. Printer and DigiKey tests use the staged values.
 
@@ -131,6 +131,22 @@ An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
 collects the Client ID and Client secret, stores the secret in Windows
 Credential Manager, and restores the account and regional settings after the
 credentials are saved. A live credential test remains available afterward.
+
+### Updates
+
+Open **Settings → Updates** and choose **Check for updates**. When a newer
+Inventatory release, including a published GitHub prerelease, is available, the
+section shows **Update to vX.Y.Z**; press
+`u` or choose the same action from **Actions** to open the update wizard. It
+previews the release notes, asks whether to save unsaved Settings changes,
+downloads the complete package, shows bytes/speed/percentage/ETA, and verifies
+the published SHA-256 hashes before handing off to the installer.
+
+Cancel is available through download and verification. After installer handoff
+Inventatory closes and restarts automatically. A successful restart shows the
+complete release notes. A failed replacement leaves the previous installation
+active and shows a retryable error on the next launch; inventory data and the
+normal machine-local Settings file are preserved.
 
 Pairing maintenance stays on the Actions sheet (`Space`): re-pair after a
 scanner firmware update, regenerate the pairing secret, or clear the device.

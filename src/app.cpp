@@ -41,6 +41,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       startInBackground_(startInBackground),
       root_(filesystem::current_path()),
       settingsPath_(appSettingsPath()),
+      updateMarkerPath_(appSettingsDirectory() / "update-status.conf"),
+      updateNotesPath_(appSettingsDirectory() / "update-notes.md"),
       dataPath_(discoverInventatoryDataPath()),
       inventoryPath_(dataPath_ / "inventory.db"),
       printerPath_(dataPath_ / "printer.conf"),
@@ -111,9 +113,12 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     // responsive even when a disconnected queue takes seconds to answer.
     refreshPrinterState();
   }
+  loadUpdateCompletionMarker();
   if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion)) {
     onboardingActive_ = true;
     page_ = Page::Onboarding;
+  } else if (updateCompletionPending_ && !startInBackground_ && !inventoryRecoveryRequired_) {
+    page_ = Page::Update;
   }
   const bool anotherInteractiveInstanceRunning =
       startInBackground_ && backgroundController_.interactiveInstanceRunning();

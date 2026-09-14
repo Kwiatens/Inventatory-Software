@@ -47,6 +47,10 @@ void App::handleKey(const KeyEvent& key) {
     if (!bufferedWizardKey_.has_value()) bufferedWizardKey_ = key;
     return;
   }
+  if (page_ == Page::Update) {
+    handleUpdateKey(key);
+    return;
+  }
   switch (inputMode_) {
     case InputMode::Search:
       handleSearchKey(key);
@@ -197,6 +201,9 @@ void App::handleKey(const KeyEvent& key) {
     case Page::Settings:
       handleSettingsKey(key);
       break;
+    case Page::Update:
+      handleUpdateKey(key);
+      break;
   }
 }
 
@@ -258,6 +265,13 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       if (delta < 0 && printerSelection_ > 0) --printerSelection_;
       if (delta > 0 && printerSelection_ + 1 < printerQueues_.size()) ++printerSelection_;
       if (printerSelection_ != previousSelection) stageSelectedPrinterQueue();
+    }
+    else if (page_ == Page::Update) {
+      if (uiBoxContains(updateNotesBounds_, mouse.x, mouse.y)) {
+        if (delta < 0) updateNotesScroll_ = updateNotesScroll_ > 0 ? updateNotesScroll_ - 1U : 0U;
+        else ++updateNotesScroll_;
+        dirty_ = true;
+      }
     }
     return true;
   }

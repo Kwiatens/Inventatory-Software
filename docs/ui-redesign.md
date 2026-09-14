@@ -14,7 +14,7 @@ Every workspace uses the same four regions:
 3. Flexible workspace content
 4. One transient message line
 
-The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 Settings`.
+The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 History`, `7 Settings`.
 `Actions · Space` is always visible and opens the contextual action sheet.
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
@@ -37,8 +37,10 @@ vendor configuration for Settings. The normal Scan R1 setup page remains
 available after onboarding.
 
 Setup wizards show only task-specific instructions, inputs, selections, and
-actions. They do not add command-style headers, step counters, progress strips,
-or titled decorative chrome around the content.
+actions. The release update wizard is the related full-window exception: it
+uses a short release preview, bounded plain-text changelog, download progress
+with speed and ETA, checksum verification, and a post-restart result screen.
+Release notes are displayed as text only and are never interpreted as commands.
 
 ## Neutral graphite / Petrol-cyan palette
 
@@ -156,9 +158,9 @@ offered after review with an explicit completion choice.
 
 ### Settings
 
-General/Data, Printer, Inventatory Scan, and DigiKey live in one category/detail
+General/Data, Appearance, Updates, Printer, Quick Labels, Inventatory Scan, and DigiKey live in one category/detail
 workspace. Ordinary edits are staged and use Save/Cancel. Refresh, Test, Copy,
-Regenerate, and Clear are operational actions. DigiKey secrets are stored in
+Regenerate, Clear, Check for updates, and Update are operational actions. DigiKey secrets are stored in
 Windows Credential Manager, never in `settings.conf`.
 
 Each panel carries only settings and state: no explanatory hint copy, and no
