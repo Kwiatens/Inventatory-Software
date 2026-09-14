@@ -65,7 +65,7 @@ jobs:
           cmake -S . -B build "-DINVENTATORY_VERSION=$version" `
             "-DINVENTATORY_RELEASE_REPOSITORY=$env:GITHUB_REPOSITORY" `
             "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=$env:GITHUB_REPOSITORY_OWNER/Inventatory-Hardware"
-          cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
+          cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
           ctest --test-dir build -C Release --output-on-failure
       - name: Package release assets
         shell: pwsh
