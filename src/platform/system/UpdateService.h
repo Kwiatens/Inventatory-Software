@@ -3,6 +3,8 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
+#include <functional>
 #include <string>
 
 namespace inventatory {
@@ -12,10 +14,33 @@ struct UpdateCheckResult {
   bool updateAvailable = false;
   std::string latestVersion;
   std::string releaseUrl;
+  std::string releaseNotes;
 };
+
+using UpdateDownloadProgress =
+    std::function<bool(const std::string& assetName, std::uint64_t downloadedBytes,
+                       std::uint64_t totalBytes)>;
 
 bool isUpdateCheckDue(bool enabled, std::int64_t lastCheckUnixSeconds, std::int64_t nowUnixSeconds);
 bool isVersionNewer(const std::string& candidate, const std::string& installed);
+double updateEtaSeconds(std::uint64_t downloadedBytes, std::uint64_t totalBytes, double bytesPerSecond);
+UpdateCheckResult parseReleaseMetadata(const std::string& json, const std::string& installedVersion,
+                                       const std::string& repository, bool requireUpdateAssets = true);
+std::string buildReleaseAssetUrl(const std::string& repository, const std::string& tag,
+                                 const std::string& assetName);
+bool parseSha256Checksum(const std::string& checksums, const std::string& assetName,
+                         std::string& expectedHash);
+bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& destination,
+                          const UpdateDownloadProgress& progress, std::string& error);
+bool verifyReleaseFileSha256(const std::filesystem::path& path, const std::string& expectedHash,
+                             std::string& error);
+bool launchUpdateInstaller(const std::filesystem::path& installerPath,
+                           const std::filesystem::path& archivePath,
+                           const std::filesystem::path& checksumsPath,
+                           const std::filesystem::path& markerPath,
+                           const std::filesystem::path& notesPath,
+                           const std::string& releaseVersion,
+                           std::string& error);
 UpdateCheckResult checkLatestRelease(const std::string& installedVersion);
 
 // Latest published Scan R1 firmware. `installedVersion` is the version the

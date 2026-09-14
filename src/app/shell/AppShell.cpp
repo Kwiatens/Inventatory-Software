@@ -161,7 +161,7 @@ int App::run() {
          << (persistenceError_.empty() ? "unknown persistence error" : persistenceError_) << '\n';
   }
   backgroundController_.stop();
-  if (finalSaveSucceeded && !startInBackground_ && settings_.backgroundServiceEnabled) {
+  if (finalSaveSucceeded && !updateInstallerLaunched_ && !startInBackground_ && settings_.backgroundServiceEnabled) {
     if (!backgroundController_.restartAsBackgroundService()) {
       settings_.backgroundServiceEnabled = false;
       settingsDraft_.backgroundServiceEnabled = false;
@@ -190,6 +190,7 @@ void App::processBackgroundWork() {
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();
+  processSoftwareUpdate();
   processScanFirmwareCheck();
   processScanDigiKeyEnrichment();
   processDigiKeyRefresh();
