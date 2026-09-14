@@ -362,7 +362,10 @@ ftxui::Element App::renderMessageUi() const {
                     uiWarnColor(), uiPanelLeftBg());
   }
   if (message_.empty()) {
-    return ftxui::text("");
+    // Keep the notification row in the layout even while it is quiet. A
+    // zero-height element here makes the whole application jump when a
+    // message arrives.
+    return fullLine("", uiMutedColor(), uiPanelLeftBg());
   }
 
   // Keep the pulse aligned with the 100 ms redraw ticker so it reads as a

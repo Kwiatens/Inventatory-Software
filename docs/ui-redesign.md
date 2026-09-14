@@ -142,9 +142,10 @@ pads a category cell out to absorb slack.
 
 Rack list, 5x5 grid, and slot detail share one surface with subtle dividers.
 Every occupied slot wraps its part name and shows a color-coded quantity
-highlight. The slot label is centered at the top of its cell. Rows and cells
-are clickable. Place/Move is the primary control; slot controls are anchored
-at the bottom of the detail panel and administrative operations remain in
+highlight. Lettered column headers and numbered row headers identify each
+slot without adding labels inside the slot cells. Rows and cells are
+clickable. Place/Move is the primary control; slot controls are anchored at
+the bottom of the detail panel and administrative operations remain in
 Actions.
 
 ### Import
