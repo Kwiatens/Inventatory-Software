@@ -130,18 +130,41 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments = '', [
   $shortcut.Save()
 }
 
-function Start-InventatoryClassicConsole([string]$exe, [string]$workingDirectory) {
+function Get-InventatoryWindowsTerminal {
+  $command = Get-Command wt.exe -ErrorAction SilentlyContinue
+  if ($command) { return $command.Source }
+  try {
+    $alias = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\wt.exe'
+    if (Test-Path -LiteralPath $alias -PathType Leaf -ErrorAction SilentlyContinue) { return $alias }
+  } catch { }
+  return $null
+}
+
+function Start-InventatoryTerminal([string]$exe, [string]$workingDirectory) {
   if ($TestMode) {
     if ($TestLaunchMarker) { Set-Content -LiteralPath $TestLaunchMarker -Value $exe -NoNewline }
     return
   }
-  # Launch conhost explicitly so installed shortcuts use the classic console
-  # even when Windows Terminal is the system default for console applications.
-  $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
-  $commandLine = 'title Inventatory && "{0}"' -f $exe
-  Start-Process -FilePath $consoleHost `
-    -WorkingDirectory $workingDirectory `
-    -ArgumentList @($env:ComSpec, '/k', $commandLine)
+  $windowsTerminal = Get-InventatoryWindowsTerminal
+  if ($windowsTerminal) {
+    try {
+      $arguments = @(
+        'new-tab',
+        '--title', 'Inventatory',
+        '--startingDirectory', ('"{0}"' -f $workingDirectory),
+        ('"{0}"' -f $exe)
+      )
+      Start-Process -FilePath $windowsTerminal -WorkingDirectory $workingDirectory -ArgumentList $arguments -ErrorAction Stop
+      return
+    } catch {
+      # Fall through to the system default terminal if the Windows Terminal
+      # command is registered but cannot open a tab.
+    }
+  }
+  # Starting the executable directly lets Windows choose its configured
+  # terminal application, while still working on systems without Windows
+  # Terminal through the normal console-host fallback.
+  Start-Process -FilePath $exe -WorkingDirectory $workingDirectory -WindowStyle Normal
 }
 
 function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory) {
@@ -160,7 +183,7 @@ function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory
     } while ((Get-Date) -lt $deadline)
   }
   Write-Host "`rLaunching Inventatory now.                                      "
-  Start-InventatoryClassicConsole $exe $workingDirectory
+  Start-InventatoryTerminal $exe $workingDirectory
 }
 
 $updateActivationCompleted = $false
@@ -261,7 +284,7 @@ try {
       Write-Warning "The update completed, but its completion marker could not be written: $($_.Exception.Message)"
     }
     Write-Host "Inventatory $ReleaseVersion installed."
-    Start-InventatoryClassicConsole $exe $installRoot
+    Start-InventatoryTerminal $exe $installRoot
   } else {
     $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     $legacyStartupNames = @('InventatorySoftware', 'HIMSSoftware')
@@ -281,13 +304,11 @@ try {
         Remove-ItemProperty -Path $runKey -Name $legacyStartupName -ErrorAction SilentlyContinue
       }
     }
-    $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
-    $consoleArguments = '"{0}" /k title Inventatory && "{1}"' -f $env:ComSpec, $exe
     $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-    New-Shortcut (Join-Path $programs 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot
+    New-Shortcut (Join-Path $programs 'Inventatory.lnk') $exe '' $installRoot
     $makeDesktop = $DesktopShortcut
     if (-not $DesktopShortcut) { $makeDesktop = (Read-Host 'Create a desktop shortcut? [y/N]') -match '^[Yy]' }
-    if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $consoleHost $consoleArguments $installRoot }
+    if ($makeDesktop) { New-Shortcut (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') $exe '' $installRoot }
 
     Write-Host "Inventatory $tag installed for this Windows user."
     if (-not $NoLaunch) { Start-InventatoryAfterCountdown $exe $installRoot }
@@ -301,7 +322,7 @@ try {
     try { Write-UpdateStatus 'failed' $ReleaseVersion $failure } catch { }
     $relaunch = if ($updateActivationCompleted) { Join-Path $installRoot 'inventatory.exe' } else { $oldInstallExe }
     if (Test-Path -LiteralPath $relaunch) {
-      try { Start-InventatoryClassicConsole $relaunch $installRoot } catch { }
+      try { Start-InventatoryTerminal $relaunch $installRoot } catch { }
     }
   }
   throw
