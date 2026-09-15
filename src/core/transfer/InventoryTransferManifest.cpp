@@ -158,20 +158,18 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
     return false;
   }
   DWORD objectLength = 0;
-  DWORD resultLength = 0;
+  DWORD hashLength = 0;
+  DWORD propertyLength = 0;
   if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectLength), sizeof(objectLength),
-                        &resultLength, 0) != 0 ||
-      BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&resultLength), sizeof(resultLength),
-                        &resultLength, 0) != 0) {
+                        &propertyLength, 0) != 0 ||
+      BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashLength), sizeof(hashLength),
+                        &propertyLength, 0) != 0 || hashLength == 0) {
     cleanup();
     error = "Unable to read SHA-256 properties";
     return false;
   }
-  DWORD digestLength = 32;
-  BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&digestLength), sizeof(digestLength),
-                    &resultLength, 0);
   object.resize(objectLength);
-  digest.resize(digestLength);
+  digest.resize(hashLength);
   if (BCryptCreateHash(algorithm, &hashHandle, object.data(), objectLength, nullptr, 0, 0) != 0) {
     cleanup();
     error = "Unable to initialize file hash";
@@ -193,7 +191,7 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
       return false;
     }
   }
-  if (!input.eof() || BCryptFinishHash(hashHandle, digest.data(), digestLength, 0) != 0) {
+  if (!input.eof() || BCryptFinishHash(hashHandle, digest.data(), hashLength, 0) != 0) {
     cleanup();
     error = "Unable to finish hash for " + path.string();
     return false;
