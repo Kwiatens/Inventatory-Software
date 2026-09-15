@@ -4,6 +4,27 @@ param()
 $ErrorActionPreference = 'Stop'
 $installerSource = (Resolve-Path (Join-Path $PSScriptRoot 'Install-Inventatory.ps1')).Path
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ('Inventatory-update-smoke-' + [guid]::NewGuid().ToString('N'))
+$repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+function Assert-DirectInstallCommand {
+  $readmeCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
+    Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
+  if (-not $readmeCommand -or $readmeCommand -notmatch
+      'releases/latest/download/Inventatory-win-x64\.zip' -or
+      $readmeCommand -notmatch 'tar\.exe' -or
+      $readmeCommand -notmatch 'Programs\\Inventatory\\inventatory\.exe' -or
+      $readmeCommand -notmatch '^\s*\(if not exist ' -or
+      $readmeCommand -match 'Install-Inventatory\.ps1|powershell\.exe|Invoke-WebRequest') {
+    throw 'The official install command must group folder creation before downloading the stable release ZIP.'
+  }
+
+  $launcher = Get-Content -Raw (Join-Path $PSScriptRoot 'Install-Inventatory.cmd')
+  if ($launcher -notmatch 'curl\.exe' -or $launcher -notmatch 'tar\.exe' -or
+      $launcher -notmatch 'inventatory\.exe' -or $launcher -match 'Install-Inventatory\.ps1' -or
+      $launcher -match '__INVENTATORY_RELEASE_') {
+    throw 'The CMD fallback must use the direct release ZIP flow without a downloaded script.'
+  }
+}
 
 function New-UpdateFixture([string]$name, [bool]$validPackage = $true) {
   $fixture = Join-Path $root $name
@@ -71,6 +92,7 @@ function Invoke-UpdateFixture($fixture, [switch]$ActivationFailure) {
 }
 
 try {
+  Assert-DirectInstallCommand
   New-Item -ItemType Directory -Force -Path $root | Out-Null
 
   $successFixture = New-UpdateFixture 'success'

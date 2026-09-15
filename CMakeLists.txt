@@ -202,7 +202,7 @@ target_compile_definitions(inventatory PRIVATE
 )
 
 if(WIN32)
-  target_link_libraries(inventatory PRIVATE ws2_32 shell32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
+  target_link_libraries(inventatory PRIVATE ws2_32 shell32 ole32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
 endif()
 
 target_link_libraries(inventatory PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
@@ -288,7 +288,7 @@ target_compile_definitions(inventatory_tests PRIVATE
 )
 
 if(WIN32)
-  target_link_libraries(inventatory_tests PRIVATE ws2_32 winspool winhttp bcrypt advapi32)
+  target_link_libraries(inventatory_tests PRIVATE ws2_32 shell32 ole32 winspool winhttp bcrypt advapi32)
 endif()
 
 target_link_libraries(inventatory_tests PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
