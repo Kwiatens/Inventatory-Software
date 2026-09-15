@@ -3,8 +3,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include "platform/system/StartupRegistration.h"
 
+#include <shlobj.h>
+#include <shobjidl.h>
 #include <windows.h>
 
+#include <iomanip>
+#include <memory>
+#include <sstream>
 #include <string>
 
 namespace inventatory {
@@ -34,6 +39,32 @@ std::wstring currentExecutablePath() {
   return path;
 }
 
+std::string hresultError(const char* operation, HRESULT result) {
+  std::ostringstream message;
+  message << operation << " failed (HRESULT 0x" << std::hex << std::uppercase
+          << static_cast<unsigned long>(result) << ")";
+  return message.str();
+}
+
+template <typename T>
+struct ComRelease {
+  void operator()(T* value) const noexcept {
+    if (value != nullptr) value->Release();
+  }
+};
+
+struct ComApartment {
+  ComApartment() : result(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)), shouldUninitialize(SUCCEEDED(result)) {}
+  ~ComApartment() {
+    if (shouldUninitialize) CoUninitialize();
+  }
+
+  bool usable() const { return SUCCEEDED(result) || result == RPC_E_CHANGED_MODE; }
+
+  HRESULT result;
+  bool shouldUninitialize;
+};
+
 }  // namespace
 
 std::wstring buildBackgroundStartupLauncherPath(const std::wstring& executablePath) {
@@ -53,6 +84,70 @@ LONG deleteStartupValue(HKEY key, const wchar_t* valueName) {
 
 std::wstring buildBackgroundStartupCommand(const std::wstring& executablePath) {
   return L"\"" + executablePath + L"\" --background";
+}
+
+std::wstring buildDesktopShortcutPath(const std::wstring& desktopDirectory) {
+  if (desktopDirectory.empty()) return L"Inventatory.lnk";
+  const wchar_t last = desktopDirectory.back();
+  if (last == L'\\' || last == L'/') return desktopDirectory + L"Inventatory.lnk";
+  return desktopDirectory + L"\\Inventatory.lnk";
+}
+
+bool createDesktopShortcut(std::string& error) {
+  const auto executablePath = currentExecutablePath();
+  if (executablePath.empty()) {
+    error = "Unable to find the Inventatory executable";
+    return false;
+  }
+
+  const ComApartment apartment;
+  if (!apartment.usable()) {
+    error = hresultError("Initializing Windows Shell", apartment.result);
+    return false;
+  }
+
+  PWSTR desktopDirectoryRaw = nullptr;
+  HRESULT result = SHGetKnownFolderPath(FOLDERID_Desktop, KF_FLAG_DEFAULT, nullptr, &desktopDirectoryRaw);
+  if (FAILED(result)) {
+    error = hresultError("Locating the Desktop folder", result);
+    return false;
+  }
+  const std::wstring desktopDirectory(desktopDirectoryRaw);
+  CoTaskMemFree(desktopDirectoryRaw);
+
+  IShellLinkW* rawLink = nullptr;
+  result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&rawLink));
+  if (FAILED(result)) {
+    error = hresultError("Creating the desktop shortcut", result);
+    return false;
+  }
+  std::unique_ptr<IShellLinkW, ComRelease<IShellLinkW>> link(rawLink);
+
+  result = link->SetPath(executablePath.c_str());
+  if (SUCCEEDED(result)) {
+    const auto separator = executablePath.find_last_of(L"\\/");
+    const auto workingDirectory = separator == std::wstring::npos ? std::wstring(L".") : executablePath.substr(0, separator);
+    result = link->SetWorkingDirectory(workingDirectory.c_str());
+  }
+  if (FAILED(result)) {
+    error = hresultError("Configuring the desktop shortcut", result);
+    return false;
+  }
+
+  IPersistFile* rawFile = nullptr;
+  result = link->QueryInterface(IID_PPV_ARGS(&rawFile));
+  if (FAILED(result)) {
+    error = hresultError("Saving the desktop shortcut", result);
+    return false;
+  }
+  std::unique_ptr<IPersistFile, ComRelease<IPersistFile>> file(rawFile);
+  const auto shortcutPath = buildDesktopShortcutPath(desktopDirectory);
+  result = file->Save(shortcutPath.c_str(), TRUE);
+  if (FAILED(result)) {
+    error = hresultError("Saving the desktop shortcut", result);
+    return false;
+  }
+  return true;
 }
 
 bool setBackgroundStartupEnabled(bool enabled, std::string& error) {

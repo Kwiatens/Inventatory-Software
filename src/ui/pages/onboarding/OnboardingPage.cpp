@@ -2,6 +2,7 @@
 
 #include "App.h"
 
+#include "platform/system/StartupRegistration.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -100,9 +101,13 @@ void App::finishOnboarding() {
     setMessage("Unable to save setup completion; setup will open again next time", 5);
     return;
   }
+  string shortcutError;
+  const bool shortcutCreated = createDesktopShortcut(shortcutError);
   onboardingActive_ = false;
   changePage(Page::Home);
-  setMessage("Setup complete.", 5);
+  setMessage(shortcutCreated ? "Setup complete."
+                             : "Setup complete; desktop shortcut could not be created: " + shortcutError,
+             shortcutCreated ? 5 : 7);
 }
 
 ftxui::Element App::renderOnboardingContent() const {

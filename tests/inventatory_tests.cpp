@@ -3603,6 +3603,10 @@ int main() {
     assert(launcherPath == L"C:\\Program Files\\Inventatory\\inventatory-background.exe");
     assert(buildBackgroundStartupCommand(launcherPath) ==
            L"\"C:\\Program Files\\Inventatory\\inventatory-background.exe\" --background");
+    assert(buildDesktopShortcutPath(L"C:\\Users\\pawci\\Desktop") ==
+           L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
+    assert(buildDesktopShortcutPath(L"C:\\Users\\pawci\\Desktop\\") ==
+           L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
   }
 
   {

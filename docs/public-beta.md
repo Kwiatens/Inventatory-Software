@@ -2,9 +2,16 @@
 
 Inventatory is a Windows-only public beta for local hardware inventory management.
 
-Download the latest release package and run Install-Inventatory.cmd for a new
-installation. The installer verifies the published SHA-256 manifest, installs
-for the current user, and preserves existing Inventatory data during updates.
+For a new installation, open Command Prompt and paste this single command:
+
+    (if not exist "%LOCALAPPDATA%\Programs" mkdir "%LOCALAPPDATA%\Programs") && curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-win-x64.zip" -o "%TEMP%\Inventatory-win-x64.zip" && tar.exe -xf "%TEMP%\Inventatory-win-x64.zip" -C "%LOCALAPPDATA%\Programs" && del /q "%TEMP%\Inventatory-win-x64.zip" && "%LOCALAPPDATA%\Programs\Inventatory\inventatory.exe"
+
+This uses only tools included with supported Windows versions. It downloads the
+latest stable release ZIP directly from GitHub, extracts it into the current
+user's program directory, and launches Inventatory in the same terminal. The
+first-run setup wizard creates the desktop shortcut after setup is completed.
+Use Settings > Updates for later updates so the existing verified update and
+rollback path is used.
 After installation, Settings > Updates can check GitHub and open the same
 verified release package through an in-app update wizard. The wizard previews
 the bounded release notes, offers to save pending Settings changes, shows
