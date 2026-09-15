@@ -8,11 +8,6 @@ param([switch]$NoLaunch, [switch]$DesktopShortcut,
 
 $ErrorActionPreference = 'Stop'
 $officialRepository = 'Kwiatens/Inventatory-Software'
-if ($Repository -eq '__INVENTATORY_RELEASE_REPOSITORY__' -or
-    $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
-    $Repository -ine $officialRepository) {
-  throw 'This installer must be downloaded from an official Inventatory release.'
-}
 $repo = $Repository
 $installRoot = if ($TestMode -and $TestInstallRoot) { [System.IO.Path]::GetFullPath($TestInstallRoot) } else {
   Join-Path $env:LOCALAPPDATA 'Programs\Inventatory'
@@ -171,6 +166,11 @@ function Start-InventatoryAfterCountdown([string]$exe, [string]$workingDirectory
 $updateActivationCompleted = $false
 $oldInstallExe = Join-Path $installRoot 'inventatory.exe'
 try {
+  if ($Repository -eq '__INVENTATORY_RELEASE_REPOSITORY__' -or
+      $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
+      $Repository -ine $officialRepository) {
+    throw 'This installer must be downloaded from an official Inventatory release.'
+  }
   if ($UpdateMode) {
     if (-not $ArchivePath -or -not $ChecksumsPath -or -not $ReleaseVersion -or -not $CompletionPath -or
         -not (Test-Path -LiteralPath $ArchivePath) -or -not (Test-Path -LiteralPath $ChecksumsPath) -or

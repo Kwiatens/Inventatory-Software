@@ -7,7 +7,11 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
-cmake -S . -B build
+$cmakeConfigureArgs = @(
+  '-DINVENTATORY_RELEASE_REPOSITORY=Kwiatens/Inventatory-Software',
+  '-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Hardware'
+)
+cmake -S . -B build @cmakeConfigureArgs
 cmake --build build
 
 $exeCandidates = @(

@@ -316,7 +316,24 @@ void App::beginUpdateVerification() {
 void App::processSoftwareUpdate() {
   if (!updateOperationFuture_.valid()) return;
   if (updateOperationFuture_.wait_for(chrono::milliseconds(0)) != future_status::ready) return;
-  auto result = updateOperationFuture_.get();
+  UpdateOperationResult result;
+  try {
+    result = updateOperationFuture_.get();
+  } catch (const exception&) {
+    updateStep_ = UpdateWizardStep::Failed;
+    updateError_ = "The update failed unexpectedly while checking its files.";
+    if (updatePackage_.has_value()) removeUpdateDownloadDirectory(updatePackage_->downloadDirectory);
+    updateDownloadState_.reset();
+    dirty_ = true;
+    return;
+  } catch (...) {
+    updateStep_ = UpdateWizardStep::Failed;
+    updateError_ = "The update failed unexpectedly while checking its files.";
+    if (updatePackage_.has_value()) removeUpdateDownloadDirectory(updatePackage_->downloadDirectory);
+    updateDownloadState_.reset();
+    dirty_ = true;
+    return;
+  }
   if (updateStep_ == UpdateWizardStep::Preparing) {
     if (!result.success) {
       if (result.error == "No newer Inventatory release is available.") {

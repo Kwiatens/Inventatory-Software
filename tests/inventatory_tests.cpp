@@ -3690,6 +3690,17 @@ int main() {
     assert(prereleaseMetadata.completed);
     assert(prereleaseMetadata.updateAvailable);
     assert(prereleaseMetadata.latestVersion == "v1.2.4-rc.1");
+    const auto nestedUrlMetadata = parseReleaseMetadata(
+        R"({"tag_name":"v1.2.5","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.5","body":"notes","author":{"html_url":"https://github.com/example"},"assets":[{"name":"Inventatory-win-x64.zip","uploader":{"html_url":"https://github.com/example"}},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})",
+        "1.2.0", "Kwiatens/Inventatory-Software");
+    assert(nestedUrlMetadata.completed);
+    assert(nestedUrlMetadata.updateAvailable);
+    assert(nestedUrlMetadata.latestVersion == "v1.2.5");
+    const auto emptyOptionalChannel = parseReleaseMetadata(
+        "[]", "0.1.0", "Kwiatens/Inventatory-Hardware", false);
+    assert(emptyOptionalChannel.completed);
+    assert(!emptyOptionalChannel.updateAvailable);
+    assert(emptyOptionalChannel.latestVersion.empty());
     assert(isVersionNewer("v1.2.0-rc.2", "v1.2.0-rc.1"));
     assert(isVersionNewer("v1.2.0", "v1.2.0-rc.1"));
     assert(!isVersionNewer("v1.2.0-rc.1", "v1.2.0"));
@@ -3722,8 +3733,15 @@ int main() {
            "https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3/Inventatory-win-x64.zip");
     assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2.3-rc.1", "Inventatory-win-x64.zip") ==
            "https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3-rc.1/Inventatory-win-x64.zip");
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v0.2.0-rc.2", "Inventatory-win-x64.zip") ==
+           "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.2/Inventatory-win-x64.zip");
     assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2", "Inventatory-win-x64.zip").empty());
     assert(buildReleaseAssetUrl("evil/repo/extra", "v1.2.3", "Inventatory-win-x64.zip").empty());
+
+    string downloadError;
+    assert(!downloadReleaseAsset("https://example.invalid/Inventatory-win-x64.zip",
+                                 filesystem::temp_directory_path() / "inventatory-update-url-test.zip", {}, downloadError));
+    assert(downloadError == "The update asset URL is not an approved GitHub download");
 
     const string archiveHash(64U, 'a');
     const string installerHash(64U, 'b');

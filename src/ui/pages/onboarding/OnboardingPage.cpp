@@ -295,18 +295,7 @@ void App::beginUpdateChecks() {
     updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
     started = true;
   }
-
-  const bool scannerPaired = !trim(inventatoryScanConfig_.deviceId).empty() ||
-                             !deviceFirmwareVersion_.empty();
-  if (scannerPaired && !scanFirmwareFuture_.valid()) {
-    beginScanFirmwareCheck();
-    started = true;
-  }
-
-  setMessage(started ? (scannerPaired ? "Checking for software and scanner updates"
-                                      : "Checking for software updates")
-                     : "Already checking for updates",
-             4);
+  setMessage(started ? "Checking for software updates" : "Already checking for software updates", 4);
   dirty_ = true;
 }
 
@@ -332,6 +321,8 @@ void App::processUpdateCheck() {
       appSettingsSavePending_ = false;
     }
     if (result.updateAvailable) setMessage("Inventatory " + result.latestVersion + " is available in Updates", 6);
+  } else {
+    setMessage("Could not reach the software release channel", 5);
   }
   dirty_ = true;
 }

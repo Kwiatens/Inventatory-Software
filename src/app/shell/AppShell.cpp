@@ -232,6 +232,9 @@ void App::runInteractiveLoop() {
       }
       updateWizardTransition();
       processBackgroundWork();
+      if (!running_) {
+        screen.ExitLoopClosure()();
+      }
       return true;
     }
 
