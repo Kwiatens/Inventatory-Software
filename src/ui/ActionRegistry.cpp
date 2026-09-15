@@ -213,7 +213,7 @@ vector<App::Action> App::currentActions() const {
         add("restore backup", "Data", "r", chr('r'), [self] { self->restoreData(); });
       }
       if (settingsCategory_ == SettingsCategory::Updates) {
-        add("check for updates", "Updates", "c", chr('c'), [self] { self->beginUpdateChecks(); });
+        add("check for software updates", "Updates", "c", chr('c'), [self] { self->beginUpdateChecks(); });
         if (isVersionNewer(settings_.latestAvailableVersion, self->softwareVersion())) {
           add("update Inventatory", "Updates", "u", chr('u'), [self] { self->beginSoftwareUpdate(); });
         }
