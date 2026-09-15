@@ -264,6 +264,7 @@ void App::beginUpdateVerification() {
   if (!updatePackage_.has_value() || updateOperationFuture_.valid()) return;
   updateStep_ = UpdateWizardStep::Verifying;
   updateError_.clear();
+  focusedTarget_ = -1;
   const auto package = *updatePackage_;
   const auto state = updateDownloadState_;
   if (state != nullptr) {
@@ -440,8 +441,7 @@ bool App::prepareUpdateHandoff() {
 }
 
 void App::cancelSoftwareUpdate() {
-  if ((updateStep_ == UpdateWizardStep::Downloading || updateStep_ == UpdateWizardStep::Verifying) &&
-      updateDownloadState_ != nullptr) {
+  if (updateStep_ == UpdateWizardStep::Downloading && updateDownloadState_ != nullptr) {
     updateDownloadState_->cancelRequested.store(true);
     return;
   }
@@ -492,10 +492,11 @@ void App::handleUpdateKey(const KeyEvent& key) {
     return;
   }
   if (key.type == KeyType::Enter && activateFocusedTarget()) return;
-  if (updateStep_ == UpdateWizardStep::Downloading || updateStep_ == UpdateWizardStep::Verifying) {
+  if (updateStep_ == UpdateWizardStep::Downloading) {
     if (key.type == KeyType::Escape || ch == 'c') cancelSoftwareUpdate();
     return;
   }
+  if (updateStep_ == UpdateWizardStep::Verifying) return;
   if (updateStep_ == UpdateWizardStep::Complete) {
     if (key.type == KeyType::Escape || key.type == KeyType::Enter) dismissUpdateResult();
     else if (key.type == KeyType::Up) updateNotesScroll_ = updateNotesScroll_ > 0 ? updateNotesScroll_ - 1U : 0U;
@@ -622,9 +623,6 @@ ftxui::Element App::renderUpdateContent() const {
       rows.push_back(uiHeaderText("Checking the update", uiTitleColor()));
       rows.push_back(styledText(uiLoadingSpinner() + " Verifying SHA-256 checksums", uiLinkColor()));
       rows.push_back(styledText("The package and installer must match the published release hashes.", uiSecondaryText()));
-      rows.push_back(target(uiSecondaryButton("Cancel"), "update.cancel", UiTargetKind::Button,
-                            [self] { self->cancelSoftwareUpdate(); }));
-      rows.push_back(styledText("[ Esc ] Cancel until installation handoff", uiMutedText()));
       break;
     case UpdateWizardStep::HandingOff:
       rows.push_back(uiHeaderText("Finishing the update", uiTitleColor()));
