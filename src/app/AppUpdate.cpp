@@ -2,6 +2,7 @@
 
 #include "App.h"
 
+#include "app/UpdateWizardPresentation.h"
 #include "core/storage/AtomicFile.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -521,7 +522,7 @@ void App::handleUpdateKey(const KeyEvent& key) {
     return;
   }
   if (updateStep_ == UpdateWizardStep::Preview) {
-    if (ch == 's' || key.type == KeyType::Enter) beginUpdateDownload();
+    if (updatePreviewStartsOnKey(key)) beginUpdateDownload();
     else if (key.type == KeyType::Escape || ch == 'c') cancelSoftwareUpdate();
     else if (key.type == KeyType::Up) updateNotesScroll_ = updateNotesScroll_ > 0 ? updateNotesScroll_ - 1U : 0U;
     else if (key.type == KeyType::Down || key.type == KeyType::PageDown) ++updateNotesScroll_;
@@ -574,19 +575,22 @@ ftxui::Element App::renderUpdateContent() const {
       break;
     case UpdateWizardStep::Preview:
       if (updatePackage_.has_value()) {
+        const auto previewHints = updatePreviewControlHints();
         rows.push_back(uiHeaderText("Inventatory update available", uiTitleColor()));
         rows.push_back(styledText("Update to " + updatePackage_->release.latestVersion + " from " + softwareVersion(),
                                   uiLinkColor()));
-        rows.push_back(styledText("The complete release package includes Inventatory and the background service.",
-                                  uiSecondaryText()));
-        rows.push_back(uiSectionHeader("RELEASE NOTES", uiSecondaryText()));
+        rows.push_back(styledText(" ", uiSecondaryText()));
+        rows.push_back(uiSectionHeader(previewHints.releaseNotesHeading, uiSecondaryText()));
         rows.push_back(notesPanel(previewNotes(updatePackage_->release.releaseNotes)));
         rows.push_back(ftxui::hbox({target(uiPrimaryButton("Start update"), "update.start", UiTargetKind::Button,
                                     [self] { self->beginUpdateDownload(); }),
+                                    styledText(string(" ") + previewHints.start, uiMutedText()),
                                     ftxui::text("  "),
                                     target(uiSecondaryButton("Cancel"), "update.cancel", UiTargetKind::Button,
-                                           [self] { self->cancelSoftwareUpdate(); })}));
-        rows.push_back(styledText("[ Enter / S ] Start update   [ Esc ] Cancel   [ ↑↓ ] Read notes", uiMutedText()));
+                                           [self] { self->cancelSoftwareUpdate(); }),
+                                    styledText(string(" ") + previewHints.cancel, uiMutedText()),
+                                    ftxui::text("  "),
+                                    styledText(previewHints.readNotes, uiMutedText())}));
       }
       break;
     case UpdateWizardStep::Downloading: {
