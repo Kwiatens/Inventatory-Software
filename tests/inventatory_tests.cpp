@@ -1,5 +1,6 @@
 #include "core/inventory/Inventory.h"
 #include "App.h"
+#include "app/UpdateWizardPresentation.h"
 #include "app/shell/AppBootstrap.h"
 #include "app/settings/AppSettings.h"
 #include "platform/system/UpdateService.h"
@@ -3653,6 +3654,17 @@ int main() {
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);
+  }
+
+  {
+    const auto previewHints = updatePreviewControlHints();
+    assert(string(previewHints.releaseNotesHeading) == "Release notes");
+    assert(string(previewHints.start) == "[Enter]");
+    assert(string(previewHints.cancel) == "[Esc]");
+    assert(string(previewHints.readNotes) == "[↑↓] Read notes");
+    assert(updatePreviewStartsOnKey(KeyEvent{KeyType::Enter, '\0'}));
+    assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 's'}));
+    assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 'S'}));
   }
 
   {
