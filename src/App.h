@@ -20,6 +20,7 @@
 #include "platform/scanner/HttpServer.h"
 #include "platform/scanner/MdnsService.h"
 #include "platform/system/UpdateService.h"
+#include "ui/pages/stock/StockFilterState.h"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/mouse.hpp>
@@ -242,8 +243,6 @@ class App {
     DigiKey,
   };
 
-  enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
-  enum class StockSortOrder { Az, Quantity, Za };
   enum class DashboardList { Warnings, Commits };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
@@ -687,6 +686,7 @@ class App {
   void openStockDateFilterSubmenu();
   void applyStockDateFilter(StockDateFilter filter);
   void applyStockSortOrder(StockSortOrder order);
+  void resetStockFilters();
   void startSearch();
   void startClosestSearch();
   void handleClosestSearchKey(const KeyEvent& key);
