@@ -106,7 +106,13 @@ jobs:
           Compress-Archive -Path $packageRoot -DestinationPath 'dist\Inventatory-win-x64.zip' -Force
           Copy-Item installer\Install-Inventatory.cmd dist\
           $installer = Get-Content -Raw installer\Install-Inventatory.ps1
-          $installer = $installer.Replace('__INVENTATORY_RELEASE_REPOSITORY__', $env:GITHUB_REPOSITORY)
+          $defaultRepositoryDeclaration = '[string]$Repository = ''__INVENTATORY_RELEASE_REPOSITORY__'''
+          $publishedRepositoryDeclaration = "[string]`$Repository = '$env:GITHUB_REPOSITORY'"
+          $installer = $installer.Replace($defaultRepositoryDeclaration, $publishedRepositoryDeclaration)
+          if ($installer -notmatch [regex]::Escape($publishedRepositoryDeclaration) -or
+              $installer -notmatch [regex]::Escape('__INVENTATORY_RELEASE_REPOSITORY__')) {
+            throw 'The published installer repository binding is invalid.'
+          }
           Set-Content -NoNewline -Path dist\Install-Inventatory.ps1 -Value $installer
           $updateAssets = @(
             @{ Path = 'dist\Inventatory-win-x64.zip'; Name = 'Inventatory-win-x64.zip' },
@@ -161,4 +167,22 @@ jobs:
             'dist\Install-Inventatory.cmd',
             'dist\Install-Inventatory.ps1'
           )
-          gh @releaseArguments
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $uploadArguments = @(
+              'release', 'upload', $tag,
+              '--repo', $env:GITHUB_REPOSITORY,
+              '--clobber',
+              'dist\Inventatory-win-x64.zip',
+              'dist\SHA256SUMS.txt',
+              'dist\Install-Inventatory.cmd',
+              'dist\Install-Inventatory.ps1'
+            )
+            gh @uploadArguments
+            if ($LASTEXITCODE -ne 0) { throw "Could not replace assets for release $tag." }
+            $editArguments = @('release', 'edit', $tag, '--repo', $env:GITHUB_REPOSITORY, '--title', "Inventatory $tag")
+            if ($tag -match '-') { $editArguments += '--prerelease' }
+            gh @editArguments
+          } else {
+            gh @releaseArguments
+          }
