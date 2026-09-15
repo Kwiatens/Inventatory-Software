@@ -42,6 +42,12 @@ SKU, status, or quantity expression. Select a row to see its complete details.
 Use New, Edit, `-`, `+`, or Print for frequent work; links and administrative
 commands are available through Actions.
 
+Press `f`, choose **filters** from Actions, or click **Sort / Filter** to open
+the Stock filter menu. It can sort by quantity or name, limit results by
+modification date, and be closed by pressing `f`, Escape, or the button again.
+Choose **Reset filters** to restore all modification dates and A-Z sorting.
+The Sort / Filter control remains available while the stock list is scrolled.
+
 When the list is grouped by name, category and part rows use the same connected
 gray branch treatment as the project comparison view.
 

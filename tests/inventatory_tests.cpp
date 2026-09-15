@@ -27,6 +27,7 @@
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "ui/shared/AppUiShared.h"
+#include "ui/pages/stock/StockFilterState.h"
 
 #include <algorithm>
 #include <array>
@@ -194,6 +195,25 @@ class MockPrinterBackend final : public PrinterBackend {
 void testPhysicalValueParsing();
 void testPhysicalValueMatching();
 void testPhysicalValueSearchIntegration();
+void testStockFilterState();
+
+void testStockFilterState() {
+  assert(stockFilterMenuItemAt(0) == StockFilterMenuItem::Date);
+  assert(stockFilterMenuItemAt(3) == StockFilterMenuItem::Za);
+  assert(stockFilterMenuItemAt(4) == StockFilterMenuItem::Reset);
+  assert(stockFilterMenuSelection(StockDateFilter::All, StockSortOrder::Az) == 2);
+  assert(stockFilterMenuSelection(StockDateFilter::Last7Days, StockSortOrder::Za) == 0);
+
+  auto dateFilter = StockDateFilter::Last30Days;
+  auto sortOrder = StockSortOrder::Quantity;
+  int selection = 0;
+  bool dateSubmenuOpen = true;
+  resetStockFilterState(dateFilter, sortOrder, selection, dateSubmenuOpen);
+  assert(dateFilter == StockDateFilter::All);
+  assert(sortOrder == StockSortOrder::Az);
+  assert(selection == 2);
+  assert(!dateSubmenuOpen);
+}
 
 // Physical value parsing and matching tests
 void testPhysicalValueParsing() {
@@ -1210,6 +1230,7 @@ int main() {
   testPhysicalValueParsing();
   testPhysicalValueMatching();
   testPhysicalValueSearchIntegration();
+  testStockFilterState();
   testInventoryCommitHistory();
   testSqliteSchemaValidation();
   testPackageGHardening();

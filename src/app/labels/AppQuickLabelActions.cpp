@@ -177,11 +177,16 @@ void App::deleteQuickLabelPreset() {
 
 void App::openStockFilterPanel() {
   if (closestSearchActive_) return;
+  if (inputMode_ == InputMode::StockFilter) {
+    stockDateFilterSubmenuOpen_ = false;
+    inputMode_ = InputMode::None;
+    focusedTarget_ = -1;
+    dirty_ = true;
+    return;
+  }
   inputMode_ = InputMode::StockFilter;
   stockDateFilterSubmenuOpen_ = false;
-  stockFilterSelection_ = stockDateFilter_ != StockDateFilter::All ? 0
-                          : stockSortOrder_ == StockSortOrder::Quantity ? 1
-                          : stockSortOrder_ == StockSortOrder::Za ? 3 : 2;
+  stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
   focusedTarget_ = -1;
   dirty_ = true;
 }
@@ -194,7 +199,7 @@ void App::openStockDateFilterSubmenu() {
 
 void App::applyStockDateFilter(StockDateFilter filter) {
   stockDateFilter_ = filter;
-  stockFilterSelection_ = static_cast<int>(filter);
+  stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
   stockDateFilterSubmenuOpen_ = false;
   inputMode_ = InputMode::None;
   syncSelectionToFilter();
@@ -204,6 +209,7 @@ void App::applyStockDateFilter(StockDateFilter filter) {
 
 void App::applyStockSortOrder(StockSortOrder order) {
   stockSortOrder_ = order;
+  stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
   stockDateFilterSubmenuOpen_ = false;
   inputMode_ = InputMode::None;
   syncSelectionToFilter();
@@ -214,45 +220,69 @@ void App::applyStockSortOrder(StockSortOrder order) {
   dirty_ = true;
 }
 
+void App::resetStockFilters() {
+  resetStockFilterState(stockDateFilter_, stockSortOrder_, stockFilterSelection_, stockDateFilterSubmenuOpen_);
+  inputMode_ = InputMode::None;
+  focusedTarget_ = -1;
+  syncSelectionToFilter();
+  setMessage("Stock filters reset", 2);
+  dirty_ = true;
+}
+
 void App::handleStockFilterKey(const KeyEvent& key) {
-  const int optionCount = stockDateFilterSubmenuOpen_ ? 5 : 4;
+  const int optionCount = stockDateFilterSubmenuOpen_ ? kStockDateFilterOptionCount : kStockFilterMenuOptionCount;
   if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
     stockFilterSelection_ = max(0, stockFilterSelection_ - 1);
   } else if (key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j')) {
     stockFilterSelection_ = min(optionCount - 1, stockFilterSelection_ + 1);
   } else if (key.type == KeyType::Enter) {
     if (stockDateFilterSubmenuOpen_) {
-      applyStockDateFilter(static_cast<StockDateFilter>(stockFilterSelection_));
-    } else if (stockFilterSelection_ == 0) {
-      openStockDateFilterSubmenu();
-    } else if (stockFilterSelection_ == 1) {
-      applyStockSortOrder(StockSortOrder::Quantity);
-    } else if (stockFilterSelection_ == 2) {
-      applyStockSortOrder(StockSortOrder::Az);
+      applyStockDateFilter(stockDateFilterAt(stockFilterSelection_));
     } else {
-      applyStockSortOrder(StockSortOrder::Za);
+      switch (stockFilterMenuItemAt(stockFilterSelection_)) {
+        case StockFilterMenuItem::Date:
+          openStockDateFilterSubmenu();
+          break;
+        case StockFilterMenuItem::Quantity:
+          applyStockSortOrder(StockSortOrder::Quantity);
+          break;
+        case StockFilterMenuItem::Az:
+          applyStockSortOrder(StockSortOrder::Az);
+          break;
+        case StockFilterMenuItem::Za:
+          applyStockSortOrder(StockSortOrder::Za);
+          break;
+        case StockFilterMenuItem::Reset:
+          resetStockFilters();
+          break;
+      }
     }
     return;
   } else if (key.type == KeyType::Escape || (key.type == KeyType::Character && key.ch == 'f')) {
-    if (stockDateFilterSubmenuOpen_) {
-      stockDateFilterSubmenuOpen_ = false;
-      stockFilterSelection_ = 0;
-    } else {
-      inputMode_ = InputMode::None;
-    }
+    stockDateFilterSubmenuOpen_ = false;
+    stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
+    inputMode_ = InputMode::None;
   } else if (key.type == KeyType::Left && stockDateFilterSubmenuOpen_) {
     stockDateFilterSubmenuOpen_ = false;
-    stockFilterSelection_ = 0;
-  } else if (key.type == KeyType::Character && key.ch >= '1' && key.ch <= '4' && !stockDateFilterSubmenuOpen_) {
+    stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
+  } else if (key.type == KeyType::Character && key.ch >= '1' && key.ch <= '5' && !stockDateFilterSubmenuOpen_) {
     const auto choice = key.ch - '1';
-    if (choice == 0) {
-      openStockDateFilterSubmenu();
-    } else if (choice == 1) {
-      applyStockSortOrder(StockSortOrder::Quantity);
-    } else if (choice == 2) {
-      applyStockSortOrder(StockSortOrder::Az);
-    } else {
-      applyStockSortOrder(StockSortOrder::Za);
+    switch (stockFilterMenuItemAt(choice)) {
+      case StockFilterMenuItem::Date:
+        openStockDateFilterSubmenu();
+        break;
+      case StockFilterMenuItem::Quantity:
+        applyStockSortOrder(StockSortOrder::Quantity);
+        break;
+      case StockFilterMenuItem::Az:
+        applyStockSortOrder(StockSortOrder::Az);
+        break;
+      case StockFilterMenuItem::Za:
+        applyStockSortOrder(StockSortOrder::Za);
+        break;
+      case StockFilterMenuItem::Reset:
+        resetStockFilters();
+        break;
     }
     return;
   } else {
