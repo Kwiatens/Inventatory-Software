@@ -3679,6 +3679,8 @@ int main() {
 
   {
     const auto previewHints = updatePreviewControlHints();
+    assert(string(previewHints.title) == "Inventatory Update Available");
+    assert(updatePreviewVersionLine("0.1.0", "v0.2.0-rc.2") == "0.1.0 -> v0.2.0-rc.2");
     assert(string(previewHints.releaseNotesHeading) == "Release notes");
     assert(string(previewHints.start) == "[Enter]");
     assert(string(previewHints.cancel) == "[Esc]");
