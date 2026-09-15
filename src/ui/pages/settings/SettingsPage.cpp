@@ -191,8 +191,6 @@ ftxui::Element App::renderSettingsUi() const {
                           [self] { self->beginSettingsFieldEdit(0); }));
   } else if (settingsCategory_ == SettingsCategory::Updates) {
     const bool softwareChecking = updateCheckFuture_.valid();
-    const bool firmwareChecking = scanFirmwareFuture_.valid();
-    const bool anythingChecking = softwareChecking || firmwareChecking;
     const auto softwareVersionText = softwareVersion();
     const auto firmwareVersionText = deviceFirmwareVersion_.empty() ? string("Not reported") : deviceFirmwareVersion_;
     rows.push_back(versionLine("Inventatory Software Version", softwareVersionText,
@@ -203,12 +201,12 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(versionLine("Inventascan Hardware Version", "R1", string(), contentWidth));
     rows.push_back(ftxui::text(""));
 
-    const auto checkLabel = anythingChecking ? "Searching for updates " + uiLoadingSpinner()
-                                             : "Check for updates";
-    rows.push_back(buttonRow(target(uiPrimaryButton(checkLabel, !anythingChecking), "settings.updates.check",
+    const auto checkLabel = softwareChecking ? "Searching for software updates " + uiLoadingSpinner()
+                                             : "Check for software updates";
+    rows.push_back(buttonRow(target(uiPrimaryButton(checkLabel, !softwareChecking), "settings.updates.check",
                                                     UiTargetKind::Button,
-                                                    [self] { self->beginUpdateChecks(); }, !anythingChecking)));
-    const bool canUpdate = !anythingChecking && isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
+                                                    [self] { self->beginUpdateChecks(); }, !softwareChecking)));
+    const bool canUpdate = !softwareChecking && isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
     if (canUpdate) {
       rows.push_back(buttonRow(target(uiPrimaryButton("Update to " + settings_.latestAvailableVersion),
                                       "settings.updates.update", UiTargetKind::Button,

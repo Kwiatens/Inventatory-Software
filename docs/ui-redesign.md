@@ -160,7 +160,7 @@ offered after review with an explicit completion choice.
 
 General/Data, Appearance, Updates, Printer, Quick Labels, Inventatory Scan, and DigiKey live in one category/detail
 workspace. Ordinary edits are staged and use Save/Cancel. Refresh, Test, Copy,
-Regenerate, Clear, Check for updates, and Update are operational actions. DigiKey secrets are stored in
+Regenerate, Clear, Check for software updates, and Update are operational actions. DigiKey secrets are stored in
 Windows Credential Manager, never in `settings.conf`.
 
 Each panel carries only settings and state: no explanatory hint copy, and no

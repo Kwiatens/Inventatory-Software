@@ -22,7 +22,7 @@ settings, secrets, and release notes are never stored in the inventory database.
 
 Build from a clean clone with Visual Studio 2022 C++ tools and CMake 3.20 or newer:
 
-    cmake -S . -B build
+    cmake -S . -B build -DINVENTATORY_RELEASE_REPOSITORY=Kwiatens/Inventatory-Software -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Hardware
     cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
     ctest --test-dir build -C Release --output-on-failure
 

@@ -223,38 +223,79 @@ bool jsonKeyCandidate(const std::string& json, size_t search, const std::string&
   return valuePosition < json.size() && json[valuePosition] == ':';
 }
 
-bool jsonStringValuePresent(const std::string& json, const std::string& key, std::string& value) {
-  const std::string marker = "\"" + key + "\"";
-  size_t found = std::string::npos;
-  for (size_t search = 0; (search = json.find(marker, search)) != std::string::npos; search += marker.size()) {
-    size_t valuePosition = 0;
-    if (jsonKeyCandidate(json, search, marker, valuePosition)) {
-      if (found != std::string::npos) return false;
-      found = search;
+bool jsonRootStringOrNullValuePresent(const std::string& json, const std::string& key,
+                                      std::string& value, bool& isNull) {
+  size_t position = 0;
+  while (position < json.size() && std::isspace(static_cast<unsigned char>(json[position])) != 0) ++position;
+  if (position >= json.size() || json[position++] != '{') return false;
+
+  int depth = 1;
+  bool found = false;
+  isNull = false;
+  while (position < json.size()) {
+    const char ch = json[position];
+    if (ch == '"') {
+      size_t afterKey = position;
+      std::string candidateKey;
+      if (!parseJsonString(json, afterKey, candidateKey)) return false;
+      if (depth == 1) {
+        size_t valuePosition = afterKey;
+        while (valuePosition < json.size() &&
+               std::isspace(static_cast<unsigned char>(json[valuePosition])) != 0) {
+          ++valuePosition;
+        }
+        if (valuePosition < json.size() && json[valuePosition] == ':' && candidateKey == key) {
+          if (found) return false;
+          found = true;
+          ++valuePosition;
+          while (valuePosition < json.size() &&
+                 std::isspace(static_cast<unsigned char>(json[valuePosition])) != 0) {
+            ++valuePosition;
+          }
+          if (valuePosition < json.size() && json[valuePosition] == '"') {
+            if (!parseJsonString(json, valuePosition, value)) return false;
+            isNull = false;
+            position = valuePosition;
+            continue;
+          }
+          if (json.compare(valuePosition, 4U, "null") == 0) {
+            const auto afterNull = valuePosition + 4U;
+            if (afterNull < json.size() && json[afterNull] != ',' && json[afterNull] != '}' &&
+                std::isspace(static_cast<unsigned char>(json[afterNull])) == 0) {
+              return false;
+            }
+            value.clear();
+            isNull = true;
+            position = afterNull;
+            continue;
+          }
+          return false;
+        }
+      }
+      position = afterKey;
+      continue;
     }
+    if (ch == '{' || ch == '[') {
+      ++depth;
+      ++position;
+      continue;
+    }
+    if (ch == '}' || ch == ']') {
+      if (depth <= 0) return false;
+      --depth;
+      ++position;
+      if (depth == 0) break;
+      continue;
+    }
+    ++position;
   }
-  if (found == std::string::npos) return false;
-  size_t position = found + marker.size();
   while (position < json.size() && std::isspace(static_cast<unsigned char>(json[position])) != 0) ++position;
-  if (position >= json.size() || json[position++] != ':') return false;
-  while (position < json.size() && std::isspace(static_cast<unsigned char>(json[position])) != 0) ++position;
-  return parseJsonString(json, position, value);
+  return depth == 0 && position == json.size() && found;
 }
 
-bool jsonNullValuePresent(const std::string& json, const std::string& key) {
-  const std::string marker = "\"" + key + "\"";
-  bool found = false;
+bool jsonRootStringValuePresent(const std::string& json, const std::string& key, std::string& value) {
   bool isNull = false;
-  for (size_t search = 0; (search = json.find(marker, search)) != std::string::npos; search += marker.size()) {
-    size_t valuePosition = 0;
-    if (!jsonKeyCandidate(json, search, marker, valuePosition)) continue;
-    if (found) return false;
-    found = true;
-    valuePosition += 1U;
-    while (valuePosition < json.size() && std::isspace(static_cast<unsigned char>(json[valuePosition])) != 0) ++valuePosition;
-    isNull = json.compare(valuePosition, 4U, "null") == 0;
-  }
-  return found && isNull;
+  return jsonRootStringOrNullValuePresent(json, key, value, isNull) && !isNull;
 }
 
 bool jsonContainsStringValue(const std::string& json, const std::string& key, const std::string& expected) {
@@ -324,6 +365,13 @@ bool parseHttpsUrl(const std::string& url, URL_COMPONENTS& components, std::wstr
   if (wideUrl.empty()) return false;
   components = {};
   components.dwStructSize = sizeof(components);
+  // A null component pointer is an output request only when its length is set
+  // to -1. Without these sentinels WinHTTP accepts the URL but leaves the
+  // host/path lengths empty, which makes every valid asset URL look invalid.
+  components.dwSchemeLength = static_cast<DWORD>(-1);
+  components.dwHostNameLength = static_cast<DWORD>(-1);
+  components.dwUrlPathLength = static_cast<DWORD>(-1);
+  components.dwExtraInfoLength = static_cast<DWORD>(-1);
   return WinHttpCrackUrl(wideUrl.c_str(), static_cast<DWORD>(wideUrl.size()), 0, &components) != FALSE &&
          components.nScheme == INTERNET_SCHEME_HTTPS && components.lpszHostName != nullptr &&
          components.dwHostNameLength > 0 && components.lpszUrlPath != nullptr && components.dwUrlPathLength > 0;
@@ -431,7 +479,14 @@ UpdateCheckResult parseReleaseMetadata(const std::string& json, const std::strin
   } else if (start < json.size() && json[start] == '[') {
     ++start;
     while (start < json.size() && std::isspace(static_cast<unsigned char>(json[start])) != 0) ++start;
-    if (start >= json.size() || json[start] != '{') return {};
+    if (start >= json.size()) return {};
+    if (json[start] == ']') {
+      // An optional channel, such as Scan R1 firmware before its first
+      // published release, is healthy but has nothing to compare against.
+      if (requireUpdateAssets) return {};
+      return {true, false, {}, {}, {}};
+    }
+    if (json[start] != '{') return {};
     const auto objectStart = start;
     int depth = 0;
     bool inString = false;
@@ -456,9 +511,11 @@ UpdateCheckResult parseReleaseMetadata(const std::string& json, const std::strin
   std::string latestVersion;
   std::string releaseUrl;
   std::string releaseNotes;
-  if (!jsonStringValuePresent(releaseObject, "tag_name", latestVersion) ||
-      !jsonStringValuePresent(releaseObject, "html_url", releaseUrl) ||
-      (!jsonStringValuePresent(releaseObject, "body", releaseNotes) && !jsonNullValuePresent(releaseObject, "body"))) {
+  const bool hasTag = jsonRootStringValuePresent(releaseObject, "tag_name", latestVersion);
+  const bool hasUrl = jsonRootStringValuePresent(releaseObject, "html_url", releaseUrl);
+  bool bodyIsNull = false;
+  const bool hasBody = jsonRootStringOrNullValuePresent(releaseObject, "body", releaseNotes, bodyIsNull);
+  if (!hasTag || !hasUrl || (!hasBody && !bodyIsNull)) {
     return {};
   }
   const auto expectedReleasePrefix = "https://github.com/" + repository + "/releases/tag/" + latestVersion;
@@ -466,10 +523,10 @@ UpdateCheckResult parseReleaseMetadata(const std::string& json, const std::strin
       releaseNotes.size() > kMaximumReleaseNotesBytes) {
     return {};
   }
-  if (requireUpdateAssets &&
-      (!jsonContainsStringValue(releaseObject, "name", "Inventatory-win-x64.zip") ||
-       !jsonContainsStringValue(releaseObject, "name", "SHA256SUMS.txt") ||
-       !jsonContainsStringValue(releaseObject, "name", "Install-Inventatory.ps1"))) {
+  const bool hasArchive = jsonContainsStringValue(releaseObject, "name", "Inventatory-win-x64.zip");
+  const bool hasChecksums = jsonContainsStringValue(releaseObject, "name", "SHA256SUMS.txt");
+  const bool hasInstaller = jsonContainsStringValue(releaseObject, "name", "Install-Inventatory.ps1");
+  if (requireUpdateAssets && (!hasArchive || !hasChecksums || !hasInstaller)) {
     return {};
   }
   return {true, isVersionNewer(latestVersion, installedVersion), latestVersion, releaseUrl, releaseNotes};
@@ -523,6 +580,15 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
     error = "The update asset URL is not an approved GitHub download";
     return false;
   }
+  // WinHTTP returns component pointers into the original URL. They are
+  // length-delimited, not null-terminated, so passing them directly to the
+  // LPCWSTR APIs can make the host include the following URL path.
+  const auto wideHost = widen(host);
+  const auto widePath = widen(path + urlComponent(components.lpszExtraInfo, components.dwExtraInfoLength));
+  if (wideHost.empty() || widePath.empty()) {
+    error = "The update asset URL is invalid";
+    return false;
+  }
 
   std::error_code filesystemError;
   std::filesystem::create_directories(destination.parent_path(), filesystemError);
@@ -534,10 +600,10 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
   if (session == nullptr) { error = "Could not start the update download"; return false; }
   WinHttpSetTimeouts(session, 5000, 5000, 5000, 15000);
-  HINTERNET connection = WinHttpConnect(session, components.lpszHostName, components.nPort, 0);
+  HINTERNET connection = WinHttpConnect(session, wideHost.c_str(), components.nPort, 0);
   HINTERNET request = connection == nullptr
                           ? nullptr
-                          : WinHttpOpenRequest(connection, L"GET", components.lpszUrlPath, nullptr,
+                          : WinHttpOpenRequest(connection, L"GET", widePath.c_str(), nullptr,
                                                WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                                WINHTTP_FLAG_SECURE);
   const bool sent = request != nullptr &&
@@ -672,6 +738,9 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
 }
 
 UpdateCheckResult checkLatestRelease(const std::string& installedVersion) { return latestRelease(kReleaseRepository, installedVersion); }
-UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion) { return latestRelease(kScanFirmwareRepository, installedVersion); }
+UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion) {
+  if (!validRepository(kScanFirmwareRepository)) return {true, false, {}, {}, {}};
+  return latestRelease(kScanFirmwareRepository, installedVersion);
+}
 
 }  // namespace inventatory

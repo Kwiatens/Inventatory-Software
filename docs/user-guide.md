@@ -134,7 +134,7 @@ credentials are saved. A live credential test remains available afterward.
 
 ### Updates
 
-Open **Settings → Updates** and choose **Check for updates**. When a newer
+Open **Settings → Updates** and choose **Check for software updates**. When a newer
 Inventatory release, including a published GitHub prerelease, is available, the
 section shows **Update to vX.Y.Z**; press
 `u` or choose the same action from **Actions** to open the update wizard. It
