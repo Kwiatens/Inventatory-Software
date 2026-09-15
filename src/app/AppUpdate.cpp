@@ -33,6 +33,10 @@ namespace {
 constexpr size_t kMaximumMarkerBytes = 4096U;
 constexpr size_t kMaximumNotesBytes = 64U * 1024U;
 
+ftxui::Element centered(ftxui::Element element) {
+  return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
+}
+
 bool readBoundedFile(const filesystem::path& path, size_t maximum, string& contents) {
   contents.clear();
   ifstream input(path, ios::binary);
@@ -576,9 +580,10 @@ ftxui::Element App::renderUpdateContent() const {
     case UpdateWizardStep::Preview:
       if (updatePackage_.has_value()) {
         const auto previewHints = updatePreviewControlHints();
-        rows.push_back(uiHeaderText("Inventatory update available", uiTitleColor()));
-        rows.push_back(styledText("Update to " + updatePackage_->release.latestVersion + " from " + softwareVersion(),
-                                  uiLinkColor()));
+        rows.push_back(centered(uiHeaderText(previewHints.title, uiTitleColor())));
+        rows.push_back(centered(styledText(updatePreviewVersionLine(softwareVersion(),
+                                                                     updatePackage_->release.latestVersion),
+                                          uiMutedText())));
         rows.push_back(styledText(" ", uiSecondaryText()));
         rows.push_back(uiSectionHeader(previewHints.releaseNotesHeading, uiSecondaryText()));
         rows.push_back(notesPanel(previewNotes(updatePackage_->release.releaseNotes)));
