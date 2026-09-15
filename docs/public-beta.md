@@ -9,11 +9,12 @@ After installation, Settings > Updates can check GitHub and open the same
 verified release package through an in-app update wizard. The wizard previews
 the bounded release notes, offers to save pending Settings changes, shows
 download progress/speed/ETA, verifies both the package and installer, and then
-restarts Inventatory through the installer.
+restarts Inventatory through the user's configured terminal application.
 
-The in-app download can be cancelled until installer handoff. GitHub prerelease
-tags such as `v0.2.0-rc.1` are also accepted by the updater so maintainers can
-test the complete route before a stable release. A failed download
+The in-app download can be cancelled while the package is downloading. Checksum
+verification and installer handoff then complete without interruption. GitHub
+prerelease tags such as `v0.2.0-rc.1` are also accepted by the updater so
+maintainers can test the complete route before a stable release. A failed download
 or verification returns to a retryable error screen without changing the active
 installation. If replacement fails after Inventatory closes, the installer
 rolls back the old installation, writes a machine-local completion result under

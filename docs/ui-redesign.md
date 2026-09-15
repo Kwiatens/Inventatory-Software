@@ -81,6 +81,9 @@ as a profile snippet; it is intentionally not installed or merged into the user'
 terminal settings automatically. Developers can launch with
 `.\run.ps1 -WindowsTerminal` after adding that profile as `Inventatory`.
 
+Installed launches and in-app update restarts use the system's configured
+terminal application, with the normal console host as a fallback.
+
 ## Input model
 
 - `1`–`5`: switch workspace outside text entry
