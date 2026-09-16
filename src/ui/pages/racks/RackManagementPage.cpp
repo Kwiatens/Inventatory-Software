@@ -194,15 +194,13 @@ ftxui::Element App::renderRackManagementUi() const {
   // sit flush right instead of floating in the middle of the panel.
   constexpr int rackCodeWidth = 5;
   constexpr int rackUsedWidth = 12;
-  const int rackTypeWidth = max(1, listWidth - rackCodeWidth - rackUsedWidth - 1);
+  // The scroll indicator owns the final column of the rack-list body. Keep
+  // the table itself one column narrower so its fixed columns remain intact
+  // at the supported 100-column layout.
+  const int rackContentWidth = listWidth - 1;
+  const int rackTypeWidth = max(1, rackContentWidth - rackCodeWidth - rackUsedWidth - 1);
 
   ftxui::Elements rackRows;
-  rackRows.push_back(ftxui::hbox({
-      rackFixedCell("Rack", rackCodeWidth, uiMutedColor()),
-      rackFixedCell("Type", rackTypeWidth, uiMutedColor()),
-      rackFixedCell("Usage", rackUsedWidth, uiMutedColor(), true),
-      ftxui::text(" "),
-  }) | ftxui::bgcolor(uiPanelLeftBg()));
   if (!rackIndices.empty()) {
     for (size_t visible = 0; visible < rackIndices.size(); ++visible) {
       const auto& candidate = store_.racks()[rackIndices[visible]];
@@ -219,6 +217,9 @@ ftxui::Element App::renderRackManagementUi() const {
                                  occupied >= capacity && capacity != 0 ? uiWarnColor() : uiPrimaryText()),
           ftxui::text(" "),
       }) | ftxui::bgcolor(bg);
+      if (selected) {
+        rackRow = rackRow | ftxui::select;
+      }
       auto self = const_cast<App*>(this);
       rackRows.push_back(target(rackRow, "racks.row." + candidate.id, UiTargetKind::Row, [self, visible] {
         self->rackSelection_ = visible;
@@ -411,10 +412,20 @@ ftxui::Element App::renderRackManagementUi() const {
     }
   }
 
-  rackRows.insert(rackRows.begin(), fullLine("Racks", uiSecondaryText(), uiSurfaceBg()));
   if (!inventoryHasNoRacks) detailRows.insert(detailRows.begin(), fullLine("Slot detail", uiSecondaryText(), uiSurfaceBg()));
-  auto rackPanel = ftxui::vbox(move(rackRows)) | ftxui::bgcolor(uiSurfaceBg()) |
-                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth);
+  auto rackHeader = ftxui::vbox({
+      fullLine("Racks", uiSecondaryText(), uiSurfaceBg()),
+      ftxui::hbox({
+          rackFixedCell("Rack", rackCodeWidth, uiMutedColor()),
+          rackFixedCell("Type", rackTypeWidth, uiMutedColor()),
+          rackFixedCell("Usage", rackUsedWidth, uiMutedColor(), true),
+          ftxui::text("  "),
+      }) | ftxui::bgcolor(uiPanelLeftBg()),
+  });
+  auto rackListBody = ftxui::vbox(move(rackRows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                      ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  auto rackPanel = ftxui::vbox({move(rackHeader), move(rackListBody)}) | ftxui::bgcolor(uiSurfaceBg()) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth) | ftxui::flex;
   auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, gridWidth);
   auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::bgcolor(uiSurfaceBg()) |
