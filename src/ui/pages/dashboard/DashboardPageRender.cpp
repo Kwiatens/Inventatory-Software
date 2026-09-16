@@ -108,15 +108,8 @@ ftxui::Element scannerPanel(const string& state, bool connected, bool /*paired*/
                                 lastResult.rfind("ERROR", 0) == 0 ? uiDangerColor() : uiAccentColor()));
     }
   } else {
-    string message;
-    if (state == "UNPAIRED") {
-      message = "Scanner R1 not paired";
-    } else if (state == "WAITING") {
-      message = "Scanner R1 waiting to connect";
-    } else {
-      message = "Scanner R1 offline";
-    }
-    body.push_back(uiBodyText(ellipsize(message, static_cast<size_t>(max(8, contentWidth))), uiMutedColor()));
+    body.push_back(uiBodyText(ellipsize(dashboardScannerIdleMessage(state), static_cast<size_t>(max(8, contentWidth))),
+                              uiMutedColor()));
   }
 
   auto bodyElement = ftxui::vbox(move(body)) |
@@ -190,7 +183,9 @@ ftxui::Element activityPanel(const vector<InventoryCommit>& commits, int width, 
                          ftxui::filler(),
                      }) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
-                     ftxui::bgcolor(selected && active ? uiSelectionBg() : uiSurfaceBg());
+                     ftxui::bgcolor(dashboardRowSurface(selected, active) == DashboardRowSurface::Selection
+                                       ? uiSelectionBg()
+                                       : uiSurfaceBg());
     if (selected) {
       renderedRow = renderedRow | ftxui::select;
     }

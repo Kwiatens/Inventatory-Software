@@ -88,11 +88,11 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
     rows.push_back(ftxui::hbox({
         styledText(" Selected", uiSecondaryText()) |
             ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
-        styledText(appearanceColorLabel(selectedRole), uiPrimaryText()),
+        uiHeaderText(appearanceColorLabel(selectedRole), uiPrimaryText()),
         ftxui::filler(),
         styledText("   ", uiPrimaryText(), uiAppearanceColor(selectedRole)),
-        styledText(" " + appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(selectedIndex)]),
-                   uiPrimaryText()),
+        uiHeaderText(" " + appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(selectedIndex)]),
+                     uiPrimaryText()),
         styledText(" "),
     }));
 
@@ -115,6 +115,7 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
                                  ftxui::Color::RGB(static_cast<uint8_t>((color >> 16) & 0xFFu),
                                                    static_cast<uint8_t>((color >> 8) & 0xFFu),
                                                    static_cast<uint8_t>(color & 0xFFu)));
+          if (selected) cell = cell | ftxui::select;
           pickerRow.push_back(target(move(cell), "settings.appearance.picker." + to_string(hue) + "." +
                                                        to_string(value),
                                      UiTargetKind::Cell,

@@ -423,7 +423,7 @@ ftxui::Element App::renderRackManagementUi() const {
       }) | ftxui::bgcolor(uiPanelLeftBg()),
   });
   auto rackListBody = ftxui::vbox(move(rackRows)) | ftxui::yframe | ftxui::vscroll_indicator |
-                      ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+                      ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex | ftxui::reflect(rackListPanelBounds_);
   auto rackPanel = ftxui::vbox({move(rackHeader), move(rackListBody)}) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth) | ftxui::flex;
   auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::bgcolor(uiSurfaceBg()) |
