@@ -242,9 +242,11 @@ ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
         if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
         if (focused) {
           element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiSelectionBg()) | ftxui::bold;
-          // Overlay the marker so the target keeps the element's original
-          // geometry and therefore the same mouse hit box.
-          element = ftxui::dbox({move(element), styledText(">", uiFocusColor(), uiSelectionBg())});
+          // Overlay the marker inside the target's existing geometry. Align it
+          // to the trailing edge so rows whose first cell has no left padding
+          // (for example History and Import) keep their leading content intact.
+          element = ftxui::dbox({move(element),
+                                 ftxui::align_right(styledText(">", uiFocusColor(), uiSelectionBg()))});
         }
         break;
       case UiTargetKind::Navigation:
