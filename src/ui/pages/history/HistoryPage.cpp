@@ -13,7 +13,107 @@ namespace inventatory {
 
 using namespace std;
 using history_page_detail::HistoryRecord;
+using history_page_detail::HistorySourceFilter;
+using history_page_detail::filteredHistoryIndices;
 using history_page_detail::groupedHistoryRecords;
+
+namespace {
+
+HistorySourceFilter nextHistoryFilter(HistorySourceFilter filter) {
+  switch (filter) {
+    case HistorySourceFilter::All:
+      return HistorySourceFilter::Manual;
+    case HistorySourceFilter::Manual:
+      return HistorySourceFilter::Corrective;
+    case HistorySourceFilter::Corrective:
+      return HistorySourceFilter::DigiKey;
+    case HistorySourceFilter::DigiKey:
+      return HistorySourceFilter::Checkpoint;
+    case HistorySourceFilter::Checkpoint:
+      return HistorySourceFilter::Import;
+    case HistorySourceFilter::Import:
+      return HistorySourceFilter::Project;
+    case HistorySourceFilter::Project:
+      return HistorySourceFilter::All;
+  }
+  return HistorySourceFilter::All;
+}
+
+}  // namespace
+
+void App::startHistorySearch() {
+  historySearchBeforeEdit_ = historySearchQuery_;
+  inputBuffer_ = historySearchQuery_;
+  inputMode_ = InputMode::HistorySearch;
+  setMessage("Type to filter immediately; Enter keeps it, Esc restores the previous filter", 3);
+  dirty_ = true;
+}
+
+void App::handleHistorySearchKey(const KeyEvent& key) {
+  if (key.type == KeyType::Escape) {
+    historySearchQuery_ = historySearchBeforeEdit_;
+    inputBuffer_.clear();
+    inputMode_ = InputMode::None;
+    syncHistorySelectionToFilter();
+    setMessage("History search cancelled", 2);
+    dirty_ = true;
+    return;
+  }
+  if (key.type == KeyType::Backspace) {
+    if (!inputBuffer_.empty()) {
+      inputBuffer_.pop_back();
+      historySearchQuery_ = inputBuffer_;
+      syncHistorySelectionToFilter();
+    }
+    dirty_ = true;
+    return;
+  }
+  if (key.type == KeyType::Enter) {
+    historySearchQuery_ = inputBuffer_;
+    inputMode_ = InputMode::None;
+    syncHistorySelectionToFilter();
+    setMessage(historySearchQuery_.empty() ? "History search cleared" : "History search applied", 2);
+    dirty_ = true;
+    return;
+  }
+  if (key.type != KeyType::Character || inputBuffer_.size() >= 160) return;
+  if (static_cast<unsigned char>(key.ch) < 32 || static_cast<unsigned char>(key.ch) > 126) return;
+  inputBuffer_.push_back(key.ch);
+  historySearchQuery_ = inputBuffer_;
+  syncHistorySelectionToFilter();
+  dirty_ = true;
+}
+
+void App::cycleHistoryFilter() {
+  historySourceFilter_ = nextHistoryFilter(historySourceFilter_);
+  syncHistorySelectionToFilter();
+  setMessage("History filter: " + history_page_detail::historySourceFilterLabel(historySourceFilter_), 2);
+  dirty_ = true;
+}
+
+void App::syncHistorySelectionToFilter() {
+  const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
+  historyRecordSelection_ = 0;
+  historyRecordOpen_ = false;
+
+  if (visible.empty()) {
+    historySelection_ = 0;
+    historyDetail_ = {};
+    historyDetailValid_ = false;
+    dirty_ = true;
+    return;
+  }
+
+  const auto selectedId = historySelection_ < inventoryCommits_.size()
+                              ? inventoryCommits_[historySelection_].id
+                              : string();
+  const auto selected = find_if(visible.begin(), visible.end(), [&](size_t index) {
+    return !selectedId.empty() && inventoryCommits_[index].id == selectedId;
+  });
+  historySelection_ = selected == visible.end() ? visible.front() : *selected;
+  refreshHistoryDetail();
+  dirty_ = true;
+}
 
 void App::handleHistoryKey(const KeyEvent& key) {
   if (inputMode_ == InputMode::HistoryCheckpoint) {
@@ -124,8 +224,9 @@ void App::handleHistoryKey(const KeyEvent& key) {
     return;
   }
   if (key.type == KeyType::Home) {
-    if (!inventoryCommits_.empty()) {
-      historySelection_ = 0;
+    const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
+    if (!visible.empty()) {
+      historySelection_ = visible.front();
       historyRecordSelection_ = 0;
       historyRecordOpen_ = false;
       refreshHistoryDetail();
@@ -134,8 +235,9 @@ void App::handleHistoryKey(const KeyEvent& key) {
     return;
   }
   if (key.type == KeyType::End) {
-    if (!inventoryCommits_.empty()) {
-      historySelection_ = inventoryCommits_.size() - 1;
+    const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
+    if (!visible.empty()) {
+      historySelection_ = visible.back();
       historyRecordSelection_ = 0;
       historyRecordOpen_ = false;
       refreshHistoryDetail();
@@ -146,7 +248,11 @@ void App::handleHistoryKey(const KeyEvent& key) {
   if (key.type != KeyType::Character) return;
 
   const auto ch = static_cast<char>(tolower(static_cast<unsigned char>(key.ch)));
-  if (ch == 'c') {
+  if (ch == '/') {
+    startHistorySearch();
+  } else if (ch == 'f') {
+    cycleHistoryFilter();
+  } else if (ch == 'c') {
     beginHistoryCheckpoint();
   } else if (ch == 's') {
     beginHistoryRestore(InventoryRevertMode::Snapshot);
@@ -157,6 +263,25 @@ void App::handleHistoryKey(const KeyEvent& key) {
     setMessage("Inventory history reloaded", 2, UiMessageSeverity::Success);
     dirty_ = true;
   }
+}
+
+void App::moveHistorySelection(int delta) {
+  const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
+  historyRecordSelection_ = 0;
+  historyRecordOpen_ = false;
+  if (visible.empty()) {
+    historySelection_ = 0;
+    historyDetailValid_ = false;
+    dirty_ = true;
+    return;
+  }
+
+  const auto selected = find(visible.begin(), visible.end(), historySelection_);
+  const int current = selected == visible.end() ? 0 : static_cast<int>(selected - visible.begin());
+  const int next = clamp(current + delta, 0, static_cast<int>(visible.size() - 1));
+  historySelection_ = visible[static_cast<size_t>(next)];
+  refreshHistoryDetail();
+  dirty_ = true;
 }
 
 void App::moveHistoryRecordSelection(int delta) {

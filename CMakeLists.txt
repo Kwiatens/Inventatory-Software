@@ -176,6 +176,7 @@ add_executable(inventatory
   src/ui/pages/bom/BomProjectPage.cpp
   src/ui/pages/bom/BomProjectPageRender.cpp
   src/ui/pages/history/HistoryPage.cpp
+  src/ui/pages/history/HistoryPagePrivate.cpp
   src/ui/pages/history/HistoryPageRender.cpp
   src/ui/pages/settings/SettingsPage.cpp
   src/ui/pages/settings/SettingsPageAppearance.cpp
@@ -251,6 +252,7 @@ add_executable(inventatory_tests
   src/core/history/InventoryVersion.cpp
   src/core/history/InventoryVersionHistory.cpp
   src/core/history/InventoryVersionDiff.cpp
+  src/ui/pages/history/HistoryPagePrivate.cpp
   src/core/inventory/InventoryMovements.cpp
   src/core/storage/AtomicFile.cpp
   src/core/storage/InventoryStorage.cpp

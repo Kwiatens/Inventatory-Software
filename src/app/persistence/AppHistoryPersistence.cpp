@@ -53,6 +53,7 @@ void App::refreshInventoryCommits() {
   }
   historyDetail_ = move(loadedDetail);
   historyDetailValid_ = true;
+  syncHistorySelectionToFilter();
 }
 
 void App::refreshHistoryDetail() {
@@ -72,22 +73,6 @@ void App::refreshHistoryDetail() {
   }
   historyDetail_ = move(loadedDetail);
   historyDetailValid_ = true;
-}
-
-void App::moveHistorySelection(int delta) {
-  historyRecordSelection_ = 0;
-  historyRecordOpen_ = false;
-  if (inventoryCommits_.empty()) {
-    historySelection_ = 0;
-    historyDetailValid_ = false;
-    dirty_ = true;
-    return;
-  }
-  const auto current = static_cast<int>(min(historySelection_, inventoryCommits_.size() - 1));
-  historySelection_ = static_cast<size_t>(clamp(current + delta, 0,
-                                                  static_cast<int>(inventoryCommits_.size() - 1)));
-  refreshHistoryDetail();
-  dirty_ = true;
 }
 
 void App::openSelectedHistoryCommit() {
