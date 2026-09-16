@@ -392,7 +392,7 @@ vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
 vector<DetailField> stockPreviewFields(const InventoryItem& item, string rack) {
   vector<DetailField> fields;
   const bool rackAssigned = !rack.empty();
-  fields.push_back({"Inventatory RACK: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
+  fields.push_back({"Inventatory rack: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
                     rackAssigned ? uiTitleColor() : uiWarnColor()});
   fields.push_back({"Name: ", item.partName, uiInfoColor(), uiTitleColor()});
   fields.push_back({"At a glance: ", partShortDescription(item), uiLabelColor(), uiTitleColor()});
@@ -407,7 +407,7 @@ vector<DetailField> stockPreviewFields(const InventoryItem& item, string rack) {
 vector<DetailField> detailCoreFields(const InventoryItem& item, string rack) {
   const bool rackAssigned = !rack.empty();
   return {
-      {"Inventatory RACK: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
+      {"Inventatory rack: ", rackAssigned ? rack : "NOT ASSIGNED", uiAccentColor(),
        rackAssigned ? uiTitleColor() : uiWarnColor()},
       {"Name: ", item.partName, uiInfoColor(), uiTitleColor()},
       {"At a glance: ", partShortDescription(item), uiLabelColor(), uiTitleColor()},

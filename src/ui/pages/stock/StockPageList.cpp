@@ -92,13 +92,13 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
 
   const auto bandTitle = [](PhysicalValueMatchBand band, bool closest) {
     switch (band) {
-      case PhysicalValueMatchBand::Exact: return string(" EXACT MATCHES");
-      case PhysicalValueMatchBand::Workable: return string(" WORKABLE MATCHES");
-      case PhysicalValueMatchBand::Possible: return string(" POSSIBLE MATCHES");
+      case PhysicalValueMatchBand::Exact: return string(" Exact matches");
+      case PhysicalValueMatchBand::Workable: return string(" Workable matches");
+      case PhysicalValueMatchBand::Possible: return string(" Possible matches");
       case PhysicalValueMatchBand::None:
-        return closest ? string(" OTHER SAME-TYPE MATCHES") : string(" OTHER MATCHES");
+        return closest ? string(" Other same-type matches") : string(" Other matches");
     }
-    return string(" OTHER MATCHES");
+    return string(" Other matches");
   };
   const auto bandColor = [](PhysicalValueMatchBand band) {
     switch (band) {

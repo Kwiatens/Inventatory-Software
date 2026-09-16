@@ -27,6 +27,7 @@
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
+#include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
 #include "ui/pages/stock/StockFilterState.h"
 
@@ -1108,6 +1109,21 @@ void testPackageGHardening() {
 
 int main() {
   {
+    const auto categories = settings_page_detail::settingsCategoryEntries();
+    assert(categories.size() == 7);
+    assert(categories[0].categoryIndex == 0);
+    assert(categories[1].categoryIndex == 1);
+    assert(categories[2].categoryIndex == 2);
+    assert(categories[3].categoryIndex == 3);
+    assert(categories[4].categoryIndex == 4);
+    assert(categories[5].categoryIndex == 5);
+    assert(categories[6].categoryIndex == 6);
+    assert(categories[3].indent == 0);
+    assert(categories[4].indent == 1);
+    assert(categories[5].indent == 0);
+  }
+
+  {
     const auto first = advanceWorkspaceGeneration(0);
     const auto second = advanceWorkspaceGeneration(first);
     assert(first != 0);
@@ -1580,7 +1596,7 @@ int main() {
     assert(matchesQuery(manuallyPlaced, automaticLocation, rackStore.racks()));
     const auto stockFields = stockPreviewFields(manuallyPlaced, automaticLocation);
     assert(!stockFields.empty());
-    assert(stockFields.front().label == "Inventatory RACK: ");
+    assert(stockFields.front().label == "Inventatory rack: ");
     assert(stockFields.front().value == automaticLocation);
     bool foundAtAGlance = false;
     for (const auto& field : stockFields) {
