@@ -225,13 +225,16 @@ ftxui::Element App::renderSearchBarUi() const {
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
                              inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
+                             inputMode_ == InputMode::HistorySearch ||
                              inputMode_ == InputMode::HistoryCheckpoint || inputMode_ == InputMode::HistoryConfirm ||
                              inputMode_ == InputMode::ExitConfirmation);
 
-  const auto activeBg = inputMode_ == InputMode::Search || inputMode_ == InputMode::ClosestSearch || showsPrompt
+  const auto activeBg = inputMode_ == InputMode::Search || inputMode_ == InputMode::ClosestSearch ||
+                                inputMode_ == InputMode::HistorySearch || showsPrompt
                             ? uiRowSelectedBg()
                             : uiPanelLeftBg();
-  const auto bodyColor = inputMode_ == InputMode::Search || inputMode_ == InputMode::ClosestSearch
+  const auto bodyColor = inputMode_ == InputMode::Search || inputMode_ == InputMode::ClosestSearch ||
+                                 inputMode_ == InputMode::HistorySearch
                              ? uiTitleColor()
                              : showsPrompt ? uiLinkColor() : uiMutedColor();
   string contextTitle = "Context";
@@ -242,6 +245,9 @@ ftxui::Element App::renderSearchBarUi() const {
   } else if (inputMode_ == InputMode::ClosestSearch) {
     contextTitle = "Find closest to";
     contextText = ">" + inputBuffer_ + "_  (searching all records live)";
+  } else if (inputMode_ == InputMode::HistorySearch) {
+    contextTitle = "History search";
+    contextText = "/" + inputBuffer_ + "_  (filtering live)";
   } else if (page_ == Page::Stock && closestSearchActive_) {
     contextTitle = "Find closest to";
     contextText = closestSearchQuery_.empty() ? "> type a physical value" : ">" + closestSearchQuery_ +
@@ -294,10 +300,16 @@ ftxui::Element App::renderSearchBarUi() const {
         break;
       case Page::History:
         contextTitle = "History";
-        contextText = inventoryCommits_.empty()
-                          ? "No inventory commits"
-                          : "commit " + to_string(historySelection_ + 1) + " / " +
-                                to_string(inventoryCommits_.size());
+        if (inventoryCommits_.empty()) {
+          contextText = "No inventory commits";
+        } else {
+          const auto visible = history_page_detail::filteredHistoryIndices(
+              inventoryCommits_, historySearchQuery_, historySourceFilter_);
+          const auto selected = find(visible.begin(), visible.end(), historySelection_);
+          const auto position = selected == visible.end() ? size_t(0) : static_cast<size_t>(selected - visible.begin());
+          contextText = visible.empty() ? "No matching commits"
+                                        : "commit " + to_string(position + 1) + " / " + to_string(visible.size());
+        }
         break;
       case Page::ScanSetup:
         contextTitle = "Setup wizard";
@@ -326,7 +338,15 @@ ftxui::Element App::renderSearchBarUi() const {
     context = target(context, closestSearchActive_ ? "stock.closest.search" : "stock.search", UiTargetKind::Field,
                      [self] { self->closestSearchActive_ ? self->startClosestSearch() : self->startSearch(); });
   }
-  rows.push_back(context);
+  if (page_ == Page::History && inputMode_ == InputMode::None) {
+    rows.push_back(ftxui::hbox({uiHeaderText(" History: ", uiSecondaryText(), uiPanelLeftBg()),
+                                uiBodyText(contextText, uiInfoColor(), uiPanelLeftBg()), ftxui::filler(),
+                                styledText("↑↓ Select  Enter View  v Revert  s Restore  / Search  f Filter  Esc Back  q Quit",
+                                           uiMutedColor(), uiPanelLeftBg())}) |
+                   ftxui::bgcolor(uiPanelLeftBg()));
+  } else {
+    rows.push_back(context);
+  }
 
   // The field-name list here is only for the CSV import review flow; Stock
   // item editing shows the same information inline in the Detail panel.

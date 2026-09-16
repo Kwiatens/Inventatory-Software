@@ -83,6 +83,9 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::BomRestock:
       handleBomRestockKey(key);
       return;
+    case InputMode::HistorySearch:
+      handleHistorySearchKey(key);
+      return;
     case InputMode::HistoryCheckpoint:
     case InputMode::HistoryConfirm:
       handleHistoryKey(key);
