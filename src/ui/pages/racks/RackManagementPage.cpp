@@ -3,6 +3,7 @@
 
 #include "App.h"
 
+#include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -271,7 +272,7 @@ ftxui::Element App::renderRackManagementUi() const {
       // outside the slot matrix so the last slot line remains visible.
       const int slotRowsSpace = max(rackGridColumns * 3,
                                     screenHeight - 12 - (!rackFilter_.empty() ? 1 : 0));
-      const int slotHeight = max(3, slotRowsSpace / rackGridColumns);
+      const int slotHeight = rack_page_detail::equalRackSlotHeight(slotRowsSpace, rackGridColumns);
       ftxui::Elements columnHeaders;
       columnHeaders.push_back(rackCenteredCell("", designatorWidth, uiDimColor()));
       columnHeaders.push_back(ftxui::separator() | ftxui::color(uiDimColor()));

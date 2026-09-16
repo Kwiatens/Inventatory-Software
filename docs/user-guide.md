@@ -132,8 +132,8 @@ user signs in.
 An unconfigured **Settings -> Devices -> Inventatory Scan** section shows only **Begin Setup**, which opens
 the existing setup wizard. After provisioning is accepted, the section restores
 **Pair new device**, the R1 status line (online/offline, device id, signal, and
-last contact once it has reported in), the service port, and **Check for firmware
-updates**. Before the first report, the status reads **Waiting for device**.
+last contact once it has reported in), the service port, and **Restart bridge**.
+Before the first report, the status reads **Waiting for device**.
 
 An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
 collects the Client ID and Client secret, stores the secret in Windows
