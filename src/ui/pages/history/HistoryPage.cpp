@@ -29,7 +29,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
     if (key.type == KeyType::Enter) {
       const auto name = trim(inputBuffer_);
       if (name.empty()) {
-        setMessage("Checkpoint name cannot be empty", 3);
+        setMessage("Checkpoint name cannot be empty", 3, UiMessageSeverity::Warning);
         return;
       }
       InventoryCommitDraft draft;
@@ -38,7 +38,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
       draft.checkpoint = true;
       const bool saved = saveInventoryState(draft);
       cancelHistoryAction();
-      if (saved) setMessage("Checkpoint created", 3);
+      if (saved) setMessage("Checkpoint created", 3, UiMessageSeverity::Success);
       return;
     }
     if (key.type == KeyType::Character && inputBuffer_.size() < 160) {
@@ -99,7 +99,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
     if (!historyDetailValid_) return;
     const auto records = groupedHistoryRecords(historyDetail_);
     if (records.empty()) {
-      setMessage("The selected commit has no changed records", 3);
+      setMessage("The selected commit has no changed records", 3, UiMessageSeverity::Warning);
       return;
     }
     historyRecordSelection_ = min(historyRecordSelection_, records.size() - 1);
@@ -154,7 +154,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
     beginHistoryRestore(InventoryRevertMode::Reverse);
   } else if (ch == 'r') {
     refreshInventoryCommits();
-    setMessage("Inventory history reloaded", 2);
+    setMessage("Inventory history reloaded", 2, UiMessageSeverity::Success);
     dirty_ = true;
   }
 }

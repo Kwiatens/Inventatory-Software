@@ -122,7 +122,7 @@ bool App::commitImportStage() {
   store_ = importStagedStore_;
   if (!saveState("import", importSourcePath_.filename().string())) {
     importCommitPending_ = true;
-    setMessage("Import is staged but not saved. Press R to retry or Q to cancel.", 7);
+    setMessage("Import is staged but not saved. Press R to retry or Q to cancel.", 7, UiMessageSeverity::Error);
     dirty_ = true;
     return false;
   }
@@ -205,7 +205,7 @@ void App::acceptImportCandidate() {
   if (importCandidates_.empty()) {
     finishImportReview();
   } else {
-    setMessage("Accepted import row", 2);
+    setMessage("Accepted import row", 2, UiMessageSeverity::Success);
   }
   dirty_ = true;
 }
@@ -225,7 +225,7 @@ void App::skipImportCandidate() {
   if (importCandidates_.empty()) {
     finishImportReview();
   } else {
-    setMessage("Skipped import row", 2);
+    setMessage("Skipped import row", 2, UiMessageSeverity::Info);
   }
   dirty_ = true;
 }
@@ -373,11 +373,12 @@ void App::processImportSync() {
   importSyncHasRun_ = true;
   importSyncCancelFlag_.reset();
   if (!cancelled && !batch.results.empty() && !saveState("digikey", "import sync", "DigiKey enrichment batch")) {
-    setMessage("DigiKey metadata is in memory; press R to retry saving", 6);
+    setMessage("DigiKey metadata is in memory; press R to retry saving", 6, UiMessageSeverity::Error);
   } else {
-    setMessage(cancelled ? "DigiKey sync cancelled; press R to retry failed rows"
-                         : "DigiKey sync finished; press R to retry failed rows or Enter to finish",
-               6);
+    const auto message = cancelled ? "DigiKey sync cancelled; press R to retry failed rows"
+                                   : "DigiKey sync finished; press R to retry failed rows or Enter to finish";
+    setMessage(message, 6, cancelled || !importSyncFailedItemIds_.empty() ? UiMessageSeverity::Warning
+                                                                            : UiMessageSeverity::Success);
   }
   importSyncPrompt_ = true;
   dirty_ = true;
@@ -385,7 +386,7 @@ void App::processImportSync() {
 
 void App::retryImportSync() {
   if (importSyncFailedItemIds_.empty()) {
-    setMessage("There are no failed DigiKey rows to retry", 3);
+    setMessage("There are no failed DigiKey rows to retry", 3, UiMessageSeverity::Warning);
     return;
   }
   beginImportSync(true);
@@ -419,7 +420,7 @@ void App::finishCsvImport(bool syncWithDigiKey) {
   importOriginalStore_ = {};
   importStagedStore_ = {};
   changePage(Page::Home);
-  setMessage(summary, 8);
+  setMessage(summary, 8, importSyncFailedCount_ > 0 ? UiMessageSeverity::Warning : UiMessageSeverity::Success);
 }
 
 string App::importCompletionMessage() const {

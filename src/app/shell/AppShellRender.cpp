@@ -34,6 +34,32 @@ string currentDateTimeText() {
   return buffer;
 }
 
+ftxui::Color messageColor(UiMessageColorRole role) {
+  switch (role) {
+    case UiMessageColorRole::Success:
+      return uiSuccessColor();
+    case UiMessageColorRole::Warning:
+      return uiWarnColor();
+    case UiMessageColorRole::Error:
+      return uiDangerColor();
+    case UiMessageColorRole::Info:
+      return uiInfoColor();
+  }
+  return uiInfoColor();
+}
+
+ftxui::Element fixedMessageRow(ftxui::Element element) {
+  return element | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, uiMessageRowHeight());
+}
+
+ftxui::Element semanticMessageRow(const string& text, UiMessageSeverity severity, bool flashing) {
+  const auto presentation = uiMessagePresentation(severity);
+  const auto semanticColor = messageColor(presentation.color);
+  const auto foreground = flashing ? uiCanvasBg() : semanticColor;
+  const auto background = flashing ? semanticColor : uiPanelLeftBg();
+  return fixedMessageRow(fullLine(" " + string(presentation.prefix) + text, foreground, background));
+}
+
 }  // namespace
 
 // The application frame: header, content, context/search-or-actions, message.
@@ -86,7 +112,7 @@ ftxui::Element App::renderUi() const {
   // content region above it flexes up to make room.
   if (inputMode_ == InputMode::ActionSheet) {
     body.push_back(renderActionSheetUi());
-  } else {
+  } else if (!(page_ == Page::Home && inputMode_ == InputMode::None)) {
     body.push_back(renderSearchBarUi());
   }
   body.push_back(renderMessageUi());
@@ -328,71 +354,65 @@ ftxui::Element App::renderMessageUi() const {
                                  (!digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid());
   if (refreshingDigiKey) {
     const auto completed = min(digiKeyRefreshCompleted_, digiKeyRefreshTotal_);
-    return ftxui::hbox({
-               styledText(" " + uiLoadingSpinner() + " DigiKey enrichment", uiLinkColor()),
-               styledText("   ", uiLinkColor()),
-               uiProgressBar(static_cast<double>(completed) / static_cast<double>(digiKeyRefreshTotal_), 28,
-                             uiLinkColor()),
-               styledText(" " + to_string(completed) + "/" + to_string(digiKeyRefreshTotal_) + " items",
-                          uiMutedColor()),
-               ftxui::filler(),
-           }) |
-           ftxui::bgcolor(uiPanelLeftBg());
+    return fixedMessageRow(ftxui::hbox({
+                               styledText(" " + uiLoadingSpinner() + " DigiKey enrichment", uiLinkColor()),
+                               styledText("   ", uiLinkColor()),
+                               uiProgressBar(static_cast<double>(completed) / static_cast<double>(digiKeyRefreshTotal_),
+                                             28, uiLinkColor()),
+                               styledText(" " + to_string(completed) + "/" + to_string(digiKeyRefreshTotal_) +
+                                              " items",
+                                          uiMutedColor()),
+                               ftxui::filler(),
+                           }) |
+                           ftxui::bgcolor(uiPanelLeftBg()));
   }
   if (importSyncRunning_) {
     const auto total = max<size_t>(1, importSyncTotal_);
     const auto completed = min(importSyncCompleted_, importSyncTotal_);
-    return ftxui::hbox({
-               styledText(" " + uiLoadingSpinner() + " DigiKey import sync", uiLinkColor()),
-               styledText("   ", uiLinkColor()),
-               uiProgressBar(static_cast<double>(completed) / static_cast<double>(total), 28, uiLinkColor()),
-               styledText(" " + to_string(completed) + "/" + to_string(importSyncTotal_) + " rows",
-                          uiMutedColor()),
-               ftxui::filler(),
-           }) |
-           ftxui::bgcolor(uiPanelLeftBg());
+    return fixedMessageRow(ftxui::hbox({
+                               styledText(" " + uiLoadingSpinner() + " DigiKey import sync", uiLinkColor()),
+                               styledText("   ", uiLinkColor()),
+                               uiProgressBar(static_cast<double>(completed) / static_cast<double>(total), 28,
+                                             uiLinkColor()),
+                               styledText(" " + to_string(completed) + "/" + to_string(importSyncTotal_) + " rows",
+                                          uiMutedColor()),
+                               ftxui::filler(),
+                           }) |
+                           ftxui::bgcolor(uiPanelLeftBg()));
   }
   const bool enrichingBom = page_ == Page::Projects && bomEnrichmentTotal_ > 0 &&
                             (!bomEnrichmentQueue_.empty() || bomEnrichmentFuture_.valid());
   if (enrichingBom) {
     const auto dispatched = bomEnrichmentTotal_ - bomEnrichmentQueue_.size();
-    return ftxui::hbox({
-        styledText(" " + uiLoadingSpinner() + " DigiKey lookup", uiLinkColor()),
-        uiProgressBar(static_cast<double>(dispatched) / static_cast<double>(bomEnrichmentTotal_), 28, uiLinkColor()),
-        styledText(" " + to_string(dispatched) + "/" + to_string(bomEnrichmentTotal_) + " suggestions", uiMutedColor()),
-        ftxui::filler(),
-    }) | ftxui::bgcolor(uiPanelLeftBg());
+    return fixedMessageRow(ftxui::hbox({
+                               styledText(" " + uiLoadingSpinner() + " DigiKey lookup", uiLinkColor()),
+                               uiProgressBar(static_cast<double>(dispatched) /
+                                                 static_cast<double>(bomEnrichmentTotal_),
+                                             28, uiLinkColor()),
+                               styledText(" " + to_string(dispatched) + "/" + to_string(bomEnrichmentTotal_) +
+                                              " suggestions",
+                                          uiMutedColor()),
+                               ftxui::filler(),
+                           }) |
+                           ftxui::bgcolor(uiPanelLeftBg()));
   }
   if (!persistenceError_.empty()) {
-    return fullLine(persistenceError_, uiDangerColor(), uiPanelLeftBg());
+    return semanticMessageRow(persistenceError_, UiMessageSeverity::Error, false);
   }
   if (page_ == Page::Projects && bomView_ == BomView::Build && bomAnalysisValid_ &&
       !bomBuildReady(bomAnalysis_) && message_.empty()) {
-    return fullLine(to_string(bomAnalysis_.shortCount) +
-                        " shortages · stock will not be deducted",
-                    uiWarnColor(), uiPanelLeftBg());
+    return semanticMessageRow(to_string(bomAnalysis_.shortCount) + " shortages · stock will not be deducted",
+                              UiMessageSeverity::Warning, false);
   }
   if (message_.empty()) {
     // Keep the notification row in the layout even while it is quiet. A
     // zero-height element here makes the whole application jump when a
     // message arrives.
-    return fullLine("", uiMutedColor(), uiPanelLeftBg());
+    return fixedMessageRow(fullLine("", uiMutedColor(), uiPanelLeftBg()));
   }
 
-  // Keep the pulse aligned with the 100 ms redraw ticker so it reads as a
-  // regular confirmation animation instead of an uneven flicker.
-  constexpr long long kFlashHalfPeriodMs = 200;
-  constexpr long long kFlashCycles = 3;
-  const auto elapsed = max(0LL, uiAnimationTicks() - messageFlashStartedAt_);
-  const auto flashDuration = kFlashHalfPeriodMs * kFlashCycles * 2;
-  const bool flashing = messageFlashStartedAt_ >= 0 && elapsed < flashDuration &&
-                        ((elapsed / kFlashHalfPeriodMs) % 2 == 0);
-  return ftxui::hbox({
-             styledText(message_, flashing ? uiCanvasBg() : uiAccentColor(),
-                        flashing ? uiInteractiveColor() : uiPanelLeftBg()),
-             ftxui::filler(),
-         }) |
-         ftxui::bgcolor(uiPanelLeftBg());
+  const bool flashing = uiMessageAcknowledgementPulseActive(messageFlashStartedAt_, uiAnimationTicks());
+  return semanticMessageRow(message_, messageSeverity_, flashing);
 }
 
 }  // namespace inventatory
