@@ -71,12 +71,12 @@ ftxui::Element App::renderStockUi() const {
   const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue;
   auto self = const_cast<App*>(this);
   const auto stockHeader = stocktakeActive_
-                               ? "STOCKTAKE  " + to_string(stocktakeCountedItems()) + "/" +
+                               ? "Stocktake  " + to_string(stocktakeCountedItems()) + "/" +
                                      to_string(store_.items().size()) + " counted"
                                : closestSearchActive_
-                                     ? "CLOSEST TO  " + (closestSearchQuery_.empty() ? string("...") : closestSearchQuery_) +
+                                     ? "Closest to  " + (closestSearchQuery_.empty() ? string("...") : closestSearchQuery_) +
                                            "  · " + to_string(filtered.size()) + " candidates"
-                                     : rankedView ? "STOCK  " + to_string(filtered.size()) + " matches · ranked by value"
+                                     : rankedView ? "Stock  " + to_string(filtered.size()) + " matches · ranked by value"
                                                   : groupByCategory ? string("Component Category") : string();
   const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
   auto filterButton = target(styledText(" Sort / Filter ", filtersEnabled ? uiInteractiveColor() : uiMutedColor(),
@@ -115,7 +115,7 @@ ftxui::Element App::renderStockUi() const {
   if (inputMode_ == InputMode::StockFilter && !closestSearchActive_) {
     ftxui::Elements filterRows;
     if (stockDateFilterSubmenuOpen_) {
-      filterRows.push_back(fullLine("FILTER BY DATE OF MODIFICATION", uiSecondaryText(), uiPanelLeftBg()));
+      filterRows.push_back(fullLine("Filter by date of modification", uiSecondaryText(), uiPanelLeftBg()));
       for (int index = 0; index < kStockDateFilterOptionCount; ++index) {
         const bool selected = static_cast<int>(index) == stockFilterSelection_;
         const auto dateFilter = stockDateFilterAt(index);
@@ -126,7 +126,7 @@ ftxui::Element App::renderStockUi() const {
                                     [self, dateFilter] { self->applyStockDateFilter(dateFilter); }));
       }
     } else {
-      filterRows.push_back(fullLine("FILTER", uiSecondaryText(), uiPanelLeftBg()));
+      filterRows.push_back(fullLine("Filter", uiSecondaryText(), uiPanelLeftBg()));
       const vector<string> labels = {"Date of modification", "Sort: quantity", "Sort: A-Z", "Sort: Z-A",
                                     "Reset filters"};
       for (size_t index = 0; index < labels.size(); ++index) {
@@ -238,7 +238,7 @@ ftxui::Element App::renderStockUi() const {
     });
   }
   auto detailPanel = ftxui::vbox({
-                         fullLine(editing ? "EDIT ITEM" : "ITEM DETAIL", uiSecondaryText(), uiSurfaceBg()),
+                         fullLine(editing ? "Edit item" : "Item detail", uiSecondaryText(), uiSurfaceBg()),
                          ftxui::vbox(move(detailRows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::flex,
                          ftxui::separator() | ftxui::color(uiDividerColor()),
                          detailFooter,

@@ -117,33 +117,30 @@ ftxui::Element App::renderSettingsUi() const {
   const int contentWidth = max(60, (active != nullptr ? active->dimx() : 120) - categoryWidth - 3);
 
   ftxui::Elements categories;
-  categories.push_back(styledText(" SETTINGS", uiMutedText()));
-  const auto addCategory = [&](SettingsCategory category) {
+  categories.push_back(styledText(" Settings", uiMutedText()));
+  const auto addCategory = [&](SettingsCategory category, int indent) {
     const bool selected = category == settingsCategory_;
-    auto row = fullLine(string(selected ? "  > " : "    ") + settingsCategoryName(category),
+    const string marker = indent > 0 ? (selected ? "    > " : "      ") : (selected ? "  > " : "    ");
+    auto row = fullLine(marker + settingsCategoryName(category),
                         selected ? uiFocusColor() : uiSecondaryText(),
                         selected ? uiSelectionBg() : uiCanvasBg());
     categories.push_back(target(row, "settings.category." + settingsCategoryName(category), UiTargetKind::Category,
                                 [self, category] {
                                   self->settingsCategory_ = category;
-                                   self->settingsField_ = 0;
-                                   self->settingsEditingField_ = false;
-                                   self->appearancePickerOpen_ = false;
+                                  self->settingsField_ = 0;
+                                  self->settingsEditingField_ = false;
+                                  self->appearancePickerOpen_ = false;
                                   if (category == SettingsCategory::Printer) self->refreshPrinterState();
                                   self->dirty_ = true;
                                 }));
   };
-  categories.push_back(styledText(" SYSTEM", uiDimColor()));
-  addCategory(SettingsCategory::General);
-  addCategory(SettingsCategory::Appearance);
-  addCategory(SettingsCategory::Updates);
-  categories.push_back(styledText(" OUTPUT", uiDimColor()));
-  addCategory(SettingsCategory::Printer);
-  addCategory(SettingsCategory::QuickLabels);
-  categories.push_back(styledText(" DEVICES", uiDimColor()));
-  addCategory(SettingsCategory::InventatoryScan);
-  categories.push_back(styledText(" INTEGRATIONS", uiDimColor()));
-  addCategory(SettingsCategory::DigiKey);
+  for (const auto& entry : settingsCategoryEntries()) {
+    const auto category = static_cast<SettingsCategory>(entry.categoryIndex);
+    if (entry.categoryIndex == 0) categories.push_back(styledText(" System", uiDimColor()));
+    if (entry.categoryIndex == 3) categories.push_back(styledText(" Devices", uiDimColor()));
+    if (entry.categoryIndex == 6) categories.push_back(styledText(" Integrations", uiDimColor()));
+    addCategory(category, entry.indent);
+  }
 
   ftxui::Elements rows;
   rows.push_back(ftxui::hbox({
@@ -155,7 +152,7 @@ ftxui::Element App::renderSettingsUi() const {
   rows.push_back(uiDivider());
 
   if (settingsCategory_ == SettingsCategory::General) {
-    rows.push_back(uiHeaderText("DATA STORAGE", uiSecondaryText()));
+    rows.push_back(uiHeaderText("Data storage", uiSecondaryText()));
     rows.push_back(settingLine("Inventatory folder", settingsDraft_.dataDirectory.string(), contentWidth));
     rows.push_back(target(settingLine("Change folder", "Browse...", contentWidth), "settings.data.browse",
                           UiTargetKind::Button, [self] { self->stageInventatoryFolder(); }));
@@ -172,7 +169,7 @@ ftxui::Element App::renderSettingsUi() const {
     rows.push_back(styledText("Restore validates the bundle first, creates a pre-restore backup, and requires Scan R1 re-pairing.",
                               uiMutedText()));
     rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("APPLICATION", uiSecondaryText()));
+    rows.push_back(uiHeaderText("Application", uiSecondaryText()));
     rows.push_back(settingLine("Settings file", settingsPath_.string(), contentWidth));
     rows.push_back(target(settingLine("Background & startup", settingsDraft_.backgroundServiceEnabled ? "On" : "Off",
                                       contentWidth),
@@ -193,31 +190,31 @@ ftxui::Element App::renderSettingsUi() const {
     const bool softwareChecking = updateCheckFuture_.valid();
     const auto softwareVersionText = softwareVersion();
     const auto firmwareVersionText = deviceFirmwareVersion_.empty() ? string("Not reported") : deviceFirmwareVersion_;
-    rows.push_back(versionLine("Inventatory Software Version", softwareVersionText,
+    const bool canUpdate = !softwareChecking && isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
+    rows.push_back(uiHeaderText("Versions", uiSecondaryText()));
+    rows.push_back(versionLine("Inventatory software version", softwareVersionText,
                                updateCheckFailed_ ? string() : settings_.latestAvailableVersion, contentWidth));
-    rows.push_back(versionLine("Inventascan Firmware Version", firmwareVersionText,
+    rows.push_back(versionLine("Inventascan firmware version", firmwareVersionText,
                                scanFirmwareCheckFailed_ ? string() : scanFirmwareLatestVersion_, contentWidth));
-    rows.push_back(ftxui::text(""));
-    rows.push_back(versionLine("Inventascan Hardware Version", "R1", string(), contentWidth));
-    rows.push_back(ftxui::text(""));
+    rows.push_back(versionLine("Inventascan hardware version", "R1", string(), contentWidth));
 
     const auto checkLabel = softwareChecking ? "Searching for software updates " + uiLoadingSpinner()
                                              : "Check for software updates";
-    rows.push_back(buttonRow(target(uiPrimaryButton(checkLabel, !softwareChecking), "settings.updates.check",
-                                                    UiTargetKind::Button,
-                                                    [self] { self->beginUpdateChecks(); }, !softwareChecking)));
-    const bool canUpdate = !softwareChecking && isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
+    ftxui::Elements updateActions;
+    updateActions.push_back(target(uiPrimaryButton(checkLabel, !softwareChecking), "settings.updates.check",
+                                    UiTargetKind::Button, [self] { self->beginUpdateChecks(); }, !softwareChecking));
     if (canUpdate) {
-      rows.push_back(buttonRow(target(uiPrimaryButton("Update to " + settings_.latestAvailableVersion),
-                                      "settings.updates.update", UiTargetKind::Button,
-                                      [self] { self->beginSoftwareUpdate(); })));
-      rows.push_back(styledText("The update opens a guided download, verification, and restart flow.", uiMutedText()));
+      updateActions.push_back(ftxui::text("  "));
+      updateActions.push_back(target(uiPrimaryButton("Update to " + settings_.latestAvailableVersion),
+                                     "settings.updates.update", UiTargetKind::Button,
+                                     [self] { self->beginSoftwareUpdate(); }));
     }
+    rows.push_back(buttonRow(ftxui::hbox(move(updateActions))));
   } else if (settingsCategory_ == SettingsCategory::Appearance) {
     auto appearanceRows = renderSettingsAppearanceRows(contentWidth);
     for (auto& row : appearanceRows) rows.push_back(move(row));
   } else if (settingsCategory_ == SettingsCategory::Printer) {
-    rows.push_back(uiHeaderText("PRINT QUEUE", uiSecondaryText()));
+    rows.push_back(uiHeaderText("Print queue", uiSecondaryText()));
     rows.push_back(settingLine("Configured queue",
                                settingsDraft_.printerQueue.empty() ? "Not configured" : settingsDraft_.printerQueue,
                                contentWidth));
@@ -228,7 +225,7 @@ ftxui::Element App::renderSettingsUi() const {
                             self->dirty_ = true;
                           }));
     rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("DETECTED QUEUES", uiSecondaryText()));
+    rows.push_back(uiHeaderText("Detected queues", uiSecondaryText()));
     if (printerQueues_.empty()) {
       rows.push_back(styledText("No printer queues detected", uiWarnColor()));
     } else {
@@ -249,20 +246,8 @@ ftxui::Element App::renderSettingsUi() const {
         target(uiSecondaryButton("Test selected"), "settings.printer.test", UiTargetKind::Button,
                [self] { self->testStagedPrinter(); }),
     }));
-    rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("CUSTOM LABEL", uiSecondaryText()));
-    const auto wireValue = settingsEditingField_ && settingsField_ == 50 ? inputBuffer_ + "_"
-                                                                           : wireLabelText_.empty() ? "Enter custom wire text" : wireLabelText_;
-    rows.push_back(target(settingLine("Wire label", wireValue, contentWidth, settingsEditingField_ && settingsField_ == 50),
-                          "settings.printer.wire", UiTargetKind::Field,
-                          [self] { self->beginSettingsFieldEdit(50); }));
-    rows.push_back(ftxui::text(""));
-    rows.push_back(buttonRow(target(uiPrimaryButton("Print custom label", !wireLabelText_.empty()),
-                                    "settings.printer.wire.custom", UiTargetKind::Button,
-                                    [self] { self->printWireLabel(self->wireLabelText_); },
-                                    !wireLabelText_.empty())));
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
-    rows.push_back(uiHeaderText("QUICK LABELS / PRESETS", uiSecondaryText()));
+    rows.push_back(uiHeaderText("Quick labels / presets", uiSecondaryText()));
     const bool canAddPreset = settingsDraft_.quickLabelPresets.size() < kQuickLabelPresetLimit;
     rows.push_back(buttonRow(target(uiPrimaryButton("+ Add quick label", canAddPreset),
                                     "settings.quick_label.add.primary", UiTargetKind::Button,
@@ -297,6 +282,20 @@ ftxui::Element App::renderSettingsUi() const {
                "settings.quick_label.down", UiTargetKind::Button, [self] { self->moveQuickLabelPreset(1); },
                settingsField_ >= 0 && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())),
     }));
+    const int customLabelField = static_cast<int>(settingsDraft_.quickLabelPresets.size());
+    const bool customLabelSelected = settingsField_ == customLabelField;
+    const bool customLabelEditing = settingsEditingField_ && customLabelSelected;
+    rows.push_back(uiDivider());
+    rows.push_back(uiHeaderText("Custom label", uiSecondaryText()));
+    const auto wireValue = customLabelEditing ? inputBuffer_ + "_"
+                                              : wireLabelText_.empty() ? "Enter custom wire text" : wireLabelText_;
+    rows.push_back(target(settingLine("Wire label", wireValue, contentWidth, customLabelSelected),
+                          "settings.quick_label.wire", UiTargetKind::Field,
+                          [self, customLabelField] { self->beginSettingsFieldEdit(customLabelField); }));
+    rows.push_back(buttonRow(target(uiPrimaryButton("Print custom label", !wireLabelText_.empty()),
+                                    "settings.quick_label.wire.custom", UiTargetKind::Button,
+                                    [self] { self->printWireLabel(self->wireLabelText_); },
+                                    !wireLabelText_.empty())));
   } else if (settingsCategory_ == SettingsCategory::InventatoryScan) {
     const bool setupComplete = inventatoryScanConfig_.setupComplete || !inventatoryScanConfig_.deviceId.empty();
     if (!setupComplete) {
@@ -305,7 +304,7 @@ ftxui::Element App::renderSettingsUi() const {
     } else {
       // Pairing is the reason this panel exists, so it leads. Token and
       // diagnostics operations stay on the Actions sheet.
-      rows.push_back(uiHeaderText("DEVICE", uiSecondaryText()));
+      rows.push_back(uiHeaderText("Device", uiSecondaryText()));
       rows.push_back(buttonRow(target(uiPrimaryButton("Pair new device"), "settings.scan.pair", UiTargetKind::Button,
                                       [self] { self->openInventatoryScanSetup(); })));
       rows.push_back(ftxui::text(""));
@@ -354,7 +353,7 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(buttonRow(target(uiPrimaryButton("Begin Setup"), "settings.digikey.begin_setup", UiTargetKind::Button,
                                     [self] { self->openDigiKeySetup(); })));
     } else {
-      rows.push_back(uiHeaderText("DIGIKEY API CREDENTIALS", uiSecondaryText()));
+      rows.push_back(uiHeaderText("DigiKey API credentials", uiSecondaryText()));
       const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
       const vector<pair<string, string>> fields = {
           {"Client ID", settingsDraft_.digiKeyClientId},
@@ -375,7 +374,7 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(buttonRow(target(uiSecondaryButton("Test credentials"), "settings.digikey.test",
                                        UiTargetKind::Button, [self] { self->testStagedDigiKey(); })));
       rows.push_back(uiDivider());
-      rows.push_back(uiHeaderText("INVENTORY ENRICHMENT", uiSecondaryText()));
+      rows.push_back(uiHeaderText("Inventory enrichment", uiSecondaryText()));
       const bool refreshRunning = !digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid();
       string refreshStatus = "Not run";
       if (refreshRunning) {
