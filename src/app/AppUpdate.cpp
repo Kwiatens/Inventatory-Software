@@ -642,7 +642,7 @@ ftxui::Element App::renderUpdateContent() const {
       rows.push_back(uiHeaderText("Inventatory was updated", uiSuccessColor()));
       rows.push_back(styledText("Now running " + (updateCompletionVersion_.empty() ? softwareVersion() : updateCompletionVersion_),
                                 uiLinkColor()));
-      rows.push_back(uiSectionHeader("COMPLETE RELEASE NOTES", uiSecondaryText()));
+      rows.push_back(uiSectionHeader("Complete release notes", uiSecondaryText()));
       rows.push_back(notesPanel(updateCompletionNotes_));
       rows.push_back(target(uiPrimaryButton("Continue"), "update.continue", UiTargetKind::Button,
                             [self] { self->dismissUpdateResult(); }));

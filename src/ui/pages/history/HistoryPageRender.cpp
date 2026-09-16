@@ -286,7 +286,7 @@ ftxui::Element App::renderHistoryUi() const {
   auto self = const_cast<App*>(this);
 
   ftxui::Elements listRows;
-  listRows.push_back(uiSectionHeader("COMMITS  " + to_string(inventoryCommits_.size()), uiSecondaryText(),
+  listRows.push_back(uiSectionHeader("Commits  " + to_string(inventoryCommits_.size()), uiSecondaryText(),
                                      uiSurfaceBg()));
   if (inventoryCommits_.empty()) {
     listRows.push_back(fullLine("No inventory commits yet.", uiMutedColor(), uiSurfaceBg()));
@@ -332,13 +332,13 @@ ftxui::Element App::renderHistoryUi() const {
 
   ftxui::Elements detailRows;
   if (!historyDetailValid_) {
-    detailRows.push_back(uiSectionHeader("COMMIT DETAIL", uiSecondaryText(), uiSurfaceBg()));
+    detailRows.push_back(uiSectionHeader("Commit detail", uiSecondaryText(), uiSurfaceBg()));
     detailRows.push_back(fullLine("Select a commit to inspect its inventory changes.", uiMutedColor(), uiSurfaceBg()));
   } else if (recordOpen) {
     const auto& commit = historyDetail_.commit;
     const auto& record = records[recordSelection];
     const auto status = recordStatus(record);
-    detailRows.push_back(uiSectionHeader("RECORD DETAIL", uiSecondaryText(), uiSurfaceBg()));
+    detailRows.push_back(uiSectionHeader("Record detail", uiSecondaryText(), uiSurfaceBg()));
     detailRows.push_back(ftxui::hbox({historyBadge(status, recordStatusColor(status), recordStatusBackground(status)),
                                       uiBodyText("  " + record.entityType + "  " + record.label, uiTitleColor()),
                                       ftxui::filler()}));
@@ -364,7 +364,7 @@ ftxui::Element App::renderHistoryUi() const {
   } else {
     const auto& commit = historyDetail_.commit;
     const auto kind = commitMarker(commit);
-    detailRows.push_back(uiSectionHeader("COMMIT DETAIL", uiSecondaryText(), uiSurfaceBg()));
+    detailRows.push_back(uiSectionHeader("Commit detail", uiSecondaryText(), uiSurfaceBg()));
     detailRows.push_back(ftxui::hbox({historyBadge(kind, commit.checkpoint ? uiWarnColor() : uiAccentColor(),
                                                    commit.checkpoint ? uiWarningBg() : uiRaisedSurfaceBg()),
                                       uiBodyText("  #" + to_string(commit.sequence) + "  " + commit.message,
@@ -386,7 +386,7 @@ ftxui::Element App::renderHistoryUi() const {
                                   commit.checkpoint ? uiWarnColor() : uiInfoColor(), uiSurfaceBg()));
     appendHistoryActions(detailRows);
     detailRows.push_back(uiDivider());
-    detailRows.push_back(uiSectionHeader("CHANGED RECORDS  " + to_string(records.size()), uiSecondaryText(),
+    detailRows.push_back(uiSectionHeader("Changed records  " + to_string(records.size()), uiSecondaryText(),
                                          uiSurfaceBg()));
     if (records.empty()) {
       detailRows.push_back(fullLine(commit.checkpoint ? "Snapshot-only checkpoint; inventory unchanged."
@@ -413,7 +413,7 @@ ftxui::Element App::renderHistoryUi() const {
 
   if (inputMode_ == InputMode::HistoryConfirm) {
     detailRows.push_back(uiDivider());
-    detailRows.push_back(fullLine("CONFIRM HISTORY ACTION", uiWarnColor(), uiWarningBg()));
+    detailRows.push_back(fullLine("Confirm history action", uiWarnColor(), uiWarningBg()));
     detailRows.push_back(fullLine(ellipsize(historyConfirmationMessage_, static_cast<size_t>(max(10, detailWidth - 2))),
                                   uiTitleColor(), uiWarningBg()));
     detailRows.push_back(fullLine("Enter confirm  Esc cancel", uiAccentColor(), uiWarningBg()));

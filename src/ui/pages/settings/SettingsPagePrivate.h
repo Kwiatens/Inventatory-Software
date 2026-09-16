@@ -5,11 +5,27 @@
 #include "App.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 
 namespace inventatory {
 namespace settings_page_detail {
+
+struct SettingsCategoryEntry {
+  int categoryIndex = 0;
+  int indent = 0;
+};
+
+inline constexpr std::array<SettingsCategoryEntry, 7> settingsCategoryEntries() {
+  return {{{0, 0},  // General / Data
+           {1, 0},  // Appearance
+           {2, 0},  // Updates
+           {3, 0},  // Printer
+           {4, 1},  // Quick Labels under Printer
+           {5, 0},  // Inventatory Scan
+           {6, 0}}}; // DigiKey
+}
 
 int settingsLabelWidth(int width);
 ftxui::Element settingLine(const std::string& label, const std::string& value, int width, bool selected = false);

@@ -91,11 +91,11 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, size
 
   ftxui::Elements rows;
   rows.push_back(ftxui::hbox({
-      fixedCell("STATE", severityWidth, uiMutedColor(), false, true),
+      fixedCell("State", severityWidth, uiMutedColor(), false, true),
       uiDivider(),
-      fixedCell("PART", partWidth, uiMutedColor(), false, true),
+      fixedCell("Part", partWidth, uiMutedColor(), false, true),
       uiDivider(),
-      fixedCell("QTY", quantityWidth, uiMutedColor(), true, true),
+      fixedCell("Qty", quantityWidth, uiMutedColor(), true, true),
   }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth));
 
   if (snapshot.attention.empty()) {

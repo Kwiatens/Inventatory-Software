@@ -108,12 +108,14 @@ analysis against current stock with no re-upload. `d` forgets one.
 
 ## Settings workflow
 
-Settings has seven categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
-R1 service port, auto-label behavior, and DigiKey configuration are staged until Save. Cancel
-restores the saved values. Printer and DigiKey tests use the staged values.
+Settings has seven destinations arranged under System, Devices, and Integrations. Devices contains
+Printer, with Quick Labels nested below it, and Inventatory Scan. Changes to data location, printer,
+Quick Labels, the Inventatory Scan R1 service port, auto-label behavior, and DigiKey configuration are
+staged until Save. Cancel restores the saved values. Printer and DigiKey tests use the staged values.
 
-The Quick Labels category owns up to twelve shared cable-flag texts. Add, edit, remove, reorder, test-print, then Save;
-the paired R1 receives the saved list during its next sync. Selecting a preset on the R1 prints immediately through the
+The Quick Labels panel owns up to twelve shared cable-flag texts and the optional custom wire label. Add, edit, remove,
+reorder, test-print, then Save for presets; edit and print the custom label directly from the same panel.
+The paired R1 receives the saved list during its next sync. Selecting a preset on the R1 prints immediately through the
 configured PC printer. Each cable flag prints normally oriented text on both folded halves, with its font scaled to fit.
 Failed/offline device requests are not queued.
 
@@ -127,7 +129,7 @@ the signed-in Windows user, hides in the notification area after close, and cont
 icon to Open Inventatory or Quit Inventatory; the Windows startup entry is shown as **Inventatory Background Service**. Disabling the setting removes Inventatory from Windows startup. This does not run before a
 user signs in.
 
-An unconfigured Inventatory Scan section shows only **Begin Setup**, which opens
+An unconfigured **Settings -> Devices -> Inventatory Scan** section shows only **Begin Setup**, which opens
 the existing setup wizard. After provisioning is accepted, the section restores
 **Pair new device**, the R1 status line (online/offline, device id, signal, and
 last contact once it has reported in), the service port, and **Check for firmware
@@ -163,7 +165,7 @@ The R1 communicates directly with the authenticated device service inside the
 desktop application. This is not the retired phone/web scanner: Inventatory exposes no
 browser scanning page, and the service accepts only the paired R1 device API.
 
-For a new or reset R1, use **Settings → Inventatory Scan → Begin Setup**, then
+For a new or reset R1, use **Settings → Devices → Inventatory Scan → Begin Setup**, then
 choose **Find scanner** inside the wizard. Enter the six-digit code shown on the
 R1 and the home Wi-Fi credentials.
 Bluetooth LE Secure Connections encrypts and authenticates that transfer;

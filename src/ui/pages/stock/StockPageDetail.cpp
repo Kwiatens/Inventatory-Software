@@ -126,7 +126,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
         distance << showpos << fixed << setprecision(1) << selectedMatch->signedRelativeDifference * 100.0 << "%";
       }
       detailRows.push_back(uiDivider());
-      detailRows.push_back(fullLine("MATCH", bandColor(selectedMatch->band), uiSurfaceBg()));
+      detailRows.push_back(fullLine("Match", bandColor(selectedMatch->band), uiSurfaceBg()));
       detailRows.push_back(detailFieldLine({"Fit: ", matchText, uiSecondaryText(), bandColor(selectedMatch->band)},
                                             detailInnerWidth));
       if (!distance.str().empty()) {
@@ -144,7 +144,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       const bool alreadyCounted = counted != stocktakeCounts_.end();
       const auto physicalCount = stocktakeCountFor(*item);
       detailRows.push_back(uiDivider());
-      detailRows.push_back(fullLine("STOCKTAKE COUNT", uiAccentColor(), uiSurfaceBg()));
+      detailRows.push_back(fullLine("Stocktake count", uiAccentColor(), uiSurfaceBg()));
       detailRows.push_back(ftxui::hbox({
           styledText(" System ", uiSecondaryText()),
           uiBodyText(to_string(item->quantity), uiPrimaryText()),
@@ -170,7 +170,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     }
     if (!recentMovements.empty()) {
       detailRows.push_back(uiDivider());
-      detailRows.push_back(fullLine("RECENT MOVEMENTS", uiSecondaryText(), uiSurfaceBg()));
+      detailRows.push_back(fullLine("Recent movements", uiSecondaryText(), uiSurfaceBg()));
       for (const auto* movement : recentMovements) {
         const auto delta = movement->delta > 0 ? "+" + to_string(movement->delta) : to_string(movement->delta);
         auto reference = movement->reference.empty() ? string() : " · " + movement->reference;
@@ -184,7 +184,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
 
     if (!electricalFields.empty()) {
       detailRows.push_back(uiDivider());
-      detailRows.push_back(fullLine("ELECTRICAL PARAMETERS", uiSecondaryText(), uiSurfaceBg()));
+      detailRows.push_back(fullLine("Electrical parameters", uiSecondaryText(), uiSurfaceBg()));
       for (const auto& field : electricalFields) {
         // The passive summary line above already prints the package value, and
         // "0603 (1608 Metric)" needs no label to be understood.
@@ -209,7 +209,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     // block never looks like missing data.
     detailRows.push_back(uiDivider());
     detailRows.push_back(target(ftxui::hbox({
-                                    styledText(stockDetailsExpanded_ ? " \xE2\x96\xBE DETAILS" : " \xE2\x96\xB8 DETAILS",
+                                    styledText(stockDetailsExpanded_ ? " \xE2\x96\xBE Details" : " \xE2\x96\xB8 Details",
                                                uiSecondaryText()),
                                     ftxui::filler(),
                                     styledText(stockDetailsExpanded_
@@ -238,13 +238,13 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
          [self] { if (const auto* value = self->selectedItem()) self->openCurrentUrl(value->productUrl, "product"); });
     if (!linkRows.empty()) {
       detailRows.push_back(uiDivider());
-      detailRows.push_back(fullLine("LINKS", uiSecondaryText(), uiSurfaceBg()));
+      detailRows.push_back(fullLine("Links", uiSecondaryText(), uiSurfaceBg()));
       for (auto& row : linkRows) detailRows.push_back(move(row));
     }
 
     if (!trim(item->notes).empty()) {
       detailRows.push_back(uiDivider());
-      detailRows.push_back(fullLine("NOTES", uiSecondaryText(), uiSurfaceBg()));
+      detailRows.push_back(fullLine("Notes", uiSecondaryText(), uiSurfaceBg()));
       detailRows.push_back(ftxui::paragraphAlignLeft(item->notes) | ftxui::color(uiPrimaryText()));
     }
   } else {

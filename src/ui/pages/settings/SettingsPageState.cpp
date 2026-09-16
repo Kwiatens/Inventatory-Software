@@ -152,13 +152,19 @@ void App::beginSettingsFieldEdit(int field) {
       }
       break;
     case SettingsCategory::Printer:
-      inputBuffer_ = field == 50 ? wireLabelText_ : string();
+      inputBuffer_.clear();
       break;
-    case SettingsCategory::QuickLabels:
-      inputBuffer_ = field >= 0 && field < static_cast<int>(settingsDraft_.quickLabelPresets.size())
-                         ? settingsDraft_.quickLabelPresets[field]
-                         : string();
+    case SettingsCategory::QuickLabels: {
+      const int customLabelField = static_cast<int>(settingsDraft_.quickLabelPresets.size());
+      if (field == customLabelField) {
+        inputBuffer_ = wireLabelText_;
+      } else if (field >= 0 && field < customLabelField) {
+        inputBuffer_ = settingsDraft_.quickLabelPresets[field];
+      } else {
+        inputBuffer_.clear();
+      }
       break;
+    }
     case SettingsCategory::InventatoryScan:
       inputBuffer_ = field == 0 ? to_string(settingsDraft_.deviceServicePort) : string();
       break;
@@ -179,8 +185,14 @@ void App::beginSettingsFieldEdit(int field) {
 
 void App::commitSettingsFieldEdit() {
   if (!settingsEditingField_) return;
-  if (settingsCategory_ == SettingsCategory::Printer && settingsField_ == 50) {
+  if (settingsCategory_ == SettingsCategory::QuickLabels &&
+      settingsField_ == static_cast<int>(settingsDraft_.quickLabelPresets.size())) {
     wireLabelText_ = trim(inputBuffer_);
+    settingsEditingField_ = false;
+    settingsDirty_ = settingsDraftHasChanges();
+    inputBuffer_.clear();
+    dirty_ = true;
+    return;
   } else if (settingsCategory_ == SettingsCategory::General) {
     if (settingsField_ == 0) {
       int threshold = 0;

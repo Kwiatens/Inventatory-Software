@@ -138,7 +138,7 @@ ftxui::Element App::renderImportCsvUi() const {
                          "import.choose", UiTargetKind::Button, [self] { self->beginCsvImport(); });
     return ftxui::vbox({
         ftxui::filler(),
-        ftxui::hbox({ftxui::filler(), uiHeaderText("IMPORT COMPONENTS", uiPrimaryText()),
+        ftxui::hbox({ftxui::filler(), uiHeaderText("Import components", uiPrimaryText()),
                      ftxui::filler()}),
         ftxui::hbox({ftxui::filler(), styledText("DigiKey order CSV  ·  KiCad BOM", uiInfoColor()),
                      ftxui::filler()}),
@@ -253,11 +253,11 @@ ftxui::Element App::renderImportCsvUi() const {
     detailRows.push_back(fullLine("Review complete.", uiAccentColor(), uiPanelRightBg()));
   }
 
-  listRows.insert(listRows.begin(), fullLine("CSV ROWS  " + to_string(importCandidates_.size()), uiSecondaryText(), uiSurfaceBg()));
+  listRows.insert(listRows.begin(), fullLine("CSV rows  " + to_string(importCandidates_.size()), uiSecondaryText(), uiSurfaceBg()));
   auto listPanel = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
                    ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
-  detailRows.insert(detailRows.begin(), fullLine("IMPORT DETAIL", uiSecondaryText(), uiSurfaceBg()));
+  detailRows.insert(detailRows.begin(), fullLine("Import detail", uiSecondaryText(), uiSurfaceBg()));
   auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailOuterWidth);
 

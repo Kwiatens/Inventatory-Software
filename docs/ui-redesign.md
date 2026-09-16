@@ -161,10 +161,13 @@ offered after review with an explicit completion choice.
 
 ### Settings
 
-General/Data, Appearance, Updates, Printer, Quick Labels, Inventatory Scan, and DigiKey live in one category/detail
-workspace. Ordinary edits are staged and use Save/Cancel. Refresh, Test, Copy,
-Regenerate, Clear, Check for software updates, and Update are operational actions. DigiKey secrets are stored in
+General/Data, Appearance, and Updates live under System. Devices contains Printer, with Quick Labels nested beneath
+it, and Inventatory Scan. DigiKey remains under Integrations. Ordinary edits are staged and use Save/Cancel.
+Refresh, Test, Copy, Regenerate, Clear, Check for software updates, and Update are operational actions. DigiKey secrets are stored in
 Windows Credential Manager, never in `settings.conf`.
+
+The Quick Labels panel owns the optional custom wire label as well as the saved presets. The Printer panel contains
+printer discovery and queue testing only.
 
 Each panel carries only settings and state: no explanatory hint copy, and no
 navigation button that duplicates a category already in the sidebar. An

@@ -116,7 +116,7 @@ ftxui::Element scannerPanel(const string& state, bool connected, bool /*paired*/
       message = "Please connect the Inventatory Scanner";
     } else {
       const bool firstMessage = (uiAnimationTicks() / kScannerMessageCycleMs) % 2 == 0;
-      message = firstMessage ? "Inventatory Scanner Disconnected" : "Please reconnect the device.";
+      message = firstMessage ? "Inventatory Scanner disconnected" : "Please reconnect the device.";
     }
     body.push_back(uiBodyText(ellipsize(message, static_cast<size_t>(max(8, contentWidth))), uiMutedColor()));
   }
@@ -142,7 +142,7 @@ ftxui::Element healthPanel(const DashboardSnapshot& snapshot, const string& pers
   const int metricWidth = max(12, (contentWidth - 1) / 2);
   const bool databaseReady = persistenceError.empty();
   ftxui::Elements rows;
-  rows.push_back(plainSectionTitle("INVENTORY DATABASE STATUS", width));
+  rows.push_back(plainSectionTitle("Inventory database status", width));
   rows.push_back(ftxui::hbox({
       metricBlock("Parts tracked", to_string(snapshot.itemCount), uiPrimaryText(), metricWidth),
       uiDivider(),
@@ -157,7 +157,7 @@ ftxui::Element healthPanel(const DashboardSnapshot& snapshot, const string& pers
                   snapshot.outOfStockCount > 0 ? uiDangerColor() : uiSuccessColor(), metricWidth),
   }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth));
   rows.push_back(uiDivider());
-  rows.push_back(uiHeaderText("DATA QUALITY", uiMutedColor()));
+  rows.push_back(uiHeaderText("Data quality", uiMutedColor()));
   rows.push_back(statusLine("Missing metadata", to_string(snapshot.missingMetadataCount),
                             snapshot.missingMetadataCount > 0 ? uiWarnColor() : uiSuccessColor(), contentWidth));
   rows.push_back(statusLine("Invalid records", to_string(snapshot.dataErrorCount),
@@ -172,7 +172,7 @@ ftxui::Element activityPanel(const vector<InventoryCommit>& commits, int width, 
                              const function<ftxui::Element(ftxui::Element, size_t)>& wrapRow) {
   const int contentWidth = max(28, width - 2);
   ftxui::Elements rows;
-  rows.push_back(plainSectionTitle("RECENT COMMITS", width));
+  rows.push_back(plainSectionTitle("Recent commits", width));
   if (commits.empty()) {
     rows.push_back(uiBodyText("No inventory commits yet.", uiMutedColor()));
     return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;

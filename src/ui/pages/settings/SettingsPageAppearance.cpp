@@ -51,7 +51,7 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
     };
 
     if (!appearancePickerOpen_) {
-      addAppearanceSection("BACKGROUNDS", {
+      addAppearanceSection("Backgrounds", {
           AppearanceColorRole::CanvasBg,
           AppearanceColorRole::SurfaceBg,
           AppearanceColorRole::RaisedSurfaceBg,
@@ -59,20 +59,20 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
           AppearanceColorRole::SelectionBg,
           AppearanceColorRole::Divider,
       });
-      addAppearanceSection("TEXT", {
+      addAppearanceSection("Text", {
           AppearanceColorRole::PrimaryText,
           AppearanceColorRole::SecondaryText,
           AppearanceColorRole::MutedText,
           AppearanceColorRole::FocusText,
       });
-      addAppearanceSection("ACCENTS AND STATUS", {
+      addAppearanceSection("Accents and status", {
           AppearanceColorRole::Interactive,
           AppearanceColorRole::Success,
           AppearanceColorRole::Link,
           AppearanceColorRole::WarningText,
           AppearanceColorRole::DangerText,
       });
-      addAppearanceSection("STATUS BACKGROUNDS", {
+      addAppearanceSection("Status backgrounds", {
           AppearanceColorRole::ActiveBg,
           AppearanceColorRole::ActiveSoftBg,
           AppearanceColorRole::WarningBg,
@@ -84,7 +84,7 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
     const auto selectedIndex = clamp(settingsField_, 0, static_cast<int>(kAppearanceColorCount) - 1);
     const auto selectedRole = static_cast<AppearanceColorRole>(selectedIndex);
     rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("EDIT COLOR", uiSecondaryText()));
+    rows.push_back(uiHeaderText("Edit color", uiSecondaryText()));
     rows.push_back(ftxui::hbox({
         styledText(" Selected", uiSecondaryText()) |
             ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
@@ -105,7 +105,7 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
                           [self] { self->beginSettingsFieldEdit(self->settingsField_); }));
 
     if (appearancePickerOpen_) {
-      rows.push_back(uiHeaderText("HUE / VALUE PICKER", uiSecondaryText()));
+      rows.push_back(uiHeaderText("Hue / value picker", uiSecondaryText()));
       for (int value = kAppearancePickerValueSteps - 1; value >= 0; --value) {
         ftxui::Elements pickerRow;
         for (int hue = 0; hue < kAppearancePickerHueSteps; ++hue) {
