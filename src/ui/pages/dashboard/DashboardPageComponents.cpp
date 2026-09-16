@@ -34,6 +34,10 @@ ftxui::Color attentionBackground(const AttentionRow&) {
   return uiSelectionBg();
 }
 
+ftxui::Color attentionTextColor(const AttentionRow& row) {
+  return row.severity == AttentionSeverity::Out ? uiDangerColor() : uiWarnColor();
+}
+
 DashboardSnapshot buildDashboardSnapshot(const vector<InventoryItem>& items, int lowStockThreshold) {
   DashboardSnapshot snapshot;
   snapshot.itemCount = items.size();
@@ -111,12 +115,12 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, size
   for (size_t index = 0; index < snapshot.attention.size(); ++index) {
     const auto& row = snapshot.attention[index];
     const bool selected = index == selectedRow;
-    const auto background = selected && active ? attentionBackground(row)
-                                               : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
+    const auto background = selected && active ? attentionBackground(row) : uiSurfaceBg();
+    const auto semanticColor = attentionTextColor(row);
     auto renderedRow = ftxui::hbox({
-        centeredCell(row.issue, severityWidth, uiPrimaryText(), true),
+        centeredCell(row.issue, severityWidth, semanticColor, true),
         uiDivider(),
-        centeredCell(row.partName, partWidth, uiPrimaryText()),
+        centeredCell(row.partName, partWidth, semanticColor),
         uiDivider(),
         fixedCell(to_string(row.quantity), quantityWidth, uiPrimaryText(), true),
     }) |
