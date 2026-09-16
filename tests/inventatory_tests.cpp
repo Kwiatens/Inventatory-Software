@@ -27,6 +27,7 @@
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
+#include "ui/pages/dashboard/DashboardPagePrivate.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
@@ -1109,6 +1110,39 @@ void testPackageGHardening() {
 }
 
 int main() {
+  {
+    using namespace inventatory::dashboard_detail;
+    assert(dashboardScannerIdleMessage("UNPAIRED") == "Scanner R1 not paired");
+    assert(dashboardScannerIdleMessage("WAITING") == "Scanner R1 waiting to connect");
+    assert(dashboardScannerIdleMessage("DISCONNECTED") == "Scanner R1 offline");
+    assert(dashboardRowSurface(false, false) == DashboardRowSurface::Surface);
+    assert(dashboardRowSurface(true, false) == DashboardRowSurface::Surface);
+    assert(dashboardRowSurface(true, true) == DashboardRowSurface::Selection);
+  }
+
+  {
+    const auto info = uiMessagePresentation(UiMessageSeverity::Info);
+    const auto success = uiMessagePresentation(UiMessageSeverity::Success);
+    const auto warning = uiMessagePresentation(UiMessageSeverity::Warning);
+    const auto error = uiMessagePresentation(UiMessageSeverity::Error);
+    const auto legacy = uiMessagePresentation(kLegacyMessageSeverity);
+    assert(string(info.prefix) == "[i] ");
+    assert(info.color == UiMessageColorRole::Info);
+    assert(string(success.prefix) == "[ok] ");
+    assert(success.color == UiMessageColorRole::Success);
+    assert(string(warning.prefix) == "[!] ");
+    assert(warning.color == UiMessageColorRole::Warning);
+    assert(string(error.prefix) == "[x] ");
+    assert(error.color == UiMessageColorRole::Error);
+    assert(string(legacy.prefix) == "[i] ");
+    assert(legacy.color == UiMessageColorRole::Info);
+    assert(uiMessageAcknowledgementPulseActive(100, 100));
+    assert(uiMessageAcknowledgementPulseActive(100, 299));
+    assert(!uiMessageAcknowledgementPulseActive(100, 300));
+    assert(!uiMessageAcknowledgementPulseActive(-1, 100));
+    assert(uiMessageRowHeight() == 1);
+  }
+
   {
     assert(rack_page_detail::equalRackSlotHeight(39, 5) == 8);
     assert(rack_page_detail::equalRackSlotHeight(40, 5) == 8);

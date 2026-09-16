@@ -176,7 +176,7 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::RackLocation: {
       string error;
       if (!setManualRackLocation(store_, workingCopy_.item, value, error)) {
-        setMessage(error, 4);
+        setMessage(error, 4, UiMessageSeverity::Warning);
         return;
       }
       break;
@@ -184,12 +184,12 @@ void App::commitEditField(EditField field, const string& value) {
   }
 
   if (!valid) {
-    setMessage("Invalid numeric value", 3);
+    setMessage("Invalid numeric value", 3, UiMessageSeverity::Warning);
     return;
   }
 
   workingCopy_.item.lastUpdated = time(nullptr);
-  setMessage(fieldLabel(field) + " updated", 2);
+  setMessage(fieldLabel(field) + " updated", 2, UiMessageSeverity::Success);
   inputBuffer_.clear();
   inputMode_ = InputMode::EditFieldMenu;
   dirty_ = true;
@@ -204,7 +204,7 @@ void App::saveWorkingCopy() {
     editingImportCandidate_ = false;
     inputMode_ = InputMode::None;
     page_ = Page::Import;
-    setMessage("Import row updated", 2);
+    setMessage("Import row updated", 2, UiMessageSeverity::Success);
     dirty_ = true;
     return;
   }
@@ -224,13 +224,13 @@ void App::saveWorkingCopy() {
   inputMode_ = InputMode::None;
   page_ = Page::Stock;
   syncSelectionToFilter();
-  setMessage("Changes saved", 2);
+  setMessage("Changes saved", 2, UiMessageSeverity::Success);
 }
 
 void App::adjustQuantity(int delta) {
   auto* item = selectedItem();
   if (item == nullptr) {
-    setMessage("No item selected", 2);
+    setMessage("No item selected", 2, UiMessageSeverity::Warning);
     return;
   }
 
@@ -240,20 +240,22 @@ void App::adjustQuantity(int delta) {
   item->lastUpdated = time(nullptr);
   logActivity(delta > 0 ? "stock" : "usage", item->partName + " quantity changed to " + to_string(item->quantity));
   const bool saved = saveState();
-  setMessage(saved ? item->partName + " quantity is now " + to_string(item->quantity)
-                  : "Quantity changed in memory; press R to retry saving",
-             saved ? 2 : 5);
+  if (saved) {
+    setMessage(item->partName + " quantity is now " + to_string(item->quantity), 2, UiMessageSeverity::Success);
+  } else {
+    setMessage("Quantity changed in memory; press R to retry saving", 5, UiMessageSeverity::Error);
+  }
   dirty_ = true;
 }
 
 void App::setSelectedQuantityFromInput(const string& value) {
   auto* item = selectedItem();
   if (item == nullptr) {
-    setMessage("No item selected", 2);
+    setMessage("No item selected", 2, UiMessageSeverity::Warning);
     return;
   }
   if (value.empty()) {
-    setMessage("Enter a quantity from 0 to 2147483647", 4);
+    setMessage("Enter a quantity from 0 to 2147483647", 4, UiMessageSeverity::Warning);
     return;
   }
 
@@ -266,7 +268,7 @@ void App::setSelectedQuantityFromInput(const string& value) {
     parsed = -1;
   }
   if (parsed < 0) {
-    setMessage("Quantity must be a whole number from 0 to 2147483647", 4);
+    setMessage("Quantity must be a whole number from 0 to 2147483647", 4, UiMessageSeverity::Warning);
     return;
   }
   if (item->quantity == parsed) {
@@ -281,9 +283,11 @@ void App::setSelectedQuantityFromInput(const string& value) {
   logActivity(parsed > previous ? "stock" : "usage",
               item->partName + " quantity set to " + to_string(item->quantity));
   const bool saved = saveState();
-  setMessage(saved ? item->partName + " quantity set to " + to_string(item->quantity)
-                  : "Quantity changed in memory; press R to retry saving",
-             saved ? 2 : 5);
+  if (saved) {
+    setMessage(item->partName + " quantity set to " + to_string(item->quantity), 2, UiMessageSeverity::Success);
+  } else {
+    setMessage("Quantity changed in memory; press R to retry saving", 5, UiMessageSeverity::Error);
+  }
   dirty_ = true;
 }
 
