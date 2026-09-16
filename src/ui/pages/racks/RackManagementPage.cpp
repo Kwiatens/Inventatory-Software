@@ -369,7 +369,7 @@ ftxui::Element App::renderRackManagementUi() const {
     detailRows.push_back(detailFieldLine({"Type: ", rack->componentType, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
     detailRows.push_back(uiDivider());
     if (selectedSlotItem == nullptr) {
-      detailRows.push_back(fullLine("Empty slot", uiMutedColor(), uiRowDarkBg()));
+      detailRows.push_back(fullLine("Empty slot", uiMutedColor(), uiSurfaceBg()));
       detailRows.push_back(ftxui::paragraphAlignLeft(movingRackItemId_.empty()
                                                          ? "Press v on an occupied slot to start moving a part."
                                                          : "Press v here to place the moving part.") |
