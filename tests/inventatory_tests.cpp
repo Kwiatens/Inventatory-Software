@@ -27,6 +27,7 @@
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
+#include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
 #include "ui/pages/stock/StockFilterState.h"
@@ -1108,6 +1109,13 @@ void testPackageGHardening() {
 }
 
 int main() {
+  {
+    assert(rack_page_detail::equalRackSlotHeight(39, 5) == 8);
+    assert(rack_page_detail::equalRackSlotHeight(40, 5) == 8);
+    assert(rack_page_detail::equalRackSlotHeight(15, 5) == 3);
+    assert(rack_page_detail::equalRackSlotHeight(16, 5) == 4);
+  }
+
   {
     const auto categories = settings_page_detail::settingsCategoryEntries();
     assert(categories.size() == 7);

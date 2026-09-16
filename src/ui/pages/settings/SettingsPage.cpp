@@ -166,8 +166,6 @@ ftxui::Element App::renderSettingsUi() const {
         target(uiSecondaryButton("Restore backup"), "settings.data.restore", UiTargetKind::Button,
                [self] { self->restoreData(); }),
     }));
-    rows.push_back(styledText("Restore validates the bundle first, creates a pre-restore backup, and requires Scan R1 re-pairing.",
-                              uiMutedText()));
     rows.push_back(uiDivider());
     rows.push_back(uiHeaderText("Application", uiSecondaryText()));
     rows.push_back(settingLine("Settings file", settingsPath_.string(), contentWidth));
@@ -338,14 +336,8 @@ ftxui::Element App::renderSettingsUi() const {
       rows.push_back(target(settingLine("Service port", portValue, contentWidth, settingsEditingField_),
                             "settings.scan.port", UiTargetKind::Field,
                             [self] { self->beginSettingsFieldEdit(0); }));
-      rows.push_back(settingLine("Firmware", scanFirmwareStatus(), contentWidth));
-      rows.push_back(buttonRow(ftxui::hbox({
-          target(uiSecondaryButton("Check for firmware updates"), "settings.scan.firmware", UiTargetKind::Button,
-                 [self] { self->beginScanFirmwareCheck(); }),
-          ftxui::text("  "),
-          target(uiSecondaryButton("Restart Bridge"), "settings.scan.restart", UiTargetKind::Button,
-                 [self] { self->restartDeviceService(); }),
-      })));
+      rows.push_back(buttonRow(target(uiSecondaryButton("Restart bridge"), "settings.scan.restart", UiTargetKind::Button,
+                                 [self] { self->restartDeviceService(); })));
     }
   } else if (settingsCategory_ == SettingsCategory::DigiKey) {
     const bool configured = !trim(settings_.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
