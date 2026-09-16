@@ -176,7 +176,7 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
         }
       }
       const bool selected = index == activeSelection;
-      const auto bg = selected ? uiSelectionBg() : (index % 2 == 0 ? uiCanvasBg() : uiSurfaceBg());
+      const auto bg = selected ? uiSelectionBg() : uiSurfaceBg();
       ftxui::Element partCell;
       if (groupByCategory) {
         const auto categoryLast = categoryIsLast(index, category);

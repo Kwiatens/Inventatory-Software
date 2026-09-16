@@ -35,16 +35,17 @@ int settingsLabelWidth(int width) {
 
 ftxui::Element settingLine(const string& label, const string& value, int width, bool selected) {
   const int labelWidth = settingsLabelWidth(width);
-  return ftxui::hbox({
-             // Reserve one column so a full-width label never abuts its value.
-             styledText(ellipsize(" " + label, static_cast<size_t>(max(2, labelWidth - 1))),
-                        selected ? uiFocusColor() : uiSecondaryText()) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
-             styledText(ellipsize(value, static_cast<size_t>(max(8, width - labelWidth - 2))),
-                        selected ? uiPrimaryText() : uiPrimaryText()),
-             ftxui::filler(),
-         }) |
-         ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+  auto row = ftxui::hbox({
+                 // Reserve one column so a full-width label never abuts its value.
+                 styledText(ellipsize(" " + label, static_cast<size_t>(max(2, labelWidth - 1))),
+                            selected ? uiFocusColor() : uiSecondaryText()) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
+                 styledText(ellipsize(value, static_cast<size_t>(max(8, width - labelWidth - 2))), uiPrimaryText()),
+                 ftxui::filler(),
+             }) |
+             ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+  if (selected) row = row | ftxui::select;
+  return row;
 }
 
 ftxui::Element versionLine(const string& label, const string& installedVersion,
@@ -65,24 +66,26 @@ ftxui::Element versionLine(const string& label, const string& installedVersion,
   ftxui::Elements row;
   row.push_back(styledText(ellipsize(" " + label, static_cast<size_t>(max(2, labelWidth - 1))),
                            uiSecondaryText()) |
-                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth));
-  for (auto& part : value) row.push_back(move(part));
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth));
   row.push_back(ftxui::filler());
+  for (auto& part : value) row.push_back(move(part));
   return ftxui::hbox(move(row)) | ftxui::bgcolor(uiSurfaceBg());
 }
 
 ftxui::Element printerQueueLine(const string& name, const string& status, int width, bool selected) {
   const int statusWidth = max(10, min(18, static_cast<int>(status.size()) + 2));
   const int nameWidth = max(12, width - statusWidth - 5);
-  return ftxui::hbox({
-             styledText(selected ? " > " : "   ", selected ? uiFocusColor() : uiSecondaryText()),
-             styledText(ellipsize(name, static_cast<size_t>(nameWidth)), uiPrimaryText()) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, nameWidth),
-             ftxui::filler(),
-             styledText(status, status == "Ready" ? uiSuccessColor() : uiSecondaryText()),
-             ftxui::text(" "),
-         }) |
-         ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+  auto row = ftxui::hbox({
+                 styledText(selected ? " > " : "   ", selected ? uiFocusColor() : uiSecondaryText()),
+                 styledText(ellipsize(name, static_cast<size_t>(nameWidth)), uiPrimaryText()) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, nameWidth),
+                 ftxui::filler(),
+                 styledText(status, status == "Ready" ? uiSuccessColor() : uiSecondaryText()),
+                 ftxui::text(" "),
+             }) |
+             ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+  if (selected) row = row | ftxui::select;
+  return row;
 }
 
 // A button on its own row must not stretch: without a trailing filler the
@@ -93,19 +96,21 @@ ftxui::Element buttonRow(ftxui::Element button) {
 
 ftxui::Element appearanceColorLine(AppearanceColorRole role, int width, bool selected) {
   const auto labelWidth = max(20, min(29, width - 20));
-  return ftxui::hbox({
-             styledText(selected ? " > " : "   ", selected ? uiFocusColor() : uiSecondaryText()),
-             styledText("   ", uiPrimaryText(), uiAppearanceColor(role)),
-             styledText(" ", uiPrimaryText()),
-             styledText(ellipsize(appearanceColorLabel(role), static_cast<size_t>(labelWidth)),
-                        selected ? uiFocusColor() : uiSecondaryText()) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
-             ftxui::filler(),
-             styledText(appearanceColorHex(activeUiAppearance().colors[static_cast<size_t>(role)]),
-                        selected ? uiPrimaryText() : uiMutedText()),
-             styledText(" "),
-         }) |
-         ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+  auto row = ftxui::hbox({
+                 styledText(selected ? " > " : "   ", selected ? uiFocusColor() : uiSecondaryText()),
+                 styledText("   ", uiPrimaryText(), uiAppearanceColor(role)),
+                 styledText(" ", uiPrimaryText()),
+                 styledText(ellipsize(appearanceColorLabel(role), static_cast<size_t>(labelWidth)),
+                            selected ? uiFocusColor() : uiSecondaryText()) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
+                 ftxui::filler(),
+                 styledText(appearanceColorHex(activeUiAppearance().colors[static_cast<size_t>(role)]),
+                            selected ? uiPrimaryText() : uiMutedText()),
+                 styledText(" "),
+             }) |
+             ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+  if (selected) row = row | ftxui::select;
+  return row;
 }
 
 }  // namespace settings_page_detail
@@ -142,14 +147,14 @@ ftxui::Element App::renderSettingsUi() const {
     addCategory(category, entry.indent);
   }
 
-  ftxui::Elements rows;
-  rows.push_back(ftxui::hbox({
+  auto categoryHeader = ftxui::hbox({
       uiHeaderText(settingsCategoryName(settingsCategory_), uiPrimaryText()),
       ftxui::filler(),
       styledText(settingsDirty_ ? "Unsaved changes" : "Saved", settingsDirty_ ? uiWarnColor() : uiSuccessColor()),
       ftxui::text(" "),
-  }));
-  rows.push_back(uiDivider());
+  }) | ftxui::bgcolor(uiSurfaceBg());
+
+  ftxui::Elements rows;
 
   if (settingsCategory_ == SettingsCategory::General) {
     rows.push_back(uiHeaderText("Data storage", uiSecondaryText()));
@@ -391,25 +396,26 @@ ftxui::Element App::renderSettingsUi() const {
     }
   }
 
-  rows.push_back(ftxui::filler());
-  rows.push_back(uiDivider());
-  rows.push_back(ftxui::hbox({
+  auto settingsBody = ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                      ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  auto settingsFooter = ftxui::hbox({
       target(uiPrimaryButton("Save", settingsDirty_), "settings.save", UiTargetKind::Button,
              [self] { self->saveSettingsDraft(); }, settingsDirty_),
       ftxui::text("  "),
       target(uiSecondaryButton("Cancel", uiSecondaryText(), settingsDirty_), "settings.cancel", UiTargetKind::Button,
              [self] { self->cancelSettingsDraft(); }, settingsDirty_),
       ftxui::filler(),
-       styledText(appearancePickerOpen_ ? "arrows picker  Enter accept  Esc cancel"
+      styledText(appearancePickerOpen_ ? "arrows picker  Enter accept  Esc cancel"
                                        : "↑↓ categories  j/k lists  Tab focus  Enter activate",
-                  uiMutedText()),
-  }));
+                   uiMutedText()),
+  });
 
   return ftxui::hbox({
       ftxui::vbox(move(categories)) | ftxui::bgcolor(uiCanvasBg()) |
           ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryWidth),
       uiDivider(),
-      ftxui::vbox(move(rows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex,
+      ftxui::vbox({move(categoryHeader), move(settingsBody), uiDivider(), move(settingsFooter)}) |
+          ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex,
   });
 }
 

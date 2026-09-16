@@ -210,10 +210,53 @@ void App::handleKey(const KeyEvent& key) {
 ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
                            function<void()> activate, bool enabled, bool focusable) const {
   const auto index = uiTargets_.size();
-  const bool hovered = hoveredTargetId_ == id;
-  const bool focused = focusable && static_cast<int>(index) == focusedTarget_;
-  if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
-  if (focused) element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiSelectionBg()) | ftxui::bold;
+  const bool hovered = enabled && hoveredTargetId_ == id;
+  const bool focused = enabled && focusable && static_cast<int>(index) == focusedTarget_;
+
+  if (!enabled) {
+    // Disabled controls remain visible, but never inherit a hover/focus role
+    // from a stale target index or pointer location.
+    element = element | ftxui::color(uiMutedText());
+  } else {
+    switch (kind) {
+      case UiTargetKind::Button:
+        // Button helpers already own their raised/filled surfaces. Preserve a
+        // filled primary button's cyan identity while making both button
+        // roles readable under hover and keyboard focus.
+        if (hovered || focused) element = element | ftxui::color(uiFocusColor());
+        if (focused) element = element | ftxui::bold;
+        break;
+      case UiTargetKind::Link:
+        if (hovered || focused) {
+          element = element | ftxui::color(uiFocusColor()) | ftxui::underlined;
+        }
+        break;
+      case UiTargetKind::Field:
+        if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
+        if (focused) {
+          element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiActiveSoftBg()) | ftxui::bold;
+        }
+        break;
+      case UiTargetKind::Row:
+      case UiTargetKind::Cell:
+        if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
+        if (focused) {
+          element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiSelectionBg()) | ftxui::bold;
+          // Overlay the marker inside the target's existing geometry. Align it
+          // to the trailing edge so rows whose first cell has no left padding
+          // (for example History and Import) keep their leading content intact.
+          element = ftxui::dbox({move(element),
+                                 ftxui::align_right(styledText(">", uiFocusColor(), uiSelectionBg()))});
+        }
+        break;
+      case UiTargetKind::Navigation:
+      case UiTargetKind::Action:
+      case UiTargetKind::Category:
+        if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
+        if (focused) element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiSelectionBg()) | ftxui::bold;
+        break;
+    }
+  }
   uiTargets_.push_back(UiTarget{move(id), kind, {}, enabled, focusable, move(activate)});
   return element | ftxui::reflect(uiTargets_.back().bounds);
 }
@@ -259,6 +302,9 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       } else {
         moveBomSelection(delta);
       }
+    }
+    else if (page_ == Page::Racks) {
+      if (uiBoxContains(rackListPanelBounds_, mouse.x, mouse.y)) moveRackPage(delta);
     }
     else if (page_ == Page::Settings && settingsCategory_ == SettingsCategory::Printer) {
       const auto previousSelection = printerSelection_;

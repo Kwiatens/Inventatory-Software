@@ -236,7 +236,7 @@ ftxui::Element App::renderBomProjectUi() const {
     for (size_t index = 0; index < bomProjects_.size(); ++index) {
       const auto& project = bomProjects_[index];
       const bool selected = index == min(bomProjectSelection_, bomProjects_.size() - 1);
-      const auto bg = selected ? uiSelectionBg() : (index % 2 == 0 ? uiRowDarkBg() : uiRowLightBg());
+      const auto bg = selected ? uiSelectionBg() : uiSurfaceBg();
       const auto fg = selected ? uiFocusColor() : uiPrimaryText();
 
       // Render runs at 10 Hz, so the row count comes from a cheap newline count
