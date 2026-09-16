@@ -27,7 +27,7 @@ void App::captureUndoSnapshot() {
 
 bool App::undoLastInventoryChange() {
   if (persistedStoreValid_ && !inventoryCommitDiff(persistedStore_, store_).empty()) {
-    setMessage("Save the current inventory before using Ctrl+Z", 4);
+    setMessage("Save the current inventory before using Ctrl+Z", 4, UiMessageSeverity::Warning);
     return false;
   }
   if (inventoryCommits_.empty()) refreshInventoryCommits();
@@ -36,13 +36,13 @@ bool App::undoLastInventoryChange() {
            !commit.parentId.empty();
   });
   if (latest == inventoryCommits_.end()) {
-    setMessage("Nothing to undo", 3);
+    setMessage("Nothing to undo", 3, UiMessageSeverity::Warning);
     return false;
   }
 
   InventoryCommitDetail detail;
   if (!loadInventoryCommit(inventoryPath_, latest->id, detail) || !detail.hasParent) {
-    setMessage("The latest inventory commit could not be loaded", 5);
+    setMessage("The latest inventory commit could not be loaded", 5, UiMessageSeverity::Error);
     return false;
   }
   store_ = detail.parentSnapshot;
@@ -55,12 +55,19 @@ bool App::undoLastInventoryChange() {
   const bool saved = saveInventoryState(draft);
   syncSelectionToFilter();
   syncRackSelection();
-  if (saved) setMessage("Undid commit #" + to_string(latest->sequence), 4);
+  if (saved) {
+    setMessage("Undid commit #" + to_string(latest->sequence), 4, UiMessageSeverity::Success);
+  }
   return saved;
 }
 
 void App::setMessage(string text, int seconds) {
+  setMessage(move(text), seconds, kLegacyMessageSeverity);
+}
+
+void App::setMessage(string text, int seconds, UiMessageSeverity severity) {
   message_ = move(text);
+  messageSeverity_ = severity;
   messageUntil_ = time(nullptr) + seconds;
   messageFlashStartedAt_ = uiAnimationTicks();
   dirty_ = true;
@@ -73,6 +80,8 @@ bool App::messageVisible() const {
 void App::clearMessageIfExpired() {
   if (!messageVisible() && !message_.empty()) {
     message_.clear();
+    messageSeverity_ = kLegacyMessageSeverity;
+    messageFlashStartedAt_ = -1;
     dirty_ = true;
   }
 }
@@ -261,7 +270,7 @@ int App::deleteConfirmationSecondsLeft() const {
 void App::armDeleteConfirmation() {
   const auto* item = selectedItem();
   if (item == nullptr) {
-    setMessage("No item selected", 2);
+    setMessage("No item selected", 2, UiMessageSeverity::Warning);
     return;
   }
 
@@ -286,14 +295,14 @@ void App::clearDeleteConfirmationIfExpired() {
 
 void App::confirmDeleteSelectedItem() {
   if (!deleteConfirmationActive()) {
-    setMessage("Press Ctrl+Backspace first to arm delete", 2);
+    setMessage("Press Ctrl+Backspace first to arm delete", 2, UiMessageSeverity::Warning);
     return;
   }
 
   if (!deleteConfirmationReady()) {
     setMessage("Wait " + to_string(deleteConfirmationSecondsLeft()) + " more second" +
                    (deleteConfirmationSecondsLeft() == 1 ? string() : string("s")) + " to confirm delete",
-               2);
+               2, UiMessageSeverity::Warning);
     return;
   }
 
@@ -302,7 +311,7 @@ void App::confirmDeleteSelectedItem() {
   });
   if (it == store_.items().end()) {
     cancelDeleteConfirmation();
-    setMessage("Item no longer available", 2);
+    setMessage("Item no longer available", 2, UiMessageSeverity::Warning);
     return;
   }
 
@@ -313,7 +322,7 @@ void App::confirmDeleteSelectedItem() {
   saveState();
   syncSelectionToFilter();
   page_ = Page::Stock;
-  setMessage(itemName + " deleted", 2);
+  setMessage(itemName + " deleted", 2, UiMessageSeverity::Success);
 }
 
 }  // namespace inventatory

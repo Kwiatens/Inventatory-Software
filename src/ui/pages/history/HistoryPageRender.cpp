@@ -235,12 +235,25 @@ ftxui::Element historyRow(const InventoryCommit& commit, int width, bool selecte
   const auto timestamp = nowTimestampString(commit.timestamp);
   const auto summary = "#" + to_string(commit.sequence) + "  [" + commitMarker(commit) + "]  " + commit.message;
   const auto rowColor = selected ? uiPrimaryText() : uiSecondaryText();
+  const auto countText = changeCountText(commit);
+  const int metadataWidth = max(10, width - 2);
+  const int countWidth = min(static_cast<int>(countText.size()) + 1, max(8, metadataWidth - 10));
+  const int timestampWidth = max(8, metadataWidth - countWidth);
+  const auto metadataColor = selected ? uiInfoColor() : uiMutedColor();
+  auto metadata = ftxui::hbox({
+                        styledText(ellipsize("  " + timestamp, static_cast<size_t>(timestampWidth)), metadataColor) |
+                            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, timestampWidth),
+                        ftxui::filler(),
+                        ftxui::hbox({ftxui::filler(),
+                                     styledText(ellipsize(countText, static_cast<size_t>(max(1, countWidth - 1))),
+                                                metadataColor),
+                                     ftxui::text(" ")}) |
+                            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countWidth),
+                    });
   auto row = ftxui::vbox({
-               uiBodyText(ellipsize(summary, static_cast<size_t>(max(10, width - 2))), rowColor),
-               uiBodyText(ellipsize("  " + timestamp + "  ·  " + changeCountText(commit),
-                                   static_cast<size_t>(max(10, width - 2))),
-                          selected ? uiInfoColor() : uiMutedColor()),
-           }) |
+                uiBodyText(ellipsize(summary, static_cast<size_t>(max(10, width - 2))), rowColor),
+                move(metadata),
+            }) |
            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
            ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
   if (selected) row = row | ftxui::select;

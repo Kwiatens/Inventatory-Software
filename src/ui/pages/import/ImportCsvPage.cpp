@@ -40,7 +40,6 @@ ftxui::Color importStatusColor(const CsvImportCandidate& candidate) {
 ftxui::Element App::renderImportCsvUi() const {
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
-  const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 40;
 
   if (importSyncRunning_) {
     ftxui::Elements rows;
@@ -72,7 +71,7 @@ ftxui::Element App::renderImportCsvUi() const {
     } else {
       promptRows.push_back(fullLine("Sync accepted parts with DigiKey API?", uiAccentColor(), uiPanelRightBg()));
       promptRows.push_back(fullLine("Highly recommended: this fills datasheets, product links, categories, and parameters.",
-                                    uiWarnColor(), uiPanelRightBg()));
+                                    uiMutedText(), uiPanelRightBg()));
     }
     promptRows.push_back(uiDivider());
     if (importSyncHasRun_) {
@@ -176,18 +175,11 @@ ftxui::Element App::renderImportCsvUi() const {
   if (importCandidates_.empty()) {
     listRows.push_back(fullLine("No import rows waiting for review.", uiMutedColor(), uiPanelLeftBg()));
   } else {
-    const int visibleRows = max(8, screenHeight - 9);
-    size_t start = 0;
-    if (importSelection_ >= static_cast<size_t>(visibleRows)) {
-      start = importSelection_ - static_cast<size_t>(visibleRows) + 1;
-    }
-
-    const auto end = min(importCandidates_.size(), start + static_cast<size_t>(visibleRows));
-    for (size_t index = start; index < end; ++index) {
+    for (size_t index = 0; index < importCandidates_.size(); ++index) {
       const auto& candidate = importCandidates_[index];
       const bool selected = index == importSelection_;
       const auto bg = selected ? uiSelectionBg() : uiSurfaceBg();
-      const auto fg = selected ? uiTitleColor() : uiMutedColor();
+      const auto fg = selected ? uiTitleColor() : uiPrimaryText();
       auto row = ftxui::hbox({
           fixedCell(importStatusLabel(candidate), statusWidth, importStatusColor(candidate)),
           styledText(" | ", uiDimColor()),
@@ -195,7 +187,7 @@ ftxui::Element App::renderImportCsvUi() const {
           styledText(" | ", uiDimColor()),
           fixedCell(candidate.item.manufacturer, manufacturerWidth, selected ? uiTitleColor() : uiLabelColor()),
           styledText(" | ", uiDimColor()),
-          fixedCell(candidate.item.sku, skuWidth, selected ? uiTitleColor() : uiInfoColor()),
+          fixedCell(candidate.item.sku, skuWidth, selected ? uiTitleColor() : uiSecondaryText()),
           ftxui::filler(),
           fixedCell(to_string(candidate.item.quantity), qtyWidth, uiSuccessColor(), true),
       }) | ftxui::bgcolor(bg);
@@ -211,9 +203,10 @@ ftxui::Element App::renderImportCsvUi() const {
   }
 
   ftxui::Elements detailRows;
+  ftxui::Element detailActions;
   auto self = const_cast<App*>(this);
   if (const auto* candidate = currentImportCandidate()) {
-    detailRows.push_back(ftxui::hbox({
+    detailActions = ftxui::hbox({
         target(styledText(" Accept ", uiInteractiveColor(), uiRaisedSurfaceBg()), "import.accept", UiTargetKind::Button,
                [self] { self->acceptImportCandidate(); }),
         ftxui::text("  "),
@@ -223,20 +216,34 @@ ftxui::Element App::renderImportCsvUi() const {
         target(styledText(" Skip ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.skip", UiTargetKind::Button,
                [self] { self->skipImportCandidate(); }),
         ftxui::filler(),
-    }));
+    });
     detailRows.push_back(ftxui::separator() | ftxui::color(uiDividerColor()));
     detailRows.push_back(fullLine(candidate->hasConflict ? "Conflict guidance" : "New item preview",
                                   candidate->hasConflict ? uiWarnColor() : uiAccentColor(), uiPanelRightBg()));
     if (candidate->hasConflict) {
       detailRows.push_back(fullLine("Matched field: " + candidate->matchedField, uiWarnColor(), uiPanelRightBg()));
       detailRows.push_back(fullLine("Existing: " + candidate->existingPartName, uiTitleColor(), uiPanelRightBg()));
-      detailRows.push_back(fullLine("Existing qty: " + to_string(candidate->existingQuantity), uiMutedColor(), uiPanelRightBg()));
-      detailRows.push_back(fullLine("Incoming qty: " + to_string(candidate->item.quantity), uiSuccessColor(), uiPanelRightBg()));
+      detailRows.push_back(ftxui::hbox({
+          styledText(" Existing qty", uiMutedColor()),
+          ftxui::filler(),
+          styledText(to_string(candidate->existingQuantity), uiPrimaryText()),
+          ftxui::text(" "),
+      }) | ftxui::bgcolor(uiPanelRightBg()));
+      detailRows.push_back(ftxui::hbox({
+          styledText(" Incoming qty", uiMutedColor()),
+          ftxui::filler(),
+          styledText(to_string(candidate->item.quantity), uiSuccessColor()),
+          ftxui::text(" "),
+      }) | ftxui::bgcolor(uiPanelRightBg()));
       const auto mergedQuantity = min<long long>(numeric_limits<int>::max(),
                                                  static_cast<long long>(candidate->existingQuantity) +
                                                      candidate->item.quantity);
-      detailRows.push_back(fullLine("After Enter: qty " + to_string(mergedQuantity), uiAccentColor(),
-                                    uiPanelRightBg()));
+      detailRows.push_back(ftxui::hbox({
+          styledText(" After Enter: qty", uiMutedColor()),
+          ftxui::filler(),
+          styledText(to_string(mergedQuantity), uiAccentColor()),
+          ftxui::text(" "),
+      }) | ftxui::bgcolor(uiPanelRightBg()));
       detailRows.push_back(uiDivider());
     }
 
@@ -253,13 +260,25 @@ ftxui::Element App::renderImportCsvUi() const {
     detailRows.push_back(fullLine("Review complete.", uiAccentColor(), uiPanelRightBg()));
   }
 
-  listRows.insert(listRows.begin(), fullLine("CSV rows  " + to_string(importCandidates_.size()), uiSecondaryText(), uiSurfaceBg()));
-  auto listPanel = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
+  auto listBody = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                  ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  auto listPanel = ftxui::vbox({
+                       fullLine("CSV rows  " + to_string(importCandidates_.size()), uiSecondaryText(), uiSurfaceBg()),
+                       move(listBody),
+                   }) |
                    ftxui::bgcolor(uiSurfaceBg()) |
-                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
-  detailRows.insert(detailRows.begin(), fullLine("Import detail", uiSecondaryText(), uiSurfaceBg()));
-  auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::bgcolor(uiSurfaceBg()) |
-                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailOuterWidth);
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth) | ftxui::flex;
+
+  auto detailBody = ftxui::vbox(move(detailRows)) | ftxui::yframe | ftxui::vscroll_indicator |
+                    ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+  ftxui::Elements detailPanelRows;
+  detailPanelRows.push_back(fullLine("Import detail", uiSecondaryText(), uiSurfaceBg()));
+  if (detailActions) {
+    detailPanelRows.push_back(move(detailActions));
+  }
+  detailPanelRows.push_back(move(detailBody));
+  auto detailPanel = ftxui::vbox(move(detailPanelRows)) | ftxui::bgcolor(uiSurfaceBg()) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailOuterWidth) | ftxui::flex;
 
   return ftxui::hbox({
       listPanel,

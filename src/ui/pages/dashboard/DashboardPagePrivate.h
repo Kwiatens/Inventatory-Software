@@ -24,6 +24,21 @@ enum class AttentionGroup {
   Low,
 };
 
+enum class DashboardRowSurface {
+  Surface,
+  Selection,
+};
+
+inline DashboardRowSurface dashboardRowSurface(bool selected, bool active) {
+  return selected && active ? DashboardRowSurface::Selection : DashboardRowSurface::Surface;
+}
+
+inline std::string dashboardScannerIdleMessage(const std::string& state) {
+  if (state == "UNPAIRED") return "Scanner R1 not paired";
+  if (state == "WAITING") return "Scanner R1 waiting to connect";
+  return "Scanner R1 offline";
+}
+
 struct AttentionRow {
   std::string issue;
   std::string partName;
