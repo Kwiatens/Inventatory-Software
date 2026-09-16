@@ -373,7 +373,7 @@ ftxui::Element App::renderRackManagementUi() const {
                                                          : "Press v here to place the moving part.") |
                            ftxui::color(movingRackItemId_.empty() ? uiMutedColor() : uiAccentColor()));
     } else {
-      detailRows.push_back(fullLine("Inventatory RACK: " + rack->code + "-" + selectedSlot, uiTitleColor(), uiRowSelectedBg()));
+      detailRows.push_back(fullLine("Inventatory rack: " + rack->code + "-" + selectedSlot, uiTitleColor(), uiRowSelectedBg()));
       detailRows.push_back(detailFieldLine({"Part: ", selectedSlotItem->partName, uiLabelColor(), uiTitleColor()}, detailWidth - 2));
       detailRows.push_back(detailFieldLine({"Category: ", displayCategory(selectedSlotItem->category), uiLabelColor(), uiTitleColor()},
                                           detailWidth - 2));
@@ -410,8 +410,8 @@ ftxui::Element App::renderRackManagementUi() const {
     }
   }
 
-  rackRows.insert(rackRows.begin(), fullLine("RACKS", uiSecondaryText(), uiSurfaceBg()));
-  if (!inventoryHasNoRacks) detailRows.insert(detailRows.begin(), fullLine("SLOT DETAIL", uiSecondaryText(), uiSurfaceBg()));
+  rackRows.insert(rackRows.begin(), fullLine("Racks", uiSecondaryText(), uiSurfaceBg()));
+  if (!inventoryHasNoRacks) detailRows.insert(detailRows.begin(), fullLine("Slot detail", uiSecondaryText(), uiSurfaceBg()));
   auto rackPanel = ftxui::vbox(move(rackRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth);
   auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::bgcolor(uiSurfaceBg()) |
