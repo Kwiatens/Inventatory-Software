@@ -115,7 +115,9 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, size
   for (size_t index = 0; index < snapshot.attention.size(); ++index) {
     const auto& row = snapshot.attention[index];
     const bool selected = index == selectedRow;
-    const auto background = selected && active ? attentionBackground(row) : uiSurfaceBg();
+    const auto background = dashboardRowSurface(selected, active) == DashboardRowSurface::Selection
+                                ? attentionBackground(row)
+                                : uiSurfaceBg();
     const auto semanticColor = attentionTextColor(row);
     auto renderedRow = ftxui::hbox({
         centeredCell(row.issue, severityWidth, semanticColor, true),
