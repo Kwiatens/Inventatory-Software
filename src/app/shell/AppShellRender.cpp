@@ -335,7 +335,7 @@ ftxui::Element App::renderSearchBarUi() const {
     options.push_back(footerField("Edit fields", "\xE2\x86\x91\xE2\x86\x93 field  \xE2\x8F\x8E edit  s save  esc cancel",
                                   uiAccentColor(), uiMutedColor(), uiPanelLeftBg()));
     for (size_t index = 0; index < menuOptions_.size(); ++index) {
-      const auto bg = static_cast<int>(index) == fieldMenuIndex_ ? uiRowSelectedBg() : (index % 2 == 0 ? uiRowDarkBg() : uiRowLightBg());
+      const auto bg = static_cast<int>(index) == fieldMenuIndex_ ? uiRowSelectedBg() : uiSurfaceBg();
       auto option = fullLine("  " + menuOptions_[index].label,
                              static_cast<int>(index) == fieldMenuIndex_ ? uiTitleColor() : uiMutedColor(), bg);
       if (static_cast<int>(index) == fieldMenuIndex_) {
