@@ -68,7 +68,9 @@ vector<App::Action> App::currentActions() const {
       add("import CSV", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
       add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
       add("reload", "System", "r", chr('r'), [self, reloadInventory] {
-        if (reloadInventory()) self->setMessage("Inventory reloaded from the database", 2);
+        if (reloadInventory()) {
+          self->setMessage("Inventory reloaded from the database", 2, UiMessageSeverity::Success);
+        }
       });
       add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
       add("backup data", "Data", "k", chr('k'), [self] { self->backupData(); });
@@ -86,7 +88,7 @@ vector<App::Action> App::currentActions() const {
       });
       add("reload history", "System", "r", chr('r'), [self] {
         self->refreshInventoryCommits();
-        self->setMessage("Inventory history reloaded", 2);
+        self->setMessage("Inventory history reloaded", 2, UiMessageSeverity::Success);
       });
       add("undo latest change", "System", "Ctrl+Z", special(KeyType::CtrlZ),
           [self] { self->undoLastInventoryChange(); });
@@ -143,7 +145,7 @@ vector<App::Action> App::currentActions() const {
       add("reload", "System", "r", chr('r'), [self, reloadInventory] {
         if (reloadInventory()) {
           self->syncSelectionToFilter();
-          self->setMessage("Inventory refreshed", 2);
+          self->setMessage("Inventory refreshed", 2, UiMessageSeverity::Success);
         }
       });
       add("undo", "System", "Ctrl+Z", special(KeyType::CtrlZ), [self] { self->undoLastInventoryChange(); });
@@ -235,7 +237,8 @@ vector<App::Action> App::currentActions() const {
               if (self->enqueuePrinterProbe(printer->name)) {
                 self->setMessage("Testing printer queue...", 4);
               } else {
-                self->setMessage("Printer request queue is full; try again shortly", 4);
+                self->setMessage("Printer request queue is full; try again shortly", 4,
+                                 UiMessageSeverity::Warning);
               }
               self->dirty_ = true;
             }
@@ -379,7 +382,7 @@ bool App::dispatchAction(const KeyEvent& key) {
 void App::openActionSheet() {
   sheetActions_ = currentActions();
   if (sheetActions_.empty()) {
-    setMessage("No actions available here", 2);
+    setMessage("No actions available here", 2, UiMessageSeverity::Warning);
     return;
   }
   sheetIndex_ = 0;
@@ -428,7 +431,7 @@ ftxui::Element App::renderActionSheetUi() const {
       rows.push_back(fullLine("  " + currentGroup, uiAccentColor(), uiPanelLeftBg()));
     }
     const bool selected = static_cast<int>(index) == sheetIndex_;
-    const auto bg = selected ? uiRowSelectedBg() : (index % 2 == 0 ? uiRowDarkBg() : uiRowLightBg());
+    const auto bg = selected ? uiRowSelectedBg() : uiSurfaceBg();
     auto keyCell = ftxui::hbox({
                        styledText("    " + action.keyHint, selected ? uiTitleColor() : uiLinkColor()),
                        ftxui::filler(),
