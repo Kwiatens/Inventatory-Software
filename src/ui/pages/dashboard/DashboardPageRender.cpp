@@ -24,7 +24,6 @@ using namespace dashboard_detail;
 namespace {
 
 constexpr long long kScannerTabRollMs = 700;
-constexpr long long kScannerMessageCycleMs = 3200;
 constexpr int kScannerExpandedHeight = 8;
 constexpr int kScannerSlimHeight = 3;
 ftxui::Element plainSectionTitle(const string& title, int width) {
@@ -37,7 +36,7 @@ ftxui::Element plainSectionTitle(const string& title, int width) {
 ftxui::Element metricBlock(const string& label, const string& value, ftxui::Color valueColor, int width) {
   return ftxui::vbox({
              uiBodyText(label, uiMutedColor()),
-             uiBodyText(value, valueColor),
+             uiHeaderText(value, valueColor),
          }) |
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
          ftxui::bgcolor(uiRaisedSurfaceBg());
@@ -109,16 +108,8 @@ ftxui::Element scannerPanel(const string& state, bool connected, bool /*paired*/
                                 lastResult.rfind("ERROR", 0) == 0 ? uiDangerColor() : uiAccentColor()));
     }
   } else {
-    string message;
-    if (state == "UNPAIRED") {
-      message = "Pair Scanner R1 in Settings";
-    } else if (state == "WAITING") {
-      message = "Please connect the Inventatory Scanner";
-    } else {
-      const bool firstMessage = (uiAnimationTicks() / kScannerMessageCycleMs) % 2 == 0;
-      message = firstMessage ? "Inventatory Scanner disconnected" : "Please reconnect the device.";
-    }
-    body.push_back(uiBodyText(ellipsize(message, static_cast<size_t>(max(8, contentWidth))), uiMutedColor()));
+    body.push_back(uiBodyText(ellipsize(dashboardScannerIdleMessage(state), static_cast<size_t>(max(8, contentWidth))),
+                              uiMutedColor()));
   }
 
   auto bodyElement = ftxui::vbox(move(body)) |
@@ -192,8 +183,9 @@ ftxui::Element activityPanel(const vector<InventoryCommit>& commits, int width, 
                          ftxui::filler(),
                      }) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
-                     ftxui::bgcolor(selected && active ? uiSelectionBg()
-                                                        : (index % 2 == 0 ? uiSurfaceBg() : uiCanvasBg()));
+                     ftxui::bgcolor(dashboardRowSurface(selected, active) == DashboardRowSurface::Selection
+                                       ? uiSelectionBg()
+                                       : uiSurfaceBg());
     if (selected) {
       renderedRow = renderedRow | ftxui::select;
     }

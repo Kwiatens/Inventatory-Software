@@ -121,13 +121,14 @@ bool App::saveSettingsDraft() {
     stopWorkspaceBoundWork();
     if (!saveState()) {
       restartOldService();
-      setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5);
+      setMessage(persistenceError_.empty() ? "Unable to save the current Inventatory data" : persistenceError_, 5,
+                 UiMessageSeverity::Error);
       return false;
     }
   }
   if (stagedDigiKeySecretChanged_ && !CredentialStore::write(kDigiKeySecretName, stagedDigiKeySecret_)) {
     restartOldService();
-    setMessage("Unable to save the DigiKey secret securely", 5);
+    setMessage("Unable to save the DigiKey secret securely", 5, UiMessageSeverity::Error);
     return false;
   }
   credentialChanged = stagedDigiKeySecretChanged_;
@@ -139,7 +140,7 @@ bool App::saveSettingsDraft() {
         else CredentialStore::erase(kDigiKeySecretName);
       }
       restartOldService();
-      setMessage("Unable to update Windows startup: " + startupError, 5);
+      setMessage("Unable to update Windows startup: " + startupError, 5, UiMessageSeverity::Error);
       return false;
     }
     startupChanged = true;
@@ -155,7 +156,7 @@ bool App::saveSettingsDraft() {
       else CredentialStore::erase(kDigiKeySecretName);
     }
     restartOldService();
-    setMessage("Unable to save Inventatory settings", 5);
+    setMessage("Unable to save Inventatory settings", 5, UiMessageSeverity::Error);
     return false;
   }
   appSettingsSavePending_ = false;
@@ -177,7 +178,7 @@ bool App::saveSettingsDraft() {
     restartOldService();
     setMessage(rollbackSaved ? "Unable to save Quick Labels in the selected data folder"
                              : "Unable to save Quick Labels and restore previous settings; verify the settings file",
-               7);
+               7, UiMessageSeverity::Error);
     return false;
   }
 
@@ -213,7 +214,7 @@ bool App::saveSettingsDraft() {
       setMessage(rollbackSaved
                      ? "The selected workspace could not be activated; the previous workspace was restored"
                      : "The selected workspace failed and previous settings could not be restored; verify settings.conf",
-                 7);
+                 7, UiMessageSeverity::Error);
       return false;
     }
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
@@ -237,7 +238,7 @@ bool App::saveSettingsDraft() {
     setMessage(rollbackSaved
                    ? "Unable to save quick-label settings"
                    : "Unable to save quick-label settings; previous settings could not be restored",
-               7);
+               7, UiMessageSeverity::Error);
     return false;
   }
 
@@ -272,11 +273,12 @@ bool App::saveSettingsDraft() {
         if (!saveAppSettings(settingsPath_, settings_)) {
           appSettingsSavePending_ = true;
           persistenceError_ = "Background service could not start and its disabled state could not be saved.";
-          setMessage(persistenceError_ + " Press R to retry.", 7);
+          setMessage(persistenceError_ + " Press R to retry.", 7, UiMessageSeverity::Error);
           settingsDirty_ = true;
           return false;
         }
-        setMessage("Settings saved, but the background service could not start; it was disabled", 7);
+        setMessage("Settings saved, but the background service could not start; it was disabled", 7,
+                   UiMessageSeverity::Warning);
         settingsDirty_ = false;
         return false;
       }
@@ -288,13 +290,13 @@ bool App::saveSettingsDraft() {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     if (!printerService_.saveConfig(printerPath_)) {
       persistenceError_ = "Could not save printer settings; changes remain in memory.";
-      setMessage(persistenceError_ + " Press R to retry.", 6);
+      setMessage(persistenceError_ + " Press R to retry.", 6, UiMessageSeverity::Error);
       settingsDirty_ = true;
       return false;
     }
     printerCheck_ = {false, "Checking printer queue..."};
     if (!enqueuePrinterProbe(settings_.printerQueue)) {
-      setMessage("Settings saved, but the printer check could not be queued", 5);
+      setMessage("Settings saved, but the printer check could not be queued", 5, UiMessageSeverity::Warning);
     }
   }
   settingsDirty_ = false;
@@ -303,10 +305,13 @@ bool App::saveSettingsDraft() {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  setMessage((portChanged || dataChanged) ? (bridgeRestarted ? "Settings saved; device bridge restarted"
-                                                              : "Settings saved, but the device bridge could not restart")
-                         : "Settings saved",
-             4);
+  if (portChanged || dataChanged) {
+    setMessage(bridgeRestarted ? "Settings saved; device bridge restarted"
+                               : "Settings saved, but the device bridge could not restart",
+               4, bridgeRestarted ? UiMessageSeverity::Success : UiMessageSeverity::Warning);
+  } else {
+    setMessage("Settings saved", 4, UiMessageSeverity::Success);
+  }
   return true;
 }
 
