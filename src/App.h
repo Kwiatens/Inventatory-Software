@@ -20,6 +20,7 @@
 #include "platform/scanner/HttpServer.h"
 #include "platform/scanner/MdnsService.h"
 #include "platform/system/UpdateService.h"
+#include "ui/pages/history/HistoryPagePrivate.h"
 #include "ui/pages/stock/StockFilterState.h"
 
 #include <ftxui/dom/elements.hpp>
@@ -303,6 +304,7 @@ class App {
     StocktakeCount,
     QuantityAdjust,
     BomRestock,
+    HistorySearch,
     HistoryCheckpoint,
     HistoryConfirm,
     ExitConfirmation,
@@ -486,6 +488,10 @@ class App {
   void openSelectedHistoryCommit();
   void beginHistoryCheckpoint();
   void beginHistoryRestore(InventoryRevertMode mode);
+  void startHistorySearch();
+  void handleHistorySearchKey(const KeyEvent& key);
+  void cycleHistoryFilter();
+  void syncHistorySelectionToFilter();
   void cancelHistoryAction();
   bool applyHistoryRevert(InventoryRevertMode mode);
   void handleKey(const KeyEvent& key);
@@ -882,6 +888,10 @@ class App {
   std::vector<InventoryHistoryPoint> inventoryHistory_;
   std::vector<InventoryMovement> inventoryMovements_;
   std::vector<InventoryCommit> inventoryCommits_;
+  std::string historySearchQuery_;
+  std::string historySearchBeforeEdit_;
+  history_page_detail::HistorySourceFilter historySourceFilter_ =
+      history_page_detail::HistorySourceFilter::All;
   size_t historySelection_ = 0;
   size_t historyRecordSelection_ = 0;
   bool historyRecordOpen_ = false;
