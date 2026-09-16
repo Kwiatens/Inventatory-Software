@@ -1,5 +1,5 @@
 // Inventatory - Inventory commit history page.
-// Browses durable inventory snapshots and their field-level changes.
+// Renders the compact two-pane history inspector.
 
 #include "App.h"
 
@@ -11,8 +11,6 @@
 #include <cctype>
 #include <ctime>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include <ftxui/component/screen_interactive.hpp>
@@ -20,57 +18,139 @@
 namespace inventatory {
 
 using namespace std;
-
+using history_page_detail::HistoryCommitGroup;
+using history_page_detail::HistoryFieldDiff;
 using history_page_detail::HistoryRecord;
+using history_page_detail::filteredHistoryIndices;
+using history_page_detail::groupedHistoryCommits;
 using history_page_detail::groupedHistoryRecords;
-
-namespace history_page_detail {
-
-vector<HistoryRecord> groupedHistoryRecords(const InventoryCommitDetail& detail) {
-  vector<HistoryRecord> records;
-  unordered_map<string, size_t> indices;
-  indices.reserve(detail.changes.size());
-
-  for (const auto& change : detail.changes) {
-    const auto key = change.entityType + '\x1f' + change.entityId;
-    const auto existing = indices.find(key);
-    size_t index = 0;
-    if (existing == indices.end()) {
-      index = records.size();
-      indices.emplace(key, index);
-      records.push_back({change.entityType, change.entityId, change.label, {}});
-    } else {
-      index = existing->second;
-    }
-    records[index].changes.push_back(change);
-  }
-  return records;
-}
-
-}  // namespace history_page_detail
+using history_page_detail::historyCommitImpactSummary;
+using history_page_detail::historyCommitType;
+using history_page_detail::historyFieldDiffs;
+using history_page_detail::historySourceFilterLabel;
 
 namespace {
 
+string historyTime(const InventoryCommit& commit) {
+  const auto timestamp = nowTimestampString(commit.timestamp);
+  return timestamp.size() > 11 ? timestamp.substr(11) : timestamp;
+}
 
-
-struct HistoryParameterDiff {
-  string name;
-  string before;
-  string after;
-};
+string historyDate(const InventoryCommit& commit) {
+  const auto timestamp = nowTimestampString(commit.timestamp);
+  return timestamp.size() > 10 ? timestamp.substr(0, 10) : timestamp;
+}
 
 string shortCommitId(const string& id) {
   return id.empty() ? "-" : id.substr(0, min<size_t>(8, id.size()));
 }
 
-string commitMarker(const InventoryCommit& commit) {
-  if (commit.checkpoint) return "CHECKPOINT";
-  if (commit.corrective) return "CORRECTIVE";
-  return commit.source.empty() ? "MANUAL" : toUpper(commit.source);
+ftxui::Color historyTypeColor(const string& type) {
+  if (type == "CORRECTIVE") return uiWarnColor();
+  if (type == "CHECKPOINT") return uiLinkColor();
+  if (type == "DIGIKEY") return uiInfoColor();
+  if (type == "IMPORT") return uiInfoColor();
+  if (type == "PROJECT") return uiSuccessColor();
+  return uiAccentColor();
 }
 
-string changeCountText(const InventoryCommit& commit) {
-  return to_string(commit.changedItemCount) + " parts, " + to_string(commit.changedRackCount) + " racks";
+ftxui::Color historyTypeBackground(const string& type) {
+  if (type == "CORRECTIVE") return uiWarningBg();
+  if (type == "CHECKPOINT") return uiRaisedSurfaceBg();
+  if (type == "PROJECT") return uiActiveSoftBg();
+  return uiRaisedSurfaceBg();
+}
+
+ftxui::Element historyBadge(const string& label, ftxui::Color foreground, ftxui::Color background) {
+  return uiHeaderText(" " + label + " ", foreground, background);
+}
+
+ftxui::Element fixedText(const string& value, int width, ftxui::Color foreground,
+                         optional<ftxui::Color> background = nullopt) {
+  const auto safeWidth = max(1, width);
+  return styledText(ellipsize(value, static_cast<size_t>(safeWidth)), foreground, background) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, safeWidth);
+}
+
+string changedCount(size_t count, const char* singular, const char* plural) {
+  return to_string(count) + " " + (count == 1 ? singular : plural) + " changed";
+}
+
+ftxui::Element historyCommitRow(const InventoryCommit& commit, int width, bool selected) {
+  const auto type = historyCommitType(commit);
+  const auto impact = historyCommitImpactSummary(commit);
+  const bool hasImpact = commit.changedItemCount != 0 || commit.changedRackCount != 0;
+  const int safeWidth = max(30, width);
+  const int timelineWidth = 3;
+  const int sequenceWidth = 5;
+  const int typeWidth = max(8, static_cast<int>(type.size()) + 2);
+  const int timeWidth = 6;
+  const int impactWidth = hasImpact ? min(22, max(10, safeWidth / 4)) : 0;
+  const int messageWidth = max(8, safeWidth - timelineWidth - sequenceWidth - typeWidth - timeWidth - impactWidth);
+  const auto foreground = selected ? uiPrimaryText() : uiSecondaryText();
+  const auto metadata = selected ? uiInfoColor() : uiMutedColor();
+
+  auto timeline = ftxui::hbox({styledText("│", uiDividerColor()), styledText("●", historyTypeColor(type)),
+                               ftxui::filler()}) |
+                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, timelineWidth);
+  auto sequence = fixedText("#" + to_string(commit.sequence), sequenceWidth, foreground);
+  auto badge = historyBadge(type, historyTypeColor(type), historyTypeBackground(type)) |
+               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, typeWidth);
+  const auto message = commit.message.empty() ? "(no message)" : commit.message;
+  auto messageElement = fixedText(message, messageWidth, foreground);
+  auto time = ftxui::hbox({ftxui::filler(), styledText(historyTime(commit), metadata)}) |
+              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, timeWidth);
+
+  ftxui::Elements columns = {move(timeline), move(sequence), move(badge), move(messageElement)};
+  if (hasImpact) columns.push_back(fixedText(impact, impactWidth, metadata));
+  columns.push_back(move(time));
+  auto row = ftxui::hbox(move(columns)) |
+             ftxui::size(ftxui::WIDTH, ftxui::EQUAL, safeWidth) |
+             ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+  if (selected) row = row | ftxui::select;
+  return row;
+}
+
+ftxui::Element historyGroupHeader(const HistoryCommitGroup& group, const vector<InventoryCommit>& commits, int width) {
+  const auto date = group.indices.empty() ? string() : historyDate(commits[group.indices.front()]);
+  const auto count = to_string(group.indices.size()) + (group.indices.size() == 1 ? " commit" : " commits");
+  return ftxui::hbox({uiHeaderText(group.label, uiPrimaryText()), styledText("  " + date, uiSecondaryText()),
+                      ftxui::filler(), styledText("(" + count + ")", uiMutedColor())}) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, max(1, width)) | ftxui::bgcolor(uiSurfaceBg());
+}
+
+ftxui::Element historyImpactCard(const string& icon, const string& value, int width) {
+  return ftxui::hbox({styledText(icon, uiAccentColor()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 3),
+                      uiHeaderText(ellipsize(value, static_cast<size_t>(max(8, width - 5))), uiPrimaryText()),
+                      ftxui::filler()}) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, max(8, width)) | ftxui::border | ftxui::bgcolor(uiSurfaceBg());
+}
+
+string joinCategoryPath(const vector<string>& values) {
+  string joined;
+  for (const auto& value : values) {
+    if (value.empty()) continue;
+    if (!joined.empty()) joined += " > ";
+    joined += value;
+  }
+  return joined;
+}
+
+const InventoryItem* historyItemFor(const InventoryCommitDetail& detail, const HistoryRecord& record) {
+  if (record.entityType != "item") return nullptr;
+  if (const auto* item = detail.snapshot.findById(record.entityId)) return item;
+  return detail.parentSnapshot.findById(record.entityId);
+}
+
+const InventatoryRack* historyRackFor(const InventoryCommitDetail& detail, const HistoryRecord& record) {
+  if (record.entityType != "rack") return nullptr;
+  for (const auto& rack : detail.snapshot.racks()) {
+    if (rack.id == record.entityId) return &rack;
+  }
+  for (const auto& rack : detail.parentSnapshot.racks()) {
+    if (rack.id == record.entityId) return &rack;
+  }
+  return nullptr;
 }
 
 string recordStatus(const HistoryRecord& record) {
@@ -92,197 +172,79 @@ ftxui::Color recordStatusColor(const string& status) {
   return uiAccentColor();
 }
 
-ftxui::Color recordStatusBackground(const string& status) {
-  if (status == "DELETED") return uiDangerBg();
-  if (status == "ADDED") return uiActiveSoftBg();
-  return uiRaisedSurfaceBg();
-}
-
-ftxui::Element historyBadge(const string& label, ftxui::Color foreground, ftxui::Color background) {
-  return uiHeaderText(" " + label + " ", foreground, background);
-}
-
-
-
-size_t fieldChangeCount(const HistoryRecord& record) {
-  return count_if(record.changes.begin(), record.changes.end(), [](const InventoryFieldChange& change) {
-    return change.field != "record";
-  });
-}
-
-string historyValue(const string& field, const string& value) {
-  if (value.empty()) return "(empty)";
-
-  if (field == "last updated" || field == "created at") {
-    const bool numeric = all_of(value.begin(), value.end(), [](unsigned char character) {
-      return isdigit(character) != 0;
-    });
-    if (numeric) {
-      try {
-        const auto timestamp = stoll(value);
-        if (timestamp > 0) return nowTimestampString(static_cast<time_t>(timestamp));
-      } catch (...) {
-        // Preserve an unexpected value exactly as stored.
-      }
-    }
+ftxui::Element historyRecordCard(const InventoryCommitDetail& detail, const HistoryRecord& record, size_t index,
+                                  int width, bool selected) {
+  const auto* item = historyItemFor(detail, record);
+  const auto* rack = historyRackFor(detail, record);
+  const auto code = record.label.empty() ? record.entityId : record.label;
+  string description;
+  string category;
+  string mpn;
+  if (item != nullptr) {
+    description = item->vendorMetadata.detailedDescription;
+    if (description.empty()) description = item->vendorMetadata.title;
+    if (description.empty()) description = item->partName;
+    category = joinCategoryPath(item->vendorMetadata.categoryPath);
+    if (category.empty()) category = item->category;
+    mpn = item->vendorMetadata.manufacturerPartNumber;
+    if (mpn.empty()) mpn = item->sku;
+  } else if (rack != nullptr) {
+    description = rack->componentType;
+    category = "Rack";
   }
-  return value;
-}
+  if (description.empty()) description = "No description available";
+  if (category.empty()) category = toUpper(record.entityType);
 
-vector<string> wrappedHistoryValue(const string& value, int width) {
-  vector<string> wrapped;
-  const auto softWrapped = wrapText(value, max(1, width));
-  for (const auto& line : softWrapped) {
-    if (line.empty()) {
-      wrapped.push_back({});
-      continue;
-    }
-    for (size_t offset = 0; offset < line.size(); offset += static_cast<size_t>(max(1, width))) {
-      wrapped.push_back(line.substr(offset, static_cast<size_t>(max(1, width))));
-    }
-  }
-  if (wrapped.empty()) wrapped.push_back({});
-  return wrapped;
-}
-
-vector<pair<string, string>> parameterPairs(const string& encoded) {
-  vector<pair<string, string>> pairs;
-  if (encoded.empty()) return pairs;
-
-  size_t start = 0;
-  while (start <= encoded.size()) {
-    const auto end = encoded.find(';', start);
-    const auto segment = trim(encoded.substr(start, end == string::npos ? string::npos : end - start));
-    if (!segment.empty()) {
-      const auto separator = segment.find('=');
-      if (separator == string::npos) return {};
-      pairs.emplace_back(trim(segment.substr(0, separator)), trim(segment.substr(separator + 1)));
-    }
-    if (end == string::npos) break;
-    start = end + 1;
-  }
-  return pairs;
-}
-
-vector<HistoryParameterDiff> parameterDiffs(const string& before, const string& after) {
-  const auto beforePairs = parameterPairs(before);
-  const auto afterPairs = parameterPairs(after);
-  if (beforePairs.empty() && !before.empty()) return {};
-  if (afterPairs.empty() && !after.empty()) return {};
-
-  unordered_map<string, string> beforeValues;
-  unordered_map<string, string> afterValues;
-  vector<string> order;
-  beforeValues.reserve(beforePairs.size());
-  afterValues.reserve(afterPairs.size());
-
-  for (const auto& pair : beforePairs) {
-    beforeValues[pair.first] = pair.second;
-    order.push_back(pair.first);
-  }
-  for (const auto& pair : afterPairs) {
-    afterValues[pair.first] = pair.second;
-    if (find(order.begin(), order.end(), pair.first) == order.end()) order.push_back(pair.first);
-  }
-
-  vector<HistoryParameterDiff> diffs;
-  for (const auto& name : order) {
-    const auto beforeValue = beforeValues.find(name);
-    const auto afterValue = afterValues.find(name);
-    const auto oldValue = beforeValue == beforeValues.end() ? "(absent)" : beforeValue->second;
-    const auto newValue = afterValue == afterValues.end() ? "(absent)" : afterValue->second;
-    if (oldValue != newValue) diffs.push_back({name, oldValue, newValue});
-  }
-  return diffs;
-}
-
-void appendHistoryValueRows(ftxui::Elements& rows, const string& label, const string& value, int width,
-                            ftxui::Color color) {
-  const auto prefix = "  " + label + ": ";
-  const int valueWidth = max(10, width - static_cast<int>(prefix.size()));
-  const auto wrapped = wrappedHistoryValue(value, valueWidth);
-  for (size_t index = 0; index < wrapped.size(); ++index) {
-    const auto continuation = string(prefix.size(), ' ');
-    rows.push_back(fullLine((index == 0 ? prefix : continuation) + wrapped[index], color, uiSurfaceBg()));
-  }
-}
-
-void appendHistoryFieldDiff(ftxui::Elements& rows, const InventoryFieldChange& change, int width) {
-  if (change.field == "record") return;
-
-  const auto parameterChanges = (change.field == "parameters" || change.field == "vendor parameters")
-                                    ? parameterDiffs(change.before, change.after)
-                                    : vector<HistoryParameterDiff>();
-  if (!parameterChanges.empty()) {
-    rows.push_back(fullLine(prettyLabel(change.field) + "  " + to_string(parameterChanges.size()) +
-                                (parameterChanges.size() == 1 ? " parameter changed" : " parameters changed"),
-                            uiLabelColor(), uiSurfaceBg()));
-    for (const auto& parameter : parameterChanges) {
-      rows.push_back(fullLine("  " + prettyLabel(parameter.name), uiSecondaryText(), uiSurfaceBg()));
-      appendHistoryValueRows(rows, "Before", parameter.before, width, uiMutedColor());
-      appendHistoryValueRows(rows, "After", parameter.after, width, uiPrimaryText());
-    }
-    return;
-  }
-
-  rows.push_back(fullLine(prettyLabel(change.field), uiLabelColor(), uiSurfaceBg()));
-  appendHistoryValueRows(rows, "Before", historyValue(change.field, change.before), width, uiMutedColor());
-  appendHistoryValueRows(rows, "After", historyValue(change.field, change.after), width,
-                         change.after == "deleted" ? uiDangerColor() : uiPrimaryText());
-}
-
-ftxui::Element historyRow(const InventoryCommit& commit, int width, bool selected) {
-  const auto timestamp = nowTimestampString(commit.timestamp);
-  const auto summary = "#" + to_string(commit.sequence) + "  [" + commitMarker(commit) + "]  " + commit.message;
-  const auto rowColor = selected ? uiPrimaryText() : uiSecondaryText();
-  const auto countText = changeCountText(commit);
-  const int metadataWidth = max(10, width - 2);
-  const int countWidth = min(static_cast<int>(countText.size()) + 1, max(8, metadataWidth - 10));
-  const int timestampWidth = max(8, metadataWidth - countWidth);
-  const auto metadataColor = selected ? uiInfoColor() : uiMutedColor();
-  auto metadata = ftxui::hbox({
-                        styledText(ellipsize("  " + timestamp, static_cast<size_t>(timestampWidth)), metadataColor) |
-                            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, timestampWidth),
-                        ftxui::filler(),
-                        ftxui::hbox({ftxui::filler(),
-                                     styledText(ellipsize(countText, static_cast<size_t>(max(1, countWidth - 1))),
-                                                metadataColor),
-                                     ftxui::text(" ")}) |
-                            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countWidth),
-                    });
-  auto row = ftxui::vbox({
-                uiBodyText(ellipsize(summary, static_cast<size_t>(max(10, width - 2))), rowColor),
-                move(metadata),
-            }) |
-           ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
-           ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
-  if (selected) row = row | ftxui::select;
-  return row;
-}
-
-ftxui::Element historyRecordRow(const HistoryRecord& record, int width, bool selected) {
   const auto status = recordStatus(record);
-  const auto fieldCount = fieldChangeCount(record);
-  const auto summary = status == "MODIFIED"
-                           ? to_string(fieldCount) + (fieldCount == 1 ? " field changed" : " fields changed")
-                           : status == "ADDED" ? "record added" : "record deleted";
-  const auto label = toUpper(record.entityType) + "  " + record.label;
-  const int badgeWidth = static_cast<int>(status.size()) + 2;
-  const auto labelWidth = max(10, width - badgeWidth - 3);
+  const int safeWidth = max(24, width);
+  const int numberWidth = 5;
+  const int mainWidth = max(12, safeWidth - numberWidth - 1);
+  const int rightWidth = max(10, min(28, mainWidth / 2));
+  const int descriptionWidth = max(10, mainWidth - rightWidth - 1);
+  auto number = styledText(" " + to_string(index + 1) + " ", uiTitleColor(), uiActiveSoftBg()) |
+                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, numberWidth);
+  auto primary = ftxui::hbox({uiHeaderText(ellipsize(code, static_cast<size_t>(max(8, mainWidth - rightWidth - 2))),
+                                             recordStatusColor(status)),
+                              ftxui::filler(),
+                              fixedText(ellipsize(category, static_cast<size_t>(rightWidth)), rightWidth,
+                                        uiMutedColor())});
+  auto secondary = ftxui::hbox({fixedText(description, descriptionWidth, uiSecondaryText()), ftxui::filler(),
+                                fixedText(mpn.empty() ? string() : "MPN: " + mpn, rightWidth, uiInfoColor())});
+  auto content = ftxui::vbox({move(primary), move(secondary)}) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, mainWidth);
+  auto card = ftxui::hbox({move(number), styledText(" ", uiSurfaceBg()), move(content)}) |
+              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, safeWidth) |
+              ftxui::border | ftxui::bgcolor(selected ? uiActiveSoftBg() : uiSurfaceBg());
+  if (selected) card = card | ftxui::select;
+  return card;
+}
 
-  auto row = ftxui::vbox({
-               ftxui::hbox({historyBadge(status, recordStatusColor(status), recordStatusBackground(status)),
-                            uiBodyText(" ", uiSurfaceBg()),
-                            uiBodyText(ellipsize(label, static_cast<size_t>(labelWidth)),
-                                       selected ? uiPrimaryText() : uiSecondaryText()),
-                            ftxui::filler()}),
-               uiBodyText(ellipsize("  " + summary, static_cast<size_t>(max(10, width - 2))),
-                          selected ? uiInfoColor() : uiMutedColor()),
-           }) |
-           ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) |
-           ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
-  if (selected) row = row | ftxui::select;
-  return row;
+ftxui::Element historyDiffCell(const string& value, int width, ftxui::Color foreground,
+                               optional<ftxui::Color> background = nullopt) {
+  const int safeWidth = max(4, width);
+  return styledText(" " + ellipsize(value, static_cast<size_t>(max(1, safeWidth - 2))) + " ", foreground, background) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, safeWidth);
+}
+
+ftxui::Element historyDiffTable(const vector<HistoryFieldDiff>& diffs, int width) {
+  const int safeWidth = max(34, width);
+  const int fieldWidth = max(12, safeWidth * 25 / 100);
+  const int arrowWidth = 4;
+  const int valueWidth = max(8, (safeWidth - fieldWidth - arrowWidth) / 2);
+  ftxui::Elements rows;
+  rows.push_back(ftxui::hbox({historyDiffCell("Field", fieldWidth, uiSecondaryText()),
+                              historyDiffCell("Previous value", valueWidth, uiSecondaryText()),
+                              fixedText("", arrowWidth, uiSecondaryText()),
+                              historyDiffCell("New value", valueWidth, uiSecondaryText())}));
+  for (const auto& diff : diffs) {
+    rows.push_back(ftxui::hbox({historyDiffCell(diff.field, fieldWidth, uiLabelColor()),
+                                historyDiffCell(diff.previous, valueWidth, uiDangerColor(), uiDangerBg()),
+                                ftxui::hbox({ftxui::filler(), styledText("→", uiSecondaryText()), ftxui::filler()}) |
+                                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, arrowWidth),
+                                historyDiffCell(diff.next, valueWidth, uiSuccessColor(), uiActiveSoftBg())}));
+  }
+  return ftxui::vbox(move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, safeWidth) | ftxui::border |
+         ftxui::bgcolor(uiSurfaceBg());
 }
 
 }  // namespace
@@ -291,115 +253,113 @@ ftxui::Element App::renderHistoryUi() const {
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
   const int contentWidth = max(60, screenWidth - 2);
-  const int listWidth = max(42, min(58, contentWidth * 42 / 100));
-  const int detailWidth = max(18, contentWidth - listWidth - 1);
+  const int listWidth = max(38, min(60, contentWidth * 40 / 100));
+  const int detailWidth = max(24, contentWidth - listWidth - 1);
+  const int detailInnerWidth = max(20, detailWidth - 2);
+  const auto groups = groupedHistoryCommits(inventoryCommits_, historySearchQuery_, historySourceFilter_, time(nullptr));
   const auto records = historyDetailValid_ ? groupedHistoryRecords(historyDetail_) : vector<HistoryRecord>();
-  const bool recordOpen = historyRecordOpen_ && !records.empty();
   const auto recordSelection = records.empty() ? size_t(0) : min(historyRecordSelection_, records.size() - 1);
   auto self = const_cast<App*>(this);
 
+  const bool editingHistorySearch = inputMode_ == InputMode::HistorySearch;
+  const auto displayedHistoryQuery = editingHistorySearch ? inputBuffer_ : historySearchQuery_;
+  const auto displayedSearchValue = displayedHistoryQuery.empty() ? "/" : "/" + displayedHistoryQuery;
+  const int controlsWidth = max(24, listWidth);
+  const int filterWidth = min(22, max(18, controlsWidth / 3));
+  const int searchWidth = max(12, controlsWidth - filterWidth - 1);
+  const auto searchForeground = editingHistorySearch ? uiFocusColor() : uiInteractiveColor();
+  auto searchControl = target(styledText(" Search: " + displayedSearchValue + (editingHistorySearch ? "_" : " "),
+                                            searchForeground,
+                                            editingHistorySearch ? uiActiveSoftBg() : uiRaisedSurfaceBg()) |
+                                    ftxui::border |
+                                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, searchWidth),
+                                "history.search", UiTargetKind::Field, [self] { self->startHistorySearch(); });
+  auto filterControl = target(styledText(" Filter: " + historySourceFilterLabel(historySourceFilter_) + " v ",
+                                            uiInteractiveColor(), uiRaisedSurfaceBg()) |
+                                    ftxui::border |
+                                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, filterWidth),
+                                "history.filter", UiTargetKind::Field, [self] { self->cycleHistoryFilter(); });
+  auto controls = ftxui::hbox({move(searchControl), styledText(" ", uiSurfaceBg()), move(filterControl)}) |
+                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, controlsWidth);
+
   ftxui::Elements listRows;
-  listRows.push_back(uiSectionHeader("Commits  " + to_string(inventoryCommits_.size()), uiSecondaryText(),
-                                     uiSurfaceBg()));
+  listRows.push_back(move(controls));
+  listRows.push_back(uiDivider());
   if (inventoryCommits_.empty()) {
-    listRows.push_back(fullLine("No inventory commits yet.", uiMutedColor(), uiSurfaceBg()));
-    listRows.push_back(fullLine("The first launch creates an Initial inventory baseline.", uiMutedColor(), uiSurfaceBg()));
+    listRows.push_back(uiSectionHeader("No commits", uiSecondaryText(), uiSurfaceBg()));
+    listRows.push_back(fullLine("The first saved inventory state will appear here.", uiMutedColor(), uiSurfaceBg()));
+  } else if (groups.empty()) {
+    listRows.push_back(uiSectionHeader("No matching commits", uiSecondaryText(), uiSurfaceBg()));
+    listRows.push_back(fullLine("Try a different search or source filter.", uiMutedColor(), uiSurfaceBg()));
   } else {
-    for (size_t index = 0; index < inventoryCommits_.size(); ++index) {
-      const auto& commit = inventoryCommits_[index];
-      const bool selected = index == historySelection_;
-      auto row = historyRow(commit, listWidth, selected);
-      listRows.push_back(target(move(row), "history.commit." + commit.id, UiTargetKind::Row,
-                                [self, index] {
-                                  self->historySelection_ = index;
-                                  self->historyRecordSelection_ = 0;
-                                  self->historyRecordOpen_ = false;
-                                  self->refreshHistoryDetail();
-                                  self->dirty_ = true;
-                                }, true, true));
+    for (const auto& group : groups) {
+      listRows.push_back(historyGroupHeader(group, inventoryCommits_, listWidth));
+      for (const auto index : group.indices) {
+        const auto& commit = inventoryCommits_[index];
+        const bool selected = index == historySelection_;
+        auto row = historyCommitRow(commit, listWidth, selected);
+        listRows.push_back(target(move(row), "history.commit." + commit.id, UiTargetKind::Row,
+                                  [self, index] {
+                                    self->historySelection_ = index;
+                                    self->historyRecordSelection_ = 0;
+                                    self->historyRecordOpen_ = false;
+                                    self->refreshHistoryDetail();
+                                    self->dirty_ = true;
+                                  },
+                                  true, true));
+      }
+      listRows.push_back(uiDivider());
     }
   }
-  listRows.push_back(uiDivider());
-  listRows.push_back(fullLine("Up/Down select  Enter inspect  C checkpoint", uiDimColor(), uiSurfaceBg()));
   auto listPanel = ftxui::vbox(move(listRows)) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth) |
                    ftxui::yframe | ftxui::vscroll_indicator | ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex |
                    ftxui::reflect(historyListPanelBounds_);
 
-  const auto canReverse = historyDetailValid_ && historyDetail_.hasParent && !historyDetail_.changes.empty();
-  const auto appendHistoryActions = [&](ftxui::Elements& rows) {
-    rows.push_back(ftxui::hbox({
-        target(uiSecondaryButton("Restore snapshot", historyDetailValid_ ? optional<ftxui::Color>()
-                                                                          : optional<ftxui::Color>(uiMutedColor()),
-                                  historyDetailValid_),
-               "history.restore", UiTargetKind::Button, [self] {
-                 self->beginHistoryRestore(InventoryRevertMode::Snapshot);
-               },
-               historyDetailValid_),
-        ftxui::text("  "),
-        target(uiSecondaryButton("Reverse changes", uiWarnColor(), canReverse), "history.reverse", UiTargetKind::Button,
-               [self] { self->beginHistoryRestore(InventoryRevertMode::Reverse); }, canReverse),
-        ftxui::filler(),
-    }));
-  };
+  const bool canReverse = historyDetailValid_ && historyDetail_.hasParent && !historyDetail_.changes.empty();
+  const int actionWidth = max(10, (detailInnerWidth - 1) / 2);
+  auto revertAction = target(uiPrimaryButton("↶ Revert commit (v)", canReverse) | ftxui::border |
+                                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actionWidth),
+                             "history.reverse", UiTargetKind::Button,
+                             [self] { self->beginHistoryRestore(InventoryRevertMode::Reverse); }, canReverse);
+  auto restoreAction = target(uiSecondaryButton("◇ Restore state at this point (s)", nullopt, historyDetailValid_) |
+                                  ftxui::border |
+                                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actionWidth),
+                              "history.restore", UiTargetKind::Button,
+                              [self] { self->beginHistoryRestore(InventoryRevertMode::Snapshot); }, historyDetailValid_);
 
   ftxui::Elements detailRows;
   if (!historyDetailValid_) {
     detailRows.push_back(uiSectionHeader("Commit detail", uiSecondaryText(), uiSurfaceBg()));
-    detailRows.push_back(fullLine("Select a commit to inspect its inventory changes.", uiMutedColor(), uiSurfaceBg()));
-  } else if (recordOpen) {
-    const auto& commit = historyDetail_.commit;
-    const auto& record = records[recordSelection];
-    const auto status = recordStatus(record);
-    detailRows.push_back(uiSectionHeader("Record detail", uiSecondaryText(), uiSurfaceBg()));
-    detailRows.push_back(ftxui::hbox({historyBadge(status, recordStatusColor(status), recordStatusBackground(status)),
-                                      uiBodyText("  " + record.entityType + "  " + record.label, uiTitleColor()),
-                                      ftxui::filler()}));
-    detailRows.push_back(fullLine("Commit #" + to_string(commit.sequence) + "  " + commit.message, uiMutedColor(),
-                                  uiSurfaceBg()));
-    detailRows.push_back(fullLine("ID: " + record.entityId, uiMutedColor(), uiSurfaceBg()));
-    appendHistoryActions(detailRows);
-    detailRows.push_back(uiDivider());
-
-    if (status == "ADDED") {
-      detailRows.push_back(fullLine("This record was added to the inventory.", uiSuccessColor(), uiSurfaceBg()));
-    } else if (status == "DELETED") {
-      detailRows.push_back(fullLine("This record was deleted from the inventory.", uiDangerColor(), uiSurfaceBg()));
-    }
-
-    for (const auto& change : record.changes) appendHistoryFieldDiff(detailRows, change, detailWidth - 2);
-    if (fieldChangeCount(record) == 0) {
-      detailRows.push_back(fullLine("No field-level values are available for this record change.", uiMutedColor(),
-                                    uiSurfaceBg()));
-    }
-    detailRows.push_back(uiDivider());
-    detailRows.push_back(fullLine("Esc back to changed records  Up/Down next record", uiDimColor(), uiSurfaceBg()));
+    detailRows.push_back(fullLine(groups.empty() ? "Select a matching commit to inspect its changes."
+                                                 : "Select a commit to inspect its changes.",
+                                  uiMutedColor(), uiSurfaceBg()));
   } else {
     const auto& commit = historyDetail_.commit;
-    const auto kind = commitMarker(commit);
-    detailRows.push_back(uiSectionHeader("Commit detail", uiSecondaryText(), uiSurfaceBg()));
-    detailRows.push_back(ftxui::hbox({historyBadge(kind, commit.checkpoint ? uiWarnColor() : uiAccentColor(),
-                                                   commit.checkpoint ? uiWarningBg() : uiRaisedSurfaceBg()),
-                                      uiBodyText("  #" + to_string(commit.sequence) + "  " + commit.message,
-                                                 uiTitleColor()),
-                                      ftxui::filler()}));
-    detailRows.push_back(fullLine("Committed: " + nowTimestampString(commit.timestamp) + "  ·  Parent: " +
-                                      (historyDetail_.hasParent ? "#" + shortCommitId(commit.parentId) : "none"),
+    const auto type = historyCommitType(commit);
+    detailRows.push_back(uiSectionHeader("Commit #" + to_string(commit.sequence), historyTypeColor(type), uiSurfaceBg()));
+    detailRows.push_back(uiHeaderText(ellipsize(commit.message.empty() ? "(no message)" : commit.message,
+                                      static_cast<size_t>(detailInnerWidth)),
+                                      uiTitleColor(), uiSurfaceBg()));
+    detailRows.push_back(fullLine("Committed: " + nowTimestampString(commit.timestamp) + "   Parent: " +
+                                      (historyDetail_.hasParent ? "#" + to_string(commit.sequence - 1) + " (" +
+                                               shortCommitId(commit.parentId) + ")"
+                                                                     : "none"),
                                   uiSecondaryText(), uiSurfaceBg()));
-    detailRows.push_back(fullLine("Source: " + (commit.source.empty() ? "manual" : commit.source), uiSecondaryText(),
-                                  uiSurfaceBg()));
-    if (!commit.reference.empty()) {
-      detailRows.push_back(fullLine("Reference: " + commit.reference, uiSecondaryText(), uiSurfaceBg()));
-    }
+    detailRows.push_back(fullLine("Source: " + type +
+                                      (commit.reference.empty() ? string() : "   Reference: " + commit.reference),
+                                  historyTypeColor(type), uiSurfaceBg()));
     if (!commit.revertedCommitId.empty()) {
       detailRows.push_back(fullLine("Corrects: #" + shortCommitId(commit.revertedCommitId), uiWarnColor(), uiSurfaceBg()));
     }
-    detailRows.push_back(fullLine("Impact: " + to_string(commit.changedItemCount) + " parts changed  ·  " +
-                                      to_string(commit.changedRackCount) + " racks changed",
-                                  commit.checkpoint ? uiWarnColor() : uiInfoColor(), uiSurfaceBg()));
-    appendHistoryActions(detailRows);
+    detailRows.push_back(ftxui::hbox({historyImpactCard("P", changedCount(commit.changedItemCount, "part", "parts"),
+                                                        actionWidth),
+                                      styledText(" ", uiSurfaceBg()),
+                                      historyImpactCard("R", changedCount(commit.changedRackCount, "rack", "racks"),
+                                                        actionWidth)}));
+    detailRows.push_back(ftxui::hbox({move(revertAction), styledText(" ", uiSurfaceBg()), move(restoreAction)}));
     detailRows.push_back(uiDivider());
-    detailRows.push_back(uiSectionHeader("Changed records  " + to_string(records.size()), uiSecondaryText(),
+    detailRows.push_back(uiSectionHeader("Changed records  (" + to_string(records.size()) + ")", uiSecondaryText(),
                                          uiSurfaceBg()));
     if (records.empty()) {
       detailRows.push_back(fullLine(commit.checkpoint ? "Snapshot-only checkpoint; inventory unchanged."
@@ -407,8 +367,7 @@ ftxui::Element App::renderHistoryUi() const {
                                     uiMutedColor(), uiSurfaceBg()));
     } else {
       for (size_t index = 0; index < records.size(); ++index) {
-        const bool selected = index == recordSelection;
-        auto row = historyRecordRow(records[index], detailWidth, selected);
+        auto row = historyRecordCard(historyDetail_, records[index], index, detailInnerWidth, index == recordSelection);
         detailRows.push_back(target(move(row), "history.record." + to_string(index), UiTargetKind::Row,
                                      [self, index] {
                                        self->historyRecordSelection_ = index;
@@ -419,15 +378,29 @@ ftxui::Element App::renderHistoryUi() const {
       }
     }
     detailRows.push_back(uiDivider());
-    detailRows.push_back(fullLine(records.empty() ? "C checkpoint  ·  Space actions"
-                                                   : "Up/Down select record  Enter inspect  ·  Space actions",
+    detailRows.push_back(uiSectionHeader("Field changes", uiSecondaryText(), uiSurfaceBg()));
+    if (records.empty()) {
+      detailRows.push_back(fullLine("No changed record is available for field-level preview.", uiMutedColor(),
+                                    uiSurfaceBg()));
+    } else {
+      const auto diffs = historyFieldDiffs(records[recordSelection]);
+      if (diffs.empty()) {
+        detailRows.push_back(fullLine("This record has no field-level values to compare.", uiMutedColor(),
+                                      uiSurfaceBg()));
+      } else {
+        detailRows.push_back(historyDiffTable(diffs, detailInnerWidth));
+      }
+    }
+    detailRows.push_back(uiDivider());
+    detailRows.push_back(fullLine(historyRecordOpen_ ? "Esc back to commit  Up/Down next record"
+                                                     : "Up/Down select record  Enter view record",
                                   uiDimColor(), uiSurfaceBg()));
   }
 
   if (inputMode_ == InputMode::HistoryConfirm) {
     detailRows.push_back(uiDivider());
     detailRows.push_back(fullLine("Confirm history action", uiWarnColor(), uiWarningBg()));
-    detailRows.push_back(fullLine(ellipsize(historyConfirmationMessage_, static_cast<size_t>(max(10, detailWidth - 2))),
+    detailRows.push_back(fullLine(ellipsize(historyConfirmationMessage_, static_cast<size_t>(detailInnerWidth)),
                                   uiTitleColor(), uiWarningBg()));
     detailRows.push_back(fullLine("Enter confirm  Esc cancel", uiAccentColor(), uiWarningBg()));
   }

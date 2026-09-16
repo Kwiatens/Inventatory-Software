@@ -28,6 +28,7 @@
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "ui/pages/dashboard/DashboardPagePrivate.h"
+#include "ui/pages/history/HistoryPagePrivate.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
@@ -63,6 +64,96 @@ using namespace inventatory;
 using namespace std;
 
 namespace {
+
+time_t localTime(int year, int month, int day, int hour = 12, int minute = 0) {
+  tm value{};
+  value.tm_year = year - 1900;
+  value.tm_mon = month - 1;
+  value.tm_mday = day;
+  value.tm_hour = hour;
+  value.tm_min = minute;
+  value.tm_isdst = -1;
+  return mktime(&value);
+}
+
+void testHistoryPagePresentationData() {
+  using history_page_detail::HistoryCommitGroup;
+  using history_page_detail::HistoryFieldDiff;
+  using history_page_detail::HistoryRecord;
+  using history_page_detail::HistorySourceFilter;
+
+  InventoryCommit manual;
+  manual.id = "manual-id";
+  manual.sequence = 24;
+  manual.timestamp = localTime(2026, 9, 16, 19, 27);
+  manual.source = "manual";
+  manual.message = "Updated inventory";
+  manual.changedItemCount = 1;
+
+  InventoryCommit corrective;
+  corrective.id = "corrective-id";
+  corrective.sequence = 23;
+  corrective.timestamp = localTime(2026, 9, 16, 19, 20);
+  corrective.source = "revert";
+  corrective.message = "Restored snapshot";
+  corrective.corrective = true;
+  corrective.changedItemCount = 1;
+
+  InventoryCommit digiKey;
+  digiKey.id = "digikey-id";
+  digiKey.sequence = 16;
+  digiKey.timestamp = localTime(2026, 9, 4, 23, 47);
+  digiKey.source = "digikey";
+  digiKey.message = "DigiKey refresh batch";
+  digiKey.changedItemCount = 94;
+
+  InventoryCommit checkpoint;
+  checkpoint.id = "checkpoint-id";
+  checkpoint.sequence = 15;
+  checkpoint.timestamp = localTime(2026, 9, 4, 18, 24);
+  checkpoint.source = "checkpoint";
+  checkpoint.message = "Before reorg";
+  checkpoint.checkpoint = true;
+
+  const vector<InventoryCommit> commits = {manual, corrective, digiKey, checkpoint};
+  assert(history_page_detail::historyCommitType(manual) == "MANUAL");
+  assert(history_page_detail::historyCommitType(corrective) == "CORRECTIVE");
+  assert(history_page_detail::historyCommitType(digiKey) == "DIGIKEY");
+  assert(history_page_detail::historyCommitType(checkpoint) == "CHECKPOINT");
+  assert(history_page_detail::historyCommitImpactSummary(manual) == "1 part changed");
+  assert(history_page_detail::historyCommitImpactSummary(digiKey) == "94 parts changed");
+  assert(history_page_detail::historyCommitImpactSummary(checkpoint) == "No inventory changes");
+
+  const auto correctiveOnly = history_page_detail::filteredHistoryIndices(commits, {}, HistorySourceFilter::Corrective);
+  assert((correctiveOnly == vector<size_t>{1}));
+  const auto searchResults = history_page_detail::filteredHistoryIndices(commits, "refresh", HistorySourceFilter::All);
+  assert((searchResults == vector<size_t>{2}));
+  const auto messageAndTypeResults =
+      history_page_detail::filteredHistoryIndices(commits, "DIGI", HistorySourceFilter::All);
+  assert((messageAndTypeResults == vector<size_t>{2}));
+
+  const auto groups = history_page_detail::groupedHistoryCommits(commits, {}, HistorySourceFilter::All,
+                                                                  localTime(2026, 9, 16, 20));
+  assert(groups.size() == 2);
+  assert(groups[0].label == "Today");
+  assert((groups[0].indices == vector<size_t>{0, 1}));
+  assert(groups[1].label == "Sep 04, 2026");
+  assert((groups[1].indices == vector<size_t>{2, 3}));
+
+  HistoryRecord record;
+  record.entityType = "item";
+  record.entityId = "item-id";
+  record.label = "RES-10K";
+  record.changes = {
+      {"item", "item-id", "RES-10K", "record", "", "modified"},
+      {"item", "item-id", "RES-10K", "quantity", "8", "12"},
+      {"item", "item-id", "RES-10K", "location", "R2-B3", "R2-B4"},
+  };
+  const auto diffs = history_page_detail::historyFieldDiffs(record);
+  assert(diffs.size() == 2);
+  assert((diffs[0].field == "Quantity" && diffs[0].previous == "8" && diffs[0].next == "12"));
+  assert((diffs[1].field == "Location" && diffs[1].previous == "R2-B3" && diffs[1].next == "R2-B4"));
+}
 
 string sendLocalHttpRequest(uint16_t port, const string& request, DWORD receiveTimeout = 3000) {
   SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -1110,6 +1201,8 @@ void testPackageGHardening() {
 }
 
 int main() {
+  testHistoryPagePresentationData();
+
   {
     using namespace inventatory::dashboard_detail;
     assert(dashboardScannerIdleMessage("UNPAIRED") == "Scanner R1 not paired");

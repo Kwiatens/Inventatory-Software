@@ -80,12 +80,14 @@ vector<App::Action> App::currentActions() const {
 
     case Page::History:
       add("create checkpoint", "History", "c", chr('c'), [self] { self->beginHistoryCheckpoint(); });
-      add("restore snapshot", "History", "s", chr('s'), [self] {
+      add("restore state at this point", "History", "s", chr('s'), [self] {
         self->beginHistoryRestore(InventoryRevertMode::Snapshot);
       });
-      add("reverse changes", "History", "v", chr('v'), [self] {
+      add("revert commit", "History", "v", chr('v'), [self] {
         self->beginHistoryRestore(InventoryRevertMode::Reverse);
       });
+      add("search history", "Search", "/", chr('/'), [self] { self->startHistorySearch(); });
+      add("cycle history filter", "Search", "f", chr('f'), [self] { self->cycleHistoryFilter(); });
       add("reload history", "System", "r", chr('r'), [self] {
         self->refreshInventoryCommits();
         self->setMessage("Inventory history reloaded", 2, UiMessageSeverity::Success);
