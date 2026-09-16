@@ -53,6 +53,38 @@ std::filesystem::path discoverInventatoryDataPath();
 
 using WorkspaceGeneration = std::uint64_t;
 
+enum class UiMessageSeverity { Info, Success, Warning, Error };
+
+enum class UiMessageColorRole { Info, Success, Warning, Error };
+
+struct UiMessagePresentation {
+  const char* prefix = "";
+  UiMessageColorRole color = UiMessageColorRole::Info;
+};
+
+inline constexpr UiMessageSeverity kLegacyMessageSeverity = UiMessageSeverity::Info;
+
+inline constexpr UiMessagePresentation uiMessagePresentation(UiMessageSeverity severity) {
+  switch (severity) {
+    case UiMessageSeverity::Success:
+      return {"[ok] ", UiMessageColorRole::Success};
+    case UiMessageSeverity::Warning:
+      return {"[!] ", UiMessageColorRole::Warning};
+    case UiMessageSeverity::Error:
+      return {"[x] ", UiMessageColorRole::Error};
+    case UiMessageSeverity::Info:
+      return {"[i] ", UiMessageColorRole::Info};
+  }
+  return {"[i] ", UiMessageColorRole::Info};
+}
+
+inline constexpr bool uiMessageAcknowledgementPulseActive(long long startedAt, long long now) {
+  constexpr long long kPulseDurationMs = 200;
+  return startedAt >= 0 && now >= startedAt && now - startedAt < kPulseDurationMs;
+}
+
+inline constexpr int uiMessageRowHeight() { return 1; }
+
 // Shared by the controller and focused tests. Generation zero is never a
 // valid captured workspace, which makes an uninitialized result fail closed.
 inline WorkspaceGeneration advanceWorkspaceGeneration(WorkspaceGeneration current) {
@@ -529,6 +561,7 @@ class App {
   bool activateFocusedTarget();
 
   void setMessage(std::string text, int seconds = 3);
+  void setMessage(std::string text, int seconds, UiMessageSeverity severity);
   bool messageVisible() const;
   void clearMessageIfExpired();
   void requestUserExit();
@@ -809,6 +842,7 @@ class App {
   // so the details block starts collapsed.
   bool stockDetailsExpanded_ = false;
   std::string message_;
+  UiMessageSeverity messageSeverity_ = kLegacyMessageSeverity;
   std::string persistenceError_;
   std::string pendingMovementSource_;
   std::string pendingMovementReference_;
@@ -833,6 +867,7 @@ class App {
   size_t dashboardWarningSelection_ = 0;
   size_t dashboardActivitySelection_ = 0;
   size_t rackSelection_ = 0;
+  mutable ftxui::Box rackListPanelBounds_;
   int rackRow_ = 0;
   int rackColumn_ = 0;
   std::string movingRackItemId_;
