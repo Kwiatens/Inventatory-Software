@@ -67,7 +67,7 @@ const BomRackGlyph* bomRackGlyph(char value) {
 }
 
 bool isBomRackTitle(const string& title) {
-  if (title.size() <= 5 || title.compare(0, 5, "RACK ") != 0) return false;
+  if (title.size() <= 5 || title.compare(0, 5, "Rack ") != 0) return false;
   return all_of(title.begin() + 5, title.end(), [](unsigned char value) {
     return isdigit(value) != 0;
   });
@@ -214,7 +214,7 @@ ftxui::Element App::renderBomProjectUi() const {
     if (bomProjects_.empty()) {
       return ftxui::vbox({
           ftxui::filler(),
-          centered(uiHeaderText("NO PROJECTS", uiPrimaryText())),
+          centered(uiHeaderText("No projects", uiPrimaryText())),
           centered(styledText("Import a KiCad BOM from the Import page", uiSecondaryText())),
           ftxui::text(""),
           centered(target(styledText(" Import a BOM ", uiInteractiveColor(), uiRaisedSurfaceBg()), "bom.import",
@@ -268,13 +268,13 @@ ftxui::Element App::renderBomProjectUi() const {
                UiTargetKind::Button, [self] { self->beginCsvImport(); }),
     }) | ftxui::bgcolor(uiSurfaceBg()));
     if (bomProjectsDirty_) {
-      rows.push_back(fullLine("UNSAVED PROJECT CHANGES  Press R to retry saving", uiDangerColor(), uiDangerBg()));
+      rows.push_back(fullLine("Unsaved project changes  Press R to retry saving", uiDangerColor(), uiDangerBg()));
     }
     return ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::bgcolor(uiSurfaceBg());
   }
 
   const auto* project = activeBomProject();
-  const auto projectName = project == nullptr ? string("PROJECT") : project->name;
+  const auto projectName = project == nullptr ? string("Project") : project->name;
 
   // --------------------------------------------------------------- build ---
   if (bomView_ == BomView::Build) {
@@ -546,7 +546,7 @@ ftxui::Element App::renderBomProjectUi() const {
   }) | ftxui::bgcolor(uiSurfaceBg()));
   headerRows.push_back(uiDivider());
   if (bomProjectsDirty_) {
-    headerRows.push_back(fullLine("UNSAVED PROJECT CHANGES  Press R to retry saving", uiDangerColor(), uiDangerBg()));
+    headerRows.push_back(fullLine("Unsaved project changes  Press R to retry saving", uiDangerColor(), uiDangerBg()));
     headerRows.push_back(uiDivider());
   }
   ftxui::Elements tableRows;

@@ -53,7 +53,7 @@ ftxui::Element App::renderUi() const {
   if (inventoryRecoveryRequired_) {
     return ftxui::vbox({
         ftxui::filler(),
-        styledText("INVENTORY RECOVERY REQUIRED", uiDangerColor()),
+        styledText("Inventory recovery required", uiDangerColor()),
         ftxui::separator(),
         styledText(inventoryRecoveryDetail_, uiTitleColor()),
         styledText("The active workspace was preserved and Inventatory is locked to prevent data loss.", uiMutedColor()),
@@ -214,10 +214,10 @@ ftxui::Element App::renderSearchBarUi() const {
     contextTitle = "Search";
     contextText = "/" + inputBuffer_ + "_  (filtering live)";
   } else if (inputMode_ == InputMode::ClosestSearch) {
-    contextTitle = "Find Closest To";
+    contextTitle = "Find closest to";
     contextText = ">" + inputBuffer_ + "_  (searching all records live)";
   } else if (page_ == Page::Stock && closestSearchActive_) {
-    contextTitle = "Find Closest To";
+    contextTitle = "Find closest to";
     contextText = closestSearchQuery_.empty() ? "> type a physical value" : ">" + closestSearchQuery_ +
                   "  · F edit target · Esc close";
   } else if (inputMode_ == InputMode::ExitConfirmation) {

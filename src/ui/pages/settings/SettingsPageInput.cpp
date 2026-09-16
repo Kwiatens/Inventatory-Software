@@ -91,7 +91,8 @@ void App::handleSettingsKey(const KeyEvent& key) {
       if (ch == 'k' && settingsField_ > 0) --settingsField_;
       dirty_ = true;
     } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
-      if (ch == 'j' && settingsField_ + 1 < static_cast<int>(settingsDraft_.quickLabelPresets.size())) ++settingsField_;
+      const int customLabelField = static_cast<int>(settingsDraft_.quickLabelPresets.size());
+      if (ch == 'j' && settingsField_ < customLabelField) ++settingsField_;
       if (ch == 'k' && settingsField_ > 0) --settingsField_;
       dirty_ = true;
     } else if (settingsCategory_ == SettingsCategory::Printer) {

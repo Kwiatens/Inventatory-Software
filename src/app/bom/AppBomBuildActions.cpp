@@ -26,7 +26,7 @@ vector<App::BuildStep> App::bomBuildSteps() const {
   // single stop collects everything that lives outside a rack.
   map<string, BuildStep> rackSteps;
   BuildStep loose;
-  loose.title = "NOT IN A RACK";
+  loose.title = "Not in a rack";
 
   for (const auto& match : bomAnalysis_.matches) {
     const auto itemId = match.chosenItemId();
@@ -78,7 +78,7 @@ vector<App::BuildStep> App::bomBuildSteps() const {
 
   for (const auto* rack : orderedRacks) {
     auto step = rackSteps[rack->id];
-    step.title = "RACK " + to_string(max(1, rackNumberFromCode(rack->code)));
+    step.title = "Rack " + to_string(max(1, rackNumberFromCode(rack->code)));
     step.subtitle = rack->componentType;
     sort(step.picks.begin(), step.picks.end(),
          [](const BuildPick& lhs, const BuildPick& rhs) { return lhs.slot < rhs.slot; });
