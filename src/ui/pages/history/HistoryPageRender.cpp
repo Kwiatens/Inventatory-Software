@@ -25,6 +25,7 @@ using history_page_detail::filteredHistoryIndices;
 using history_page_detail::groupedHistoryCommits;
 using history_page_detail::groupedHistoryRecords;
 using history_page_detail::historyCommitImpactSummary;
+using history_page_detail::historyCommitDisplayMessage;
 using history_page_detail::historyCommitType;
 using history_page_detail::historyFieldDiffs;
 using history_page_detail::historyPaneWidths;
@@ -85,7 +86,7 @@ string lowercaseCopy(string value) {
 }
 
 string compactHistoryMessage(const InventoryCommit& commit) {
-  const auto message = commit.message.empty() ? string("(no message)") : commit.message;
+  const auto message = historyCommitDisplayMessage(commit);
   const auto lower = lowercaseCopy(message);
   const string reversePrefix = "reversed changes from commit ";
   if (lower.rfind(reversePrefix, 0) == 0) return "Reverted " + message.substr(reversePrefix.size());
@@ -114,8 +115,7 @@ ftxui::Element historyCommitRow(const InventoryCommit& commit, int width, bool s
   auto sequence = fixedText("#" + to_string(commit.sequence), sequenceWidth, foreground, rowBackground);
   auto badge = historyBadge(type, historyTypeColor(type), historyTypeBackground(type)) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, typeWidth);
-  const auto message = compact ? compactHistoryMessage(commit)
-                               : (commit.message.empty() ? string("(no message)") : commit.message);
+  const auto message = compact ? compactHistoryMessage(commit) : historyCommitDisplayMessage(commit);
   auto messageElement = fixedText(message, messageWidth, foreground, rowBackground);
   auto time = ftxui::hbox({ftxui::filler(), styledText(historyTime(commit), metadata, rowBackground)}) |
               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, timeWidth);
@@ -147,16 +147,6 @@ ftxui::Element historyImpactStrip(const string& icon, const string& value, int w
                                    background),
                       ftxui::filler()}) |
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, safeWidth) | ftxui::bgcolor(background);
-}
-
-string joinCategoryPath(const vector<string>& values) {
-  string joined;
-  for (const auto& value : values) {
-    if (value.empty()) continue;
-    if (!joined.empty()) joined += " > ";
-    joined += value;
-  }
-  return joined;
 }
 
 const InventoryItem* historyItemFor(const InventoryCommitDetail& detail, const HistoryRecord& record) {
@@ -201,22 +191,14 @@ ftxui::Element historyRecordCard(const InventoryCommitDetail& detail, const Hist
   const auto* rack = historyRackFor(detail, record);
   const auto code = record.label.empty() ? record.entityId : record.label;
   string description;
-  string category;
-  string mpn;
   if (item != nullptr) {
     description = item->vendorMetadata.detailedDescription;
     if (description.empty()) description = item->vendorMetadata.title;
     if (description.empty()) description = item->partName;
-    category = joinCategoryPath(item->vendorMetadata.categoryPath);
-    if (category.empty()) category = item->category;
-    mpn = item->vendorMetadata.manufacturerPartNumber;
-    if (mpn.empty()) mpn = item->sku;
   } else if (rack != nullptr) {
     description = rack->componentType;
-    category = "Rack";
   }
   if (description.empty()) description = "No description available";
-  if (category.empty()) category = toUpper(record.entityType);
 
   const auto status = recordStatus(record);
   const auto background = selected ? uiActiveSoftBg() : uiSurfaceBg();
@@ -224,25 +206,15 @@ ftxui::Element historyRecordCard(const InventoryCommitDetail& detail, const Hist
   const int markerWidth = 1;
   const int numberWidth = 5;
   const int mainWidth = max(1, safeWidth - markerWidth - numberWidth - 1);
-  const bool narrow = mainWidth < 24;
-  const int rightWidth = narrow ? 0 : max(10, min(28, mainWidth / 2));
-  const int descriptionWidth = narrow ? mainWidth : max(10, mainWidth - rightWidth - 1);
   auto marker = styledText(selected ? "▌" : " ", selected ? uiInteractiveColor() : background, background) |
                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, markerWidth);
   auto number = styledText(" " + to_string(index + 1) + " ", uiTitleColor(),
                           selected ? uiSelectionBg() : uiRaisedSurfaceBg()) |
                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, numberWidth);
-  auto primary = narrow
-                    ? ftxui::hbox({uiHeaderText(ellipsize(code, static_cast<size_t>(mainWidth)),
-                                                 recordStatusColor(status)),
-                                   ftxui::filler()})
-                    : ftxui::hbox({uiHeaderText(ellipsize(code, static_cast<size_t>(max(8, mainWidth - rightWidth - 2))),
-                                                 recordStatusColor(status)),
-                                   ftxui::filler(), fixedText(category, rightWidth, uiMutedColor())});
-  auto secondary = narrow
-                       ? fixedText(description, mainWidth, uiSecondaryText())
-                       : ftxui::hbox({fixedText(description, descriptionWidth, uiSecondaryText()), ftxui::filler(),
-                                      fixedText(mpn.empty() ? string() : "MPN: " + mpn, rightWidth, uiInfoColor())});
+  auto primary = ftxui::hbox({uiHeaderText(ellipsize(code, static_cast<size_t>(mainWidth)),
+                                           recordStatusColor(status)),
+                             ftxui::filler()});
+  auto secondary = fixedText(description, mainWidth, uiSecondaryText());
   auto content = ftxui::vbox({move(primary), move(secondary)}) |
                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, mainWidth);
   auto card = ftxui::hbox({move(marker), move(number), styledText(" ", background), move(content)}) |
@@ -353,6 +325,7 @@ ftxui::Element App::renderHistoryUi() const {
         auto row = historyCommitRow(commit, listWidth, selected);
         listRows.push_back(target(move(row), "history.commit." + commit.id, UiTargetKind::Row,
                                   [self, index] {
+                                    if (self->inputMode_ == InputMode::HistoryConfirm) self->cancelHistoryAction();
                                     self->historySelection_ = index;
                                     self->historyRecordSelection_ = 0;
                                     self->historyRecordOpen_ = false;
@@ -372,15 +345,41 @@ ftxui::Element App::renderHistoryUi() const {
   const bool canReverse = historyDetailValid_ && historyDetail_.hasParent && !historyDetail_.changes.empty();
   const bool compactDetail = detailInnerWidth < 68;
   const int actionWidth = max(10, (detailInnerWidth - 1) / 2);
-  auto revertAction = target(uiPrimaryButton(compactDetail ? "↶ Revert (v)" : "↶ Revert commit (v)", canReverse) |
+  const bool confirmingHistory = inputMode_ == InputMode::HistoryConfirm;
+  const bool confirmingReverse = confirmingHistory && pendingHistoryRevertMode_ == InventoryRevertMode::Reverse;
+  const bool confirmingSnapshot = confirmingHistory && pendingHistoryRevertMode_ == InventoryRevertMode::Snapshot;
+  const bool revertEnabled = canReverse && (!confirmingHistory || confirmingReverse);
+  const bool restoreEnabled = historyDetailValid_ && (!confirmingHistory || confirmingSnapshot);
+  const auto revertLabel = confirmingReverse
+                               ? (compactDetail ? "↶ Confirm revert?" : "↶ Confirm revert? (Enter)")
+                               : (compactDetail ? "↶ Revert (v)" : "↶ Revert commit (v)");
+  const auto restoreLabel = confirmingSnapshot
+                                ? (compactDetail ? "◇ Confirm restore?" : "◇ Confirm restore? (Enter)")
+                                : (compactDetail ? "◇ Restore (s)" : "◇ Restore state at this point (s)");
+  auto revertAction = target(uiPrimaryButton(revertLabel, revertEnabled) |
                                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actionWidth),
                              "history.reverse", UiTargetKind::Button,
-                             [self] { self->beginHistoryRestore(InventoryRevertMode::Reverse); }, canReverse);
-  auto restoreAction = target(uiSecondaryButton(compactDetail ? "◇ Restore (s)" : "◇ Restore state at this point (s)",
-                                                nullopt, historyDetailValid_) |
+                             [self] {
+                               if (self->inputMode_ == InputMode::HistoryConfirm &&
+                                   self->pendingHistoryRevertMode_ == InventoryRevertMode::Reverse) {
+                                 self->applyHistoryRevert(InventoryRevertMode::Reverse);
+                               } else {
+                                 self->beginHistoryRestore(InventoryRevertMode::Reverse);
+                               }
+                             },
+                             revertEnabled);
+  auto restoreAction = target(uiSecondaryButton(restoreLabel, nullopt, restoreEnabled) |
                                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actionWidth),
                               "history.restore", UiTargetKind::Button,
-                              [self] { self->beginHistoryRestore(InventoryRevertMode::Snapshot); }, historyDetailValid_);
+                              [self] {
+                                if (self->inputMode_ == InputMode::HistoryConfirm &&
+                                    self->pendingHistoryRevertMode_ == InventoryRevertMode::Snapshot) {
+                                  self->applyHistoryRevert(InventoryRevertMode::Snapshot);
+                                } else {
+                                  self->beginHistoryRestore(InventoryRevertMode::Snapshot);
+                                }
+                              },
+                              restoreEnabled);
 
   ftxui::Elements detailRows;
   if (!historyDetailValid_) {
@@ -396,7 +395,7 @@ ftxui::Element App::renderHistoryUi() const {
                               : "none";
     const string reference = commit.reference.empty() ? "-" : commit.reference;
     detailRows.push_back(uiSectionHeader("Commit #" + to_string(commit.sequence), historyTypeColor(type), uiSurfaceBg()));
-    detailRows.push_back(fixedText(commit.message.empty() ? "(no message)" : commit.message, detailInnerWidth,
+    detailRows.push_back(fixedText(historyCommitDisplayMessage(commit), detailInnerWidth,
                                    uiTitleColor(), uiSurfaceBg()));
     if (detailInnerWidth >= 72) {
       const int metaWidth = (detailInnerWidth - 1) / 2;
@@ -438,6 +437,7 @@ ftxui::Element App::renderHistoryUi() const {
         auto row = historyRecordCard(historyDetail_, records[index], index, detailInnerWidth, index == recordSelection);
         detailRows.push_back(target(move(row), "history.record." + to_string(index), UiTargetKind::Row,
                                      [self, index] {
+                                       if (self->inputMode_ == InputMode::HistoryConfirm) self->cancelHistoryAction();
                                        self->historyRecordSelection_ = index;
                                        self->historyRecordOpen_ = true;
                                        self->dirty_ = true;
@@ -463,14 +463,6 @@ ftxui::Element App::renderHistoryUi() const {
     detailRows.push_back(fullLine(historyRecordOpen_ ? "Esc back to commit  Up/Down next record"
                                                      : "Up/Down select record  Enter view record",
                                   uiDimColor(), uiSurfaceBg()));
-  }
-
-  if (inputMode_ == InputMode::HistoryConfirm) {
-    detailRows.push_back(uiDivider());
-    detailRows.push_back(fullLine("Confirm history action", uiWarnColor(), uiWarningBg()));
-    detailRows.push_back(fullLine(ellipsize(historyConfirmationMessage_, static_cast<size_t>(detailInnerWidth)),
-                                  uiTitleColor(), uiWarningBg()));
-    detailRows.push_back(fullLine("Enter confirm  Esc cancel", uiAccentColor(), uiWarningBg()));
   }
 
   auto detailPanel = ftxui::vbox(move(detailRows)) |

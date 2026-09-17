@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <ctime>
 #include <string>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -106,29 +105,15 @@ void App::beginHistoryRestore(InventoryRevertMode mode) {
     setMessage("The selected commit has no reversible inventory changes", 4);
     return;
   }
-  InventoryStore preview;
-  if (mode == InventoryRevertMode::Snapshot) {
-    preview = historyDetail_.snapshot;
-  } else {
+  if (mode == InventoryRevertMode::Reverse) {
+    InventoryStore preview;
     string conflict;
     if (!prepareInventoryCommitReverse(historyDetail_, store_, preview, conflict)) {
       setMessage(conflict.empty() ? "Reverse blocked because later changes conflict" : conflict, 6);
       return;
     }
   }
-  const auto affected = inventoryCommitDiff(store_, preview);
-  unordered_set<string> affectedItems;
-  unordered_set<string> affectedRacks;
-  for (const auto& change : affected) {
-    if (change.entityType == "item") affectedItems.insert(change.entityId);
-    if (change.entityType == "rack") affectedRacks.insert(change.entityId);
-  }
   pendingHistoryRevertMode_ = mode;
-  const auto action = mode == InventoryRevertMode::Snapshot ? "Restore" : "Reverse";
-  historyConfirmationMessage_ = string(action) + " commit #" + to_string(historyDetail_.commit.sequence) + " (" +
-                                historyDetail_.commit.message + ")? This affects " +
-                                to_string(affectedItems.size()) + " parts and " + to_string(affectedRacks.size()) +
-                                " racks.";
   inputBuffer_.clear();
   inputMode_ = InputMode::HistoryConfirm;
   dirty_ = true;
@@ -136,7 +121,6 @@ void App::beginHistoryRestore(InventoryRevertMode mode) {
 
 void App::cancelHistoryAction() {
   inputBuffer_.clear();
-  historyConfirmationMessage_.clear();
   inputMode_ = InputMode::None;
   dirty_ = true;
 }

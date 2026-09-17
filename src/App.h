@@ -900,7 +900,6 @@ class App {
   mutable ftxui::Box historyListPanelBounds_;
   mutable ftxui::Box historyDetailPanelBounds_;
   InventoryRevertMode pendingHistoryRevertMode_ = InventoryRevertMode::Snapshot;
-  std::string historyConfirmationMessage_;
   std::mutex scanMutex_;
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;

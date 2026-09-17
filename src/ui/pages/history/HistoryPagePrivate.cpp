@@ -91,61 +91,19 @@ bool filterMatches(const InventoryCommit& commit, HistorySourceFilter filter) {
   return false;
 }
 
-vector<pair<string, string>> parameterPairs(const string& encoded) {
-  vector<pair<string, string>> pairs;
-  if (encoded.empty()) return pairs;
-
-  size_t start = 0;
-  while (start <= encoded.size()) {
-    const auto end = encoded.find(';', start);
-    const auto segment = trim(encoded.substr(start, end == string::npos ? string::npos : end - start));
-    if (!segment.empty()) {
-      const auto separator = segment.find('=');
-      if (separator == string::npos) return {};
-      pairs.emplace_back(trim(segment.substr(0, separator)), trim(segment.substr(separator + 1)));
-    }
-    if (end == string::npos) break;
-    start = end + 1;
-  }
-  return pairs;
-}
-
-struct ParameterDiff {
-  string name;
-  string before;
-  string after;
-};
-
-vector<ParameterDiff> parameterDiffs(const string& before, const string& after) {
-  const auto beforePairs = parameterPairs(before);
-  const auto afterPairs = parameterPairs(after);
-  if (beforePairs.empty() && !before.empty()) return {};
-  if (afterPairs.empty() && !after.empty()) return {};
-
-  unordered_map<string, string> beforeValues;
-  unordered_map<string, string> afterValues;
-  vector<string> order;
-  beforeValues.reserve(beforePairs.size());
-  afterValues.reserve(afterPairs.size());
-
-  for (const auto& pair : beforePairs) {
-    beforeValues[pair.first] = pair.second;
-    order.push_back(pair.first);
-  }
-  for (const auto& pair : afterPairs) {
-    afterValues[pair.first] = pair.second;
-    if (find(order.begin(), order.end(), pair.first) == order.end()) order.push_back(pair.first);
-  }
-
-  vector<ParameterDiff> diffs;
-  for (const auto& name : order) {
-    const auto beforeValue = beforeValues.find(name);
-    const auto afterValue = afterValues.find(name);
-    const auto oldValue = beforeValue == beforeValues.end() ? "(absent)" : beforeValue->second;
-    const auto newValue = afterValue == afterValues.end() ? "(absent)" : afterValue->second;
-    if (oldValue != newValue) diffs.push_back({name, oldValue, newValue});
-  }
-  return diffs;
+bool isGeneratedImpactSuffix(const string& value) {
+  istringstream stream(value);
+  size_t parts = 0;
+  size_t racks = 0;
+  string partLabel;
+  string rackLabel;
+  if (!(stream >> parts >> partLabel >> racks >> rackLabel)) return false;
+  stream >> ws;
+  if (!stream.eof() || partLabel.empty() || partLabel.back() != ',') return false;
+  partLabel.pop_back();
+  const bool validPartLabel = partLabel == "part" || partLabel == "parts";
+  const bool validRackLabel = rackLabel == "rack" || rackLabel == "racks";
+  return validPartLabel && validRackLabel;
 }
 
 string displayValue(const string& field, const string& value) {
@@ -210,6 +168,15 @@ string historyCommitType(const InventoryCommit& commit) {
   return source.empty() || source == "manual" ? "MANUAL" : toUpper(source);
 }
 
+string historyCommitDisplayMessage(const InventoryCommit& commit) {
+  const auto message = commit.message.empty() ? string("(no message)") : commit.message;
+  const auto separator = message.rfind(" · ");
+  if (separator != string::npos && isGeneratedImpactSuffix(message.substr(separator + 3))) {
+    return message.substr(0, separator);
+  }
+  return message;
+}
+
 string historyCommitImpactSummary(const InventoryCommit& commit) {
   const auto parts = commit.changedItemCount;
   const auto racks = commit.changedRackCount;
@@ -269,17 +236,7 @@ vector<HistoryCommitGroup> groupedHistoryCommits(const vector<InventoryCommit>& 
 vector<HistoryFieldDiff> historyFieldDiffs(const HistoryRecord& record) {
   vector<HistoryFieldDiff> diffs;
   for (const auto& change : record.changes) {
-    if (change.field == "record") continue;
-    const auto parameterChanges = (change.field == "parameters" || change.field == "vendor parameters")
-                                      ? parameterDiffs(change.before, change.after)
-                                      : vector<ParameterDiff>();
-    if (!parameterChanges.empty()) {
-      for (const auto& parameter : parameterChanges) {
-        diffs.push_back({fieldLabel(change.field) + " / " + prettyLabel(parameter.name), parameter.before,
-                         parameter.after});
-      }
-      continue;
-    }
+    if (change.field == "record" || change.field == "parameters" || change.field == "vendor parameters") continue;
     diffs.push_back({fieldLabel(change.field), displayValue(change.field, change.before),
                      displayValue(change.field, change.after)});
   }

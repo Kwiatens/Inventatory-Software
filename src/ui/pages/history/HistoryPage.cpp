@@ -42,6 +42,7 @@ HistorySourceFilter nextHistoryFilter(HistorySourceFilter filter) {
 }  // namespace
 
 void App::startHistorySearch() {
+  if (inputMode_ == InputMode::HistoryConfirm) cancelHistoryAction();
   historySearchBeforeEdit_ = historySearchQuery_;
   inputBuffer_ = historySearchQuery_;
   inputMode_ = InputMode::HistorySearch;
@@ -85,6 +86,7 @@ void App::handleHistorySearchKey(const KeyEvent& key) {
 }
 
 void App::cycleHistoryFilter() {
+  if (inputMode_ == InputMode::HistoryConfirm) cancelHistoryAction();
   historySourceFilter_ = nextHistoryFilter(historySourceFilter_);
   syncHistorySelectionToFilter();
   setMessage("History filter: " + history_page_detail::historySourceFilterLabel(historySourceFilter_), 2);
@@ -92,6 +94,7 @@ void App::cycleHistoryFilter() {
 }
 
 void App::syncHistorySelectionToFilter() {
+  if (inputMode_ == InputMode::HistoryConfirm) cancelHistoryAction();
   const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
   historyRecordSelection_ = 0;
   historyRecordOpen_ = false;
@@ -226,6 +229,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
   if (key.type == KeyType::Home) {
     const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
     if (!visible.empty()) {
+      if (inputMode_ == InputMode::HistoryConfirm) cancelHistoryAction();
       historySelection_ = visible.front();
       historyRecordSelection_ = 0;
       historyRecordOpen_ = false;
@@ -237,6 +241,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
   if (key.type == KeyType::End) {
     const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
     if (!visible.empty()) {
+      if (inputMode_ == InputMode::HistoryConfirm) cancelHistoryAction();
       historySelection_ = visible.back();
       historyRecordSelection_ = 0;
       historyRecordOpen_ = false;
@@ -266,6 +271,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
 }
 
 void App::moveHistorySelection(int delta) {
+  if (inputMode_ == InputMode::HistoryConfirm) cancelHistoryAction();
   const auto visible = filteredHistoryIndices(inventoryCommits_, historySearchQuery_, historySourceFilter_);
   historyRecordSelection_ = 0;
   historyRecordOpen_ = false;
@@ -285,6 +291,7 @@ void App::moveHistorySelection(int delta) {
 }
 
 void App::moveHistoryRecordSelection(int delta) {
+  if (inputMode_ == InputMode::HistoryConfirm) cancelHistoryAction();
   if (!historyDetailValid_) return;
   const auto records = groupedHistoryRecords(historyDetail_);
   if (records.empty()) {

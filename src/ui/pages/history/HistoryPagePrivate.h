@@ -40,6 +40,7 @@ struct HistoryFieldDiff {
 std::array<int, 2> historyPaneWidths(int contentWidth);
 std::string historySourceFilterLabel(HistorySourceFilter filter);
 std::string historyCommitType(const InventoryCommit& commit);
+std::string historyCommitDisplayMessage(const InventoryCommit& commit);
 std::string historyCommitImpactSummary(const InventoryCommit& commit);
 std::vector<size_t> filteredHistoryIndices(const std::vector<InventoryCommit>& commits, const std::string& query,
                                            HistorySourceFilter filter);
