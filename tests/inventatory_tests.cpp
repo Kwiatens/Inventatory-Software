@@ -34,6 +34,9 @@
 #include "ui/shared/AppUiShared.h"
 #include "ui/pages/stock/StockFilterState.h"
 
+#include <ftxui/dom/node.hpp>
+#include <ftxui/screen/screen.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -1244,6 +1247,54 @@ int main() {
     assert(dashboardRowSurface(false, false) == DashboardRowSurface::Surface);
     assert(dashboardRowSurface(true, false) == DashboardRowSurface::Surface);
     assert(dashboardRowSurface(true, true) == DashboardRowSurface::Selection);
+
+    DashboardSnapshot warningSnapshot;
+    AttentionRow outRow;
+    outRow.issue = "OUT";
+    outRow.partName = "Empty resistor";
+    outRow.quantity = 0;
+    outRow.severity = AttentionSeverity::Out;
+    outRow.group = AttentionGroup::Out;
+    AttentionRow lowRow;
+    lowRow.issue = "LOW";
+    lowRow.partName = "Low resistor";
+    lowRow.quantity = 2;
+    lowRow.severity = AttentionSeverity::Low;
+    lowRow.group = AttentionGroup::Low;
+    warningSnapshot.attention = {outRow, lowRow};
+
+    const auto noWrap = [](ftxui::Element row, size_t) { return row; };
+    const auto findCellForText = [](const ftxui::Screen& screen, const string& value) {
+      for (int y = 0; y < screen.dimy(); ++y) {
+        for (int x = 0; x + static_cast<int>(value.size()) <= screen.dimx(); ++x) {
+          bool matches = true;
+          for (size_t offset = 0; offset < value.size(); ++offset) {
+            if (screen.CellAt(x + static_cast<int>(offset), y).character != string(1, value[offset])) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches) return screen.CellAt(x, y);
+        }
+      }
+      cerr << "Rendered text not found: " << value << '\n';
+      std::exit(1);
+    };
+    ftxui::Screen warningScreen(96, 6);
+    ftxui::Render(warningScreen, attentionPanel(warningSnapshot, 96, 0, false, noWrap));
+    const auto outStyle = findCellForText(warningScreen, "OUT");
+    const auto lowStyle = findCellForText(warningScreen, "LOW");
+    assert(outStyle.foreground_color == uiDangerColor());
+    assert(lowStyle.foreground_color == uiWarnColor());
+    assert(outStyle.dim);
+    assert(lowStyle.dim);
+    assert(findCellForText(warningScreen, "Empty resistor").foreground_color == uiPrimaryText());
+    assert(findCellForText(warningScreen, "Low resistor").foreground_color == uiPrimaryText());
+
+    DashboardSnapshot emptySnapshot;
+    ftxui::Screen emptyScreen(96, 4);
+    ftxui::Render(emptyScreen, attentionPanel(emptySnapshot, 96, 0, false, noWrap));
+    assert(findCellForText(emptyScreen, "No stock warnings").foreground_color == uiPrimaryText());
   }
 
   {
