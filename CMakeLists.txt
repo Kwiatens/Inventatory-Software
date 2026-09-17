@@ -252,6 +252,7 @@ add_executable(inventatory_tests
   src/core/history/InventoryVersion.cpp
   src/core/history/InventoryVersionHistory.cpp
   src/core/history/InventoryVersionDiff.cpp
+  src/ui/pages/dashboard/DashboardPageComponents.cpp
   src/ui/pages/history/HistoryPagePrivate.cpp
   src/core/inventory/InventoryMovements.cpp
   src/core/storage/AtomicFile.cpp
