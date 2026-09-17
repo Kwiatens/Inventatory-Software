@@ -2,6 +2,7 @@
 
 #include "App.h"
 
+#include "app/shell/AppNavigation.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/StartupRegistration.h"
@@ -154,15 +155,27 @@ void App::handleKey(const KeyEvent& key) {
   }
 
   if (key.type == KeyType::Character) {
-    switch (key.ch) {
-      case '1': changePage(Page::Home); return;
-      case '2': changePage(Page::Stock); return;
-      case '3': changePage(Page::Racks); return;
-      case '4': changePage(Page::Import); return;
-      case '5': changePage(Page::Projects); return;
-      case '6': changePage(Page::History); return;
-      case '7': changePage(Page::Settings); return;
-      default: break;
+    if (const auto* entry = app_navigation::primaryNavigationEntryForShortcut(key.ch)) {
+      switch (entry->page) {
+        case app_navigation::PrimaryPage::Stock:
+          changePage(Page::Stock);
+          return;
+        case app_navigation::PrimaryPage::Racks:
+          changePage(Page::Racks);
+          return;
+        case app_navigation::PrimaryPage::Import:
+          changePage(Page::Import);
+          return;
+        case app_navigation::PrimaryPage::Projects:
+          changePage(Page::Projects);
+          return;
+        case app_navigation::PrimaryPage::History:
+          changePage(Page::History);
+          return;
+        case app_navigation::PrimaryPage::Settings:
+          changePage(Page::Settings);
+          return;
+      }
     }
   }
 
@@ -177,9 +190,6 @@ void App::handleKey(const KeyEvent& key) {
   }
 
   switch (page_) {
-    case Page::Home:
-      handleDashboardKey(key);
-      break;
     case Page::Stock:
       handleStockKey(key);
       break;
@@ -279,13 +289,6 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
   if (mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown) {
     const int delta = mouse.button == ftxui::Mouse::WheelUp ? -1 : 1;
     if (page_ == Page::Stock) moveSelection(delta);
-    else if (page_ == Page::Home && inputMode_ == InputMode::None) {
-      if (uiBoxContains(dashboardWarningPanelBounds_, mouse.x, mouse.y)) {
-        moveDashboardSelection(DashboardList::Warnings, delta);
-      } else if (uiBoxContains(dashboardActivityPanelBounds_, mouse.x, mouse.y)) {
-        moveDashboardSelection(DashboardList::Commits, delta);
-      }
-    }
     else if (page_ == Page::Import) moveImportSelection(delta);
     else if (page_ == Page::History) {
       if (uiBoxContains(historyDetailPanelBounds_, mouse.x, mouse.y)) {

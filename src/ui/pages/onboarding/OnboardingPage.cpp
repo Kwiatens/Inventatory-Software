@@ -104,7 +104,7 @@ void App::finishOnboarding() {
   string shortcutError;
   const bool shortcutCreated = createDesktopShortcut(shortcutError);
   onboardingActive_ = false;
-  changePage(Page::Home);
+  changePage(Page::Stock);
   setMessage(shortcutCreated ? "Setup complete."
                              : "Setup complete; desktop shortcut could not be created: " + shortcutError,
              shortcutCreated ? 5 : 7);

@@ -74,7 +74,7 @@ void App::handleBomProjectKey(const KeyEvent& key) {
     } else if (key.type == KeyType::Enter) {
       openSelectedBomProject();
     } else if (key.type == KeyType::Escape) {
-      changePage(Page::Home);
+      changePage(Page::Stock);
     }
     return;
   }

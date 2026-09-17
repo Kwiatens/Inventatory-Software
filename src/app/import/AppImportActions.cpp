@@ -419,7 +419,7 @@ void App::finishCsvImport(bool syncWithDigiKey) {
   importCommitPending_ = false;
   importOriginalStore_ = {};
   importStagedStore_ = {};
-  changePage(Page::Home);
+  changePage(Page::Stock);
   setMessage(summary, 8, importSyncFailedCount_ > 0 ? UiMessageSeverity::Warning : UiMessageSeverity::Success);
 }
 

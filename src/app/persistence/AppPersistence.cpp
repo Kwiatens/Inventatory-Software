@@ -97,7 +97,7 @@ void App::loadState() {
   refreshPrinterState();
   if (activities_.empty()) {
     activities_.push_back(makeActivity("system", "Inventory loaded"));
-    activities_.push_back(makeActivity("system", "Terminal dashboard initialized"));
+    activities_.push_back(makeActivity("system", "Terminal initialized"));
   }
   // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 

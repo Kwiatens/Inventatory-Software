@@ -456,7 +456,7 @@ void App::handleRackManagementKey(const KeyEvent& key) {
   }
 
   if (key.type == KeyType::Tab || key.type == KeyType::Escape) {
-    changePage(Page::Home);
+    changePage(Page::Stock);
     return;
   }
 

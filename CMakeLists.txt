@@ -158,9 +158,6 @@ add_executable(inventatory
   src/ui/shared/AppUiShared.cpp
   src/ui/shared/AppUiItemDetails.cpp
   src/ui/ActionRegistry.cpp
-  src/ui/pages/dashboard/DashboardPage.cpp
-  src/ui/pages/dashboard/DashboardPageRender.cpp
-  src/ui/pages/dashboard/DashboardPageComponents.cpp
   src/ui/pages/stock/StockPage.cpp
   src/ui/pages/stock/StockPageList.cpp
   src/ui/pages/stock/StockPageDetail.cpp
@@ -252,7 +249,6 @@ add_executable(inventatory_tests
   src/core/history/InventoryVersion.cpp
   src/core/history/InventoryVersionHistory.cpp
   src/core/history/InventoryVersionDiff.cpp
-  src/ui/pages/dashboard/DashboardPageComponents.cpp
   src/ui/pages/history/HistoryPagePrivate.cpp
   src/core/inventory/InventoryMovements.cpp
   src/core/storage/AtomicFile.cpp
