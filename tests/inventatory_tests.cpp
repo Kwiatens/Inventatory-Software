@@ -140,6 +140,10 @@ void testHistoryPagePresentationData() {
   assert(groups[1].label == "Sep 04, 2026");
   assert((groups[1].indices == vector<size_t>{2, 3}));
 
+  InventoryCommit legacyMessage;
+  legacyMessage.message = "Updated inventory · 1 part, 0 racks";
+  assert(history_page_detail::historyCommitDisplayMessage(legacyMessage) == "Updated inventory");
+
   HistoryRecord record;
   record.entityType = "item";
   record.entityId = "item-id";
@@ -153,6 +157,22 @@ void testHistoryPagePresentationData() {
   assert(diffs.size() == 2);
   assert((diffs[0].field == "Quantity" && diffs[0].previous == "8" && diffs[0].next == "12"));
   assert((diffs[1].field == "Location" && diffs[1].previous == "R2-B3" && diffs[1].next == "R2-B4"));
+
+  HistoryRecord providerRecord;
+  providerRecord.entityType = "item";
+  providerRecord.entityId = "provider-item";
+  providerRecord.label = "Provider item";
+  providerRecord.changes.push_back({"item", "provider-item", "Provider item", "parameters",
+                                    "Quantity Available=118283;Package=0603",
+                                    "Quantity Available=117833;Package=0603"});
+  providerRecord.changes.push_back({"item", "provider-item", "Provider item", "vendor parameters",
+                                    "Stock=118283", "Stock=117833"});
+  providerRecord.changes.push_back({"item", "provider-item", "Provider item", "quantity", "7", "12"});
+  const auto providerDiffs = history_page_detail::historyFieldDiffs(providerRecord);
+  assert(providerDiffs.size() == 1);
+  assert(providerDiffs.front().field == "Quantity");
+  assert(providerDiffs.front().previous == "7");
+  assert(providerDiffs.front().next == "12");
 }
 
 void testHistoryPageLayoutData() {

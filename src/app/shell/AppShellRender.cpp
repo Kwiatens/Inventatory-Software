@@ -226,7 +226,7 @@ ftxui::Element App::renderSearchBarUi() const {
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
                              inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
                              inputMode_ == InputMode::HistorySearch ||
-                             inputMode_ == InputMode::HistoryCheckpoint || inputMode_ == InputMode::HistoryConfirm ||
+                             inputMode_ == InputMode::HistoryCheckpoint ||
                              inputMode_ == InputMode::ExitConfirmation);
 
   const auto activeBg = inputMode_ == InputMode::Search || inputMode_ == InputMode::ClosestSearch ||
@@ -254,9 +254,6 @@ ftxui::Element App::renderSearchBarUi() const {
                   "  · F edit target · Esc close";
   } else if (inputMode_ == InputMode::ExitConfirmation) {
     contextTitle = "Unsaved settings";
-    contextText = activePrompt();
-  } else if (inputMode_ == InputMode::HistoryConfirm) {
-    contextTitle = "Confirm history action";
     contextText = activePrompt();
   } else if (showsPrompt) {
     contextText = activePrompt() + inputBuffer_ + "_";
@@ -338,11 +335,14 @@ ftxui::Element App::renderSearchBarUi() const {
     context = target(context, closestSearchActive_ ? "stock.closest.search" : "stock.search", UiTargetKind::Field,
                      [self] { self->closestSearchActive_ ? self->startClosestSearch() : self->startSearch(); });
   }
-  if (page_ == Page::History && inputMode_ == InputMode::None) {
+  if (page_ == Page::History &&
+      (inputMode_ == InputMode::None || inputMode_ == InputMode::HistoryConfirm)) {
+    const auto hints = inputMode_ == InputMode::HistoryConfirm
+                           ? "Enter Confirm  Esc Cancel"
+                           : "↑↓ Select  Enter View  v Revert  s Restore  / Search  f Filter  Esc Back  q Quit";
     rows.push_back(ftxui::hbox({uiHeaderText(" History: ", uiSecondaryText(), uiPanelLeftBg()),
                                 uiBodyText(contextText, uiInfoColor(), uiPanelLeftBg()), ftxui::filler(),
-                                styledText("↑↓ Select  Enter View  v Revert  s Restore  / Search  f Filter  Esc Back  q Quit",
-                                           uiMutedColor(), uiPanelLeftBg())}) |
+                                styledText(hints, uiMutedColor(), uiPanelLeftBg())}) |
                    ftxui::bgcolor(uiPanelLeftBg()));
   } else {
     rows.push_back(context);
