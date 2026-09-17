@@ -2,6 +2,7 @@
 
 #include "App.h"
 
+#include "app/shell/AppNavigation.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/component/component.hpp>
@@ -110,11 +111,8 @@ ftxui::Element App::renderUi() const {
   body.push_back(uiDivider());
   // Bottom sheet takes the place of the search/context line while open; the
   // content region above it flexes up to make room.
-  if (inputMode_ == InputMode::ActionSheet) {
-    body.push_back(renderActionSheetUi());
-  } else if (!(page_ == Page::Home && inputMode_ == InputMode::None)) {
-    body.push_back(renderSearchBarUi());
-  }
+  if (inputMode_ == InputMode::ActionSheet) body.push_back(renderActionSheetUi());
+  else body.push_back(renderSearchBarUi());
   body.push_back(renderMessageUi());
   // FTXUI sizes a root element from its natural content unless it is made
   // flexible. Keep the application background and every full-width chrome row
@@ -125,8 +123,6 @@ ftxui::Element App::renderUi() const {
 // Human-readable name of the active screen, used in the header breadcrumb.
 std::string App::pageName() const {
   switch (page_) {
-    case Page::Home:
-      return "Home";
     case Page::Stock:
       return "Stock";
     case Page::Racks:
@@ -152,7 +148,7 @@ std::string App::pageName() const {
 }
 
 // Header region: navigation only. The action sheet remains keyboard-accessible
-// through Space without taking permanent space from the dashboard.
+// through Space without taking permanent space from the workspace.
 ftxui::Element App::renderHeaderUi() const {
   auto self = const_cast<App*>(this);
   const auto nav = [&](Page page, const string& id, const string& label) {
@@ -163,19 +159,34 @@ ftxui::Element App::renderHeaderUi() const {
     return target(item, id, UiTargetKind::Navigation, [self, page] { self->changePage(page); });
   };
 
-  auto navigation = ftxui::hbox({
-      uiHeaderText(" Inventatory ", uiPrimaryText()),
-      nav(Page::Home, "nav.home", "1 Home"),
-      nav(Page::Stock, "nav.stock", "2 Stock"),
-      nav(Page::Racks, "nav.racks", "3 Racks"),
-      nav(Page::Import, "nav.import", "4 Import"),
-      nav(Page::Projects, "nav.projects", "5 Projects"),
-      nav(Page::History, "nav.history", "6 History"),
-      nav(Page::Settings, "nav.settings", "7 Settings"),
-  });
+  const auto pageForNavigation = [](app_navigation::PrimaryPage page) {
+    switch (page) {
+      case app_navigation::PrimaryPage::Stock:
+        return Page::Stock;
+      case app_navigation::PrimaryPage::Racks:
+        return Page::Racks;
+      case app_navigation::PrimaryPage::Import:
+        return Page::Import;
+      case app_navigation::PrimaryPage::Projects:
+        return Page::Projects;
+      case app_navigation::PrimaryPage::History:
+        return Page::History;
+      case app_navigation::PrimaryPage::Settings:
+        return Page::Settings;
+    }
+    return Page::Stock;
+  };
+
+  ftxui::Elements navigation;
+  navigation.push_back(uiHeaderText(" Inventatory ", uiPrimaryText()));
+  for (const auto& entry : app_navigation::primaryNavigationEntries()) {
+    const auto page = pageForNavigation(entry.page);
+    navigation.push_back(nav(page, "nav." + string(entry.id),
+                             string(1, entry.shortcut) + " " + entry.label));
+  }
 
   ftxui::Elements header;
-  header.push_back(navigation);
+  header.push_back(ftxui::hbox(move(navigation)));
   header.push_back(ftxui::filler());
   header.push_back(uiBodyText(" " + currentDateTimeText() + " ", uiSecondaryText()));
 
@@ -184,8 +195,6 @@ ftxui::Element App::renderHeaderUi() const {
 
 ftxui::Element App::renderPageUi() const {
   switch (page_) {
-    case Page::Home:
-      return renderDashboardUi();
     case Page::Stock:
       return renderStockUi();
     case Page::Racks:
@@ -212,10 +221,6 @@ ftxui::Element App::renderPageUi() const {
 }
 
 ftxui::Element App::renderSearchBarUi() const {
-  if (page_ == Page::Home && inputMode_ == InputMode::None) {
-    return fullLine("", uiMutedColor(), uiPanelLeftBg());
-  }
-
   // Stock item editing renders inline in the Detail panel (see StockPage.cpp),
   // so this context line stays a plain search row instead of duplicating it.
   const bool stockEditing =
@@ -259,9 +264,6 @@ ftxui::Element App::renderSearchBarUi() const {
     contextText = activePrompt() + inputBuffer_ + "_";
   } else {
     switch (page_) {
-      case Page::Home:
-        contextText = to_string(store_.items().size()) + " parts";
-        break;
       case Page::Stock:
         contextTitle = "Search";
         contextText = searchQuery_.empty() ? "/ type to filter" : "/" + searchQuery_;
