@@ -107,8 +107,9 @@ required.
 A compact inventory dashboard with key counts, an attention list beside recent
 activity, and system state. The attention heading is neutral; an empty list is
 left quiet rather than replaced with a success message. It is not a grid of
-setup cards. Out-of-stock and low-stock part text in the Home stock-status list
-uses the corresponding warning or danger color without filling the row.
+setup cards. The `OUT` and `LOW` state labels in the Home stock-status list use
+subtle warning or danger colors; part names, quantities, and row surfaces remain
+neutral apart from the normal selection highlight.
 Both the stock warnings and Recent Activity panels use the same framed scrolling
 list behavior as Stock; arrows, `j`/`k`, PageUp/PageDown, Home, and End navigate
 the active panel, Left/Right switches panels, and the mouse wheel scrolls the

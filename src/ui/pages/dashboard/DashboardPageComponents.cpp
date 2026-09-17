@@ -104,7 +104,7 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, size
 
   if (snapshot.attention.empty()) {
     rows.push_back(ftxui::vbox({
-                       uiHeaderText("  No stock warnings", uiSuccessColor()),
+                       uiHeaderText("  No stock warnings", uiPrimaryText()),
                        uiBodyText("  Every tracked part is above the configured threshold.", uiMutedColor()),
                    }) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, contentWidth) |
@@ -118,11 +118,11 @@ ftxui::Element attentionPanel(const DashboardSnapshot& snapshot, int width, size
     const auto background = dashboardRowSurface(selected, active) == DashboardRowSurface::Selection
                                 ? attentionBackground(row)
                                 : uiSurfaceBg();
-    const auto semanticColor = attentionTextColor(row);
+    const auto statusColor = attentionTextColor(row);
     auto renderedRow = ftxui::hbox({
-        centeredCell(row.issue, severityWidth, semanticColor, true),
+        centeredCell(row.issue, severityWidth, statusColor) | ftxui::dim,
         uiDivider(),
-        centeredCell(row.partName, partWidth, semanticColor),
+        centeredCell(row.partName, partWidth, uiPrimaryText()),
         uiDivider(),
         fixedCell(to_string(row.quantity), quantityWidth, uiPrimaryText(), true),
     }) |
