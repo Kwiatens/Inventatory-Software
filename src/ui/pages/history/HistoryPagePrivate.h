@@ -2,6 +2,7 @@
 
 #include "core/inventory/Inventory.h"
 
+#include <array>
 #include <ctime>
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@ struct HistoryFieldDiff {
   std::string next;
 };
 
+std::array<int, 2> historyPaneWidths(int contentWidth);
 std::string historySourceFilterLabel(HistorySourceFilter filter);
 std::string historyCommitType(const InventoryCommit& commit);
 std::string historyCommitImpactSummary(const InventoryCommit& commit);
