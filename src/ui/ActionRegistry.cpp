@@ -58,26 +58,6 @@ vector<App::Action> App::currentActions() const {
     }
   };
   switch (page_) {
-    case Page::Home:
-      add("stock", "Go", "2", chr('2'), [self] { self->changePage(Page::Stock); });
-      add("racks", "Go", "3", chr('3'), [self] { self->openRackManagement(); });
-      add("projects", "Go", "5", chr('5'), [self] { self->openBomProjects(); });
-      add("history", "Go", "6", chr('6'), [self] { self->changePage(Page::History); });
-      add("settings", "Go", "7", chr('7'), [self] { self->openSettings(); });
-      add("add part", "Create", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
-      add("import CSV", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
-      add("search", "System", "/", chr('/'), [self] { self->startSearch(); });
-      add("reload", "System", "r", chr('r'), [self, reloadInventory] {
-        if (reloadInventory()) {
-          self->setMessage("Inventory reloaded from the database", 2, UiMessageSeverity::Success);
-        }
-      });
-      add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
-      add("backup data", "Data", "k", chr('k'), [self] { self->backupData(); });
-      add("retry save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
-      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
-      break;
-
     case Page::History:
       add("create checkpoint", "History", "c", chr('c'), [self] { self->beginHistoryCheckpoint(); });
       add("restore state at this point", "History", "s", chr('s'), [self] {
@@ -100,7 +80,7 @@ vector<App::Action> App::currentActions() const {
           self->historyRecordSelection_ = 0;
           self->dirty_ = true;
         } else {
-          self->changePage(Page::Home);
+          self->changePage(Page::Stock);
         }
       });
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
@@ -284,7 +264,7 @@ vector<App::Action> App::currentActions() const {
         add("retry import save", "Review", "R", chr('R'), [self] { self->finishImportReview(); });
         add("cancel import", "Review", "q", chr('q'), [self] {
           self->cancelImportSession();
-          self->changePage(Page::Home);
+          self->changePage(Page::Stock);
           self->setMessage("CSV import cancelled", 3);
         });
       } else if (importSyncRunning_) {
@@ -305,7 +285,7 @@ vector<App::Action> App::currentActions() const {
         add("edit row", "Review", "e", chr('e'), [self] { self->beginEditImportCandidate(); });
         add("cancel import", "Review", "q", chr('q'), [self] {
           self->cancelImportSession();
-          self->changePage(Page::Home);
+          self->changePage(Page::Stock);
           self->setMessage("CSV import cancelled", 3);
         });
       }

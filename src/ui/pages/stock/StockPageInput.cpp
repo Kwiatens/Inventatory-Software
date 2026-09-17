@@ -155,7 +155,7 @@ void App::handleStockKey(const KeyEvent& key) {
   }
 
   if (key.type == KeyType::Tab) {
-    changePage(Page::Home);
+    changePage(Page::Stock);
     return;
   }
 
@@ -273,7 +273,7 @@ void App::handleStockKey(const KeyEvent& key) {
   } else if (key.type == KeyType::Enter) {
     openSelectedDetail();
   } else if (key.type == KeyType::Escape) {
-    changePage(Page::Home);
+    changePage(Page::Stock);
   }
 }
 
