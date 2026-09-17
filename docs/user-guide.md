@@ -2,15 +2,10 @@
 
 ## Navigation
 
-Use `1` Home, `2` Stock, `3` Racks, `4` Import, `5` Projects, `6` History, or `7` Settings from any normal
+Use `1` Stock, `2` Racks, `3` Import, `4` Projects, `5` History, or `6` Settings from any normal
 workspace. The same destinations are clickable. Press `Space` or click
 `Actions` to see every command available in the current context. `Tab` moves
 focus and `Enter` activates it.
-
-On Home, the stock warnings list is active first. Use Up/Down, `j`/`k`,
-PageUp/PageDown, Home, and End to scroll it; Left/Right switches between stock
-warnings and Recent Commits. The mouse wheel scrolls whichever of those two
-panels is under the pointer.
 
 ## Inventory history
 
@@ -19,7 +14,7 @@ inventory action creates one commit containing the complete items and rack
 snapshot, plus field-level differences from its parent. Legacy activity and
 stock-movement records remain available separately; they are not converted.
 
-Open History with `6`. Commits are newest first. Select one to inspect its
+Open History with `5`. Commits are newest first. Select one to inspect its
 parent, source, reference, changed part/rack counts, and its changed records.
 The detail pane groups changes by part or rack; press `Enter` on a record to
 inspect readable before/after field values, and `Esc` to return to the record
@@ -64,7 +59,7 @@ movements below the normal details.
 
 Each part can have its own **Reorder threshold** in Edit. A positive value
 overrides the global low-stock warning; `0` uses the global setting. The active
-threshold is used by the dashboard, search, rack indicators, and stock warnings.
+threshold is used by search, rack indicators, and stock warnings.
 
 ## Rack workflow
 

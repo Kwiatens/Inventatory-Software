@@ -14,7 +14,7 @@ Every workspace uses the same four regions:
 3. Flexible workspace content
 4. One transient message line
 
-The navigation is `1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 History`, `7 Settings`.
+The navigation is `1 Stock`, `2 Racks`, `3 Import`, `4 Projects`, `5 History`, `6 Settings`.
 `Actions · Space` is always visible and opens the contextual action sheet.
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
@@ -86,7 +86,7 @@ terminal application, with the normal console host as a fallback.
 
 ## Input model
 
-- `1`–`5`: switch workspace outside text entry
+- `1`–`6`: switch workspace outside text entry
 - `Tab` / `Shift+Tab`: move focus
 - `Enter`: activate the focused control or current row
 - arrows: navigate the active list, grid, category, or field
@@ -101,19 +101,6 @@ actions require an explicit command and confirmation; double-click is never
 required.
 
 ## Workspace contracts
-
-### Home
-
-A compact inventory dashboard with key counts, an attention list beside recent
-activity, and system state. The attention heading is neutral; an empty list is
-left quiet rather than replaced with a success message. It is not a grid of
-setup cards. The `OUT` and `LOW` state labels in the Home stock-status list use
-subtle warning or danger colors; part names, quantities, and row surfaces remain
-neutral apart from the normal selection highlight.
-Both the stock warnings and Recent Activity panels use the same framed scrolling
-list behavior as Stock; arrows, `j`/`k`, PageUp/PageDown, Home, and End navigate
-the active panel, Left/Right switches panels, and the mouse wheel scrolls the
-panel under the pointer.
 
 ### Stock
 
