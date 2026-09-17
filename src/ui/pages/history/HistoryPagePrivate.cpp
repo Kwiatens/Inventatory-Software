@@ -176,6 +176,13 @@ string fieldLabel(const string& value) {
 
 }  // namespace
 
+array<int, 2> historyPaneWidths(int contentWidth) {
+  const int safeContentWidth = max(2, contentWidth);
+  const int availablePanelWidth = safeContentWidth - 1;
+  const int listWidth = availablePanelWidth / 2;
+  return {listWidth, availablePanelWidth - listWidth};
+}
+
 string historySourceFilterLabel(HistorySourceFilter filter) {
   switch (filter) {
     case HistorySourceFilter::All:

@@ -155,6 +155,18 @@ void testHistoryPagePresentationData() {
   assert((diffs[1].field == "Location" && diffs[1].previous == "R2-B3" && diffs[1].next == "R2-B4"));
 }
 
+void testHistoryPageLayoutData() {
+  const auto wide = history_page_detail::historyPaneWidths(179);
+  assert(wide[0] == 89);
+  assert(wide[1] == 89);
+  assert(wide[0] + wide[1] + 1 == 179);
+
+  const auto minimum = history_page_detail::historyPaneWidths(98);
+  assert(minimum[0] == 48);
+  assert(minimum[1] == 49);
+  assert(minimum[0] + minimum[1] + 1 == 98);
+}
+
 string sendLocalHttpRequest(uint16_t port, const string& request, DWORD receiveTimeout = 3000) {
   SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   assert(client != INVALID_SOCKET);
@@ -1202,6 +1214,7 @@ void testPackageGHardening() {
 
 int main() {
   testHistoryPagePresentationData();
+  testHistoryPageLayoutData();
 
   {
     using namespace inventatory::dashboard_detail;
