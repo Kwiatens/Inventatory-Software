@@ -186,7 +186,6 @@ void App::processBackgroundWork() {
   processScans();
   processDeviceRequests();
   processDeviceSyncEvents();
-  updateDashboardScannerState();
   clearMessageIfExpired();
   clearDeleteConfirmationIfExpired();
   processUpdateCheck();

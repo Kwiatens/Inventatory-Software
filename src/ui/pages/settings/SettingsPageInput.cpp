@@ -129,7 +129,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     dirty_ = true;
   } else if (key.type == KeyType::Escape) {
     if (settingsDirty_) cancelSettingsDraft();
-    else changePage(Page::Home);
+    else changePage(Page::Stock);
   }
 }
 

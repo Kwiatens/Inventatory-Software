@@ -123,7 +123,7 @@ ftxui::Element App::renderImportCsvUi() const {
         target(styledText(" Cancel import ", uiSecondaryText(), uiRaisedSurfaceBg()), "import.cancel",
                UiTargetKind::Button, [self] {
                  self->cancelImportSession();
-                 self->changePage(Page::Home);
+                 self->changePage(Page::Stock);
                }),
     }));
     auto panel = ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelRightBg()) |
@@ -329,7 +329,7 @@ void App::handleImportCsvKey(const KeyEvent& key) {
       finishImportReview();
     } else if (key.type == KeyType::Character && (key.ch == 'q' || key.ch == 'Q')) {
       cancelImportSession();
-      changePage(Page::Home);
+      changePage(Page::Stock);
       setMessage("CSV import cancelled", 3);
     }
     return;
@@ -348,7 +348,7 @@ void App::handleImportCsvKey(const KeyEvent& key) {
         beginEditImportCandidate();
         break;
       case 'q':
-        changePage(Page::Home);
+        changePage(Page::Stock);
         setMessage("CSV import cancelled", 3);
         break;
       default:
@@ -378,7 +378,7 @@ void App::handleImportCsvKey(const KeyEvent& key) {
   } else if (key.type == KeyType::Backspace) {
     skipImportCandidate();
   } else if (key.type == KeyType::Escape) {
-    changePage(Page::Home);
+    changePage(Page::Stock);
     setMessage("CSV import cancelled", 3);
   }
 }
