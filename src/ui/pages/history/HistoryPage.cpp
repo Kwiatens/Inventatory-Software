@@ -195,7 +195,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
   }
 
   if (key.type == KeyType::Escape) {
-    changePage(Page::Home);
+    changePage(Page::Stock);
     return;
   }
   if (key.type == KeyType::Enter) {

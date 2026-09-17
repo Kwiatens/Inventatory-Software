@@ -313,7 +313,7 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
       bleWifiPassword_.clear();
       blePairingCode_.clear();
       inputBuffer_.clear();
-      changePage(Page::Home);
+      changePage(Page::Stock);
     }
   };
 

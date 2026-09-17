@@ -27,7 +27,7 @@
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
-#include "ui/pages/dashboard/DashboardPagePrivate.h"
+#include "app/shell/AppNavigation.h"
 #include "ui/pages/history/HistoryPagePrivate.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
@@ -188,6 +188,22 @@ void testHistoryPageLayoutData() {
   assert(minimum[0] == 48);
   assert(minimum[1] == 49);
   assert(minimum[0] + minimum[1] + 1 == 98);
+}
+
+void testPrimaryNavigationContract() {
+  const auto& entries = inventatory::app_navigation::primaryNavigationEntries();
+  assert(entries.size() == 6);
+  const std::array<std::string, 6> expectedIds = {"stock", "racks", "import", "projects", "history", "settings"};
+  const std::array<std::string, 6> expectedLabels = {"Stock", "Racks", "Import", "Projects", "History", "Settings"};
+  for (size_t index = 0; index < entries.size(); ++index) {
+    assert(entries[index].shortcut == static_cast<char>('1' + index));
+    assert(std::string(entries[index].id) == expectedIds[index]);
+    assert(std::string(entries[index].label) == expectedLabels[index]);
+    assert(static_cast<unsigned int>(entries[index].page) == index);
+  }
+  assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('1') == &entries[0]);
+  assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('6') == &entries[5]);
+  assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('7') == nullptr);
 }
 
 string sendLocalHttpRequest(uint16_t port, const string& request, DWORD receiveTimeout = 3000) {
@@ -1238,64 +1254,7 @@ void testPackageGHardening() {
 int main() {
   testHistoryPagePresentationData();
   testHistoryPageLayoutData();
-
-  {
-    using namespace inventatory::dashboard_detail;
-    assert(dashboardScannerIdleMessage("UNPAIRED") == "Scanner R1 not paired");
-    assert(dashboardScannerIdleMessage("WAITING") == "Scanner R1 waiting to connect");
-    assert(dashboardScannerIdleMessage("DISCONNECTED") == "Scanner R1 offline");
-    assert(dashboardRowSurface(false, false) == DashboardRowSurface::Surface);
-    assert(dashboardRowSurface(true, false) == DashboardRowSurface::Surface);
-    assert(dashboardRowSurface(true, true) == DashboardRowSurface::Selection);
-
-    DashboardSnapshot warningSnapshot;
-    AttentionRow outRow;
-    outRow.issue = "OUT";
-    outRow.partName = "Empty resistor";
-    outRow.quantity = 0;
-    outRow.severity = AttentionSeverity::Out;
-    outRow.group = AttentionGroup::Out;
-    AttentionRow lowRow;
-    lowRow.issue = "LOW";
-    lowRow.partName = "Low resistor";
-    lowRow.quantity = 2;
-    lowRow.severity = AttentionSeverity::Low;
-    lowRow.group = AttentionGroup::Low;
-    warningSnapshot.attention = {outRow, lowRow};
-
-    const auto noWrap = [](ftxui::Element row, size_t) { return row; };
-    const auto findCellForText = [](const ftxui::Screen& screen, const string& value) {
-      for (int y = 0; y < screen.dimy(); ++y) {
-        for (int x = 0; x + static_cast<int>(value.size()) <= screen.dimx(); ++x) {
-          bool matches = true;
-          for (size_t offset = 0; offset < value.size(); ++offset) {
-            if (screen.CellAt(x + static_cast<int>(offset), y).character != string(1, value[offset])) {
-              matches = false;
-              break;
-            }
-          }
-          if (matches) return screen.CellAt(x, y);
-        }
-      }
-      cerr << "Rendered text not found: " << value << '\n';
-      std::exit(1);
-    };
-    ftxui::Screen warningScreen(96, 6);
-    ftxui::Render(warningScreen, attentionPanel(warningSnapshot, 96, 0, false, noWrap));
-    const auto outStyle = findCellForText(warningScreen, "OUT");
-    const auto lowStyle = findCellForText(warningScreen, "LOW");
-    assert(outStyle.foreground_color == uiDangerColor());
-    assert(lowStyle.foreground_color == uiWarnColor());
-    assert(outStyle.dim);
-    assert(lowStyle.dim);
-    assert(findCellForText(warningScreen, "Empty resistor").foreground_color == uiPrimaryText());
-    assert(findCellForText(warningScreen, "Low resistor").foreground_color == uiPrimaryText());
-
-    DashboardSnapshot emptySnapshot;
-    ftxui::Screen emptyScreen(96, 4);
-    ftxui::Render(emptyScreen, attentionPanel(emptySnapshot, 96, 0, false, noWrap));
-    assert(findCellForText(emptyScreen, "No stock warnings").foreground_color == uiPrimaryText());
-  }
+  testPrimaryNavigationContract();
 
   {
     const auto info = uiMessagePresentation(UiMessageSeverity::Info);

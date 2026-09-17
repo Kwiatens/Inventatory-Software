@@ -16,12 +16,10 @@ Inventatory Scan R1 device service.
 
 The user-facing interface is the terminal UI. The current normal workspace navigation is:
 
-`1 Home`, `2 Stock`, `3 Racks`, `4 Import`, `5 Projects`, `6 History`,
-`7 Settings`.
+`1 Stock`, `2 Racks`, `3 Import`, `4 Projects`, `5 History`, `6 Settings`.
 
-`docs/user-guide.md` and the implemented code describe this seven-destination
-navigation. The older six-destination list in `docs/ui-redesign.md` predates
-the History page; keep those documents synchronized when changing navigation.
+`docs/user-guide.md`, `docs/ui-redesign.md`, and the implemented code describe
+this six-destination navigation; keep them synchronized when changing it.
 
 ## Before editing
 

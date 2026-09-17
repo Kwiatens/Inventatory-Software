@@ -481,7 +481,7 @@ void App::dismissUpdateResult() {
   updateError_.clear();
   updateStep_ = UpdateWizardStep::Preparing;
   updateNotesScroll_ = 0;
-  page_ = Page::Home;
+  page_ = Page::Stock;
   focusedTarget_ = -1;
   dirty_ = true;
 }

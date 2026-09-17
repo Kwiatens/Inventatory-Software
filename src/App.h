@@ -174,7 +174,6 @@ class App {
 
  private:
   enum class Page {
-    Home,
     Stock,
     Racks,
     Import,
@@ -199,14 +198,6 @@ class App {
     FindScanner,
     Confirm,
     Complete,
-  };
-
-  enum class ScannerDashboardState {
-    Unknown,
-    Unpaired,
-    Waiting,
-    Online,
-    Offline,
   };
 
   enum class DigiKeySetupStep {
@@ -275,8 +266,6 @@ class App {
     InventatoryScan,
     DigiKey,
   };
-
-  enum class DashboardList { Warnings, Commits };
 
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
 
@@ -495,7 +484,6 @@ class App {
   void cancelHistoryAction();
   bool applyHistoryRevert(InventoryRevertMode mode);
   void handleKey(const KeyEvent& key);
-  void handleDashboardKey(const KeyEvent& key);
   void handleStockKey(const KeyEvent& key);
   void handleRackManagementKey(const KeyEvent& key);
   void handleInventatoryScanSetupKey(const KeyEvent& key);
@@ -519,7 +507,6 @@ class App {
   ftxui::Element renderUi() const;
   ftxui::Element renderHeaderUi() const;
   std::string pageName() const;
-  ftxui::Element renderDashboardUi() const;
   ftxui::Element renderStockUi() const;
   ftxui::Elements renderStockListRows(const std::vector<InventorySearchMatch>& searchMatches,
                                       const std::vector<size_t>& filtered, bool rankedView,
@@ -655,11 +642,7 @@ class App {
   void refreshDeviceEventRecords();
   void retryFailedDeviceEvents();
   void discardFailedDeviceEvents();
-  void updateDashboardScannerState();
   void adjustDeviceDebugScroll(int delta);
-  void moveDashboardSelection(DashboardList list, int delta);
-  void jumpDashboardSelection(DashboardList list, bool toEnd);
-  void selectDashboardRow(DashboardList list, size_t position);
   std::string inventatoryScanDeviceSummary() const;
   ftxui::Element renderDeviceDebugConsoleUi() const;
 
@@ -824,7 +807,7 @@ class App {
   std::filesystem::path activityPath_;
   std::filesystem::path inventatoryScanConfigPath_;
   std::filesystem::path quickLabelsPath_;
-  Page page_ = Page::Home;
+  Page page_ = Page::Stock;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
   bool onboardingActive_ = false;
   bool returnToOnboardingAfterScan_ = false;
@@ -869,9 +852,6 @@ class App {
   bool closestSearchActive_ = false;
   size_t stockScroll_ = 0;
   size_t detailScroll_ = 0;
-  DashboardList dashboardList_ = DashboardList::Warnings;
-  size_t dashboardWarningSelection_ = 0;
-  size_t dashboardActivitySelection_ = 0;
   size_t rackSelection_ = 0;
   mutable ftxui::Box rackListPanelBounds_;
   int rackRow_ = 0;
@@ -955,8 +935,6 @@ class App {
   size_t bomSplitSelection_ = 0;
   // The comparison table owns wheel/key navigation.
   mutable ftxui::Box bomTableBounds_;
-  mutable ftxui::Box dashboardWarningPanelBounds_;
-  mutable ftxui::Box dashboardActivityPanelBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
   std::string bomRestockItemId_;
@@ -1014,9 +992,6 @@ class App {
   DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
   time_t scannerFlashUntil_ = 0;
-  ScannerDashboardState scannerDashboardState_ = ScannerDashboardState::Unknown;
-  long long scannerDashboardTransitionStartedAt_ = -1;
-  bool scannerDashboardTransitionExpanding_ = false;
   time_t printerFlashUntil_ = 0;
   bool autoPrintScannedLabels_ = true;
   std::filesystem::path settingsPath_;

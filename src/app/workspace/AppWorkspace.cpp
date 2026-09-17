@@ -175,7 +175,7 @@ bool App::chooseInventatoryFolder() {
   searchQuery_.clear();
   inputBuffer_.clear();
   inputMode_ = InputMode::None;
-  page_ = Page::Home;
+  page_ = Page::Stock;
   dirty_ = true;
 
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
