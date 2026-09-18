@@ -53,6 +53,7 @@ void App::changePage(Page page) {
   }
   focusedTarget_ = -1;
   cancelDeleteConfirmation();
+  cancelRackDeletion();
   if (page != Page::Racks) {
     movingRackItemId_.clear();
     movingRackSource_.clear();
@@ -251,12 +252,73 @@ void App::deleteSelectedRack() {
     setMessage("Only empty racks can be deleted", 3);
     return;
   }
-  const auto code = rack.code;
+  // Arm the confirmation popup; confirmRackDeletion performs the erase.
+  rackDeleteConfirmationRackId_ = rack.id;
+  rackDeleteConfirmationUntil_ = time(nullptr) + 3;
+  dirty_ = true;
+}
+
+bool App::rackDeleteConfirmationActive() const {
+  return !rackDeleteConfirmationRackId_.empty();
+}
+
+bool App::rackDeleteConfirmationReady() const {
+  return rackDeleteConfirmationActive() && time(nullptr) >= rackDeleteConfirmationUntil_;
+}
+
+int App::rackDeleteConfirmationSecondsLeft() const {
+  if (!rackDeleteConfirmationActive()) {
+    return 0;
+  }
+  return max(0, static_cast<int>(rackDeleteConfirmationUntil_ - time(nullptr)));
+}
+
+void App::cancelRackDeletion() {
+  if (rackDeleteConfirmationRackId_.empty()) {
+    return;
+  }
+
+  rackDeleteConfirmationRackId_.clear();
+  rackDeleteConfirmationUntil_ = 0;
+  dirty_ = true;
+}
+
+void App::confirmRackDeletion() {
+  if (!rackDeleteConfirmationActive()) {
+    setMessage("Arm the deletion first with x or the Delete rack button", 3, UiMessageSeverity::Warning);
+    return;
+  }
+
+  const auto secondsLeft = rackDeleteConfirmationSecondsLeft();
+  if (!rackDeleteConfirmationReady()) {
+    setMessage("Wait " + to_string(secondsLeft) + " more second" + (secondsLeft == 1 ? string() : string("s")) +
+                   " to confirm delete",
+               2, UiMessageSeverity::Warning);
+    return;
+  }
+
+  const auto it = find_if(store_.racks().begin(), store_.racks().end(), [&](const InventatoryRack& candidate) {
+    return candidate.id == rackDeleteConfirmationRackId_;
+  });
+  if (it == store_.racks().end()) {
+    cancelRackDeletion();
+    setMessage("Rack no longer available", 2, UiMessageSeverity::Warning);
+    return;
+  }
+
+  if (rackOccupiedSlotCount(store_, *it) != 0) {
+    cancelRackDeletion();
+    setMessage("Only empty racks can be deleted", 3, UiMessageSeverity::Warning);
+    return;
+  }
+
+  const auto code = it->code;
   captureUndoSnapshot();
-  store_.racks().erase(store_.racks().begin() + static_cast<ptrdiff_t>(rackIndex));
+  store_.racks().erase(it);
   if (rackSelection_ > 0) --rackSelection_;
   movingRackItemId_.clear();
   movingRackSource_.clear();
+  cancelRackDeletion();
   logActivity("rack", code + " deleted");
   saveState();
   syncRackSelection();
