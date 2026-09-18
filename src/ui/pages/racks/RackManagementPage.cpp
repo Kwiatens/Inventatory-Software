@@ -402,6 +402,13 @@ ftxui::Element App::renderRackManagementUi() const {
       slotActions.push_back(target(uiSecondaryButton("Remove", uiWarnColor()), "racks.part.remove", UiTargetKind::Button,
                                    [selfDetail] { selfDetail->unassignSelectedRackItem(); }));
     }
+    if (rackOccupiedSlotCount(store_, *rack) == 0) {
+      slotActions.push_back(ftxui::text(" "));
+      // Rack-level destructive action; arms the same modal as x.
+      slotActions.push_back(target(uiSecondaryButton("Delete rack", uiDangerColor()), "racks.delete_rack",
+                                   UiTargetKind::Button,
+                                   [selfDetail] { selfDetail->deleteSelectedRack(); }));
+    }
     detailRows.push_back(ftxui::hbox(move(slotActions)));
     if (!movingRackItemId_.empty()) {
       detailRows.push_back(uiDivider());
@@ -431,24 +438,86 @@ ftxui::Element App::renderRackManagementUi() const {
   auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailWidth);
 
+  ftxui::Element page;
   if (compact) {
-    return ftxui::vbox({
+    page = ftxui::vbox({
         ftxui::hbox({rackPanel, uiDivider(), detailPanel}),
         uiDivider(),
         gridPanel,
     });
+  } else {
+    page = ftxui::hbox({
+        rackPanel,
+        ftxui::separator() | ftxui::color(uiDimColor()),
+        gridPanel,
+        ftxui::separator() | ftxui::color(uiDimColor()),
+        detailPanel,
+    });
   }
 
-  return ftxui::hbox({
-      rackPanel,
-      ftxui::separator() | ftxui::color(uiDimColor()),
-      gridPanel,
-      ftxui::separator() | ftxui::color(uiDimColor()),
-      detailPanel,
+  if (!rackDeleteConfirmationActive()) {
+    return page;
+  }
+
+  const auto* rackToDelete = [&] {
+    for (const auto& candidate : store_.racks()) {
+      if (candidate.id == rackDeleteConfirmationRackId_) {
+        return &candidate;
+      }
+    }
+    return static_cast<const InventatoryRack*>(nullptr);
+  }();
+
+  const auto secondsLeft = rackDeleteConfirmationSecondsLeft();
+  const int popupWidth = std::max(48, std::min(screenWidth - 12, 72));
+
+  ftxui::Elements popupRows;
+  popupRows.push_back(ftxui::paragraphAlignLeft("Are you sure you want to delete this rack from the database?") |
+                      ftxui::color(uiTitleColor()));
+  popupRows.push_back(uiDivider());
+  popupRows.push_back(ftxui::paragraphAlignLeft(
+                         "Selected: " + (rackToDelete == nullptr ? std::string("this rack") : rackToDelete->code)) |
+                      ftxui::color(uiWarnColor()));
+  popupRows.push_back(ftxui::paragraphAlignLeft("Press Enter to confirm after the timer unlocks.") |
+                      ftxui::color(secondsLeft == 0 ? uiTitleColor() : uiMutedColor()));
+  popupRows.push_back(ftxui::paragraphAlignLeft("Press Esc to cancel.") | ftxui::color(uiMutedColor()));
+  popupRows.push_back(ftxui::paragraphAlignLeft(std::to_string(secondsLeft) + " second" +
+                                                (secondsLeft == 1 ? std::string() : std::string("s")) + " remaining") |
+                      ftxui::color(uiWarnColor()));
+
+  auto popup = ftxui::window(styledText("Delete rack", uiDangerColor()),
+                             ftxui::vbox(move(popupRows)) | ftxui::bgcolor(uiPanelRightBg()) |
+                                 ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, popupWidth)) |
+               ftxui::color(uiDangerColor());
+
+  auto overlay = ftxui::vbox({
+      ftxui::filler(),
+      ftxui::hbox({
+          ftxui::filler(),
+          popup,
+          ftxui::filler(),
+      }),
+      ftxui::filler(),
+  });
+
+  return ftxui::dbox({
+      page,
+      overlay,
   });
 }
 
 void App::handleRackManagementKey(const KeyEvent& key) {
+  // Rack delete confirmation is modal, mirroring the stock item flow: Enter
+  // confirms once unlocked, anything else cancels.
+  if (rackDeleteConfirmationActive()) {
+    if (key.type == KeyType::Enter) {
+      confirmRackDeletion();
+      return;
+    }
+    cancelRackDeletion();
+    return;
+  }
+
   if (key.type == KeyType::CtrlZ) {
     undoLastInventoryChange();
     syncRackSelection();
