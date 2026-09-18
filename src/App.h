@@ -698,6 +698,11 @@ class App {
   void changeSelectedRackType(const std::string& value);
   void createRackWithType(const std::string& value);
   void deleteSelectedRack();
+  bool rackDeleteConfirmationActive() const;
+  bool rackDeleteConfirmationReady() const;
+  int rackDeleteConfirmationSecondsLeft() const;
+  void cancelRackDeletion();
+  void confirmRackDeletion();
   void jumpToRack(const std::string& value);
   void beginRackFilter();
   bool printSelectedRackPartLabel();
@@ -977,6 +982,8 @@ class App {
   int sheetIndex_ = 0;
   std::string deleteConfirmationItemId_;
   time_t deleteConfirmationUntil_ = 0;
+  std::string rackDeleteConfirmationRackId_;
+  time_t rackDeleteConfirmationUntil_ = 0;
   size_t printerSelection_ = 0;
   std::deque<PrinterWork> printerWorkQueue_;
   mutable std::mutex printerWorkMutex_;
