@@ -142,6 +142,11 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
+  if (page_ == Page::Racks && rackDeleteConfirmationActive()) {
+    handleRackManagementKey(key);
+    return;
+  }
+
   if (key.type == KeyType::Tab) {
     moveUiFocus(1);
     return;
