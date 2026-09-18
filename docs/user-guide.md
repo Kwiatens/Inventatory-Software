@@ -34,8 +34,10 @@ restart. Save pending inventory changes before using History actions.
 
 Open Stock and type `/` to filter by part, category, tag, parameter, location,
 SKU, status, or quantity expression. Select a row to see its complete details.
-Use New, Edit, `-`, `+`, or Print for frequent work; links and administrative
-commands are available through Actions.
+Use New, Edit, `-`, `+`, Delete, or Print for frequent work; links and
+administrative commands are available through Actions. Delete asks for
+confirmation before removing the part from the database and records the change
+in History.
 
 Press `f`, choose **filters** from Actions, or click **Sort / Filter** to open
 the Stock filter menu. It can sort by quantity or name, limit results by
@@ -65,7 +67,9 @@ threshold is used by search, rack indicators, and stock warnings.
 
 Select a rack, then a slot in its 5x5 grid. Place/Move starts a move from an
 occupied slot and completes it on the destination. Printing, automatic
-assignment, unassignment, filtering, and rack administration are in Actions.
+assignment, unassignment, filtering, and other rack administration are in
+Actions. Empty racks show a Delete rack button (also `x`); confirm with Enter
+to remove the rack from the database, which is recorded in History.
 
 ## Import workflow
 

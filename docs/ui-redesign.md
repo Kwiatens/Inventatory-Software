@@ -112,8 +112,9 @@ inventory list remains visible while editing. Save commits the entire working
 copy; Escape cancels it.
 
 The detail panel header and its action row sit outside the scrolling body, so
-New/Edit/-/+/Print stay reachable at the bottom of the panel however long the
-selected part is. Quantity and rack are a compact strip directly under the
+New/Edit/-/+/Delete/Print stay reachable at the bottom of the panel however
+long the selected part is. Delete carries the danger role and arms a
+confirmation popup rather than erasing immediately. Quantity and rack are a compact strip directly under the
 summary, next to the buttons that change them, and are not repeated in the
 identity block where the list columns already show them. Vendor and catalogue
 identifiers sit in a collapsed IDENTITY disclosure whose heading states how many
@@ -138,8 +139,8 @@ Every occupied slot wraps its part name and shows a color-coded quantity
 highlight. Lettered column headers and numbered row headers identify each
 slot without adding labels inside the slot cells. Rows and cells are
 clickable. Place/Move is the primary control; slot controls are anchored at
-the bottom of the detail panel and administrative operations remain in
-Actions.
+the bottom of the detail panel, with Delete rack beside them for empty racks.
+The remaining administrative operations remain in Actions.
 
 ### Import
 
