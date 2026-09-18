@@ -230,10 +230,15 @@ ftxui::Element App::renderStockUi() const {
                  }
                }, hasItem),
         ftxui::text(" "),
-        // Five peer actions with no single primary among them, so they share
-        // the ordinary raised-button role rather than competing for the eye.
+        // Peer actions share the ordinary raised-button role rather than
+        // competing for a single primary; Delete alone carries the danger
+        // role because it removes database records.
         target(uiSecondaryButton("Print", nullopt, hasItem), "stock.print", UiTargetKind::Button,
                [self] { self->printSelectedLabel(); }, hasItem),
+        ftxui::text(" "),
+        // Arms the same confirmation modal as Ctrl+Backspace.
+        target(uiSecondaryButton("Delete", uiDangerColor(), hasItem), "stock.delete", UiTargetKind::Button,
+               [self] { self->armDeleteConfirmation(); }, hasItem),
         ftxui::filler(),
     });
   }
