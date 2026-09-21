@@ -48,28 +48,55 @@ ftxui::Element settingLine(const string& label, const string& value, int width, 
   return row;
 }
 
-ftxui::Element versionLine(const string& label, const string& installedVersion,
-                           const string& availableVersion, int width) {
-  const int labelWidth = settingsLabelWidth(width);
-  ftxui::Elements value;
-  if (!availableVersion.empty() && isVersionNewer(availableVersion, installedVersion)) {
-    value = {
-        styledText(installedVersion, uiMutedText()),
-        styledText(" <- ", uiMutedText()),
-        styledText(availableVersion, uiInteractiveColor()),
-        styledText("  Update available", uiMutedText()),
-    };
-  } else {
-    value = {styledText(installedVersion, uiPrimaryText())};
-  }
+// Versions table shared by the header row and data rows: a fixed label column,
+// capped Current/Latest columns, and a Status column that takes what is left.
+struct VersionRowData {
+  string label;
+  string current;
+  string latest;
+  string status;
+  bool mutedCurrent = false;  // "no data available", not a real version
+  ftxui::Color latestColor = uiInteractiveColor();
+  ftxui::Color statusColor = uiMutedText();
+};
 
-  ftxui::Elements row;
-  row.push_back(styledText(ellipsize(" " + label, static_cast<size_t>(max(2, labelWidth - 1))),
-                           uiSecondaryText()) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth));
-  row.push_back(ftxui::filler());
-  for (auto& part : value) row.push_back(move(part));
-  return ftxui::hbox(move(row)) | ftxui::bgcolor(uiSurfaceBg());
+int versionTableValueWidth(int width) {  // each of the two version columns
+  const int remainder = max(0, width - settingsLabelWidth(width));
+  return min(max(8, remainder * 2 / 7), 16);
+}
+
+ftxui::Element versionTableCell(const string& text, ftxui::Color color, int width) {
+  return styledText(text.empty() ? string() : ellipsize(text, static_cast<size_t>(max(1, width))), color) |
+         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, max(1, width));
+}
+
+ftxui::Element versionTableHeader(int width) {
+  const int valueWidth = versionTableValueWidth(width);
+  return ftxui::hbox({
+             styledText("Label", uiDimColor()) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(width)),
+             styledText("Current", uiDimColor()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, valueWidth),
+             styledText("Latest", uiDimColor()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, valueWidth),
+             styledText("Status", uiDimColor()),
+         }) |
+         ftxui::bgcolor(uiSurfaceBg());
+}
+
+ftxui::Element versionTableRow(const VersionRowData& data, int width) {
+  const int labelWidth = settingsLabelWidth(width);
+  const int valueWidth = versionTableValueWidth(width);
+  // Status takes the remaining width: success = verified current state,
+  // warn = real error, interactive = an update exists to act on,
+  // muted/blank = no data yet.
+  return ftxui::hbox({
+             styledText(data.label, uiSecondaryText()) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
+             versionTableCell(data.current, data.mutedCurrent ? uiMutedText() : uiPrimaryText(), valueWidth),
+             versionTableCell(data.latest, data.latestColor, valueWidth),
+             versionTableCell(data.status, data.status.empty() ? uiMutedText() : data.statusColor,
+                              max(1, width - labelWidth - 2 * valueWidth)),
+         }) |
+         ftxui::bgcolor(uiSurfaceBg());
 }
 
 ftxui::Element printerQueueLine(const string& name, const string& status, int width, bool selected) {
@@ -192,20 +219,89 @@ ftxui::Element App::renderSettingsUi() const {
   } else if (settingsCategory_ == SettingsCategory::Updates) {
     const bool softwareChecking = updateCheckFuture_.valid();
     const auto softwareVersionText = softwareVersion();
-    const auto firmwareVersionText = deviceFirmwareVersion_.empty() ? string("Not reported") : deviceFirmwareVersion_;
     const bool canUpdate = !softwareChecking && isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
-    rows.push_back(uiHeaderText("Versions", uiSecondaryText()));
-    rows.push_back(versionLine("Inventatory software version", softwareVersionText,
-                               updateCheckFailed_ ? string() : settings_.latestAvailableVersion, contentWidth));
-    rows.push_back(versionLine("Inventascan firmware version", firmwareVersionText,
-                               scanFirmwareCheckFailed_ ? string() : scanFirmwareLatestVersion_, contentWidth));
-    rows.push_back(versionLine("Inventascan hardware version", "R1", string(), contentWidth));
+
+    // Real last-check time from the persisted settings; 0 means no check has
+    // ever completed. Shown right of the section header to keep it near but
+    // visually subordinate to "Versions".
+    const bool hasLastCheck = settings_.lastUpdateCheckUnixSeconds > 0;
+    rows.push_back(ftxui::hbox({
+        uiHeaderText("Versions", uiSecondaryText()),
+        ftxui::filler(),
+        styledText(" Last checked: ", uiMutedText()),
+        styledText(hasLastCheck
+                       ? nowTimestampString(static_cast<time_t>(settings_.lastUpdateCheckUnixSeconds))
+                       : string("Never"),
+                   hasLastCheck ? uiSecondaryText() : uiMutedText()),
+    }));
+
+    // Consistent Label | Current | Latest | Status table. Columns stay blank
+    // where a row has no data instead of inventing placeholder values.
+    rows.push_back(versionTableHeader(contentWidth));
+    VersionRowData software;
+    software.label = "Inventatory software";
+    software.current = softwareVersionText;
+    software.latest = updateCheckFailed_ ? string() : settings_.latestAvailableVersion;
+    if (softwareChecking) {
+      software.statusColor = uiMutedText();
+      software.status = string("Checking ") + uiLoadingSpinner();
+    } else if (updateCheckFailed_) {
+      software.statusColor = uiWarnColor();
+      software.status = "Check failed";
+    } else if (!hasLastCheck) {
+      software.status = "Not checked yet";  // muted by default
+    } else if (canUpdate) {
+      software.statusColor = uiInteractiveColor();
+      software.status = "Update available";
+    } else {
+      software.statusColor = uiSuccessColor();
+      software.status = "Up to date";
+    }
+    rows.push_back(versionTableRow(software, contentWidth));
+
+    VersionRowData firmware;
+    firmware.label = "Inventascan firmware";
+    firmware.current = deviceFirmwareVersion_.empty() ? string("Not reported") : deviceFirmwareVersion_;
+    firmware.mutedCurrent = deviceFirmwareVersion_.empty();
+    const bool firmwareNewerKnown = !scanFirmwareFuture_.valid() && !deviceFirmwareVersion_.empty() &&
+                                    isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_);
+    if (scanFirmwareFuture_.valid()) {
+      firmware.statusColor = uiMutedText();
+      firmware.status = string("Checking ") + uiLoadingSpinner();
+    } else if (scanFirmwareCheckFailed_) {
+      // A failed run clears the cached latest, so this precedes the newer check.
+      firmware.statusColor = uiWarnColor();
+      firmware.status = "Check failed";
+    } else if (firmwareNewerKnown) {
+      firmware.latest = scanFirmwareLatestVersion_;  // interactive color by default
+      firmware.statusColor = uiInteractiveColor();
+      firmware.status = "Update available";
+    }
+    rows.push_back(versionTableRow(firmware, contentWidth));
+
+    VersionRowData hardware;
+    hardware.label = "Inventascan hardware";
+    hardware.current = "R1";  // latest/status: no such data for hardware revisions
+    rows.push_back(versionTableRow(hardware, contentWidth));
+
+    rows.push_back(uiDivider());
+    rows.push_back(target(settingLine("Auto-check for updates",
+                                      settingsDraft_.updateChecksEnabled ? "On" : "Off", contentWidth),
+                          "settings.updates.autocheck", UiTargetKind::Field,
+                          [self] {
+                            self->settingsDraft_.updateChecksEnabled = !self->settingsDraft_.updateChecksEnabled;
+                            self->settingsDirty_ = true;
+                            self->dirty_ = true;
+                          }));
 
     const auto checkLabel = softwareChecking ? "Searching for software updates " + uiLoadingSpinner()
                                              : "Check for software updates";
     ftxui::Elements updateActions;
-    updateActions.push_back(target(uiPrimaryButton(checkLabel, !softwareChecking), "settings.updates.check",
-                                    UiTargetKind::Button, [self] { self->beginUpdateChecks(); }, !softwareChecking));
+    // Check is a repeatable maintenance action; the filled primary button is
+    // reserved for actually updating once a newer version is known.
+    updateActions.push_back(target(uiSecondaryButton(checkLabel, uiInteractiveColor(), !softwareChecking),
+                                   "settings.updates.check", UiTargetKind::Button,
+                                   [self] { self->beginUpdateChecks(); }, !softwareChecking));
     if (canUpdate) {
       updateActions.push_back(ftxui::text("  "));
       updateActions.push_back(target(uiPrimaryButton("Update to " + settings_.latestAvailableVersion),
