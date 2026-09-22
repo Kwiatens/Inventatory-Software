@@ -20,6 +20,25 @@ the same request counter. The R1 rejects unsigned, altered, mismatched, or
 replayed responses. Derived directional keys prevent a request MAC from being
 accepted as a response MAC.
 
+## Response-size contract
+
+The authenticated JSON body of a successful `POST /api/v1/device/sync`
+response is limited to 8,192 bytes. This is a protocol limit shared with the
+R1 firmware, not merely a desktop HTTP-server setting. The firmware also caps
+the response headers and rejects missing, malformed, truncated, trailing, or
+chunked bodies before parsing or applying any result.
+
+The desktop serializer bounds optional descriptive text at the protocol
+boundary while preserving event identifiers, status, deltas, quantities, and
+other state needed for synchronization. If a callback still produces a body
+outside the limit, the desktop returns an authenticated `500` error with a
+small retryable JSON status body; it does not send a partial response. The R1
+keeps its outbox event because only a successful `200` response can acknowledge
+it. An authenticated `5xx` also retains a pending quick-label print request;
+the desktop caches that request result by ID, so retrying delivers the result
+without issuing a duplicate print. Boundary tests cover realistic and
+deliberately oversized inventory, lookup, quick-label, and print-result data.
+
 This protocol provides device binding, integrity, replay resistance, and
 mutual authentication against an active local-network attacker. It does not
 provide payload confidentiality: request and response JSON can still be read

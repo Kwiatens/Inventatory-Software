@@ -5,6 +5,7 @@
 #include "platform/scanner/HttpServer.h"
 #include "platform/scanner/HttpServerInternal.h"
 #include "platform/scanner/HttpServerProtocolInternal.h"
+#include "core/scanner/InventatoryScanProtocol.h"
 
 #include <mutex>
 #include <string>
@@ -85,7 +86,11 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       return false;
     }
     const auto reject = [&](int status, const string& error) {
-      const auto response = authenticatedResponseText(status, *counter, expectedToken, statusResultJson(false, error));
+      // Error text can originate from a callback. Keep authenticated fallback
+      // bodies bounded even when the successful response path is not used.
+      const auto boundedError = error.size() > 256U ? error.substr(0, 256U) : error;
+      const auto response = authenticatedResponseText(status, *counter, expectedToken,
+                                                       statusResultJson(false, boundedError));
       sendAll(clientSocket, response);
       return false;
     };
@@ -131,6 +136,12 @@ bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
       return reject(409, "Request completed but its replay marker could not be saved");
     }
     const auto responseBody = deviceSyncResponseJson(syncResponse);
+    if (responseBody.size() > kInventatoryScanResponseBodyLimit) {
+      // The callback produced a response outside the shared Scan R1 contract.
+      // Return an authenticated error with the same counter; the device keeps
+      // its outbox event and retries after the desktop callback is corrected.
+      return reject(500, "Device sync response exceeds the scanner limit");
+    }
     const auto response = authenticatedResponseText(200, *counter, expectedToken, responseBody);
     sendAll(clientSocket, response);
     return true;

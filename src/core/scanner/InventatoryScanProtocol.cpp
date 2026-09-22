@@ -19,6 +19,26 @@ using namespace scan_protocol_detail;
 
 namespace {
 
+string boundedResponseText(const string& value, size_t limit) {
+  size_t end = min(value.size(), limit);
+  while (end > 0 && end < value.size() &&
+         (static_cast<unsigned char>(value[end]) & 0xC0U) == 0x80U) {
+    --end;
+  }
+  // The protocol budget is measured after JSON escaping. Control characters
+  // can expand to six bytes, so a raw-byte cap alone would not bound the wire
+  // response. Preserve the largest valid UTF-8 prefix whose escaped form also
+  // fits the field budget.
+  while (end > 0 && jsonEscape(value.substr(0, end)).size() > limit) {
+    --end;
+    while (end > 0 && end < value.size() &&
+           (static_cast<unsigned char>(value[end]) & 0xC0U) == 0x80U) {
+      --end;
+    }
+  }
+  return value.substr(0, end);
+}
+
 bool looksLikeSupportedInventatoryScanCode(const string& code) {
   const auto trimmed = trim(code);
   return !trimmed.empty() &&
@@ -265,25 +285,31 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
         << "\",\"eventId\":\"" << jsonEscape(result.eventId)
         << "\",\"status\":\"" << jsonEscape(result.status)
         << "\",\"existing\":" << (result.existing ? "true" : "false")
-        << ",\"itemName\":\"" << jsonEscape(result.itemName)
+        << ",\"itemName\":\""
+        << jsonEscape(boundedResponseText(result.itemName, kInventatoryScanResponseTextLimit))
         << "\",\"requestedDelta\":" << result.requestedDelta
         << ",\"appliedDelta\":" << result.appliedDelta
         << ",\"quantity\":" << result.quantity
-        << ",\"location\":\"" << jsonEscape(result.location)
+        << ",\"location\":\""
+        << jsonEscape(boundedResponseText(result.location, kInventatoryScanResponseLocationLimit))
         << "\",\"code\":\"" << jsonEscape(result.code)
-        << "\",\"message\":\"" << jsonEscape(result.message) << "\"}";
+        << "\",\"message\":\""
+        << jsonEscape(boundedResponseText(result.message, kInventatoryScanResponseTextLimit)) << "\"}";
   }
   out << ']';
   if (response.hasLookupResult) {
     out << ",\"lookupResult\":{\"lookupId\":\"" << jsonEscape(response.lookupResult.lookupId)
         << "\",\"status\":\"" << jsonEscape(response.lookupResult.status)
-        << "\",\"itemName\":\"" << jsonEscape(response.lookupResult.itemName) << "\"}";
+        << "\",\"itemName\":\""
+        << jsonEscape(boundedResponseText(response.lookupResult.itemName, kInventatoryScanResponseTextLimit))
+        << "\"}";
   }
   if (response.hasQuickLabels) {
     out << ",\"quickLabels\":{\"revision\":" << response.quickLabelRevision << ",\"presets\":[";
     for (size_t index = 0; index < response.quickLabelPresets.size(); ++index) {
       if (index != 0) out << ',';
-      out << '"' << jsonEscape(response.quickLabelPresets[index]) << '"';
+      out << '"' << jsonEscape(boundedResponseText(response.quickLabelPresets[index], kQuickLabelPresetTextLimit))
+          << '"';
     }
     out << "]}";
   }
@@ -291,7 +317,8 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
     const auto& result = response.quickLabelPrintResult;
     out << ",\"quickLabelPrintResult\":{\"requestId\":\"" << jsonEscape(result.requestId)
         << "\",\"status\":\"" << jsonEscape(result.status) << "\",\"code\":\""
-        << jsonEscape(result.code) << "\",\"message\":\"" << jsonEscape(result.message) << "\"}";
+        << jsonEscape(result.code) << "\",\"message\":\""
+        << jsonEscape(boundedResponseText(result.message, kInventatoryScanResponseTextLimit)) << "\"}";
   }
   out << '}';
   return out.str();
