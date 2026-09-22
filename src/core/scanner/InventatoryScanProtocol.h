@@ -17,6 +17,13 @@ namespace inventatory {
 
 constexpr int kInventatoryScanTransportProtocolVersion = 1;
 
+// Shared with the Scan R1 firmware's kMaxHttpBodyBytes. The firmware keeps a
+// bounded response and a second authenticated copy while checking the MAC, so
+// every valid desktop response must fit this body budget.
+constexpr std::size_t kInventatoryScanResponseBodyLimit = 8192U;
+constexpr std::size_t kInventatoryScanResponseTextLimit = 256U;
+constexpr std::size_t kInventatoryScanResponseLocationLimit = 128U;
+
 struct InventatoryScanConfig {
   std::string deviceId;
   std::string token;

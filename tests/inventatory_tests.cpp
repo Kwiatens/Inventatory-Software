@@ -3179,9 +3179,9 @@ int main() {
     atomic<int> retrySyncCalls{0};
     auto retryOnSync = [&retrySyncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response,
                                          string& error) {
-      (void)error;
       if (++retrySyncCalls == 1) {
-        throw runtime_error("durable callback unavailable");
+        error.assign(9000, 'E');
+        return false;
       }
       response.requestId = request.requestId;
       return true;
@@ -3192,11 +3192,33 @@ int main() {
     const auto failedSync =
         sendLocalHttpRequest(retryServer.port(), signedSyncRequest(token, deviceId, 101, body));
     assert(failedSync.rfind("HTTP/1.1 503 Service Unavailable", 0) == 0);
+    assert(failedSync.size() < 5000);
+    assert(failedSync.find(string(257, 'E')) == string::npos);
     const auto retriedSync =
         sendLocalHttpRequest(retryServer.port(), signedSyncRequest(token, deviceId, 101, body));
     assert(retriedSync.rfind("HTTP/1.1 200 OK", 0) == 0);
     assert(retrySyncCalls == 2);
     retryServer.stop();
+
+    const auto overflowReplayState = stateDirectory / "overflow-replay.state";
+    atomic<int> overflowSyncCalls{0};
+    auto overflowOnSync = [&overflowSyncCalls](const DeviceSyncRequest&, DeviceSyncResponse& response, string&) {
+      ++overflowSyncCalls;
+      response.requestId = string(kInventatoryScanResponseBodyLimit + 1U, 'X');
+      return true;
+    };
+    LocalHttpServer overflowServer;
+    overflowServer.setDeviceCredentials(deviceId, token, overflowReplayState);
+    assert(overflowServer.start(19482, overflowOnSync));
+    const auto oversizedResponse =
+        sendLocalHttpRequest(overflowServer.port(), signedSyncRequest(token, deviceId, 300, body));
+    assert(oversizedResponse.rfind("HTTP/1.1 500 Internal Server Error", 0) == 0);
+    assert(oversizedResponse.find("Device sync response exceeds the scanner limit") != string::npos);
+    const auto oversizedResponseReplay =
+        sendLocalHttpRequest(overflowServer.port(), signedSyncRequest(token, deviceId, 300, body));
+    assert(oversizedResponseReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(overflowSyncCalls == 1);
+    overflowServer.stop();
 
     // A replay-marker write failure must fail closed after the durable
     // callback, and the same counter must not invoke the callback again.
@@ -3385,6 +3407,64 @@ int main() {
     quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
     quickLabelResponse.hasLookupResult = true;
     assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
+
+    DeviceSyncResponse realisticResponse;
+    realisticResponse.requestId = "Inventatory-SCAN-R1-sync-42";
+    realisticResponse.acceptedEventIds = {"Inventatory-SCAN-R1-41"};
+    realisticResponse.results.push_back({"Inventatory-SCAN-R1-41-result", "Inventatory-SCAN-R1-41", "",
+                                         "completed", false, "10k resistor", -3, -3, 17, "R2-B4", "0002",
+                                         "Quantity updated"});
+    realisticResponse.hasLookupResult = true;
+    realisticResponse.lookupResult = {"lookup-9", "found", "10k resistor"};
+    realisticResponse.hasQuickLabels = true;
+    realisticResponse.quickLabelRevision = 7;
+    realisticResponse.quickLabelPresets = {"5V", "12V", "GND"};
+    const auto realisticResponseJson = deviceSyncResponseJson(realisticResponse);
+    assert(realisticResponseJson.size() <= kInventatoryScanResponseBodyLimit);
+
+    DeviceSyncResponse maximumResponse;
+    maximumResponse.requestId = string(96, 'R');
+    maximumResponse.acceptedEventIds = {string(96, 'A'), string(96, 'B'), string(96, 'C'), string(96, 'D')};
+    for (int index = 0; index < 4; ++index) {
+      maximumResponse.results.push_back({string(96, static_cast<char>('0' + index)), string(96, 'E'), "",
+                                         "completed_with_warning", false, string(4096, 'N'), -1, -1, 1,
+                                         string(4096, 'L'), string(128, 'C'), string(4096, 'M')});
+    }
+    maximumResponse.hasLookupResult = true;
+    maximumResponse.lookupResult = {string(96, 'U'), "found", string(4096, 'I')};
+    maximumResponse.hasQuickLabels = true;
+    maximumResponse.quickLabelRevision = 9;
+    maximumResponse.quickLabelPresets.assign(12, string(1024, 'P'));
+    maximumResponse.hasQuickLabelPrintResult = true;
+    maximumResponse.quickLabelPrintResult = {string(96, 'Q'), "failed", string(1024, 'C'), string(4096, 'M')};
+    const auto maximumResponseJson = deviceSyncResponseJson(maximumResponse);
+    assert(maximumResponseJson.size() <= kInventatoryScanResponseBodyLimit);
+    auto escapedMaximumResponse = maximumResponse;
+    const string controlText(4096, '\x01');
+    for (auto& result : escapedMaximumResponse.results) {
+      result.itemName = controlText;
+      result.location = controlText;
+      result.message = controlText;
+    }
+    escapedMaximumResponse.lookupResult.itemName = controlText;
+    escapedMaximumResponse.quickLabelPresets.assign(12, controlText);
+    escapedMaximumResponse.quickLabelPrintResult.message = controlText;
+    const auto escapedMaximumResponseJson = deviceSyncResponseJson(escapedMaximumResponse);
+    assert(escapedMaximumResponseJson.size() <= kInventatoryScanResponseBodyLimit);
+    DeviceSyncResponse exactBoundaryResponse;
+    exactBoundaryResponse.requestId = "R";
+    const auto exactBoundaryBase = deviceSyncResponseJson(exactBoundaryResponse);
+    exactBoundaryResponse.requestId.append(
+        kInventatoryScanResponseBodyLimit - exactBoundaryBase.size(), 'X');
+    const auto exactBoundaryJson = deviceSyncResponseJson(exactBoundaryResponse);
+    assert(exactBoundaryJson.size() == kInventatoryScanResponseBodyLimit);
+    exactBoundaryResponse.requestId.push_back('X');
+    assert(deviceSyncResponseJson(exactBoundaryResponse).size() == kInventatoryScanResponseBodyLimit + 1U);
+    cout << "Scan R1 response sizes: realistic=" << realisticResponseJson.size()
+         << " maximum=" << maximumResponseJson.size() << " escaped-maximum="
+         << escapedMaximumResponseJson.size() << " exact=" << exactBoundaryJson.size() << " limit="
+         << kInventatoryScanResponseBodyLimit << '\n';
+
     // The baseline accepts only protocol v1 envelopes.
     assert(!parseDeviceSyncRequestJson(
         R"({"protocolVersion":99,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[]})",
