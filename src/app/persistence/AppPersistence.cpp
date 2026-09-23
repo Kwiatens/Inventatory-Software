@@ -37,6 +37,13 @@ void App::loadState() {
   pendingMovementReference_.clear();
   error_code inventoryError;
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
+  if (inventoryError) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not inspect the inventory database: " + inventoryPath_.string();
+    persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
+    dirty_ = true;
+    return;
+  }
   InventoryStore loadedStore;
   const bool inventoryLoaded = !inventoryFileExists || loadedStore.load(inventoryPath_);
   if (inventoryFileExists && !inventoryLoaded) {

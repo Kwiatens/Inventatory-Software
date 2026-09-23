@@ -8,8 +8,10 @@
 #include <mutex>
 #include <thread>
 
+#ifdef _WIN32
 struct HWND__;
 using HWND = HWND__*;
+#endif
 
 namespace inventatory {
 
@@ -42,10 +44,16 @@ class BackgroundController {
   void trayThreadMain();
   std::atomic<bool> enabled_{false};
   std::atomic<bool> trayStartupCancelled_{false};
+#ifdef _WIN32
   std::atomic<HWND> trayWindow_{nullptr};
+#else
+  std::atomic<void*> trayWindow_{nullptr};
+#endif
   void* instanceMutex_ = nullptr;
+  int instanceLockFd_ = -1;
   bool backgroundMode_ = false;
   std::thread trayThread_;
+  std::thread signalThread_;
   mutable std::mutex callbackMutex_;
   mutable std::mutex trayReadyMutex_;
   std::condition_variable trayReadyChanged_;

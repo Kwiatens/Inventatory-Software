@@ -54,6 +54,10 @@
 #include <thread>
 #include <unordered_map>
 
+#ifndef _WIN32
+#include <sys/time.h>
+#endif
+
 #undef assert
 #define assert(expr)                                                                                                 \
   do {                                                                                                                \
@@ -67,6 +71,32 @@ using namespace inventatory;
 using namespace std;
 
 namespace {
+
+#ifdef _WIN32
+constexpr const char* kTestApplicationArchive = "Inventatory-win-x64.zip";
+constexpr const char* kTestApplicationChecksums = "SHA256SUMS.txt";
+constexpr const char* kTestApplicationInstaller = "Install-Inventatory.ps1";
+#else
+constexpr const char* kTestApplicationArchive = "Inventatory-linux-x64.tar.gz";
+constexpr const char* kTestApplicationChecksums = "SHA256SUMS-linux.txt";
+constexpr const char* kTestApplicationInstaller = "Install-Inventatory.sh";
+#endif
+
+string currentPlatformReleaseFixture(string fixture) {
+#ifndef _WIN32
+  const auto replace = [&fixture](const string& before, const string& after) {
+    size_t position = 0;
+    while ((position = fixture.find(before, position)) != string::npos) {
+      fixture.replace(position, before.size(), after);
+      position += after.size();
+    }
+  };
+  replace("Inventatory-win-x64.zip", kTestApplicationArchive);
+  replace("SHA256SUMS.txt", kTestApplicationChecksums);
+  replace("Install-Inventatory.ps1", kTestApplicationInstaller);
+#endif
+  return fixture;
+}
 
 time_t localTime(int year, int month, int day, int hour = 12, int minute = 0) {
   tm value{};
@@ -206,35 +236,42 @@ void testPrimaryNavigationContract() {
   assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('7') == nullptr);
 }
 
-string sendLocalHttpRequest(uint16_t port, const string& request, DWORD receiveTimeout = 3000) {
-  SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  assert(client != INVALID_SOCKET);
+string sendLocalHttpRequest(uint16_t port, const string& request, int receiveTimeout = 3000) {
+  NativeSocket client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  assert(client != kInvalidSocket);
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = htons(port);
-  assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != SOCKET_ERROR);
+  assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
   assert(send(client, request.data(), static_cast<int>(request.size()), 0) == static_cast<int>(request.size()));
 
+#ifdef _WIN32
   setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&receiveTimeout), sizeof(receiveTimeout));
+#else
+  timeval timeout{};
+  timeout.tv_sec = receiveTimeout / 1000;
+  timeout.tv_usec = (receiveTimeout % 1000) * 1000;
+  setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
   string response;
   array<char, 1024> buffer{};
   int received = 0;
   while ((received = recv(client, buffer.data(), static_cast<int>(buffer.size()), 0)) > 0) {
     response.append(buffer.data(), static_cast<size_t>(received));
   }
-  closesocket(client);
+  closeSocket(client);
   return response;
 }
 
-SOCKET connectSlowLocalClient(uint16_t port) {
-  SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  assert(client != INVALID_SOCKET);
+NativeSocket connectSlowLocalClient(uint16_t port) {
+  NativeSocket client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  assert(client != kInvalidSocket);
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = htons(port);
-  assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != SOCKET_ERROR);
+  assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
   const string partialRequest = "POST /api/v1/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\n";
   assert(send(client, partialRequest.data(), static_cast<int>(partialRequest.size()), 0) ==
          static_cast<int>(partialRequest.size()));
@@ -589,7 +626,7 @@ void testPhysicalValueSearchIntegration() {
 }
 
 void testInventoryCommitHistory() {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   const auto path = filesystem::temp_directory_path() / "inventatory-inventory-commit-history-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -782,7 +819,7 @@ void testInventoryCommitHistory() {
 }
 
 void testSqliteSchemaValidation() {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   const auto unsupportedPath = filesystem::temp_directory_path() / "inventatory-unsupported-schema-test.db";
   const auto invalidPath = filesystem::temp_directory_path() / "inventatory-invalid-schema-test.db";
   error_code cleanupError;
@@ -1412,7 +1449,7 @@ int main() {
     assert(!cleanupError);
   }
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   // The persistence tests below must exercise the statically linked, pinned
   // SQLite amalgamation rather than an ambient sqlite3.dll.
   assert(sqliteApi().load());
@@ -1849,7 +1886,7 @@ int main() {
     assert(restored.vendorMetadata.parameters.front().value == "1uF");
   }
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   {
     // A failed rack read must not replace an existing in-memory store or make
     // the successfully read item subset eligible for a later write-back.
@@ -1977,7 +2014,7 @@ int main() {
     metadataOnly.items().front().notes = "metadata changed";
     assert(inventoryMovementDiff(after, metadataOnly, "manual").empty());
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
     const auto databasePath = filesystem::temp_directory_path() / "inventatory-stock-movements-test.db";
     error_code cleanupError;
     filesystem::remove(databasePath, cleanupError);
@@ -3086,13 +3123,13 @@ int main() {
     assert(replayed.rfind("HTTP/1.1 409 Conflict", 0) == 0);
     assert(syncCalls == 1);
 
-    vector<SOCKET> slowClients;
+    vector<NativeSocket> slowClients;
     for (int index = 0; index < 4; ++index) slowClients.push_back(connectSlowLocalClient(server.port()));
     this_thread::sleep_for(chrono::milliseconds(100));
     const auto before = chrono::steady_clock::now();
     const auto nextResponse = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 43, body));
     const auto elapsed = chrono::steady_clock::now() - before;
-    for (const auto client : slowClients) closesocket(client);
+    for (const auto client : slowClients) closeSocket(client);
     assert(nextResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
     assert(elapsed < chrono::seconds(1));
     assert(syncCalls == 2);
@@ -3280,13 +3317,13 @@ int main() {
     LocalHttpServer queuedStopServer;
     queuedStopServer.setDeviceCredentials(deviceId, rotatedToken, stateDirectory / "queued-stop.state");
     assert(queuedStopServer.start(19472, onSync));
-    vector<SOCKET> queuedSlowClients;
+    vector<NativeSocket> queuedSlowClients;
     for (int index = 0; index < 20; ++index) queuedSlowClients.push_back(connectSlowLocalClient(queuedStopServer.port()));
     this_thread::sleep_for(chrono::milliseconds(100));
     const auto stopStarted = chrono::steady_clock::now();
     queuedStopServer.stop();
     const auto stopElapsed = chrono::steady_clock::now() - stopStarted;
-    for (const auto client : queuedSlowClients) closesocket(client);
+    for (const auto client : queuedSlowClients) closeSocket(client);
     assert(stopElapsed < chrono::seconds(4));
 
     filesystem::remove_all(stateDirectory, cleanupError);
@@ -3980,7 +4017,7 @@ int main() {
   }
 
   {
-    const string releaseJson =
+    const string releaseJson = currentPlatformReleaseFixture(
         R"({
           "tag_name": "v1.2.3",
           "html_url": "https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3",
@@ -3990,7 +4027,7 @@ int main() {
             {"name": "SHA256SUMS.txt"},
             {"name": "Install-Inventatory.ps1"}
           ]
-        })";
+        })");
     const auto metadata = parseReleaseMetadata(releaseJson, "1.2.0", "Kwiatens/Inventatory-Software");
     assert(metadata.completed);
     assert(metadata.updateAvailable);
@@ -3998,13 +4035,15 @@ int main() {
     assert(metadata.releaseNotes == "Fixes\n\xE2\x98\x85 safer updates");
 
     const auto prereleaseMetadata = parseReleaseMetadata(
-        R"([{"tag_name":"v1.2.4-rc.1","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.4-rc.1","body":"candidate","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]}])",
+        currentPlatformReleaseFixture(
+            R"([{"tag_name":"v1.2.4-rc.1","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.4-rc.1","body":"candidate","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]}])"),
         "1.2.3", "Kwiatens/Inventatory-Software");
     assert(prereleaseMetadata.completed);
     assert(prereleaseMetadata.updateAvailable);
     assert(prereleaseMetadata.latestVersion == "v1.2.4-rc.1");
     const auto nestedUrlMetadata = parseReleaseMetadata(
-        R"({"tag_name":"v1.2.5","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.5","body":"notes","author":{"html_url":"https://github.com/example"},"assets":[{"name":"Inventatory-win-x64.zip","uploader":{"html_url":"https://github.com/example"}},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})",
+        currentPlatformReleaseFixture(
+            R"({"tag_name":"v1.2.5","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.5","body":"notes","author":{"html_url":"https://github.com/example"},"assets":[{"name":"Inventatory-win-x64.zip","uploader":{"html_url":"https://github.com/example"}},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})"),
         "1.2.0", "Kwiatens/Inventatory-Software");
     assert(nestedUrlMetadata.completed);
     assert(nestedUrlMetadata.updateAvailable);
@@ -4019,54 +4058,60 @@ int main() {
     assert(!isVersionNewer("v1.2.0-rc.1", "v1.2.0"));
 
     const auto missingAsset = parseReleaseMetadata(
-        R"({"tag_name":"v1.2.3","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"}]})",
+        currentPlatformReleaseFixture(
+            R"({"tag_name":"v1.2.3","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"}]})"),
         "1.2.0", "Kwiatens/Inventatory-Software");
     assert(!missingAsset.completed);
     const auto invalidTag = parseReleaseMetadata(
-        R"({"tag_name":"release","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/release","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})",
+        currentPlatformReleaseFixture(
+            R"({"tag_name":"release","html_url":"https://github.com/Kwiatens/Inventatory-Software/releases/tag/release","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})"),
         "1.2.0", "Kwiatens/Inventatory-Software");
     assert(!invalidTag.completed);
     const auto invalidUrl = parseReleaseMetadata(
-        R"({"tag_name":"v1.2.3","html_url":"https://example.com/release","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})",
+        currentPlatformReleaseFixture(
+            R"({"tag_name":"v1.2.3","html_url":"https://example.com/release","body":"notes","assets":[{"name":"Inventatory-win-x64.zip"},{"name":"SHA256SUMS.txt"},{"name":"Install-Inventatory.ps1"}]})"),
         "1.2.0", "Kwiatens/Inventatory-Software");
     assert(!invalidUrl.completed);
     string oversizedNotes(64U * 1024U + 1U, 'x');
     const auto oversized = parseReleaseMetadata(
-        "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3\",\"body\":\"" +
+        currentPlatformReleaseFixture(
+            "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3\",\"body\":\"" +
             oversizedNotes +
-            "\",\"assets\":[{\"name\":\"Inventatory-win-x64.zip\"},{\"name\":\"SHA256SUMS.txt\"},{\"name\":\"Install-Inventatory.ps1\"}]}",
+            "\",\"assets\":[{\"name\":\"Inventatory-win-x64.zip\"},{\"name\":\"SHA256SUMS.txt\"},{\"name\":\"Install-Inventatory.ps1\"}]}") ,
         "1.2.0", "Kwiatens/Inventatory-Software");
     assert(!oversized.completed);
     const auto malformedNotes = parseReleaseMetadata(
-        "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3\",\"body\":\"bad\nnotes\",\"assets\":[{\"name\":\"Inventatory-win-x64.zip\"},{\"name\":\"SHA256SUMS.txt\"},{\"name\":\"Install-Inventatory.ps1\"}]}",
+        currentPlatformReleaseFixture(
+            "{\"tag_name\":\"v1.2.3\",\"html_url\":\"https://github.com/Kwiatens/Inventatory-Software/releases/tag/v1.2.3\",\"body\":\"bad\nnotes\",\"assets\":[{\"name\":\"Inventatory-win-x64.zip\"},{\"name\":\"SHA256SUMS.txt\"},{\"name\":\"Install-Inventatory.ps1\"}]}") ,
         "1.2.0", "Kwiatens/Inventatory-Software");
     assert(!malformedNotes.completed);
 
-    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2.3", "Inventatory-win-x64.zip") ==
-           "https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3/Inventatory-win-x64.zip");
-    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2.3-rc.1", "Inventatory-win-x64.zip") ==
-           "https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3-rc.1/Inventatory-win-x64.zip");
-    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v0.2.0-rc.2", "Inventatory-win-x64.zip") ==
-           "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.2/Inventatory-win-x64.zip");
-    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2", "Inventatory-win-x64.zip").empty());
-    assert(buildReleaseAssetUrl("evil/repo/extra", "v1.2.3", "Inventatory-win-x64.zip").empty());
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2.3", kTestApplicationArchive) ==
+           string("https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3/") + kTestApplicationArchive);
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2.3-rc.1", kTestApplicationArchive) ==
+           string("https://github.com/Kwiatens/Inventatory-Software/releases/download/v1.2.3-rc.1/") + kTestApplicationArchive);
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v0.2.0-rc.2", kTestApplicationArchive) ==
+           string("https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.2/") + kTestApplicationArchive);
+    assert(buildReleaseAssetUrl("Kwiatens/Inventatory-Software", "v1.2", kTestApplicationArchive).empty());
+    assert(buildReleaseAssetUrl("evil/repo/extra", "v1.2.3", kTestApplicationArchive).empty());
 
     string downloadError;
-    assert(!downloadReleaseAsset("https://example.invalid/Inventatory-win-x64.zip",
+    assert(!downloadReleaseAsset(string("https://example.invalid/") + kTestApplicationArchive,
                                  filesystem::temp_directory_path() / "inventatory-update-url-test.zip", {}, downloadError));
     assert(downloadError == "The update asset URL is not an approved GitHub download");
 
     const string archiveHash(64U, 'a');
     const string installerHash(64U, 'b');
-    string expectedChecksum = archiveHash + "  Inventatory-win-x64.zip\n" + installerHash + " *Install-Inventatory.ps1\n";
+    string expectedChecksum = string(archiveHash + "  ") + kTestApplicationArchive + "\n" + installerHash + " *" +
+                              kTestApplicationInstaller + "\n";
     string parsedHash;
-    assert(parseSha256Checksum(expectedChecksum, "Inventatory-win-x64.zip", parsedHash));
+    assert(parseSha256Checksum(expectedChecksum, kTestApplicationArchive, parsedHash));
     assert(parsedHash == archiveHash);
-    assert(parseSha256Checksum(expectedChecksum, "Install-Inventatory.ps1", parsedHash));
+    assert(parseSha256Checksum(expectedChecksum, kTestApplicationInstaller, parsedHash));
     assert(parsedHash == installerHash);
-    assert(!parseSha256Checksum(expectedChecksum, "SHA256SUMS.txt", parsedHash));
-    assert(!parseSha256Checksum(archiveHash + "  Inventatory-win-x64.zip\n" + archiveHash + "  Inventatory-win-x64.zip\n",
-                                "Inventatory-win-x64.zip", parsedHash));
+    assert(!parseSha256Checksum(expectedChecksum, kTestApplicationChecksums, parsedHash));
+    assert(!parseSha256Checksum(string(archiveHash + "  ") + kTestApplicationArchive + "\n" + archiveHash + "  " +
+                                kTestApplicationArchive + "\n", kTestApplicationArchive, parsedHash));
 
     const auto hashPath = filesystem::temp_directory_path() / "inventatory-update-hash-test.txt";
     ofstream hashFile(hashPath, ios::binary | ios::trunc);

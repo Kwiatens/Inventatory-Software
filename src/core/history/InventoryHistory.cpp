@@ -35,7 +35,7 @@ bool deserializeHistoryPoint(const string& line, InventoryHistoryPoint& point) {
   return true;
 }
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 
 bool createHistoryTable(SqliteConnection& connection) {
   return ensureInventoryDatabaseSchema(connection);
@@ -127,7 +127,7 @@ bool writeHistoryToInventatoryTable(SqliteConnection& connection, const vector<I
 
 bool loadInventoryHistory(const filesystem::path& path, vector<InventoryHistoryPoint>& history) {
   history.clear();
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
     return false;
@@ -158,7 +158,7 @@ bool loadInventoryHistory(const filesystem::path& path, vector<InventoryHistoryP
 }
 
 bool saveInventoryHistory(const filesystem::path& path, const vector<InventoryHistoryPoint>& history) {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
     return false;

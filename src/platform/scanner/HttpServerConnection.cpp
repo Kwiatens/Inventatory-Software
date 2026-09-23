@@ -17,7 +17,7 @@ namespace inventatory {
 using namespace std;
 using namespace http_server_detail;
 
-bool LocalHttpServer::serveConnection(SOCKET clientSocket, string requestText) {
+bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestText) {
   // Parse the first request line and route only the tiny local API surface.
   const auto headerEnd = requestText.find("\r\n\r\n");
   if (headerEnd == string::npos) {

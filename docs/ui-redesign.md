@@ -152,8 +152,7 @@ offered after review with an explicit completion choice.
 
 General/Data, Appearance, and Updates live under System. Devices contains Printer, with Quick Labels nested beneath
 it, and Inventatory Scan. DigiKey remains under Integrations. Ordinary edits are staged and use Save/Cancel.
-Refresh, Test, Copy, Regenerate, Clear, Check for software updates, and Update are operational actions. DigiKey secrets are stored in
-Windows Credential Manager, never in `settings.conf`.
+Refresh, Test, Copy, Regenerate, Clear, Check for software updates, and Update are operational actions. DigiKey secrets are stored by the operating-system credential service, never in `settings.conf`.
 
 The Quick Labels panel owns the optional custom wire label as well as the saved presets. The Printer panel contains
 printer discovery and queue testing only.

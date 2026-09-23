@@ -1,17 +1,81 @@
 // Inventatory - Hardware Inventory Management System
-// Windows DNS-SD registration for automatic Inventatory Scan discovery.
+// Platform DNS-SD registration for automatic Inventatory Scan discovery.
 
 #include "platform/scanner/MdnsService.h"
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <ifaddrs.h>
+#include <thread>
+#endif
 
 namespace inventatory {
+using std::string;
+
+#ifndef _WIN32
+namespace {
+
+bool privateIpv4(uint32_t hostOrder) {
+  const auto first = (hostOrder >> 24U) & 0xffU;
+  const auto second = (hostOrder >> 16U) & 0xffU;
+  return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
+         (first == 192U && second == 168U) || (first == 169U && second == 254U);
+}
+
+string privateInterfaceName() {
+  ifaddrs* interfaces = nullptr;
+  if (getifaddrs(&interfaces) != 0) return {};
+  string selected;
+  for (auto* entry = interfaces; entry != nullptr; entry = entry->ifa_next) {
+    if (entry->ifa_addr == nullptr || entry->ifa_name == nullptr ||
+        (entry->ifa_flags & IFF_UP) == 0 || (entry->ifa_flags & IFF_LOOPBACK) != 0 ||
+        entry->ifa_addr->sa_family != AF_INET) continue;
+    const auto* address = reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
+    if (privateIpv4(ntohl(address->sin_addr.s_addr))) {
+      selected = entry->ifa_name;
+      break;
+    }
+  }
+  freeifaddrs(interfaces);
+  return selected;
+}
+
+bool publisherAvailable() {
+  const char* path = getenv("PATH");
+  if (path == nullptr) return false;
+  string search(path);
+  size_t begin = 0;
+  while (begin <= search.size()) {
+    const auto end = search.find(':', begin);
+    const auto directory = search.substr(begin, end == string::npos ? string::npos : end - begin);
+    const auto candidate = (directory.empty() ? string(".") : directory) + "/avahi-publish-service";
+    if (access(candidate.c_str(), X_OK) == 0) return true;
+    if (end == string::npos) break;
+    begin = end + 1U;
+  }
+  return false;
+}
+
+}  // namespace
+#endif
 
 #ifdef _WIN32
 struct MdnsService::RegistrationState {
@@ -195,8 +259,32 @@ bool MdnsService::start(std::uint16_t port) {
   running_ = true;
   return true;
 #else
-  (void)port;
-  return false;
+  if (!publisherAvailable()) return false;
+  const auto interfaceName = privateInterfaceName();
+  if (interfaceName.empty() || interfaceName.size() >= IFNAMSIZ) return false;
+  const auto interfaceArgument = "--interface=" + interfaceName;
+  const auto portText = std::to_string(port);
+  const pid_t child = fork();
+  if (child < 0) return false;
+  if (child == 0) {
+    const int nullDevice = open("/dev/null", O_RDWR);
+    if (nullDevice >= 0) {
+      dup2(nullDevice, STDIN_FILENO);
+      dup2(nullDevice, STDOUT_FILENO);
+      dup2(nullDevice, STDERR_FILENO);
+      if (nullDevice > STDERR_FILENO) close(nullDevice);
+    }
+    execlp("avahi-publish-service", "avahi-publish-service", interfaceArgument.c_str(), "Inventatory",
+           "_inventatory._tcp", portText.c_str(), "protocol=1", static_cast<char*>(nullptr));
+    _exit(127);
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  int status = 0;
+  const auto completed = waitpid(child, &status, WNOHANG);
+  if (completed == child) return false;
+  publisherProcess_ = child;
+  running_ = true;
+  return true;
 #endif
 }
 
@@ -229,6 +317,24 @@ void MdnsService::stop() {
     }
   }
   registrationState_.reset();
+#endif
+#ifndef _WIN32
+  if (publisherProcess_ > 0) {
+    kill(publisherProcess_, SIGTERM);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    for (;;) {
+      int status = 0;
+      const auto result = waitpid(publisherProcess_, &status, WNOHANG);
+      if (result == publisherProcess_ || (result < 0 && errno == ECHILD)) break;
+      if (std::chrono::steady_clock::now() >= deadline) {
+        kill(publisherProcess_, SIGKILL);
+        while (waitpid(publisherProcess_, &status, 0) < 0 && errno == EINTR) {}
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    publisherProcess_ = -1;
+  }
 #endif
   running_ = false;
 }

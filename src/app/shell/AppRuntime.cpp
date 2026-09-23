@@ -12,7 +12,6 @@
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/terminal.hpp>
-#include <windows.h>
 
 #include <algorithm>
 #include <chrono>
@@ -385,7 +384,13 @@ void App::requestUserExit() {
     return;
   }
   if (backgroundController_.enabled()) {
+#ifdef _WIN32
     backgroundController_.hideConsole(true);
+#else
+    // Linux has no Windows notification-area window to hide. Exit the TUI
+    // through its normal save path; App::run() then starts the user service.
+    running_ = false;
+#endif
   } else {
     running_ = false;
   }

@@ -2,6 +2,10 @@
 
 #include <string>
 #include <iostream>
+#ifndef _WIN32
+#include <clocale>
+#include <langinfo.h>
+#endif
 
 int main(int argc, char* argv[]) {
   if (argc == 2 && std::string(argv[1]) == "--version") {
@@ -12,6 +16,14 @@ int main(int argc, char* argv[]) {
 #endif
     return 0;
   }
+#ifndef _WIN32
+  if (std::setlocale(LC_ALL, "") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
+    if (std::setlocale(LC_ALL, "C.UTF-8") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
+      std::cerr << "Inventatory requires a UTF-8 terminal locale. Set LANG to an installed UTF-8 locale and retry.\n";
+      return 1;
+    }
+  }
+#endif
   const bool startInBackground = argc == 2 && std::string(argv[1]) == "--background";
   inventatory::BackgroundController backgroundController;
   if (startInBackground && backgroundController.interactiveInstanceRunning()) return 0;

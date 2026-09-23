@@ -1,6 +1,8 @@
 # Public beta
 
-Inventatory is a Windows-only public beta for local hardware inventory management.
+Inventatory is a public beta for local hardware inventory management with
+separate native Windows and Linux x86-64 releases. The Windows release and its
+installation workflow remain supported.
 
 For a new installation, open Command Prompt and paste this single command:
 
@@ -28,17 +30,41 @@ rolls back the old installation, writes a machine-local completion result under
 %LOCALAPPDATA%\Inventatory, and relaunches the previous version. Inventory data,
 settings, secrets, and release notes are never stored in the inventory database.
 
+For Ubuntu 24.04 LTS, download the Linux release assets into one directory and
+run the checksum-verifying installer:
+
+    mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
+
+This installs the native executable to `~/.local/bin/inventatory`. The Linux
+build shares the inventory, history, backup, import, BOM, label, and scanner
+protocol code. Runtime packages and scanner setup are listed in
+[Linux support](linux-support.md).
+
 Build from a clean clone with Visual Studio 2022 C++ tools and CMake 3.20 or newer:
 
     cmake -S . -B build -DINVENTATORY_RELEASE_REPOSITORY=Kwiatens/Inventatory-Software -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Hardware
     cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
     ctest --test-dir build -C Release --output-on-failure
 
+Build Linux natively on Ubuntu 24.04 after installing the dependencies listed
+in [Linux support](linux-support.md):
+
+    cmake -S . -B build-linux-debug -DCMAKE_BUILD_TYPE=Debug
+    cmake --build build-linux-debug --parallel
+    ctest --test-dir build-linux-debug --output-on-failure
+    cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release
+    cmake --build build-linux-release --parallel
+    ctest --test-dir build-linux-release --output-on-failure
+    cmake --install build-linux-release --prefix "$HOME/.local"
+    "$HOME/.local/bin/inventatory"
+
 Maintainers can exercise the isolated installer update transaction without
 touching a real installation with:
 
     pwsh -NoProfile -File installer\Test-InventatoryUpdate.ps1
 
-Inventory data defaults to Documents\\Inventatory and machine-local settings use
-%LOCALAPPDATA%\\Inventatory. Open Settings > Scan R1 in the application to pair
-the scanner and review its connection status.
+On Windows, inventory data defaults to Documents\\Inventatory and machine-local
+settings use %LOCALAPPDATA%\\Inventatory. On Linux, the default workspace uses
+`$XDG_DATA_HOME/Inventatory` (or `~/.local/share/Inventatory`) and settings use
+`$XDG_CONFIG_HOME/Inventatory` (or `~/.config/Inventatory`). Open Settings >
+Scan R1 in the application to pair the scanner and review its connection status.

@@ -15,6 +15,19 @@ extracts the release directly into the per-user program directory and launches
 Inventatory in the same terminal. The first-run setup wizard creates the
 desktop shortcut after setup is completed.
 
+## Install on Linux
+
+Linux is released as a separate native x86-64 build. Windows users can keep
+using the Windows ZIP and installer above. On Ubuntu 24.04, download and run
+the Linux installer with:
+
+    mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
+
+The installer verifies the archive and its own SHA-256 checksum before putting
+the executable in `~/.local/bin/inventatory`. Run it with
+`$HOME/.local/bin/inventatory`. See [Linux support](docs/linux-support.md) for
+runtime dependencies, scanner access, data locations, and native build steps.
+
 The whole system is **designed to be extremely fast, and requires as little user input as possible.**
 
 Inventatory system key features:

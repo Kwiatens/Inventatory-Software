@@ -120,13 +120,19 @@ Failed/offline device requests are not queued.
 
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
-next launch. DigiKey secrets are stored in Windows Credential Manager.
+next launch. DigiKey secrets use the operating system credential service:
+Windows Credential Manager on Windows and Secret Service on Linux.
 
 In **Settings -> General / Data**, **Background & startup** controls whether Inventatory remains available for Scan R1 after
-the terminal is closed. It defaults to Off. When enabled, Inventatory starts for
-the signed-in Windows user, hides in the notification area after close, and continues the R1 service. Use the Inventatory tray
-icon to Open Inventatory or Quit Inventatory; the Windows startup entry is shown as **Inventatory Background Service**. Disabling the setting removes Inventatory from Windows startup. This does not run before a
-user signs in.
+the terminal is closed. It defaults to Off. On Windows, Inventatory starts for
+the signed-in user, hides in the notification area after close, and continues
+the R1 service. Use the Inventatory tray icon to Open Inventatory or Quit
+Inventatory; the Windows startup entry is shown as **Inventatory Background
+Service**. On Linux, the setting manages a per-user systemd service. Launching
+Inventatory while that service is active brings the terminal UI forward through
+the existing service process; closing the UI returns it to the background
+scanner service. Linux does not provide a notification-area icon. On both
+platforms, disabling the setting removes the startup integration.
 
 An unconfigured **Settings -> Devices -> Inventatory Scan** section shows only **Begin Setup**, which opens
 the existing setup wizard. After provisioning is accepted, the section restores
@@ -135,9 +141,9 @@ last contact once it has reported in), the service port, and **Restart bridge**.
 Before the first report, the status reads **Waiting for device**.
 
 An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
-collects the Client ID and Client secret, stores the secret in Windows
-Credential Manager, and restores the account and regional settings after the
-credentials are saved. A live credential test remains available afterward.
+collects the Client ID and Client secret, stores the secret in the operating
+system credential service, and restores the account and regional settings after
+the credentials are saved. A live credential test remains available afterward.
 
 ### Updates
 

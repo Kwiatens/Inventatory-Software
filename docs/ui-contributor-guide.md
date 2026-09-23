@@ -49,10 +49,11 @@ to the application.
 
 ## Settings and secrets
 
-Machine/user settings are versioned in `%LOCALAPPDATA%/Inventatory/settings.conf`.
-Inventory content stays in the selected Inventatory data directory. Secrets use
-`CredentialStore`; never write them to config, logs, activity history, test
-snapshots, messages, or screenshots. New settings must define validation,
+Machine/user settings are versioned in `%LOCALAPPDATA%/Inventatory/settings.conf`
+on Windows and `$XDG_CONFIG_HOME/Inventatory/settings.conf` (default
+`~/.config/Inventatory`) on Linux. Inventory content stays in the selected
+Inventatory data directory. Secrets use the platform `CredentialStore`; never
+write them to config, logs, activity history, test snapshots, messages, or screenshots. New settings must define validation,
 staging, save/cancel behavior, initial defaults, and runtime/restart effects.
 
 ## Verification
