@@ -31,7 +31,7 @@ const vector<InventoryItem>& InventoryStore::items() const {
 }
 
 bool InventoryStore::load(const filesystem::path& path) {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
     return false;
@@ -90,7 +90,7 @@ bool InventoryStore::load(const filesystem::path& path) {
 }
 
 bool InventoryStore::save(const filesystem::path& path) const {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   if (!validateInventoryIdentifiers(items, racks_)) return false;
@@ -123,7 +123,7 @@ bool InventoryStore::save(const filesystem::path& path) const {
 
 bool InventoryStore::saveWithMovements(const filesystem::path& path,
                                        const vector<InventoryMovement>& movements) const {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   if (!validateInventoryIdentifiers(items, racks_)) return false;
@@ -138,7 +138,7 @@ bool InventoryStore::saveWithMovements(const filesystem::path& path,
 
 bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
                                           const vector<InventoryMovement>& movements) const {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   if (!validateInventoryIdentifiers(items, racks_)) return false;
@@ -155,7 +155,7 @@ bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const Dev
 bool InventoryStore::saveWithCommit(const filesystem::path& path, const InventoryStore& previous,
                                     const InventoryCommitDraft& draft, const vector<InventoryMovement>& movements,
                                     const DeviceEventCommit* deviceEvent, InventoryCommit* committed) const {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   InventoryStore normalized;
@@ -212,7 +212,7 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
 }
 
 vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, size_t limit) {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   if (limit == 0) return {};
   error_code filesystemError;
   if (!filesystem::is_regular_file(path, filesystemError) || filesystemError) return {};

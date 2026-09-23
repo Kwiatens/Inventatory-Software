@@ -15,6 +15,8 @@
 #endif
 #include <windows.h>
 #include <windns.h>
+#else
+#include <sys/types.h>
 #endif
 
 namespace inventatory {
@@ -38,6 +40,9 @@ class MdnsService {
   std::shared_ptr<RegistrationState> registrationState_;
 #endif
   bool running_ = false;
+#ifndef _WIN32
+  pid_t publisherProcess_ = -1;
+#endif
 };
 
 }  // namespace inventatory

@@ -12,7 +12,6 @@
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/terminal.hpp>
-#include <windows.h>
 
 #include <algorithm>
 #include <chrono>
@@ -116,7 +115,7 @@ int App::run() {
   if (settings_.backgroundConsentAsked || settings_.backgroundServiceEnabled) {
     string startupError;
     if (!setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, startupError)) {
-      setMessage("Unable to update Windows startup: " + startupError, 5);
+      setMessage("Unable to update the background startup service: " + startupError, 5);
     }
   }
   // Windows sign-in launches this process with --background. Keep that path
