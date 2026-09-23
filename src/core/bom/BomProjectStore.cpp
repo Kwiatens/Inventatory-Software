@@ -69,7 +69,7 @@ map<string, string> deserializeBomMap(const string& value) {
   return values;
 }
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 namespace {
 
 bool ensureBomProjectSchema(SqliteConnection& connection) {
@@ -107,7 +107,7 @@ bool insertProject(SqliteConnection& connection, const BomProject& project) {
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects) {
   vector<BomProject> loadedProjects;
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection)) {
     return false;
@@ -145,7 +145,7 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
 #endif
 }
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 bool validateBomProjects(SqliteConnection& connection, string* error) {
   if (connection.db == nullptr) {
     if (error != nullptr) *error = "SQLite connection is not open";
@@ -187,7 +187,7 @@ bool validateBomProjects(SqliteConnection& connection, string* error) {
 #endif
 
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects) {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {

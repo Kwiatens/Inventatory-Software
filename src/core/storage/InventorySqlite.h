@@ -8,7 +8,7 @@
 
 namespace inventatory {
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 struct SqliteApi {
   decltype(&::sqlite3_initialize) initialize = &::sqlite3_initialize;
   decltype(&::sqlite3_open_v2) open_v2 = &::sqlite3_open_v2;

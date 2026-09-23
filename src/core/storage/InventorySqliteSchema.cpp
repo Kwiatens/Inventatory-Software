@@ -11,7 +11,7 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 
 namespace {
 void setSqlError(SqliteConnection& connection, string* error, const string& fallback) {
