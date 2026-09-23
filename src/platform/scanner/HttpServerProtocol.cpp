@@ -3,12 +3,9 @@
 #include "platform/scanner/HttpServerProtocolInternal.h"
 
 #include "core/inventory/Inventory.h"
-
-#define NOMINMAX
-#include <windows.h>
+#include "core/storage/AtomicFile.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cctype>
 #include <fstream>
 #include <limits>
@@ -212,65 +209,8 @@ bool loadReplayState(const filesystem::path& path, const string& fingerprint, ui
 bool saveReplayState(const filesystem::path& path, const string& fingerprint, uint64_t counter) {
   if (path.empty() || fingerprint.size() != 64 ||
       any_of(fingerprint.begin(), fingerprint.end(), [](unsigned char ch) { return !isxdigit(ch); })) return false;
-  error_code error;
-  filesystem::create_directories(path.parent_path(), error);
-  if (error) return false;
-
   const string contents = "fingerprint=" + fingerprint + '\n' + "counter=" + to_string(counter) + '\n';
-  static atomic<uint64_t> temporarySequence{0};
-  auto temporary = path;
-  temporary += L".tmp.";
-  temporary += to_wstring(GetCurrentProcessId());
-  temporary += L".";
-  temporary += to_wstring(GetCurrentThreadId());
-  temporary += L".";
-  temporary += to_wstring(temporarySequence.fetch_add(1, memory_order_relaxed));
-#ifdef _WIN32
-  // CREATE_NEW prevents two writers from sharing a predictable temporary file.
-  // WRITE_THROUGH plus FlushFileBuffers makes a successful replacement durable
-  // enough for the existing replay invariant; the old state is untouched until
-  // the complete temporary file has been closed.
-  HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
-  if (handle == INVALID_HANDLE_VALUE) return false;
-
-  bool success = contents.size() <= numeric_limits<DWORD>::max();
-  DWORD written = 0;
-  if (success) {
-    success = WriteFile(handle, contents.data(), static_cast<DWORD>(contents.size()), &written, nullptr) != 0 &&
-              written == contents.size();
-  }
-  if (success) success = FlushFileBuffers(handle) != 0;
-  if (CloseHandle(handle) == 0) success = false;
-  if (!success) {
-    filesystem::remove(temporary, error);
-    return false;
-  }
-  if (MoveFileExW(temporary.c_str(), path.c_str(),
-                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
-    filesystem::remove(temporary, error);
-    return false;
-  }
-  return true;
-#else
-  ofstream output(temporary, ios::binary);
-  if (!output) return false;
-  output.write(contents.data(), static_cast<streamsize>(contents.size()));
-  output.flush();
-  const bool success = output.good();
-  output.close();
-  if (!success || !output) {
-    filesystem::remove(temporary, error);
-    return false;
-  }
-  filesystem::rename(temporary, path, error);
-  const bool renamed = !error;
-  if (!renamed) {
-    error_code cleanupError;
-    filesystem::remove(temporary, cleanupError);
-  }
-  return renamed;
-#endif
+  return writeFileAtomically(path, contents);
 }
 
 }  // namespace inventatory::http_server_detail

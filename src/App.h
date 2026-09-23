@@ -3,6 +3,12 @@
 
 #pragma once
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include "core/inventory/Inventory.h"
 #include "core/transfer/InventoryTransfer.h"
 #include "core/scanner/InventatoryScanProtocol.h"

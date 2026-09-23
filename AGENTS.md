@@ -7,12 +7,14 @@ existing path, preserve its invariants, and make the smallest coherent change.
 
 ## Project overview
 
-Inventatory is a Windows-only C++17 terminal inventory application in public
-beta. The supported build and test environment is Visual Studio 2022 with the
-C++ workload and CMake 3.20 or newer. The application has a foreground
-terminal UI, an optional Windows background/tray process, local SQLite
-persistence, import workflows, label printing, and the authenticated physical
-Inventatory Scan R1 device service.
+Inventatory is a C++17 terminal inventory application in public beta with
+separate Windows and Linux releases. Windows remains supported through Visual
+Studio 2022 and CMake 3.20 or newer; native Linux targets Ubuntu 24.04 x86-64
+with GCC or Clang and CMake 3.20 or newer. The application has a shared
+foreground terminal UI, local SQLite persistence, import workflows, label
+printing, and the authenticated physical Inventatory Scan R1 device service.
+Windows keeps its background/tray process; Linux uses a per-user systemd
+background service.
 
 The user-facing interface is the terminal UI. The current normal workspace navigation is:
 
@@ -61,8 +63,10 @@ security, persistence, or UI invariants below.
   transfer/restore logic, history, import-domain data, and Scan R1 protocol
   logic. Do not duplicate database or protocol rules in UI pages.
 - `src/import/` owns file-format import and BOM/project matching workflows.
-- `src/platform/` owns Windows Credential Manager, HTTP/mDNS/BLE, startup and
-  background-process integration, updater, and other OS services.
+- `src/platform/` owns credential storage, HTTP/mDNS/BLE, startup and
+  background-process integration, updater, and other OS services. CMake selects
+  Windows implementations or the Linux POSIX/BlueZ/Secret Service/CUPS
+  implementations without duplicating application logic.
 - `src/label_printer/` owns printer discovery/configuration and label output.
 - `tests/inventatory_tests.cpp` is the current core/integration test executable.
   It is intentionally a single assert-based test program; add focused cases
@@ -79,13 +83,28 @@ the change safer.
 
 ## Build and test
 
-From the repository root, with the required Windows tools installed:
+From the repository root, on Windows with Visual Studio 2022 C++ tools:
 
 ```powershell
 cmake -S . -B build
 cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
 ctest --test-dir build -C Release --output-on-failure
 ```
+
+On Ubuntu 24.04, install `build-essential cmake pkg-config libsecret-1-dev
+libcurl4-openssl-dev libssl-dev libglib2.0-dev`, then build and test Debug and
+Release configurations:
+
+```sh
+cmake -S . -B build-linux-debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-linux-debug --parallel
+ctest --test-dir build-linux-debug --output-on-failure
+cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux-release --parallel
+ctest --test-dir build-linux-release --output-on-failure
+```
+
+See `docs/linux-support.md` for optional runtime services and installation.
 
 For a focused core test iteration, build and run the `inventatory_tests` target.
 Use `--output-on-failure` so a failing test retains its assertion output. The
@@ -107,9 +126,9 @@ replace a pinned revision with a moving branch or tag.
 
 - Follow the local two-space indentation, brace placement, naming, and header
   organization. Avoid unrelated formatting churn.
-- Keep platform-specific code behind the existing Windows guards and platform
-  classes. This is not a cross-platform product; do not add portability layers
-  unless the feature requires one.
+- Keep platform-specific code behind platform source selection, existing OS
+  guards, and narrow platform classes. Share domain logic and avoid parallel
+  application implementations.
 - Prefer the existing value types, `std::filesystem`, `std::optional`, RAII,
   smart ownership, and existing result/error-string conventions. Do not add
   raw owning pointers, naked `new`/`delete`, or a new exception/error framework
@@ -176,7 +195,8 @@ another worker reads concurrently.
 
 - The selected data directory contains `inventory.db`, `activity.tsv`,
   `printer.conf`, `quick_labels.conf`, and `inventatory_scan.conf` as
-  applicable. `%LOCALAPPDATA%\Inventatory\settings.conf` contains local
+  applicable. `%LOCALAPPDATA%\Inventatory\settings.conf` on Windows or
+  `$XDG_CONFIG_HOME/Inventatory/settings.conf` on Linux contains local
   application settings, not inventory data or secrets.
 - SQLite inventory data is authoritative for current stock, racks, BOM/project
   data, device-event inbox data, movements, commits, and inventory history.
@@ -200,11 +220,12 @@ another worker reads concurrently.
 ## Settings and secret handling
 
 - Store ordinary settings through the versioned settings path under
-  `%LOCALAPPDATA%\Inventatory\settings.conf`. Store inventory files under the
-  selected data directory.
-- Store secrets through `CredentialStore`, backed by Windows Credential
-  Manager. This includes the Scan R1 token and the DigiKey credential where
-  applicable.
+  `%LOCALAPPDATA%\Inventatory\settings.conf` on Windows or
+  `$XDG_CONFIG_HOME/Inventatory/settings.conf` (default `~/.config/Inventatory`)
+  on Linux. Store inventory files under the selected data directory.
+- Store secrets through the platform `CredentialStore`: Windows Credential
+  Manager or Linux Secret Service. This includes the Scan R1 token and the
+  DigiKey credential where applicable.
 - Never put secrets in config files, logs, activity/history, SQLite snapshots,
   backup archives, error messages, action IDs, screenshots, commit messages,
   or device protocol diagnostics.
@@ -223,8 +244,9 @@ Treat `docs/scanner-transport-security.md` and the code in
 security boundary. Changes must preserve all of the following:
 
 - BLE provisioning is physically verified and provisions a random 32-byte
-  shared secret; the secret is stored in Credential Manager/NVS and never sent
-  through HTTP.
+  shared secret; the desktop stores it through Credential Manager on Windows
+  or Secret Service on Linux, the scanner stores it in NVS, and it is never
+  sent through HTTP.
 - Requests authenticate the exact method, path, device identity, monotonic
   counter, and exact JSON body with HMAC-SHA-256.
 - PC and device use directional derived keys. Counters are monotonic and

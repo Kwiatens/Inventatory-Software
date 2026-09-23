@@ -118,7 +118,7 @@ bool writeTemporaryConfig(const filesystem::path& path, const string& contents, 
 
 LabelPrinterService::LabelPrinterService(unique_ptr<PrinterBackend> backend)
     : backend_(move(backend)) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
   if (backend_ == nullptr) {
     backend_ = createPlatformPrinterBackend();
   }

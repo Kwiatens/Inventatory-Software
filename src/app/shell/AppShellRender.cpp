@@ -9,7 +9,6 @@
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/terminal.hpp>
-#include <windows.h>
 
 #include <algorithm>
 #include <chrono>
