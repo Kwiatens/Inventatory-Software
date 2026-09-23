@@ -19,7 +19,7 @@ using std::string;
 using std::time_t;
 using std::vector;
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 struct SqliteConnection;
 #endif
 
@@ -40,7 +40,7 @@ struct BomProject {
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects);
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects);
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 // Validate the persisted BOM rows without migrating or mutating the database.
 // Backup validation uses this read-only seam before a bundle can be activated.
 bool validateBomProjects(SqliteConnection& connection, string* error = nullptr);

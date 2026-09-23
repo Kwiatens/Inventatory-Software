@@ -12,7 +12,6 @@
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/terminal.hpp>
-#include <windows.h>
 
 #include <algorithm>
 #include <chrono>
@@ -52,15 +51,39 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   error_code settingsFileError;
   const bool settingsFileExists = filesystem::exists(settingsPath_, settingsFileError);
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
+  if (settingsFileError) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not inspect its application settings: " + settingsPath_.string();
+    persistenceError_ = inventoryRecoveryDetail_ + ". The existing workspace was not changed.";
+  } else if (settingsFileExists && !loadedSettings) {
+    inventoryRecoveryRequired_ = true;
+    inventoryRecoveryDetail_ = "Inventatory could not read its application settings and cannot verify the data location";
+    persistenceError_ = inventoryRecoveryDetail_ + ". The existing workspace was not changed.";
+  }
   applyUiAppearance(settings_.appearance);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
+#ifndef _WIN32
+    if (!settings_.dataDirectory.is_absolute()) {
+      inventoryRecoveryRequired_ = true;
+      inventoryRecoveryDetail_ = "The configured Linux inventory folder is not an absolute path";
+      persistenceError_ = inventoryRecoveryDetail_ + ". Choose the folder containing your inventory.";
+    } else {
+#endif
     dataPath_ = settings_.dataDirectory;
     inventoryPath_ = dataPath_ / "inventory.db";
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
     quickLabelsPath_ = dataPath_ / "quick_labels.conf";
+#ifndef _WIN32
+    }
+#endif
   } else {
+    if (loadedSettings) {
+      inventoryRecoveryRequired_ = true;
+      inventoryRecoveryDetail_ = "The configured inventory folder is empty";
+      persistenceError_ = inventoryRecoveryDetail_ + ". Choose the folder containing your inventory.";
+    }
     settings_.dataDirectory = dataPath_;
   }
   string restoreRecoveryNotice;
@@ -98,7 +121,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     settings_.digiKeyLanguage = environment.language;
     settings_.digiKeyCurrency = environment.currency;
     settingsDraft_ = settings_;
-    if (!settingsFileExists) {
+    if (!settingsFileExists && !settingsFileError) {
       if (!saveAppSettings(settingsPath_, settings_)) {
         appSettingsSavePending_ = true;
         persistenceError_ = "Could not save initial application settings; they remain in memory.";

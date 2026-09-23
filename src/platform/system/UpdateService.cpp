@@ -6,10 +6,20 @@
 
 #include "core/transfer/InventoryTransferPrivate.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
+#else
+#include <curl/curl.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
 #include <charconv>
 #include <cmath>
@@ -17,7 +27,15 @@
 #include <sstream>
 #include <vector>
 
-#pragma comment(lib, "winhttp.lib")
+#ifdef _WIN32
+constexpr const char* kApplicationArchiveName = "Inventatory-win-x64.zip";
+constexpr const char* kApplicationChecksumsName = "SHA256SUMS.txt";
+constexpr const char* kApplicationInstallerName = "Install-Inventatory.ps1";
+#else
+constexpr const char* kApplicationArchiveName = "Inventatory-linux-x64.tar.gz";
+constexpr const char* kApplicationChecksumsName = "SHA256SUMS-linux.txt";
+constexpr const char* kApplicationInstallerName = "Install-Inventatory.sh";
+#endif
 
 namespace inventatory {
 namespace {
@@ -29,6 +47,7 @@ constexpr std::uint64_t kMaximumUpdateAssetBytes = 512ULL * 1024ULL * 1024ULL;
 constexpr char kReleaseRepository[] = Inventatory_RELEASE_REPOSITORY;
 constexpr char kScanFirmwareRepository[] = Inventatory_SCAN_FIRMWARE_REPOSITORY;
 
+#ifdef _WIN32
 std::wstring widen(const std::string& value) {
   if (value.empty()) return {};
   const int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
@@ -62,6 +81,7 @@ std::wstring quoteWindowsArgument(const std::wstring& value) {
   quoted.push_back(L'\"');
   return quoted;
 }
+#endif
 
 bool isHexDigest(const std::string& value) {
   return value.size() == 64U && std::all_of(value.begin(), value.end(), [](unsigned char ch) {
@@ -77,8 +97,13 @@ std::string lowercaseAscii(std::string value) {
 }
 
 bool allowedReleaseAsset(const std::string& assetName) {
+#ifdef _WIN32
   return assetName == "Inventatory-win-x64.zip" || assetName == "SHA256SUMS.txt" ||
          assetName == "Install-Inventatory.ps1" || assetName == "Install-Inventatory.cmd";
+#else
+  return assetName == "Inventatory-linux-x64.tar.gz" || assetName == "SHA256SUMS-linux.txt" ||
+         assetName == "Install-Inventatory.sh";
+#endif
 }
 
 std::string trimVersionPrefix(std::string value) {
@@ -311,6 +336,7 @@ bool jsonContainsStringValue(const std::string& json, const std::string& key, co
   return false;
 }
 
+#ifdef _WIN32
 std::string fetchLatestReleaseJson(const std::string& repository) {
   if (!validRepository(repository)) return {};
   HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
@@ -355,11 +381,6 @@ std::string fetchLatestReleaseJson(const std::string& repository) {
   return body;
 }
 
-UpdateCheckResult latestRelease(const std::string& repository, const std::string& installedVersion) {
-  const auto body = fetchLatestReleaseJson(repository);
-  return parseReleaseMetadata(body, installedVersion, repository, repository == kReleaseRepository);
-}
-
 bool parseHttpsUrl(const std::string& url, URL_COMPONENTS& components, std::wstring& wideUrl) {
   wideUrl = widen(url);
   if (wideUrl.empty()) return false;
@@ -396,6 +417,60 @@ bool queryContentLength(HINTERNET request, std::uint64_t& total) {
   }
   total = length;
   return total <= kMaximumUpdateAssetBytes;
+}
+#else
+struct ReleaseMetadataResponse {
+  std::string body;
+  bool oversized = false;
+};
+
+size_t receiveReleaseMetadata(char* data, size_t size, size_t count, void* context) {
+  auto* response = static_cast<ReleaseMetadataResponse*>(context);
+  if (size != 0 && count > static_cast<size_t>(-1) / size) return 0;
+  const auto bytes = size * count;
+  if (bytes > kMaximumReleaseMetadataBytes || response->body.size() > kMaximumReleaseMetadataBytes - bytes) {
+    response->oversized = true;
+    return 0;
+  }
+  response->body.append(data, bytes);
+  return bytes;
+}
+
+std::string fetchLatestReleaseJson(const std::string& repository) {
+  if (!validRepository(repository)) return {};
+  static const bool curlReady = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+  if (!curlReady) return {};
+  const std::string url = "https://api.github.com/repos/" + repository + "/releases?per_page=1";
+  CURL* request = curl_easy_init();
+  if (request == nullptr) return {};
+  ReleaseMetadataResponse response;
+  struct curl_slist* headers = nullptr;
+  headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
+  curl_easy_setopt(request, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(request, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(request, CURLOPT_USERAGENT, "Inventatory updater");
+  curl_easy_setopt(request, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
+  curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 8000L);
+  curl_easy_setopt(request, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(request, CURLOPT_MAXREDIRS, 3L);
+  curl_easy_setopt(request, CURLOPT_PROTOCOLS_STR, "https");
+  curl_easy_setopt(request, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+  curl_easy_setopt(request, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(request, CURLOPT_WRITEFUNCTION, receiveReleaseMetadata);
+  curl_easy_setopt(request, CURLOPT_WRITEDATA, &response);
+  const auto transfer = curl_easy_perform(request);
+  long status = 0;
+  if (transfer == CURLE_OK) curl_easy_getinfo(request, CURLINFO_RESPONSE_CODE, &status);
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(request);
+  if (transfer != CURLE_OK || status < 200 || status >= 300 || response.oversized) return {};
+  return response.body;
+}
+#endif
+
+UpdateCheckResult latestRelease(const std::string& repository, const std::string& installedVersion) {
+  const auto body = fetchLatestReleaseJson(repository);
+  return parseReleaseMetadata(body, installedVersion, repository, repository == kReleaseRepository);
 }
 
 }  // namespace
@@ -523,9 +598,9 @@ UpdateCheckResult parseReleaseMetadata(const std::string& json, const std::strin
       releaseNotes.size() > kMaximumReleaseNotesBytes) {
     return {};
   }
-  const bool hasArchive = jsonContainsStringValue(releaseObject, "name", "Inventatory-win-x64.zip");
-  const bool hasChecksums = jsonContainsStringValue(releaseObject, "name", "SHA256SUMS.txt");
-  const bool hasInstaller = jsonContainsStringValue(releaseObject, "name", "Install-Inventatory.ps1");
+  const bool hasArchive = jsonContainsStringValue(releaseObject, "name", kApplicationArchiveName);
+  const bool hasChecksums = jsonContainsStringValue(releaseObject, "name", kApplicationChecksumsName);
+  const bool hasInstaller = jsonContainsStringValue(releaseObject, "name", kApplicationInstallerName);
   if (requireUpdateAssets && (!hasArchive || !hasChecksums || !hasInstaller)) {
     return {};
   }
@@ -568,6 +643,7 @@ bool parseSha256Checksum(const std::string& checksums, const std::string& assetN
 bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& destination,
                           const UpdateDownloadProgress& progress, std::string& error) {
   error.clear();
+#ifdef _WIN32
   URL_COMPONENTS components{};
   std::wstring wideUrl;
   if (!parseHttpsUrl(url, components, wideUrl)) {
@@ -675,6 +751,135 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
     return false;
   }
   return true;
+#else
+  constexpr const char* kDownloadPrefix = "https://github.com/";
+  const std::string prefix(kDownloadPrefix);
+  const auto repositoryBegin = prefix.size();
+  const auto downloadMarker = url.find("/releases/download/", repositoryBegin);
+  if (url.rfind(prefix, 0) != 0 || downloadMarker == std::string::npos) {
+    error = "The update asset URL is invalid";
+    return false;
+  }
+  const auto repository = url.substr(repositoryBegin, downloadMarker - repositoryBegin);
+  const auto tagBegin = downloadMarker + std::string("/releases/download/").size();
+  const auto tagEnd = url.find('/', tagBegin);
+  if (tagEnd == std::string::npos) {
+    error = "The update asset URL is invalid";
+    return false;
+  }
+  const auto tag = url.substr(tagBegin, tagEnd - tagBegin);
+  const auto assetName = url.substr(tagEnd + 1U);
+  if (assetName.find('/') != std::string::npos || buildReleaseAssetUrl(repository, tag, assetName) != url) {
+    error = "The update asset URL is not an approved GitHub download";
+    return false;
+  }
+  static const bool curlReady = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+  if (!curlReady) {
+    error = "Could not start the update download";
+    return false;
+  }
+  std::error_code filesystemError;
+  if (!destination.parent_path().empty()) {
+    std::filesystem::create_directories(destination.parent_path(), filesystemError);
+    if (filesystemError) {
+      error = "Could not create the update download folder";
+      return false;
+    }
+  }
+  std::ofstream output(destination, std::ios::binary | std::ios::trunc);
+  if (!output) {
+    error = "Could not create the downloaded update asset";
+    return false;
+  }
+  struct DownloadContext {
+    std::ofstream* output = nullptr;
+    const UpdateDownloadProgress* progress = nullptr;
+    std::string assetName;
+    std::uint64_t downloaded = 0;
+    std::uint64_t total = 0;
+    bool cancelled = false;
+    bool oversized = false;
+  } context{&output, &progress, assetName};
+  CURL* request = curl_easy_init();
+  if (request == nullptr) {
+    output.close();
+    std::filesystem::remove(destination, filesystemError);
+    error = "Could not start the update download";
+    return false;
+  }
+  const auto receive = +[](char* data, size_t size, size_t count, void* userData) -> size_t {
+    auto* item = static_cast<DownloadContext*>(userData);
+    if (size != 0 && count > static_cast<size_t>(-1) / size) return 0;
+    const auto bytes = size * count;
+    if (bytes > kMaximumUpdateAssetBytes || item->downloaded > kMaximumUpdateAssetBytes - bytes) {
+      item->oversized = true;
+      return 0;
+    }
+    item->output->write(data, static_cast<std::streamsize>(bytes));
+    if (!*item->output) return 0;
+    item->downloaded += bytes;
+    return bytes;
+  };
+  const auto reportProgress = +[](void* userData, curl_off_t total, curl_off_t downloaded, curl_off_t,
+                                  curl_off_t) -> int {
+    auto* item = static_cast<DownloadContext*>(userData);
+    if (downloaded < 0 || total < 0 || static_cast<std::uint64_t>(downloaded) > kMaximumUpdateAssetBytes ||
+        static_cast<std::uint64_t>(total) > kMaximumUpdateAssetBytes) {
+      item->oversized = true;
+      return 1;
+    }
+    item->total = static_cast<std::uint64_t>(total);
+    if (item->progress != nullptr && *item->progress &&
+        !(*item->progress)(item->assetName, static_cast<std::uint64_t>(downloaded), item->total)) {
+      item->cancelled = true;
+      return 1;
+    }
+    return 0;
+  };
+  curl_easy_setopt(request, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(request, CURLOPT_USERAGENT, "Inventatory updater");
+  curl_easy_setopt(request, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
+  curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 15000L);
+  curl_easy_setopt(request, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(request, CURLOPT_MAXREDIRS, 5L);
+  curl_easy_setopt(request, CURLOPT_PROTOCOLS_STR, "https");
+  curl_easy_setopt(request, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+  curl_easy_setopt(request, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(request, CURLOPT_MAXFILESIZE_LARGE, static_cast<curl_off_t>(kMaximumUpdateAssetBytes));
+  curl_easy_setopt(request, CURLOPT_WRITEFUNCTION, receive);
+  curl_easy_setopt(request, CURLOPT_WRITEDATA, &context);
+  curl_easy_setopt(request, CURLOPT_NOPROGRESS, 0L);
+  curl_easy_setopt(request, CURLOPT_XFERINFOFUNCTION, reportProgress);
+  curl_easy_setopt(request, CURLOPT_XFERINFODATA, &context);
+  const auto transfer = curl_easy_perform(request);
+  long status = 0;
+  curl_off_t total = 0;
+  if (transfer == CURLE_OK) {
+    curl_easy_getinfo(request, CURLINFO_RESPONSE_CODE, &status);
+    curl_easy_getinfo(request, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &total);
+  }
+  curl_easy_cleanup(request);
+  output.close();
+  if (transfer != CURLE_OK || status < 200 || status >= 300 || !output || context.oversized || context.cancelled) {
+    std::filesystem::remove(destination, filesystemError);
+    if (context.cancelled) error = "Update download cancelled";
+    else if (context.oversized) error = "The update asset exceeds the 512 MiB safety limit";
+    else error = "Could not complete the GitHub update download";
+    return false;
+  }
+  context.total = total > 0 ? static_cast<std::uint64_t>(total) : context.total;
+  if (context.total != 0 && context.downloaded != context.total) {
+    std::filesystem::remove(destination, filesystemError);
+    error = "The downloaded update asset was incomplete";
+    return false;
+  }
+  if (progress && !progress(assetName, context.downloaded, context.total)) {
+    std::filesystem::remove(destination, filesystemError);
+    error = "Update download cancelled";
+    return false;
+  }
+  return true;
+#endif
 }
 
 bool verifyReleaseFileSha256(const std::filesystem::path& path, const std::string& expectedHash,
@@ -706,6 +911,7 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
     error = "The verified update package is incomplete";
     return false;
   }
+#ifdef _WIN32
   wchar_t systemDirectory[MAX_PATH]{};
   const UINT length = GetSystemDirectoryW(systemDirectory, MAX_PATH);
   if (length == 0 || length >= MAX_PATH) { error = "Could not locate PowerShell"; return false; }
@@ -735,6 +941,74 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
   CloseHandle(process.hThread);
   CloseHandle(process.hProcess);
   return true;
+#else
+  if (releaseVersion.empty() || releaseVersion.size() > 128U ||
+      std::any_of(releaseVersion.begin(), releaseVersion.end(), [](unsigned char ch) {
+        return !(std::isalnum(ch) || ch == '.' || ch == '-' || ch == '+');
+      })) {
+    error = "The update release identity is invalid";
+    return false;
+  }
+  int handshake[2]{-1, -1};
+  if (pipe(handshake) != 0 || fcntl(handshake[1], F_SETFD, FD_CLOEXEC) != 0) {
+    if (handshake[0] >= 0) close(handshake[0]);
+    if (handshake[1] >= 0) close(handshake[1]);
+    error = "Could not start the Linux update installer";
+    return false;
+  }
+  const auto installer = installerPath.u8string();
+  const auto archive = archivePath.u8string();
+  const auto checksums = checksumsPath.u8string();
+  const auto marker = markerPath.u8string();
+  const auto notes = notesPath.u8string();
+  const auto version = releaseVersion;
+  const auto parent = std::to_string(static_cast<unsigned long long>(getpid()));
+  const auto child = fork();
+  if (child < 0) {
+    close(handshake[0]);
+    close(handshake[1]);
+    error = "Could not start the Linux update installer";
+    return false;
+  }
+  if (child == 0) {
+    close(handshake[0]);
+    if (setsid() < 0) {
+      const int failure = errno;
+      (void)write(handshake[1], &failure, sizeof(failure));
+      _exit(127);
+    }
+    const int nullDevice = open("/dev/null", O_RDWR);
+    if (nullDevice >= 0) {
+      dup2(nullDevice, STDIN_FILENO);
+      dup2(nullDevice, STDOUT_FILENO);
+      dup2(nullDevice, STDERR_FILENO);
+      if (nullDevice > STDERR_FILENO) close(nullDevice);
+    }
+    execl("/bin/sh", "sh", installer.c_str(), "--update", archive.c_str(), checksums.c_str(), marker.c_str(),
+          notes.c_str(), version.c_str(), parent.c_str(), static_cast<char*>(nullptr));
+    const int failure = errno;
+    (void)write(handshake[1], &failure, sizeof(failure));
+    _exit(127);
+  }
+  close(handshake[1]);
+  int childError = 0;
+  ssize_t count = 0;
+  do {
+    count = read(handshake[0], &childError, sizeof(childError));
+  } while (count < 0 && errno == EINTR);
+  close(handshake[0]);
+  if (count > 0) {
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    error = "Could not start the Linux update installer";
+    return false;
+  }
+  if (count < 0) {
+    error = "Could not confirm the Linux update installer started";
+    return false;
+  }
+  return true;
+#endif
 }
 
 UpdateCheckResult checkLatestRelease(const std::string& installedVersion) { return latestRelease(kReleaseRepository, installedVersion); }
