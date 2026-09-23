@@ -17,14 +17,7 @@
 #include <deque>
 #include <unordered_set>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-
-#include <winsock2.h>
+#include "platform/scanner/SocketPlatform.h"
 
 #include "core/inventory/Inventory.h"
 #include "core/scanner/InventatoryScanProtocol.h"
@@ -66,31 +59,31 @@ class LocalHttpServer {
 
  private:
   struct ReadyClient {
-    SOCKET socket = INVALID_SOCKET;
+    NativeSocket socket = kInvalidSocket;
     string request;
   };
 
   void workerLoop();
   void readerLoop();
   void acceptLoop();
-  bool serveConnection(SOCKET clientSocket, string requestText);
+  bool serveConnection(NativeSocket clientSocket, string requestText);
   string responseText(const string& status, const string& contentType, const string& body) const;
   string authenticatedResponseText(int status, std::uint64_t counter, const string& token, const string& body) const;
   bool reserveReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
   void releaseReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
   bool advanceReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
   bool bindSocket(uint16_t port);
-  bool sendAll(SOCKET clientSocket, const string& response) const;
+  bool sendAll(NativeSocket clientSocket, const string& response) const;
 
   atomic<bool> running_{false};
-  bool winsockStarted_ = false;
+  bool networkStarted_ = false;
   thread acceptor_;
   thread reader_;
   vector<thread> workers_;
   mutable mutex socketMutex_;
   mutable mutex pendingClientMutex_;
   condition_variable pendingClientChanged_;
-  deque<SOCKET> pendingClientQueue_;
+  deque<NativeSocket> pendingClientQueue_;
   size_t pendingClientCount_ = 0;
   mutable mutex clientQueueMutex_;
   condition_variable clientQueueChanged_;
@@ -124,7 +117,7 @@ class LocalHttpServer {
   std::optional<ReplayReservation> replayCounterInFlight_;
   std::uint64_t lastAcceptedCounter_ = 0;
   std::uint64_t credentialEpoch_ = 0;
-  SOCKET listenSocket_ = INVALID_SOCKET;
+  NativeSocket listenSocket_ = kInvalidSocket;
 };
 
 }  // namespace inventatory

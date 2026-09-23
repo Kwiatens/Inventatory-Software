@@ -4,7 +4,6 @@
 
 #include <array>
 #include <filesystem>
-#include <random>
 #include <string>
 #include <vector>
 
@@ -18,6 +17,11 @@
 #include <windows.h>
 #include <bcrypt.h>
 #pragma comment(lib, "Bcrypt.lib")
+#else
+#include <openssl/core_names.h>
+#include <openssl/evp.h>
+#include <openssl/params.h>
+#include <openssl/rand.h>
 #endif
 
 namespace inventatory {
@@ -55,8 +59,8 @@ bool decodeToken(const string& token, array<unsigned char, 32>& bytes) {
   return true;
 }
 
-#ifdef _WIN32
 bool hmacSha256(const unsigned char* key, size_t keySize, const string& input, array<unsigned char, 32>& output) {
+#ifdef _WIN32
   BCRYPT_ALG_HANDLE algorithm = nullptr;
   BCRYPT_HASH_HANDLE hash = nullptr;
   DWORD objectSize = 0;
@@ -83,25 +87,35 @@ bool hmacSha256(const unsigned char* key, size_t keySize, const string& input, a
   BCryptDestroyHash(hash);
   BCryptCloseAlgorithmProvider(algorithm, 0);
   return true;
-}
+#else
+  EVP_MAC* algorithm = EVP_MAC_fetch(nullptr, "HMAC", nullptr);
+  if (algorithm == nullptr) return false;
+  EVP_MAC_CTX* context = EVP_MAC_CTX_new(algorithm);
+  EVP_MAC_free(algorithm);
+  if (context == nullptr) return false;
+  char digestName[] = "SHA256";
+  OSSL_PARAM parameters[] = {OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digestName, 0),
+                             OSSL_PARAM_construct_end()};
+  size_t outputLength = 0;
+  const bool success = EVP_MAC_init(context, key, keySize, parameters) == 1 &&
+                       EVP_MAC_update(context, reinterpret_cast<const unsigned char*>(input.data()), input.size()) == 1 &&
+                       EVP_MAC_final(context, output.data(), &outputLength, output.size()) == 1 &&
+                       outputLength == output.size();
+  EVP_MAC_CTX_free(context);
+  return success;
 #endif
+}
 
 string transportMac(const string& token, const char* direction, const string& input) {
   array<unsigned char, 32> root{};
   array<unsigned char, 32> key{};
   array<unsigned char, 32> mac{};
   if (!decodeToken(token, root)) return {};
-#ifdef _WIN32
   if (!hmacSha256(root.data(), root.size(), string("Inventatory Scan R1 transport v1 ") + direction, key) ||
       !hmacSha256(key.data(), key.size(), input, mac)) {
     return {};
   }
   return hexBytes(mac.data(), mac.size());
-#else
-  (void)direction;
-  (void)input;
-  return {};
-#endif
 }
 
 string hexToken(const array<unsigned char, 32>& bytes) {
@@ -123,10 +137,10 @@ string generateInventatoryScanToken() {
   if (BCryptGenRandom(nullptr, bytes.data(), static_cast<ULONG>(bytes.size()), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0) {
     return hexToken(bytes);
   }
+#else
+  if (RAND_bytes(bytes.data(), static_cast<int>(bytes.size())) == 1) return hexToken(bytes);
 #endif
-  random_device source;
-  for (auto& byte : bytes) byte = static_cast<unsigned char>(source());
-  return hexToken(bytes);
+  return {};
 }
 
 filesystem::path inventatoryScanReplayStatePath(const filesystem::path& workspaceDirectory) {

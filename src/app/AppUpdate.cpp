@@ -8,7 +8,11 @@
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/component/screen_interactive.hpp>
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -32,6 +36,15 @@ namespace {
 
 constexpr size_t kMaximumMarkerBytes = 4096U;
 constexpr size_t kMaximumNotesBytes = 64U * 1024U;
+#ifdef _WIN32
+constexpr const char* kUpdateArchiveAsset = "Inventatory-win-x64.zip";
+constexpr const char* kUpdateChecksumsAsset = "SHA256SUMS.txt";
+constexpr const char* kUpdateInstallerAsset = "Install-Inventatory.ps1";
+#else
+constexpr const char* kUpdateArchiveAsset = "Inventatory-linux-x64.tar.gz";
+constexpr const char* kUpdateChecksumsAsset = "SHA256SUMS-linux.txt";
+constexpr const char* kUpdateInstallerAsset = "Install-Inventatory.sh";
+#endif
 
 ftxui::Element centered(ftxui::Element element) {
   return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
@@ -111,8 +124,12 @@ vector<string> wrapUpdateNotes(const string& notes, int width) {
 }
 
 filesystem::path updateDownloadDirectory() {
+#ifdef _WIN32
   const auto process = static_cast<unsigned long long>(GetCurrentProcessId());
-  const auto tick = static_cast<unsigned long long>(GetTickCount64());
+#else
+  const auto process = static_cast<unsigned long long>(getpid());
+#endif
+  const auto tick = static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count());
   return filesystem::temp_directory_path() / ("Inventatory-update-" + to_string(process) + "-" + to_string(tick));
 }
 
@@ -247,9 +264,9 @@ void App::beginUpdateDownload() {
       const auto url = buildReleaseAssetUrl(Inventatory_RELEASE_REPOSITORY, package.release.latestVersion, asset);
       return !url.empty() && downloadReleaseAsset(url, destination, progress, result.error);
     };
-    if (!download("Inventatory-win-x64.zip", result.package.archivePath) ||
-        !download("SHA256SUMS.txt", result.package.checksumsPath) ||
-        !download("Install-Inventatory.ps1", result.package.installerPath)) {
+    if (!download(kUpdateArchiveAsset, result.package.archivePath) ||
+        !download(kUpdateChecksumsAsset, result.package.checksumsPath) ||
+        !download(kUpdateInstallerAsset, result.package.installerPath)) {
       result.cancelled = state->cancelRequested.load();
       if (result.cancelled) result.error = "Update download cancelled.";
       return result;
@@ -296,8 +313,8 @@ void App::beginUpdateVerification() {
     }
     string archiveHash;
     string installerHash;
-    if (!parseSha256Checksum(checksums, "Inventatory-win-x64.zip", archiveHash) ||
-        !parseSha256Checksum(checksums, "Install-Inventatory.ps1", installerHash)) {
+    if (!parseSha256Checksum(checksums, kUpdateArchiveAsset, archiveHash) ||
+        !parseSha256Checksum(checksums, kUpdateInstallerAsset, installerHash)) {
       result.error = "The release checksum manifest does not contain the update assets.";
       return result;
     }
@@ -352,9 +369,9 @@ void App::processSoftwareUpdate() {
       }
     } else {
       result.package.downloadDirectory = updateDownloadDirectory();
-      result.package.archivePath = result.package.downloadDirectory / "Inventatory-win-x64.zip";
-      result.package.checksumsPath = result.package.downloadDirectory / "SHA256SUMS.txt";
-      result.package.installerPath = result.package.downloadDirectory / "Install-Inventatory.ps1";
+      result.package.archivePath = result.package.downloadDirectory / kUpdateArchiveAsset;
+      result.package.checksumsPath = result.package.downloadDirectory / kUpdateChecksumsAsset;
+      result.package.installerPath = result.package.downloadDirectory / kUpdateInstallerAsset;
       updatePackage_ = move(result.package);
       updateStep_ = UpdateWizardStep::Preview;
       updateNotesScroll_ = 0;

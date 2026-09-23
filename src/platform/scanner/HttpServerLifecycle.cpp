@@ -11,12 +11,6 @@
 #include <string>
 #include <vector>
 
-#include <winsock2.h>
-#include <windows.h>
-#include <ws2tcpip.h>
-
-#pragma comment(lib, "Ws2_32.lib")
-
 namespace inventatory {
 
 using namespace std;
@@ -30,12 +24,14 @@ constexpr size_t kWorkerCount = 4;
 bool LocalHttpServer::start(uint16_t preferredPort, SyncCallback onSync) {
   stop();
 
+#ifdef _WIN32
   WSADATA data{};
   if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
     lastError_ = "Failed to initialize Winsock";
     return false;
   }
-  winsockStarted_ = true;
+  networkStarted_ = true;
+#endif
 
   {
     lock_guard<mutex> lock(callbackMutex_);
@@ -58,25 +54,27 @@ bool LocalHttpServer::start(uint16_t preferredPort, SyncCallback onSync) {
   }
 
   lastError_ = "Unable to bind any scanner port";
-  if (winsockStarted_) {
+#ifdef _WIN32
+  if (networkStarted_) {
     WSACleanup();
-    winsockStarted_ = false;
+    networkStarted_ = false;
   }
+#endif
   return false;
 }
 
 void LocalHttpServer::stop() {
   running_.store(false);
 
-  SOCKET listeningSocket = INVALID_SOCKET;
+  NativeSocket listeningSocket = kInvalidSocket;
   {
     lock_guard<mutex> lock(socketMutex_);
     listeningSocket = listenSocket_;
-    listenSocket_ = INVALID_SOCKET;
+    listenSocket_ = kInvalidSocket;
   }
-  if (listeningSocket != INVALID_SOCKET) {
-    shutdown(listeningSocket, SD_BOTH);
-    closesocket(listeningSocket);
+  if (listeningSocket != kInvalidSocket) {
+    shutdown(listeningSocket, kSocketShutdownBoth);
+    closeSocket(listeningSocket);
   }
 
   if (acceptor_.joinable()) acceptor_.join();
@@ -93,17 +91,19 @@ void LocalHttpServer::stop() {
     lock_guard<mutex> lock(clientQueueMutex_);
     queuedClients.swap(clientQueue_);
   }
-  for (const auto& client : queuedClients) closesocket(client.socket);
+  for (const auto& client : queuedClients) closeSocket(client.socket);
   clientQueueChanged_.notify_all();
   for (auto& worker : workers_) {
     if (worker.joinable()) worker.join();
   }
   workers_.clear();
 
-  if (winsockStarted_) {
+#ifdef _WIN32
+  if (networkStarted_) {
     WSACleanup();
-    winsockStarted_ = false;
+    networkStarted_ = false;
   }
+#endif
 }
 
 bool LocalHttpServer::running() const {
@@ -133,26 +133,31 @@ vector<string> LocalHttpServer::addresses() const {
 }
 
 bool LocalHttpServer::bindSocket(uint16_t port) {
-  SOCKET socketHandle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (socketHandle == INVALID_SOCKET) {
+  NativeSocket socketHandle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (socketHandle == kInvalidSocket) {
     return false;
   }
 
+#ifdef _WIN32
   BOOL reuse = TRUE;
   setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+#else
+  int reuse = 1;
+  setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+#endif
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_ANY);
   address.sin_port = htons(port);
 
-  if (::bind(socketHandle, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR) {
-    closesocket(socketHandle);
+  if (::bind(socketHandle, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
+    closeSocket(socketHandle);
     return false;
   }
 
-  if (listen(socketHandle, SOMAXCONN) == SOCKET_ERROR) {
-    closesocket(socketHandle);
+  if (listen(socketHandle, SOMAXCONN) < 0) {
+    closeSocket(socketHandle);
     return false;
   }
 

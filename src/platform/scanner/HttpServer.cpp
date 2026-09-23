@@ -21,12 +21,6 @@
 #include <string>
 #include <unordered_map>
 
-#include <winsock2.h>
-#include <windows.h>
-#include <ws2tcpip.h>
-
-#pragma comment(lib, "Ws2_32.lib")
-
 #include "core/inventory/Inventory.h"
 #include "platform/system/Console.h"
 
@@ -37,13 +31,13 @@ using namespace http_server_detail;
 
 namespace {
 
-constexpr DWORD kClientIoTimeoutMs = 2000U;
+constexpr uint32_t kClientIoTimeoutMs = 2000U;
 constexpr size_t kWorkerCount = 4;
 constexpr size_t kMaxQueuedClients = 16;
-constexpr DWORD kReaderSelectIntervalMs = 100U;
+constexpr uint32_t kReaderSelectIntervalMs = 100U;
 
 struct PendingClient {
-  SOCKET socket = INVALID_SOCKET;
+  NativeSocket socket = kInvalidSocket;
   string request;
   size_t expectedSize = string::npos;
   chrono::steady_clock::time_point deadline;
@@ -93,26 +87,38 @@ void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path r
 
 void LocalHttpServer::acceptLoop() {
   while (running_.load()) {
-    SOCKET listeningSocket = INVALID_SOCKET;
+    NativeSocket listeningSocket = kInvalidSocket;
     {
       lock_guard<mutex> lock(socketMutex_);
       listeningSocket = listenSocket_;
     }
-    if (listeningSocket == INVALID_SOCKET) break;
+    if (listeningSocket == kInvalidSocket) break;
     sockaddr_in clientAddress{};
-    int clientSize = sizeof(clientAddress);
-    SOCKET client = accept(listeningSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientSize);
-    if (client == INVALID_SOCKET) {
+    SocketLength clientSize = sizeof(clientAddress);
+    NativeSocket client = accept(listeningSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientSize);
+    if (client == kInvalidSocket) {
       if (running_.load()) continue;
       break;
     }
+#ifndef _WIN32
+    if (client >= FD_SETSIZE) {
+      closeSocket(client);
+      continue;
+    }
+#endif
+#ifdef _WIN32
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&kClientIoTimeoutMs),
                sizeof(kClientIoTimeoutMs));
     setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&kClientIoTimeoutMs),
                sizeof(kClientIoTimeoutMs));
-    u_long nonBlocking = 1;
-    if (ioctlsocket(client, FIONBIO, &nonBlocking) != 0) {
-      closesocket(client);
+#else
+    const timeval ioTimeout{static_cast<time_t>(kClientIoTimeoutMs / 1000U),
+                            static_cast<suseconds_t>((kClientIoTimeoutMs % 1000U) * 1000U)};
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &ioTimeout, sizeof(ioTimeout));
+    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &ioTimeout, sizeof(ioTimeout));
+#endif
+    if (setSocketNonBlocking(client, true) != 0) {
+      closeSocket(client);
       continue;
     }
 
@@ -128,7 +134,7 @@ void LocalHttpServer::acceptLoop() {
     if (queued) {
       pendingClientChanged_.notify_one();
     } else {
-      closesocket(client);
+      closeSocket(client);
     }
   }
 }
@@ -142,9 +148,9 @@ void LocalHttpServer::readerLoop() {
     if (pendingClientCount_ > 0) --pendingClientCount_;
   };
   const auto closePendingClient = [&releasePendingSlot](PendingClient& client) {
-    if (client.socket != INVALID_SOCKET) {
-      closesocket(client.socket);
-      client.socket = INVALID_SOCKET;
+    if (client.socket != kInvalidSocket) {
+      closeSocket(client.socket);
+      client.socket = kInvalidSocket;
       releasePendingSlot();
     }
   };
@@ -165,7 +171,7 @@ void LocalHttpServer::readerLoop() {
     if (!running_.load()) {
       for (auto& client : pending) closePendingClient(client);
       while (true) {
-        SOCKET client = INVALID_SOCKET;
+        NativeSocket client = kInvalidSocket;
         {
           lock_guard<mutex> lock(pendingClientMutex_);
           if (pendingClientQueue_.empty()) break;
@@ -181,9 +187,11 @@ void LocalHttpServer::readerLoop() {
 
     fd_set readable;
     FD_ZERO(&readable);
+    NativeSocket maximumSocket = 0;
     auto earliestDeadline = chrono::steady_clock::now() + chrono::milliseconds(kReaderSelectIntervalMs);
     for (const auto& client : pending) {
       FD_SET(client.socket, &readable);
+      maximumSocket = max(maximumSocket, client.socket);
       earliestDeadline = min(earliestDeadline, client.deadline);
     }
     const auto now = chrono::steady_clock::now();
@@ -192,8 +200,13 @@ void LocalHttpServer::readerLoop() {
     timeval timeout{};
     timeout.tv_sec = static_cast<long>(waitDuration.count() / 1000);
     timeout.tv_usec = static_cast<long>((waitDuration.count() % 1000) * 1000);
-    const int selected = select(0, &readable, nullptr, nullptr, &timeout);
-    if (selected == SOCKET_ERROR) {
+#ifdef _WIN32
+    const int selectDescriptorCount = 0;
+#else
+    const int selectDescriptorCount = maximumSocket + 1;
+#endif
+    const int selected = select(selectDescriptorCount, &readable, nullptr, nullptr, &timeout);
+    if (selected < 0) {
       for (auto& client : pending) closePendingClient(client);
       pending.clear();
       continue;
@@ -205,14 +218,13 @@ void LocalHttpServer::readerLoop() {
       bool close = chrono::steady_clock::now() >= client.deadline;
       if (!close && selected > 0 && FD_ISSET(client.socket, &readable)) {
         array<char, 4096> buffer{};
-        const int received = recv(client.socket, buffer.data(), static_cast<int>(buffer.size()), 0);
+        const auto received = recv(client.socket, buffer.data(), static_cast<int>(buffer.size()), 0);
         if (received == 0) {
           close = true;
-        } else if (received == SOCKET_ERROR) {
-          const auto error = WSAGetLastError();
-          close = error != WSAEWOULDBLOCK && error != WSAEINPROGRESS;
+        } else if (received < 0) {
+          close = !socketWouldBlock(socketLastError());
         } else {
-          client.request.append(buffer.data(), buffer.data() + received);
+          client.request.append(buffer.data(), buffer.data() + static_cast<size_t>(received));
           if (client.request.size() > kMaxHttpHeaderBytes + kMaxHttpBodyBytes) {
             ready = true;
           } else {
@@ -245,12 +257,11 @@ void LocalHttpServer::readerLoop() {
       if (close) {
         closePendingClient(client);
       } else if (ready) {
-        u_long blocking = 0;
-        if (ioctlsocket(client.socket, FIONBIO, &blocking) != 0) {
+        if (setSocketNonBlocking(client.socket, false) != 0) {
           closePendingClient(client);
         } else {
           ReadyClient completed{client.socket, move(client.request)};
-          client.socket = INVALID_SOCKET;
+          client.socket = kInvalidSocket;
           releasePendingSlot();
           bool queued = false;
           {
@@ -263,12 +274,12 @@ void LocalHttpServer::readerLoop() {
           if (queued) {
             clientQueueChanged_.notify_one();
           } else {
-            closesocket(completed.socket);
+            closeSocket(completed.socket);
           }
         }
       }
 
-      if (client.socket == INVALID_SOCKET) {
+      if (client.socket == kInvalidSocket) {
         pending[index] = move(pending.back());
         pending.pop_back();
       } else {
@@ -292,7 +303,7 @@ void LocalHttpServer::workerLoop() {
       clientQueue_.pop_front();
     }
     serveConnection(client.socket, move(client.request));
-    closesocket(client.socket);
+    closeSocket(client.socket);
   }
 }
 
@@ -356,12 +367,12 @@ bool LocalHttpServer::advanceReplayCounter(uint64_t counter, uint64_t credential
   return true;
 }
 
-bool LocalHttpServer::sendAll(SOCKET clientSocket, const string& response) const {
+bool LocalHttpServer::sendAll(NativeSocket clientSocket, const string& response) const {
   size_t sent = 0;
   while (sent < response.size()) {
     const auto remaining = response.size() - sent;
     const int chunk = static_cast<int>(min(remaining, static_cast<size_t>(numeric_limits<int>::max())));
-    const int written = send(clientSocket, response.data() + sent, chunk, 0);
+    const auto written = send(clientSocket, response.data() + sent, chunk, kSocketSendFlags);
     if (written <= 0) return false;
     sent += static_cast<size_t>(written);
   }

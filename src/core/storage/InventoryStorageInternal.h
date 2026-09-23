@@ -7,7 +7,7 @@
 
 namespace inventatory {
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 
 bool ensureInventatoryTableSchema(SqliteConnection& connection);
 bool loadRacks(SqliteConnection& connection, std::vector<InventatoryRack>& racks);

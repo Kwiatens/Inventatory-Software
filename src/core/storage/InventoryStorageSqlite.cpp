@@ -10,7 +10,7 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 
 bool ensureInventatoryTableSchema(SqliteConnection& connection) {
   return ensureInventoryDatabaseSchema(connection);

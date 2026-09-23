@@ -14,7 +14,7 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 
 namespace {
 
@@ -261,7 +261,7 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
 
 
 bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryStore& current) {
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection)) return false;
 
@@ -309,7 +309,7 @@ bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryS
 
 bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits) {
   commits.clear();
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection)) return false;
   if (!validateInventoryCommitHistory(connection, nullptr)) return false;
@@ -346,7 +346,7 @@ bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>&
 
 bool loadInventoryCommit(const filesystem::path& path, const string& id, InventoryCommitDetail& detail) {
   detail = {};
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection) ||
       !readCommitSummary(connection, id, detail.commit) || !readCommitSnapshot(connection, id, detail.snapshot)) {

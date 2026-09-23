@@ -15,7 +15,7 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 
 namespace {
 

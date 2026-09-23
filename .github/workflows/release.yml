@@ -131,12 +131,74 @@ jobs:
       - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
-          name: inventatory-release-assets
+          name: inventatory-windows-release-assets
+          path: dist/*
+          if-no-files-found: error
+
+  build-linux:
+    needs: validate
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          persist-credentials: false
+      - name: Install Linux build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential cmake pkg-config \
+            libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev \
+            dbus-x11 gnome-keyring
+      - name: Build and test Linux debug and release configurations
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          cmake -S . -B build-linux-debug -DCMAKE_BUILD_TYPE=Debug \
+            -DINVENTATORY_VERSION="$version" \
+            -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
+            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$GITHUB_REPOSITORY_OWNER/Inventatory-Hardware"
+          cmake --build build-linux-debug --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+          cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release \
+            -DINVENTATORY_VERSION="$version" \
+            -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
+            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$GITHUB_REPOSITORY_OWNER/Inventatory-Hardware"
+          cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+          printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
+            eval "$(gnome-keyring-daemon --unlock --components=secrets)"
+            ctest --test-dir build-linux-debug --output-on-failure
+            ctest --test-dir build-linux-release --output-on-failure
+          '
+      - name: Package Linux release assets
+        run: |
+          set -euo pipefail
+          package_root="$PWD/dist/Inventatory"
+          mkdir -p "$package_root/docs"
+          install -m 755 build-linux-release/inventatory "$package_root/inventatory"
+          install -m 644 LICENSE LICENSE.md README.md THIRD_PARTY_NOTICES.md "$package_root/"
+          install -m 644 docs/linux-support.md "$package_root/docs/linux-support.md"
+          archive_path="$PWD/dist/Inventatory-linux-x64.tar.gz"
+          tar -C "$package_root" -czf "$archive_path" \
+            inventatory LICENSE LICENSE.md README.md THIRD_PARTY_NOTICES.md docs/linux-support.md
+          install -m 755 installer/Install-Inventatory.sh dist/Install-Inventatory.sh
+          (
+            cd dist
+            sha256sum Inventatory-linux-x64.tar.gz Install-Inventatory.sh > SHA256SUMS-linux.txt
+          )
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventatory-linux-release-assets
           path: dist/*
           if-no-files-found: error
 
   publish:
-    needs: [validate, build]
+    needs: [validate, build, build-linux]
     permissions:
       contents: write
     runs-on: windows-latest
@@ -144,8 +206,13 @@ jobs:
       - name: Download release assets
         uses: actions/download-artifact@v4
         with:
-          name: inventatory-release-assets
-          path: dist
+          name: inventatory-windows-release-assets
+          path: dist/windows
+      - name: Download Linux release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: inventatory-linux-release-assets
+          path: dist/linux
       - name: Create public GitHub Release
         shell: pwsh
         env:
@@ -162,10 +229,13 @@ jobs:
           )
           if ($tag -match '-') { $releaseArguments += '--prerelease' }
           $releaseArguments += @(
-            'dist\Inventatory-win-x64.zip',
-            'dist\SHA256SUMS.txt',
-            'dist\Install-Inventatory.cmd',
-            'dist\Install-Inventatory.ps1'
+            'dist\windows\Inventatory-win-x64.zip',
+            'dist\windows\SHA256SUMS.txt',
+            'dist\windows\Install-Inventatory.cmd',
+            'dist\windows\Install-Inventatory.ps1',
+            'dist\linux\Inventatory-linux-x64.tar.gz',
+            'dist\linux\SHA256SUMS-linux.txt',
+            'dist\linux\Install-Inventatory.sh'
           )
           gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
@@ -173,10 +243,13 @@ jobs:
               'release', 'upload', $tag,
               '--repo', $env:GITHUB_REPOSITORY,
               '--clobber',
-              'dist\Inventatory-win-x64.zip',
-              'dist\SHA256SUMS.txt',
-              'dist\Install-Inventatory.cmd',
-              'dist\Install-Inventatory.ps1'
+              'dist\windows\Inventatory-win-x64.zip',
+              'dist\windows\SHA256SUMS.txt',
+              'dist\windows\Install-Inventatory.cmd',
+              'dist\windows\Install-Inventatory.ps1',
+              'dist\linux\Inventatory-linux-x64.tar.gz',
+              'dist\linux\SHA256SUMS-linux.txt',
+              'dist\linux\Install-Inventatory.sh'
             )
             gh @uploadArguments
             if ($LASTEXITCODE -ne 0) { throw "Could not replace assets for release $tag." }

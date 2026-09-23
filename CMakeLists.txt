@@ -20,6 +20,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# The Windows and Linux desktops share the same durable SQLite inventory
+# implementation and on-disk format.
+add_compile_definitions(INVENTATORY_SQLITE_STORAGE=1)
+
 # Release artifacts must run on a clean Windows PC without a separate
 # Visual C++ runtime installation.
 if(MSVC)
@@ -33,6 +37,33 @@ else()
 endif()
 
 include(FetchContent)
+
+find_package(Threads REQUIRED)
+
+if(WIN32)
+  set(INVENTATORY_STARTUP_SOURCE src/platform/system/StartupRegistration.cpp)
+  set(INVENTATORY_PRINTER_SOURCE src/label_printer/platform/LabelPrinterWindows.cpp)
+  set(INVENTATORY_DIGIKEY_TRANSPORT_SOURCE src/platform/digikey/DigiKeyTransport.cpp)
+  set(INVENTATORY_CONSOLE_SOURCE src/platform/system/Console.cpp)
+  set(INVENTATORY_BACKGROUND_SOURCE src/platform/system/BackgroundController.cpp)
+  set(INVENTATORY_CREDENTIAL_SOURCE src/platform/security/CredentialStore.cpp)
+  set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningService.cpp)
+  set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
+else()
+  find_package(PkgConfig REQUIRED)
+  find_package(OpenSSL REQUIRED)
+  pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
+  pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
+  pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+  set(INVENTATORY_STARTUP_SOURCE src/platform/system/StartupRegistrationLinux.cpp)
+  set(INVENTATORY_PRINTER_SOURCE src/label_printer/platform/LabelPrinterLinux.cpp)
+  set(INVENTATORY_DIGIKEY_TRANSPORT_SOURCE src/platform/digikey/DigiKeyTransportLinux.cpp)
+  set(INVENTATORY_CONSOLE_SOURCE src/platform/system/ConsoleLinux.cpp)
+  set(INVENTATORY_BACKGROUND_SOURCE src/platform/system/BackgroundControllerLinux.cpp)
+  set(INVENTATORY_CREDENTIAL_SOURCE src/platform/security/CredentialStoreLinux.cpp)
+  set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningServiceLinux.cpp)
+  set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
+endif()
 
 # SQLite is compiled into the executable so the release never depends on an
 # ambient sqlite3.dll. The official source archive and its published SHA3-256
@@ -87,7 +118,7 @@ add_executable(inventatory
   src/app/bom/AppBomBuildActions.cpp
   src/app/settings/AppSettings.cpp
   src/app/settings/AppSettingsAppearance.cpp
-  src/platform/system/StartupRegistration.cpp
+  ${INVENTATORY_STARTUP_SOURCE}
   src/core/inventory/Inventory.cpp
   src/core/inventory/InventoryHelpers.cpp
   src/core/inventory/InventoryIdentifiers.cpp
@@ -134,7 +165,7 @@ add_executable(inventatory
   src/label_printer/core/LabelPrinterContext.cpp
   src/label_printer/core/LabelPrinterDetails.cpp
   src/label_printer/platform/LabelPrinterPlatform.cpp
-  src/label_printer/platform/LabelPrinterWindows.cpp
+  ${INVENTATORY_PRINTER_SOURCE}
   src/label_printer/platform/LabelPrinterRack.cpp
   src/label_printer/layout/LabelPrinterText.cpp
   src/label_printer/layout/LabelPrinterTextLayout.cpp
@@ -148,13 +179,13 @@ add_executable(inventatory
   src/platform/digikey/DigiKeyJsonParser.cpp
   src/platform/digikey/DigiKeyProduct.cpp
   src/platform/digikey/DigiKeyProductDetails.cpp
-  src/platform/digikey/DigiKeyTransport.cpp
-  src/platform/system/Console.cpp
+  ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
+  ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
-  src/platform/system/BackgroundController.cpp
-  src/platform/security/CredentialStore.cpp
-  src/platform/scanner/BleProvisioningService.cpp
-  src/platform/system/UpdateService.cpp
+  ${INVENTATORY_BACKGROUND_SOURCE}
+  ${INVENTATORY_CREDENTIAL_SOURCE}
+  ${INVENTATORY_BLE_SOURCE}
+  ${INVENTATORY_UPDATE_SOURCE}
   src/ui/shared/AppUiShared.cpp
   src/ui/shared/AppUiItemDetails.cpp
   src/ui/ActionRegistry.cpp
@@ -198,9 +229,10 @@ target_compile_definitions(inventatory PRIVATE
   # GitHub's current MSVC toolset still needs WinRT's legacy coroutine header.
   _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
 )
-
 if(WIN32)
   target_link_libraries(inventatory PRIVATE ws2_32 shell32 ole32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
+else()
+  target_link_libraries(inventatory PRIVATE OpenSSL::Crypto PkgConfig::LIBSECRET PkgConfig::CURL PkgConfig::GIO Threads::Threads)
 endif()
 
 target_link_libraries(inventatory PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
@@ -210,21 +242,21 @@ add_executable(inventatory_tests
   src/app/shell/AppBootstrap.cpp
   src/app/settings/AppSettings.cpp
   src/app/settings/AppSettingsAppearance.cpp
-  src/platform/system/StartupRegistration.cpp
+  ${INVENTATORY_STARTUP_SOURCE}
   src/platform/system/UpdateService.cpp
   src/platform/scanner/HttpServer.cpp
   src/platform/scanner/HttpServerConnection.cpp
   src/platform/scanner/HttpServerProtocol.cpp
   src/platform/scanner/HttpServerLifecycle.cpp
-  src/platform/system/Console.cpp
+  ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
-  src/platform/security/CredentialStore.cpp
+  ${INVENTATORY_CREDENTIAL_SOURCE}
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp
   src/platform/digikey/DigiKeyJsonParser.cpp
   src/platform/digikey/DigiKeyProduct.cpp
   src/platform/digikey/DigiKeyProductDetails.cpp
-  src/platform/digikey/DigiKeyTransport.cpp
+  ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   src/import/csv/CsvReader.cpp
   src/import/csv/CsvFormat.cpp
   src/import/kicad/KicadBom.cpp
@@ -274,7 +306,7 @@ add_executable(inventatory_tests
   src/label_printer/core/LabelPrinterContext.cpp
   src/label_printer/core/LabelPrinterDetails.cpp
   src/label_printer/platform/LabelPrinterPlatform.cpp
-  src/label_printer/platform/LabelPrinterWindows.cpp
+  ${INVENTATORY_PRINTER_SOURCE}
   src/label_printer/platform/LabelPrinterRack.cpp
   src/label_printer/layout/LabelPrinterText.cpp
   src/label_printer/layout/LabelPrinterTextLayout.cpp
@@ -285,9 +317,10 @@ target_compile_definitions(inventatory_tests PRIVATE
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
   Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"
 )
-
 if(WIN32)
   target_link_libraries(inventatory_tests PRIVATE ws2_32 shell32 ole32 winspool winhttp bcrypt advapi32)
+else()
+  target_link_libraries(inventatory_tests PRIVATE OpenSSL::Crypto PkgConfig::LIBSECRET PkgConfig::CURL PkgConfig::GIO Threads::Threads)
 endif()
 
 target_link_libraries(inventatory_tests PRIVATE sqlite3_amalgamation ftxui::screen ftxui::dom ftxui::component)
@@ -298,8 +331,15 @@ add_executable(inventatory_input_tests
 
 target_include_directories(inventatory_input_tests PRIVATE ${ftxui_SOURCE_DIR}/src)
 target_link_libraries(inventatory_input_tests PRIVATE ftxui::screen ftxui::dom ftxui::component)
+target_link_libraries(inventatory_input_tests PRIVATE Threads::Threads)
 
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)
   add_test(NAME inventatory_input COMMAND inventatory_input_tests)
+endif()
+
+if(NOT WIN32)
+  install(TARGETS inventatory RUNTIME DESTINATION bin)
+  install(FILES LICENSE LICENSE.md THIRD_PARTY_NOTICES.md DESTINATION share/doc/Inventatory)
+  install(FILES README.md docs/linux-support.md DESTINATION share/doc/Inventatory)
 endif()
