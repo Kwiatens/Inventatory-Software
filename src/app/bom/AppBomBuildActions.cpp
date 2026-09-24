@@ -3,6 +3,7 @@
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 
+#include "core/transfer/CsvExport.h"
 #include "core/storage/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -207,30 +208,19 @@ bool App::exportBomShortages() {
     return false;
   }
 
-  filesystem::path target = project->sourcePath.empty()
-                                ? dataPath_ / (project->name + " shortage.csv")
-                                : filesystem::path(project->sourcePath).parent_path() /
-                                      (filesystem::path(project->sourcePath).stem().string() + "-shortage.csv");
+  filesystem::path target = dataPath_ / "Inventatory-BOM-shortages.csv";
+  const string filter = string("CSV files (*.csv)") + '\0' + "*.csv" + '\0' +
+                        "All files (*.*)" + '\0' + "*.*" + '\0';
+  if (!saveFileDialog(target, "Export BOM shortages", filter, "csv")) {
+    setMessage("Shortage export cancelled", 2);
+    return false;
+  }
 
   ofstream output(target, ios::binary);
   if (!output) {
     setMessage("Unable to write " + target.filename().string(), 5);
     return false;
   }
-
-  const auto quote = [](const string& value) {
-    string escaped;
-    escaped.reserve(value.size() + 2);
-    escaped.push_back('"');
-    for (const char ch : value) {
-      if (ch == '"') {
-        escaped.push_back('"');
-      }
-      escaped.push_back(ch);
-    }
-    escaped.push_back('"');
-    return escaped;
-  };
 
   output << "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n";
   size_t rows = 0;
@@ -240,10 +230,10 @@ bool App::exportBomShortages() {
     }
     const auto& line = bomAnalysis_.lines[match.lineIndex];
     const auto suggestion = project->enrichment.find(bomLineKey(line));
-    output << quote(line.designation) << ',' << quote(line.footprint) << ','
-           << quote(packageFromFootprint(line.footprint)) << ',' << quote(join(line.designators, ' ')) << ','
+    output << csvTextCell(line.designation) << ',' << csvTextCell(line.footprint) << ','
+           << csvTextCell(packageFromFootprint(line.footprint)) << ',' << csvTextCell(join(line.designators, ' ')) << ','
            << match.needed << ',' << match.available << ','
-           << quote(suggestion == project->enrichment.end() ? string() : suggestion->second) << "\r\n";
+           << csvTextCell(suggestion == project->enrichment.end() ? string() : suggestion->second) << "\r\n";
     ++rows;
   }
 

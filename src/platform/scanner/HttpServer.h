@@ -72,7 +72,7 @@ class LocalHttpServer {
   bool reserveReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
   void releaseReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
   bool advanceReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
-  bool bindSocket(uint16_t port);
+  bool bindSocket(uint16_t port, const string& ipv4Address);
   bool sendAll(NativeSocket clientSocket, const string& response) const;
 
   atomic<bool> running_{false};

@@ -34,6 +34,13 @@ string ipv4ToString(const sockaddr_in& address) {
   return buffer;
 }
 
+bool privateIpv4(uint32_t hostOrder) {
+  const auto first = (hostOrder >> 24U) & 0xffU;
+  const auto second = (hostOrder >> 16U) & 0xffU;
+  return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
+         (first == 192U && second == 168U) || (first == 169U && second == 254U);
+}
+
 }  // namespace
 
 bool controlModifierPressed() {
@@ -125,6 +132,10 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
 bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
                     const string& defaultExtension) {
   char fileName[MAX_PATH] = {};
+  const auto initialPath = selectedPath.string();
+  if (!initialPath.empty() && initialPath.size() < sizeof(fileName)) {
+    copy(initialPath.begin(), initialPath.end(), fileName);
+  }
   OPENFILENAMEA dialog{};
   dialog.lStructSize = sizeof(dialog);
   dialog.hwndOwner = nullptr;
@@ -203,6 +214,37 @@ vector<string> localAddresses() {
     addresses.push_back("127.0.0.1");
   }
 
+  return addresses;
+}
+
+vector<string> privateLocalAddresses() {
+  vector<string> addresses;
+
+  WSADATA data{};
+  if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return addresses;
+
+  char hostName[256] = {};
+  if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR) {
+    WSACleanup();
+    return addresses;
+  }
+
+  addrinfo hints{};
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = IPPROTO_TCP;
+  addrinfo* result = nullptr;
+  if (getaddrinfo(hostName, nullptr, &hints, &result) == 0) {
+    for (addrinfo* current = result; current != nullptr; current = current->ai_next) {
+      const auto* address = reinterpret_cast<const sockaddr_in*>(current->ai_addr);
+      if (!privateIpv4(ntohl(address->sin_addr.s_addr))) continue;
+      const auto ip = ipv4ToString(*address);
+      if (!ip.empty() && find(addresses.begin(), addresses.end(), ip) == addresses.end()) addresses.push_back(ip);
+    }
+    freeaddrinfo(result);
+  }
+
+  WSACleanup();
   return addresses;
 }
 

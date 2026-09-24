@@ -90,7 +90,8 @@ as `Capacitors` or `Resistors`. Each row keeps Part, Package, the rack location
 or suggested match, a merged Need / Have count, and Status together. The primary action is
 **Find in racks** (`f`), which walks the available parts rack by rack and
 highlights the slots to pick. Shortages are looked up on DigiKey in the
-background; `o` writes them to a CSV beside the BOM.
+background; `o` opens a save dialog for a CSV in the active Inventatory
+workspace by default.
 
 `+` and `-` change the board count and re-run the analysis. `a` cycles to the next
 matching part when one line has several candidates, and that choice is remembered.

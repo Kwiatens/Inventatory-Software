@@ -4,12 +4,14 @@
 #include "app/shell/AppBootstrap.h"
 #include "app/settings/AppSettings.h"
 #include "platform/system/UpdateService.h"
+#include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
 #include "platform/system/Environment.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "core/inventory/InventoryInternals.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/InventoryTransfer.h"
+#include "core/transfer/CsvExport.h"
 #ifdef near
 #undef near
 #endif
@@ -55,7 +57,10 @@
 #include <unordered_map>
 
 #ifndef _WIN32
+#include <arpa/inet.h>
 #include <sys/time.h>
+#else
+#include <ws2tcpip.h>
 #endif
 
 #undef assert
@@ -236,12 +241,22 @@ void testPrimaryNavigationContract() {
   assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('7') == nullptr);
 }
 
+bool setScannerTestAddress(sockaddr_in& address) {
+  const auto privateAddresses = privateLocalAddresses();
+  const string host = privateAddresses.empty() ? "127.0.0.1" : privateAddresses.front();
+#ifdef _WIN32
+  return InetPtonA(AF_INET, host.c_str(), &address.sin_addr) == 1;
+#else
+  return inet_pton(AF_INET, host.c_str(), &address.sin_addr) == 1;
+#endif
+}
+
 string sendLocalHttpRequest(uint16_t port, const string& request, int receiveTimeout = 3000) {
   NativeSocket client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   assert(client != kInvalidSocket);
   sockaddr_in address{};
   address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  assert(setScannerTestAddress(address));
   address.sin_port = htons(port);
   assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
   assert(send(client, request.data(), static_cast<int>(request.size()), 0) == static_cast<int>(request.size()));
@@ -269,7 +284,7 @@ NativeSocket connectSlowLocalClient(uint16_t port) {
   assert(client != kInvalidSocket);
   sockaddr_in address{};
   address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  assert(setScannerTestAddress(address));
   address.sin_port = htons(port);
   assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
   const string partialRequest = "POST /api/v1/device/sync HTTP/1.1\r\nHost: 127.0.0.1\r\n";
@@ -3096,6 +3111,11 @@ int main() {
     LocalHttpServer server;
     server.setDeviceCredentials(deviceId, token, replayState);
     assert(server.start(19430, onSync));
+    const auto boundAddresses = server.addresses();
+    const auto privateAddresses = privateLocalAddresses();
+    assert(boundAddresses.size() == 1);
+    assert(boundAddresses.front() == (privateAddresses.empty() ? "127.0.0.1" : privateAddresses.front()));
+    assert(boundAddresses.front() != "0.0.0.0");
     const auto firstRequest = signedSyncRequest(token, deviceId, 42, body);
     const auto accepted = sendLocalHttpRequest(server.port(), firstRequest);
     assert(accepted.rfind("HTTP/1.1 200 OK", 0) == 0);
@@ -4433,6 +4453,7 @@ int main() {
     item.lastUpdated = 1710000000;
     item.tags = {"test", "release"};
     item.parameters = {{"Resistance", "10k"}};
+    item.notes = " =HYPERLINK(\"https://example.invalid\")";
     store.items().push_back(item);
     ensureInventoryIdentifiers(store.items());
     reconcileRackAssignments(store);
@@ -4455,6 +4476,15 @@ int main() {
     const string exportedText((istreambuf_iterator<char>(exported)), istreambuf_iterator<char>());
     assert(exportedText.find("Transfer resistor") != string::npos);
     assert(exportedText.find("Quantity") != string::npos);
+    assert(exportedText.find("\"\t =HYPERLINK(\"\"https://example.invalid\"\")\"") != string::npos);
+    assert(csvTextCell("=1+1") == "\"\t=1+1\"");
+    assert(csvTextCell("+SUM(A1:A2)") == "\"\t+SUM(A1:A2)\"");
+    assert(csvTextCell(" -1+1") == "\"\t -1+1\"");
+    assert(csvTextCell("@SUM(A1:A2)") == "\"\t@SUM(A1:A2)\"");
+    assert(csvTextCell("\n=1+1") == "\"\t\n=1+1\"");
+    assert(csvTextCell("\xEF\xBC\x9D" "1+1") == "\"\t\xEF\xBC\x9D" "1+1\"");
+    assert(csvTextCell("ordinary text") == "\"ordinary text\"");
+    assert(csvTextCell("a,\"b\"") == "\"a,\"\"b\"\"\"");
     AppSettings backupSettings;
     backupSettings.dataDirectory = source;
     backupSettings.completedOnboardingVersion = 1;

@@ -14,7 +14,7 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
 namespace {
 
 int boundedSqliteLimit(size_t limit) {
@@ -144,7 +144,7 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
                             DeviceSyncResponse& response, string& error) {
   response = {};
   response.requestId = request.requestId;
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
@@ -178,7 +178,7 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
 
 vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& databasePath, size_t limit) {
   vector<DeviceSyncEvent> events;
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return events;
   if (limit == 0) return events;
@@ -209,7 +209,7 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
 
 vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path& databasePath, size_t limit) {
   vector<DeviceSyncEventRecord> records;
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return records;
   if (limit == 0) return records;
@@ -250,7 +250,7 @@ vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path&
 
 bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& retriedCount) {
   retriedCount = 0;
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
@@ -291,7 +291,7 @@ bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& r
 
 bool discardFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& discardedCount) {
   discardedCount = 0;
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
@@ -332,7 +332,7 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
     return result;
   }
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection)) {
     result.status = "unavailable";
@@ -374,7 +374,7 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
   auto finalized = store;
   ensureInventoryIdentifiers(finalized.items());
 
-#ifdef _WIN32
+#ifdef INVENTATORY_SQLITE_STORAGE
   if (result.eventId.empty()) return false;
   string deviceId = result.deviceId;
   if (deviceId.empty()) {

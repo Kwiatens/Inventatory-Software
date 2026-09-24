@@ -6,12 +6,12 @@ installation workflow remain supported.
 
 For a new installation, open Command Prompt and paste this single command:
 
-    (if not exist "%LOCALAPPDATA%\Programs" mkdir "%LOCALAPPDATA%\Programs") && curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-win-x64.zip" -o "%TEMP%\Inventatory-win-x64.zip" && tar.exe -xf "%TEMP%\Inventatory-win-x64.zip" -C "%LOCALAPPDATA%\Programs" && del /q "%TEMP%\Inventatory-win-x64.zip" && "%LOCALAPPDATA%\Programs\Inventatory\inventatory.exe"
+    curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
-This uses only tools included with supported Windows versions. It downloads the
-latest stable release ZIP directly from GitHub, extracts it into the current
-user's program directory, and launches Inventatory in the same terminal. The
-first-run setup wizard creates the desktop shortcut after setup is completed.
+The installer verifies the downloaded release archive against its SHA-256
+manifest before activation, then launches Inventatory.
+The first-run setup wizard creates the desktop shortcut after setup is
+completed.
 Use Settings > Updates for later updates so the existing verified update and
 rollback path is used.
 After installation, Settings > Updates can check GitHub and open the same
@@ -43,7 +43,7 @@ protocol code. Runtime packages and scanner setup are listed in
 Build from a clean clone with Visual Studio 2022 C++ tools and CMake 3.20 or newer:
 
     cmake -S . -B build -DINVENTATORY_RELEASE_REPOSITORY=Kwiatens/Inventatory-Software -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Hardware
-    cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
+    cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
     ctest --test-dir build -C Release --output-on-failure
 
 Build Linux natively on Ubuntu 24.04 after installing the dependencies listed
