@@ -83,7 +83,8 @@ the change safer.
 
 ## Build and test
 
-From the repository root, on Windows with Visual Studio 2022 C++ tools:
+From the repository root, on Windows with Visual Studio 2026 C++ tools. Visual
+Studio 2022 has also been used successfully:
 
 ```powershell
 cmake -S . -B build
