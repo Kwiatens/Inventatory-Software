@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([switch]$NoLaunch, [switch]$DesktopShortcut,
       [string]$Repository = '__INVENTATORY_RELEASE_REPOSITORY__',
+      [string]$ReleaseTag = '',
       [switch]$UpdateMode, [string]$ArchivePath = '', [string]$ChecksumsPath = '',
       [string]$ReleaseVersion = '', [string]$CompletionPath = '', [string]$NotesPath = '',
       [int]$ParentProcessId = 0, [switch]$TestMode, [string]$TestInstallRoot = '',
@@ -194,6 +195,10 @@ try {
       $Repository -ine $officialRepository) {
     throw 'This installer must be downloaded from an official Inventatory release.'
   }
+  if ($ReleaseTag -and
+      $ReleaseTag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$') {
+    throw 'The installer release tag is invalid.'
+  }
   if ($UpdateMode) {
     if (-not $ArchivePath -or -not $ChecksumsPath -or -not $ReleaseVersion -or -not $CompletionPath -or
         -not (Test-Path -LiteralPath $ArchivePath) -or -not (Test-Path -LiteralPath $ChecksumsPath) -or
@@ -220,7 +225,11 @@ try {
     $tag = $ReleaseVersion
   } else {
     New-Item -ItemType Directory -Path $downloadRoot | Out-Null
-    $releaseBase = "https://github.com/$repo/releases/latest/download"
+    if ($ReleaseTag) {
+      $releaseBase = "https://github.com/$repo/releases/download/$ReleaseTag"
+    } else {
+      $releaseBase = "https://github.com/$repo/releases/latest/download"
+    }
     Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/Inventatory-win-x64.zip" -OutFile (Join-Path $downloadRoot 'Inventatory-win-x64.zip')
     Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/SHA256SUMS.txt" -OutFile (Join-Path $downloadRoot 'SHA256SUMS.txt')
     $tag = 'latest public beta'
