@@ -49,7 +49,7 @@ jobs:
       contents: read
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.sha }}
           persist-credentials: false
@@ -129,7 +129,7 @@ jobs:
           Set-Content -NoNewline -Path dist\SHA256SUMS.txt -Value ($hashLines -join "`n")
 
       - name: Upload release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: inventatory-windows-release-assets
           path: dist/*
@@ -141,7 +141,7 @@ jobs:
       contents: read
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.sha }}
           persist-credentials: false
@@ -191,7 +191,7 @@ jobs:
             sha256sum Inventatory-linux-x64.tar.gz Install-Inventatory.sh > SHA256SUMS-linux.txt
           )
       - name: Upload release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: inventatory-linux-release-assets
           path: dist/*
@@ -204,12 +204,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Download release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: inventatory-windows-release-assets
           path: dist/windows
       - name: Download Linux release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: inventatory-linux-release-assets
           path: dist/linux
@@ -239,23 +239,7 @@ jobs:
           )
           gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
-            $uploadArguments = @(
-              'release', 'upload', $tag,
-              '--repo', $env:GITHUB_REPOSITORY,
-              '--clobber',
-              'dist\windows\Inventatory-win-x64.zip',
-              'dist\windows\SHA256SUMS.txt',
-              'dist\windows\Install-Inventatory.cmd',
-              'dist\windows\Install-Inventatory.ps1',
-              'dist\linux\Inventatory-linux-x64.tar.gz',
-              'dist\linux\SHA256SUMS-linux.txt',
-              'dist\linux\Install-Inventatory.sh'
-            )
-            gh @uploadArguments
-            if ($LASTEXITCODE -ne 0) { throw "Could not replace assets for release $tag." }
-            $editArguments = @('release', 'edit', $tag, '--repo', $env:GITHUB_REPOSITORY, '--title', "Inventatory $tag")
-            if ($tag -match '-') { $editArguments += '--prerelease' }
-            gh @editArguments
-          } else {
-            gh @releaseArguments
+            throw "Release $tag already exists; published assets are immutable. Use a new version tag."
           }
+          gh @releaseArguments
+          if ($LASTEXITCODE -ne 0) { throw "Could not create release $tag." }

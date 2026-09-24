@@ -265,7 +265,9 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
 bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
                     const string& defaultExtension) {
   (void)filter;
-  const string initial = defaultExtension.empty() ? string() : "Inventatory." + defaultExtension;
+  const string initial = selectedPath.empty()
+                             ? (defaultExtension.empty() ? string() : "Inventatory." + defaultExtension)
+                             : selectedPath.string();
   vector<string> arguments{"--file-selection", "--save", "--confirm-overwrite", "--title=" + title};
   if (!initial.empty()) arguments.push_back("--filename=" + initial);
   if (!runFileChooser(arguments, selectedPath)) return false;
@@ -294,6 +296,29 @@ vector<string> localAddresses() {
   }
   freeifaddrs(interfaces);
   if (addresses.empty()) addresses.push_back("127.0.0.1");
+  return addresses;
+}
+
+vector<string> privateLocalAddresses() {
+  vector<string> addresses;
+  ifaddrs* interfaces = nullptr;
+  if (getifaddrs(&interfaces) != 0) return addresses;
+  for (auto* entry = interfaces; entry != nullptr; entry = entry->ifa_next) {
+    if (entry->ifa_addr == nullptr || (entry->ifa_flags & IFF_UP) == 0 ||
+        (entry->ifa_flags & IFF_LOOPBACK) != 0 || entry->ifa_addr->sa_family != AF_INET) continue;
+    const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
+    const auto hostOrder = ntohl(ipv4->sin_addr.s_addr);
+    const auto first = (hostOrder >> 24U) & 0xffU;
+    const auto second = (hostOrder >> 16U) & 0xffU;
+    const bool isPrivate = first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
+                           (first == 192U && second == 168U) || (first == 169U && second == 254U);
+    if (!isPrivate) continue;
+    char buffer[INET_ADDRSTRLEN]{};
+    if (inet_ntop(AF_INET, &ipv4->sin_addr, buffer, sizeof(buffer)) == nullptr) continue;
+    const string address(buffer);
+    if (find(addresses.begin(), addresses.end(), address) == addresses.end()) addresses.push_back(address);
+  }
+  freeifaddrs(interfaces);
   return addresses;
 }
 

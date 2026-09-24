@@ -11,6 +11,12 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#endif
+
 namespace inventatory {
 
 using namespace std;
@@ -39,8 +45,10 @@ bool LocalHttpServer::start(uint16_t preferredPort, SyncCallback onSync) {
   }
 
   const unsigned int lastCandidate = min(65535U, static_cast<unsigned int>(preferredPort) + 19U);
+  const auto availableAddresses = privateLocalAddresses();
+  const string bindAddress = availableAddresses.empty() ? "127.0.0.1" : availableAddresses.front();
   for (unsigned int candidate = preferredPort; candidate <= lastCandidate; ++candidate) {
-    if (bindSocket(static_cast<uint16_t>(candidate))) {
+    if (bindSocket(static_cast<uint16_t>(candidate), bindAddress)) {
       running_.store(true);
       acceptor_ = thread(&LocalHttpServer::acceptLoop, this);
       reader_ = thread(&LocalHttpServer::readerLoop, this);
@@ -132,7 +140,7 @@ vector<string> LocalHttpServer::addresses() const {
   return {"127.0.0.1"};
 }
 
-bool LocalHttpServer::bindSocket(uint16_t port) {
+bool LocalHttpServer::bindSocket(uint16_t port, const string& ipv4Address) {
   NativeSocket socketHandle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (socketHandle == kInvalidSocket) {
     return false;
@@ -148,7 +156,14 @@ bool LocalHttpServer::bindSocket(uint16_t port) {
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_ANY);
+#ifdef _WIN32
+  if (InetPtonA(AF_INET, ipv4Address.c_str(), &address.sin_addr) != 1) {
+#else
+  if (inet_pton(AF_INET, ipv4Address.c_str(), &address.sin_addr) != 1) {
+#endif
+    closeSocket(socketHandle);
+    return false;
+  }
   address.sin_port = htons(port);
 
   if (::bind(socketHandle, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
@@ -168,7 +183,7 @@ bool LocalHttpServer::bindSocket(uint16_t port) {
   {
     lock_guard<mutex> lock(stateMutex_);
     port_ = port;
-    addresses_ = localAddresses();
+    addresses_ = {ipv4Address};
   }
   return true;
 }

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -28,7 +29,7 @@ class MdnsService {
   MdnsService(const MdnsService&) = delete;
   MdnsService& operator=(const MdnsService&) = delete;
 
-  bool start(std::uint16_t port);
+  bool start(std::uint16_t port, const std::string& boundAddress);
   void stop();
   bool running() const;
 

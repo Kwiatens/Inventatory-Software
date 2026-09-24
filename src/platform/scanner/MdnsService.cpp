@@ -13,6 +13,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <arpa/inet.h>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -40,7 +41,7 @@ bool privateIpv4(uint32_t hostOrder) {
          (first == 192U && second == 168U) || (first == 169U && second == 254U);
 }
 
-string privateInterfaceName() {
+string privateInterfaceName(const string& requestedAddress) {
   ifaddrs* interfaces = nullptr;
   if (getifaddrs(&interfaces) != 0) return {};
   string selected;
@@ -49,7 +50,9 @@ string privateInterfaceName() {
         (entry->ifa_flags & IFF_UP) == 0 || (entry->ifa_flags & IFF_LOOPBACK) != 0 ||
         entry->ifa_addr->sa_family != AF_INET) continue;
     const auto* address = reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
-    if (privateIpv4(ntohl(address->sin_addr.s_addr))) {
+    char buffer[INET_ADDRSTRLEN]{};
+    if (inet_ntop(AF_INET, &address->sin_addr, buffer, sizeof(buffer)) != nullptr &&
+        requestedAddress == buffer && privateIpv4(ntohl(address->sin_addr.s_addr))) {
       selected = entry->ifa_name;
       break;
     }
@@ -158,7 +161,7 @@ MdnsService::~MdnsService() {
   stop();
 }
 
-bool MdnsService::start(std::uint16_t port) {
+bool MdnsService::start(std::uint16_t port, const string& boundAddress) {
   stop();
 #ifdef _WIN32
   std::array<char, 256> host{};
@@ -166,23 +169,10 @@ bool MdnsService::start(std::uint16_t port) {
   std::wstring wideHost;
   for (const char ch : std::string(host.data())) wideHost.push_back(static_cast<unsigned char>(ch));
   wideHost += L".local";
-  IP4_ADDRESS ipv4Address = 0;
-  bool haveIpv4Address = false;
-  addrinfo hints{};
-  hints.ai_family = AF_INET;
-  addrinfo* resolved = nullptr;
-  if (getaddrinfo(host.data(), nullptr, &hints, &resolved) == 0) {
-    for (auto* address = resolved; address != nullptr; address = address->ai_next) {
-      const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(address->ai_addr);
-      const auto hostOrder = ntohl(ipv4->sin_addr.S_un.S_addr);
-      if (hostOrder != 0U && (hostOrder >> 24U) != 127U && isPrivateIpv4(ipv4->sin_addr.S_un.S_addr)) {
-        ipv4Address = ipv4->sin_addr.S_un.S_addr;
-        haveIpv4Address = true;
-        break;
-      }
-    }
-    freeaddrinfo(resolved);
-  }
+  IN_ADDR parsedAddress{};
+  const bool haveIpv4Address = InetPtonA(AF_INET, boundAddress.c_str(), &parsedAddress) == 1 &&
+                               isPrivateIpv4(parsedAddress.S_un.S_addr);
+  IP4_ADDRESS ipv4Address = haveIpv4Address ? parsedAddress.S_un.S_addr : 0;
   const wchar_t* keys[] = {L"protocol"};
   const wchar_t* values[] = {L"1"};
   registrationState_ = std::make_shared<RegistrationState>();
@@ -260,7 +250,7 @@ bool MdnsService::start(std::uint16_t port) {
   return true;
 #else
   if (!publisherAvailable()) return false;
-  const auto interfaceName = privateInterfaceName();
+  const auto interfaceName = privateInterfaceName(boundAddress);
   if (interfaceName.empty() || interfaceName.size() >= IFNAMSIZ) return false;
   const auto interfaceArgument = "--interface=" + interfaceName;
   const auto portText = std::to_string(port);
