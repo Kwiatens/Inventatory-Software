@@ -10,19 +10,27 @@ function Assert-DirectInstallCommand {
   $readmeCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
     Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
   if (-not $readmeCommand -or $readmeCommand -notmatch
-      'releases/latest/download/Inventatory-win-x64\.zip' -or
-      $readmeCommand -notmatch 'tar\.exe' -or
-      $readmeCommand -notmatch 'Programs\\Inventatory\\inventatory\.exe' -or
-      $readmeCommand -notmatch '^\s*\(if not exist ' -or
-      $readmeCommand -match 'Install-Inventatory\.ps1|powershell\.exe|Invoke-WebRequest') {
-    throw 'The official install command must group folder creation before downloading the stable release ZIP.'
+      'releases/latest/download/Install-Inventatory\.ps1' -or
+      $readmeCommand -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*Install-Inventatory\.ps1' -or
+      $readmeCommand -match 'Inventatory-win-x64\.zip|tar\.exe') {
+    throw 'The official install command must run the checksum-verifying Windows installer.'
+  }
+
+  $publicBetaCommand = (Get-Content (Join-Path $repositoryRoot 'docs/public-beta.md') |
+    Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
+  if (-not $publicBetaCommand -or
+      $publicBetaCommand -notmatch 'releases/latest/download/Install-Inventatory\.ps1' -or
+      $publicBetaCommand -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*Install-Inventatory\.ps1') {
+    throw 'The public beta install command must run the checksum-verifying Windows installer.'
   }
 
   $launcher = Get-Content -Raw (Join-Path $PSScriptRoot 'Install-Inventatory.cmd')
-  if ($launcher -notmatch 'curl\.exe' -or $launcher -notmatch 'tar\.exe' -or
-      $launcher -notmatch 'inventatory\.exe' -or $launcher -match 'Install-Inventatory\.ps1' -or
+  if ($launcher -notmatch 'curl\.exe' -or
+      $launcher -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*INSTALLER_PATH' -or
+      $launcher -notmatch 'Install-Inventatory\.ps1' -or
+      $launcher -match 'tar\.exe|Inventatory-win-x64\.zip' -or
       $launcher -match '__INVENTATORY_RELEASE_') {
-    throw 'The CMD fallback must use the direct release ZIP flow without a downloaded script.'
+    throw 'The CMD bootstrap must run the checksum-verifying PowerShell installer.'
   }
 }
 
