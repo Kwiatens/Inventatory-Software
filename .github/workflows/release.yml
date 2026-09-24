@@ -71,7 +71,9 @@ jobs:
         shell: pwsh
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
+          $tag = $env:RELEASE_TAG
           $packageRoot = Join-Path $PWD 'dist\Inventatory'
           $trackedLicense = Join-Path $PWD 'LICENSE'
           if (-not (Test-Path -LiteralPath $trackedLicense -PathType Leaf)) {
@@ -104,16 +106,32 @@ jobs:
             }
           }
           Compress-Archive -Path $packageRoot -DestinationPath 'dist\Inventatory-win-x64.zip' -Force
-          Copy-Item installer\Install-Inventatory.cmd dist\
+
           $installer = Get-Content -Raw installer\Install-Inventatory.ps1
           $defaultRepositoryDeclaration = '[string]$Repository = ''__INVENTATORY_RELEASE_REPOSITORY__'''
           $publishedRepositoryDeclaration = "[string]`$Repository = '$env:GITHUB_REPOSITORY'"
           $installer = $installer.Replace($defaultRepositoryDeclaration, $publishedRepositoryDeclaration)
+          $defaultReleaseTagDeclaration = "[string]`$ReleaseTag = ''"
+          $publishedReleaseTagDeclaration = "[string]`$ReleaseTag = '$tag'"
+          $installer = $installer.Replace($defaultReleaseTagDeclaration, $publishedReleaseTagDeclaration)
           if ($installer -notmatch [regex]::Escape($publishedRepositoryDeclaration) -or
-              $installer -notmatch [regex]::Escape('__INVENTATORY_RELEASE_REPOSITORY__')) {
-            throw 'The published installer repository binding is invalid.'
+              $installer -notmatch [regex]::Escape('__INVENTATORY_RELEASE_REPOSITORY__') -or
+              $installer -notmatch [regex]::Escape($publishedReleaseTagDeclaration)) {
+            throw 'The published installer repository or release tag binding is invalid.'
           }
           Set-Content -NoNewline -Path dist\Install-Inventatory.ps1 -Value $installer
+
+          $cmdInstaller = Get-Content -Raw installer\Install-Inventatory.cmd
+          $latestInstallerUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download/Install-Inventatory.ps1"
+          $taggedInstallerUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/Install-Inventatory.ps1"
+          if (-not $cmdInstaller.Contains($latestInstallerUrl)) {
+            throw 'The CMD installer does not contain the expected stable-release URL.'
+          }
+          $cmdInstaller = $cmdInstaller.Replace($latestInstallerUrl, $taggedInstallerUrl)
+          if (-not $cmdInstaller.Contains($taggedInstallerUrl)) {
+            throw 'The published CMD installer release tag binding is invalid.'
+          }
+          Set-Content -NoNewline -Path dist\Install-Inventatory.cmd -Value $cmdInstaller
           $updateAssets = @(
             @{ Path = 'dist\Inventatory-win-x64.zip'; Name = 'Inventatory-win-x64.zip' },
             @{ Path = 'dist\Install-Inventatory.ps1'; Name = 'Install-Inventatory.ps1' },

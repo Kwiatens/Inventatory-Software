@@ -7,21 +7,41 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ('Inventatory-update-smoke-'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Assert-DirectInstallCommand {
+  $releaseTag = 'v0.2.0-rc.3'
+  $releaseTagPattern = [regex]::Escape($releaseTag)
   $readmeCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
     Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
   if (-not $readmeCommand -or $readmeCommand -notmatch
-      'releases/latest/download/Install-Inventatory\.ps1' -or
+      "releases/download/$releaseTagPattern/Install-Inventatory\.ps1" -or
       $readmeCommand -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*Install-Inventatory\.ps1' -or
       $readmeCommand -match 'Inventatory-win-x64\.zip|tar\.exe') {
-    throw 'The official install command must run the checksum-verifying Windows installer.'
+    throw 'The Windows prerelease command must run the checksum-verifying installer from its exact release tag.'
+  }
+
+  $readmeLinuxCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
+    Where-Object { $_ -match 'Inventatory-linux-x64\.tar\.gz' } | Select-Object -First 1)
+  if (-not $readmeLinuxCommand -or $readmeLinuxCommand -match 'releases/latest/download' -or
+      $readmeLinuxCommand -notmatch "releases/download/$releaseTagPattern/Inventatory-linux-x64\.tar\.gz" -or
+      $readmeLinuxCommand -notmatch "releases/download/$releaseTagPattern/SHA256SUMS-linux\.txt" -or
+      $readmeLinuxCommand -notmatch "releases/download/$releaseTagPattern/Install-Inventatory\.sh") {
+    throw 'The Linux prerelease command must download all assets from its exact release tag.'
   }
 
   $publicBetaCommand = (Get-Content (Join-Path $repositoryRoot 'docs/public-beta.md') |
     Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
   if (-not $publicBetaCommand -or
-      $publicBetaCommand -notmatch 'releases/latest/download/Install-Inventatory\.ps1' -or
+      $publicBetaCommand -notmatch "releases/download/$releaseTagPattern/Install-Inventatory\.ps1" -or
       $publicBetaCommand -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*Install-Inventatory\.ps1') {
-    throw 'The public beta install command must run the checksum-verifying Windows installer.'
+    throw 'The public beta Windows command must install from the exact prerelease tag.'
+  }
+
+  $publicBetaLinuxCommand = (Get-Content (Join-Path $repositoryRoot 'docs/public-beta.md') |
+    Where-Object { $_ -match 'Inventatory-linux-x64\.tar\.gz' } | Select-Object -First 1)
+  if (-not $publicBetaLinuxCommand -or $publicBetaLinuxCommand -match 'releases/latest/download' -or
+      $publicBetaLinuxCommand -notmatch "releases/download/$releaseTagPattern/Inventatory-linux-x64\.tar\.gz" -or
+      $publicBetaLinuxCommand -notmatch "releases/download/$releaseTagPattern/SHA256SUMS-linux\.txt" -or
+      $publicBetaLinuxCommand -notmatch "releases/download/$releaseTagPattern/Install-Inventatory\.sh") {
+    throw 'The public beta Linux command must download all assets from the exact prerelease tag.'
   }
 
   $launcher = Get-Content -Raw (Join-Path $PSScriptRoot 'Install-Inventatory.cmd')
@@ -31,6 +51,19 @@ function Assert-DirectInstallCommand {
       $launcher -match 'tar\.exe|Inventatory-win-x64\.zip' -or
       $launcher -match '__INVENTATORY_RELEASE_') {
     throw 'The CMD bootstrap must run the checksum-verifying PowerShell installer.'
+  }
+
+  $installer = Get-Content -Raw (Join-Path $PSScriptRoot 'Install-Inventatory.ps1')
+  if (-not $installer.Contains("[string]`$ReleaseTag = ''") -or
+      $installer -notmatch 'releases/download/\$ReleaseTag') {
+    throw 'The Windows installer must support a release-tag-pinned package download.'
+  }
+
+  $releaseWorkflow = Get-Content -Raw (Join-Path $repositoryRoot '.github/workflows/release.yml')
+  if (-not $releaseWorkflow.Contains('RELEASE_TAG: ${{ needs.validate.outputs.tag }}') -or
+      -not $releaseWorkflow.Contains('$publishedReleaseTagDeclaration') -or
+      -not $releaseWorkflow.Contains('$taggedInstallerUrl')) {
+    throw 'The release package must bind both Windows installer assets to the validated release tag.'
   }
 }
 
@@ -120,7 +153,8 @@ try {
   $runningFixture = New-UpdateFixture 'running'
   $cmdCopy = Join-Path $runningFixture.Install 'inventatory.exe'
   Copy-Item -LiteralPath (Join-Path $env:SystemRoot 'System32\cmd.exe') -Destination $cmdCopy -Force
-  $heldProcess = Start-Process -FilePath $cmdCopy -ArgumentList @('/c', 'ping -n 5 127.0.0.1 > nul') -WindowStyle Hidden -PassThru
+  # Leave time for a cold WMI query and archive verification before the updater checks the process.
+  $heldProcess = Start-Process -FilePath $cmdCopy -ArgumentList @('/c', 'ping -n 15 127.0.0.1 > nul') -WindowStyle Hidden -PassThru
   $runningResult = Invoke-UpdateFixture $runningFixture
   if ($runningResult.Failed -or (Get-Content -Raw $runningResult.LaunchMarker) -notmatch 'inventatory.exe') {
     throw 'Running-process wait smoke test failed.'
