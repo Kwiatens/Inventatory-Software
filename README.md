@@ -6,9 +6,9 @@ It is purpose-built for PCB designers, but is also great for keeping track of re
 ## Install on Windows
 
 Open Command Prompt and paste the following command to download and install the
-latest stable release for the current Windows user:
+current prerelease, `v0.2.0-rc.3`, for the current Windows user:
 
-    curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
+    curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.3/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
 The installer verifies the downloaded release archive against its SHA-256
 manifest before activation, then launches Inventatory.
@@ -19,9 +19,9 @@ completed.
 
 Linux is released as a separate native x86-64 build. Windows users can keep
 using the Windows ZIP and installer above. On Ubuntu 24.04, download and run
-the Linux installer with:
+the `v0.2.0-rc.3` Linux prerelease with:
 
-    mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
+    mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.3/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.3/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.3/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
 The installer verifies the archive and its own SHA-256 checksum before putting
 the executable in `~/.local/bin/inventatory`. Run it with
