@@ -69,6 +69,7 @@ bool saveFileDialog(filesystem::path& selectedPath, const string& title, const s
                     const string& defaultExtension);
 bool openFolderDialog(filesystem::path& selectedPath, const string& title);
 vector<string> localAddresses();
+vector<string> privateLocalAddresses();
 bool controlModifierPressed();
 vector<KeyEvent> pollKeys();
 
