@@ -8,7 +8,7 @@
 #include <string>
 
 #include <openssl/evp.h>
-#include <secret/secret.h>
+#include <libsecret/secret.h>
 
 namespace inventatory {
 namespace filesystem = std::filesystem;
@@ -22,8 +22,11 @@ std::string credentialAttribute(const std::string& key) { return "Inventatory/" 
 std::optional<std::string> workspaceDigest(const filesystem::path& workspaceDirectory) {
   if (workspaceDirectory.empty()) return std::nullopt;
   std::error_code error;
-  const auto normalized = filesystem::weakly_canonical(workspaceDirectory, error).lexically_normal();
+  auto normalized = filesystem::weakly_canonical(workspaceDirectory, error).lexically_normal();
   if (error || normalized.empty()) return std::nullopt;
+  if (normalized != normalized.root_path() && normalized.filename().empty()) {
+    normalized = normalized.parent_path();
+  }
   const auto encoded = normalized.u8string();
   std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
   unsigned int digestSize = 0;
@@ -69,11 +72,13 @@ bool CredentialStore::erase(const std::string& key) {
   if (key.empty()) return false;
   GError* error = nullptr;
   const auto attribute = credentialAttribute(key);
-  const gboolean cleared = secret_password_clear_sync(&kCredentialSchema, nullptr, &error,
-                                                       "key", attribute.c_str(), nullptr);
+  secret_password_clear_sync(&kCredentialSchema, nullptr, &error,
+                             "key", attribute.c_str(), nullptr);
+  const bool succeeded = error == nullptr;
   if (error != nullptr) g_error_free(error);
-  // libsecret treats removing an absent item as a successful no-op.
-  return cleared != FALSE;
+  // libsecret's return value reports whether it removed a match. Treat a
+  // successful no-match as an idempotent erase, like Windows Credential Store.
+  return succeeded;
 }
 
 std::string CredentialStore::workspaceScopedKey(const filesystem::path& workspaceDirectory,

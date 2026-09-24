@@ -28,7 +28,11 @@ namespace {
 string currentDateTimeText() {
   const auto now = time(nullptr);
   tm localTime{};
+#ifdef _WIN32
   localtime_s(&localTime, &now);
+#else
+  localtime_r(&now, &localTime);
+#endif
   char buffer[32]{};
   strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &localTime);
   return buffer;

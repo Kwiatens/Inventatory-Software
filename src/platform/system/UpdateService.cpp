@@ -756,7 +756,11 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
   const std::string prefix(kDownloadPrefix);
   const auto repositoryBegin = prefix.size();
   const auto downloadMarker = url.find("/releases/download/", repositoryBegin);
-  if (url.rfind(prefix, 0) != 0 || downloadMarker == std::string::npos) {
+  if (url.rfind(prefix, 0) != 0) {
+    error = "The update asset URL is not an approved GitHub download";
+    return false;
+  }
+  if (downloadMarker == std::string::npos) {
     error = "The update asset URL is invalid";
     return false;
   }
