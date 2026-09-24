@@ -415,7 +415,8 @@ void App::restartDeviceService() {
     setMessage("Inventatory Scan R1 service failed to restart; terminal still works", 6);
     return;
   }
-  if (mdnsService_.start(server_.port())) {
+  const auto boundAddresses = server_.addresses();
+  if (!boundAddresses.empty() && mdnsService_.start(server_.port(), boundAddresses.front())) {
     setMessage("Inventatory Scan R1 bridge restarted on port " + to_string(server_.port()), 5);
   } else {
     setMessage("Inventatory Scan R1 bridge restarted; network discovery unavailable", 5);

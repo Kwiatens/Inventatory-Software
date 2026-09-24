@@ -8,12 +8,12 @@ It is purpose-built for PCB designers, but is also great for keeping track of re
 Open Command Prompt and paste the following command to download and install the
 latest stable release for the current Windows user:
 
-    (if not exist "%LOCALAPPDATA%\Programs" mkdir "%LOCALAPPDATA%\Programs") && curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-win-x64.zip" -o "%TEMP%\Inventatory-win-x64.zip" && tar.exe -xf "%TEMP%\Inventatory-win-x64.zip" -C "%LOCALAPPDATA%\Programs" && del /q "%TEMP%\Inventatory-win-x64.zip" && "%LOCALAPPDATA%\Programs\Inventatory\inventatory.exe"
+    curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
-The command uses only tools included with supported Windows versions. It
-extracts the release directly into the per-user program directory and launches
-Inventatory in the same terminal. The first-run setup wizard creates the
-desktop shortcut after setup is completed.
+The installer verifies the downloaded release archive against its SHA-256
+manifest before activation, then launches Inventatory.
+The first-run setup wizard creates the desktop shortcut after setup is
+completed.
 
 ## Install on Linux
 
