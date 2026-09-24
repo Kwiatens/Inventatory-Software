@@ -9,10 +9,11 @@
 #include "platform/security/CredentialStore.h"
 #include "platform/system/Environment.h"
 
+#include <utility>
+
 #ifdef _WIN32
 
 #include <ctime>
-#include <utility>
 
 namespace inventatory {
 using namespace std;
@@ -326,8 +327,6 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
 
 namespace inventatory {
 
-namespace inventatory {
-
 bool DigiKeyConfig::valid() const {
   return false;
 }
@@ -341,7 +340,7 @@ DigiKeyConfig loadDigiKeyConfig() {
   return {};
 }
 
-DigiKeyApiClient::DigiKeyApiClient(DigiKeyConfig config) : config_(move(config)) {}
+DigiKeyApiClient::DigiKeyApiClient(DigiKeyConfig config) : config_(std::move(config)) {}
 
 bool DigiKeyApiClient::testConnection(string* error) {
   if (error != nullptr) *error = "DigiKey integration is only available on Windows";
@@ -349,7 +348,7 @@ bool DigiKeyApiClient::testConnection(string* error) {
 }
 
 optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const string&, string*) {
-  return nullopt;
+  return std::nullopt;
 }
 
 }  // namespace inventatory

@@ -804,7 +804,7 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
     publicError = "Linux Bluetooth service could not discover the scanner";
     return BleProvisioningOutcome::Failed;
   }
-  const auto devicePath = findDevicePath(objects, request.address);
+  auto devicePath = findDevicePath(objects, request.address);
   g_variant_unref(objects);
   if (devicePath.empty()) {
     g_object_unref(connection);

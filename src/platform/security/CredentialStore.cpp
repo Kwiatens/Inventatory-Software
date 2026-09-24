@@ -59,9 +59,13 @@ string hexBytes(const unsigned char* bytes, size_t size) {
 optional<string> workspaceDigest(const filesystem::path& workspaceDirectory) {
   if (workspaceDirectory.empty()) return nullopt;
   error_code canonicalError;
-  auto normalizedPath = filesystem::weakly_canonical(workspaceDirectory, canonicalError).lexically_normal().wstring();
-  if (canonicalError || normalizedPath.empty() ||
-      normalizedPath.size() > (numeric_limits<ULONG>::max)() / sizeof(wchar_t)) {
+  auto normalizedDirectory = filesystem::weakly_canonical(workspaceDirectory, canonicalError).lexically_normal();
+  if (canonicalError || normalizedDirectory.empty()) return nullopt;
+  if (normalizedDirectory != normalizedDirectory.root_path() && normalizedDirectory.filename().empty()) {
+    normalizedDirectory = normalizedDirectory.parent_path();
+  }
+  auto normalizedPath = normalizedDirectory.wstring();
+  if (normalizedPath.empty() || normalizedPath.size() > (numeric_limits<ULONG>::max)() / sizeof(wchar_t)) {
     return nullopt;
   }
 

@@ -28,18 +28,18 @@ namespace label_printer_detail {
 
 string mainLabelValue(const InventoryItem& item) {
   if (categoryContains(item, {"capacitor"})) {
-    return collectLineFromValues({firstParameter(item, {"Capacitance", "Value"}).value_or({}),
-                                  firstParameter(item, {"Tolerance"}).value_or({})},
+    return collectLineFromValues({firstParameter(item, {"Capacitance", "Value"}).value_or(string{}),
+                                  firstParameter(item, {"Tolerance"}).value_or(string{})},
                                  " ", 24);
   }
   if (categoryContains(item, {"resistor"})) {
-    return collectLineFromValues({normalizeResistanceValue(firstParameter(item, {"Resistance", "Value"}).value_or({})),
-                                  firstParameter(item, {"Tolerance"}).value_or({})},
+    return collectLineFromValues({normalizeResistanceValue(firstParameter(item, {"Resistance", "Value"}).value_or(string{})),
+                                  firstParameter(item, {"Tolerance"}).value_or(string{})},
                                  " ", 24);
   }
   if (categoryContains(item, {"inductor", "choke", "coil"})) {
-    return collectLineFromValues({firstInductanceParameter(item).value_or({}),
-                                  firstParameter(item, {"Current Rating", "Current"}).value_or({})},
+    return collectLineFromValues({firstInductanceParameter(item).value_or(string{}),
+                                  firstParameter(item, {"Current Rating", "Current"}).value_or(string{})},
                                  " ", 24);
   }
 
