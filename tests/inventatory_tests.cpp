@@ -59,6 +59,7 @@
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <sys/time.h>
+#include <stdlib.h>
 #else
 #include <ws2tcpip.h>
 #endif
@@ -1483,11 +1484,19 @@ int main() {
   testPackageGHardening();
 
   {
+#ifdef _WIN32
     assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "test-value") == 0);
+#else
+    assert(setenv("INVENTATORY_TEST_ENVIRONMENT", "test-value", 1) == 0);
+#endif
     const auto value = environmentValue("INVENTATORY_TEST_ENVIRONMENT");
     assert(value.has_value());
     assert(*value == "test-value");
+#ifdef _WIN32
     assert(_putenv_s("INVENTATORY_TEST_ENVIRONMENT", "") == 0);
+#else
+    assert(unsetenv("INVENTATORY_TEST_ENVIRONMENT") == 0);
+#endif
     assert(!environmentValue("INVENTATORY_TEST_ENVIRONMENT").has_value());
   }
 
