@@ -192,6 +192,8 @@ jobs:
             ctest --test-dir build-linux-debug --output-on-failure
             ctest --test-dir build-linux-release --output-on-failure
           '
+      - name: Test Linux release installer
+        run: bash installer/Test-InventatoryLinuxInstall.sh
       - name: Package Linux release assets
         run: |
           set -euo pipefail
