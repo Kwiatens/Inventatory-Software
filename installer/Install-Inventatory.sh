@@ -71,6 +71,7 @@ validate_archive() {
       *) fail 'The Linux update archive contains a non-regular file' ;;
     esac
   done < "$details"
+  tar -xzf "$archive_path" -C "$stage" 2>/dev/null || fail 'The Linux update archive could not be extracted'
   [ -f "$stage/inventatory" ] && [ ! -L "$stage/inventatory" ] || fail 'The Linux archive does not contain the Inventatory executable'
   [ -x "$stage/inventatory" ] || chmod 755 -- "$stage/inventatory" || fail 'The Linux executable could not be prepared'
 }
