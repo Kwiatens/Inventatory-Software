@@ -250,6 +250,7 @@ add_executable(inventatory_tests
   src/platform/scanner/HttpServerLifecycle.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
+  ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp
