@@ -41,8 +41,13 @@ ftxui::Element App::renderDigiKeySetupUi() const {
       rows.push_back(styledText("Enter continues  |  Esc cancels", uiMutedText()));
       break;
     case DigiKeySetupStep::ClientSecret:
+#ifdef _WIN32
       rows.push_back(styledText("The secret is stored in Windows Credential Manager and never in settings.conf.",
                                 uiTitleColor()));
+#else
+      rows.push_back(styledText("The secret is stored in the system keyring and never in settings.conf.",
+                                uiTitleColor()));
+#endif
       rows.push_back(ftxui::text(""));
       rows.push_back(styledText("client-secret> " + string(inputBuffer_.size(), '*') + "_", uiInteractiveColor()));
       rows.push_back(ftxui::text(""));
