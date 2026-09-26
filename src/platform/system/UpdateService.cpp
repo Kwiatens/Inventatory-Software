@@ -1015,6 +1015,31 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
 #endif
 }
 
+void relaunchAfterUpdate(const std::filesystem::path& markerPath) {
+#ifdef _WIN32
+  (void)markerPath;
+#else
+  std::error_code filesystemError;
+  const auto executable = std::filesystem::read_symlink("/proc/self/exe", filesystemError);
+  if (filesystemError || executable.empty()) return;
+  const auto exe = executable.u8string();
+  const auto marker = markerPath.u8string();
+  // The installer waits while /proc/<pid>/exe still names the Inventatory
+  // binary, so exec'ing the shell here is what allows it to replace the file.
+  static const char* const kWaiter =
+      "printf 'Installing the Inventatory update...\\n'\n"
+      "tries=0\n"
+      "while [ \"$tries\" -lt 1200 ]; do\n"
+      "  state=$(sed -n 's/^state=//p' \"$1\" 2>/dev/null | head -n 1)\n"
+      "  [ \"$state\" = pending ] || break\n"
+      "  tries=$((tries + 1))\n"
+      "  sleep 0.1\n"
+      "done\n"
+      "exec \"$2\"\n";
+  execl("/bin/sh", "sh", "-c", kWaiter, "sh", marker.c_str(), exe.c_str(), static_cast<char*>(nullptr));
+#endif
+}
+
 UpdateCheckResult checkLatestRelease(const std::string& installedVersion) { return latestRelease(kReleaseRepository, installedVersion); }
 UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion) {
   if (!validRepository(kScanFirmwareRepository)) return {true, false, {}, {}, {}};
