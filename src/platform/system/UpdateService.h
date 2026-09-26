@@ -41,6 +41,12 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
                            const std::filesystem::path& notesPath,
                            const std::string& releaseVersion,
                            std::string& error);
+// Linux: replaces the exited application process with a waiter that lets the
+// detached installer proceed, then execs the (updated or unchanged) executable
+// in the same terminal once the completion marker leaves the pending state.
+// Returns only when the relaunch could not be started. No-op on Windows, whose
+// installer opens a new terminal itself.
+void relaunchAfterUpdate(const std::filesystem::path& markerPath);
 UpdateCheckResult checkLatestRelease(const std::string& installedVersion);
 
 // Latest published Scan R1 firmware. `installedVersion` is the version the
