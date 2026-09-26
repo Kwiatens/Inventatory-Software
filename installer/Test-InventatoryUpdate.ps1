@@ -7,7 +7,7 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ('Inventatory-update-smoke-'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Assert-DirectInstallCommand {
-  $releaseTag = 'v0.2.0-rc.4'
+  $releaseTag = 'v0.2.0-rc.5'
   $releaseTagPattern = [regex]::Escape($releaseTag)
   $readmeCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
     Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
