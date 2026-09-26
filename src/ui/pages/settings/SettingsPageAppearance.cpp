@@ -23,7 +23,7 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
     const int colorCellWidth = max(28, (contentWidth - 2) / 2);
     const auto addAppearanceSection = [&](const string& title,
                                           initializer_list<AppearanceColorRole> roles) {
-      rows.push_back(uiHeaderText(title, uiSecondaryText()));
+      ftxui::Elements sectionRows;
       vector<AppearanceColorRole> section(roles);
       for (size_t offset = 0; offset < section.size(); offset += 2) {
         ftxui::Elements columns;
@@ -46,8 +46,9 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
                 self->dirty_ = true;
               }));
         }
-        rows.push_back(ftxui::hbox(move(columns)));
+        sectionRows.push_back(ftxui::hbox(move(columns)));
       }
+      appendSettingsSection(rows, title, move(sectionRows));
     };
 
     if (!appearancePickerOpen_) {
@@ -83,31 +84,18 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
 
     const auto selectedIndex = clamp(settingsField_, 0, static_cast<int>(kAppearanceColorCount) - 1);
     const auto selectedRole = static_cast<AppearanceColorRole>(selectedIndex);
-    rows.push_back(uiDivider());
-    rows.push_back(uiHeaderText("Edit color", uiSecondaryText()));
-    rows.push_back(ftxui::hbox({
-        styledText(" Selected", uiSecondaryText()) |
-            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(contentWidth)),
-        uiHeaderText(appearanceColorLabel(selectedRole), uiPrimaryText()),
-        ftxui::filler(),
-        styledText("   ", uiPrimaryText(), uiAppearanceColor(selectedRole)),
-        uiHeaderText(" " + appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(selectedIndex)]),
-                     uiPrimaryText()),
-        styledText(" "),
-    }));
-
-    const auto hexValue = settingsEditingField_ && settingsField_ == selectedIndex
-                              ? inputBuffer_ + "_"
-                              : appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(selectedIndex)]);
-    rows.push_back(target(settingLine("Hex value", hexValue, contentWidth,
-                                      settingsEditingField_ && settingsField_ == selectedIndex),
-                          "settings.appearance.hex", UiTargetKind::Field,
-                          [self] { self->beginSettingsFieldEdit(self->settingsField_); }));
+    const auto selectedHex = appearanceColorHex(settingsDraft_.appearance.colors[static_cast<size_t>(selectedIndex)]);
+    const bool hexEditing = settingsEditingField_ && settingsField_ == selectedIndex;
+    ftxui::Elements editRows;
+    editRows.push_back(settingLine("Selected", appearanceColorLabel(selectedRole), contentWidth));
+    editRows.push_back(target(settingLine("Hex value", hexEditing ? inputBuffer_ + "_" : selectedHex, contentWidth,
+                                          hexEditing),
+                              "settings.appearance.hex", UiTargetKind::Field,
+                              [self] { self->beginSettingsFieldEdit(self->settingsField_); }));
 
     if (appearancePickerOpen_) {
-      rows.push_back(uiHeaderText("Hue / value picker", uiSecondaryText()));
       for (int value = kAppearancePickerValueSteps - 1; value >= 0; --value) {
-        ftxui::Elements pickerRow;
+        ftxui::Elements pickerRow{ftxui::text(string(kSettingsGutterWidth, ' '))};
         for (int hue = 0; hue < kAppearancePickerHueSteps; ++hue) {
           const bool selected = hue == appearancePickerHue_ && value == appearancePickerValue_;
           const auto color = pickerColor(hue, value);
@@ -126,36 +114,34 @@ ftxui::Elements App::renderSettingsAppearanceRows(int contentWidth) const {
                                      },
                                      true, false));
         }
-        rows.push_back(ftxui::hbox(move(pickerRow)));
+        editRows.push_back(ftxui::hbox(move(pickerRow)));
       }
-      rows.push_back(styledText("Arrows change hue/value   Enter accept   Esc cancel", uiMutedText()));
     }
 
     ftxui::Elements appearanceActions;
     if (appearancePickerOpen_) {
       appearanceActions.push_back(target(uiPrimaryButton("Accept picker"), "settings.appearance.picker.accept",
                                          UiTargetKind::Button, [self] { self->closeAppearancePicker(true); }));
-      appearanceActions.push_back(ftxui::text("  "));
       appearanceActions.push_back(target(uiSecondaryButton("Cancel picker", uiSecondaryText()),
                                          "settings.appearance.picker.cancel", UiTargetKind::Button,
                                          [self] { self->closeAppearancePicker(false); }));
     } else {
       appearanceActions.push_back(target(uiPrimaryButton("Open picker"), "settings.appearance.picker.open",
                                          UiTargetKind::Button, [self] { self->openAppearancePicker(); }));
-      appearanceActions.push_back(ftxui::text("  "));
       appearanceActions.push_back(target(uiSecondaryButton("Edit hex", uiSecondaryText()),
                                          "settings.appearance.hex.edit", UiTargetKind::Button,
                                          [self] { self->beginSettingsFieldEdit(self->settingsField_); }));
     }
-    appearanceActions.push_back(ftxui::text("  "));
     appearanceActions.push_back(target(uiSecondaryButton("Reset selected", uiWarnColor()),
                                        "settings.appearance.reset.selected", UiTargetKind::Button,
                                        [self] { self->resetSelectedAppearanceColor(); }));
-    appearanceActions.push_back(ftxui::text("  "));
     appearanceActions.push_back(target(uiSecondaryButton("Reset all", uiDangerColor()),
                                        "settings.appearance.reset.all", UiTargetKind::Button,
                                        [self] { self->resetAppearanceColors(); }));
-    rows.push_back(ftxui::hbox(move(appearanceActions)));
+    editRows.push_back(settingsActionRow(move(appearanceActions)));
+    appendSettingsSection(rows, "Edit color", move(editRows),
+                          ftxui::hbox({styledText("   ", uiPrimaryText(), uiAppearanceColor(selectedRole)),
+                                       styledText(" " + selectedHex, uiSecondaryText())}));
   return rows;
 }
 
