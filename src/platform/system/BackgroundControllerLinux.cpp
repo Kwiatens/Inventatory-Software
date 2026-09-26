@@ -138,6 +138,29 @@ filesystem::path executablePath() {
   }
 }
 
+bool installSignalHandlers() {
+  if (gSignalHandlersInstalled) return true;
+  struct sigaction action{};
+  action.sa_handler = controllerSignalHandler;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;
+  if (sigaction(SIGTERM, &action, &gPreviousTermAction) != 0 ||
+      sigaction(SIGINT, &action, &gPreviousInterruptAction) != 0 ||
+      sigaction(SIGUSR1, &action, &gPreviousUserAction) != 0) {
+    return false;
+  }
+  gSignalHandlersInstalled = true;
+  return true;
+}
+
+void restoreSignalHandlers() {
+  if (!gSignalHandlersInstalled) return;
+  sigaction(SIGTERM, &gPreviousTermAction, nullptr);
+  sigaction(SIGINT, &gPreviousInterruptAction, nullptr);
+  sigaction(SIGUSR1, &gPreviousUserAction, nullptr);
+  gSignalHandlersInstalled = false;
+}
+
 }  // namespace
 
 BackgroundController::~BackgroundController() { stop(); }
@@ -148,6 +171,7 @@ bool BackgroundController::acquireSingleInstance(bool backgroundMode) {
   if (descriptor < 0) return false;
   backgroundMode_ = backgroundMode;
   instanceLockFd_ = descriptor;
+  installSignalHandlers();
   return true;
 }
 
@@ -229,28 +253,17 @@ bool BackgroundController::restartAsBackgroundService() {
 
 bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen) {
   (void)hideInitially;
-  if (!enabled) return true;
-  if (enabled_.exchange(true)) return true;
+  enabled_.store(enabled);
   {
     std::lock_guard<std::mutex> lock(callbackMutex_);
     onQuit_ = std::move(onQuit);
     onOpen_ = std::move(onOpen);
   }
-  if (!gSignalHandlersInstalled) {
-    struct sigaction action{};
-    action.sa_handler = controllerSignalHandler;
-    sigemptyset(&action.sa_mask);
-    action.sa_flags = 0;
-    if (sigaction(SIGTERM, &action, &gPreviousTermAction) != 0 ||
-        sigaction(SIGINT, &action, &gPreviousInterruptAction) != 0 ||
-        sigaction(SIGUSR1, &action, &gPreviousUserAction) != 0) {
-      enabled_.store(false);
-      return false;
-    }
-    gSignalHandlersInstalled = true;
-  }
+  if (!installSignalHandlers()) return false;
+  if (signalThread_.joinable()) return true;
+  trayStartupCancelled_.store(false);
   signalThread_ = std::thread([this] {
-    while (enabled_.load()) {
+    while (!trayStartupCancelled_.load()) {
       if (gQuitSignal != 0) {
         gQuitSignal = 0;
         requestQuitFromTray();
@@ -267,13 +280,9 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
 
 void BackgroundController::stop() {
   enabled_.store(false);
+  trayStartupCancelled_.store(true);
   if (signalThread_.joinable()) signalThread_.join();
-  if (gSignalHandlersInstalled) {
-    sigaction(SIGTERM, &gPreviousTermAction, nullptr);
-    sigaction(SIGINT, &gPreviousInterruptAction, nullptr);
-    sigaction(SIGUSR1, &gPreviousUserAction, nullptr);
-    gSignalHandlersInstalled = false;
-  }
+  restoreSignalHandlers();
   if (instanceLockFd_ >= 0) {
     flock(instanceLockFd_, LOCK_UN);
     close(instanceLockFd_);
