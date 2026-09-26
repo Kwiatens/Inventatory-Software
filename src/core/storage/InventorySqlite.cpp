@@ -72,6 +72,15 @@ bool openDatabase(const filesystem::path& path, SqliteConnection& connection) {
     return false;
   }
 
+  if (!path.parent_path().empty()) {
+    error_code directoryError;
+    filesystem::create_directories(path.parent_path(), directoryError);
+    if (directoryError) {
+      connection.db = nullptr;
+      return false;
+    }
+  }
+
   const auto utf8Path = sqlitePath(path);
   if (api.open_v2(utf8Path.c_str(), &connection.db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) !=
       SQLITE_OK) {

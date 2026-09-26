@@ -72,14 +72,6 @@ ftxui::Element semanticMessageRow(const string& text, UiMessageSeverity severity
 ftxui::Element App::renderUi() const {
   uiTargets_.clear();
   uiTargets_.reserve(512);
-  // Fresh setup is intentionally a dedicated terminal surface. It must not
-  // inherit any workspace navigation, operational state, or search chrome.
-  if (page_ == Page::Update && !inventoryRecoveryRequired_) {
-    return renderUpdateUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
-  }
-  if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
-    return renderWizardUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
-  }
   if (inventoryRecoveryRequired_) {
     return ftxui::vbox({
         ftxui::filler(),
@@ -90,6 +82,14 @@ ftxui::Element App::renderUi() const {
         styledText("Press D to choose another Inventatory folder, or Esc to exit.", uiAccentColor()),
         ftxui::filler(),
     }) | ftxui::border | ftxui::bgcolor(uiCanvasBg());
+  }
+  // Fresh setup is intentionally a dedicated terminal surface. It must not
+  // inherit any workspace navigation, operational state, or search chrome.
+  if (page_ == Page::Update) {
+    return renderUpdateUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
+  }
+  if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
+    return renderWizardUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
   const auto* active = ftxui::ScreenInteractive::Active();
   if (active != nullptr && (active->dimx() < 100 || active->dimy() < 30)) {
