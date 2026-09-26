@@ -5100,12 +5100,14 @@ int main() {
     const auto dbPath = tempDir / "nested" / "subfolder" / "inventory.db";
     assert(!filesystem::exists(dbPath.parent_path()));
 
-    SqliteConnection connection;
-    assert(openDatabase(dbPath, connection));
-    assert(connection.db != nullptr);
-    assert(filesystem::is_directory(dbPath.parent_path()));
-    assert(filesystem::is_regular_file(dbPath));
-    assert(ensureInventoryCommitSchema(connection));
+    {
+      SqliteConnection connection;
+      assert(openDatabase(dbPath, connection));
+      assert(connection.db != nullptr);
+      assert(filesystem::is_directory(dbPath.parent_path()));
+      assert(filesystem::is_regular_file(dbPath));
+      assert(ensureInventoryDatabaseSchema(connection));
+    }
 
     InventoryStore current;
     assert(ensureInventoryCommitHistory(dbPath, current));
