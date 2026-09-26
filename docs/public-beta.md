@@ -4,10 +4,10 @@ Inventatory is a public beta for local hardware inventory management with
 separate native Windows and Linux x86-64 releases. The Windows release and its
 installation workflow remain supported.
 
-For a new installation of the current prerelease, `v0.2.0-rc.4`, open Command
+For a new installation of the current prerelease, `v0.2.0-rc.5`, open Command
 Prompt and paste this single command:
 
-    curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.4/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
+    curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.5/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
 The installer verifies the downloaded release archive against its SHA-256
 manifest before activation, then launches Inventatory.
@@ -23,7 +23,7 @@ restarts Inventatory through the user's configured terminal application.
 
 The in-app download can be cancelled while the package is downloading. Checksum
 verification and installer handoff then complete without interruption. GitHub
-prerelease tags such as `v0.2.0-rc.4` are also accepted by the updater so
+prerelease tags such as `v0.2.0-rc.5` are also accepted by the updater so
 maintainers can test the complete route before a stable release. A failed download
 or verification returns to a retryable error screen without changing the active
 installation. If replacement fails after Inventatory closes, the installer
@@ -31,10 +31,10 @@ rolls back the old installation, writes a machine-local completion result under
 %LOCALAPPDATA%\Inventatory, and relaunches the previous version. Inventory data,
 settings, secrets, and release notes are never stored in the inventory database.
 
-For Ubuntu 24.04 LTS, download the `v0.2.0-rc.4` Linux release assets into one
+For Ubuntu 24.04 LTS, download the `v0.2.0-rc.5` Linux release assets into one
 directory and run the checksum-verifying installer:
 
-    mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.4/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.4/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.4/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
+    mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.5/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.5/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/download/v0.2.0-rc.5/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
 This installs the native executable to `~/.local/bin/inventatory`. The Linux
 build shares the inventory, history, backup, import, BOM, label, and scanner
