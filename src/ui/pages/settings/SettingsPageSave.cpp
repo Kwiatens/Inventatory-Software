@@ -140,7 +140,11 @@ bool App::saveSettingsDraft() {
         else CredentialStore::erase(kDigiKeySecretName);
       }
       restartOldService();
-      setMessage("Unable to update Windows startup: " + startupError, 5, UiMessageSeverity::Error);
+#ifdef _WIN32
+      setMessage(startupError.empty() ? "Unable to update Windows startup" : startupError, 5, UiMessageSeverity::Error);
+#else
+      setMessage(startupError.empty() ? "Unable to update background service" : startupError, 5, UiMessageSeverity::Error);
+#endif
       return false;
     }
     startupChanged = true;

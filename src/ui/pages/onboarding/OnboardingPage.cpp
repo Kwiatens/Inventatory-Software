@@ -1,4 +1,4 @@
-// Inventatory - Focused first-run terminal setup for fresh Windows installs.
+// Inventatory - Focused first-run terminal setup for fresh installs.
 
 #include "App.h"
 
@@ -105,9 +105,15 @@ void App::finishOnboarding() {
   const bool shortcutCreated = createDesktopShortcut(shortcutError);
   onboardingActive_ = false;
   changePage(Page::Stock);
+#ifdef _WIN32
   setMessage(shortcutCreated ? "Setup complete."
                              : "Setup complete; desktop shortcut could not be created: " + shortcutError,
              shortcutCreated ? 5 : 7);
+#else
+  setMessage(shortcutCreated ? "Setup complete."
+                             : "Setup complete; application launcher could not be created: " + shortcutError,
+             shortcutCreated ? 5 : 7);
+#endif
 }
 
 ftxui::Element App::renderOnboardingContent() const {
@@ -126,7 +132,11 @@ ftxui::Element App::renderOnboardingContent() const {
       break;
     case OnboardingStep::BackgroundService:
       rows.push_back(uiHeaderText("Run Inventatory in the background?", uiTitleColor()));
+#ifdef _WIN32
       rows.push_back(styledText("Starts with Windows and stays available in the notification area.", uiSecondaryText()));
+#else
+      rows.push_back(styledText("Starts with Linux as a background service for your user session.", uiSecondaryText()));
+#endif
       if (wizardTransition_.phase == WizardTransitionPhase::SelectionHold && wizardSelectedOption_.has_value()) {
         rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Enable", "Skip"));
       } else {
