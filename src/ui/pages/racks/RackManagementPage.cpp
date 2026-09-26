@@ -180,8 +180,8 @@ ftxui::Element App::renderRackManagementUi() const {
   // The supported 100-column terminal still keeps the rack matrix beside its
   // context panels. Stacking would make the 5x5 grid taller than the viewport.
   const bool compact = screenWidth < 100;
-  const int listWidth = screenWidth < 118 ? 24 : 28;
-  int detailWidth = screenWidth < 118 ? 30 : 34;
+  const int listWidth = screenWidth < 118 ? 26 : 31;
+  int detailWidth = screenWidth < 118 ? 29 : 34;
   // In the horizontal layout, account for its two one-column separators. The
   // compact layout stacks the grid below the side panels, so it uses the full
   // screen width instead.
