@@ -533,6 +533,7 @@ class App {
   ftxui::Element renderSettingsUi() const;
   ftxui::Elements renderSettingsAppearanceRows(int contentWidth) const;
   ftxui::Element renderOnboardingWordmark() const;
+  bool wordmarkScanRunning() const;
   ftxui::Element renderOnboardingFrame(ftxui::Element content) const;
   ftxui::Element renderOnboardingContent() const;
   ftxui::Element renderOnboardingUi() const;
@@ -1048,6 +1049,9 @@ class App {
   std::filesystem::path updateNotesPath_;
   ftxui::Box updateNotesBounds_;
   bool updateCompletionPending_ = false;
+  // Start tick of the one-shot scan-line reveal on the post-update wordmark;
+  // -1 when idle. Atomic because the render ticker thread reads it.
+  std::atomic<long long> wordmarkScanStartedAt_{-1};
   bool updateInstallerLaunched_ = false;
   std::string scanFirmwareLatestVersion_;
   bool scanFirmwareChecked_ = false;
