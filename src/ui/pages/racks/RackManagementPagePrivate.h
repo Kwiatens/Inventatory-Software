@@ -3,9 +3,18 @@
 #pragma once
 
 #include <algorithm>
+#include <string>
 
 namespace inventatory {
 namespace rack_page_detail {
+
+inline std::string shortComponentType(const std::string& componentType) {
+  if (componentType == "Integrated Circuits" || componentType == "integrated circuits" ||
+      componentType == "Integrated circuits" || componentType == "Integrated Circuits (ICs)") {
+    return "ICs";
+  }
+  return componentType;
+}
 
 // Floor division ensures that multiplying by the number of slot rows will never
 // exceed the available vertical space, preventing the grid from overflowing
