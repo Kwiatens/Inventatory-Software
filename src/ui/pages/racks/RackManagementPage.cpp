@@ -87,8 +87,7 @@ string toTitleCase(string s) {
 }
 
 string shortComponentType(const string& componentType) {
-  if (componentType == "Integrated Circuits") return "ICs";
-  return componentType;
+  return rack_page_detail::shortComponentType(componentType);
 }
 
 ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, int lowStockThreshold, int width = 0) {
@@ -220,7 +219,7 @@ ftxui::Element App::renderRackManagementUi() const {
       const auto capacity = rackCapacity(candidate);
       auto rackRow = ftxui::hbox({
           rackFixedCell(" " + candidate.code, rackCodeWidth, fg),
-          rackFixedCell(toTitleCase(candidate.componentType), rackTypeWidth,
+          rackFixedCell(shortComponentType(toTitleCase(candidate.componentType)), rackTypeWidth,
                         selected ? uiTitleColor() : uiLabelColor()),
           rackOccupancyIndicator(occupied, capacity, rackUsedWidth,
                                  occupied >= capacity && capacity != 0 ? uiWarnColor() : uiPrimaryText()),
