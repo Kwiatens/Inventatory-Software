@@ -5093,6 +5093,43 @@ int main() {
     filesystem::remove(path, cleanupError);
   }
 
+  {
+    error_code cleanupError;
+    const auto tempDir = filesystem::temp_directory_path() / ("inventatory-test-createdir-" + to_string(time(nullptr)));
+    filesystem::remove_all(tempDir, cleanupError);
+    const auto dbPath = tempDir / "nested" / "subfolder" / "inventory.db";
+    assert(!filesystem::exists(dbPath.parent_path()));
+
+    SqliteConnection connection;
+    assert(openDatabase(dbPath, connection));
+    assert(connection.db != nullptr);
+    assert(filesystem::is_directory(dbPath.parent_path()));
+    assert(filesystem::is_regular_file(dbPath));
+    assert(ensureInventoryCommitSchema(connection));
+
+    InventoryStore current;
+    assert(ensureInventoryCommitHistory(dbPath, current));
+    vector<InventoryCommit> commits;
+    assert(loadInventoryCommits(dbPath, commits));
+    assert(commits.size() == 1);
+    assert(commits.front().message == "Initial inventory");
+
+    filesystem::remove_all(tempDir, cleanupError);
+  }
+
+#ifndef _WIN32
+  {
+    BackgroundController controller;
+    assert(controller.acquireSingleInstance(false));
+    bool opened = false;
+    assert(controller.start(false, false, [] {}, [&opened] { opened = true; }));
+    assert(controller.signalExistingInstance());
+    this_thread::sleep_for(chrono::milliseconds(100));
+    assert(opened);
+    controller.stop();
+  }
+#endif
+
   cout << "Inventatory core tests passed\n";
   return 0;
 }

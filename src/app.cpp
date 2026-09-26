@@ -137,7 +137,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     refreshPrinterState();
   }
   loadUpdateCompletionMarker();
-  if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion)) {
+  if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion) &&
+      !inventoryRecoveryRequired_) {
     onboardingActive_ = true;
     page_ = Page::Onboarding;
   } else if (updateCompletionPending_ && !startInBackground_ && !inventoryRecoveryRequired_) {
