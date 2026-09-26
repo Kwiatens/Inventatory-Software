@@ -1354,6 +1354,13 @@ int main() {
       assert(width >= 7);
       assert(width * 5 <= availableCols);
     }
+
+    assert(rack_page_detail::shortComponentType("Integrated Circuits") == "ICs");
+    assert(rack_page_detail::shortComponentType("integrated circuits") == "ICs");
+    assert(rack_page_detail::shortComponentType("Integrated circuits") == "ICs");
+    assert(rack_page_detail::shortComponentType("Integrated Circuits (ICs)") == "ICs");
+    assert(rack_page_detail::shortComponentType("Resistors") == "Resistors");
+    assert(rack_page_detail::shortComponentType("Transistors") == "Transistors");
   }
 
   {
