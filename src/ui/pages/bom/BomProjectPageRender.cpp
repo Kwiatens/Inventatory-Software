@@ -3,6 +3,7 @@
 
 #include "App.h"
 
+#include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -421,26 +422,14 @@ ftxui::Element App::renderBomProjectUi() const {
       const int columns = 5;
       const int gridWidth = max(30, screenWidth - sideWidth - 3);
       const int slotSpace = gridWidth - (columns - 1);
-      const int slotWidth = max(7, slotSpace / columns);
-      const int extraColumns = max(0, slotSpace - slotWidth * columns);
+      const int slotWidth = rack_page_detail::equalRackSlotWidth(slotSpace, columns);
       // The page frame reserves five rows for the shared shell and this view's
       // project header. The rack title/divider and four row dividers consume
       // four more rows, leaving the same slot-space calculation as Racks.
       // Truncating to a multiple keeps every slot exactly the same height.
       const int availableSlotRows = max(15, screenHeight - 13);
-      const int slotHeight = max(3, availableSlotRows / rows);
-
-      int maxTitleLines = 1;
-      for (int row = 0; row < rows; ++row) {
-        for (int column = 0; column < columns; ++column) {
-          const auto slot = rackSlotLabel(column, row);
-          const auto* item = itemAtRackSlot(store_, step.rackId, slot);
-          const auto itemText = item == nullptr ? string("[ empty ]") : item->partName;
-          maxTitleLines = max(maxTitleLines,
-                              static_cast<int>(bomRackTitleLines(itemText, max(1, slotWidth - 2)).size()));
-        }
-      }
-      const int rowHeight = max(slotHeight, maxTitleLines + 1);
+      const int slotHeight = rack_page_detail::equalRackSlotHeight(availableSlotRows, rows);
+      const int rowHeight = slotHeight;
 
       for (int row = 0; row < rows; ++row) {
         ftxui::Elements rowCells;
@@ -454,7 +443,7 @@ ftxui::Element App::renderBomProjectUi() const {
           const auto titleColor = lit ? (blink ? uiPrimaryText() : uiSuccessColor())
                                      : (item == nullptr ? uiMutedColor() : uiAccentColor());
           const auto nameColor = item == nullptr ? uiDimColor() : uiPrimaryText();
-          const int cellWidth = slotWidth + (column < extraColumns ? 1 : 0);
+          const int cellWidth = slotWidth;
 
           auto nameArea = ftxui::vbox({
                                 ftxui::filler(),

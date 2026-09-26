@@ -1333,10 +1333,34 @@ int main() {
   }
 
   {
-    assert(rack_page_detail::equalRackSlotHeight(39, 5) == 8);
+    assert(rack_page_detail::equalRackSlotHeight(39, 5) == 7);
     assert(rack_page_detail::equalRackSlotHeight(40, 5) == 8);
     assert(rack_page_detail::equalRackSlotHeight(15, 5) == 3);
-    assert(rack_page_detail::equalRackSlotHeight(16, 5) == 4);
+    assert(rack_page_detail::equalRackSlotHeight(16, 5) == 3);
+    assert(rack_page_detail::equalRackSlotWidth(35, 5) == 7);
+    assert(rack_page_detail::equalRackSlotWidth(39, 5) == 7);
+    assert(rack_page_detail::equalRackSlotWidth(40, 5) == 8);
+    assert(rack_page_detail::equalRackSlotWidth(100, 5) == 20);
+
+    // Floor division ensures rack slots never exceed available space across terminal heights
+    for (int availableRows = 15; availableRows <= 100; ++availableRows) {
+      const int height = rack_page_detail::equalRackSlotHeight(availableRows, 5);
+      assert(height >= 3);
+      assert(height * 5 <= availableRows);
+    }
+    // Floor division ensures rack slot widths never exceed available space across terminal widths
+    for (int availableCols = 35; availableCols <= 250; ++availableCols) {
+      const int width = rack_page_detail::equalRackSlotWidth(availableCols, 5);
+      assert(width >= 7);
+      assert(width * 5 <= availableCols);
+    }
+
+    assert(rack_page_detail::shortComponentType("Integrated Circuits") == "ICs");
+    assert(rack_page_detail::shortComponentType("integrated circuits") == "ICs");
+    assert(rack_page_detail::shortComponentType("Integrated circuits") == "ICs");
+    assert(rack_page_detail::shortComponentType("Integrated Circuits (ICs)") == "ICs");
+    assert(rack_page_detail::shortComponentType("Resistors") == "Resistors");
+    assert(rack_page_detail::shortComponentType("Transistors") == "Transistors");
   }
 
   {
@@ -5092,6 +5116,45 @@ int main() {
     assert(loadDeviceSyncEventRecords(path).empty());
     filesystem::remove(path, cleanupError);
   }
+
+  {
+    error_code cleanupError;
+    const auto tempDir = filesystem::temp_directory_path() / ("inventatory-test-createdir-" + to_string(time(nullptr)));
+    filesystem::remove_all(tempDir, cleanupError);
+    const auto dbPath = tempDir / "nested" / "subfolder" / "inventory.db";
+    assert(!filesystem::exists(dbPath.parent_path()));
+
+    {
+      SqliteConnection connection;
+      assert(openDatabase(dbPath, connection));
+      assert(connection.db != nullptr);
+      assert(filesystem::is_directory(dbPath.parent_path()));
+      assert(filesystem::is_regular_file(dbPath));
+      assert(ensureInventoryDatabaseSchema(connection));
+    }
+
+    InventoryStore current;
+    assert(ensureInventoryCommitHistory(dbPath, current));
+    vector<InventoryCommit> commits;
+    assert(loadInventoryCommits(dbPath, commits));
+    assert(commits.size() == 1);
+    assert(commits.front().message == "Initial inventory");
+
+    filesystem::remove_all(tempDir, cleanupError);
+  }
+
+#ifndef _WIN32
+  {
+    BackgroundController controller;
+    assert(controller.acquireSingleInstance(false));
+    bool opened = false;
+    assert(controller.start(false, false, [] {}, [&opened] { opened = true; }));
+    assert(controller.signalExistingInstance());
+    this_thread::sleep_for(chrono::milliseconds(100));
+    assert(opened);
+    controller.stop();
+  }
+#endif
 
   cout << "Inventatory core tests passed\n";
   return 0;
