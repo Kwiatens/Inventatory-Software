@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <ctime>
 
@@ -32,21 +33,44 @@ ftxui::Element onboardingChoicePrompt(char selectedOption, const string& first, 
                       styledText("[ N ] " + second, secondColor)});
 }
 
-ftxui::Color onboardingGradientColor(int row) {
+constexpr int kWordmarkRows = 6;
+constexpr long long kWordmarkScanDelayMs = 1350;
+constexpr long long kWordmarkScanDurationMs = 1100;
+
+uint32_t blendRgb(uint32_t from, uint32_t to, double amount) {
+  const auto channel = [from, to, amount](int shift) {
+    const auto a = static_cast<double>((from >> shift) & 0xFFu);
+    const auto b = static_cast<double>((to >> shift) & 0xFFu);
+    return static_cast<uint32_t>(a + (b - a) * amount + 0.5) << shift;
+  };
+  return channel(16) | channel(8) | channel(0);
+}
+
+ftxui::Color rgbColor(uint32_t rgb) {
+  return ftxui::Color::RGB(static_cast<uint8_t>(rgb >> 16), static_cast<uint8_t>(rgb >> 8), static_cast<uint8_t>(rgb));
+}
+
+uint32_t onboardingGradientRgb(int row) {
   const auto& colors = activeUiAppearance().colors;
   const auto start = colors[static_cast<size_t>(AppearanceColorRole::Interactive)];
   const auto end = colors[static_cast<size_t>(AppearanceColorRole::FocusText)];
-  constexpr int kLastRow = 5;
-  const auto channel = [start, end, row](int shift) {
-    const auto startChannel = static_cast<int>((start >> shift) & 0xFFu);
-    const auto endChannel = static_cast<int>((end >> shift) & 0xFFu);
-    return startChannel + (endChannel - startChannel) * row / kLastRow;
-  };
-  return ftxui::Color::RGB(static_cast<uint8_t>(channel(16)), static_cast<uint8_t>(channel(8)),
-                           static_cast<uint8_t>(channel(0)));
+  return blendRgb(start, end, static_cast<double>(row) / (kWordmarkRows - 1));
 }
 
-ftxui::Element alignedOnboardingWordmark() {
+// scanPosition < 0 renders the static gradient. Otherwise it is the scan
+// line's vertical position in rows: rows it has passed show the gradient,
+// rows ahead stay muted, and rows near the line glow toward primary text.
+ftxui::Color wordmarkRowColor(int row, double scanPosition) {
+  if (scanPosition < 0.0) return rgbColor(onboardingGradientRgb(row));
+  const auto& colors = activeUiAppearance().colors;
+  const auto center = static_cast<double>(row) + 0.5;
+  const auto base = center < scanPosition ? onboardingGradientRgb(row)
+                                          : colors[static_cast<size_t>(AppearanceColorRole::MutedText)];
+  const auto glow = max(0.0, 1.0 - abs(center - scanPosition) / 1.25);
+  return rgbColor(blendRgb(base, colors[static_cast<size_t>(AppearanceColorRole::PrimaryText)], glow));
+}
+
+ftxui::Element alignedOnboardingWordmark(double scanPosition) {
   const vector<string> wordmarkRows = {
       u8"██╗███╗   ██╗██╗   ██╗███████╗███╗   ██╗████████╗ █████╗ ████████╗ ██████╗ ██████╗ ██╗   ██╗",
       u8"██║████╗  ██║██║   ██║██╔════╝████╗  ██║╚══██╔══╝██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗╚██╗ ██╔╝",
@@ -59,15 +83,28 @@ ftxui::Element alignedOnboardingWordmark() {
   ftxui::Elements renderedRows;
   renderedRows.reserve(wordmarkRows.size());
   for (size_t row = 0; row < wordmarkRows.size(); ++row) {
-    renderedRows.push_back(styledText(wordmarkRows[row], onboardingGradientColor(static_cast<int>(row))));
+    renderedRows.push_back(styledText(wordmarkRows[row], wordmarkRowColor(static_cast<int>(row), scanPosition)));
   }
   return ftxui::vbox(move(renderedRows));
 }
 
 }  // namespace
 
+bool App::wordmarkScanRunning() const {
+  const auto startedAt = wordmarkScanStartedAt_.load();
+  return startedAt >= 0 && uiAnimationTicks() - startedAt < kWordmarkScanDelayMs + kWordmarkScanDurationMs;
+}
+
 ftxui::Element App::renderOnboardingWordmark() const {
-  return alignedOnboardingWordmark();
+  const auto startedAt = wordmarkScanStartedAt_.load();
+  if (startedAt < 0 || page_ != Page::Update) return alignedOnboardingWordmark(-1.0);
+  const auto elapsed = uiAnimationTicks() - startedAt - kWordmarkScanDelayMs;
+  if (elapsed >= kWordmarkScanDurationMs) return alignedOnboardingWordmark(-1.0);
+  // Travel from above the first row to below the last so the glow fully
+  // enters and leaves the wordmark.
+  constexpr double kTravel = kWordmarkRows + 3.0;
+  const auto progress = max(0.0, static_cast<double>(elapsed) / kWordmarkScanDurationMs);
+  return alignedOnboardingWordmark(progress * kTravel - 1.5);
 }
 
 ftxui::Element App::renderOnboardingFrame(ftxui::Element content) const {
