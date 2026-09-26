@@ -1333,10 +1333,27 @@ int main() {
   }
 
   {
-    assert(rack_page_detail::equalRackSlotHeight(39, 5) == 8);
+    assert(rack_page_detail::equalRackSlotHeight(39, 5) == 7);
     assert(rack_page_detail::equalRackSlotHeight(40, 5) == 8);
     assert(rack_page_detail::equalRackSlotHeight(15, 5) == 3);
-    assert(rack_page_detail::equalRackSlotHeight(16, 5) == 4);
+    assert(rack_page_detail::equalRackSlotHeight(16, 5) == 3);
+    assert(rack_page_detail::equalRackSlotWidth(35, 5) == 7);
+    assert(rack_page_detail::equalRackSlotWidth(39, 5) == 7);
+    assert(rack_page_detail::equalRackSlotWidth(40, 5) == 8);
+    assert(rack_page_detail::equalRackSlotWidth(100, 5) == 20);
+
+    // Floor division ensures rack slots never exceed available space across terminal heights
+    for (int availableRows = 15; availableRows <= 100; ++availableRows) {
+      const int height = rack_page_detail::equalRackSlotHeight(availableRows, 5);
+      assert(height >= 3);
+      assert(height * 5 <= availableRows);
+    }
+    // Floor division ensures rack slot widths never exceed available space across terminal widths
+    for (int availableCols = 35; availableCols <= 250; ++availableCols) {
+      const int width = rack_page_detail::equalRackSlotWidth(availableCols, 5);
+      assert(width >= 7);
+      assert(width * 5 <= availableCols);
+    }
   }
 
   {
