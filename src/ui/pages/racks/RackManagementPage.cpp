@@ -91,13 +91,21 @@ string shortComponentType(const string& componentType) {
   return componentType;
 }
 
-ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, int lowStockThreshold) {
+ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, int lowStockThreshold, int width = 0) {
   const auto foreground = item.quantity <= 0 ? uiDangerColor()
                         : isLowStock(item, lowStockThreshold) ? uiWarnColor()
                                           : uiPrimaryText();
   const auto background = selected ? uiSelectionBg()
                         : uiRaisedSurfaceBg();
-  auto indicator = styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background);
+  string text;
+  if (width > 0 && width < 10) {
+    text = " [" + to_string(item.quantity) + "] ";
+  } else if (width > 0 && width < 14) {
+    text = " Qty:[" + to_string(item.quantity) + "] ";
+  } else {
+    text = " Quantity:[" + to_string(item.quantity) + "] ";
+  }
+  auto indicator = styledText(text, foreground, background);
   if (selected) indicator = indicator | ftxui::bold;
   return indicator;
 }
@@ -173,19 +181,20 @@ ftxui::Element App::renderRackManagementUi() const {
   // The supported 100-column terminal still keeps the rack matrix beside its
   // context panels. Stacking would make the 5x5 grid taller than the viewport.
   const bool compact = screenWidth < 100;
-  const int listWidth = screenWidth < 118 ? 24 : 30;
-  int detailWidth = screenWidth < 118 ? 30 : 36;
+  const int listWidth = screenWidth < 118 ? 24 : 28;
+  int detailWidth = screenWidth < 118 ? 30 : 34;
   // In the horizontal layout, account for its two one-column separators. The
   // compact layout stacks the grid below the side panels, so it uses the full
   // screen width instead.
   int gridWidth = compact ? screenWidth : max(42, screenWidth - listWidth - detailWidth - 2);
+  constexpr int rowDesignatorWidth = 3;
+  const int colCount = rack != nullptr && rackRowCount(*rack) > 0 ? rackRowCount(*rack) : 5;
+  const int separatorCount = colCount;
+  const int slotColumnsSpace = max(colCount * 7, gridWidth - rowDesignatorWidth - separatorCount);
+  const int slotWidth = rack_page_detail::equalRackSlotWidth(slotColumnsSpace, colCount);
   if (!compact && rack != nullptr && rackRowCount(*rack) > 0) {
-    constexpr int rowDesignatorWidth = 3;
-    const int columnCount = rackRowCount(*rack);
-    const int separatorCount = columnCount;
-    const int slotWidth = max(7, (gridWidth - rowDesignatorWidth - separatorCount) / columnCount);
-    const int fittedGridWidth = rowDesignatorWidth + separatorCount + slotWidth * columnCount;
-    detailWidth += gridWidth - fittedGridWidth;
+    const int fittedGridWidth = rowDesignatorWidth + separatorCount + slotWidth * colCount;
+    detailWidth += max(0, gridWidth - fittedGridWidth);
     gridWidth = fittedGridWidth;
   }
 
@@ -256,23 +265,14 @@ ftxui::Element App::renderRackManagementUi() const {
       // above them label the lettered rack columns. Both dimensions come from
       // the selected rack instead of assuming the default five-by-five size.
       constexpr int rowHeaderWidth = 3;
-      // Include the divider between the numeric row labels and the slot cells.
-      const int separatorCount = rackGridRows;
-      const int slotSpace = max(rackGridRows, gridWidth - rowHeaderWidth - separatorCount);
-      const int slotWidth = max(7, slotSpace / rackGridRows);
-      // Keep every slot column identical. The designator lane absorbs the
-      // indivisible terminal-width remainder so the complete rack width still
-      // matches the available grid width exactly.
       const int designatorWidth = rowHeaderWidth;
-      // Keep the letter headers to one row immediately below the controls.
-      // Keep the letter headers to one plain row immediately below the
-      // controls. A single grid-wide divider below it gives the column axis
-      // the same clean separation as the numbered row axis.
-      // The shell permanently reserves its notification row, even when it is
-      // quiet. Leave that row, the search row, dividers, and rack controls
-      // outside the slot matrix so the last slot line remains visible.
-      const int slotRowsSpace = max(rackGridColumns * 3,
-                                    screenHeight - 12 - (!rackFilter_.empty() ? 1 : 0));
+      // Fixed vertical chrome across the whole application window:
+      // Shell: Header (1) + Top Divider (1) + Bottom Divider (1) + Search/Context (1) + Message (1) = 5 rows
+      // Grid: Letter Header (1) + Header Divider (1) + (rackGridColumns - 1) row dividers + optional filter banner (1)
+      const int shellChromeRows = 5;
+      const int gridChromeRows = 2 + (rackGridColumns - 1) + (!rackFilter_.empty() ? 1 : 0);
+      const int totalNonSlotRows = shellChromeRows + gridChromeRows;
+      const int slotRowsSpace = max(rackGridColumns * 3, screenHeight - totalNonSlotRows);
       const int slotHeight = rack_page_detail::equalRackSlotHeight(slotRowsSpace, rackGridColumns);
       ftxui::Elements columnHeaders;
       columnHeaders.push_back(rackCenteredCell("", designatorWidth, uiDimColor()));
@@ -291,9 +291,8 @@ ftxui::Element App::renderRackManagementUi() const {
       // Keep the existing rackRow_/rackColumn_ state and slot lookup untouched
       // by translating the visual coordinates back to storage coordinates here.
       for (int displayRow = 0; displayRow < rackGridColumns; ++displayRow) {
-        // Keep every physical slot row identical. Distributing a terminal-row
-        // remainder to the first rows makes the top row taller and can leave
-        // the final row clipped by the page boundary.
+        // Keep every physical slot row identical. Floor division ensures that
+        // the matrix fits strictly within the available vertical space.
         const int rowHeight = slotHeight;
         ftxui::Elements rowCells;
         auto rowDesignator = ftxui::vbox({
@@ -325,8 +324,8 @@ ftxui::Element App::renderRackManagementUi() const {
                           ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, max(1, rowHeight - 1));
           cellRows.push_back(move(nameArea));
           auto quantity = item == nullptr
-                              ? styledText(" available ", uiDimColor())
-                              : rackQuantityIndicator(*item, selected, settings_.lowStockThreshold);
+                              ? styledText(cellWidth < 12 ? " avail " : " available ", uiDimColor())
+                              : rackQuantityIndicator(*item, selected, settings_.lowStockThreshold, cellWidth);
           cellRows.push_back(ftxui::hbox({
               move(quantity),
               ftxui::filler(),
@@ -355,6 +354,7 @@ ftxui::Element App::renderRackManagementUi() const {
           gridRows.push_back(uiDivider());
         }
       }
+      gridRows.push_back(ftxui::filler());
     }
   }
 
