@@ -157,10 +157,19 @@ Refresh, Test, Copy, Regenerate, Clear, Check for software updates, and Update a
 The Quick Labels panel owns the optional custom wire label as well as the saved presets. The Printer panel contains
 printer discovery and queue testing only.
 
+Every panel follows one layout. A header row names the category and shows
+Saved/Unsaved changes, followed by a divider. The body is a list of titled
+sections separated by one blank line; a section title may carry right-aligned
+meta such as a count or the last update check. Rows inside a section share a
+three-column marker gutter (`>` when selected), a fixed label column, and a
+value column, whether the row is an editable field, an On/Off toggle, a colored
+status value, or a selectable list entry. A section's buttons come last in that
+section, aligned under its labels. Save and Cancel stay in the shared footer.
+
 Each panel carries only settings and state: no explanatory hint copy, and no
 navigation button that duplicates a category already in the sidebar. An
-unconfigured integration or device shows only a filled cyan `Begin Setup`
-button; setup guidance lives in its wizard. Once setup is accepted, the panel
+unconfigured integration or device shows a single Setup section with its status
+and a filled cyan `Begin Setup` button; setup guidance lives in its wizard. Once setup is accepted, the panel
 restores its settings and state rows. Every other control is an ordinary raised
 text button. Panels do not restate diagnostics that the device reports
 elsewhere, and values derived from an absent device are omitted rather than
