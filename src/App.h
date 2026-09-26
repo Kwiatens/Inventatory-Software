@@ -177,6 +177,8 @@ class App {
  public:
   App(bool startInBackground, BackgroundController& backgroundController);
   int run();
+  bool updateInstallerLaunched() const { return updateInstallerLaunched_; }
+  const std::filesystem::path& updateMarkerPath() const { return updateMarkerPath_; }
 
  private:
   enum class Page {
