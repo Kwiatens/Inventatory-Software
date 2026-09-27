@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+  <title>Inventatory - low stock</title>
+  <!-- Inventatory mark C1, animation "lowstock". Geometry and colours identical to inventatory-mark.svg v1.2.
+       Pure SVG + CSS, loops forever, falls back to the static mark with prefers-reduced-motion. -->
+  <style>
+    rect{animation-duration:1.6s;animation-iteration-count:infinite;animation-timing-function:linear}
+    #lowstock-s0,#lowstock-s1,#lowstock-s2{opacity:.18}
+    @keyframes klowstock-s3{0%,100%{fill:#64BFB6}45%,60%{fill:#D8B56B}}
+    #lowstock-s3{animation-name:klowstock-s3;animation-timing-function:ease-in-out}
+    @media (prefers-reduced-motion:reduce){rect{animation:none!important}}
+  </style>
+  <rect id="lowstock-c0" x="0" y="350" width="100" height="100" fill="#82CDC4"/>
+  <rect id="lowstock-c1" x="100" y="450" width="100" height="100" fill="#8FD3C9"/>
+  <rect id="lowstock-c2" x="200" y="550" width="100" height="100" fill="#9BD9CF"/>
+  <rect id="lowstock-c3" x="100" y="650" width="100" height="100" fill="#A7DED5"/>
+  <rect id="lowstock-c4" x="0" y="750" width="100" height="100" fill="#B3E4DA"/>
+  <rect id="lowstock-r3" x="400" y="300" width="200" height="105" fill="#7CCAC1"/>
+  <rect id="lowstock-r4" x="400" y="400" width="200" height="105" fill="#89D0C7"/>
+  <rect id="lowstock-r5" x="400" y="500" width="200" height="105" fill="#95D6CC"/>
+  <rect id="lowstock-r6" x="400" y="600" width="200" height="105" fill="#A1DCD2"/>
+  <rect id="lowstock-r7" x="400" y="700" width="200" height="105" fill="#ADE1D7"/>
+  <rect id="lowstock-r8" x="400" y="800" width="200" height="100" fill="#B9E7DD"/>
+  <rect id="lowstock-s0" x="400" y="0" width="105" height="105" fill="#58B9B0"/>
+  <rect id="lowstock-s1" x="500" y="0" width="100" height="105" fill="#58B9B0"/>
+  <rect id="lowstock-s2" x="400" y="100" width="105" height="100" fill="#64BFB6"/>
+  <rect id="lowstock-s3" x="500" y="100" width="100" height="100" fill="#64BFB6"/>
+</svg>
