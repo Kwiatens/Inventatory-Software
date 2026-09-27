@@ -7,41 +7,42 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ('Inventatory-update-smoke-'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Assert-DirectInstallCommand {
-  $releaseTag = 'v0.2.0-rc.6'
-  $releaseTagPattern = [regex]::Escape($releaseTag)
+  # Docs must always resolve GitHub's "latest" alias, which only ever points at a
+  # full (non-prerelease, non-draft) release, never a hand-pinned tag that goes
+  # stale the moment a new version ships.
   $readmeCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
     Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
   if (-not $readmeCommand -or $readmeCommand -notmatch
-      "releases/download/$releaseTagPattern/Install-Inventatory\.ps1" -or
+      'releases/latest/download/Install-Inventatory\.ps1' -or
       $readmeCommand -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*Install-Inventatory\.ps1' -or
-      $readmeCommand -match 'Inventatory-win-x64\.zip|tar\.exe') {
-    throw 'The Windows prerelease command must run the checksum-verifying installer from its exact release tag.'
+      $readmeCommand -match 'Inventatory-win-x64\.zip|tar\.exe|ReleaseTag') {
+    throw 'The Windows install command must run the checksum-verifying installer from the latest stable release.'
   }
 
   $readmeLinuxCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
     Where-Object { $_ -match 'Inventatory-linux-x64\.tar\.gz' } | Select-Object -First 1)
-  if (-not $readmeLinuxCommand -or $readmeLinuxCommand -match 'releases/latest/download' -or
-      $readmeLinuxCommand -notmatch "releases/download/$releaseTagPattern/Inventatory-linux-x64\.tar\.gz" -or
-      $readmeLinuxCommand -notmatch "releases/download/$releaseTagPattern/SHA256SUMS-linux\.txt" -or
-      $readmeLinuxCommand -notmatch "releases/download/$releaseTagPattern/Install-Inventatory\.sh") {
-    throw 'The Linux prerelease command must download all assets from its exact release tag.'
+  if (-not $readmeLinuxCommand -or
+      $readmeLinuxCommand -notmatch 'releases/latest/download/Inventatory-linux-x64\.tar\.gz' -or
+      $readmeLinuxCommand -notmatch 'releases/latest/download/SHA256SUMS-linux\.txt' -or
+      $readmeLinuxCommand -notmatch 'releases/latest/download/Install-Inventatory\.sh') {
+    throw 'The Linux install command must download all assets from the latest stable release.'
   }
 
   $publicBetaCommand = (Get-Content (Join-Path $repositoryRoot 'docs/public-beta.md') |
     Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
   if (-not $publicBetaCommand -or
-      $publicBetaCommand -notmatch "releases/download/$releaseTagPattern/Install-Inventatory\.ps1" -or
+      $publicBetaCommand -notmatch 'releases/latest/download/Install-Inventatory\.ps1' -or
       $publicBetaCommand -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*Install-Inventatory\.ps1') {
-    throw 'The public beta Windows command must install from the exact prerelease tag.'
+    throw 'The public beta Windows command must install from the latest stable release.'
   }
 
   $publicBetaLinuxCommand = (Get-Content (Join-Path $repositoryRoot 'docs/public-beta.md') |
     Where-Object { $_ -match 'Inventatory-linux-x64\.tar\.gz' } | Select-Object -First 1)
-  if (-not $publicBetaLinuxCommand -or $publicBetaLinuxCommand -match 'releases/latest/download' -or
-      $publicBetaLinuxCommand -notmatch "releases/download/$releaseTagPattern/Inventatory-linux-x64\.tar\.gz" -or
-      $publicBetaLinuxCommand -notmatch "releases/download/$releaseTagPattern/SHA256SUMS-linux\.txt" -or
-      $publicBetaLinuxCommand -notmatch "releases/download/$releaseTagPattern/Install-Inventatory\.sh") {
-    throw 'The public beta Linux command must download all assets from the exact prerelease tag.'
+  if (-not $publicBetaLinuxCommand -or
+      $publicBetaLinuxCommand -notmatch 'releases/latest/download/Inventatory-linux-x64\.tar\.gz' -or
+      $publicBetaLinuxCommand -notmatch 'releases/latest/download/SHA256SUMS-linux\.txt' -or
+      $publicBetaLinuxCommand -notmatch 'releases/latest/download/Install-Inventatory\.sh') {
+    throw 'The public beta Linux command must download all assets from the latest stable release.'
   }
 
   $launcher = Get-Content -Raw (Join-Path $PSScriptRoot 'Install-Inventatory.cmd')
