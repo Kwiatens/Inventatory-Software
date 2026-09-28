@@ -6,11 +6,14 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <ctime>
+#include <mutex>
+#include <optional>
 
 namespace inventatory {
 
@@ -36,6 +39,9 @@ ftxui::Element onboardingChoicePrompt(char selectedOption, const string& first, 
 constexpr int kWordmarkRows = 6;
 constexpr long long kWordmarkScanDelayMs = 1350;
 constexpr long long kWordmarkScanDurationMs = 1100;
+// The dot animates in whole steps, like pixels switching, at the UI tick rate.
+constexpr long long kDotStepMs = 200;
+constexpr long long kDotBlinkMs = 400;
 
 uint32_t blendRgb(uint32_t from, uint32_t to, double amount) {
   const auto channel = [from, to, amount](int shift) {
@@ -70,22 +76,100 @@ ftxui::Color wordmarkRowColor(int row, double scanPosition) {
   return rgbColor(blendRgb(base, colors[static_cast<size_t>(AppearanceColorRole::PrimaryText)], glow));
 }
 
-ftxui::Element alignedOnboardingWordmark(double scanPosition) {
-  const vector<string> wordmarkRows = {
-      u8"██╗███╗   ██╗██╗   ██╗███████╗███╗   ██╗████████╗ █████╗ ████████╗ ██████╗ ██████╗ ██╗   ██╗",
-      u8"██║████╗  ██║██║   ██║██╔════╝████╗  ██║╚══██╔══╝██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗╚██╗ ██╔╝",
-      u8"██║██╔██╗ ██║██║   ██║█████╗  ██╔██╗ ██║   ██║   ███████║   ██║   ██║   ██║██████╔╝ ╚████╔╝ ",
-      u8"██║██║╚██╗██║╚██╗ ██╔╝██╔══╝  ██║╚██╗██║   ██║   ██╔══██║   ██║   ██║   ██║██╔══██╗  ╚██╔╝  ",
-      u8"██║██║ ╚████║ ╚████╔╝ ███████╗██║ ╚████║   ██║   ██║  ██║   ██║   ╚██████╔╝██║  ██║   ██║   ",
-      u8"╚═╝╚═╝  ╚═══╝  ╚═══╝  ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ",
+// The ›i lockup: a chevron drawn in the wordmark's own shadowed block style, one
+// column before the I. Together with the dot above the I it forms the mark.
+constexpr int kLockupStemColumn = 8;
+
+// The i's dot is one letter pixel split into four rack slots, drawn as two
+// half-block cells: each cell's foreground is its top slot, its background the
+// bottom slot. Slots are in reading order: top-left, top-right, bottom-left,
+// bottom-right. An empty optional leaves the slot as canvas.
+using WordmarkDot = array<optional<uint32_t>, 4>;
+
+ftxui::Element wordmarkDotRow(const WordmarkDot& slots, int width) {
+  const auto canvas = activeUiAppearance().colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)];
+  const auto cell = [canvas](const optional<uint32_t>& top, const optional<uint32_t>& bottom) {
+    return ftxui::text(u8"\u2580") | ftxui::color(rgbColor(top.value_or(canvas))) |
+           ftxui::bgcolor(rgbColor(bottom.value_or(canvas)));
   };
+  return ftxui::hbox({
+      ftxui::text(string(kLockupStemColumn, ' ')),
+      cell(slots[0], slots[2]),
+      cell(slots[1], slots[3]),
+      ftxui::text(string(static_cast<size_t>(max(0, width - kLockupStemColumn - 2)), ' ')),
+  });
+}
+
+ftxui::Element alignedOnboardingWordmark(double scanPosition, const WordmarkDot& dot) {
+  const vector<string> wordmarkRows = {
+      u8"██╗     ██╗███╗   ██╗██╗   ██╗███████╗███╗   ██╗████████╗ █████╗ ████████╗ ██████╗ ██████╗ ██╗   ██╗",
+      u8"╚═██╗   ██║████╗  ██║██║   ██║██╔════╝████╗  ██║╚══██╔══╝██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗╚██╗ ██╔╝",
+      u8"  ╚═██╗ ██║██╔██╗ ██║██║   ██║█████╗  ██╔██╗ ██║   ██║   ███████║   ██║   ██║   ██║██████╔╝ ╚████╔╝ ",
+      u8"  ██╔═╝ ██║██║╚██╗██║╚██╗ ██╔╝██╔══╝  ██║╚██╗██║   ██║   ██╔══██║   ██║   ██║   ██║██╔══██╗  ╚██╔╝  ",
+      u8"██╔═╝   ██║██║ ╚████║ ╚████╔╝ ███████╗██║ ╚████║   ██║   ██║  ██║   ██║   ╚██████╔╝██║  ██║   ██║   ",
+      u8"╚═╝     ╚═╝╚═╝  ╚═══╝  ╚═══╝  ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ",
+  };
+  constexpr int kLockupWidth = 100;
 
   ftxui::Elements renderedRows;
-  renderedRows.reserve(wordmarkRows.size());
+  renderedRows.reserve(wordmarkRows.size() + 2);
+  // The dot row and the gap below it are always reserved so the lockup never
+  // moves when the dot appears.
+  renderedRows.push_back(wordmarkDotRow(dot, kLockupWidth));
+  renderedRows.push_back(ftxui::text(" "));
   for (size_t row = 0; row < wordmarkRows.size(); ++row) {
     renderedRows.push_back(styledText(wordmarkRows[row], wordmarkRowColor(static_cast<int>(row), scanPosition)));
   }
   return ftxui::vbox(move(renderedRows));
+}
+
+uint32_t appearanceRgb(AppearanceColorRole role) {
+  return activeUiAppearance().colors[static_cast<size_t>(role)];
+}
+
+// A lit slot, and an empty one: the accent at 18 % over the canvas.
+uint32_t dotLitRgb() { return appearanceRgb(AppearanceColorRole::Interactive); }
+uint32_t dotEmptyRgb() {
+  return blendRgb(appearanceRgb(AppearanceColorRole::CanvasBg), appearanceRgb(AppearanceColorRole::Interactive), 0.18);
+}
+
+// Work of unknown length: one lit slot travels clockwise around empty slots.
+WordmarkDot busyDot(long long ticks) {
+  static constexpr array<size_t, 4> kClockwise = {0, 1, 3, 2};
+  WordmarkDot dot;
+  dot.fill(dotEmptyRgb());
+  dot[kClockwise[static_cast<size_t>((ticks / kDotStepMs) % 4)]] = dotLitRgb();
+  return dot;
+}
+
+// A download of known size: slots fill in reading order, one per quarter, and
+// the slot being filled blinks.
+WordmarkDot progressDot(double fraction, long long ticks) {
+  const auto filled = static_cast<size_t>(clamp(fraction, 0.0, 1.0) * 4.0);
+  WordmarkDot dot;
+  for (size_t slot = 0; slot < dot.size(); ++slot) {
+    const bool blinking = slot == filled && (ticks / kDotBlinkMs) % 2 == 0;
+    dot[slot] = slot < filled || blinking ? dotLitRgb() : dotEmptyRgb();
+  }
+  return dot;
+}
+
+// After a completed update the slots switch on one by one as the scan line
+// starts, hold, then switch off in the same order, leaving the plain lockup.
+WordmarkDot completeDot(long long elapsed) {
+  constexpr long long kOffAfterMs = kWordmarkScanDelayMs + kWordmarkScanDurationMs + 700;
+  WordmarkDot dot;
+  for (size_t slot = 0; slot < dot.size(); ++slot) {
+    const auto stagger = static_cast<long long>(slot) * kDotStepMs;
+    if (elapsed >= kWordmarkScanDelayMs + stagger && elapsed < kOffAfterMs + stagger) dot[slot] = dotLitRgb();
+  }
+  return dot;
+}
+
+WordmarkDot failedDot() {
+  WordmarkDot dot;
+  dot.fill(appearanceRgb(AppearanceColorRole::WarningText));
+  return dot;
 }
 
 }  // namespace
@@ -96,15 +180,42 @@ bool App::wordmarkScanRunning() const {
 }
 
 ftxui::Element App::renderOnboardingWordmark() const {
-  const auto startedAt = wordmarkScanStartedAt_.load();
-  if (startedAt < 0 || page_ != Page::Update) return alignedOnboardingWordmark(-1.0);
-  const auto elapsed = uiAnimationTicks() - startedAt - kWordmarkScanDelayMs;
-  if (elapsed >= kWordmarkScanDurationMs) return alignedOnboardingWordmark(-1.0);
-  // Travel from above the first row to below the last so the glow fully
-  // enters and leaves the wordmark.
-  constexpr double kTravel = kWordmarkRows + 3.0;
-  const auto progress = max(0.0, static_cast<double>(elapsed) / kWordmarkScanDurationMs);
-  return alignedOnboardingWordmark(progress * kTravel - 1.5);
+  if (page_ != Page::Update) return alignedOnboardingWordmark(-1.0, {});
+  const auto ticks = uiAnimationTicks();
+  switch (updateStep_) {
+    case UpdateWizardStep::Preparing:
+    case UpdateWizardStep::Verifying:
+    case UpdateWizardStep::HandingOff:
+      return alignedOnboardingWordmark(-1.0, busyDot(ticks));
+    case UpdateWizardStep::Downloading: {
+      uint64_t downloaded = 0;
+      uint64_t total = 0;
+      if (updateDownloadState_ != nullptr) {
+        lock_guard<mutex> lock(updateDownloadState_->mutex);
+        downloaded = updateDownloadState_->downloadedBytes;
+        total = updateDownloadState_->totalBytes;
+      }
+      if (total == 0) return alignedOnboardingWordmark(-1.0, busyDot(ticks));
+      return alignedOnboardingWordmark(-1.0, progressDot(static_cast<double>(downloaded) / static_cast<double>(total), ticks));
+    }
+    case UpdateWizardStep::Failed:
+      return alignedOnboardingWordmark(-1.0, failedDot());
+    case UpdateWizardStep::Complete: {
+      const auto startedAt = wordmarkScanStartedAt_.load();
+      if (startedAt < 0) return alignedOnboardingWordmark(-1.0, {});
+      const auto elapsed = ticks - startedAt;
+      const auto dot = completeDot(elapsed);
+      const auto scanElapsed = elapsed - kWordmarkScanDelayMs;
+      if (scanElapsed >= kWordmarkScanDurationMs) return alignedOnboardingWordmark(-1.0, dot);
+      // Travel from above the first row to below the last so the glow fully
+      // enters and leaves the wordmark; before it starts the rows stay muted.
+      constexpr double kTravel = kWordmarkRows + 3.0;
+      const auto progress = max(0.0, static_cast<double>(scanElapsed) / kWordmarkScanDurationMs);
+      return alignedOnboardingWordmark(progress * kTravel - 1.5, dot);
+    }
+    default:
+      return alignedOnboardingWordmark(-1.0, {});
+  }
 }
 
 ftxui::Element App::renderOnboardingFrame(ftxui::Element content) const {
