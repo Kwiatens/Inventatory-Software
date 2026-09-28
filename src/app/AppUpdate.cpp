@@ -162,7 +162,7 @@ void App::loadUpdateCompletionMarker() {
     updateStep_ = UpdateWizardStep::Failed;
   } else {
     updateStep_ = UpdateWizardStep::Complete;
-    wordmarkScanStartedAt_.store(uiAnimationTicks());
+    wordmarkRevealStartedAt_.store(uiAnimationTicks());
   }
   updateCompletionPending_ = true;
   updateNotesScroll_ = 0;

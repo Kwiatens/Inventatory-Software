@@ -255,8 +255,8 @@ void App::runInteractiveLoop() {
   thread ticker([this, &screen] {
     while (running_) {
       screen.PostEvent(ftxui::Event::Custom);
-      // Tick faster only while the post-update wordmark scan is animating.
-      this_thread::sleep_for(chrono::milliseconds(wordmarkScanRunning() ? 33 : 100));
+      // Tick faster only while the post-update wordmark colour reveal is animating.
+      this_thread::sleep_for(chrono::milliseconds(wordmarkRevealRunning() ? 33 : 100));
     }
   });
 
