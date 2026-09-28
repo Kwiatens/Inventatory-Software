@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+  <title>Inventatory - idle cursor</title>
+  <!-- Inventatory mark C1, animation "cursor". Geometry and colours identical to inventatory-mark.svg v1.2.
+       Pure SVG + CSS, loops forever, falls back to the static mark with prefers-reduced-motion. -->
+  <style>
+    rect{animation-duration:1.1s;animation-iteration-count:infinite;animation-timing-function:linear}
+    @keyframes kcursor-s0{0.000%{opacity:1}49.909%{opacity:1}50.000%{opacity:0}100.000%{opacity:0}}
+    #cursor-s0{animation-name:kcursor-s0}
+    @keyframes kcursor-s1{0.000%{opacity:1}49.909%{opacity:1}50.000%{opacity:0}100.000%{opacity:0}}
+    #cursor-s1{animation-name:kcursor-s1}
+    @keyframes kcursor-s2{0.000%{opacity:1}49.909%{opacity:1}50.000%{opacity:0}100.000%{opacity:0}}
+    #cursor-s2{animation-name:kcursor-s2}
+    @keyframes kcursor-s3{0.000%{opacity:1}49.909%{opacity:1}50.000%{opacity:0}100.000%{opacity:0}}
+    #cursor-s3{animation-name:kcursor-s3}
+    @media (prefers-reduced-motion:reduce){rect{animation:none!important}}
+  </style>
+  <rect id="cursor-c0" x="0" y="350" width="100" height="100" fill="#82CDC4"/>
+  <rect id="cursor-c1" x="100" y="450" width="100" height="100" fill="#8FD3C9"/>
+  <rect id="cursor-c2" x="200" y="550" width="100" height="100" fill="#9BD9CF"/>
+  <rect id="cursor-c3" x="100" y="650" width="100" height="100" fill="#A7DED5"/>
+  <rect id="cursor-c4" x="0" y="750" width="100" height="100" fill="#B3E4DA"/>
+  <rect id="cursor-r3" x="400" y="300" width="200" height="105" fill="#7CCAC1"/>
+  <rect id="cursor-r4" x="400" y="400" width="200" height="105" fill="#89D0C7"/>
+  <rect id="cursor-r5" x="400" y="500" width="200" height="105" fill="#95D6CC"/>
+  <rect id="cursor-r6" x="400" y="600" width="200" height="105" fill="#A1DCD2"/>
+  <rect id="cursor-r7" x="400" y="700" width="200" height="105" fill="#ADE1D7"/>
+  <rect id="cursor-r8" x="400" y="800" width="200" height="100" fill="#B9E7DD"/>
+  <rect id="cursor-s0" x="400" y="0" width="105" height="105" fill="#58B9B0"/>
+  <rect id="cursor-s1" x="500" y="0" width="100" height="105" fill="#58B9B0"/>
+  <rect id="cursor-s2" x="400" y="100" width="105" height="100" fill="#64BFB6"/>
+  <rect id="cursor-s3" x="500" y="100" width="100" height="100" fill="#64BFB6"/>
+</svg>

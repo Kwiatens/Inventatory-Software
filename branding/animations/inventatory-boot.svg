@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+  <title>Inventatory - boot</title>
+  <!-- Inventatory mark C1, animation "boot". Geometry and colours identical to inventatory-mark.svg v1.2.
+       Pure SVG + CSS, loops forever, falls back to the static mark with prefers-reduced-motion. -->
+  <style>
+    rect{animation-duration:4.0s;animation-iteration-count:infinite;animation-timing-function:linear}
+    @keyframes kboot-c0{0%,3.725%{opacity:0;fill:#82CDC4}3.750%{opacity:1;fill:#82CDC4}48.841%{fill:#82CDC4}52.841%{fill:#F1EEE5}58.341%{fill:#82CDC4}88.725%{opacity:1;fill:#82CDC4}88.750%,100%{opacity:0;fill:#82CDC4}}
+    #boot-c0{animation-name:kboot-c0}
+    @keyframes kboot-c1{0%,5.975%{opacity:0;fill:#8FD3C9}6.000%{opacity:1;fill:#8FD3C9}50.659%{fill:#8FD3C9}54.659%{fill:#F1EEE5}60.159%{fill:#8FD3C9}88.725%{opacity:1;fill:#8FD3C9}88.750%,100%{opacity:0;fill:#8FD3C9}}
+    #boot-c1{animation-name:kboot-c1}
+    @keyframes kboot-c2{0%,8.225%{opacity:0;fill:#9BD9CF}8.250%{opacity:1;fill:#9BD9CF}52.477%{fill:#9BD9CF}56.477%{fill:#F1EEE5}61.977%{fill:#9BD9CF}88.725%{opacity:1;fill:#9BD9CF}88.750%,100%{opacity:0;fill:#9BD9CF}}
+    #boot-c2{animation-name:kboot-c2}
+    @keyframes kboot-c3{0%,10.475%{opacity:0;fill:#A7DED5}10.500%{opacity:1;fill:#A7DED5}54.295%{fill:#A7DED5}58.295%{fill:#F1EEE5}63.795%{fill:#A7DED5}88.725%{opacity:1;fill:#A7DED5}88.750%,100%{opacity:0;fill:#A7DED5}}
+    #boot-c3{animation-name:kboot-c3}
+    @keyframes kboot-c4{0%,12.725%{opacity:0;fill:#B3E4DA}12.750%{opacity:1;fill:#B3E4DA}56.114%{fill:#B3E4DA}60.114%{fill:#F1EEE5}65.614%{fill:#B3E4DA}88.725%{opacity:1;fill:#B3E4DA}88.750%,100%{opacity:0;fill:#B3E4DA}}
+    #boot-c4{animation-name:kboot-c4}
+    @keyframes kboot-r3{0%,26.225%{opacity:0;fill:#7CCAC1}26.250%{opacity:1;fill:#7CCAC1}47.977%{fill:#7CCAC1}51.977%{fill:#F1EEE5}57.477%{fill:#7CCAC1}88.725%{opacity:1;fill:#7CCAC1}88.750%,100%{opacity:0;fill:#7CCAC1}}
+    #boot-r3{animation-name:kboot-r3}
+    @keyframes kboot-r4{0%,24.475%{opacity:0;fill:#89D0C7}24.500%{opacity:1;fill:#89D0C7}49.795%{fill:#89D0C7}53.795%{fill:#F1EEE5}59.295%{fill:#89D0C7}88.725%{opacity:1;fill:#89D0C7}88.750%,100%{opacity:0;fill:#89D0C7}}
+    #boot-r4{animation-name:kboot-r4}
+    @keyframes kboot-r5{0%,22.725%{opacity:0;fill:#95D6CC}22.750%{opacity:1;fill:#95D6CC}51.614%{fill:#95D6CC}55.614%{fill:#F1EEE5}61.114%{fill:#95D6CC}88.725%{opacity:1;fill:#95D6CC}88.750%,100%{opacity:0;fill:#95D6CC}}
+    #boot-r5{animation-name:kboot-r5}
+    @keyframes kboot-r6{0%,20.975%{opacity:0;fill:#A1DCD2}21.000%{opacity:1;fill:#A1DCD2}53.432%{fill:#A1DCD2}57.432%{fill:#F1EEE5}62.932%{fill:#A1DCD2}88.725%{opacity:1;fill:#A1DCD2}88.750%,100%{opacity:0;fill:#A1DCD2}}
+    #boot-r6{animation-name:kboot-r6}
+    @keyframes kboot-r7{0%,19.225%{opacity:0;fill:#ADE1D7}19.250%{opacity:1;fill:#ADE1D7}55.250%{fill:#ADE1D7}59.250%{fill:#F1EEE5}64.750%{fill:#ADE1D7}88.725%{opacity:1;fill:#ADE1D7}88.750%,100%{opacity:0;fill:#ADE1D7}}
+    #boot-r7{animation-name:kboot-r7}
+    @keyframes kboot-r8{0%,17.475%{opacity:0;fill:#B9E7DD}17.500%{opacity:1;fill:#B9E7DD}57.023%{fill:#B9E7DD}61.023%{fill:#F1EEE5}66.523%{fill:#B9E7DD}88.725%{opacity:1;fill:#B9E7DD}88.750%,100%{opacity:0;fill:#B9E7DD}}
+    #boot-r8{animation-name:kboot-r8}
+    @keyframes kboot-s0{0%,29.975%{opacity:0;fill:#58B9B0}30.000%{opacity:1;fill:#58B9B0}42.523%{fill:#58B9B0}46.523%{fill:#F1EEE5}52.023%{fill:#58B9B0}88.725%{opacity:1;fill:#58B9B0}88.750%,100%{opacity:0;fill:#58B9B0}}
+    #boot-s0{animation-name:kboot-s0}
+    @keyframes kboot-s1{0%,32.475%{opacity:0;fill:#58B9B0}32.500%{opacity:1;fill:#58B9B0}42.523%{fill:#58B9B0}46.523%{fill:#F1EEE5}52.023%{fill:#58B9B0}88.725%{opacity:1;fill:#58B9B0}88.750%,100%{opacity:0;fill:#58B9B0}}
+    #boot-s1{animation-name:kboot-s1}
+    @keyframes kboot-s2{0%,34.975%{opacity:0;fill:#64BFB6}35.000%{opacity:1;fill:#64BFB6}44.295%{fill:#64BFB6}48.295%{fill:#F1EEE5}53.795%{fill:#64BFB6}88.725%{opacity:1;fill:#64BFB6}88.750%,100%{opacity:0;fill:#64BFB6}}
+    #boot-s2{animation-name:kboot-s2}
+    @keyframes kboot-s3{0%,37.475%{opacity:0;fill:#64BFB6}37.500%{opacity:1;fill:#64BFB6}44.295%{fill:#64BFB6}48.295%{fill:#F1EEE5}53.795%{fill:#64BFB6}88.725%{opacity:1;fill:#64BFB6}88.750%,100%{opacity:0;fill:#64BFB6}}
+    #boot-s3{animation-name:kboot-s3}
+    @media (prefers-reduced-motion:reduce){rect{animation:none!important}}
+  </style>
+  <rect id="boot-c0" x="0" y="350" width="100" height="100" fill="#82CDC4"/>
+  <rect id="boot-c1" x="100" y="450" width="100" height="100" fill="#8FD3C9"/>
+  <rect id="boot-c2" x="200" y="550" width="100" height="100" fill="#9BD9CF"/>
+  <rect id="boot-c3" x="100" y="650" width="100" height="100" fill="#A7DED5"/>
+  <rect id="boot-c4" x="0" y="750" width="100" height="100" fill="#B3E4DA"/>
+  <rect id="boot-r3" x="400" y="300" width="200" height="105" fill="#7CCAC1"/>
+  <rect id="boot-r4" x="400" y="400" width="200" height="105" fill="#89D0C7"/>
+  <rect id="boot-r5" x="400" y="500" width="200" height="105" fill="#95D6CC"/>
+  <rect id="boot-r6" x="400" y="600" width="200" height="105" fill="#A1DCD2"/>
+  <rect id="boot-r7" x="400" y="700" width="200" height="105" fill="#ADE1D7"/>
+  <rect id="boot-r8" x="400" y="800" width="200" height="100" fill="#B9E7DD"/>
+  <rect id="boot-s0" x="400" y="0" width="105" height="105" fill="#58B9B0"/>
+  <rect id="boot-s1" x="500" y="0" width="100" height="105" fill="#58B9B0"/>
+  <rect id="boot-s2" x="400" y="100" width="105" height="100" fill="#64BFB6"/>
+  <rect id="boot-s3" x="500" y="100" width="100" height="100" fill="#64BFB6"/>
+</svg>
