@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+  <title>Inventatory - locate part</title>
+  <!-- Inventatory mark C1, animation "locate". Geometry and colours identical to inventatory-mark.svg v1.2.
+       Pure SVG + CSS, loops forever, falls back to the static mark with prefers-reduced-motion. -->
+  <style>
+    rect{animation-duration:4.0s;animation-iteration-count:infinite;animation-timing-function:linear}
+    @keyframes klocate-s0{0.000%{fill:#58B9B0}4.975%{fill:#58B9B0}5.000%{fill:#D8B56B}8.975%{fill:#D8B56B}9.000%{fill:#58B9B0}11.975%{fill:#58B9B0}12.000%{fill:#D8B56B}22.975%{fill:#D8B56B}23.000%{fill:#58B9B0}100.000%{fill:#58B9B0}}
+    #locate-s0{animation-name:klocate-s0}
+    @keyframes klocate-s1{0.000%{fill:#58B9B0}28.725%{fill:#58B9B0}28.750%{fill:#D8B56B}32.725%{fill:#D8B56B}32.750%{fill:#58B9B0}35.725%{fill:#58B9B0}35.750%{fill:#D8B56B}46.725%{fill:#D8B56B}46.750%{fill:#58B9B0}100.000%{fill:#58B9B0}}
+    #locate-s1{animation-name:klocate-s1}
+    @keyframes klocate-s2{0.000%{fill:#64BFB6}52.475%{fill:#64BFB6}52.500%{fill:#D8B56B}56.475%{fill:#D8B56B}56.500%{fill:#64BFB6}59.475%{fill:#64BFB6}59.500%{fill:#D8B56B}70.475%{fill:#D8B56B}70.500%{fill:#64BFB6}100.000%{fill:#64BFB6}}
+    #locate-s2{animation-name:klocate-s2}
+    @keyframes klocate-s3{0.000%{fill:#64BFB6}76.225%{fill:#64BFB6}76.250%{fill:#D8B56B}80.225%{fill:#D8B56B}80.250%{fill:#64BFB6}83.225%{fill:#64BFB6}83.250%{fill:#D8B56B}94.225%{fill:#D8B56B}94.250%{fill:#64BFB6}100.000%{fill:#64BFB6}}
+    #locate-s3{animation-name:klocate-s3}
+    @media (prefers-reduced-motion:reduce){rect{animation:none!important}}
+  </style>
+  <rect id="locate-c0" x="0" y="350" width="100" height="100" fill="#82CDC4"/>
+  <rect id="locate-c1" x="100" y="450" width="100" height="100" fill="#8FD3C9"/>
+  <rect id="locate-c2" x="200" y="550" width="100" height="100" fill="#9BD9CF"/>
+  <rect id="locate-c3" x="100" y="650" width="100" height="100" fill="#A7DED5"/>
+  <rect id="locate-c4" x="0" y="750" width="100" height="100" fill="#B3E4DA"/>
+  <rect id="locate-r3" x="400" y="300" width="200" height="105" fill="#7CCAC1"/>
+  <rect id="locate-r4" x="400" y="400" width="200" height="105" fill="#89D0C7"/>
+  <rect id="locate-r5" x="400" y="500" width="200" height="105" fill="#95D6CC"/>
+  <rect id="locate-r6" x="400" y="600" width="200" height="105" fill="#A1DCD2"/>
+  <rect id="locate-r7" x="400" y="700" width="200" height="105" fill="#ADE1D7"/>
+  <rect id="locate-r8" x="400" y="800" width="200" height="100" fill="#B9E7DD"/>
+  <rect id="locate-s0" x="400" y="0" width="105" height="105" fill="#58B9B0"/>
+  <rect id="locate-s1" x="500" y="0" width="100" height="105" fill="#58B9B0"/>
+  <rect id="locate-s2" x="400" y="100" width="105" height="100" fill="#64BFB6"/>
+  <rect id="locate-s3" x="500" y="100" width="100" height="100" fill="#64BFB6"/>
+</svg>

@@ -181,7 +181,9 @@ ftxui::Element App::renderHeaderUi() const {
   };
 
   ftxui::Elements navigation;
-  navigation.push_back(uiHeaderText(" Inventatory ", uiPrimaryText()));
+  // The lockup set in type: the ›I mark in the accent, the rest of the word in primary text.
+  navigation.push_back(uiHeaderText(u8" \u203AI", uiInteractiveColor()));
+  navigation.push_back(uiHeaderText("nventatory ", uiPrimaryText()));
   for (const auto& entry : app_navigation::primaryNavigationEntries()) {
     const auto page = pageForNavigation(entry.page);
     navigation.push_back(nav(page, "nav." + string(entry.id),
