@@ -1,12 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-30 -30 1060 210" width="1060" height="210" role="img" aria-label="Inventatory">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 36 1008 118" width="1008" height="118" role="img" aria-label="Inventatory">
   <title>Inventatory</title>
-  <!-- Static &#8250;iNVENTATORY lockup from the website: pixel grid, half-block drop shadow. -->
-  <rect x="-30" y="-30" width="1060" height="210" rx="12" fill="#0d1010"/>
+  <!-- Static &#8250;iNVENTATORY lockup from the website: pixel grid, half-block drop shadow, transparent background. -->
   <g id="shadow">
-    <rect x="90" y="10.0" width="10" height="10.0" fill="#2a504d"/>
-    <rect x="100" y="10.0" width="10" height="10.0" fill="#2a504d"/>
-    <rect x="90" y="20.0" width="10" height="10.0" fill="#2a504d"/>
-    <rect x="100" y="20.0" width="10" height="10.0" fill="#2a504d"/>
     <rect x="10" y="50.0" width="10" height="20" fill="#365652"/>
     <rect x="20" y="50.0" width="10" height="20" fill="#365652"/>
     <rect x="90" y="50.0" width="10" height="20" fill="#365652"/>
@@ -250,10 +245,6 @@
     <rect x="960" y="130.0" width="10" height="20" fill="#4e625e"/>
   </g>
   <g id="blocks" shape-rendering="crispEdges">
-    <rect x="80" y="0.0" width="10.6" height="10.6" fill="#58b9b0"/>
-    <rect x="90" y="0.0" width="10.6" height="10.6" fill="#58b9b0"/>
-    <rect x="80" y="10.0" width="10.6" height="10.6" fill="#58b9b0"/>
-    <rect x="90" y="10.0" width="10.6" height="10.6" fill="#58b9b0"/>
     <rect x="0" y="40" width="10.6" height="20.6" fill="#78c8bf"/>
     <rect x="10" y="40" width="10.6" height="20.6" fill="#78c8bf"/>
     <rect x="80" y="40" width="10.6" height="20.6" fill="#78c8bf"/>
