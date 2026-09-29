@@ -1,6 +1,7 @@
 // Inventatory - BOM matching helpers.
 
 #include "BomMatchPrivate.h"
+#include "core/parts/DecimalParse.h"
 
 #include "ui/shared/AppUiShared.h"
 
@@ -154,18 +155,13 @@ optional<double> parseNumberWithMultiplier(const string& body, bool resistanceLi
     return nullopt;
   }
 
-  try {
-    size_t consumed = 0;
-    const double number = stod(numberText, &consumed);
-    if (consumed != numberText.size()) {
-      return nullopt;
-    }
-    const double result = number * multiplier;
-    if (!isfinite(result) || result < 0.0) return nullopt;
-    return result;
-  } catch (...) {
+  double number = 0.0;
+  if (!parseClassicDecimal(numberText, number)) {
     return nullopt;
   }
+  const double result = number * multiplier;
+  if (!isfinite(result) || result < 0.0) return nullopt;
+  return result;
 }
 
 bool endsWith(const string& value, const string& suffix) {
