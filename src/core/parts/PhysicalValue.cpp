@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include <string>
 
 namespace inventatory {
@@ -34,6 +36,46 @@ constexpr PhysicalValueBandLimits physicalValueBandLimits(PhysicalValueType type
   const auto index = static_cast<size_t>(type);
   return index < kPhysicalValueBandLimits.size() ? kPhysicalValueBandLimits[index]
                                                  : PhysicalValueBandLimits{0.0, 0.0};
+}
+
+// Converts a plain decimal literal without consulting the process locale. The
+// application calls setlocale(LC_ALL, ""), and strtod would then read "0.1" as
+// "0" under locales that use a comma as the decimal separator.
+double parseClassicDouble(const string& literal) {
+  std::istringstream stream(literal);
+  stream.imbue(std::locale::classic());
+  double value = 0.0;
+  stream >> value;
+  return stream.fail() ? 0.0 : value;
+}
+
+// Scans a leading signed decimal number (digits, optional fraction, optional
+// exponent) and returns the number of characters consumed, or 0 if there is none.
+size_t scanLeadingNumber(const string& text, double& value) {
+  size_t index = 0;
+  if (index < text.size() && (text[index] == '+' || text[index] == '-')) ++index;
+  const auto digitsFrom = [&](size_t from) {
+    size_t end = from;
+    while (end < text.size() && std::isdigit(static_cast<unsigned char>(text[end]))) ++end;
+    return end;
+  };
+  const auto integerEnd = digitsFrom(index);
+  size_t end = integerEnd;
+  size_t fractionDigits = 0;
+  if (end < text.size() && text[end] == '.') {
+    const auto fractionEnd = digitsFrom(end + 1);
+    fractionDigits = fractionEnd - (end + 1);
+    if (fractionDigits > 0 || integerEnd > index) end = fractionEnd;
+  }
+  if (integerEnd == index && fractionDigits == 0) return 0;
+  if (end < text.size() && (text[end] == 'e' || text[end] == 'E')) {
+    size_t exponent = end + 1;
+    if (exponent < text.size() && (text[exponent] == '+' || text[exponent] == '-')) ++exponent;
+    const auto exponentEnd = digitsFrom(exponent);
+    if (exponentEnd > exponent) end = exponentEnd;
+  }
+  value = parseClassicDouble(text.substr(0, end));
+  return end;
 }
 
 string trimValue(string value) {
@@ -207,10 +249,10 @@ std::optional<PhysicalValue> parseRkmValue(const string& text) {
   double integerPart = 0.0;
   double fractionalPart = 0.0;
   if (!head.empty()) {
-    integerPart = std::strtod(head.c_str(), nullptr);
+    integerPart = parseClassicDouble(head);
   }
   if (!tail.empty()) {
-    fractionalPart = std::strtod(tail.c_str(), nullptr);
+    fractionalPart = parseClassicDouble(tail);
     for (size_t index = 0; index < tail.size(); ++index) {
       fractionalPart /= 10.0;
     }
@@ -235,15 +277,15 @@ std::optional<PhysicalValue> parsePhysicalValue(const std::string& text) {
     return rkm;
   }
 
-  // strtod handles signs, .5, and scientific notation while leaving the unit
-  // suffix for the component-specific parser below.
-  char* numberEnd = nullptr;
-  const double number = std::strtod(trimmed.c_str(), &numberEnd);
-  if (numberEnd == trimmed.c_str()) {
+  // Handles signs, .5, and scientific notation while leaving the unit suffix
+  // for the component-specific parser below.
+  double number = 0.0;
+  const auto numberLength = scanLeadingNumber(trimmed, number);
+  if (numberLength == 0) {
     return std::nullopt;
   }
 
-  const auto suffix = trimValue(trimmed.substr(static_cast<size_t>(numberEnd - trimmed.c_str())));
+  const auto suffix = trimValue(trimmed.substr(numberLength));
   const auto parsedUnit = parseUnit(suffix);
   if (parsedUnit.type == PhysicalValueType::Unknown) {
     return std::nullopt;

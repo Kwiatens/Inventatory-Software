@@ -136,9 +136,15 @@ optional<PhysicalValueComparison> tokenMatchesParameterPhysicallyList(const vect
 
 optional<PhysicalValueComparison> tokenMatchesParameterPhysically(const InventoryItem& item, const string& token,
                                                                   bool allowOutsideBands = false) {
-  return bestPhysicalComparison(tokenMatchesParameterPhysicallyList(item.parameters, token, allowOutsideBands),
-                                tokenMatchesParameterPhysicallyList(item.vendorMetadata.parameters, token,
-                                                                    allowOutsideBands));
+  const auto fromParameters =
+      bestPhysicalComparison(tokenMatchesParameterPhysicallyList(item.parameters, token, allowOutsideBands),
+                             tokenMatchesParameterPhysicallyList(item.vendorMetadata.parameters, token,
+                                                                 allowOutsideBands));
+  const auto fromName = partNamePhysicalComparison(item, token);
+  if (fromName.has_value() && !allowOutsideBands && fromName->band == PhysicalValueMatchBand::None) {
+    return fromParameters;
+  }
+  return bestPhysicalComparison(fromParameters, fromName);
 }
 
 bool tokenMatchesQuantity(const InventoryItem& item, const string& token) {
@@ -192,6 +198,36 @@ bool tokenMatchesField(const string& field, const string& value) {
 }
 
 }  // namespace
+
+optional<PhysicalValueComparison> partNamePhysicalComparison(const InventoryItem& item, const string& target) {
+  const auto parsedTarget = parsePhysicalValue(target);
+  if (!parsedTarget.has_value() || parsedTarget->type == PhysicalValueType::Unknown) return nullopt;
+
+  vector<string> words;
+  string current;
+  for (const char character : item.partName) {
+    if (isspace(static_cast<unsigned char>(character)) || character == ',' || character == ';' ||
+        character == '/' || character == '(' || character == ')') {
+      if (!current.empty()) words.push_back(current);
+      current.clear();
+    } else {
+      current.push_back(character);
+    }
+  }
+  if (!current.empty()) words.push_back(current);
+
+  optional<PhysicalValueComparison> best;
+  const auto consider = [&](const string& candidate) {
+    const auto comparison = comparePhysicalValues(candidate, target);
+    if (comparison.has_value()) best = bestPhysicalComparison(best, comparison);
+  };
+  for (size_t index = 0; index < words.size(); ++index) {
+    consider(words[index]);
+    // Values written with a space, such as "0.1 uF" or "10 k".
+    if (index + 1 < words.size()) consider(words[index] + " " + words[index + 1]);
+  }
+  return best;
+}
 
 QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,
                                        int lowStockThreshold) {
