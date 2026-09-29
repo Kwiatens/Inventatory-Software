@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="branding/inventatory-lockup.svg" alt="Inventatory" width="640">
+</p>
+
 # Inventatory-Software
 
 Inventatory is an open-source, lightweight, terminal-based hardware inventory tracking system.
