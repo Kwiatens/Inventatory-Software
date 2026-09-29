@@ -27,6 +27,7 @@
 #include "import/csv/CsvReader.h"
 #include "import/kicad/KicadBom.h"
 #include "core/bom/BomMatch.h"
+#include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "app/shell/AppNavigation.h"
@@ -396,6 +397,7 @@ void testPhysicalValueParsing();
 void testPhysicalValueMatching();
 void testPhysicalValueSearchIntegration();
 void testPhysicalValueCommaDecimalLocale();
+void testDecimalParsingCommaLocale();
 void testStockFilterState();
 
 void testStockFilterState() {
@@ -588,6 +590,43 @@ void testPhysicalValueCommaDecimalLocale() {
   assert(findClosestPhysicalValues(items, "100nF").size() >= 2);
 
   setlocale(LC_ALL, previous.c_str());
+}
+
+// BOM value parsing and DigiKey numeric-field validation read dot-decimal text,
+// which must not depend on the user's locale.
+void testDecimalParsingCommaLocale() {
+  const char* candidates[] = {"pl_PL.UTF-8", "pl_PL.utf8", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8"};
+  const string previous = setlocale(LC_ALL, nullptr);
+  const auto checkAll = [] {
+    ValueKind kind = ValueKind::Resistance;
+    const auto tenth = parseElectricalValue("0.1uF", kind);
+    assert(tenth.has_value() && kind == ValueKind::Capacitance && std::abs(*tenth - 1e-7) < 1e-15);
+    const auto resistor = parseElectricalValue("4.7k", kind);
+    assert(resistor.has_value() && std::abs(*resistor - 4700.0) < 1e-9);
+    assert(parseElectricalValue("4k7", kind).has_value());
+    assert(!parseElectricalValue("1.2.3k", kind).has_value());
+
+    assert(digikey_detail::isFiniteDecimal("0.1", 1000.0));
+    assert(digikey_detail::isFiniteDecimal("12.50", 1000.0));
+    assert(digikey_detail::isFiniteDecimal("1e2", 1000.0));
+    assert(!digikey_detail::isFiniteDecimal("1000.5", 1000.0));
+    assert(!digikey_detail::isFiniteDecimal("0,1", 1000.0));
+    assert(!digikey_detail::isFiniteDecimal("0.1x", 1000.0));
+    assert(!digikey_detail::isFiniteDecimal("-1", 1000.0));
+    assert(!digikey_detail::isFiniteDecimal("nan", 1000.0));
+    assert(!digikey_detail::isFiniteDecimal("", 1000.0));
+  };
+
+  checkAll();  // Baseline in the current locale.
+  for (const char* name : candidates) {
+    if (setlocale(LC_ALL, name) != nullptr && localeconv()->decimal_point[0] == ',') {
+      checkAll();
+      setlocale(LC_ALL, previous.c_str());
+      return;
+    }
+  }
+  setlocale(LC_ALL, previous.c_str());
+  cout << "No comma-decimal locale installed; skipping decimal locale regression test\n";
 }
 
 void testPhysicalValueSearchIntegration() {
@@ -1589,6 +1628,7 @@ int main() {
   testPhysicalValueMatching();
   testPhysicalValueSearchIntegration();
   testPhysicalValueCommaDecimalLocale();
+  testDecimalParsingCommaLocale();
   testStockFilterState();
   testInventoryCommitHistory();
   testSqliteSchemaValidation();
