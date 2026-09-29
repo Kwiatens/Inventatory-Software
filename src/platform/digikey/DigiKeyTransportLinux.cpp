@@ -1,6 +1,7 @@
 // Inventatory - Linux DigiKey HTTPS transport and shared request helpers.
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
+#include "core/parts/DecimalParse.h"
 
 #include <algorithm>
 #include <chrono>
@@ -315,13 +316,8 @@ bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
 bool isFiniteDecimal(const string& value, double maximum) {
   const auto trimmed = trimCopy(value);
   if (trimmed.empty()) return false;
-  try {
-    size_t consumed = 0;
-    const double parsed = std::stod(trimmed, &consumed);
-    return consumed == trimmed.size() && std::isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;
-  } catch (...) {
-    return false;
-  }
+  double parsed = 0.0;
+  return parseClassicDecimal(trimmed, parsed) && std::isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;
 }
 
 }  // namespace digikey_detail
