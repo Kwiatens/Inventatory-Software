@@ -6,8 +6,8 @@
 
 **Open-source, terminal-based hardware inventory management for PCB designers.**
 
-Track components, racks, BOMs and projects in a fast TUI, with local SQLite storage,
-label printing and the Inventatory Scan R1 barcode scanner.
+Track your hardware components in a fast terminal UI. The system is designed, so that most of the work is automated.
+Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' barcode scanner and much more.
 
 [![Release](https://img.shields.io/github/v/release/Kwiatens/Inventatory-Software?include_prereleases&style=flat-square&color=58B9B0&labelColor=0D1010)](https://github.com/Kwiatens/Inventatory-Software/releases/latest)
 [![License](https://img.shields.io/github/license/Kwiatens/Inventatory-Software?style=flat-square&color=58B9B0&labelColor=0D1010)](LICENSE)
@@ -21,9 +21,8 @@ label printing and the Inventatory Scan R1 barcode scanner.
 
 </div>
 
-> **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) shows what the
-> project can do, and is where you can find the documentation and the CAD bundle for the
-> the DiY-able scanning device.
+> **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
+> There you can explore what the project can do, and is where you can find the documentation and instructions.
 
 ---
 
@@ -34,56 +33,33 @@ latest stable release for the current Windows user:
 
     curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
-The installer verifies the downloaded release archive against its SHA-256
-manifest before activation, then launches Inventatory.
-The first-run setup wizard creates the desktop shortcut after setup is
-completed.
-
 ## Install on Linux
 
-Linux is released as a separate native x86-64 build. Windows users can keep
-using the Windows ZIP and installer above. On Ubuntu 24.04, download and run
-the latest stable Linux release with:
+On Ubuntu 24.04:
 
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
-The installer verifies the archive and its own SHA-256 checksum before putting
-the executable in `~/.local/bin/inventatory`. Run it with
+Run it with
 `$HOME/.local/bin/inventatory`. See [Linux support](docs/linux-support.md) for
 runtime dependencies, scanner access, data locations, and native build steps.
 
 The whole system is **designed to be extremely fast, and requires as little user input as possible.**
 
-Inventatory system key features:
-- Automatic tracking of SMD components quantity and their exact physical in a 3D printable storage rack solution.
-- Direct integration with the most popular electronics part vendors (Like DigiKey).
-- DIY-able Hardware scanning device called 'Inventascan' - used for scanning vendor part bags, and Inventatory QR codes from the SMD tubes on the racks.
-- Integration with popular PCB CAD (KiCad) - automatically compares your inventory with the BOM of your PCB, points out at what rack and exact rack slot each component lives.
+Key features:
+- The system automatically assigns each part to a specific slot on each 3D-printable rack, so later it can give you the precise location of it, not just generic 'Drawer 12'.
+- Integration with popular EDA software - it automatically compares your inventory with the BOM of your PCB, and points out precisely on which rack and slot each component lives.
+- DIY-able Hardware scanning device called 'Inventatory Scanner' - used for scanning vendor part bags, and Inventatory QR codes from the SMD tubes on the racks.
+- Direct integration with the most popular electronics part vendors (like DigiKey).
 - ZPL Label Printer integration for the tubes that go on 3D printable storage racks.
-- Search by electrical parameters, not only by name! Electrical parameters are applied automatically too, from the vendor's API :)
-
-## A bit about the project
-The Inventatory system is a side-project of mine. I've built this because I needed to find a way to organize my own SMD components - after a bunch of projects over the years it was a nightmare to find anything, so I ended up just reordering parts that I already had, I'm not even gonna mention how much time got wasted.
-
-My goal was to create a very automated, fast and 'function over form' system. It's purpose should be to take work off my hands and let me focus on building my projects, instead of manually micro-managing my inventory. 
-I didn't want another distraction from the already challenging problem solving required in debugging circuits.
-Key feature was that it had to track the physical location of the SMD components, and not use generic "Cardboard Box Number 8" categorization.
-
-Key assumptions during development were that it needs to run in a simple input/output with minimal clutter. This is why I went with a TUI-based approach, not web-based as most similar projects do.
-
-I came up with a 3D printable rack system, it uses cheap and easy to find plastic tubes that you can buy for cheap (200pcs for ~10 euro), and automatically generated labels that contain the most important information + a custom ID QR code that will be used with my custom 'Inventascan R1' hardware scanning device. Speaking of which was also a key feature. Scanning with web/phone cameras works, but again it's clunky.
-I'd rather have a purpose-made device that does one thing it was designed for - scan 2D codes.
-
-I plan on continuously developing it, and adding new features. I'm the user myself :)
-Just as I said, keep in mind that it's a side project for me - not a main one.
-
-I would be happy to see other people contribute to it
+- Search by electrical parameters, not only by name! Electrical parameters are applied automatically too, from the vendor's API.
 
 ## Plans and future features
-- Multi-user workflow
 - MCP Integration
+- Multi-user workflow
 - Integration with more vendor APIs
-- Expand on the supported PCB CAD software.
+- Expand on the supported EDA software
+- Support for custom rack sizes
+- Parametric racks
 
 ## License
 
