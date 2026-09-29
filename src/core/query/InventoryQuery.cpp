@@ -98,6 +98,7 @@ vector<InventorySearchMatch> findClosestPhysicalValues(const vector<InventoryIte
     };
     consider(items[index].parameters);
     consider(items[index].vendorMetadata.parameters);
+    best = bestPhysicalComparison(best, partNamePhysicalComparison(items[index], target));
     if (!best.has_value()) continue;
 
     matches.push_back({index, best->band, best->relativeDifference, best->signedRelativeDifference, true});

@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <array>
+#include <clocale>
 #include <cmath>
 #include <cstdlib>
 #include <cassert>
@@ -394,6 +395,7 @@ class MockPrinterBackend final : public PrinterBackend {
 void testPhysicalValueParsing();
 void testPhysicalValueMatching();
 void testPhysicalValueSearchIntegration();
+void testPhysicalValueCommaDecimalLocale();
 void testStockFilterState();
 
 void testStockFilterState() {
@@ -535,6 +537,59 @@ void testPhysicalValueMatching() {
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
 }
 
+// The application calls setlocale(LC_ALL, ""), so value parsing and search must
+// keep working when the user's locale writes decimals with a comma.
+void testPhysicalValueCommaDecimalLocale() {
+  const char* candidates[] = {"pl_PL.UTF-8", "pl_PL.utf8", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8"};
+  const string previous = setlocale(LC_ALL, nullptr);
+  bool commaLocale = false;
+  for (const char* name : candidates) {
+    if (setlocale(LC_ALL, name) != nullptr && localeconv()->decimal_point[0] == ',') {
+      commaLocale = true;
+      break;
+    }
+  }
+  if (!commaLocale) {
+    setlocale(LC_ALL, previous.c_str());
+    cout << "No comma-decimal locale installed; skipping locale regression test\n";
+    return;
+  }
+
+  const auto tenth = parsePhysicalValue("0.1uF");
+  assert(tenth.has_value());
+  assert(std::abs(tenth->value - 1e-7) < 1e-15);
+  assert(parsePhysicalValue("4.7k Ohm").has_value());
+  assert(std::abs(parsePhysicalValue("4R7")->value - 4.7) < 1e-12);
+  assert(std::abs(parsePhysicalValue("1e-3F")->value - 1e-3) < 1e-15);
+  assert(std::abs(parsePhysicalValue(".5uH")->value - 5e-7) < 1e-15);
+  assert(comparePhysicalValues(string("0.1 ") + "\xC2\xB5" + "F", "100nf")->band == PhysicalValueMatchBand::Exact);
+  assert(comparePhysicalValues("0.1UF", "100nf")->band == PhysicalValueMatchBand::Exact);
+  assert(!parsePhysicalValue("0.1.2uF").has_value());
+
+  InventoryItem parameterOnly;
+  parameterOnly.id = "locale-parameter";
+  parameterOnly.partName = "Ceramic capacitor";
+  parameterOnly.quantity = 1;
+  parameterOnly.parameters = {{"Capacitance", string("0.1 ") + "\xC2\xB5" + "F"}, {"Tolerance", "\xC2\xB1" "10%"}};
+  InventoryItem nameOnly;
+  nameOnly.id = "locale-name";
+  nameOnly.partName = "CAP CER 0.1UF 16V X7R 0603";
+  nameOnly.quantity = 1;
+  InventoryItem unrelated;
+  unrelated.id = "locale-other";
+  unrelated.partName = "CAP CER 1UF 16V X7R 0603";
+  unrelated.quantity = 1;
+  const vector<InventoryItem> items = {parameterOnly, nameOnly, unrelated};
+  for (const char* query : {"100nf", "100nF", "0.1uf", "100000pf"}) {
+    const auto matches = filterItems(items, query);
+    assert(matches.size() == 2);
+    assert(items[matches[0]].id != "locale-other" && items[matches[1]].id != "locale-other");
+  }
+  assert(findClosestPhysicalValues(items, "100nF").size() >= 2);
+
+  setlocale(LC_ALL, previous.c_str());
+}
+
 void testPhysicalValueSearchIntegration() {
   vector<InventoryItem> items;
 
@@ -616,6 +671,37 @@ void testPhysicalValueSearchIntegration() {
   }
   assert(foundRes1);
   assert(foundRes2);
+
+  // Values that only appear in the part name must match equivalent spellings.
+  {
+    vector<InventoryItem> named;
+    InventoryItem nameOnly;
+    nameOnly.id = "name-only-01uf";
+    nameOnly.partName = "0.1uF";
+    nameOnly.quantity = 10;
+    named.push_back(nameOnly);
+    InventoryItem spaced;
+    spaced.id = "name-only-spaced";
+    spaced.partName = "Ceramic 0.1 uF X7R";
+    spaced.quantity = 10;
+    named.push_back(spaced);
+    InventoryItem other;
+    other.id = "name-only-1uf";
+    other.partName = "1uF";
+    other.quantity = 10;
+    named.push_back(other);
+    InventoryItem resistor;
+    resistor.id = "name-only-100ohm";
+    resistor.partName = "100 Ohm";
+    resistor.quantity = 10;
+    named.push_back(resistor);
+
+    const auto byName = filterItems(named, "100nf");
+    assert(byName.size() == 2);
+    assert(named[byName[0]].id != "name-only-1uf" && named[byName[1]].id != "name-only-1uf");
+    assert(filterItems(named, "100nF").size() == 2);
+    assert(!findClosestPhysicalValues(named, "100nF").empty());
+  }
 
   // param: prefix should also work with physical values
   auto paramFiltered = filterItems(items, "param:Capacitance=0.1uF");
@@ -1502,6 +1588,7 @@ int main() {
   testPhysicalValueParsing();
   testPhysicalValueMatching();
   testPhysicalValueSearchIntegration();
+  testPhysicalValueCommaDecimalLocale();
   testStockFilterState();
   testInventoryCommitHistory();
   testSqliteSchemaValidation();
