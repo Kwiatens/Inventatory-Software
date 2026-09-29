@@ -19,6 +19,12 @@ std::optional<PhysicalValueComparison> bestPhysicalComparison(
     const std::optional<PhysicalValueComparison>& current,
     const std::optional<PhysicalValueComparison>& candidate);
 
+// Compares a physical-value query against value-like words in the part name
+// (for example "0.1uF Capacitor"), so items that only carry the value in their
+// name still match equivalent spellings such as "100nF".
+std::optional<PhysicalValueComparison> partNamePhysicalComparison(const InventoryItem& item,
+                                                                  const std::string& target);
+
 QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const std::string& query,
                                        const std::string& itemRackLocation, int lowStockThreshold);
 
