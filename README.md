@@ -4,9 +4,9 @@
   <img src="branding/inventatory-lockup.svg" alt="Inventatory" width="560">
 </a>
 
-**Open-source, terminal-based hardware inventory for PCB designers.**
+**Open-source, terminal-based hardware inventory management for PCB designers.**
 
-Track components, racks, BOMs and projects in a fast keyboard-first UI, with local SQLite storage,
+Track components, racks, BOMs and projects in a fast TUI, with local SQLite storage,
 label printing and the Inventatory Scan R1 barcode scanner.
 
 [![Release](https://img.shields.io/github/v/release/Kwiatens/Inventatory-Software?include_prereleases&style=flat-square&color=58B9B0&labelColor=0D1010)](https://github.com/Kwiatens/Inventatory-Software/releases/latest)
@@ -15,20 +15,17 @@ label printing and the Inventatory Scan R1 barcode scanner.
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-58B9B0?style=flat-square&labelColor=0D1010)
 
 [**Website**](https://kwiatens.github.io/Inventatory-Site/) &nbsp;·&nbsp;
-[Documentation](docs/user-guide.md) &nbsp;·&nbsp;
+[Documentation]([docs/user-guide.md](https://kwiatens.github.io/Inventatory-Site/docs/)) &nbsp;·&nbsp;
 [Download](https://github.com/Kwiatens/Inventatory-Software/releases/latest) &nbsp;·&nbsp;
 [Report an issue](https://github.com/Kwiatens/Inventatory-Software/issues)
 
 </div>
 
 > **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) shows what the
-> project does in detail, and is where you can find the documentation and the CAD bundle for the
-> Scan R1 scanner.
+> project can do, and is where you can find the documentation and the CAD bundle for the
+> the DiY-able scanning device.
 
 ---
-
-Inventatory is an open-source, lightweight, terminal-based hardware inventory tracking system.
-It is purpose-built for PCB designers, but is also great for keeping track of regular hardware - like screws/fasteners etc.
 
 ## Install on Windows
 
