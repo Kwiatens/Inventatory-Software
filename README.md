@@ -18,6 +18,8 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' b
 [Documentation]([docs/user-guide.md](https://kwiatens.github.io/Inventatory-Site/docs/)) &nbsp;·&nbsp;
 [Report an issue](https://github.com/Kwiatens/Inventatory-Software/issues)
 
+</div>
+
 ---
 
 > **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
