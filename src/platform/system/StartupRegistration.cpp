@@ -5,7 +5,11 @@
 
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <propkey.h>
+#include <propvarutil.h>
 #include <windows.h>
+
+#pragma comment(lib, "Propsys.lib")
 
 #include <iomanip>
 #include <memory>
@@ -128,6 +132,18 @@ bool createDesktopShortcut(std::string& error) {
     const auto separator = executablePath.find_last_of(L"\\/");
     const auto workingDirectory = separator == std::wstring::npos ? std::wstring(L".") : executablePath.substr(0, separator);
     result = link->SetWorkingDirectory(workingDirectory.c_str());
+    link->SetIconLocation(executablePath.c_str(), 0);
+
+    IPropertyStore* propertyStore = nullptr;
+    if (SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&propertyStore))) && propertyStore != nullptr) {
+      PROPVARIANT pv;
+      if (SUCCEEDED(InitPropVariantFromString(L"Kwiatens.Inventatory", &pv))) {
+        propertyStore->SetValue(PKEY_AppUserModel_ID, pv);
+        PropVariantClear(&pv);
+      }
+      propertyStore->Commit();
+      propertyStore->Release();
+    }
   }
   if (FAILED(result)) {
     error = hresultError("Configuring the desktop shortcut", result);

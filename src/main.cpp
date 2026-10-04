@@ -1,5 +1,6 @@
 #include "App.h"
 #include "platform/system/UpdateService.h"
+#include "platform/system/Console.h"
 
 #include <filesystem>
 #include <string>
@@ -45,6 +46,12 @@ int main(int argc, char* argv[]) {
 #endif
     return 0;
   }
+  const bool startInBackground = argc == 2 && std::string(argv[1]) == "--background";
+#ifndef _WIN32
+  if (!startInBackground && !inventatory::ensureTerminalAttached(argc, argv)) {
+    return 1;
+  }
+#endif
 #ifndef _WIN32
   if (std::setlocale(LC_ALL, "") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
     if (std::setlocale(LC_ALL, "C.UTF-8") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
@@ -53,7 +60,6 @@ int main(int argc, char* argv[]) {
     }
   }
 #endif
-  const bool startInBackground = argc == 2 && std::string(argv[1]) == "--background";
   std::filesystem::path updateMarkerPath;
   const int exitCode = runInventatory(startInBackground, updateMarkerPath);
   // Relaunch only after the app and single-instance lock are fully torn down.

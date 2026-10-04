@@ -239,6 +239,133 @@ void setConsoleTitle(const string& title) {
   fflush(stdout);
 }
 
+void initializeConsoleWindow() {
+  setConsoleTitle("Inventatory");
+}
+
+bool ensureTerminalAttached(int argc, char* argv[]) {
+  if (isatty(STDIN_FILENO) != 0) {
+    return true;
+  }
+
+  std::vector<char> buffer(4096U);
+  string executable;
+  for (;;) {
+    const auto count = readlink("/proc/self/exe", buffer.data(), buffer.size());
+    if (count > 0 && static_cast<size_t>(count) < buffer.size()) {
+      executable.assign(buffer.data(), count);
+      break;
+    }
+    if (count <= 0 || buffer.size() >= 1024U * 1024U) break;
+    buffer.resize(buffer.size() * 2U);
+  }
+  if (executable.empty() && argc > 0 && argv[0] != nullptr) {
+    executable = argv[0];
+  }
+  if (executable.empty()) return false;
+
+  vector<string> extraArgs;
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i] != nullptr) extraArgs.emplace_back(argv[i]);
+  }
+
+  const char* desktopEnv = getenv("XDG_CURRENT_DESKTOP");
+  string desktopLower = desktopEnv ? desktopEnv : "";
+  for (auto& ch : desktopLower) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+  const bool prefersKde = desktopLower.find("kde") != string::npos || desktopLower.find("plasma") != string::npos;
+  const bool prefersGnome = desktopLower.find("gnome") != string::npos || desktopLower.find("unity") != string::npos;
+
+  struct TerminalCandidate {
+    const char* binary;
+    int priority;
+    vector<string> (*buildArgs)(const string& exe, const vector<string>& extra);
+  };
+
+  const auto makeKonsole = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"konsole", "--desktopfile", "inventatory", "-qwindowtitle", "Inventatory",
+                           "-qwindowicon", "inventatory", "-e", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeGnome = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"gnome-terminal", "--class=inventatory", "--title=Inventatory", "--", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makePtyxis = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"ptyxis", "--app-id=inventatory", "--title=Inventatory", "--", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeAlacritty = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"alacritty", "--class", "inventatory,inventatory", "--title", "Inventatory", "-e", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeKitty = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"kitty", "--class", "inventatory", "-T", "Inventatory", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeFoot = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"foot", "--app-id", "inventatory", "-T", "Inventatory", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeWezterm = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"wezterm", "start", "--class", "inventatory", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeXterm = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"xterm", "-class", "inventatory", "-title", "Inventatory", "-e", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeXdgTerm = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"xdg-terminal-exec", "--app-id=inventatory", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+  const auto makeFallback = [](const string& exe, const vector<string>& extra) -> vector<string> {
+    vector<string> args = {"x-terminal-emulator", "-e", exe};
+    args.insert(args.end(), extra.begin(), extra.end());
+    return args;
+  };
+
+  vector<TerminalCandidate> candidates = {
+      {"konsole", prefersKde ? 0 : 10, makeKonsole},
+      {"gnome-terminal", prefersGnome ? 0 : 11, makeGnome},
+      {"ptyxis", prefersGnome ? 1 : 12, makePtyxis},
+      {"alacritty", 20, makeAlacritty},
+      {"kitty", 21, makeKitty},
+      {"foot", 22, makeFoot},
+      {"wezterm", 23, makeWezterm},
+      {"xterm", 30, makeXterm},
+      {"xdg-terminal-exec", 40, makeXdgTerm},
+      {"x-terminal-emulator", 50, makeFallback},
+  };
+
+  std::sort(candidates.begin(), candidates.end(), [](const TerminalCandidate& a, const TerminalCandidate& b) {
+    return a.priority < b.priority;
+  });
+
+  for (const auto& candidate : candidates) {
+    if (!executableAvailable(candidate.binary)) continue;
+    const auto cmdArgs = candidate.buildArgs(executable, extraArgs);
+    vector<char*> execArgs;
+    execArgs.reserve(cmdArgs.size() + 1U);
+    for (const auto& arg : cmdArgs) {
+      execArgs.push_back(const_cast<char*>(arg.c_str()));
+    }
+    execArgs.push_back(nullptr);
+    execvp(execArgs[0], execArgs.data());
+  }
+
+  std::fprintf(stderr, "Inventatory requires a terminal emulator to run interactively.\n");
+  return false;
+}
+
 bool openUrl(const string& url) {
   constexpr size_t kMaximumUrlLength = 2048;
   if (url.size() > kMaximumUrlLength || url.rfind("https://", 0) != 0) return false;

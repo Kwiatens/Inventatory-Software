@@ -128,6 +128,7 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments = '', [
   $shortcut.TargetPath = $target
   $shortcut.Arguments = $arguments
   $shortcut.WorkingDirectory = if ($workingDirectory) { $workingDirectory } else { Split-Path $target }
+  $shortcut.IconLocation = "$target,0"
   $shortcut.Save()
 }
 

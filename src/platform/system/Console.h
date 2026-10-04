@@ -62,6 +62,8 @@ void clearConsole();
 void hideCursor();
 void showCursor();
 void setConsoleTitle(const string& title);
+void initializeConsoleWindow();
+bool ensureTerminalAttached(int argc, char* argv[]);
 bool openUrl(const string& url);
 bool copyToClipboard(const string& text);
 bool openCsvFileDialog(filesystem::path& selectedPath);
