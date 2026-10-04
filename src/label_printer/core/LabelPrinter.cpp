@@ -3,6 +3,7 @@
 #include "label_printer/core/LabelPrinterPrivate.h"
 
 #include "core/inventory/InventoryInternals.h"
+#include "label_printer/layout/LabelPrinterZpl.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <iterator>
@@ -44,9 +45,8 @@ namespace {
 // Test prints land about 3 dots right of and 10 dots below ^FO, so the
 // layout starts at x 7 / y 0 and ends at x 243 / y 179: that leaves an even
 // margin of about 10 dots on all four sides of the printed label.
-constexpr int kBottom = 179;
+constexpr int kBottom = kLabelBottom;
 constexpr int kHeaderY = 0;
-constexpr int kHeaderHeight = 22;
 constexpr int kPillY = 80;
 constexpr int kPillHeight = 20;
 constexpr int kDividerY = 106;
@@ -62,10 +62,7 @@ constexpr int kSlotY = kIdY + 17;
 constexpr int kSlotHeight = 23;
 constexpr int kPenCaptionY = kSlotY + kSlotHeight + 3;
 constexpr int kPenY = kPenCaptionY + 12;
-// Font 0 digits and capitals are about 0.74 of the font height tall and start
-// at the field origin, so their baseline is at y + 0.74 * height.
-constexpr double kBaseline = 0.74;
-constexpr int kLeft = 7;
+constexpr int kLeft = kLabelLeft;
 constexpr int kLeftColumnWidth = 164;
 constexpr int kRight = 180;
 constexpr int kRightColumnWidth = kQrSize;
@@ -76,35 +73,6 @@ constexpr int kTileRuleX = kLeft + 81;
 // The value sits centred between the header bar and the package row.
 constexpr double kValueCenterY = (kHeaderY + kHeaderHeight + kPillY) / 2.0;
 constexpr char kPlusMinus[] = "\xC2\xB1";
-
-// The >| brand mark as a 5 x 5 pixel glyph.
-constexpr const char* kLogoRows[] = {"X...X", ".X..X", "..X.X", ".X..X", "X...X"};
-
-int scaled(int value, double factor) {
-  return static_cast<int>(value * factor + 0.5);
-}
-
-// Top of a font 0 line whose capitals are centred on centerY.
-int centeredTop(double centerY, int size) {
-  return static_cast<int>(centerY - size * kBaseline / 2 + 0.5);
-}
-
-// Left edge that centres a text of the given estimated width in a box.
-int centeredLeft(int boxX, int boxWidth, int textWidth) {
-  return boxX + (boxWidth - textWidth) / 2;
-}
-
-void writeText(ostringstream& out, int x, int y, int height, int width, const string& text, const string& extra = {}) {
-  out << "^FO" << x << ',' << y << "^A0N," << height << ',' << width << extra << "^FD" << sanitizeLabelText(text)
-      << "^FS\r\n";
-}
-
-void writeBox(ostringstream& out, int x, int y, int width, int height, int thickness, int rounding = 0,
-              bool reverse = false) {
-  out << "^FO" << x << ',' << y << (reverse ? "^FR" : "") << "^GB" << width << ',' << height << ',' << thickness;
-  if (rounding > 0) out << ",B," << rounding;
-  out << "^FS\r\n";
-}
 
 // One line of text centred in the left column and on centerY.
 void writeCenteredLine(ostringstream& out, double centerY, int size, const string& text) {
@@ -121,7 +89,7 @@ void writeMainValue(ostringstream& out, const InventatoryLabelPlan& plan) {
     constexpr int toleranceSize = 18;
     constexpr int toleranceGap = 7;
     for (const auto size : {46, 42, 38, 34}) {
-      const auto unitSize = scaled(size, 0.72);
+      const auto unitSize = scaledDots(size, 0.72);
       const auto numberWidth = estimateFont0Width(number, size, size);
       const auto unitWidth = unit.empty() ? 0 : estimateFont0Width(unit, unitSize, unitSize) + 1;
       const auto toleranceWidth =
@@ -133,11 +101,11 @@ void writeMainValue(ostringstream& out, const InventatoryLabelPlan& plan) {
       const auto y = centeredTop(kValueCenterY, size);
       writeText(out, x, y, size, size, number);
       if (!unit.empty()) {
-        writeText(out, x + numberWidth + 1, y + scaled(size - unitSize, kBaseline), unitSize, unitSize, unit);
+        writeText(out, x + numberWidth + 1, y + scaledDots(size - unitSize, kCapHeight), unitSize, unitSize, unit);
       }
       if (!tolerance.empty()) {
         const auto toleranceX = x + numberWidth + unitWidth + toleranceGap;
-        const auto toleranceY = y + scaled(size - toleranceSize, kBaseline);
+        const auto toleranceY = y + scaledDots(size - toleranceSize, kCapHeight);
         // The font draws "±" about 3 dots below the digits' centre line.
         if (tolerance.rfind(kPlusMinus, 0) == 0) {
           const auto signWidth = estimateFont0Width(kPlusMinus, toleranceSize, toleranceSize);
@@ -171,7 +139,7 @@ void writeMainValue(ostringstream& out, const InventatoryLabelPlan& plan) {
     }
     if (!first.empty() && !second.empty() && estimateFont0Width(second, size, size) <= kLeftColumnWidth) {
       const auto pitch = size + 2;
-      const auto blockTop = kValueCenterY - (pitch + size * kBaseline) / 2;
+      const auto blockTop = kValueCenterY - (pitch + size * kCapHeight) / 2;
       writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(first, size, size)),
                 static_cast<int>(blockTop + 0.5), size, size, first);
       writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(second, size, size)),
@@ -200,7 +168,7 @@ void writeParameterTiles(ostringstream& out, const vector<LabelParameterTile>& t
     if (!value.text.empty()) {
       // A leading minus has a wide left bearing: pull it back to the text edge.
       const auto bearing = value.text.front() == '-' ? 2 : 0;
-      writeText(out, x - bearing, y + 13 + scaled(22 - value.size, kBaseline), value.size, value.size, value.text);
+      writeText(out, x - bearing, y + 13 + scaledDots(22 - value.size, kCapHeight), value.size, value.size, value.text);
     }
   }
   if (count > 1) {
@@ -262,17 +230,7 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "\r\n";
 
   out << "^FX --- Header: logo and category ---\r\n";
-  writeBox(out, kLeft, kHeaderY, kRight + kRightColumnWidth - kLeft, kHeaderHeight, kHeaderHeight, 4);
-  for (int row = 0; row < 5; ++row) {
-    for (int column = 0; column < 5; ++column) {
-      if (kLogoRows[row][column] == 'X') writeBox(out, kLeft + 6 + column * 3, kHeaderY + 4 + row * 3, 3, 3, 3, 0, true);
-    }
-  }
-  const auto header = fitFont0Text(uppercaseAscii(plan.categoryHeader), 202, {16, 15, 14, 13, 12});
-  if (!header.text.empty()) {
-    writeText(out, kLeft + 28, centeredTop(kHeaderY + kHeaderHeight / 2.0, header.size), header.size, header.size,
-              header.text, "^FR");
-  }
+  writeBrandHeader(out, uppercaseAscii(plan.categoryHeader));
   out << "\r\n";
 
   out << "^FX --- Main value ---\r\n";

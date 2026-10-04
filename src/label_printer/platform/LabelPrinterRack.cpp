@@ -3,10 +3,12 @@
 #include "label_printer/core/LabelPrinterPrivate.h"
 
 #include "core/parts/PartDescriptor.h"
+#include "label_printer/layout/LabelPrinterZpl.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
 #include <iomanip>
+#include <iterator>
 #include <sstream>
 
 namespace inventatory {
@@ -37,55 +39,25 @@ string rackDisplayCategory(string value) {
   return uppercaseAscii(fieldOrBlank(value, 20));
 }
 
-string rackLabelText(const string& code) {
+// "R12" -> "12", "R7" -> "07"; a code that is not an R-number prints as typed.
+string rackNumberText(const string& code) {
   const auto number = rackNumberFromCode(code);
   if (number > 0) {
     ostringstream out;
-    out << "RACK " << setw(2) << setfill('0') << number;
+    out << setw(2) << setfill('0') << number;
     return out.str();
   }
   const auto cleaned = trim(code);
-  return cleaned.empty() ? "RACK" : fieldOrBlank("RACK " + cleaned, 12);
+  return cleaned.empty() ? string("RACK") : uppercaseAscii(fieldOrBlank(cleaned, 6));
 }
 
-vector<string> rackCategoryLines(const string& category) {
-  vector<string> words;
-  istringstream input(trim(category));
-  string word;
-  while (input >> word) {
-    words.push_back(word);
-  }
-
-  if (words.size() <= 1) {
-    return {fieldOrBlank(category, 20)};
-  }
-
-  if (words.size() == 2) {
-    return {fieldOrBlank(words[0], 14), fieldOrBlank(words[1], 14)};
-  }
-
-  const size_t splitAt = (words.size() + 1) / 2;
-  vector<string> firstWords(words.begin(), words.begin() + splitAt);
-  vector<string> secondWords(words.begin() + splitAt, words.end());
-  vector<string> lines = {join(firstWords, ' '), join(secondWords, ' ')};
-  for (auto& line : lines) {
-    line = fieldOrBlank(line, 14);
-  }
-  return lines;
-}
-
-string rackCategoryFieldData(const vector<string>& lines) {
-  if (lines.empty()) {
-    return "RACK";
-  }
-  string output;
-  for (const auto& line : lines) {
-    if (!output.empty()) {
-      output += "\\&";
-    }
-    output += sanitizeLabelText(line);
-  }
-  return output;
+// Friendlier short forms for the long built-in type names; custom types have none.
+string rackShortCategory(const string& componentType) {
+  const auto key = rackSymbolKey(componentType);
+  if (key == "ic") return "ICs";
+  if (key == "led") return "LEDs";
+  if (key == "crystal") return "CRYSTALS";
+  return {};
 }
 
 string makeRackJobName(const InventatoryRack& rack) {
@@ -104,13 +76,79 @@ using namespace label_printer_detail;
 InventatoryRackLabelPlan LabelPrinterService::buildRackLabelPlan(const InventatoryRack& rack) const {
   InventatoryRackLabelPlan plan;
   plan.categoryText = rackDisplayCategory(rack.componentType);
-  plan.rackText = rackLabelText(rack.code);
+  plan.shortCategoryText = rackShortCategory(rack.componentType);
+  plan.rackNumber = rackNumberText(rack.code);
+  plan.symbolKey = rackSymbolKey(rack.componentType);
   return plan;
 }
 
-string LabelPrinterService::buildRackLabelZpl(const InventatoryRack& rack) const {
+namespace {
+
+// Rack label (layout A): the rack number is the largest thing on the label, white on a black block; the
+// electrical symbol and the type name sit to its right.
+constexpr int kBlockX = kLabelLeft;
+constexpr int kBlockY = 28;
+constexpr int kBlockWidth = 100;
+constexpr int kBlockHeight = kLabelBottom - kBlockY;
+constexpr int kRightCenterX = 179;
+constexpr int kRightWidth = 120;
+// A symbol never comes closer than this to the header bar or the type name.
+constexpr int kSymbolClearance = 6;
+constexpr int kNameTop = 116;
+constexpr int kNameBottom = 176;
+// A full type name is used when it fits on one line at this size or larger.
+constexpr int kNiceNameSize = 22;
+
+struct NameLayout {
+  vector<string> lines;
+  int size = 0;
+};
+
+// Splits a name over two lines at the word boundary that gives the largest size.
+NameLayout twoLineName(const string& name, int maxWidth, initializer_list<int> sizes) {
+  NameLayout best;
+  istringstream words(name);
+  vector<string> tokens{istream_iterator<string>(words), istream_iterator<string>()};
+  for (size_t split = 1; split < tokens.size(); ++split) {
+    const auto first = join(vector<string>(tokens.begin(), tokens.begin() + split), ' ');
+    const auto second = join(vector<string>(tokens.begin() + split, tokens.end()), ' ');
+    for (const auto size : sizes) {
+      if (estimateFont0Width(first, size, size) > maxWidth || estimateFont0Width(second, size, size) > maxWidth) continue;
+      if (size > best.size) best = {{first, second}, size};
+      break;
+    }
+  }
+  return best;
+}
+
+// The full name when it fits nicely on one line; otherwise the short form; otherwise the full name stepped down
+// or split over two lines. Nothing is ever cut.
+NameLayout chooseName(const InventatoryRackLabelPlan& plan, int maxWidth) {
+  const auto full = sanitizeLabelText(plan.categoryText);
+  const auto oneLine = [&](const string& text, initializer_list<int> sizes) {
+    const auto fitted = fitFont0Text(text, maxWidth, sizes);
+    return fitted.text == text ? NameLayout{{text}, fitted.size} : NameLayout{};
+  };
+  const auto nice = oneLine(full, {34, 30, 28, 26, 24, kNiceNameSize});
+  if (nice.size >= kNiceNameSize) return nice;
+  if (!plan.shortCategoryText.empty()) {
+    const auto shortName = oneLine(sanitizeLabelText(plan.shortCategoryText), {34, 30, 28, 26, 24, 22, 20, 18});
+    if (shortName.size > 0) return shortName;
+  }
+  const auto single = oneLine(full, {34, 30, 28, 26, 24, 22, 20, 18, 16, 14});
+  const auto split = twoLineName(full, maxWidth, {30, 26, 24, 22, 20, 18, 16, 14});
+  if (split.size > single.size + 3 || single.size == 0) {
+    if (split.size > 0) return split;
+  }
+  if (single.size > 0) return single;
+  const auto clipped = fitFont0Text(full, maxWidth, {14});
+  return {{clipped.text}, clipped.size};
+}
+
+}  // namespace
+
+string LabelPrinterService::buildRackLabelZpl(const InventatoryRack& rack, SymbolStandard standard) const {
   const auto plan = buildRackLabelPlan(rack);
-  const auto categoryLines = rackCategoryLines(plan.categoryText);
   ostringstream out;
   out << "^XA\r\n";
   out << "^CI28\r\n";
@@ -121,33 +159,51 @@ string LabelPrinterService::buildRackLabelZpl(const InventatoryRack& rack) const
   out << "^MD12\r\n";
   out << "\r\n";
 
-  out << "^FX --- Black header bar ---\r\n";
-  out << "^FO4,4^GB248,28,28,B,5^FS\r\n";
-  out << "^FO12,11^A0N,16,16^FR^FDInventatory RACK^FS\r\n";
+  out << "^FX --- Header: logo and title ---\r\n";
+  writeBrandHeader(out, "INVENTATORY RACK");
   out << "\r\n";
 
-  out << "^FX --- Main category text ---\r\n";
-  if (categoryLines.size() <= 1) {
-    out << "^FO6,55^A0N,40,34^FB244,1,0,C^FD" << rackCategoryFieldData(categoryLines) << "^FS\r\n";
-  } else {
-    out << "^FO6,48^A0N,27,24^FB244,2,4,C^FD" << rackCategoryFieldData(categoryLines) << "^FS\r\n";
+  out << "^FX --- Rack number block ---\r\n";
+  writeBox(out, kBlockX, kBlockY, kBlockWidth, kBlockHeight, kBlockWidth, 1);
+  const auto blockCenterX = kBlockX + kBlockWidth / 2;
+  writeText(out, centeredLeft(blockCenterX, 0, estimateFont0Width("RACK", 16, 16)), 38, 16, 16, "RACK", "^FR");
+  // The number takes the largest size that fits the block; three-digit racks step down, they are never cut.
+  const auto numberSize = fitFont0Text(plan.rackNumber, kBlockWidth - 10, {112, 104, 96, 88, 80, 72, 64, 56, 48});
+  const auto numberRegionTop = 62;
+  const auto numberRegionBottom = kLabelBottom - 7;
+  if (!numberSize.text.empty()) {
+    const auto top = centeredTop((numberRegionTop + numberRegionBottom) / 2.0, numberSize.size);
+    writeText(out, centeredLeft(blockCenterX, 0, numberSize.width), top, numberSize.size, numberSize.size,
+              numberSize.text, "^FR");
   }
   out << "\r\n";
 
-  out << "^FX --- Thin separator under category ---\r\n";
-  out << "^FO34,105^GB188,2,2^FS\r\n";
+  const auto name = chooseName(plan, kRightWidth + 4);
+  const auto pitch = static_cast<int>(name.size * 1.12);
+  const auto total = pitch * static_cast<int>(name.lines.size() - 1) + name.size * kCapHeight;
+  const auto firstTop = static_cast<int>((kNameTop + kNameBottom) / 2.0 - total / 2.0 + 0.5);
+
+  out << "^FX --- Electrical symbol ---\r\n";
+  // Centred in the space between the header bar and the type name, whatever the name's height.
+  const auto& symbol = rackSymbolFor(rack.componentType, standard);
+  const auto symbolTop = std::clamp(static_cast<int>((kHeaderHeight + firstTop - symbol.height) / 2.0 + 0.5),
+                                    kHeaderHeight + kSymbolClearance,
+                                    std::max(kHeaderHeight + kSymbolClearance, firstTop - kSymbolClearance - symbol.height));
+  writeGraphic(out, kRightCenterX - symbol.width / 2, symbolTop, symbol);
   out << "\r\n";
 
-  out << "^FX --- Rack ID pill ---\r\n";
-  out << "^FO43,128^GB170,42,42,B,5^FS\r\n";
-  out << "^FO43,138^A0N,23,23^FR^FB170,1,0,C^FD" << sanitizeLabelText(plan.rackText) << "^FS\r\n";
-  out << "\r\n";
+  out << "^FX --- Type name ---\r\n";
+  for (size_t index = 0; index < name.lines.size(); ++index) {
+    const auto width = estimateFont0Width(name.lines[index], name.size, name.size);
+    writeText(out, centeredLeft(kRightCenterX, 0, width), firstTop + static_cast<int>(index) * pitch, name.size,
+              name.size, name.lines[index]);
+  }
 
   out << "^XZ\r\n";
   return out.str();
 }
 
-bool LabelPrinterService::printRackLabel(const InventatoryRack& rack, string* error) const {
+bool LabelPrinterService::printRackLabel(const InventatoryRack& rack, string* error, SymbolStandard standard) const {
   if (backend_ == nullptr) {
     if (error != nullptr) {
       *error = "Printer backend unavailable";
@@ -162,7 +218,7 @@ bool LabelPrinterService::printRackLabel(const InventatoryRack& rack, string* er
     return false;
   }
 
-  const auto zpl = buildRackLabelZpl(rack);
+  const auto zpl = buildRackLabelZpl(rack, standard);
   return backend_->sendRawJob(configuredPrinter_, makeRackJobName(rack), zpl, error);
 }
 

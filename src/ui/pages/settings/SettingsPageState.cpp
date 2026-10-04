@@ -74,6 +74,7 @@ bool App::settingsDraftHasChanges() const {
          settingsDraft_.digiKeyLanguage != settings_.digiKeyLanguage ||
          settingsDraft_.digiKeyCurrency != settings_.digiKeyCurrency ||
          settingsDraft_.lowStockThreshold != settings_.lowStockThreshold ||
+         settingsDraft_.symbolStandard != settings_.symbolStandard ||
          settingsDraft_.quickLabelPresets != settings_.quickLabelPresets ||
          settingsDraft_.appearance.colors != settings_.appearance.colors ||
          stagedDigiKeySecretChanged_;

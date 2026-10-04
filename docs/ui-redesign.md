@@ -155,7 +155,7 @@ it, and Inventatory Scan. DigiKey remains under Integrations. Ordinary edits are
 Refresh, Test, Copy, Regenerate, Clear, Check for software updates, and Update are operational actions. DigiKey secrets are stored by the operating-system credential service, never in `settings.conf`.
 
 The Quick Labels panel owns the optional custom wire label as well as the saved presets. The Printer panel contains
-printer discovery and queue testing only.
+printer discovery, queue testing, and the EU/US schematic symbol standard used on rack labels (`y` switches it).
 
 Every panel follows one layout. A header row names the category and shows
 Saved/Unsaved changes, followed by a divider. The body is a list of titled

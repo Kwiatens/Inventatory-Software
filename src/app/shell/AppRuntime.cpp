@@ -258,7 +258,7 @@ void App::processPrinterWork() {
             result.success = printer.printWireLabel(work.text, &result.error);
             break;
           case PrinterWorkKind::PrintRack:
-            result.success = printer.printRackLabel(work.rack, &result.error);
+            result.success = printer.printRackLabel(work.rack, &result.error, work.symbolStandard);
             break;
         }
       } catch (...) {

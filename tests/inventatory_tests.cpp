@@ -2581,7 +2581,7 @@ int main() {
     assert(zpl.find("10kOhms") == string::npos);
     assert(zpl.find("Tol ") == string::npos);
     assert(zpl.find("Tempco") == string::npos);
-    assert(zpl.find("^FO35,5^A0N,16,16^FR^FDRESISTOR^FS") != string::npos);
+    assert(zpl.find("^FO13,5^A0N,16,16^FR^FDRESISTOR^FS") != string::npos);
     // Measured value: number, smaller unit and tolerance on one baseline, the
     // group centred between the header bar and the package row.
     assert(zpl.find("^FO30,34^A0N,46,46^FD10k^FS") != string::npos);
@@ -2597,8 +2597,8 @@ int main() {
     // Header bar starts at y 0 (prints land ~10 dots low) and carries the 5 x 5 logo.
     assert(zpl.find("^FO7,0^GB236,22,22,B,4^FS") != string::npos);
     assert(zplOccurrences(zpl, "^GB3,3,3^FS") == 10);
-    assert(zpl.find("^FO13,4^FR^GB3,3,3^FS") != string::npos);
-    assert(zpl.find("^FO25,10^FR^GB3,3,3^FS") != string::npos);
+    assert(zpl.find("^FO224,4^FR^GB3,3,3^FS") != string::npos);
+    assert(zpl.find("^FO236,10^FR^GB3,3,3^FS") != string::npos);
     // Without a rack slot the pen field is the only slot area.
     assert(zpl.find("^FDSLOT^FS") != string::npos);
     assert(zpl.find("^FDNEW SLOT^FS") == string::npos);
@@ -2655,13 +2655,39 @@ int main() {
     resistorRack.componentType = "resistors";
     const auto rackLabelPlan = service.buildRackLabelPlan(resistorRack);
     assert(rackLabelPlan.categoryText == "RESISTORS");
-    assert(rackLabelPlan.rackText == "RACK 01");
+    assert(rackLabelPlan.shortCategoryText.empty());
+    assert(rackLabelPlan.rackNumber == "01");
+    assert(rackLabelPlan.symbolKey == "resistor");
     const auto rackLabelZpl = service.buildRackLabelZpl(resistorRack);
-    assert(rackLabelZpl.find("^FDInventatory RACK^FS") != string::npos);
+    assert(rackLabelZpl.find("^FDINVENTATORY RACK^FS") != string::npos);
     assert(rackLabelZpl.find("^FDRESISTORS^FS") != string::npos);
-    assert(rackLabelZpl.find("^FDRACK 01^FS") != string::npos);
-    assert(rackLabelZpl.find("^GFA") == string::npos);
-    assert(rackLabelZpl.find("^FO6,55^A0N,40,34^FB244,1,0,C^FDRESISTORS^FS") != string::npos);
+    assert(rackLabelZpl.find("^FD01^FS") != string::npos);
+    assert(rackLabelZpl.find("^FDRACK^FS") != string::npos);
+    // The title starts at the left of the header bar and the brand mark sits at its right end.
+    assert(rackLabelZpl.find("^FO7,0^GB236,22,22,B,4^FS") != string::npos);
+    assert(rackLabelZpl.find("^FO224,4^FR^GB3,3,3^FS") != string::npos);
+    assert(rackLabelZpl.find("^FO13,5^A0N,16,16^FR^FDINVENTATORY RACK^FS") != string::npos);
+    // No horizontal division line between the symbol and the type name.
+    assert(rackLabelZpl.find("^GB120,1,1^FS") == string::npos);
+    // The IEC resistor is a 120 x 34 dot graphic, the ANSI zigzag 120 x 42.
+    assert(rackLabelZpl.find("^GFA,510,510,15,") != string::npos);
+    const auto usResistorZpl = service.buildRackLabelZpl(resistorRack, SymbolStandard::Us);
+    assert(usResistorZpl.find("^GFA,630,630,15,") != string::npos);
+    assert(usResistorZpl != rackLabelZpl);
+
+    // Only the resistor and the fuse differ between the standards.
+    const auto sameInBothStandards = [&](const string& type) {
+      InventatoryRack rack;
+      rack.code = "R5";
+      rack.componentType = type;
+      return service.buildRackLabelZpl(rack, SymbolStandard::Eu) == service.buildRackLabelZpl(rack, SymbolStandard::Us);
+    };
+    for (const auto* type : {"Capacitors", "Inductors", "Diodes", "Indicators", "Transistors", "Integrated Circuits",
+                             "Timing", "Connectors", "smd widgets"}) {
+      assert(sameInBothStandards(type));
+    }
+    assert(!sameInBothStandards("Fuses"));
+    assert(!sameInBothStandards("resistor"));
 
     InventatoryRack customRack;
     customRack.id = "rack-custom-1";
@@ -2669,23 +2695,161 @@ int main() {
     customRack.componentType = "smd widgets";
     const auto customRackPlan = service.buildRackLabelPlan(customRack);
     assert(customRackPlan.categoryText == "SMD WIDGETS");
-    assert(customRackPlan.rackText == "RACK 12");
+    assert(customRackPlan.rackNumber == "12");
+    assert(customRackPlan.symbolKey == "grid");
     const auto customRackZpl = service.buildRackLabelZpl(customRack);
-    assert(customRackZpl.find("^FO6,48^A0N,27,24^FB244,2,4,C^FDSMD\\&WIDGETS^FS") != string::npos);
-    assert(customRackZpl.find("^GFA") == string::npos);
+    // A custom type has no electrical symbol: it gets the 5 x 5 grid, and its name splits rather than shrinks.
+    assert(customRackZpl.find("^GFA,594,594,9,") != string::npos);
+    assert(customRackZpl.find("^FDSMD^FS") != string::npos);
+    assert(customRackZpl.find("^FDWIDGETS^FS") != string::npos);
 
+    // The full name is used while it fits nicely; the short form takes over when it does not.
     InventatoryRack longRack;
     longRack.id = "rack-long-1";
     longRack.code = "R13";
     longRack.componentType = "integrated circuits";
+    const auto longRackPlan = service.buildRackLabelPlan(longRack);
+    assert(longRackPlan.categoryText == "INTEGRATED CIRCUITS");
+    assert(longRackPlan.shortCategoryText == "ICs");
     const auto longRackZpl = service.buildRackLabelZpl(longRack);
-    assert(longRackZpl.find("^FDINTEGRATED\\&CIRCUITS^FS") != string::npos);
+    assert(longRackZpl.find("^FDICs^FS") != string::npos);
+    assert(longRackZpl.find("INTEGRATED") == string::npos);
+    const auto rackNameSize = [&](const string& type, const string& text) {
+      InventatoryRack rack;
+      rack.code = "R2";
+      rack.componentType = type;
+      const auto zpl = service.buildRackLabelZpl(rack);
+      const auto field = zpl.find("^FD" + text + "^FS");
+      assert(field != string::npos);
+      return stoi(zpl.substr(zpl.rfind("^A0N,", field) + 5));
+    };
+    assert(rackNameSize("Indicators", "INDICATORS") >= 22);
+    assert(rackNameSize("Capacitors", "CAPACITORS") >= 22);
+    assert(rackNameSize("Timing", "TIMING") >= 22);
+    InventatoryRack ledRack;
+    ledRack.code = "R5";
+    ledRack.componentType = "LEDs";
+    assert(service.buildRackLabelPlan(ledRack).symbolKey == "led");
+
+    // Every symbol is centred in the space between the header bar and the type name.
+    for (const auto& [type, nameText] : vector<pair<string, string>>{{"Transistors", "TRANSISTORS"},
+                                                                      {"Resistors", "RESISTORS"},
+                                                                      {"Integrated Circuits", "ICs"},
+                                                                      {"Fuses", "FUSES"}}) {
+      InventatoryRack rack;
+      rack.code = "R4";
+      rack.componentType = type;
+      for (const auto standard : {SymbolStandard::Eu, SymbolStandard::Us}) {
+        const auto zpl = service.buildRackLabelZpl(rack, standard);
+        const auto graphic = zpl.find("^GFA,");
+        const auto origin = zpl.rfind("^FO", graphic);
+        const auto symbolY = stoi(zpl.substr(zpl.find(',', origin) + 1));
+        const auto bytes = stoi(zpl.substr(graphic + 5));
+        const auto bytesPerRow = stoi(zpl.substr(zpl.find(',', zpl.find(',', graphic + 5) + 1) + 1));
+        const auto nameField = zpl.find("^FD" + nameText + "^FS");
+        assert(nameField != string::npos);
+        const auto nameOrigin = zpl.rfind("^FO", nameField);
+        const auto nameY = stoi(zpl.substr(zpl.find(',', nameOrigin) + 1));
+        const auto symbolCenter = symbolY + bytes / bytesPerRow / 2.0;
+        assert(abs(symbolCenter - (22 + nameY) / 2.0) <= 1.0);
+      }
+    }
+
+    // Three-digit racks step down but never below 48 dots, and nothing leaves the safe area.
+    InventatoryRack wideRack;
+    wideRack.code = "R128";
+    wideRack.componentType = "Transistors";
+    const auto wideRackLabelZpl = service.buildRackLabelZpl(wideRack);
+    const auto wideRackNumberField = wideRackLabelZpl.find("^FD128^FS");
+    assert(wideRackNumberField != string::npos);
+    const auto wideRackNumberSize = stoi(wideRackLabelZpl.substr(wideRackLabelZpl.rfind("^A0N,", wideRackNumberField) + 5));
+    assert(wideRackNumberSize >= 48 && wideRackNumberSize < 88);
+    assert(estimateFont0Width("128", wideRackNumberSize, wideRackNumberSize) <= 90);
+    for (const auto* type : {"Resistors", "Capacitors", "Inductors", "Diodes", "Indicators", "Transistors",
+                             "Integrated Circuits", "Timing", "Fuses", "Connectors", "smd widgets",
+                             "Very long custom rack type name"}) {
+      for (const auto standard : {SymbolStandard::Eu, SymbolStandard::Us}) {
+        InventatoryRack rack;
+        rack.code = "R99";
+        rack.componentType = type;
+        const auto zpl = service.buildRackLabelZpl(rack, standard);
+        for (auto at = zpl.find("^FO"); at != string::npos; at = zpl.find("^FO", at + 3)) {
+          const auto comma = zpl.find(',', at);
+          const auto fieldX = stoi(zpl.substr(at + 3));
+          const auto fieldY = stoi(zpl.substr(comma + 1));
+          const auto end = zpl.find("^FS", at);
+          const auto field = zpl.substr(at, end - at);
+          assert(fieldX >= 7);
+          if (const auto graphic = field.find("^GFA,"); graphic != string::npos) {
+            const auto bytesPerRow = stoi(field.substr(field.find(',', field.find(',', graphic + 5) + 1) + 1));
+            const auto bytes = stoi(field.substr(graphic + 5));
+            assert(fieldX + bytesPerRow * 8 <= 243 && fieldY + bytes / bytesPerRow <= 179);
+          } else if (const auto box = field.find("^GB"); box != string::npos) {
+            const auto width = stoi(field.substr(box + 3));
+            const auto height = stoi(field.substr(field.find(',', box) + 1));
+            assert(fieldX + width <= 243 && fieldY + height <= 179);
+          } else if (const auto font = field.find("^A0N,"); font != string::npos) {
+            const auto size = stoi(field.substr(font + 5));
+            const auto text = field.substr(field.find("^FD") + 3);
+            assert(fieldX + estimateFont0Width(text, size, size) <= 243 && fieldY + size <= 179 + 4);
+          }
+        }
+      }
+    }
+
+    // Symbol lookup follows the rack allocator's singular and plural spellings.
+    assert(rackSymbolKey("Resistor") == "resistor" && rackSymbolKey("  RESISTORS ") == "resistor");
+    assert(rackSymbolKey("Integrated Circuits") == "ic" && rackSymbolKey("ICs") == "ic");
+    assert(rackSymbolKey("Timing") == "crystal" && rackSymbolKey("Crystals") == "crystal");
+    assert(rackSymbolKey("Indicators") == "led" && rackSymbolKey("Fuses") == "fuse");
+    assert(rackSymbolKey("") == "grid" && rackSymbolKey("Widgets") == "grid");
+    for (size_t index = 0; index < kRackSymbolSetCount; ++index) {
+      for (const auto* bitmap : {kRackSymbolSets[index].eu, kRackSymbolSets[index].us}) {
+        assert(bitmap != nullptr && bitmap->width > 0 && bitmap->width <= 120 && bitmap->height > 0 &&
+               bitmap->height <= 80 && bitmap->bytesPerRow == (bitmap->width + 7) / 8);
+        bool anyBlack = false;
+        for (int byte = 0; byte < bitmap->bytesPerRow * bitmap->height; ++byte) anyBlack = anyBlack || bitmap->data[byte] != 0;
+        assert(anyBlack);
+      }
+    }
+    // The connector's pin array sits centred in its outline, and the transistor is centred on its circle
+    // rather than on a bounding box that also holds the long base lead.
+    const auto symbolBitmap = [&](const string& key) -> const RackSymbolBitmap& {
+      for (size_t index = 0; index < kRackSymbolSetCount; ++index) {
+        if (key == kRackSymbolSets[index].key) return *kRackSymbolSets[index].eu;
+      }
+      assert(false);
+      return *kRackSymbolSets[0].eu;
+    };
+    const auto mirrorMismatch = [](const RackSymbolBitmap& bitmap) {
+      const auto black = [&](int x, int y) { return (bitmap.data[y * bitmap.bytesPerRow + x / 8] >> (7 - x % 8)) & 1; };
+      int mismatched = 0;
+      int total = 0;
+      for (int y = 0; y < bitmap.height; ++y) {
+        for (int x = 0; x < bitmap.width / 2; ++x) {
+          total += 1;
+          mismatched += black(x, y) != black(bitmap.width - 1 - x, y) ? 1 : 0;
+        }
+      }
+      return 100.0 * mismatched / total;
+    };
+    assert(mirrorMismatch(symbolBitmap("connector")) < 4.0);
+    assert(mirrorMismatch(symbolBitmap("grid")) < 4.0);
+    assert(abs(symbolBitmap("transistor").width - symbolBitmap("transistor").height) <= 1);
+
+    SymbolStandard parsedStandard = SymbolStandard::Us;
+    assert(parseSymbolStandard(" EU ", parsedStandard) && parsedStandard == SymbolStandard::Eu);
+    assert(parseSymbolStandard("us", parsedStandard) && parsedStandard == SymbolStandard::Us);
+    assert(!parseSymbolStandard("iso", parsedStandard) && parsedStandard == SymbolStandard::Us);
 
     error.clear();
     assert(service.printRackLabel(resistorRack, &error));
     assert(error.empty());
     assert(backendPtr->lastJobName_ == "Inventatory Rack R1");
-    assert(backendPtr->lastZpl_.find("^FDRACK 01^FS") != string::npos);
+    assert(backendPtr->lastZpl_.find("^FD01^FS") != string::npos);
+    assert(backendPtr->lastZpl_.find("^GFA,510,510,15,") != string::npos);
+    assert(service.printRackLabel(resistorRack, &error, SymbolStandard::Us));
+    assert(backendPtr->lastZpl_.find("^GFA,630,630,15,") != string::npos);
 
     InventoryItem tvsDiode;
     tvsDiode.id = "tvs-1";
@@ -4610,6 +4774,48 @@ int main() {
     invalid.close();
     AppSettings loaded;
     assert(!loadAppSettings(path, loaded));
+    error_code removeError;
+    filesystem::remove(path, removeError);
+    assert(!removeError);
+  }
+
+  {
+    // The EU default is not written, so the file stays readable by releases that predate the setting.
+    const auto path = filesystem::temp_directory_path() / "inventatory-symbol-standard-settings-test.conf";
+    AppSettings defaults;
+    defaults.dataDirectory = "data";
+    assert(saveAppSettings(path, defaults));
+    {
+      ifstream saved(path);
+      const string text((istreambuf_iterator<char>(saved)), istreambuf_iterator<char>());
+      assert(text.find("symbol_standard") == string::npos);
+    }
+    AppSettings loaded;
+    loaded.symbolStandard = SymbolStandard::Us;
+    assert(loadAppSettings(path, loaded) && loaded.symbolStandard == SymbolStandard::Eu);
+
+    defaults.symbolStandard = SymbolStandard::Us;
+    assert(saveAppSettings(path, defaults));
+    string savedText;
+    {
+      ifstream saved(path);
+      savedText.assign((istreambuf_iterator<char>(saved)), istreambuf_iterator<char>());
+    }
+    assert(savedText.find("symbol_standard=\"us\"\n") != string::npos);
+    AppSettings reloaded;
+    assert(loadAppSettings(path, reloaded) && reloaded.symbolStandard == SymbolStandard::Us);
+
+    // An unknown value and a repeated key both invalidate the file rather than silently falling back.
+    const auto writeWith = [&](const string& extra) {
+      ofstream out(path, ios::trunc);
+      out << savedText.substr(0, savedText.find("symbol_standard=")) << extra;
+    };
+    writeWith("symbol_standard=\"iso\"\n");
+    assert(!loadAppSettings(path, reloaded));
+    writeWith("symbol_standard=\"us\"\nsymbol_standard=\"eu\"\n");
+    assert(!loadAppSettings(path, reloaded));
+    writeWith("symbol_standard=us\n");
+    assert(!loadAppSettings(path, reloaded));
     error_code removeError;
     filesystem::remove(path, removeError);
     assert(!removeError);

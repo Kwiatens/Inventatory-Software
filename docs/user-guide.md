@@ -110,7 +110,7 @@ analysis against current stock with no re-upload. `d` forgets one.
 
 Settings has seven destinations arranged under System, Devices, and Integrations. Devices contains
 Printer, with Quick Labels nested below it, and Inventatory Scan. Changes to data location, printer,
-Quick Labels, the Inventatory Scan R1 service port, auto-label behavior, and DigiKey configuration are
+Quick Labels, the Inventatory Scan R1 service port, auto-label behavior, the label symbol standard, and DigiKey configuration are
 staged until Save. Cancel restores the saved values. Printer and DigiKey tests use the staged values.
 
 The Quick Labels panel owns up to twelve shared cable-flag texts and the optional custom wire label. Add, edit, remove,
@@ -127,6 +127,16 @@ the QR code, the short ID for typing a lookup, the rack slot as rack and cell (R
 the column and the number is the row), and a bracketed field for writing a new slot by hand after moving the
 tube. A part that has no rack, such as a through-hole part (racks hold surface-mount, semiconductor and
 similar stock), prints no slot chip; its field is captioned SLOT and enlarged instead.
+
+Rack labels use the same 32 × 25 mm stock. A black block carries the rack number (`12`) in the largest type
+that fits, with the electrical symbol for the rack's type and the type name beside it. The brand mark sits at the
+right end of the header bar on part and rack labels alike. A full type name is printed when it fits nicely on one
+line; otherwise a short form is used (ICs, LEDs, Crystals), and a custom type that fits neither is split over two
+lines or stepped down in size, never cut. Built-in types draw the symbol for resistors, capacitors, inductors,
+diodes, LEDs, transistors, ICs, crystals, fuses and connectors; a custom rack type draws a 5 × 5 grid. In
+Settings > Printer, **Schematic symbols** (or `y`) switches between EU (IEC 60617) and US (ANSI/IEEE 315). Only the
+resistor and the fuse differ between the two; the default is EU. The symbols come from open-licensed artwork,
+rendered once by `tools/rack_symbols/generate.py`; see `tools/rack_symbols/README.md` for sources and licences.
 
 Tiles only print values that can be trusted. A parameter must match its caption by exact name, carry the
 unit the caption implies (V, A, W, Ω, Hz, °C or mm), and not describe how the part is mounted. Temperature

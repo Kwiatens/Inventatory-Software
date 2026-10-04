@@ -30,6 +30,13 @@ void App::stageSelectedPrinterQueue() {
   }
 }
 
+void App::toggleSymbolStandard() {
+  settingsDraft_.symbolStandard =
+      settingsDraft_.symbolStandard == SymbolStandard::Eu ? SymbolStandard::Us : SymbolStandard::Eu;
+  settingsDirty_ = settingsDraftHasChanges();
+  dirty_ = true;
+}
+
 void App::handleSettingsKey(const KeyEvent& key) {
   if (appearancePickerOpen_) {
     if (key.type == KeyType::Left) {

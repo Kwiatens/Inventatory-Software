@@ -445,6 +445,8 @@ class App {
     InventatoryRack rack;
     std::string text;
     std::string rackLocation;
+    // Snapshot of the saved setting when the rack label job is queued.
+    SymbolStandard symbolStandard = SymbolStandard::Eu;
     std::string successPrefix;
     std::string requestId;
     std::optional<QuickLabelPrintCacheIdentity> quickLabelIdentity;
@@ -628,6 +630,7 @@ class App {
   bool autoPrintScannedLabel(const std::string& itemId);
   std::string printerSummary() const;
   void stageSelectedPrinterQueue();
+  void toggleSymbolStandard();
   void openInventatoryScanSetup();
   void openDigiKeySetup();
   void advanceOnboarding();
