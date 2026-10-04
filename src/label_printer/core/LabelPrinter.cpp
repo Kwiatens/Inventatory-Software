@@ -5,6 +5,7 @@
 #include "core/inventory/InventoryInternals.h"
 #include "ui/shared/AppUiShared.h"
 
+#include <iterator>
 #include <sstream>
 #include <utility>
 
@@ -15,20 +16,13 @@ using namespace label_printer_detail;
 
 InventatoryLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& item, string rackLocation) const {
   InventatoryLabelPlan plan;
-  const auto parameterLines = parameterLinesForItem(item);
   plan.categoryHeader = partContextHeader(item);
   plan.mainValue = mainLabelValue(item);
+  plan.mainIsMeasuredValue = isMeasuredValueItem(item);
+  plan.mainTolerance = mainLabelTolerance(item);
   plan.packageLine = shortPackageLine(item);
   plan.manufacturerLine = manufacturerLine(item);
-  if (!parameterLines.empty()) {
-    plan.parameterLine1 = parameterLines[0];
-  }
-  if (parameterLines.size() > 1) {
-    plan.parameterLine2 = parameterLines[1];
-  }
-  if (parameterLines.size() > 2) {
-    plan.parameterLine3 = parameterLines[2];
-  }
+  plan.parameters = parameterTilesForItem(item);
   plan.inventatoryId = trim(item.inventatoryId);
   plan.scannerHint = buildVisibleInventatoryId(item);
   if (trim(plan.scannerHint).empty()) {
@@ -36,31 +30,227 @@ InventatoryLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& it
   }
   plan.barcodeHint = normalizeMachineCode(item.machineCode);
   plan.rackLocation = trim(rackLocation);
+  splitRackLocation(plan.rackLocation, plan.rackCode, plan.rackCell);
 
   return plan;
 }
 
+namespace {
+
+// Item label layout on the 256 x 200 dot (32 x 25 mm, 203 dpi) stock. The
+// left column says what the part is; the right column holds the QR code,
+// the readable ID, the rack slot and a pen field for recording a move.
+//
+// Test prints land about 3 dots right of and 10 dots below ^FO, so the
+// layout starts at x 7 / y 0 and ends at x 243 / y 179: that leaves an even
+// margin of about 10 dots on all four sides of the printed label.
+constexpr int kBottom = 179;
+constexpr int kHeaderY = 0;
+constexpr int kHeaderHeight = 22;
+constexpr int kPillY = 80;
+constexpr int kPillHeight = 20;
+constexpr int kDividerY = 106;
+constexpr int kTileY = 110;
+constexpr int kTileRowPitch = 39;
+// ^BQ draws the symbol about 10 dots below its field origin; at magnification
+// 3 a 21 module symbol is 63 dots square.
+constexpr int kQrFieldY = 18;
+constexpr int kQrSize = 63;
+constexpr int kQrBottom = kQrFieldY + 10 + kQrSize;
+constexpr int kIdY = kQrBottom + 3;
+constexpr int kSlotY = kIdY + 17;
+constexpr int kSlotHeight = 23;
+constexpr int kPenCaptionY = kSlotY + kSlotHeight + 3;
+constexpr int kPenY = kPenCaptionY + 12;
+// Font 0 digits and capitals are about 0.74 of the font height tall and start
+// at the field origin, so their baseline is at y + 0.74 * height.
+constexpr double kBaseline = 0.74;
+constexpr int kLeft = 7;
+constexpr int kLeftColumnWidth = 164;
+constexpr int kRight = 180;
+constexpr int kRightColumnWidth = kQrSize;
+constexpr int kSlotSplit = 40;
+// The parameter grid: two columns of kLabelTileWidth around a hairline rule.
+constexpr int kTileColumnPitch = 86;
+constexpr int kTileRuleX = kLeft + 81;
+// The value sits centred between the header bar and the package row.
+constexpr double kValueCenterY = (kHeaderY + kHeaderHeight + kPillY) / 2.0;
+constexpr char kPlusMinus[] = "\xC2\xB1";
+
+// The >| brand mark as a 5 x 5 pixel glyph.
+constexpr const char* kLogoRows[] = {"X...X", ".X..X", "..X.X", ".X..X", "X...X"};
+
+int scaled(int value, double factor) {
+  return static_cast<int>(value * factor + 0.5);
+}
+
+// Top of a font 0 line whose capitals are centred on centerY.
+int centeredTop(double centerY, int size) {
+  return static_cast<int>(centerY - size * kBaseline / 2 + 0.5);
+}
+
+// Left edge that centres a text of the given estimated width in a box.
+int centeredLeft(int boxX, int boxWidth, int textWidth) {
+  return boxX + (boxWidth - textWidth) / 2;
+}
+
+void writeText(ostringstream& out, int x, int y, int height, int width, const string& text, const string& extra = {}) {
+  out << "^FO" << x << ',' << y << "^A0N," << height << ',' << width << extra << "^FD" << sanitizeLabelText(text)
+      << "^FS\r\n";
+}
+
+void writeBox(ostringstream& out, int x, int y, int width, int height, int thickness, int rounding = 0,
+              bool reverse = false) {
+  out << "^FO" << x << ',' << y << (reverse ? "^FR" : "") << "^GB" << width << ',' << height << ',' << thickness;
+  if (rounding > 0) out << ",B," << rounding;
+  out << "^FS\r\n";
+}
+
+// One line of text centred in the left column and on centerY.
+void writeCenteredLine(ostringstream& out, double centerY, int size, const string& text) {
+  writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(text, size, size)), centeredTop(centerY, size),
+            size, size, text);
+}
+
+void writeMainValue(ostringstream& out, const InventatoryLabelPlan& plan) {
+  if (plan.mainIsMeasuredValue) {
+    string number;
+    string unit;
+    splitMeasuredValue(plan.mainValue, number, unit);
+    const auto& tolerance = plan.mainTolerance;
+    constexpr int toleranceSize = 18;
+    constexpr int toleranceGap = 7;
+    for (const auto size : {46, 42, 38, 34}) {
+      const auto unitSize = scaled(size, 0.72);
+      const auto numberWidth = estimateFont0Width(number, size, size);
+      const auto unitWidth = unit.empty() ? 0 : estimateFont0Width(unit, unitSize, unitSize) + 1;
+      const auto toleranceWidth =
+          tolerance.empty() ? 0 : estimateFont0Width(tolerance, toleranceSize, toleranceSize) + toleranceGap;
+      const auto groupWidth = numberWidth + unitWidth + toleranceWidth;
+      if (groupWidth > kLeftColumnWidth) continue;
+      // Number, unit and tolerance share one baseline; the group is centred.
+      const auto x = centeredLeft(kLeft, kLeftColumnWidth, groupWidth);
+      const auto y = centeredTop(kValueCenterY, size);
+      writeText(out, x, y, size, size, number);
+      if (!unit.empty()) {
+        writeText(out, x + numberWidth + 1, y + scaled(size - unitSize, kBaseline), unitSize, unitSize, unit);
+      }
+      if (!tolerance.empty()) {
+        const auto toleranceX = x + numberWidth + unitWidth + toleranceGap;
+        const auto toleranceY = y + scaled(size - toleranceSize, kBaseline);
+        // The font draws "±" about 3 dots below the digits' centre line.
+        if (tolerance.rfind(kPlusMinus, 0) == 0) {
+          const auto signWidth = estimateFont0Width(kPlusMinus, toleranceSize, toleranceSize);
+          writeText(out, toleranceX, toleranceY - 3, toleranceSize, toleranceSize, kPlusMinus);
+          writeText(out, toleranceX + signWidth, toleranceY, toleranceSize, toleranceSize,
+                    tolerance.substr(sizeof(kPlusMinus) - 1));
+        } else {
+          writeText(out, toleranceX, toleranceY, toleranceSize, toleranceSize, tolerance);
+        }
+      }
+      return;
+    }
+  }
+  const auto oneLine = fitFont0Text(plan.mainValue, kLeftColumnWidth, {40, 36, 32, 28, 26});
+  if (!oneLine.text.empty() && oneLine.text == sanitizeLabelText(plan.mainValue)) {
+    writeCenteredLine(out, kValueCenterY, oneLine.size, oneLine.text);
+    return;
+  }
+  // Long names wrap onto two lines at word boundaries before anything is cut.
+  istringstream words(sanitizeLabelText(plan.mainValue));
+  vector<string> tokens{istream_iterator<string>(words), istream_iterator<string>()};
+  for (const auto size : {24, 22, 20, 18}) {
+    string first;
+    string second;
+    for (const auto& token : tokens) {
+      auto& line = second.empty() && estimateFont0Width(first.empty() ? token : first + " " + token, size, size) <=
+                                         kLeftColumnWidth
+                       ? first
+                       : second;
+      line += (line.empty() ? "" : " ") + token;
+    }
+    if (!first.empty() && !second.empty() && estimateFont0Width(second, size, size) <= kLeftColumnWidth) {
+      const auto pitch = size + 2;
+      const auto blockTop = kValueCenterY - (pitch + size * kBaseline) / 2;
+      writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(first, size, size)),
+                static_cast<int>(blockTop + 0.5), size, size, first);
+      writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(second, size, size)),
+                static_cast<int>(blockTop + 0.5) + pitch, size, size, second);
+      return;
+    }
+  }
+  // A single long token (a part number) steps down in size rather than wrapping.
+  const auto fitted = fitFont0Text(plan.mainValue, kLeftColumnWidth, {24, 22, 20, 18, 16, 14});
+  if (!fitted.text.empty()) {
+    writeCenteredLine(out, kValueCenterY, fitted.size, fitted.text);
+  }
+}
+
+void writeParameterTiles(ostringstream& out, const vector<LabelParameterTile>& tiles) {
+  const auto count = min<size_t>(tiles.size(), 4);
+  for (size_t index = 0; index < count; ++index) {
+    const auto x = kLeft + static_cast<int>(index % 2) * kTileColumnPitch;
+    const auto y = kTileY + static_cast<int>(index / 2) * kTileRowPitch;
+    const auto caption = fitFont0Text(uppercaseAscii(tiles[index].caption), kLabelTileWidth, {12, 11, 10});
+    if (!caption.text.empty()) {
+      writeText(out, x, y, caption.size, caption.size == 12 ? 11 : caption.size, caption.text);
+    }
+    // Values were checked to fit when the tile was chosen; they are never clipped.
+    const auto value = fitFont0Text(tiles[index].value, kLabelTileWidth, {22, 20, 18, 16, 14, kLabelTileMinSize});
+    if (!value.text.empty()) {
+      // A leading minus has a wide left bearing: pull it back to the text edge.
+      const auto bearing = value.text.front() == '-' ? 2 : 0;
+      writeText(out, x - bearing, y + 13 + scaled(22 - value.size, kBaseline), value.size, value.size, value.text);
+    }
+  }
+  if (count > 1) {
+    writeBox(out, kTileRuleX, kTileY + 2, 1, count > 2 ? kTileRowPitch + 33 : 33, 1);
+  }
+}
+
+void writeSlot(ostringstream& out, const InventatoryLabelPlan& plan) {
+  const bool hasSlot = !plan.rackCode.empty();
+  // Without a slot there is no chip: the pen field moves up and takes its place.
+  const auto captionY = hasSlot ? kPenCaptionY : kSlotY;
+  const auto penY = hasSlot ? kPenY : kSlotY + 12;
+  if (hasSlot) {
+    const bool hasCell = !plan.rackCell.empty();
+    const auto rackWidth = hasCell ? kSlotSplit : kRightColumnWidth;
+    const auto textCenterY = kSlotY + kSlotHeight / 2.0;
+    writeBox(out, kRight, kSlotY, kRightColumnWidth, kSlotHeight, 2, 3);
+    writeBox(out, kRight, kSlotY, rackWidth, kSlotHeight, kSlotHeight, 3);
+    const auto rack = fitFont0Text(plan.rackCode, rackWidth - 5, {17, 16, 15, 14, 13});
+    writeText(out, centeredLeft(kRight, rackWidth, rack.width), centeredTop(textCenterY, rack.size), rack.size, rack.size,
+              rack.text, "^FR");
+    if (hasCell) {
+      const auto cellWidth = kRightColumnWidth - kSlotSplit;
+      const auto cell = fitFont0Text(plan.rackCell, cellWidth - 2, {19, 17, 15, 13});
+      writeText(out, centeredLeft(kRight + kSlotSplit, cellWidth, cell.width), centeredTop(textCenterY, cell.size),
+                cell.size, cell.size, cell.text);
+    }
+  }
+
+  // Pen field: corner brackets that stay open so handwriting is not boxed in.
+  constexpr int arm = 7;
+  constexpr int stroke = 2;
+  const auto penHeight = kBottom - penY;
+  writeText(out, kRight, captionY, 11, 11, hasSlot ? "NEW SLOT" : "SLOT");
+  const auto right = kRight + kRightColumnWidth;
+  const auto bottom = penY + penHeight;
+  for (const auto x : {kRight, right - arm}) {
+    writeBox(out, x, penY, arm, stroke, stroke);
+    writeBox(out, x, bottom - stroke, arm, stroke, stroke);
+  }
+  for (const auto x : {kRight, right - stroke}) {
+    writeBox(out, x, penY, stroke, arm, stroke);
+    writeBox(out, x, bottom - arm, stroke, arm, stroke);
+  }
+}
+
+}  // namespace
+
 string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocation) const {
   const auto plan = buildLabelPlan(item, move(rackLocation));
-  const auto categoryHeader = sanitiseZplFragment(plan.categoryHeader);
-  const auto mainValue = sanitiseZplFragment(plan.mainValue);
-  const auto categoryHeaderFont = SingleLineFont{17, 17};
-  // Preserve the original large title treatment. Only longer titles step
-  // down, rather than shrinking all label typography to fit every case.
-  const auto mainValueLength = mainValue.size();
-  const auto mainValueFont = isCompactManufacturerPartNumber(mainValue) || mainValueLength <= 14
-                                 ? SingleLineFont{34, 31}
-                                 : mainValueLength <= 18 ? SingleLineFont{30, 25}
-                                 : mainValueLength <= 22 ? SingleLineFont{26, 21}
-                                 : mainValueLength <= 26 ? SingleLineFont{22, 17}
-                                                         : SingleLineFont{18, 14};
-  const auto packageLine = fitSingleLineLabel(plan.packageLine, 24);
-  const auto manufacturerLine = fitSingleLineLabel(plan.manufacturerLine, 20);
-  const auto parameterLine1 = fitSingleLineLabel(plan.parameterLine1, 24);
-  const auto parameterLine2 = fitSingleLineLabel(plan.parameterLine2, 24);
-  const auto parameterLine3 = fitSingleLineLabel(plan.parameterLine3, 24);
-  const auto barcodeHint = fitSingleLineLabel(plan.barcodeHint, 14);
-  const auto rackHint = fitSingleLineLabel(plan.rackLocation, 12);
   ostringstream out;
   out << "^XA\r\n";
   out << "^CI28\r\n";
@@ -71,52 +261,68 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "^MD12\r\n";
   out << "\r\n";
 
-  out << "^FX --- Header ---\r\n";
-  // The bar uses equal ten-dot margins on both sides of the 256-dot label.
-  out << "^FO10,0^GB236,24,24,B,6^FS\r\n";
-  out << "^FO12,6^A0N," << categoryHeaderFont.height << ',' << categoryHeaderFont.width << "^FR^FD"
-      << sanitizeLabelText(categoryHeader) << "^FS\r\n";
+  out << "^FX --- Header: logo and category ---\r\n";
+  writeBox(out, kLeft, kHeaderY, kRight + kRightColumnWidth - kLeft, kHeaderHeight, kHeaderHeight, 4);
+  for (int row = 0; row < 5; ++row) {
+    for (int column = 0; column < 5; ++column) {
+      if (kLogoRows[row][column] == 'X') writeBox(out, kLeft + 6 + column * 3, kHeaderY + 4 + row * 3, 3, 3, 3, 0, true);
+    }
+  }
+  const auto header = fitFont0Text(uppercaseAscii(plan.categoryHeader), 202, {16, 15, 14, 13, 12});
+  if (!header.text.empty()) {
+    writeText(out, kLeft + 28, centeredTop(kHeaderY + kHeaderHeight / 2.0, header.size), header.size, header.size,
+              header.text, "^FR");
+  }
   out << "\r\n";
 
   out << "^FX --- Main value ---\r\n";
-  out << "^FO10,33^A0N," << mainValueFont.height << ',' << mainValueFont.width << "^FD"
-      << sanitizeLabelText(mainValue) << "^FS\r\n";
+  writeMainValue(out, plan);
   out << "\r\n";
 
-  out << "^FX --- Package ---\r\n";
-  if (!packageLine.empty()) {
-    out << "^FO10,70^A0N,14,14^FD" << sanitizeLabelText(packageLine) << "^FS\r\n";
+  out << "^FX --- Package and manufacturer ---\r\n";
+  const auto pillCenterY = kPillY + kPillHeight / 2.0;
+  auto manufacturerX = kLeft;
+  if (!plan.packageLine.empty()) {
+    const auto package = fitFont0Text(plan.packageLine, 90, {16, 14, 12});
+    const auto pillWidth = package.width + 10;
+    writeBox(out, kLeft, kPillY, pillWidth, kPillHeight, kPillHeight, 4);
+    writeText(out, kLeft + 5, centeredTop(pillCenterY, package.size), package.size, package.size, package.text, "^FR");
+    manufacturerX = kLeft + pillWidth + 6;
+  }
+  if (!plan.manufacturerLine.empty()) {
+    // The full name when it fits; otherwise drop corporate suffixes
+    // ("Infineon Technologies" -> "Infineon") before anything is cut.
+    const auto available = kLeft + kLeftColumnWidth - manufacturerX;
+    const auto candidates = manufacturerCandidates(plan.manufacturerLine);
+    FittedLabelText manufacturer;
+    for (const auto& candidate : candidates) {
+      manufacturer = fitFont0Text(candidate, available, {16, 15, 14, 13, 12});
+      if (manufacturer.text == sanitizeLabelText(candidate)) break;
+    }
+    if (!manufacturer.text.empty()) {
+      // Mixed-case text has no capitals on most of its line: sit it 1 dot lower.
+      writeText(out, manufacturerX, centeredTop(pillCenterY + 1, manufacturer.size), manufacturer.size,
+                manufacturer.size, manufacturer.text);
+    }
   }
   out << "\r\n";
 
-  out << "^FX --- Thin divider ---\r\n";
-  out << "^FO10,93^GB146,1,1^FS\r\n";
+  out << "^FX --- Parameters ---\r\n";
+  writeBox(out, kLeft, kDividerY, kLeftColumnWidth - 4, 1, 1);
+  writeParameterTiles(out, plan.parameters);
   out << "\r\n";
 
-  out << "^FX --- Manufacturer / parameters ---\r\n";
-  if (!manufacturerLine.empty()) {
-    out << "^FO10,100^A0N,16,16^FD" << sanitizeLabelText(manufacturerLine) << "^FS\r\n";
-  }
-  if (!parameterLine1.empty()) {
-    out << "^FO10,118^A0N,15,15^FD" << sanitizeLabelText(parameterLine1) << "^FS\r\n";
-  }
-  if (!parameterLine2.empty()) {
-    out << "^FO10,136^A0N,15,15^FD" << sanitizeLabelText(parameterLine2) << "^FS\r\n";
-  }
-  if (!parameterLine3.empty()) {
-    out << "^FO10,154^A0N,15,15^FD" << sanitizeLabelText(parameterLine3) << "^FS\r\n";
-  }
-  out << "\r\n";
-
-  out << "^FX --- QR code ---\r\n";
+  out << "^FX --- QR code and readable ID ---\r\n";
   // Keep the QR symbol compact so it wraps less on curved labels.
-  out << "^FO170,60^BQN,2,3^FDLA," << sanitizeLabelText(barcodeHint) << "^FS\r\n";
+  out << "^FO" << kRight << ',' << kQrFieldY << "^BQN,2,3^FDLA," << sanitizeLabelText(plan.barcodeHint) << "^FS\r\n";
+  if (!plan.scannerHint.empty()) {
+    const auto id = fitFont0Text(plan.scannerHint, kRightColumnWidth, {14, 13, 12});
+    writeText(out, centeredLeft(kRight, kQrSize, id.width), kIdY, id.size, id.size, id.text);
+  }
   out << "\r\n";
 
-  if (!rackHint.empty()) {
-    out << "^FX --- Inventatory rack location ---\r\n";
-    out << "^FO10,173^A0N,18,18^FD" << sanitizeLabelText(rackHint) << "^FS\r\n";
-  }
+  out << "^FX --- Rack slot and pen field ---\r\n";
+  writeSlot(out, plan);
 
   out << "^XZ\r\n";
   return out.str();

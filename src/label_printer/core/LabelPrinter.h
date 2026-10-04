@@ -34,18 +34,27 @@ struct PrinterCheckResult {
   string message;
 };
 
+struct LabelParameterTile {
+  string caption;
+  string value;
+};
+
 struct InventatoryLabelPlan {
   string categoryHeader;
+  // Passive parts print a measured value (10kΩ, 100nF) with its tolerance
+  // beside it; every other part prints its part number or name.
   string mainValue;
+  string mainTolerance;
+  bool mainIsMeasuredValue = false;
   string packageLine;
   string manufacturerLine;
-  string parameterLine1;
-  string parameterLine2;
-  string parameterLine3;
+  vector<LabelParameterTile> parameters;
   string inventatoryId;
   string scannerHint;
   string barcodeHint;
   string rackLocation;
+  string rackCode;
+  string rackCell;
 };
 
 struct InventatoryRackLabelPlan {
