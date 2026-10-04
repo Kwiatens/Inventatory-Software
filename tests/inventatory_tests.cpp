@@ -4832,6 +4832,44 @@ int main() {
     assert(updatePreviewStartsOnKey(KeyEvent{KeyType::Enter, '\0'}));
     assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 's'}));
     assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 'S'}));
+
+    assert(cleanMarkdownInline("[PR #12](https://github.com/pull/12)") == "PR #12");
+    assert(cleanMarkdownInline("**Notice:** See [`readme`](https://example.com)") == "Notice: See readme");
+
+    const auto emptyNotes = formatUpdateNotes("", 50);
+    assert(emptyNotes.size() == 1);
+    assert(emptyNotes[0].kind == UpdateNoteLineKind::Paragraph);
+    assert(emptyNotes[0].text == "No release notes were provided for this release.");
+
+    const string sampleMarkdown =
+        "### Highlights\n"
+        "- Added brand new application icon.\n"
+        "- Refined rack labels to make barcode scanning much easier on long shelves.\n"
+        "\n"
+        "### Fixes\n"
+        "- Resolved [`locale bug`](https://github.com/issues/1) on Linux.";
+
+    const auto formatted = formatUpdateNotes(sampleMarkdown, 45);
+    assert(!formatted.empty());
+    assert(formatted[0].kind == UpdateNoteLineKind::Heading);
+    assert(formatted[0].text == "Highlights");
+    assert(formatted[1].kind == UpdateNoteLineKind::BulletStart);
+    assert(formatted[1].text == "Added brand new application icon.");
+    // Long bullet should have wrapped into BulletStart followed by BulletContinuation
+    assert(formatted[2].kind == UpdateNoteLineKind::BulletStart);
+    assert(formatted[3].kind == UpdateNoteLineKind::BulletContinuation);
+    // Followed by empty spacer line
+    size_t fixesHeadingIndex = 0;
+    for (size_t i = 0; i < formatted.size(); ++i) {
+      if (formatted[i].kind == UpdateNoteLineKind::Heading && formatted[i].text == "Fixes") {
+        fixesHeadingIndex = i;
+        break;
+      }
+    }
+    assert(fixesHeadingIndex > 0);
+    assert(formatted[fixesHeadingIndex - 1].kind == UpdateNoteLineKind::Empty);
+    assert(formatted[fixesHeadingIndex + 1].kind == UpdateNoteLineKind::BulletStart);
+    assert(formatted[fixesHeadingIndex + 1].text == "Resolved locale bug on Linux.");
   }
 
   {
