@@ -71,6 +71,7 @@ bool App::printSelectedRackLabel() {
   work.workspaceGeneration = context->generation;
   work.printerName = printerService_.configuredPrinter();
   work.rack = *rack;
+  work.symbolStandard = settings_.symbolStandard;
   if (!enqueuePrinterWork(move(work))) {
     setMessage("Printer request queue is full; try again shortly", 4);
     return false;

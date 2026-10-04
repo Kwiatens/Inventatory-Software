@@ -1,0 +1,66 @@
+{
+  "box": {
+    "width": 120,
+    "height": 80,
+    "stroke": 4
+  },
+  "symbols": [
+    {
+      "key": "resistor",
+      "eu": "pikul-Resistor-IEC-Standard",
+      "us": "pikul-Resistor-IEEE-Standard"
+    },
+    {
+      "key": "capacitor",
+      "eu": "pikul-Capacitor-IEC-NonPolarized",
+      "us": "pikul-Capacitor-IEC-NonPolarized"
+    },
+    {
+      "key": "inductor",
+      "eu": "pikul-Inductor-COM-Air",
+      "us": "pikul-Inductor-COM-Air"
+    },
+    {
+      "key": "diode",
+      "eu": "pikul-Diode-COM-Standard",
+      "us": "pikul-Diode-COM-Standard"
+    },
+    {
+      "key": "led",
+      "eu": "pikul-Diode-COM-LED",
+      "us": "pikul-Diode-COM-LED"
+    },
+    {
+      "key": "transistor",
+      "eu": "pikul-modified-Transistor-COM-BJT-NPN",
+      "us": "pikul-modified-Transistor-COM-BJT-NPN",
+      "anchorX": 75
+    },
+    {
+      "key": "ic",
+      "eu": "inventatory-IC",
+      "us": "inventatory-IC"
+    },
+    {
+      "key": "crystal",
+      "eu": "pikul-Miscellaneous-COM-Crystal_Oscillator",
+      "us": "pikul-Miscellaneous-COM-Crystal_Oscillator"
+    },
+    {
+      "key": "fuse",
+      "eu": "commons-Fuse-IEC",
+      "us": "pikul-Fuse-IEEE-Alt"
+    },
+    {
+      "key": "connector",
+      "eu": "inventatory-Header",
+      "us": "inventatory-Header"
+    },
+    {
+      "key": "grid",
+      "eu": "inventatory-Grid",
+      "us": "inventatory-Grid",
+      "maxHeight": 66
+    }
+  ]
+}

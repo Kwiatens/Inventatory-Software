@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/inventory/Inventory.h"
+#include "label_printer/symbols/RackSymbols.h"
 
 #include <filesystem>
 #include <memory>
@@ -58,8 +59,14 @@ struct InventatoryLabelPlan {
 };
 
 struct InventatoryRackLabelPlan {
+  // The rack type as stored, upper-case ("INTEGRATED CIRCUITS"), and the short form printed when the full name
+  // does not fit nicely ("ICs"); empty when the type has no short form.
   string categoryText;
-  string rackText;
+  string shortCategoryText;
+  // The rack number without the R prefix, padded to two digits ("01", "12", "128").
+  string rackNumber;
+  // Key of the electrical symbol drawn for the type ("resistor", "grid" for custom types).
+  string symbolKey;
 };
 
 class PrinterBackend {
@@ -93,8 +100,8 @@ class LabelPrinterService {
   string buildWireLabelZpl(const string& text) const;
   bool printWireLabel(const string& text, string* error) const;
   InventatoryRackLabelPlan buildRackLabelPlan(const InventatoryRack& rack) const;
-  string buildRackLabelZpl(const InventatoryRack& rack) const;
-  bool printRackLabel(const InventatoryRack& rack, string* error) const;
+  string buildRackLabelZpl(const InventatoryRack& rack, SymbolStandard standard = SymbolStandard::Eu) const;
+  bool printRackLabel(const InventatoryRack& rack, string* error, SymbolStandard standard = SymbolStandard::Eu) const;
 
   string summaryText() const;
 

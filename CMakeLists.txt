@@ -167,6 +167,8 @@ add_executable(inventatory
   src/label_printer/platform/LabelPrinterPlatform.cpp
   ${INVENTATORY_PRINTER_SOURCE}
   src/label_printer/platform/LabelPrinterRack.cpp
+  src/label_printer/symbols/RackSymbols.cpp
+  src/label_printer/symbols/RackSymbolsData.generated.cpp
   src/label_printer/layout/LabelPrinterText.cpp
   src/label_printer/layout/LabelPrinterTextLayout.cpp
   src/platform/scanner/HttpServer.cpp
@@ -310,6 +312,8 @@ add_executable(inventatory_tests
   src/label_printer/platform/LabelPrinterPlatform.cpp
   ${INVENTATORY_PRINTER_SOURCE}
   src/label_printer/platform/LabelPrinterRack.cpp
+  src/label_printer/symbols/RackSymbols.cpp
+  src/label_printer/symbols/RackSymbolsData.generated.cpp
   src/label_printer/layout/LabelPrinterText.cpp
   src/label_printer/layout/LabelPrinterTextLayout.cpp
 )

@@ -376,6 +376,13 @@ ftxui::Element App::renderSettingsUi() const {
                "settings.printer.autolabel", UiTargetKind::Field,
                [self, toggleSetting] { toggleSetting(self->settingsDraft_.autoPrintScannedLabels); }),
     });
+    appendSettingsSection(rows, "Label symbols", {
+        target(settingLine("Schematic symbols", symbolStandardLabel(settingsDraft_.symbolStandard), contentWidth),
+               "settings.printer.symbols", UiTargetKind::Field,
+               [self] { self->toggleSymbolStandard(); }),
+        settingNoteLine("Used on rack labels. Resistor and fuse differ; other symbols are the same.", uiMutedText(),
+                        contentWidth),
+    });
     ftxui::Elements queueRows;
     if (printerQueues_.empty()) {
       queueRows.push_back(settingNoteLine("No printer queues detected", uiWarnColor(), contentWidth));
