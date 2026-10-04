@@ -106,22 +106,6 @@ string previewNotes(const string& notes) {
   return prefix + "\n\n… release notes continue after the update";
 }
 
-vector<string> wrapUpdateNotes(const string& notes, int width) {
-  vector<string> lines;
-  istringstream input(notes);
-  string sourceLine;
-  while (getline(input, sourceLine)) {
-    if (!sourceLine.empty() && sourceLine.back() == '\r') sourceLine.pop_back();
-    if (sourceLine.empty()) {
-      lines.push_back({});
-      continue;
-    }
-    auto wrapped = wrapText(sourceLine, width);
-    lines.insert(lines.end(), wrapped.begin(), wrapped.end());
-  }
-  if (lines.empty()) lines.push_back({});
-  return lines;
-}
 
 filesystem::path updateDownloadDirectory() {
 #ifdef _WIN32
@@ -559,15 +543,48 @@ ftxui::Element App::renderUpdateContent() const {
   const int notesHeight = max(5, min(10, (active != nullptr ? active->dimy() : 30) - 18));
   ftxui::Elements rows;
   auto notesPanel = [&](const string& notes) {
-    const auto wrapped = wrapUpdateNotes(notes.empty() ? "No release notes were provided for this release." : notes,
-                                         max(36, width - 4));
-    const size_t maximumScroll = wrapped.size() > static_cast<size_t>(notesHeight)
-                                     ? wrapped.size() - static_cast<size_t>(notesHeight)
+    const auto noteLines = formatUpdateNotes(notes, max(36, width - 4));
+    const size_t maximumScroll = noteLines.size() > static_cast<size_t>(notesHeight)
+                                     ? noteLines.size() - static_cast<size_t>(notesHeight)
                                      : 0U;
     const size_t start = min(updateNotesScroll_, maximumScroll);
     ftxui::Elements visible;
-    for (size_t index = start; index < min(wrapped.size(), start + static_cast<size_t>(notesHeight)); ++index) {
-      visible.push_back(fullLine(wrapped[index], uiPrimaryText(), uiSurfaceBg()));
+    for (size_t index = start; index < min(noteLines.size(), start + static_cast<size_t>(notesHeight)); ++index) {
+      const auto& line = noteLines[index];
+      switch (line.kind) {
+        case UpdateNoteLineKind::Heading:
+          visible.push_back(
+              ftxui::hbox({ftxui::text("  "),
+                           ftxui::text(line.text) | ftxui::bold | ftxui::color(uiAccentColor()),
+                           ftxui::filler()}) |
+              ftxui::bgcolor(uiSurfaceBg()));
+          break;
+        case UpdateNoteLineKind::BulletStart:
+          visible.push_back(
+              ftxui::hbox({ftxui::text("  "),
+                           ftxui::text("• ") | ftxui::color(uiLinkColor()),
+                           ftxui::text(line.text) | ftxui::color(uiPrimaryText()),
+                           ftxui::filler()}) |
+              ftxui::bgcolor(uiSurfaceBg()));
+          break;
+        case UpdateNoteLineKind::BulletContinuation:
+          visible.push_back(
+              ftxui::hbox({ftxui::text("    "),
+                           ftxui::text(line.text) | ftxui::color(uiPrimaryText()),
+                           ftxui::filler()}) |
+              ftxui::bgcolor(uiSurfaceBg()));
+          break;
+        case UpdateNoteLineKind::Paragraph:
+          visible.push_back(
+              ftxui::hbox({ftxui::text("  "),
+                           ftxui::text(line.text) | ftxui::color(uiPrimaryText()),
+                           ftxui::filler()}) |
+              ftxui::bgcolor(uiSurfaceBg()));
+          break;
+        case UpdateNoteLineKind::Empty:
+          visible.push_back(fullLine(" ", uiSurfaceBg(), uiSurfaceBg()));
+          break;
+      }
     }
     if (visible.empty()) visible.push_back(fullLine(" ", uiMutedText(), uiSurfaceBg()));
     auto panel = ftxui::vbox(move(visible)) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, notesHeight) |
