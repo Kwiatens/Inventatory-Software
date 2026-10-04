@@ -102,9 +102,8 @@ vector<LabelParameterTile> parameterTilesForItem(const InventoryItem& item);
 
 string makeJobName(const InventoryItem& item);
 string rackDisplayCategory(string value);
-string rackLabelText(const string& code);
-vector<string> rackCategoryLines(const string& category);
-string rackCategoryFieldData(const vector<string>& lines);
+string rackNumberText(const string& code);
+string rackShortCategory(const string& componentType);
 string makeRackJobName(const InventatoryRack& rack);
 string partContextHeader(const InventoryItem& item);
 

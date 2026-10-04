@@ -196,6 +196,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   AppSettings loaded;
   set<string> seenRequiredKeys;
   bool legacyFormat = false;
+  bool seenSymbolStandard = false;
   bool malformedLine = false;
   bool malformedAppearance = false;
   string line;
@@ -216,9 +217,10 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       legacyFormat = true;
     } else if (key.rfind("appearance_", 0) == 0 && !requiredSettingsKey(key)) {
       return false;
-    } else if (!requiredSettingsKey(key)) {
+    } else if (!requiredSettingsKey(key) && key != "symbol_standard") {
       return false;
     }
+    if (key == "symbol_standard" && seenSymbolStandard) return false;
     string requiredKey = key == "bridge_port" ? "device_service_port" : key;
     if (requiredSettingsKey(requiredKey) && !seenRequiredKeys.insert(requiredKey).second) return false;
     istringstream value(line.substr(equals + 1));
@@ -289,6 +291,10 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
           loaded.digiKeyCurrency.size() > kMaxLocaleFieldBytes) {
         return false;
       }
+    } else if (key == "symbol_standard") {
+      string text;
+      if (!parseQuotedValue(value, text) || !parseSymbolStandard(text, loaded.symbolStandard)) return false;
+      seenSymbolStandard = true;
     } else if (key == "low_stock_threshold") {
       uint64_t threshold = 0;
       if (!parseUnsignedValue(value, threshold) || threshold == 0 ||
@@ -366,6 +372,9 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
          << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n'
          << "low_stock_threshold=" << settings.lowStockThreshold << '\n';
+  if (settings.symbolStandard != SymbolStandard::Eu) {
+    output << "symbol_standard=" << quoted(symbolStandardKey(settings.symbolStandard)) << '\n';
+  }
   for (size_t index = 0; index < kAppearanceColorCount; ++index) {
     const auto role = static_cast<AppearanceColorRole>(index);
     output << "appearance_" << appearanceColorKey(role) << '='

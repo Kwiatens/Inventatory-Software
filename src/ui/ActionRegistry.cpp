@@ -212,6 +212,7 @@ vector<App::Action> App::currentActions() const {
       }
       if (settingsCategory_ == SettingsCategory::Printer) {
         add("refresh", "Printer", "r", chr('r'), [self] { self->refreshPrinterState(); });
+        add("switch EU/US symbols", "Printer", "y", chr('y'), [self] { self->toggleSymbolStandard(); });
         if (selectedPrinterQueue() != nullptr) {
           add("test", "Printer", "t", chr('t'), [self] {
             if (const auto* printer = self->selectedPrinterQueue()) {
