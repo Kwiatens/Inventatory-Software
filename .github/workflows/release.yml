@@ -9,6 +9,10 @@ on:
         description: Existing vX.Y.Z tag to publish
         required: true
         type: string
+      release_notes:
+        description: Optional manual release notes markdown (overrides CHANGELOG.md)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -223,6 +227,11 @@ jobs:
       contents: write
     runs-on: windows-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          persist-credentials: false
       - name: Download release assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -233,6 +242,43 @@ jobs:
         with:
           name: inventatory-linux-release-assets
           path: dist/linux
+      - name: Extract release notes
+        id: release-notes
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          DISPATCH_NOTES: ${{ inputs.release_notes }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          $extractedNotes = ""
+          $notesDirectory = Join-Path $PWD 'dist\notes'
+          $notesFile = Join-Path $notesDirectory 'RELEASE_NOTES.md'
+          New-Item -ItemType Directory -Force -Path $notesDirectory | Out-Null
+
+          if (-not [string]::IsNullOrWhiteSpace($env:DISPATCH_NOTES)) {
+            $extractedNotes = $env:DISPATCH_NOTES.Trim()
+          } elseif (Test-Path -LiteralPath "release-notes\$tag.md" -PathType Leaf) {
+            $extractedNotes = (Get-Content -Raw -LiteralPath "release-notes\$tag.md").Trim()
+          } elseif (Test-Path -LiteralPath 'CHANGELOG.md' -PathType Leaf) {
+            $rawChangelog = Get-Content -Raw -LiteralPath 'CHANGELOG.md'
+            $rawVersion = $tag.TrimStart('v')
+            $escTag = [regex]::Escape($tag)
+            $escRaw = [regex]::Escape($rawVersion)
+            $pattern = "(?ms)^##\s+\[?(?:$escTag|$escRaw)\]?(?:[^\r\n]*)\r?\n(.*?)(?=^##\s+|\Z)"
+            if ($rawChangelog -match $pattern) {
+              $extractedNotes = $Matches[1].Trim()
+            }
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($extractedNotes)) {
+            Set-Content -LiteralPath $notesFile -Value $extractedNotes -Encoding utf8
+            "has_notes=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "notes_file=$notesFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "Found release notes for $tag."
+          } else {
+            "has_notes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "No manual release notes found for $tag; falling back to generated notes."
+          }
       - name: Create public GitHub Release
         shell: pwsh
         env:
@@ -244,9 +290,13 @@ jobs:
           $releaseArguments = @(
             'release', 'create', $tag,
             '--repo', $env:GITHUB_REPOSITORY,
-            '--title', "Inventatory $tag",
-            '--generate-notes'
+            '--title', "Inventatory $tag"
           )
+          if ('${{ steps.release-notes.outputs.has_notes }}' -eq 'true') {
+            $releaseArguments += @('--notes-file', '${{ steps.release-notes.outputs.notes_file }}')
+          } else {
+            $releaseArguments += '--generate-notes'
+          }
           if ($tag -match '-') { $releaseArguments += '--prerelease' }
           $releaseArguments += @(
             'dist\windows\Inventatory-win-x64.zip',
