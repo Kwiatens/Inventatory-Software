@@ -284,6 +284,25 @@ Before handing off a change, run the Release build and CTest commands above,
 inspect failures rather than weakening assertions, and review the final diff
 and status for unrelated files or generated output.
 
+## Releases and changelog maintenance
+
+- `CHANGELOG.md` in the repository root tracks version history following the
+  Keep a Changelog convention (`## [vX.Y.Z] - YYYY-MM-DD`).
+- When bumping the application version or cutting a release, add or update the
+  corresponding version section in `CHANGELOG.md` using standard subsections
+  (`### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`,
+  `### Security`).
+- The release workflow (`.github/workflows/release.yml`) automatically extracts
+  the section matching the release tag (`vX.Y.Z`) to populate the GitHub Release
+  body and update asset metadata. A tag-specific override can also be provided
+  via `release-notes/<tag>.md` or the `workflow_dispatch` release notes input.
+- If no manual entry exists for a tag, the pipeline falls back to GitHub's
+  generated notes so publishing is never blocked unexpectedly.
+- The update wizard in the terminal application renders Markdown release notes
+  using semantic styling (`uiAccentColor()` for section headers, `uiLinkColor()`
+  for bullet points, and hanging indentation for wrapped items). Keep release
+  notes clean, standard Markdown without raw HTML or unbounded ASCII art.
+
 ## Generated, local, and vendor artifacts
 
 Do not edit or commit generated/local output such as `build/`, `build-*/`,
@@ -344,4 +363,5 @@ must not expose local tooling or an AI agent.
       environment blocker is reported.
 - [ ] No credentials, secrets, local paths, generated output, or unrelated
       files entered the diff.
+- [ ] Version bumps include a corresponding entry in `CHANGELOG.md`.
 - [ ] Commit/PR wording follows the standard above.
