@@ -100,6 +100,11 @@ string diodeMainLabelValue(const InventoryItem& item) {
   // actual part identifier instead of the catalog description, which often
   // repeats the type ("DIODE ZENER 4.7V ..."). Prefer the concrete
   // manufacturer/vendor part number over the descriptive part name.
+  // The distributor's own number ("641-1127-1-ND") is not what is printed on
+  // the part, so the manufacturer part number comes first.
+  if (const auto mpn = trim(item.vendorMetadata.manufacturerPartNumber); !mpn.empty()) {
+    return mpn;
+  }
   const auto sku = trim(item.sku);
   if (!sku.empty()) {
     return sku;

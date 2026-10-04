@@ -12,6 +12,11 @@ namespace label_printer_detail {
 
 using std::initializer_list;
 
+// Width in dots available to a parameter tile value on the 32 x 25 mm label.
+inline constexpr int kLabelTileWidth = 78;
+// The smallest size a tile value is printed at; longer values are left off.
+inline constexpr int kLabelTileMinSize = 13;
+
 string uppercaseAscii(string value);
 string lowerAscii(string value);
 string shortCode(const string& value, size_t maxLength = 14);
@@ -34,6 +39,17 @@ struct SingleLineFont {
   int height;
   int width;
 };
+
+// Font 0 text fitted to a box: the largest candidate size whose estimated
+// width fits, or the smallest size with an ellipsized string.
+struct FittedLabelText {
+  string text;
+  int size = 0;
+  int width = 0;
+};
+
+int estimateFont0Width(const string& text, int height, int width);
+FittedLabelText fitFont0Text(const string& text, int maxWidth, initializer_list<int> sizes);
 
 bool isCompactManufacturerPartNumber(const string& value);
 CableFlagFont cableFlagFont(const string& text);
@@ -70,12 +86,19 @@ string integratedCircuitContextHeader(const InventoryItem& item);
 string transistorContextHeader(const InventoryItem& item);
 string fallbackContextHeader(const InventoryItem& item);
 
+bool isMeasuredValueItem(const InventoryItem& item);
 string mainLabelValue(const InventoryItem& item);
+string mainLabelTolerance(const InventoryItem& item);
 string shortPackageLine(const InventoryItem& item);
 string manufacturerLine(const InventoryItem& item);
+// Manufacturer names from fullest to shortest: "Infineon Technologies", "Infineon".
+vector<string> manufacturerCandidates(const string& name);
 string normalizedShieldingLine(const optional<string>& value);
-vector<string> fallbackDetailLines(const InventoryItem& item, size_t maxLines);
-vector<string> parameterLinesForItem(const InventoryItem& item);
+string labelTileValue(const string& value);
+void splitMeasuredValue(const string& value, string& number, string& unit);
+void splitRackLocation(const string& location, string& rackCode, string& rackCell);
+vector<LabelParameterTile> fallbackParameterTiles(const InventoryItem& item, size_t maxTiles);
+vector<LabelParameterTile> parameterTilesForItem(const InventoryItem& item);
 
 string makeJobName(const InventoryItem& item);
 string rackDisplayCategory(string value);

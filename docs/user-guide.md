@@ -119,6 +119,25 @@ The paired R1 receives the saved list during its next sync. Selecting a preset o
 configured PC printer. Each cable flag prints normally oriented text on both folded halves, with its font scaled to fit.
 Failed/offline device requests are not queued.
 
+Part labels print on 32 × 25 mm stock at 203 dpi. The black header carries the Inventatory mark and the part
+category. Below it, passives show their value with the tolerance beside it (10kΩ ±1%), centred between the
+header and the package row; other parts show the manufacturer part number. The package sits in a black pill
+next to the manufacturer, and up to four key parameters follow as captioned tiles. The right column holds
+the QR code, the short ID for typing a lookup, the rack slot as rack and cell (R12 | E3, where the letter is
+the column and the number is the row), and a bracketed field for writing a new slot by hand after moving the
+tube. A part that has no rack, such as a through-hole part (racks hold surface-mount, semiconductor and
+similar stock), prints no slot chip; its field is captioned SLOT and enlarged instead.
+
+Tiles only print values that can be trusted. A parameter must match its caption by exact name, carry the
+unit the caption implies (V, A, W, Ω, Hz, °C or mm), and not describe how the part is mounted. Temperature
+and voltage ranges print as `-40 to 85°C`. A value that does not fit a tile whole is left off instead of
+being shortened, so a tile is either complete or absent; other text steps down in size before it is
+shortened. A manufacturer name that does not fit beside the package pill drops its corporate words
+(Infineon Technologies prints as Infineon) before any character is cut. Diodes, MOSFETs, transistors, TVS
+diodes, fuses, switches and ICs are recognised from their parameters, not only their category, because
+DigiKey files several of them under Discrete Semiconductor Products. Parts print the manufacturer part
+number, not the distributor's own number.
+
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
 next launch. DigiKey secrets use the operating system credential service:

@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <cstring>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
@@ -294,6 +295,54 @@ bool isCompactManufacturerPartNumber(const string& value) {
     else if (character != '-' && character != '_' && character != '.' && character != '+') return false;
   }
   return hasLetter && hasDigit;
+}
+
+int estimateFont0Width(const string& text, int height, int width) {
+  (void)height;
+  // Advance widths of font 0, in hundredths of the ^A0 width parameter,
+  // checked against test prints: letters and digits came out at or below
+  // these values, while "-" (1.5 digits) and symbols print much wider than in
+  // a typical condensed face.
+  int hundredths = 0;
+  for (const auto character : text) {
+    const auto ch = static_cast<unsigned char>(character);
+    if ((ch & 0xC0) == 0x80) continue;  // UTF-8 continuation byte
+    if (ch >= 0x80) hundredths += 62;
+    else if (ch == ' ') hundredths += 24;
+    else if (ch == '-') hundredths += 78;  // measured: 1.5 digits wide
+    else if (strchr("Iil.,:;'!|", ch) != nullptr) hundredths += 28;
+    else if (strchr("MWmw", ch) != nullptr) hundredths += 78;
+    else if (isdigit(ch)) hundredths += 50;
+    else if (isupper(ch)) hundredths += 56;
+    else if (islower(ch)) hundredths += 47;
+    else hundredths += 66;
+  }
+  return (hundredths * width + 99) / 100;
+}
+
+FittedLabelText fitFont0Text(const string& text, int maxWidth, initializer_list<int> sizes) {
+  FittedLabelText fitted;
+  const auto cleaned = sanitiseZplFragment(text);
+  if (cleaned.empty() || sizes.size() == 0) return fitted;
+  for (const auto size : sizes) {
+    const auto width = estimateFont0Width(cleaned, size, size);
+    if (width <= maxWidth) return {cleaned, size, width};
+  }
+  // Nothing fits: keep the smallest size and drop trailing characters.
+  const auto size = *(sizes.end() - 1);
+  string cut = cleaned;
+  while (!cut.empty()) {
+    do {
+      cut.pop_back();
+    } while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80);
+    if (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0x80) != 0) {
+      cut.pop_back();  // lead byte of a multi-byte character
+    }
+    const auto candidate = trim(cut) + "...";
+    const auto width = estimateFont0Width(candidate, size, size);
+    if (width <= maxWidth || cut.empty()) return {candidate, size, width};
+  }
+  return fitted;
 }
 
 CableFlagFont cableFlagFont(const string& text) {

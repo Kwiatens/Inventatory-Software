@@ -30,6 +30,7 @@
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
+#include "label_printer/core/LabelPrinterPrivate.h"
 #include "app/shell/AppNavigation.h"
 #include "ui/pages/history/HistoryPagePrivate.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
@@ -77,6 +78,9 @@
 
 using namespace inventatory;
 using namespace std;
+using inventatory::label_printer_detail::estimateFont0Width;
+using inventatory::label_printer_detail::fitFont0Text;
+using inventatory::label_printer_detail::labelTileValue;
 
 namespace {
 
@@ -389,6 +393,19 @@ class MockPrinterBackend final : public PrinterBackend {
   mutable string lastJobName_;
   mutable string lastZpl_;
 };
+
+string labelTile(const InventatoryLabelPlan& plan, const string& caption) {
+  for (const auto& tile : plan.parameters) {
+    if (tile.caption == caption) return tile.value;
+  }
+  return {};
+}
+
+size_t zplOccurrences(const string& zpl, const string& needle) {
+  size_t count = 0;
+  for (auto at = zpl.find(needle); at != string::npos; at = zpl.find(needle, at + needle.size())) ++count;
+  return count;
+}
 
 }  // namespace
 
@@ -2286,7 +2303,10 @@ int main() {
              << candidate.id << '\n';
       }
       assert(plan.categoryHeader == expected);
-      assert(service.buildZpl(candidate).find("^FD" + expected + "^FS") != string::npos);
+      string printedHeader = expected;
+      transform(printedHeader.begin(), printedHeader.end(), printedHeader.begin(),
+                [](unsigned char ch) { return static_cast<char>(toupper(ch)); });
+      assert(service.buildZpl(candidate).find("^FR^FD" + printedHeader + "^FS") != string::npos);
       return plan;
     };
 
@@ -2545,14 +2565,14 @@ int main() {
 
     const auto plan = service.buildLabelPlan(item);
     assert(plan.categoryHeader == "Resistor");
-    assert(plan.mainValue.find("10k") != string::npos);
-    assert(plan.mainValue.find(u8"\u03A9") != string::npos);
+    assert(plan.mainIsMeasuredValue);
+    assert(plan.mainValue == u8"10k\u03A9");
+    assert(plan.mainTolerance == "1%");
     assert(plan.packageLine.empty());
     assert(plan.manufacturerLine == "Yageo");
-    assert(plan.parameterLine1.find("R ") != string::npos);
-    assert(plan.parameterLine1.find("10k") != string::npos);
-    assert(plan.parameterLine2.find("Pwr") != string::npos);
-    assert(plan.parameterLine3.empty());
+    assert(plan.parameters.size() == 1);
+    assert(labelTile(plan, "POWER") == "0.125W");
+    assert(labelTile(plan, "RESISTANCE").empty());
     assert(plan.inventatoryId == "Inventatory:R-00123");
     assert(plan.scannerHint == "R-0002");
     assert(plan.barcodeHint == "0002");
@@ -2561,19 +2581,57 @@ int main() {
     assert(zpl.find("10kOhms") == string::npos);
     assert(zpl.find("Tol ") == string::npos);
     assert(zpl.find("Tempco") == string::npos);
-    assert(zpl.find("^FDResistor^FS") != string::npos);
-    assert(zpl.find("^FDPwr 0.125W^FS") != string::npos);
-    assert(zpl.find("^FO10,100^A0N,16,16^FDYageo^FS") != string::npos);
-    assert(zpl.find("^BQN,2,3") != string::npos);
+    assert(zpl.find("^FO35,5^A0N,16,16^FR^FDRESISTOR^FS") != string::npos);
+    // Measured value: number, smaller unit and tolerance on one baseline, the
+    // group centred between the header bar and the package row.
+    assert(zpl.find("^FO30,34^A0N,46,46^FD10k^FS") != string::npos);
+    assert(zpl.find(u8"^FD\u03A9^FS") != string::npos);
+    assert(zpl.find("^A0N,18,18^FD1%^FS") != string::npos);
+    assert(zpl.find("^FDPOWER^FS") != string::npos);
+    assert(zpl.find("^FD0.125W^FS") != string::npos);
+    assert(zpl.find("^FDYageo^FS") != string::npos);
+    assert(zpl.find("^FO180,18^BQN,2,3^FDLA,0002^FS") != string::npos);
+    // The short ID is printed under the QR code for manual lookup.
+    // It is centred on the 63 dot QR symbol without printer-side centring.
+    assert(zpl.find("^FO188,94^A0N,14,14^FDR-0002^FS") != string::npos);
+    // Header bar starts at y 0 (prints land ~10 dots low) and carries the 5 x 5 logo.
+    assert(zpl.find("^FO7,0^GB236,22,22,B,4^FS") != string::npos);
+    assert(zplOccurrences(zpl, "^GB3,3,3^FS") == 10);
+    assert(zpl.find("^FO13,4^FR^GB3,3,3^FS") != string::npos);
+    assert(zpl.find("^FO25,10^FR^GB3,3,3^FS") != string::npos);
+    // Without a rack slot the pen field is the only slot area.
+    assert(zpl.find("^FDSLOT^FS") != string::npos);
+    assert(zpl.find("^FDNEW SLOT^FS") == string::npos);
+    assert(zpl.find("^FO180,111^GB63,23,2,B,3^FS") == string::npos);
+    // The caption moves up into the chip's place and the pen field grows to fill it.
+    assert(zpl.find("^FO180,111^A0N,11,11^FDSLOT^FS") != string::npos);
+    assert(zpl.find("^FO180,123^GB7,2,2^FS") != string::npos);
     const auto rackPlan = service.buildLabelPlan(item, "R3-E3");
     assert(rackPlan.rackLocation == "R3-E3");
+    assert(rackPlan.rackCode == "R3");
+    assert(rackPlan.rackCell == "E3");
     const auto rackZpl = service.buildZpl(item, "R3-E3");
-    assert(rackZpl.find("^FO10,173^A0N,18,18^FDR3-E3^FS") != string::npos);
-    assert(zpl.find("^FDLA,0002^FS") != string::npos);
-    assert(zpl.find("^FO170,175") == string::npos);
-    assert(zpl.find("^FDR-0002^FS") == string::npos);
-    assert(zpl.find("^FDInventatory^FS") == string::npos);
-    assert(zpl.find("^FO10,0^GB236,24,24,B,6^FS") != string::npos);
+    assert(rackZpl.find("^FO180,111^GB63,23,2,B,3^FS") != string::npos);
+    assert(rackZpl.find("^FO180,111^GB40,23,23,B,3^FS") != string::npos);
+    assert(rackZpl.find("^FO190,116^A0N,17,17^FR^FDR3^FS") != string::npos);
+    assert(rackZpl.find("^FO221,115^A0N,19,19^FDE3^FS") != string::npos);
+    assert(rackZpl.find("^FDNEW SLOT^FS") != string::npos);
+    // The pen field is plain corner brackets: no tick marks at the rack/cell split.
+    assert(rackZpl.find("^GB1,5,1^FS") == string::npos);
+    assert(zplOccurrences(rackZpl, "^GB7,2,2^FS") == 4);
+    assert(zplOccurrences(rackZpl, "^GB2,7,2^FS") == 4);
+    // Three-digit racks stay inside the black half of the slot chip.
+    const auto wideRackPlan = service.buildLabelPlan(item, "R123-b2");
+    assert(wideRackPlan.rackCode == "R123");
+    assert(wideRackPlan.rackCell == "B2");
+    const auto wideRackZpl = service.buildZpl(item, "R123-b2");
+    const auto wideRackField = wideRackZpl.find("^FR^FDR123^FS");
+    assert(wideRackField != string::npos);
+    const auto wideRackFont = wideRackZpl.rfind("^A0N,", wideRackField);
+    const auto wideRackSize = stoi(wideRackZpl.substr(wideRackFont + 5));
+    assert(wideRackSize >= 13 && wideRackSize <= 17);
+    assert(estimateFont0Width("R123", wideRackSize, wideRackSize) <= 35);
+    assert(wideRackZpl.find("^FDB2^FS") != string::npos);
     assert(zpl.find("^BC") == string::npos);
 
     string error;
@@ -2640,13 +2698,20 @@ int main() {
                            {"Power - Peak Pulse", "600W"}};
     const auto tvsPlan = service.buildLabelPlan(tvsDiode);
     assert(tvsPlan.categoryHeader == "TVS Diode");
-    assert(tvsPlan.parameterLine1.find("Vst") != string::npos);
-    assert(tvsPlan.parameterLine2.find("Vc") != string::npos);
-    assert(tvsPlan.parameterLine3.find("Ipp") != string::npos);
-    assert(service.buildZpl(tvsDiode).find("^FDTVS Diode^FS") != string::npos);
-    assert(service.buildZpl(tvsDiode).find("^FDVst 16V^FS") != string::npos);
-    assert(service.buildZpl(tvsDiode).find("^FDVc 26V^FS") != string::npos);
-    assert(service.buildZpl(tvsDiode).find("^FDIpp 23.1A^FS") != string::npos);
+    assert(tvsPlan.parameters.size() == 4);
+    assert(tvsPlan.parameters[0].caption == "VST" && tvsPlan.parameters[0].value == "16V");
+    assert(tvsPlan.parameters[1].caption == "VC" && tvsPlan.parameters[1].value == "26V");
+    assert(tvsPlan.parameters[2].caption == "IPP" && tvsPlan.parameters[2].value == "23.1A");
+    assert(labelTile(tvsPlan, "PPP") == "600W");
+    const auto tvsZpl = service.buildZpl(tvsDiode);
+    assert(tvsZpl.find("^FR^FDTVS DIODE^FS") != string::npos);
+    assert(tvsZpl.find("^FO7,110^A0N,12,11^FDVST^FS") != string::npos);
+    assert(tvsZpl.find("^FO7,123^A0N,22,22^FD16V^FS") != string::npos);
+    assert(tvsZpl.find("^FO93,110^A0N,12,11^FDVC^FS") != string::npos);
+    assert(tvsZpl.find("^FO7,149^A0N,12,11^FDIPP^FS") != string::npos);
+    assert(tvsZpl.find("^FD23.1A^FS") != string::npos);
+    assert(tvsZpl.find("^FO93,149^A0N,12,11^FDPPP^FS") != string::npos);
+    assert(tvsZpl.find("^FO88,112^GB1,72,1^FS") != string::npos);
 
     InventoryItem circuitProtectionTvs;
     circuitProtectionTvs.partName = "SURGE SUPPRESSOR 24V";
@@ -2662,7 +2727,7 @@ int main() {
     protectionIc.parameters = {{"Function", "Protection"}, {"Type", "ESD"}};
     const auto protectionPlan = service.buildLabelPlan(protectionIc);
     assert(protectionPlan.categoryHeader == "Protection IC");
-    assert(service.buildZpl(protectionIc).find("^FDProtection IC^FS") != string::npos);
+    assert(service.buildZpl(protectionIc).find("^FR^FDPROTECTION IC^FS") != string::npos);
 
     {
       InventoryItem buckIc;
@@ -2823,7 +2888,7 @@ int main() {
     opAmp.parameters = {{"Gain Bandwidth", "10MHz"}, {"Slew Rate", "5V/us"}};
     const auto opAmpPlan = service.buildLabelPlan(opAmp);
     assert(opAmpPlan.categoryHeader == "OP-AMP");
-    assert(service.buildZpl(opAmp).find("^FDOP-AMP^FS") != string::npos);
+    assert(service.buildZpl(opAmp).find("^FR^FDOP-AMP^FS") != string::npos);
 
     InventoryItem imu;
     imu.id = "imu-1";
@@ -2836,10 +2901,12 @@ int main() {
                       {"Resolution", "16bit"}};
     const auto imuPlan = service.buildLabelPlan(imu);
     assert(imuPlan.categoryHeader == "3 Axis IMU");
-    assert(imuPlan.parameterLine1.find("Type") != string::npos);
-    assert(imuPlan.parameterLine2.find("Out") != string::npos);
-    assert(imuPlan.parameterLine3.find("Vdd") != string::npos || imuPlan.parameterLine3.find("Res") != string::npos);
-    assert(service.buildZpl(imu).find("^FD3 Axis IMU^FS") != string::npos);
+    // The sensor type does not fit a tile whole, so it is left off rather than clipped.
+    assert(imuPlan.parameters.size() == 3);
+    assert(imuPlan.parameters[0].caption == "OUTPUT");
+    assert(imuPlan.parameters[1].caption == "SUPPLY");
+    assert(imuPlan.parameters[2].caption == "RES");
+    assert(service.buildZpl(imu).find("^FR^FD3 AXIS IMU^FS") != string::npos);
 
     {
       InventoryItem buckFalsePositive;
@@ -2851,7 +2918,7 @@ int main() {
       buckFalsePositive.parameters = {{"Function", "DC-DC converter"}, {"Topology", "Buck"}, {"Package / Case", "QFN-16"}};
       const auto falsePositivePlan = expectHeader(buckFalsePositive, "Memory IC");
       assert(service.buildZpl(buckFalsePositive).find("Rectifier Diode") == string::npos);
-      assert(service.buildZpl(buckFalsePositive).find("^FDMemory IC^FS") != string::npos);
+      assert(service.buildZpl(buckFalsePositive).find("^FR^FDMEMORY IC^FS") != string::npos);
       assert(falsePositivePlan.packageLine.find("QFN-16") != string::npos);
     }
 
@@ -2875,7 +2942,7 @@ int main() {
     fallback.category = "Misc / Prototype";
     const auto fallbackPlan = service.buildLabelPlan(fallback);
     assert(fallbackPlan.categoryHeader == "Prototype");
-    assert(service.buildZpl(fallback).find("^FDPrototype^FS") != string::npos);
+    assert(service.buildZpl(fallback).find("^FR^FDPROTOTYPE^FS") != string::npos);
 
     InventoryItem unclassified;
     unclassified.partName = "Uncatalogued item";
@@ -2901,7 +2968,10 @@ int main() {
     assert(foundInductance);
     const auto inductorPlan = service.buildLabelPlan(inductor);
     assert(inductorPlan.mainValue.find("100MHz") == string::npos);
-    assert(inductorPlan.mainValue.find("27nH") != string::npos);
+    assert(inductorPlan.mainValue == "27nH");
+    assert(inductorPlan.mainIsMeasuredValue);
+    assert(labelTile(inductorPlan, "RATED") == "350mA");
+    assert(labelTile(inductorPlan, "SRF") == "1.7GHz");
   }
 
   {
@@ -2929,13 +2999,28 @@ int main() {
     assert(plan.mainValue == "STM32G0 demo board");
     assert(plan.packageLine.find("LQFP-64") != string::npos);
     assert(plan.manufacturerLine == "STMicroelectronics");
-    assert(plan.parameterLine1.find("Vdd") != string::npos);
-    assert(plan.parameterLine1.find("3.3V") != string::npos);
-    assert(plan.parameterLine2.find("Core") != string::npos);
-    assert(plan.parameterLine2.find("Cortex-M0+") != string::npos);
-    assert(plan.parameterLine2.find("@") != string::npos);
-    assert(plan.parameterLine3.find("Flash") != string::npos);
-    assert(plan.parameterLine3.find("128KB") != string::npos);
+    assert(!plan.mainIsMeasuredValue);
+    assert(plan.mainTolerance.empty());
+    assert(plan.parameters.size() == 4);
+    assert(plan.parameters[0].caption == "CORE" && plan.parameters[0].value == "Cortex-M0+");
+    assert(plan.parameters[1].caption == "CLOCK" && plan.parameters[1].value == "64MHz");
+    assert(plan.parameters[2].caption == "FLASH / RAM" && plan.parameters[2].value == "128KB/36KB");
+    assert(plan.parameters[3].caption == "SUPPLY" && plan.parameters[3].value == "3.3V");
+    const auto zpl = service.buildZpl(item);
+    // A manufacturer that cannot fit beside the package pill uses its short name.
+    assert(zpl.find("^FDSTMicro") == string::npos);
+    assert(zpl.find("^FDST^FS") != string::npos);
+    const auto pillField = zpl.find("^FR^FDLQFP-64^FS");
+    assert(pillField != string::npos);
+    // A long part name wraps onto two lines instead of being cut.
+    const auto firstLine = zpl.find("^FO", zpl.find("^FX --- Main value ---"));
+    assert(firstLine != string::npos);
+    const auto firstText = zpl.find("^FD", firstLine) + 3;
+    const auto secondLine = zpl.find("^FO", firstText);
+    const auto secondText = zpl.find("^FD", secondLine) + 3;
+    const auto wrapped = zpl.substr(firstText, zpl.find("^FS", firstText) - firstText) + " " +
+                         zpl.substr(secondText, zpl.find("^FS", secondText) - secondText);
+    assert(wrapped == "STM32G0 demo board");
   }
 
   {
@@ -2959,21 +3044,28 @@ int main() {
     assert(plan.categoryHeader == "N-MOSFET");
     assert(plan.mainValue == "IRLML6344TRPBF");
     assert(plan.packageLine == "TO-263-3");
-    assert(plan.parameterLine1.find("Vds") != string::npos);
-    assert(plan.parameterLine1.find("30V") != string::npos);
-    assert(plan.parameterLine2.find("Id") != string::npos);
-    assert(plan.parameterLine2.find("12A") != string::npos);
-    assert(plan.parameterLine3.empty());
+    assert(plan.manufacturerLine == "Alpha & Omega");
+    assert(plan.parameters.size() == 2);
+    assert(labelTile(plan, "VDS") == "30V");
+    assert(labelTile(plan, "ID") == "12A");
 
     const auto zpl = service.buildZpl(item);
-    assert(zpl.find("^FDN-MOSFET^FS") != string::npos);
+    assert(zpl.find("^FR^FDN-MOSFET^FS") != string::npos);
     assert(zpl.find("^FDIRLML6344TRPBF^FS") != string::npos);
     assert(zpl.find("2W (Ta)") == string::npos);
     assert(zpl.find("TO-263-3,") == string::npos);
-    assert(zpl.find("^FO10,33^A0N,34,31^FDIRLML6344TRPBF^FS") != string::npos);
-    assert(zpl.find("^FO10,70^A0N,14,14^FDTO-263-3^FS") != string::npos);
-    assert(zpl.find("^FDVds 30V^FS") != string::npos);
-    assert(zpl.find("^FDId 12A^FS") != string::npos);
+    const auto mainField = zpl.find("^FDIRLML6344TRPBF^FS");
+    const auto mainFont = zpl.rfind("^A0N,", mainField);
+    const auto mainSize = stoi(zpl.substr(mainFont + 5));
+    assert(mainSize >= 18 && mainSize <= 40);
+    assert(estimateFont0Width("IRLML6344TRPBF", mainSize, mainSize) <= 164);
+    assert(zpl.find("^FO12,84^A0N,16,16^FR^FDTO-263-3^FS") != string::npos);
+    assert(zpl.find("^FDVDS^FS") != string::npos);
+    assert(zpl.find("^FD30V^FS") != string::npos);
+    assert(zpl.find("^FDID^FS") != string::npos);
+    assert(zpl.find("^FD12A^FS") != string::npos);
+    // Two tiles fill one row, so the column rule stops after the first row.
+    assert(zpl.find("^FO88,112^GB1,33,1^FS") != string::npos);
   }
 
   {
@@ -2983,8 +3075,9 @@ int main() {
     longHeader.labelOverride = "Custom label beyond sixteen";
     const auto zpl = service.buildZpl(longHeader);
     assert(partShortDescription(longHeader) == "Custom label beyond sixteen");
-    assert(zpl.find("^FDCustom label beyond sixteen^FS") != string::npos);
-    assert(zpl.find("^FO10,0^GB236,24,24,B,6^FS") != string::npos);
+    assert(zpl.find("^FR^FDCUSTOM LABEL BEYOND SIXTEEN^FS") != string::npos ||
+           zpl.find("^FR^FDCUSTOM LABEL BEYOND") != string::npos);
+    assert(zpl.find("^FO7,0^GB236,22,22,B,4^FS") != string::npos);
   }
 
   {
@@ -2998,9 +3091,10 @@ int main() {
     diode.category = "Schottky Diodes";
     diode.parameters = {{"Forward Voltage", "0.38V"}, {"Reverse Voltage", "40V"}, {"Current", "1A"}};
     const auto diodePlan = service.buildLabelPlan(diode);
-    assert(diodePlan.parameterLine1.find("Vf") != string::npos);
-    assert(diodePlan.parameterLine2.find("Vr") != string::npos);
-    assert(diodePlan.parameterLine3.find("Io") != string::npos);
+    assert(diodePlan.parameters.size() == 3);
+    assert(diodePlan.parameters[0].caption == "VR" && diodePlan.parameters[0].value == "40V");
+    assert(diodePlan.parameters[1].caption == "IO" && diodePlan.parameters[1].value == "1A");
+    assert(diodePlan.parameters[2].caption == "VF" && diodePlan.parameters[2].value == "0.38V");
 
     InventoryItem connector;
     connector.id = "conn-1";
@@ -3009,9 +3103,11 @@ int main() {
     connector.category = "Connectors";
     connector.parameters = {{"Pins", "8"}, {"Connector Type", "Header"}, {"Pitch", "2.54mm"}, {"Rows", "2"}};
     const auto connectorPlan = service.buildLabelPlan(connector);
-    assert(connectorPlan.parameterLine1.find("Pins") != string::npos);
-    assert(connectorPlan.parameterLine2.find("Conn") != string::npos);
-    assert(connectorPlan.parameterLine3.find("Rows") != string::npos);
+    assert(connectorPlan.parameters.size() == 4);
+    assert(labelTile(connectorPlan, "PINS") == "8");
+    assert(labelTile(connectorPlan, "TYPE") == "Header");
+    assert(labelTile(connectorPlan, "ROWS") == "2");
+    assert(labelTile(connectorPlan, "PITCH") == "2.54mm");
 
     InventoryItem regulator;
     regulator.id = "reg-1";
@@ -3020,9 +3116,10 @@ int main() {
     regulator.category = "Voltage Regulators";
     regulator.parameters = {{"Output Voltage", "3.3V"}, {"Voltage - Input", "5V"}, {"Output Current", "1A"}, {"Type", "LDO"}};
     const auto regulatorPlan = service.buildLabelPlan(regulator);
-    assert(regulatorPlan.parameterLine1.find("Vout") != string::npos);
-    assert(regulatorPlan.parameterLine2.find("Vin") != string::npos);
-    assert(regulatorPlan.parameterLine3.find("Iout") != string::npos);
+    assert(labelTile(regulatorPlan, "VOUT") == "3.3V");
+    assert(labelTile(regulatorPlan, "VIN") == "5V");
+    assert(labelTile(regulatorPlan, "IOUT") == "1A");
+    assert(labelTile(regulatorPlan, "TYPE") == "LDO");
 
     InventoryItem crystal;
     crystal.id = "xtal-1";
@@ -3031,9 +3128,359 @@ int main() {
     crystal.category = "Crystals";
     crystal.parameters = {{"Frequency", "16MHz"}, {"Load Capacitance", "18pF"}, {"ESR", "50Ohm"}};
     const auto crystalPlan = service.buildLabelPlan(crystal);
-    assert(crystalPlan.parameterLine1.find("F") != string::npos);
-    assert(crystalPlan.parameterLine2.find("ESR") != string::npos ||
-           crystalPlan.parameterLine3.find("ESR") != string::npos);
+    assert(labelTile(crystalPlan, "FREQ") == "16MHz");
+    assert(labelTile(crystalPlan, "LOAD C") == "18pF");
+    assert(labelTile(crystalPlan, "ESR") == u8"50\u03A9");
+  }
+
+  {
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+
+    // DigiKey-style MLCC: value with tolerance as the main text, dielectric
+    // and voltage as tiles, manufacturer (not the part number) under the value.
+    InventoryItem mlcc;
+    mlcc.id = "mlcc-1";
+    mlcc.partName = "CAP CER 0.1UF 50V X7R 0402";
+    mlcc.manufacturer = "Murata Electronics";
+    mlcc.sku = "GRM155R71H104KE14D";
+    mlcc.category = "Ceramic Capacitors";
+    mlcc.machineCode = "14";
+    mlcc.inventatoryId = "Inventatory:C-00014";
+    mlcc.parameters = {{"Capacitance", "0.1 \u00B5F"},
+                       {"Tolerance", "\u00B110%"},
+                       {"Voltage - Rated", "50V"},
+                       {"Temperature Coefficient", "X7R"},
+                       {"Operating Temperature", "-55\u00B0C ~ 125\u00B0C"},
+                       {"Package / Case", "0402 (1005 Metric)"},
+                       {"Height - Seated (Max)", "-"},
+                       {"Thickness (Max)", "0.022\" (0.55mm)"},
+                       {"ESR (Equivalent Series Resistance)", "N/A"}};
+    const auto mlccPlan = service.buildLabelPlan(mlcc, "R118-b2");
+    assert(mlccPlan.mainIsMeasuredValue);
+    assert(mlccPlan.mainValue == u8"0.1\u00B5F");
+    assert(mlccPlan.mainTolerance == u8"\u00B110%");
+    assert(mlccPlan.packageLine == "0402");
+    assert(mlccPlan.manufacturerLine == "Murata Electronics");
+    assert(mlccPlan.parameters.size() == 4);
+    assert(labelTile(mlccPlan, "VOLTAGE") == "50V");
+    assert(labelTile(mlccPlan, "DIELECTRIC") == "X7R");
+    assert(labelTile(mlccPlan, "TEMP") == u8"-55 to 125\u00B0C");
+    assert(labelTile(mlccPlan, "HEIGHT") == "0.55mm");
+    assert(labelTile(mlccPlan, "ESR").empty());
+    const auto mlccZpl = service.buildZpl(mlcc, "R118-b2");
+    assert(mlccZpl.find("^FD-^FS") == string::npos);
+    assert(mlccZpl.find("^FDN/A^FS") == string::npos);
+    // Printers place labels about 10 dots low: nothing may extend below y 184,
+    // and the QR symbol (drawn 10 dots below its origin) must clear the ID.
+    for (const auto& zplLabel : {mlccZpl, service.buildZpl(mlcc)}) {
+      for (auto at = zplLabel.find("^FO"); at != string::npos; at = zplLabel.find("^FO", at + 3)) {
+        const auto comma = zplLabel.find(',', at);
+        const auto fieldY = stoi(zplLabel.substr(comma + 1));
+        const auto end = zplLabel.find("^FS", at);
+        const auto field = zplLabel.substr(at, end - at);
+        int fieldBottom = fieldY;
+        if (const auto font = field.find("^A0N,"); font != string::npos) {
+          fieldBottom = fieldY + stoi(field.substr(font + 5));
+        } else if (const auto graphic = field.find("^GB"); graphic != string::npos) {
+          fieldBottom = fieldY + stoi(field.substr(field.find(',', graphic) + 1));
+        } else if (field.find("^BQN,2,3") != string::npos) {
+          fieldBottom = fieldY + 10 + 21 * 3;
+          const auto idField = zplLabel.find("^FDC-0014^FS");
+          if (idField != string::npos) {
+            const auto idOrigin = zplLabel.rfind("^FO", idField);
+            assert(stoi(zplLabel.substr(zplLabel.find(',', idOrigin) + 1)) > fieldBottom);
+          }
+        }
+        assert(fieldBottom <= 184);
+      }
+    }
+    assert(mlccZpl.find("GRM155R71H104KE14D") == string::npos);
+    assert(mlccZpl.find("^FDMurata Electronics^FS") != string::npos);
+    assert(mlccZpl.find("^FD0.1\u00B5^FS") != string::npos);
+    assert(mlccZpl.find("^FDF^FS") != string::npos);
+    assert(mlccZpl.find("^FDC-0014^FS") != string::npos);
+    assert(mlccZpl.find("^FDLA,0014^FS") != string::npos);
+    assert(mlccZpl.find("^FR^FDR118^FS") != string::npos);
+    assert(mlccZpl.find("^FDB2^FS") != string::npos);
+
+    // Supplier package names win over case aliases; nonstandard packages
+    // fall back to the metric size.
+    InventoryItem mosfet;
+    mosfet.category = "MOSFETs";
+    mosfet.manufacturer = "Alpha & Omega Semiconductor Inc.";
+    mosfet.sku = "AO3400A";
+    mosfet.parameters = {{"Package / Case", "TO-236-3, SC-59, SOT-23-3"},
+                         {"Supplier Device Package", "SOT-23-3L"},
+                         {"Drain to Source Voltage (Vdss)", "30 V"},
+                         {"Current - Continuous Drain (Id) @ 25\u00B0C", "5.7A (Ta)"},
+                         {"Rds On (Max) @ Id, Vgs", "26.5mOhm @ 5.8A, 10V"},
+                         {"Vgs(th) (Max) @ Id", "1.45V @ 250\u00B5A"},
+                         {"Gate Charge (Qg) (Max) @ Vgs", "7 nC @ 4.5 V"}};
+    const auto mosfetPlan = service.buildLabelPlan(mosfet);
+    assert(mosfetPlan.mainValue == "AO3400A");
+    assert(!mosfetPlan.mainIsMeasuredValue);
+    assert(mosfetPlan.packageLine == "SOT-23-3L");
+    assert(mosfetPlan.parameters.size() == 4);
+    assert(labelTile(mosfetPlan, "VDS") == "30 V");
+    assert(labelTile(mosfetPlan, "ID") == "5.7A");
+    assert(labelTile(mosfetPlan, "RDS(ON)") == u8"26.5m\u03A9");
+    assert(labelTile(mosfetPlan, "VGS(TH)") == "1.45V");
+    assert(labelTile(mosfetPlan, "QG").empty());
+    const auto mosfetZpl = service.buildZpl(mosfet);
+    // A long manufacturer drops its corporate suffix instead of being cut.
+    assert(mosfetZpl.find("^FDAlpha & Omega Semiconductor Inc.^FS") == string::npos);
+    assert(mosfetZpl.find("^FDAlpha^FS") != string::npos);
+    assert(mosfetZpl.find("Alpha &") == string::npos);
+
+    InventoryItem inductor;
+    inductor.category = "Fixed Inductors";
+    inductor.manufacturer = "Bourns Inc.";
+    inductor.parameters = {{"Inductance", "4.7 \u00B5H"},
+                           {"Tolerance", "\u00B120%"},
+                           {"Current Rating (Amps)", "3A"},
+                           {"Current - Saturation (Isat)", "3.6A"},
+                           {"DC Resistance (DCR)", "48mOhm Max"},
+                           {"Shielding", "Shielded"},
+                           {"Package / Case", "Nonstandard"},
+                           {"Size / Dimension", "0.157\" L x 0.157\" W (4.00mm x 4.00mm)"}};
+    const auto inductorPlan = service.buildLabelPlan(inductor);
+    assert(inductorPlan.mainValue == u8"4.7\u00B5H");
+    assert(inductorPlan.packageLine == "4x4mm");
+    assert(labelTile(inductorPlan, "RATED") == "3A");
+    assert(labelTile(inductorPlan, "ISAT") == "3.6A");
+    assert(labelTile(inductorPlan, "DCR") == u8"48m\u03A9");
+    assert(labelTile(inductorPlan, "SHIELD") == "Shielded");
+
+    // ICs print the manufacturer part number rather than the distributor description.
+    InventoryItem mcu;
+    mcu.category = "Microcontrollers";
+    mcu.partName = "IC MCU 32BIT 64KB FLASH 32LQFP";
+    mcu.sku = "STM32G031K8T6";
+    mcu.parameters = {{"Program Memory Size", "64KB (64K x 8)"}, {"RAM Size", "8K x 8"}};
+    const auto mcuPlan = service.buildLabelPlan(mcu);
+    assert(mcuPlan.mainValue == "STM32G031K8T6");
+    assert(labelTile(mcuPlan, "FLASH / RAM") == "64KB/8K");
+
+    // Parts without a manufacturer leave the line empty instead of repeating the name.
+    InventoryItem anonymous;
+    anonymous.partName = "Mystery board";
+    assert(service.buildLabelPlan(anonymous).manufacturerLine.empty());
+
+    // Tile values drop vendor qualifiers and marks.
+    assert(labelTileValue("0.1W, 1/10W") == "0.1W");
+    assert(labelTileValue(u8"ARM\u00AE Cortex\u00AE-M0+") == "Cortex-M0+");
+    assert(labelTileValue("1.7V ~ 3.6V") == "1.7 to 3.6V");
+    assert(labelTileValue("2.7V ~ 5.5V") == "2.7 to 5.5V");
+    assert(labelTileValue("8 ~ 12") == "8 to 12");
+    assert(labelTileValue("500 mV @ 3 A") == "500 mV");
+
+    // Width fitting steps down, then shortens; nothing exceeds the box.
+    const auto fits = fitFont0Text("SS34", 166, {40, 36});
+    assert(fits.size == 40 && fits.text == "SS34");
+    const auto steps = fitFont0Text("STM32G031K8T6", 166, {40, 36, 32, 28, 26, 24, 22});
+    assert(steps.size < 40 && steps.text == "STM32G031K8T6" && steps.width <= 166);
+    const auto shortened = fitFont0Text("A very long manufacturer name that cannot fit", 60, {16, 12});
+    assert(shortened.size == 12);
+    assert(shortened.width <= 60);
+    assert(shortened.text.size() > 3 && shortened.text.compare(shortened.text.size() - 3, 3, "...") == 0);
+    const auto utf8 = fitFont0Text(u8"\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9", 20, {12});
+    assert(utf8.width <= 20);
+    assert(utf8.text.find(u8"\u03A9") == 0 || utf8.text == "...");
+    assert(fitFont0Text("", 100, {12}).text.empty());
+  }
+
+  {
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+
+    // The photographed label: "Mounting Type" must never reach the dielectric
+    // tile, and electrolytics (which have no dielectric parameter) simply
+    // have no such tile.
+    InventoryItem electrolytic;
+    electrolytic.id = "cap-electrolytic";
+    electrolytic.category = "Aluminum Electrolytic Capacitors";
+    electrolytic.manufacturer = "Panasonic Industry";
+    electrolytic.inventatoryId = "Inventatory:C-00007";
+    electrolytic.machineCode = "0007";
+    electrolytic.parameters = {{"Capacitance", u8"100 \u00B5F"},
+                               {"Tolerance", u8"\u00B120%"},
+                               {"Voltage - Rated", "16 V"},
+                               {"Operating Temperature", u8"-40\u00B0C ~ 85\u00B0C"},
+                               {"Mounting Type", "Through Hole"},
+                               {"Package / Case", "Radial, Can"},
+                               {"Type", "Through Hole"},
+                               {"Height - Seated (Max)", "0.472\" (12.00mm)"}};
+    const auto electrolyticPlan = service.buildLabelPlan(electrolytic);
+    assert(labelTile(electrolyticPlan, "DIELECTRIC").empty());
+    assert(labelTile(electrolyticPlan, "VOLTAGE") == "16 V");
+    assert(labelTile(electrolyticPlan, "TEMP") == u8"-40 to 85\u00B0C");
+    assert(labelTile(electrolyticPlan, "HEIGHT") == "12mm");
+    assert(electrolyticPlan.parameters.size() == 3);
+    const auto electrolyticZpl = service.buildZpl(electrolytic);
+    assert(electrolyticZpl.find("Through") == string::npos);
+    assert(electrolyticZpl.find("...") == string::npos);
+    assert(electrolyticZpl.find("..") == string::npos);
+    // The tolerance sign sits 3 dots above its digits' baseline offset.
+    const auto signField = electrolyticZpl.find(u8"^FD\u00B1^FS");
+    const auto percentField = electrolyticZpl.find("^FD20%^FS");
+    assert(signField != string::npos && percentField != string::npos);
+    const auto fieldY = [&](size_t field) {
+      const auto origin = electrolyticZpl.rfind("^FO", field);
+      return stoi(electrolyticZpl.substr(electrolyticZpl.find(',', origin) + 1));
+    };
+    assert(fieldY(signField) == fieldY(percentField) - 3);
+
+    // Film capacitors name their material instead of a coefficient.
+    InventoryItem film;
+    film.category = "Film Capacitors";
+    film.parameters = {{"Capacitance", "0.1 \u00B5F"},
+                       {"Dielectric Material", "Polypropylene (PP), Metallized"},
+                       {"Mounting Type", "Through Hole"}};
+    assert(labelTile(service.buildLabelPlan(film), "DIELECTRIC") == "PP");
+
+    // A value without the unit its caption promises is a mismatched parameter.
+    InventoryItem mismatched;
+    mismatched.category = "Capacitors";
+    mismatched.parameters = {{"Capacitance", "1 nF"},
+                             {"Voltage - Rated", "Polar"},
+                             {"Operating Temperature", "Industrial"},
+                             {"Height - Seated (Max)", "Tall"},
+                             {"ESR (Equivalent Series Resistance)", "50 mOhm @ 100kHz"}};
+    const auto mismatchedPlan = service.buildLabelPlan(mismatched);
+    assert(labelTile(mismatchedPlan, "VOLTAGE").empty());
+    assert(labelTile(mismatchedPlan, "TEMP").empty());
+    assert(labelTile(mismatchedPlan, "HEIGHT").empty());
+    assert(labelTile(mismatchedPlan, "ESR") == u8"50 m\u03A9");
+
+    // Short names match whole: "Type" never picks up "Mounting Type".
+    InventoryItem regulator;
+    regulator.category = "Voltage Regulators";
+    regulator.parameters = {{"Mounting Type", "Surface Mount"}, {"Output Type", "Fixed"}};
+    const auto regulatorPlan = service.buildLabelPlan(regulator);
+    assert(labelTile(regulatorPlan, "TYPE") == "Fixed");
+    regulator.parameters = {{"Mounting Type", "Surface Mount"}};
+    assert(labelTile(service.buildLabelPlan(regulator), "TYPE").empty());
+
+    // A tile value is printed whole or not at all, and ranges keep their
+    // meaning: a thousands separator is not a list separator.
+    InventoryItem sensor;
+    sensor.category = "Sensors";
+    sensor.parameters = {{"Output Type", "Pulse Width Modulation, 12-bit"}, {"Resolution", "1,024 steps"}};
+    const auto sensorPlan = service.buildLabelPlan(sensor);
+    assert(labelTile(sensorPlan, "OUTPUT").empty());
+    assert(labelTile(sensorPlan, "RES") == "1,024 steps");
+    assert(labelTileValue("Polyester, Metallized") == "Polyester");
+    assert(labelTileValue("0.472\" (12.50mm)") == "12.5mm");
+    assert(labelTileValue(u8"-55\u00B0C ~ 150\u00B0C (TJ)") == u8"-55 to 150\u00B0C");
+  }
+
+  {
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+
+    // Real DigiKey scans file diodes and MOSFETs under "Discrete Semiconductor
+    // Products"; their kind comes from the parameters.
+    InventoryItem schottky;
+    schottky.partName = "DIODE SCHOTTKY 60V 5A DO214AB";
+    schottky.manufacturer = "Comchip Technology";
+    schottky.category = "Discrete Semiconductor Products";
+    schottky.sku = "641-1127-1-ND";
+    schottky.digikeyPartNumber = "641-1127-1-ND";
+    schottky.vendorMetadata.manufacturerPartNumber = "CDBC560-G";
+    schottky.machineCode = "0023";
+    schottky.parameters = {{"Technology", "Schottky"},
+                           {"Voltage - DC Reverse (Vr) (Max)", "60 V"},
+                           {"Current - Average Rectified (Io)", "5A"},
+                           {"Voltage - Forward (Vf) (Max) @ If", "750 mV @ 5 A"},
+                           {"Speed", "Fast Recovery =< 500ns, > 200mA (Io)"},
+                           {"Mounting Type", "Surface Mount"},
+                           {"Package / Case", "DO-214AB, SMC"},
+                           {"Supplier Device Package", "DO-214AB (SMC)"}};
+    const auto schottkyPlan = service.buildLabelPlan(schottky, "R3-A3");
+    assert(schottkyPlan.mainValue == "CDBC560-G");
+    assert(labelTile(schottkyPlan, "VR") == "60 V");
+    assert(labelTile(schottkyPlan, "IO") == "5A");
+    assert(labelTile(schottkyPlan, "VF") == "750 mV");
+    assert(labelTile(schottkyPlan, "TECH") == "Schottky");
+    const auto schottkyZpl = service.buildZpl(schottky, "R3-A3");
+    assert(schottkyZpl.find("641-1127") == string::npos);
+    assert(schottkyZpl.find("^FDComchip^FS") != string::npos);
+
+    InventoryItem fet;
+    fet.partName = "MOSFET N-CH 30V 5A MICRO3/SOT23";
+    fet.manufacturer = "Infineon Technologies";
+    fet.category = "Discrete Semiconductor Products";
+    fet.sku = "IRLML6344TRPBF";
+    fet.vendorMetadata.manufacturerPartNumber = "IRLML6344TRPBF";
+    fet.parameters = {{"FET Type", "N-Channel"},
+                      {"Drain to Source Voltage (Vdss)", "30 V"},
+                      {"Current - Continuous Drain (Id) @ 25\u00B0C", "5A (Ta)"},
+                      {"Rds On (Max) @ Id, Vgs", "29mOhm @ 5A, 4.5V"},
+                      {"Vgs(th) (Max) @ Id", u8"1.1V @ 10\u00B5A"},
+                      {"Gate Charge (Qg) (Max) @ Vgs", "6.8 nC @ 4.5 V"},
+                      {"Supplier Device Package", u8"Micro3\u2122/SOT-23"},
+                      {"Mounting Type", "Surface Mount"}};
+    const auto fetPlan = service.buildLabelPlan(fet, "R6-A2");
+    assert(fetPlan.parameters.size() == 4);
+    assert(labelTile(fetPlan, "VDS") == "30 V");
+    assert(labelTile(fetPlan, "ID") == "5A");
+    assert(labelTile(fetPlan, "RDS(ON)") == u8"29m\u03A9");
+    assert(labelTile(fetPlan, "VGS(TH)") == "1.1V");
+    assert(fetPlan.packageLine == "Micro3");
+    assert(service.buildZpl(fet, "R6-A2").find("^FDInfineon^FS") != string::npos);
+
+    // Candidates run from the full name to the shortest.
+    const auto names = label_printer_detail::manufacturerCandidates("Infineon Technologies");
+    assert(names.size() == 2 && names[0] == "Infineon Technologies" && names[1] == "Infineon");
+    assert(label_printer_detail::manufacturerCandidates("Nexperia USA Inc.").back() == "Nexperia");
+    assert(label_printer_detail::manufacturerCandidates("Murata").size() == 1);
+    const auto alpha = label_printer_detail::manufacturerCandidates("Alpha & Omega Semiconductor Inc.");
+    assert(alpha.size() == 4 && alpha[2] == "Alpha & Omega" && alpha[3] == "Alpha");
+    const auto shenzhen = label_printer_detail::manufacturerCandidates("Shenzhen Slkormicro Semicon Co., Ltd.");
+    assert(shenzhen.back() == "Slkormicro");
+    assert(label_printer_detail::manufacturerCandidates("Texas Instruments").back() == "TI");
+
+    // A DigiKey buck converter mentions "Synchronous Rectifier" and a TVS is
+    // named "DIODE": neither may be classified as an ordinary diode.
+    InventoryItem buck;
+    buck.partName = "IC REG BUCK 3.3V 2A TSOT23-6";
+    buck.category = "Integrated Circuits (ICs)";
+    buck.parameters = {{"Topology", "Buck"},
+                       {"Output Type", "Fixed"},
+                       {"Voltage - Input (Max)", "32V"},
+                       {"Voltage - Output (Min/Fixed)", "3.3V"},
+                       {"Current - Output", "2A"},
+                       {"Synchronous Rectifier", "Yes"},
+                       {"Type", "Surface Mount"}};
+    const auto buckPlan = service.buildLabelPlan(buck);
+    assert(labelTile(buckPlan, "VOUT") == "3.3V");
+    assert(labelTile(buckPlan, "VIN") == "32V");
+    assert(labelTile(buckPlan, "IOUT") == "2A");
+    assert(labelTile(buckPlan, "VR").empty());
+
+    InventoryItem smdFuse;
+    smdFuse.partName = "FUSE BRD MT 500MA 125VAC 63VDC";
+    smdFuse.category = "Circuit Protection";
+    smdFuse.parameters = {{"Fuse Type", "Board Mount"},
+                          {"Current Rating (Amps)", "500 mA"},
+                          {"Voltage Rating - AC", "125 V"},
+                          {"Voltage Rating - DC", "63 V"},
+                          {"Response Time", "Fast Blow"}};
+    const auto fusePlan = service.buildLabelPlan(smdFuse);
+    assert(fusePlan.parameters.size() == 4);
+    assert(labelTile(fusePlan, "VDC") == "63 V" && labelTile(fusePlan, "SPEED") == "Fast Blow");
+
+    InventoryItem timer;
+    timer.partName = "IC OSC SNGL TIMER 100KHZ 8-SOIC";
+    timer.category = "Integrated Circuits (ICs)";
+    timer.parameters = {{"Type", "Surface Mount"},
+                        {"Frequency", "100kHz"},
+                        {"Voltage - Supply", "4.5V ~ 16V"},
+                        {"Operating Temperature", u8"0\u00B0C ~ 70\u00B0C"}};
+    const auto timerPlan = service.buildLabelPlan(timer);
+    assert(labelTile(timerPlan, "SUPPLY") == "4.5 to 16V");
+    assert(labelTile(timerPlan, "FREQ") == "100kHz");
+    assert(labelTile(timerPlan, "VR").empty());
+    // A hyphen prints wider than a digit; the estimate must not under-count it.
+    assert(estimateFont0Width("641-1127-1-ND", 22, 22) > estimateFont0Width("641112711ND", 22, 22) + 20);
   }
 
   {
