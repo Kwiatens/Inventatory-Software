@@ -16,9 +16,12 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <propkey.h>
+#include <propvarutil.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Shell32.lib")
+#pragma comment(lib, "Propsys.lib")
 
 namespace inventatory {
 
@@ -246,6 +249,55 @@ vector<string> privateLocalAddresses() {
 
   WSACleanup();
   return addresses;
+}
+
+void setConsoleTitle(const string& title) {
+  SetConsoleTitleA(title.c_str());
+}
+
+void initializeConsoleWindow() {
+  SetCurrentProcessExplicitAppUserModelID(L"Kwiatens.Inventatory");
+  setConsoleTitle("Inventatory");
+  const HWND console = GetConsoleWindow();
+  if (console == nullptr) return;
+
+  IPropertyStore* windowStore = nullptr;
+  if (SUCCEEDED(SHGetPropertyStoreForWindow(console, IID_PPV_ARGS(&windowStore))) && windowStore != nullptr) {
+    PROPVARIANT pv;
+    if (SUCCEEDED(InitPropVariantFromString(L"Kwiatens.Inventatory", &pv))) {
+      windowStore->SetValue(PKEY_AppUserModel_ID, pv);
+      PropVariantClear(&pv);
+    }
+    windowStore->Commit();
+    windowStore->Release();
+  }
+
+  const auto moduleHandle = GetModuleHandleW(nullptr);
+  const auto smallX = GetSystemMetrics(SM_CXSMICON);
+  const auto smallY = GetSystemMetrics(SM_CYSMICON);
+  auto* smallIcon = static_cast<HICON>(
+      LoadImageW(moduleHandle, MAKEINTRESOURCEW(1), IMAGE_ICON, smallX, smallY, LR_SHARED));
+  if (smallIcon == nullptr) {
+    smallIcon = LoadIconW(moduleHandle, MAKEINTRESOURCEW(1));
+  }
+  if (smallIcon != nullptr) {
+    SendMessageW(console, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(smallIcon));
+  }
+
+  const auto bigX = GetSystemMetrics(SM_CXICON);
+  const auto bigY = GetSystemMetrics(SM_CYICON);
+  auto* bigIcon = static_cast<HICON>(
+      LoadImageW(moduleHandle, MAKEINTRESOURCEW(1), IMAGE_ICON, bigX, bigY, LR_SHARED));
+  if (bigIcon == nullptr) {
+    bigIcon = LoadIconW(moduleHandle, MAKEINTRESOURCEW(1));
+  }
+  if (bigIcon != nullptr) {
+    SendMessageW(console, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(bigIcon));
+  }
+}
+
+bool ensureTerminalAttached(int /*argc*/, char* /*argv*/[]) {
+  return true;
 }
 
 }  // namespace inventatory

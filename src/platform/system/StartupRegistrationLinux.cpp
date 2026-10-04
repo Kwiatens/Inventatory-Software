@@ -3,6 +3,7 @@
 #include "platform/system/StartupRegistration.h"
 
 #include "core/storage/AtomicFile.h"
+#include "platform/system/AppIconsLinux.h"
 #include "platform/system/Environment.h"
 
 #include <algorithm>
@@ -160,7 +161,68 @@ std::wstring buildDesktopShortcutPath(const std::wstring& desktopDirectory) {
   return desktopDirectory + L"\\Inventatory.lnk";
 }
 
+bool installDesktopIcons(std::string& error) {
+  const auto iconsRoot = dataHome() / "icons" / "hicolor";
+  std::error_code ec;
+  for (const auto& asset : kEmbeddedIconAssets) {
+    const auto dir = iconsRoot / (std::to_string(asset.size) + "x" + std::to_string(asset.size)) / "apps";
+    filesystem::create_directories(dir, ec);
+    if (ec) {
+      error = "Unable to create icon directory: " + ec.message();
+      return false;
+    }
+    const auto iconFile = dir / "inventatory.png";
+    const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
+    if (!writeFileAtomically(iconFile, iconBytes, &error)) return false;
+  }
+  const auto pixmapsDir = dataHome() / "pixmaps";
+  filesystem::create_directories(pixmapsDir, ec);
+  if (!ec) {
+    for (const auto& asset : kEmbeddedIconAssets) {
+      if (asset.size == 256) {
+        const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
+        writeFileAtomically(pixmapsDir / "inventatory.png", iconBytes, nullptr);
+        break;
+      }
+    }
+  }
+  return true;
+}
+
+filesystem::path userDesktopDirectory() {
+  if (const auto env = environmentValue("XDG_DESKTOP_DIR"); env.has_value() && !env->empty() && filesystem::path(*env).is_absolute()) {
+    std::error_code ec;
+    if (filesystem::is_directory(*env, ec)) return filesystem::path(*env);
+  }
+  const auto userDirsFile = configHome() / "user-dirs.dirs";
+  if (std::ifstream stream(userDirsFile); stream.is_open()) {
+    std::string line;
+    while (std::getline(stream, line)) {
+      if (line.rfind("XDG_DESKTOP_DIR=", 0) == 0) {
+        auto val = line.substr(16);
+        if (val.size() >= 2 && val.front() == '"' && val.back() == '"') val = val.substr(1, val.size() - 2);
+        filesystem::path resolved;
+        if (val.rfind("$HOME", 0) == 0) {
+          auto sub = val.substr(5);
+          while (!sub.empty() && sub.front() == '/') sub.erase(sub.begin());
+          resolved = homeDirectory() / sub;
+        } else if (!val.empty() && val.front() == '/') {
+          resolved = filesystem::path(val);
+        }
+        std::error_code ec;
+        if (!resolved.empty() && filesystem::is_directory(resolved, ec)) return resolved;
+      }
+    }
+  }
+  const auto fallback = homeDirectory() / "Desktop";
+  std::error_code ec;
+  if (filesystem::is_directory(fallback, ec)) return fallback;
+  return {};
+}
+
 bool createDesktopShortcut(std::string& error) {
+  if (!installDesktopIcons(error)) return false;
+
   const auto executable = currentExecutablePath();
   if (executable.empty()) {
     error = "Unable to find the Inventatory executable";
@@ -180,9 +242,9 @@ bool createDesktopShortcut(std::string& error) {
     error = "The Inventatory executable path contains characters unsupported by application launchers";
     return false;
   }
-  const std::string contents = "[Desktop Entry]\nType=Application\nName=Inventatory\nComment=Hardware inventory\n" +
+  const std::string contents = "[Desktop Entry]\nType=Application\nName=Inventatory\nComment=Terminal inventory manager\n" +
                                std::string("Exec=") + quotedExecutable +
-                               "\nTerminal=true\nCategories=Utility;\n";
+                               "\nIcon=inventatory\nTerminal=false\nCategories=Utility;\nStartupWMClass=inventatory\n";
   if (!writeFileAtomically(launcher, contents, &error)) return false;
   filesystem::permissions(launcher, filesystem::perms::owner_read | filesystem::perms::owner_write |
                                         filesystem::perms::owner_exec | filesystem::perms::group_read |
@@ -193,6 +255,20 @@ bool createDesktopShortcut(std::string& error) {
     error = "Unable to make the Inventatory application launcher executable: " + filesystemError.message();
     return false;
   }
+
+  const auto desktop = userDesktopDirectory();
+  if (!desktop.empty()) {
+    const auto desktopLauncher = desktop / "inventatory.desktop";
+    std::string desktopError;
+    if (writeFileAtomically(desktopLauncher, contents, &desktopError)) {
+      filesystem::permissions(desktopLauncher, filesystem::perms::owner_read | filesystem::perms::owner_write |
+                                                    filesystem::perms::owner_exec | filesystem::perms::group_read |
+                                                    filesystem::perms::group_exec | filesystem::perms::others_read |
+                                                    filesystem::perms::others_exec,
+                              filesystem::perm_options::replace, filesystemError);
+    }
+  }
+
   return true;
 }
 
