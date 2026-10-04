@@ -58,6 +58,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
+#include <cstring>
 
 #ifndef _WIN32
 #include <arpa/inet.h>
@@ -4731,6 +4732,114 @@ int main() {
            L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
     assert(buildDesktopShortcutPath(L"C:\\Users\\pawci\\Desktop\\") ==
            L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
+  }
+
+#ifndef _WIN32
+  {
+    const auto tempDir = filesystem::temp_directory_path() / ("inventatory-shortcut-test-" + to_string(getpid()));
+    const auto testData = tempDir / "data";
+    const auto testConfig = tempDir / "config";
+    const auto testDesktop = tempDir / "desktop";
+    filesystem::create_directories(testData);
+    filesystem::create_directories(testConfig);
+    filesystem::create_directories(testDesktop);
+
+    const auto oldData = getenv("XDG_DATA_HOME");
+    const auto oldConfig = getenv("XDG_CONFIG_HOME");
+    const auto oldDesktop = getenv("XDG_DESKTOP_DIR");
+
+    setenv("XDG_DATA_HOME", testData.c_str(), 1);
+    setenv("XDG_CONFIG_HOME", testConfig.c_str(), 1);
+    setenv("XDG_DESKTOP_DIR", testDesktop.c_str(), 1);
+
+    string shortcutError;
+    assert(createDesktopShortcut(shortcutError));
+    assert(shortcutError.empty());
+
+    const auto launcher = testData / "applications" / "inventatory.desktop";
+    assert(filesystem::is_regular_file(launcher));
+    ifstream launcherStream(launcher);
+    const string launcherContent((istreambuf_iterator<char>(launcherStream)), istreambuf_iterator<char>());
+    assert(launcherContent.find("Icon=inventatory") != string::npos);
+    assert(launcherContent.find("Terminal=false") != string::npos);
+    assert(launcherContent.find("StartupWMClass=inventatory") != string::npos);
+    assert(launcherContent.find("[Desktop Entry]") != string::npos);
+
+    char* testArgv[] = {const_cast<char*>("inventatory"), nullptr};
+    if (isatty(STDIN_FILENO) != 0) {
+      assert(ensureTerminalAttached(1, testArgv));
+    }
+
+    const auto desktopLauncher = testDesktop / "inventatory.desktop";
+    assert(filesystem::is_regular_file(desktopLauncher));
+
+    const vector<int> expectedSizes = {16, 24, 32, 48, 64, 128, 256, 512};
+    for (int size : expectedSizes) {
+      const auto iconPath = testData / "icons" / "hicolor" / (to_string(size) + "x" + to_string(size)) / "apps" / "inventatory.png";
+      assert(filesystem::is_regular_file(iconPath));
+      ifstream iconStream(iconPath, ios::binary);
+      char header[8] = {};
+      iconStream.read(header, 8);
+      assert(memcmp(header, "\x89PNG\r\n\x1a\n", 8) == 0);
+    }
+
+    if (oldData) setenv("XDG_DATA_HOME", oldData, 1); else unsetenv("XDG_DATA_HOME");
+    if (oldConfig) setenv("XDG_CONFIG_HOME", oldConfig, 1); else unsetenv("XDG_CONFIG_HOME");
+    if (oldDesktop) setenv("XDG_DESKTOP_DIR", oldDesktop, 1); else unsetenv("XDG_DESKTOP_DIR");
+
+    error_code cleanupEc;
+    filesystem::remove_all(tempDir, cleanupEc);
+  }
+#endif
+
+  {
+    const auto icoPath = filesystem::path("branding") / "icons" / "inventatory.ico";
+    if (filesystem::is_regular_file(icoPath)) {
+      ifstream icoStream(icoPath, ios::binary);
+      uint16_t reserved = 0, type = 0, count = 0;
+      icoStream.read(reinterpret_cast<char*>(&reserved), 2);
+      icoStream.read(reinterpret_cast<char*>(&type), 2);
+      icoStream.read(reinterpret_cast<char*>(&count), 2);
+      assert(reserved == 0 && type == 1 && count == 7);
+      for (int i = 0; i < count; ++i) {
+        icoStream.seekg(6 + i * 16);
+        uint8_t w = 0, h = 0, colors = 0, res = 0;
+        uint16_t planes = 0, bpp = 0;
+        uint32_t bytesInRes = 0, imageOffset = 0;
+        icoStream.read(reinterpret_cast<char*>(&w), 1);
+        icoStream.read(reinterpret_cast<char*>(&h), 1);
+        icoStream.read(reinterpret_cast<char*>(&colors), 1);
+        icoStream.read(reinterpret_cast<char*>(&res), 1);
+        icoStream.read(reinterpret_cast<char*>(&planes), 2);
+        icoStream.read(reinterpret_cast<char*>(&bpp), 2);
+        icoStream.read(reinterpret_cast<char*>(&bytesInRes), 4);
+        icoStream.read(reinterpret_cast<char*>(&imageOffset), 4);
+        assert(bpp == 32);
+        icoStream.seekg(imageOffset);
+        if (w == 0 && h == 0) {
+          char magic[4] = {};
+          icoStream.read(magic, 4);
+          assert(memcmp(magic, "\x89PNG", 4) == 0);
+        } else {
+          uint32_t biSize = 0;
+          int32_t biWidth = 0, biHeight = 0;
+          uint16_t biPlanes = 0, biBitCount = 0;
+          uint32_t biCompression = 0;
+          icoStream.read(reinterpret_cast<char*>(&biSize), 4);
+          icoStream.read(reinterpret_cast<char*>(&biWidth), 4);
+          icoStream.read(reinterpret_cast<char*>(&biHeight), 4);
+          icoStream.read(reinterpret_cast<char*>(&biPlanes), 2);
+          icoStream.read(reinterpret_cast<char*>(&biBitCount), 2);
+          icoStream.read(reinterpret_cast<char*>(&biCompression), 4);
+          assert(biSize == 40);
+          assert(biWidth == w);
+          assert(biHeight == h * 2);
+          assert(biPlanes == 1);
+          assert(biBitCount == 32);
+          assert(biCompression == 0);
+        }
+      }
+    }
   }
 
   {

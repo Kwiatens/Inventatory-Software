@@ -106,6 +106,15 @@ int App::run() {
   // otherwise FTXUI collapses the graphite/cyan palette to ANSI colors.
   ftxui::Terminal::SetColorSupport(ftxui::Terminal::Color::TrueColor);
 #endif
+  if (!startInBackground_) {
+    initializeConsoleWindow();
+#ifndef _WIN32
+    if (settings_.completedOnboardingVersion >= 1) {
+      string shortcutError;
+      createDesktopShortcut(shortcutError);
+    }
+#endif
+  }
   running_ = true;
   if (startInBackground_ && backgroundController_.interactiveInstanceRunning()) {
     running_ = false;
@@ -217,6 +226,7 @@ void App::runBackgroundLoop() {
 }
 
 void App::runInteractiveLoop() {
+  initializeConsoleWindow();
   auto screen = ftxui::ScreenInteractive::Fullscreen();
   screen.ForceHandleCtrlZ(false);
   screen.TrackMouse();

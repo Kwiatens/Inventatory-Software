@@ -338,7 +338,10 @@ void BackgroundController::trayThreadMain() {
   icon.uID = kTrayIconId;
   icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
   icon.uCallbackMessage = kTrayMessage;
-  icon.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
+  icon.hIcon = static_cast<HICON>(LoadImageW(
+      GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON,
+      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED));
+  if (icon.hIcon == nullptr) icon.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
   if (icon.hIcon == nullptr) icon.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));  // IDI_APPLICATION
   wcscpy_s(icon.szTip, L"Inventatory Scan R1 service");
   Shell_NotifyIconW(NIM_ADD, &icon);

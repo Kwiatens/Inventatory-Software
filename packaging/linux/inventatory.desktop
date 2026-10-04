@@ -4,5 +4,6 @@ Name=Inventatory
 Comment=Terminal inventory manager
 Exec=inventatory
 Icon=inventatory
-Terminal=true
+Terminal=false
 Categories=Utility;
+StartupWMClass=inventatory
