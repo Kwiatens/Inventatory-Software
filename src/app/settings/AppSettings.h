@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "label_printer/symbols/RackSymbols.h"
+
 #include <cstdint>
 #include <array>
 #include <filesystem>
@@ -88,6 +90,9 @@ struct AppSettings {
   std::string digiKeyLanguage = "en";
   std::string digiKeyCurrency = "USD";
   int lowStockThreshold = kDefaultLowStockThreshold;
+  // Electrical symbol set printed on rack labels. Optional in settings.conf: written only when it is not the
+  // default, so files stay readable by older releases for users who never change it.
+  SymbolStandard symbolStandard = SymbolStandard::Eu;
   AppearanceSettings appearance;
   // Shared wire-label shortcuts published to the paired Scan R1.
   std::vector<std::string> quickLabelPresets;
