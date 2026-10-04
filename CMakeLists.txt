@@ -233,7 +233,7 @@ target_compile_definitions(inventatory PRIVATE
   _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
 )
 if(WIN32)
-  target_link_libraries(inventatory PRIVATE ws2_32 shell32 ole32 winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
+  target_link_libraries(inventatory PRIVATE ws2_32 shell32 ole32 propsys winhttp comdlg32 winspool bcrypt dnsapi advapi32 runtimeobject windowsapp)
 else()
   target_link_libraries(inventatory PRIVATE OpenSSL::Crypto PkgConfig::LIBSECRET PkgConfig::CURL PkgConfig::GIO Threads::Threads)
 endif()
@@ -324,7 +324,7 @@ target_compile_definitions(inventatory_tests PRIVATE
   Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"
 )
 if(WIN32)
-  target_link_libraries(inventatory_tests PRIVATE ws2_32 shell32 ole32 winspool winhttp bcrypt advapi32)
+  target_link_libraries(inventatory_tests PRIVATE ws2_32 shell32 ole32 propsys winspool winhttp bcrypt advapi32)
 else()
   target_link_libraries(inventatory_tests PRIVATE OpenSSL::Crypto PkgConfig::LIBSECRET PkgConfig::CURL PkgConfig::GIO Threads::Threads)
 endif()
