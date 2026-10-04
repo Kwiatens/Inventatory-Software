@@ -214,6 +214,7 @@ add_executable(inventatory
 )
 
 if(WIN32)
+  target_sources(inventatory PRIVATE src/platform/system/Inventatory.rc)
   add_executable(inventatory_background WIN32
     src/platform/system/BackgroundLauncher.cpp
     src/platform/system/BackgroundLauncher.rc
@@ -343,4 +344,10 @@ if(NOT WIN32)
   install(TARGETS inventatory RUNTIME DESTINATION bin)
   install(FILES LICENSE LICENSE.md THIRD_PARTY_NOTICES.md DESTINATION share/doc/Inventatory)
   install(FILES README.md docs/linux-support.md DESTINATION share/doc/Inventatory)
+  install(FILES packaging/linux/inventatory.desktop DESTINATION share/applications)
+  foreach(icon_size 16 24 32 48 64 128 256 512)
+    install(FILES branding/icons/inventatory-${icon_size}.png
+      DESTINATION share/icons/hicolor/${icon_size}x${icon_size}/apps
+      RENAME inventatory.png)
+  endforeach()
 endif()
