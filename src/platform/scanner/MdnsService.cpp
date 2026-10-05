@@ -14,17 +14,10 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
-#include <fcntl.h>
+#include <gio/gio.h>
+#include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#include <ifaddrs.h>
 #include <thread>
 #endif
 
@@ -61,23 +54,132 @@ string privateInterfaceName(const string& requestedAddress) {
   return selected;
 }
 
-bool publisherAvailable() {
-  const char* path = getenv("PATH");
-  if (path == nullptr) return false;
-  string search(path);
-  size_t begin = 0;
-  while (begin <= search.size()) {
-    const auto end = search.find(':', begin);
-    const auto directory = search.substr(begin, end == string::npos ? string::npos : end - begin);
-    const auto candidate = (directory.empty() ? string(".") : directory) + "/avahi-publish-service";
-    if (access(candidate.c_str(), X_OK) == 0) return true;
-    if (end == string::npos) break;
-    begin = end + 1U;
-  }
-  return false;
+// Avahi's D-Bus API (org.freedesktop.Avahi).  avahi-publish-service has no
+// option to select an interface, so the registration goes straight to the
+// daemon, which lets one entry group be published on a single interface index.
+constexpr const char* kAvahiBusName = "org.freedesktop.Avahi";
+constexpr const char* kAvahiServerInterface = "org.freedesktop.Avahi.Server";
+constexpr const char* kAvahiEntryGroupInterface = "org.freedesktop.Avahi.EntryGroup";
+constexpr gint32 kAvahiProtocolInet = 0;  // AVAHI_PROTO_INET: IPv4 only, like the listener
+constexpr gint32 kAvahiEntryGroupEstablished = 2;
+constexpr gint32 kAvahiEntryGroupCollision = 3;
+constexpr gint32 kAvahiEntryGroupFailure = 4;
+constexpr int kAvahiCallTimeoutMs = 1000;
+constexpr auto kAvahiEstablishTimeout = std::chrono::seconds(2);
+
+// Synchronous call that never auto-starts avahi-daemon.  Returns a full
+// reference (or nullptr on any error); `parameters` is consumed either way.
+GVariant* callAvahi(GDBusConnection* connection, const char* objectPath, const char* interfaceName,
+                    const char* methodName, GVariant* parameters, const char* replyType) {
+  GError* error = nullptr;
+  auto* reply = g_dbus_connection_call_sync(connection, kAvahiBusName, objectPath, interfaceName, methodName,
+                                            parameters, G_VARIANT_TYPE(replyType),
+                                            G_DBUS_CALL_FLAGS_NO_AUTO_START, kAvahiCallTimeoutMs, nullptr, &error);
+  if (error != nullptr) g_error_free(error);
+  return reply;
+}
+
+// TXT record exactly as before: a single "protocol=1" string and nothing else.
+GVariant* serviceTxtRecords() {
+  static const char kProtocolText[] = "protocol=1";
+  GVariantBuilder builder;
+  g_variant_builder_init(&builder, G_VARIANT_TYPE("aay"));
+  g_variant_builder_add_value(
+      &builder, g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, kProtocolText, sizeof(kProtocolText) - 1U, 1U));
+  return g_variant_builder_end(&builder);
 }
 
 }  // namespace
+
+// Owns a private system-bus connection and the entry group registered on it.
+// A private connection is deliberate: avahi-daemon drops every entry group of a
+// client that disconnects, so the advertisement disappears when the application
+// exits or is killed, and the process is never terminated by a shared
+// connection's exit-on-close behaviour if the system bus goes away.  All calls
+// are synchronous with short timeouts and run on the caller's (UI) thread.
+struct MdnsService::AvahiPublication {
+  AvahiPublication() = default;
+  AvahiPublication(const AvahiPublication&) = delete;
+  AvahiPublication& operator=(const AvahiPublication&) = delete;
+  ~AvahiPublication() { release(); }
+
+  bool connect() {
+    GError* error = nullptr;
+    gchar* address = g_dbus_address_get_for_bus_sync(G_BUS_TYPE_SYSTEM, nullptr, &error);
+    if (address != nullptr) {
+      connection = g_dbus_connection_new_for_address_sync(
+          address,
+          static_cast<GDBusConnectionFlags>(G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
+                                            G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION),
+          nullptr, nullptr, &error);
+      g_free(address);
+    }
+    if (error != nullptr) g_error_free(error);
+    return connection != nullptr;
+  }
+
+  gint32 groupState() const {
+    auto* reply = callAvahi(connection, groupPath.c_str(), kAvahiEntryGroupInterface, "GetState", nullptr, "(i)");
+    if (reply == nullptr) return kAvahiEntryGroupFailure;
+    gint32 state = kAvahiEntryGroupFailure;
+    g_variant_get(reply, "(i)", &state);
+    g_variant_unref(reply);
+    return state;
+  }
+
+  bool publish(unsigned interfaceIndex, std::uint16_t port) {
+    auto* created = callAvahi(connection, "/", kAvahiServerInterface, "EntryGroupNew", nullptr, "(o)");
+    if (created == nullptr) return false;
+    const gchar* path = nullptr;
+    g_variant_get(created, "(&o)", &path);
+    if (path != nullptr) groupPath = path;
+    g_variant_unref(created);
+    if (groupPath.empty()) return false;
+
+    // AddService(interface, protocol, flags, name, type, domain, host, port, txt):
+    // a concrete interface index plus AVAHI_PROTO_INET keeps the service off
+    // every other interface; the empty domain/host select the daemon defaults.
+    auto* added = callAvahi(
+        connection, groupPath.c_str(), kAvahiEntryGroupInterface, "AddService",
+        g_variant_new("(iiussssq@aay)", static_cast<gint32>(interfaceIndex), kAvahiProtocolInet, 0U, "Inventatory",
+                      "_inventatory._tcp", "", "", static_cast<guint16>(port), serviceTxtRecords()),
+        "()");
+    if (added == nullptr) return false;
+    g_variant_unref(added);
+
+    auto* committed = callAvahi(connection, groupPath.c_str(), kAvahiEntryGroupInterface, "Commit", nullptr, "()");
+    if (committed == nullptr) return false;
+    g_variant_unref(committed);
+
+    // Wait for probing to finish so a name collision or daemon failure is
+    // reported to the caller instead of leaving a silent non-advertisement.
+    const auto deadline = std::chrono::steady_clock::now() + kAvahiEstablishTimeout;
+    for (;;) {
+      const auto state = groupState();
+      if (state == kAvahiEntryGroupEstablished) return true;
+      if (state == kAvahiEntryGroupCollision || state == kAvahiEntryGroupFailure) return false;
+      if (std::chrono::steady_clock::now() >= deadline) return false;
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+  }
+
+  void release() {
+    if (connection == nullptr) return;
+    if (!groupPath.empty()) {
+      auto* freed = callAvahi(connection, groupPath.c_str(), kAvahiEntryGroupInterface, "Free", nullptr, "()");
+      if (freed != nullptr) g_variant_unref(freed);
+      groupPath.clear();
+    }
+    GError* error = nullptr;
+    g_dbus_connection_close_sync(connection, nullptr, &error);
+    if (error != nullptr) g_error_free(error);
+    g_object_unref(connection);
+    connection = nullptr;
+  }
+
+  GDBusConnection* connection = nullptr;
+  string groupPath;
+};
 #endif
 
 #ifdef _WIN32
@@ -249,30 +351,16 @@ bool MdnsService::start(std::uint16_t port, const string& boundAddress) {
   running_ = true;
   return true;
 #else
-  if (!publisherAvailable()) return false;
+  // Only the private-LAN interface that owns the bound address may advertise
+  // the service.  No such interface (loopback, public, unknown) means no
+  // advertisement at all, and this gate runs before any D-Bus traffic.
   const auto interfaceName = privateInterfaceName(boundAddress);
   if (interfaceName.empty() || interfaceName.size() >= IFNAMSIZ) return false;
-  const auto interfaceArgument = "--interface=" + interfaceName;
-  const auto portText = std::to_string(port);
-  const pid_t child = fork();
-  if (child < 0) return false;
-  if (child == 0) {
-    const int nullDevice = open("/dev/null", O_RDWR);
-    if (nullDevice >= 0) {
-      dup2(nullDevice, STDIN_FILENO);
-      dup2(nullDevice, STDOUT_FILENO);
-      dup2(nullDevice, STDERR_FILENO);
-      if (nullDevice > STDERR_FILENO) close(nullDevice);
-    }
-    execlp("avahi-publish-service", "avahi-publish-service", interfaceArgument.c_str(), "Inventatory",
-           "_inventatory._tcp", portText.c_str(), "protocol=1", static_cast<char*>(nullptr));
-    _exit(127);
-  }
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  int status = 0;
-  const auto completed = waitpid(child, &status, WNOHANG);
-  if (completed == child) return false;
-  publisherProcess_ = child;
+  const auto interfaceIndex = if_nametoindex(interfaceName.c_str());
+  if (interfaceIndex == 0) return false;
+  auto publication = std::make_shared<AvahiPublication>();
+  if (!publication->connect() || !publication->publish(interfaceIndex, port)) return false;
+  publication_ = std::move(publication);
   running_ = true;
   return true;
 #endif
@@ -309,22 +397,8 @@ void MdnsService::stop() {
   registrationState_.reset();
 #endif
 #ifndef _WIN32
-  if (publisherProcess_ > 0) {
-    kill(publisherProcess_, SIGTERM);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    for (;;) {
-      int status = 0;
-      const auto result = waitpid(publisherProcess_, &status, WNOHANG);
-      if (result == publisherProcess_ || (result < 0 && errno == ECHILD)) break;
-      if (std::chrono::steady_clock::now() >= deadline) {
-        kill(publisherProcess_, SIGKILL);
-        while (waitpid(publisherProcess_, &status, 0) < 0 && errno == EINTR) {}
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    publisherProcess_ = -1;
-  }
+  // Frees the entry group and closes the private connection (idempotent).
+  publication_.reset();
 #endif
   running_ = false;
 }

@@ -1,5 +1,5 @@
 // Inventatory - Hardware Inventory Management System
-// Windows DNS-SD registration for automatic Inventatory Scan discovery.
+// Platform DNS-SD registration for automatic Inventatory Scan discovery.
 
 #pragma once
 
@@ -16,8 +16,6 @@
 #endif
 #include <windows.h>
 #include <windns.h>
-#else
-#include <sys/types.h>
 #endif
 
 namespace inventatory {
@@ -42,7 +40,9 @@ class MdnsService {
 #endif
   bool running_ = false;
 #ifndef _WIN32
-  pid_t publisherProcess_ = -1;
+  // Avahi registration (private D-Bus connection plus entry group); defined in MdnsService.cpp.
+  struct AvahiPublication;
+  std::shared_ptr<AvahiPublication> publication_;
 #endif
 };
 
