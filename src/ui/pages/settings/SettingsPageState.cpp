@@ -235,6 +235,10 @@ void App::commitSettingsFieldEdit() {
     switch (settingsField_) {
       case 0: settingsDraft_.digiKeyClientId = trim(inputBuffer_); break;
       case 1:
+        if (trim(inputBuffer_).empty()) {
+          setMessage("Client secret cannot be empty; press Esc to keep the stored secret", 4);
+          return;
+        }
         stagedDigiKeySecret_ = inputBuffer_;
         stagedDigiKeySecretChanged_ = true;
         break;
