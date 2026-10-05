@@ -134,6 +134,16 @@ void App::processDeviceSyncEvents() {
   if (context == nullptr) return;
   const auto pending = loadPendingDeviceSyncEvents(context->paths.inventory, 1);
   if (pending.empty()) return;
+  // After a failed save the unsaved edit stays in store_ for retry. An event applied to that store
+  // would be committed together with the edit under a baseline that lacks it, and the pending
+  // commit draft would be lost. The events stay in the durable inbox (the device already has its
+  // acknowledgement, so nothing waits on this); they are processed when the save succeeds or the
+  // change is discarded, and the periodic poll picks them up otherwise.
+  if (!persistedStoreValid_ || inventoryHasChanges(persistedStore_, store_)) {
+    setMessage("Scanner events are waiting for unsaved inventory changes; press R to retry saving", 4,
+               UiMessageSeverity::Warning);
+    return;
+  }
   deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
 
   const auto& event = pending.front();
@@ -211,7 +221,7 @@ void App::processDeviceSyncEvents() {
   }
 
   if (!workspaceIsCurrent(context->generation)) return;
-  if (!completeDeviceSyncEvent(candidate, context->paths.inventory, result, &store_)) {
+  if (!completeDeviceSyncEvent(candidate, context->paths.inventory, result, &persistedStore_)) {
     setMessage("Inventatory Scan event could not be committed", 4);
     return;
   }
