@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Linux build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential cmake pkg-config \
+            libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev \
+            dbus-x11 gnome-keyring locales
+          sudo locale-gen pl_PL.UTF-8 de_DE.UTF-8
+      - name: Build Linux debug and release configurations
+        run: |
+          cmake -S . -B build-linux-debug -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-linux-debug --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+          cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+      - name: Test Linux debug and release configurations
+        env:
+          INVENTATORY_REQUIRE_LOCALE_TESTS: "1"
+        run: |
+          printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
+            eval "$(gnome-keyring-daemon --unlock --components=secrets)"
+            ctest --test-dir build-linux-debug --output-on-failure
+            ctest --test-dir build-linux-release --output-on-failure
+          '
+      - name: Test Linux release installer
+        run: bash installer/Test-InventatoryLinuxInstall.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and test x64 release
+        shell: pwsh
+        run: |
+          cmake -S . -B build
+          cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
+          ctest --test-dir build -C Release --output-on-failure
