@@ -6605,6 +6605,83 @@ int main() {
       assert(quit.load());
       controller.stop();
     }
+    {
+      // Turning "run in background" off in Settings only ends background mode: the running TUI keeps
+      // its single-instance lock and its graceful-shutdown signal handling until the process exits.
+      const auto handlerOf = [](int signalNumber) {
+        struct sigaction current{};
+        assert(sigaction(signalNumber, nullptr, &current) == 0);
+        return current.sa_handler;
+      };
+      // A second launch is another process: it must still find the interactive instance and be
+      // refused the workspace. (A forked child stands in for it and exits without running any
+      // controller teardown, which would reset this process's signal handlers.)
+      const auto secondLaunchBlocked = [] {
+        const pid_t child = fork();
+        assert(child >= 0);
+        if (child == 0) {
+          BackgroundController second;
+          if (!second.interactiveInstanceRunning()) _exit(2);
+          _exit(second.acquireSingleInstance(false) ? 1 : 0);
+        }
+        int status = 0;
+        assert(waitpid(child, &status, 0) == child);
+        return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+      };
+      const auto hangupBefore = handlerOf(SIGHUP);
+      const auto terminateBefore = handlerOf(SIGTERM);
+      const auto interruptBefore = handlerOf(SIGINT);
+
+      BackgroundController controller;
+      assert(controller.acquireSingleInstance(false));
+      atomic<int> quits{0};
+      atomic<int> opens{0};
+      assert(controller.start(true, false, [&quits] { ++quits; }, [&opens] { ++opens; }));
+      assert(controller.enabled());
+
+      controller.disableBackgroundMode();
+      assert(!controller.enabled());
+      controller.disableBackgroundMode();  // idempotent
+      assert(secondLaunchBlocked());
+      assert(handlerOf(SIGHUP) != hangupBefore);
+      assert(handlerOf(SIGTERM) != terminateBefore);
+      assert(handlerOf(SIGINT) != interruptBefore);
+      // The bring-forward signal and terminal-close/kill still reach the original callbacks.
+      assert(controller.signalExistingInstance());
+      for (int tick = 0; tick < 100 && opens.load() == 0; ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+      assert(opens.load() == 1);
+      assert(raise(SIGHUP) == 0);
+      for (int tick = 0; tick < 100 && quits.load() == 0; ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+      assert(quits.load() == 1);
+      assert(raise(SIGTERM) == 0);
+      for (int tick = 0; tick < 100 && quits.load() == 1; ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+      assert(quits.load() == 2);
+
+      // Re-enabling in the same session (as Settings does, without an open callback) keeps the open
+      // callback and the instance lock, and does not start a second signal thread.
+      atomic<int> laterQuits{0};
+      assert(controller.start(true, false, [&laterQuits] { ++laterQuits; }));
+      assert(controller.enabled());
+      assert(controller.signalExistingInstance());
+      for (int tick = 0; tick < 100 && opens.load() == 1; ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+      assert(opens.load() == 2);
+      assert(raise(SIGHUP) == 0);
+      for (int tick = 0; tick < 100 && laterQuits.load() == 0; ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+      assert(laterQuits.load() == 1);
+      assert(secondLaunchBlocked());
+
+      // Process shutdown still releases everything exactly once.
+      controller.stop();
+      controller.stop();
+      assert(!controller.enabled());
+      assert(handlerOf(SIGHUP) == hangupBefore);
+      assert(handlerOf(SIGTERM) == terminateBefore);
+      assert(handlerOf(SIGINT) == interruptBefore);
+      BackgroundController next;
+      assert(!next.interactiveInstanceRunning());
+      assert(next.acquireSingleInstance(false));
+      next.stop();
+    }
 
     if (previousRuntime != nullptr) setenv("XDG_RUNTIME_DIR", previousRuntimeCopy.c_str(), 1);
     else unsetenv("XDG_RUNTIME_DIR");
