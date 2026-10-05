@@ -10,6 +10,7 @@
 #include "platform/system/Environment.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "core/inventory/InventoryInternals.h"
+#include "core/inventory/InventoryMerge.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/InventoryTransfer.h"
 #include "core/transfer/CsvExport.h"
@@ -61,6 +62,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <cstring>
 
 #ifndef _WIN32
@@ -1744,6 +1746,487 @@ void testScannerCredentialResolution() {
   assert(!cleanupError);
 }
 
+// Scanner events are committed against the database while the UI may hold unsaved edits, an open
+// edit form or a staged import. These tests cover the core units those App paths rely on.
+namespace {
+
+InventoryItem mergeTestItem(const string& id, const string& name, int quantity) {
+  InventoryItem item;
+  item.id = id;
+  item.partName = name;
+  item.manufacturer = "Acme";
+  item.category = "Resistors";
+  item.quantity = quantity;
+  item.lastUpdated = 1710000000;
+  item.createdAt = 1700000000;
+  return item;
+}
+
+// Gives every field of an item a value derived from `tag` so two fills never agree on any field.
+// A field that mergeEditedItem forgets to carry over shows up as a serialized difference.
+void fillMergeTestItem(InventoryItem& item, const string& tag, int number) {
+  item.partName = tag + " name";
+  item.manufacturer = tag + " maker";
+  item.category = tag + " category";
+  item.quantity = 100 + number;
+  item.reorderThreshold = 200 + number;
+  item.location = tag + " location";
+  item.tags = {tag + "-tag-a", tag + "-tag-b"};
+  item.parameters = {{tag + "-param", tag + "-value"}};
+  item.notes = tag + " notes";
+  item.digikeyPartNumber = tag + "-dk";
+  item.datasheetUrl = "https://example.test/" + tag + "/datasheet";
+  item.productUrl = "https://example.test/" + tag + "/product";
+  item.syncStatus = tag + "-sync";
+  item.sku = tag + "-sku";
+  item.lastUpdated = 1710000000 + number;
+  item.inventatoryId = "Inventatory:RES-0" + to_string(1000 + number);
+  item.createdAt = 1700000000 + number;
+  item.machineCode = to_string(7000 + number);
+  item.rackId = tag + "-rack";
+  item.rackSlot = number % 2 == 0 ? "A1" : "B2";
+  item.rackAssignment = number % 2 == 0 ? RackAssignmentMode::Manual : RackAssignmentMode::Unassigned;
+  item.labelOverride = tag + " label";
+  item.vendorMetadata.provider = tag + "-provider";
+  item.vendorMetadata.providerProductNumber = tag + "-product-number";
+  item.vendorMetadata.manufacturerPartNumber = tag + "-mpn";
+  item.vendorMetadata.categoryId = tag + "-category-id";
+  item.vendorMetadata.categoryPath = {tag + "-path-a", tag + "-path-b"};
+  item.vendorMetadata.title = tag + " title";
+  item.vendorMetadata.detailedDescription = tag + " description";
+  item.vendorMetadata.parameters = {{tag + "-vparam", tag + "-vvalue"}};
+  item.vendorMetadata.productUrl = "https://example.test/" + tag + "/vendor";
+  item.vendorMetadata.locale = tag + "-locale";
+}
+
+bool anyNoticeContains(const vector<string>& notices, const string& needle) {
+  return any_of(notices.begin(), notices.end(),
+                [&needle](const string& notice) { return notice.find(needle) != string::npos; });
+}
+
+}  // namespace
+
+void testScannerCommitIgnoresUnsavedMemoryEdits() {
+#ifdef INVENTATORY_SQLITE_STORAGE
+  // A failed save keeps the edited store in memory for retry. A scanner event processed in that
+  // window must not use the unsaved store as its diff baseline: the commit would count only the
+  // scanner change while its snapshot also carried the edit, which fails history validation on
+  // every later save and refuses to load on the next launch.
+  const auto path = filesystem::temp_directory_path() / "inventatory-scanner-unsaved-edit-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  InventoryStore persisted;
+  persisted.items().push_back(mergeTestItem("unsaved-a", "Edited part", 5));
+  persisted.items().push_back(mergeTestItem("unsaved-b", "Scanned part", 5));
+  ensureInventoryIdentifiers(persisted.items());
+  assert(persisted.save(path));
+  assert(ensureInventoryCommitHistory(path, persisted));
+
+  InventoryStore live = persisted;
+  assert(!inventoryHasChanges(persisted, live));
+  live.items()[0].partName = "Edited but not saved";
+  live.items()[0].quantity = 9;
+  assert(inventoryHasChanges(persisted, live));
+
+  DeviceSyncRequest request;
+  request.protocolVersion = 1;
+  request.requestId = "unsaved-sync";
+  request.deviceId = "device-a";
+  request.events = {{"unsaved-event", "inventory.adjust", persisted.items()[1].machineCode, 1}};
+  DeviceSyncResponse response;
+  string error;
+  assert(acceptDeviceSyncEvents(path, request, response, error));
+
+  auto candidate = live;
+  DeviceQuantityRequest quantityRequest{"device-a", "unsaved-event", persisted.items()[1].machineCode, 1};
+  const auto applied = applyDeviceQuantity(candidate, quantityRequest);
+  assert(applied.ok);
+  DeviceSyncResult result;
+  result.resultId = "unsaved-event-result";
+  result.eventId = "unsaved-event";
+  result.deviceId = "device-a";
+  result.status = "completed";
+  result.existing = true;
+  result.itemName = applied.item;
+  result.requestedDelta = 1;
+  result.appliedDelta = applied.appliedDelta;
+  result.quantity = applied.quantity;
+  result.message = "Quantity updated";
+  assert(completeDeviceSyncEvent(candidate, path, result, &live));
+
+  vector<InventoryCommit> commits;
+  assert(loadInventoryCommits(path, commits));  // validates every commit's counts against its snapshots
+  assert(commits.size() == 2);
+  InventoryCommitDetail detail;
+  assert(loadInventoryCommit(path, commits.front().id, detail));
+  assert(detail.hasParent);
+  assert(inventoryCommitDiff(detail.snapshot, candidate).empty());
+  // The stored count is the number of items that differ from the parent snapshot, here both the
+  // scanned part and the part carrying the unsaved edit, whatever baseline the caller passed.
+  unordered_set<string> changedItems;
+  for (const auto& change : detail.changes) {
+    if (change.entityType == "item") changedItems.insert(change.entityId);
+  }
+  assert(changedItems.size() == 2);
+  assert(detail.commit.changedItemCount == changedItems.size());
+  {
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(path, connection));
+    string validationError;
+    assert(validateInventoryDatabase(connection, &validationError));
+  }
+
+  // The inventory remains saveable afterwards and keeps validating.
+  auto next = candidate;
+  next.items()[1].quantity += 2;
+  InventoryCommitDraft draft;
+  draft.source = "manual";
+  assert(next.saveWithCommit(path, candidate, draft));
+  assert(loadInventoryCommits(path, commits));
+  assert(commits.size() == 3);
+
+  // A caller that believes something changed while the store already equals its parent snapshot
+  // must not leave a change-less, non-checkpoint commit behind (history validation rejects it).
+  InventoryCommit noOp;
+  assert(next.saveWithCommit(path, persisted, draft, {}, nullptr, &noOp));
+  assert(noOp.id.empty());
+  assert(loadInventoryCommits(path, commits));
+  assert(commits.size() == 3);
+
+  filesystem::remove(path, cleanupError);
+#endif
+}
+
+void testInventoryMerge() {
+  // Edit form: the scanner changed quantity while the form was open.
+  {
+    const auto base = mergeTestItem("merge-a", "Resistor", 10);
+    auto edited = base;
+    edited.partName = "Resistor 10k";
+    edited.notes = "checked";
+    edited.lastUpdated = base.lastUpdated + 50;
+    auto current = base;
+    current.quantity = 14;
+    current.lastUpdated = base.lastUpdated + 100;
+    vector<string> notices;
+    const auto merged = mergeEditedItem(base, edited, current, QuantityMerge::PreferEdited, &notices);
+    assert(merged.id == "merge-a");
+    assert(merged.partName == "Resistor 10k");
+    assert(merged.notes == "checked");
+    assert(merged.quantity == 14);  // the scanner's change survives a stale copy
+    assert(merged.lastUpdated == base.lastUpdated + 100);
+    assert(notices.empty());
+  }
+  // The user typed a quantity as well: the typed value wins and the replaced scanner value is reported.
+  {
+    const auto base = mergeTestItem("merge-b", "Capacitor", 10);
+    auto edited = base;
+    edited.quantity = 3;
+    auto current = base;
+    current.quantity = 14;
+    vector<string> notices;
+    const auto merged = mergeEditedItem(base, edited, current, QuantityMerge::PreferEdited, &notices);
+    assert(merged.quantity == 3);
+    assert(notices.size() == 1);
+    assert(anyNoticeContains(notices, "Capacitor"));
+    assert(anyNoticeContains(notices, "quantity"));
+    assert(anyNoticeContains(notices, "14"));
+  }
+  // Both sides reached the same value: nothing to report.
+  {
+    const auto base = mergeTestItem("merge-c", "Inductor", 10);
+    auto edited = base;
+    edited.quantity = 12;
+    auto current = base;
+    current.quantity = 12;
+    vector<string> notices;
+    assert(mergeEditedItem(base, edited, current, QuantityMerge::PreferEdited, &notices).quantity == 12);
+    assert(notices.empty());
+  }
+  // Every field is carried: an edit of all fields onto an untouched live item reproduces the edit,
+  // and an untouched edit over a live item that changed every field reproduces the live item.
+  {
+    auto base = mergeTestItem("merge-d", "unused", 0);
+    fillMergeTestItem(base, "base", 1);
+    auto edited = base;
+    fillMergeTestItem(edited, "user", 2);
+    auto current = base;
+    fillMergeTestItem(current, "scan", 3);
+
+    vector<string> notices;
+    auto onUntouched = mergeEditedItem(base, edited, base, QuantityMerge::PreferEdited, &notices);
+    assert(notices.empty());
+    assert(serializeItem(onUntouched) == serializeItem(edited));
+
+    auto untouchedEdit = mergeEditedItem(base, base, current, QuantityMerge::PreferEdited, &notices);
+    assert(notices.empty());
+    assert(serializeItem(untouchedEdit) == serializeItem(current));
+
+    auto conflicting = mergeEditedItem(base, edited, current, QuantityMerge::PreferEdited, &notices);
+    assert(!notices.empty());
+    // lastUpdated is the newer of the two and never a conflict.
+    auto expected = edited;
+    expected.lastUpdated = max(edited.lastUpdated, current.lastUpdated);
+    assert(serializeItem(conflicting) == serializeItem(expected));
+  }
+  // Import: the quantity is stock added on top of the snapshot and composes with the scanner's.
+  {
+    const auto base = mergeTestItem("merge-e", "Diode", 5);
+    auto staged = base;
+    staged.quantity = 5 + 3;
+    auto current = base;
+    current.quantity = 5 + 4;
+    vector<string> notices;
+    assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity == 12);
+    assert(notices.empty());
+    staged.quantity = numeric_limits<int>::max();
+    current.quantity = numeric_limits<int>::max() - 1;
+    assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity ==
+           numeric_limits<int>::max());
+    staged.quantity = 0;
+    current.quantity = 2;
+    assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity == 0);
+  }
+
+  // Import review: scanner quantity change and scanner-created item survive the staged commit.
+  {
+    InventoryStore base;
+    base.items().push_back(mergeTestItem("store-x", "Stocked X", 5));
+    base.items().push_back(mergeTestItem("store-z", "Stocked Z", 8));
+    InventatoryRack rack;
+    rack.id = "store-rack";
+    rack.code = "R1";
+    rack.componentType = "Resistors";
+    base.racks().push_back(rack);
+
+    auto staged = base;
+    staged.items()[0].quantity += 3;  // import merged 3 into X
+    staged.items()[1].notes = "enriched by import";
+    staged.items().push_back(mergeTestItem("store-y", "Imported Y", 20));
+
+    auto current = base;
+    current.items()[0].quantity += 4;  // scanner received 4 of X
+    current.items().push_back(mergeTestItem("store-s", "Scanner created S", 1));
+
+    vector<string> notices;
+    const auto merged = mergeInventoryChanges(base, staged, current, QuantityMerge::ApplyDelta, &notices);
+    assert(notices.empty());
+    assert(merged.items().size() == 4);
+    assert(merged.findById("store-x") != nullptr && merged.findById("store-x")->quantity == 12);
+    assert(merged.findById("store-z")->notes == "enriched by import");
+    assert(merged.findById("store-y") != nullptr && merged.findById("store-y")->quantity == 20);
+    assert(merged.findById("store-s") != nullptr && merged.findById("store-s")->quantity == 1);
+    // Live items keep their order; staged additions are appended.
+    assert(merged.items()[0].id == "store-x" && merged.items()[1].id == "store-z" &&
+           merged.items()[2].id == "store-s" && merged.items()[3].id == "store-y");
+    assert(merged.racks().size() == 1);
+
+    // Nothing staged: the live store is returned untouched.
+    vector<string> none;
+    const auto unchanged = mergeInventoryChanges(base, base, current, QuantityMerge::ApplyDelta, &none);
+    assert(none.empty());
+    assert(inventoryCommitDiff(current, unchanged).empty());
+    assert(unchanged.items().size() == current.items().size());
+  }
+
+  // Items that disappeared or collide are reported instead of being resurrected or duplicated.
+  {
+    InventoryStore base;
+    base.items().push_back(mergeTestItem("gone", "Removed meanwhile", 5));
+    base.items().push_back(mergeTestItem("kept", "Kept part", 5));
+    base.items().push_back(mergeTestItem("drop", "Dropped by import", 5));
+    auto staged = base;
+    staged.items()[0].notes = "edited while it was removed";
+    staged.items()[2].quantity = 99;
+    staged.items().erase(staged.items().begin() + 2);  // staged removal of a part the scanner changed
+    staged.items().push_back(mergeTestItem("twin", "Same id staged", 1));
+    auto current = base;
+    current.items().erase(current.items().begin());
+    current.items()[1].quantity = 6;  // "drop" changed after the snapshot
+    current.items().push_back(mergeTestItem("twin", "Same id live", 7));
+    vector<string> notices;
+    const auto merged = mergeInventoryChanges(base, staged, current, QuantityMerge::ApplyDelta, &notices);
+    assert(merged.findById("gone") == nullptr);
+    assert(anyNoticeContains(notices, "Removed meanwhile"));
+    assert(merged.findById("drop") != nullptr && merged.findById("drop")->quantity == 6);
+    assert(anyNoticeContains(notices, "Dropped by import"));
+    size_t twins = 0;
+    for (const auto& item : merged.items()) twins += item.id == "twin" ? 1 : 0;
+    assert(twins == 1 && merged.findById("twin")->quantity == 7);
+    assert(anyNoticeContains(notices, "twin") || anyNoticeContains(notices, "Same id"));
+    // A staged removal of an unchanged live part applies.
+    InventoryStore plainBase;
+    plainBase.items().push_back(mergeTestItem("rm", "Plain removal", 5));
+    InventoryStore plainStaged;
+    vector<string> plainNotices;
+    assert(mergeInventoryChanges(plainBase, plainStaged, plainBase, QuantityMerge::ApplyDelta, &plainNotices)
+               .items()
+               .empty());
+    assert(plainNotices.empty());
+  }
+
+  // Racks created on both sides: a code collision keeps the live rack and re-places staged parts.
+  {
+    InventoryStore base;
+    base.items().push_back(mergeTestItem("rack-item", "Placed by import", 1));
+    InventatoryRack existing;
+    existing.id = "rack-1";
+    existing.code = "R1";
+    existing.componentType = "Resistors";
+    base.racks().push_back(existing);
+
+    auto staged = base;
+    InventatoryRack stagedRack;
+    stagedRack.id = "rack-staged";
+    stagedRack.code = "R2";
+    stagedRack.componentType = "Resistors";
+    staged.racks().push_back(stagedRack);
+    InventatoryRack stagedOther;
+    stagedOther.id = "rack-staged-other";
+    stagedOther.code = "R3";
+    stagedOther.componentType = "Capacitors";
+    staged.racks().push_back(stagedOther);
+    InventoryItem placed = mergeTestItem("import-new", "Imported on R2", 4);
+    placed.rackId = "rack-staged";
+    placed.rackSlot = "A1";
+    placed.rackAssignment = RackAssignmentMode::Manual;
+    staged.items().push_back(placed);
+    InventoryItem placedOther = mergeTestItem("import-other", "Imported on R3", 4);
+    placedOther.rackId = "rack-staged-other";
+    placedOther.rackSlot = "A1";
+    placedOther.rackAssignment = RackAssignmentMode::Manual;
+    staged.items().push_back(placedOther);
+
+    auto current = base;
+    InventatoryRack scannerRack;
+    scannerRack.id = "rack-scanner";
+    scannerRack.code = "r2";  // same code as the staged rack, different id
+    scannerRack.componentType = "Resistors";
+    current.racks().push_back(scannerRack);
+
+    vector<string> notices;
+    const auto merged = mergeInventoryChanges(base, staged, current, QuantityMerge::ApplyDelta, &notices);
+    size_t rackCount = 0;
+    for (const auto& rack : merged.racks()) rackCount += toLower(rack.code) == "r2" ? 1 : 0;
+    assert(rackCount == 1);
+    assert(merged.racks().size() == 3);  // R1, scanner R2, staged R3
+    assert(anyNoticeContains(notices, "R2"));
+    assert(merged.findById("import-new")->rackId.empty());
+    assert(merged.findById("import-new")->rackAssignment == RackAssignmentMode::Automatic);
+    assert(merged.findById("import-other")->rackId == "rack-staged-other");
+    assert(merged.findById("import-other")->rackSlot == "A1");
+  }
+
+  // A staged part placed in a slot the scanner filled meanwhile is placed again, not stacked on it.
+  {
+    InventoryStore base;
+    InventatoryRack rack;
+    rack.id = "slot-rack";
+    rack.code = "R1";
+    rack.componentType = "Resistors";
+    base.racks().push_back(rack);
+    auto staged = base;
+    InventoryItem imported = mergeTestItem("slot-import", "Imported in A1", 2);
+    imported.rackId = "slot-rack";
+    imported.rackSlot = "A1";
+    imported.rackAssignment = RackAssignmentMode::Manual;
+    staged.items().push_back(imported);
+    auto current = base;
+    InventoryItem scanned = mergeTestItem("slot-scanned", "Scanned into A1", 1);
+    scanned.rackId = "slot-rack";
+    scanned.rackSlot = "a1";
+    scanned.rackAssignment = RackAssignmentMode::Manual;
+    current.items().push_back(scanned);
+    const auto merged = mergeInventoryChanges(base, staged, current, QuantityMerge::ApplyDelta);
+    assert(merged.findById("slot-scanned")->rackSlot == "a1");
+    assert(merged.findById("slot-import")->rackId.empty());
+    assert(merged.findById("slot-import")->rackAssignment == RackAssignmentMode::Automatic);
+    // Without a collision the staged placement is kept.
+    const auto uncontested = mergeInventoryChanges(base, staged, base, QuantityMerge::ApplyDelta);
+    assert(uncontested.findById("slot-import")->rackId == "slot-rack" &&
+           uncontested.findById("slot-import")->rackSlot == "A1");
+  }
+
+  // End to end: the scanner commits during the staged work, then the merged store is saved the
+  // way the import commit does it. History stays valid and keeps both changes.
+  {
+#ifdef INVENTATORY_SQLITE_STORAGE
+    const auto path = filesystem::temp_directory_path() / "inventatory-merge-scanner-import-test.db";
+    error_code cleanupError;
+    filesystem::remove(path, cleanupError);
+
+    InventoryStore persisted;
+    persisted.items().push_back(mergeTestItem("e2e-x", "Scanned X", 5));
+    persisted.items().push_back(mergeTestItem("e2e-z", "Plain Z", 8));
+    ensureInventoryIdentifiers(persisted.items());
+    assert(persisted.save(path));
+    assert(ensureInventoryCommitHistory(path, persisted));
+
+    const auto base = persisted;  // snapshot taken when the import review starts
+    auto staged = base;
+    staged.items()[0].quantity += 3;
+    staged.items().push_back(mergeTestItem("e2e-y", "Imported Y", 20));
+
+    // The scanner receives 4 of X and creates a new part while the review is open.
+    DeviceSyncRequest request;
+    request.protocolVersion = 1;
+    request.requestId = "e2e-sync";
+    request.deviceId = "device-a";
+    request.events = {{"e2e-event-1", "inventory.receive", persisted.items()[0].machineCode, 4},
+                      {"e2e-event-2", "inventory.receive", "NEW-SCANNED-CODE", 2}};
+    DeviceSyncResponse response;
+    string error;
+    assert(acceptDeviceSyncEvents(path, request, response, error));
+    auto live = persisted;
+    for (const auto& event : loadPendingDeviceSyncEvents(path, 8)) {
+      auto candidate = live;
+      const auto resolution = resolveScanCode(candidate, event.code);
+      assert(resolution.matched);
+      auto* item = candidate.findById(resolution.itemId);
+      assert(item != nullptr);
+      item->quantity += event.value;
+      DeviceSyncResult result;
+      result.resultId = event.eventId + "-result";
+      result.eventId = event.eventId;
+      result.deviceId = event.deviceId;
+      result.status = "completed";
+      result.itemName = item->partName;
+      result.requestedDelta = event.value;
+      result.appliedDelta = event.value;
+      result.quantity = item->quantity;
+      assert(completeDeviceSyncEvent(candidate, path, result, &live));
+      live = move(candidate);
+    }
+    assert(live.items().size() == 3);
+
+    // Import commit: replay the staged delta over the live store and save against the persisted store.
+    vector<string> notices;
+    auto merged = mergeInventoryChanges(base, staged, live, QuantityMerge::ApplyDelta, &notices);
+    assert(notices.empty());
+    assert(merged.findById("e2e-x")->quantity == 5 + 4 + 3);
+    assert(merged.findById("e2e-y") != nullptr);
+    assert(merged.items().size() == 4);
+    ensureInventoryIdentifiers(merged.items());
+    InventoryCommitDraft draft;
+    draft.source = "import";
+    draft.reference = "e2e.csv";
+    assert(merged.saveWithCommit(path, live, draft));
+
+    vector<InventoryCommit> commits;
+    assert(loadInventoryCommits(path, commits));  // validates the whole history
+    assert(commits.size() == 4);                  // initial, two scanner events, import
+    assert(commits.front().source == "import" && commits.front().changedItemCount == 2);
+    InventoryStore reloaded;
+    assert(reloaded.load(path));
+    assert(reloaded.findById("e2e-x")->quantity == 12);
+    assert(reloaded.findById("e2e-y") != nullptr);
+    assert(reloaded.items().size() == 4);
+    filesystem::remove(path, cleanupError);
+#endif
+  }
+}
+
 int main() {
   testHistoryPagePresentationData();
   testHistoryPageLayoutData();
@@ -1951,6 +2434,8 @@ int main() {
   testInventoryCommitHistory();
   testSqliteSchemaValidation();
   testPackageGHardening();
+  testScannerCommitIgnoresUnsavedMemoryEdits();
+  testInventoryMerge();
 
   {
 #ifdef _WIN32

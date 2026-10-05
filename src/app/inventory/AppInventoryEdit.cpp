@@ -3,6 +3,7 @@
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 
+#include "core/inventory/InventoryMerge.h"
 #include "import/csv/CsvFormat.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
@@ -87,6 +88,7 @@ void App::beginEditCurrentItem(bool createNew) {
     }
     workingCopy_.isNew = false;
     workingCopy_.item = *current;
+    workingCopy_.original = *current;
     workingCopy_.originalIndex = selectedIndex();
   }
 
@@ -209,22 +211,42 @@ void App::saveWorkingCopy() {
     return;
   }
 
-  captureUndoSnapshot();
+  // The scanner keeps committing stock changes while the form is open, and the item may have moved
+  // within store_, so the stored item is found by id and only the fields the user changed are
+  // replayed onto it instead of overwriting the whole record with the stale copy.
+  vector<string> mergeNotices;
   if (workingCopy_.isNew) {
+    captureUndoSnapshot();
     store_.items().push_back(workingCopy_.item);
     reconcileRackAssignment(store_, store_.items().back());
     selectedPosition_ = store_.items().empty() ? 0 : store_.items().size() - 1;
-  } else if (workingCopy_.originalIndex < store_.items().size()) {
-    store_.items()[workingCopy_.originalIndex] = workingCopy_.item;
-    reconcileRackAssignment(store_, store_.items()[workingCopy_.originalIndex]);
+  } else if (auto* live = store_.findById(workingCopy_.item.id)) {
+    captureUndoSnapshot();
+    *live = mergeEditedItem(workingCopy_.original, workingCopy_.item, *live, QuantityMerge::PreferEdited,
+                            &mergeNotices);
+    reconcileRackAssignment(store_, *live);
+  } else {
+    inputMode_ = InputMode::None;
+    page_ = Page::Stock;
+    syncSelectionToFilter();
+    setMessage(workingCopy_.item.partName + " no longer exists; the edit was not saved", 5,
+               UiMessageSeverity::Warning);
+    return;
   }
 
   logActivity("edit", workingCopy_.item.partName + " updated");
+  for (const auto& notice : mergeNotices) logActivity("edit conflict", notice);
   saveState();
   inputMode_ = InputMode::None;
   page_ = Page::Stock;
   syncSelectionToFilter();
-  setMessage("Changes saved", 2, UiMessageSeverity::Success);
+  if (mergeNotices.empty()) {
+    setMessage("Changes saved", 2, UiMessageSeverity::Success);
+  } else {
+    setMessage("Changes saved. " + mergeNotices.front() +
+                   (mergeNotices.size() > 1 ? " (+" + to_string(mergeNotices.size() - 1) + " more in Activity)" : string()),
+               6, UiMessageSeverity::Warning);
+  }
 }
 
 void App::adjustQuantity(int delta) {
