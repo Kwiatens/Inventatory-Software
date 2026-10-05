@@ -11,7 +11,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fcntl.h>
@@ -50,6 +52,28 @@ filesystem::path currentExecutablePath() {
     if (buffer.size() >= 1024U * 1024U) return {};
     buffer.resize(buffer.size() * 2U);
   }
+}
+
+// Replacing a launcher or icon that already holds the same bytes still gives it a new inode and
+// mtime. Plasma then drops its link between the running window and the launcher it was started
+// from, and the taskbar falls back to the terminal emulator's own icon. Only touch the file when
+// its contents actually differ.
+bool fileHoldsContents(const filesystem::path& path, std::string_view contents) {
+  std::error_code ec;
+  if (!filesystem::is_regular_file(path, ec) || filesystem::file_size(path, ec) != contents.size() || ec) return false;
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream.is_open()) return false;
+  const std::string existing((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+  return existing == contents;
+}
+
+bool writeFileIfChanged(const filesystem::path& path, std::string_view contents, std::string* error,
+                        bool* written = nullptr) {
+  if (written != nullptr) *written = false;
+  if (fileHoldsContents(path, contents)) return true;
+  if (!writeFileAtomically(path, contents, error)) return false;
+  if (written != nullptr) *written = true;
+  return true;
 }
 
 std::string desktopQuoted(const std::string& value) {
@@ -173,7 +197,7 @@ bool installDesktopIcons(std::string& error) {
     }
     const auto iconFile = dir / "inventatory.png";
     const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
-    if (!writeFileAtomically(iconFile, iconBytes, &error)) return false;
+    if (!writeFileIfChanged(iconFile, iconBytes, &error)) return false;
   }
   const auto pixmapsDir = dataHome() / "pixmaps";
   filesystem::create_directories(pixmapsDir, ec);
@@ -181,7 +205,7 @@ bool installDesktopIcons(std::string& error) {
     for (const auto& asset : kEmbeddedIconAssets) {
       if (asset.size == 256) {
         const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
-        writeFileAtomically(pixmapsDir / "inventatory.png", iconBytes, nullptr);
+        writeFileIfChanged(pixmapsDir / "inventatory.png", iconBytes, nullptr);
         break;
       }
     }
@@ -245,22 +269,26 @@ bool createDesktopShortcut(std::string& error) {
   const std::string contents = "[Desktop Entry]\nType=Application\nName=Inventatory\nComment=Terminal inventory manager\n" +
                                std::string("Exec=") + quotedExecutable +
                                "\nIcon=inventatory\nTerminal=false\nCategories=Utility;\nStartupWMClass=inventatory\n";
-  if (!writeFileAtomically(launcher, contents, &error)) return false;
-  filesystem::permissions(launcher, filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                        filesystem::perms::owner_exec | filesystem::perms::group_read |
-                                        filesystem::perms::group_exec | filesystem::perms::others_read |
-                                        filesystem::perms::others_exec,
-                          filesystem::perm_options::replace, filesystemError);
-  if (filesystemError) {
-    error = "Unable to make the Inventatory application launcher executable: " + filesystemError.message();
-    return false;
+  bool launcherWritten = false;
+  if (!writeFileIfChanged(launcher, contents, &error, &launcherWritten)) return false;
+  if (launcherWritten) {
+    filesystem::permissions(launcher, filesystem::perms::owner_read | filesystem::perms::owner_write |
+                                          filesystem::perms::owner_exec | filesystem::perms::group_read |
+                                          filesystem::perms::group_exec | filesystem::perms::others_read |
+                                          filesystem::perms::others_exec,
+                            filesystem::perm_options::replace, filesystemError);
+    if (filesystemError) {
+      error = "Unable to make the Inventatory application launcher executable: " + filesystemError.message();
+      return false;
+    }
   }
 
   const auto desktop = userDesktopDirectory();
   if (!desktop.empty()) {
     const auto desktopLauncher = desktop / "inventatory.desktop";
     std::string desktopError;
-    if (writeFileAtomically(desktopLauncher, contents, &desktopError)) {
+    bool desktopWritten = false;
+    if (writeFileIfChanged(desktopLauncher, contents, &desktopError, &desktopWritten) && desktopWritten) {
       filesystem::permissions(desktopLauncher, filesystem::perms::owner_read | filesystem::perms::owner_write |
                                                     filesystem::perms::owner_exec | filesystem::perms::group_read |
                                                     filesystem::perms::group_exec | filesystem::perms::others_read |
