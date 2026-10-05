@@ -2,6 +2,7 @@
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <iostream>
@@ -12,26 +13,78 @@
 
 namespace {
 
+// A launch that cannot continue usually runs in a terminal window that closes the moment the
+// process exits, so the reason is shown and held on screen briefly instead of vanishing.
+void reportLaunchProblem(const std::string& message, int holdMs) {
+  std::cerr << message << '\n';
+  if (holdMs <= 0) return;
+  std::cerr << "Press Enter to close this window.\n";
+  inventatory::waitForAcknowledgement(holdMs);
+}
+
+// Hands the workspace over from a running background service. Returns false when the service is
+// still running afterwards, in which case the workspace must not be opened.
+bool takeOverFromBackgroundService(inventatory::BackgroundController& controller) {
+  // The service saves and releases its lock within a few seconds; the long grace period only
+  // matters when it is busy. A service that never answers is terminated rather than left to block
+  // every later launch (a killed process leaves SQLite and the atomic state files consistent).
+  constexpr int kGracefulMs = 12000;
+  constexpr int kForcedMs = 3000;
+  bool announced = false;
+  const auto result = controller.stopBackgroundService(kGracefulMs, kForcedMs, [&announced](int seconds) {
+    if (!announced) {
+      std::cout << "Stopping the Inventatory background service" << std::flush;
+      announced = true;
+    }
+    std::cout << '.' << std::flush;
+    (void)seconds;
+  });
+  if (announced) std::cout << '\n';
+  switch (result) {
+    case inventatory::BackgroundStopResult::NotRunning:
+    case inventatory::BackgroundStopResult::Stopped:
+      return true;
+    case inventatory::BackgroundStopResult::Forced:
+      std::cerr << "The Inventatory background service did not respond and was terminated.\n";
+      return true;
+    case inventatory::BackgroundStopResult::Failed:
+      break;
+  }
+  reportLaunchProblem(
+      "Inventatory could not stop its background service, so the workspace was not opened to avoid two "
+      "processes using it.\nEnd the 'inventatory' background process (for example with the system monitor "
+      "or `pkill -x inventatory`) and start Inventatory again.",
+      60000);
+  return false;
+}
+
 int runInventatory(bool startInBackground, std::filesystem::path& updateMarkerPath) {
   inventatory::BackgroundController backgroundController;
   if (startInBackground && backgroundController.interactiveInstanceRunning()) return 0;
   if (!backgroundController.acquireSingleInstance(startInBackground)) {
-    if (!startInBackground) backgroundController.signalExistingInstance();
+    if (startInBackground) return 0;
+    const bool existingWindowNotified = backgroundController.signalExistingInstance();
+#ifdef _WIN32
+    // Windows restores the existing console window, so this one has nothing left to say.
+    if (existingWindowNotified) return 0;
+#endif
+    reportLaunchProblem(existingWindowNotified
+                            ? "Inventatory is already open in another window; it was asked to come forward."
+                            : "Inventatory is already running but could not be reached.",
+                        existingWindowNotified ? 4000 : 15000);
     return 0;
   }
-  if (!startInBackground && backgroundController.backgroundServiceRunning()) {
-    backgroundController.requestBackgroundServiceQuit();
-    if (!backgroundController.waitForBackgroundServiceToStop(5000)) {
-      // Never open the shared workspace while the background bridge may still
-      // be using it. Releasing the interactive mutex on return lets the
-      // background process remain the sole owner until the user retries.
-      std::cerr << "Inventatory background service did not stop; refusing concurrent startup.\n";
-      return 1;
-    }
-  }
+  if (!startInBackground && !takeOverFromBackgroundService(backgroundController)) return 1;
   inventatory::App app(startInBackground, backgroundController);
   const int exitCode = app.run();
   if (app.updateInstallerLaunched()) updateMarkerPath = app.updateMarkerPath();
+  if (app.workAbandoned() && updateMarkerPath.empty()) {
+    // A network worker outlived the shutdown deadline. Everything is saved and the single-instance
+    // lock is released; destroying the App would only block on that worker, so leave without it.
+    std::cout.flush();
+    std::cerr.flush();
+    std::_Exit(exitCode);
+  }
   return exitCode;
 }
 

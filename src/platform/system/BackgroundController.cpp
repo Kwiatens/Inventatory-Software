@@ -6,7 +6,9 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <chrono>
 #include <string>
@@ -27,6 +29,29 @@ constexpr UINT kRestoreMessage = WM_APP + 44;
 constexpr UINT_PTR kTrayIconId = 1;
 constexpr UINT kOpenCommand = 1001;
 constexpr UINT kQuitCommand = 1002;
+
+UINT taskbarCreatedMessage() {
+  static const UINT message = RegisterWindowMessageW(L"TaskbarCreated");
+  return message;
+}
+
+// Explorer may not have created the taskbar yet when the service starts at sign-in, and it
+// re-creates it after a shell restart; the icon is added again whenever that happens.
+bool addTrayIcon(HWND window) {
+  NOTIFYICONDATAW icon{};
+  icon.cbSize = sizeof(icon);
+  icon.hWnd = window;
+  icon.uID = kTrayIconId;
+  icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+  icon.uCallbackMessage = kTrayMessage;
+  icon.hIcon = static_cast<HICON>(LoadImageW(
+      GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON,
+      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED));
+  if (icon.hIcon == nullptr) icon.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
+  if (icon.hIcon == nullptr) icon.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));  // IDI_APPLICATION
+  wcscpy_s(icon.szTip, L"Inventatory Scan R1 service");
+  return Shell_NotifyIconW(NIM_ADD, &icon) != FALSE;
+}
 
 BackgroundController* controllerFrom(HWND window) {
   return reinterpret_cast<BackgroundController*>(GetWindowLongPtrW(window, GWLP_USERDATA));
@@ -85,6 +110,10 @@ LRESULT CALLBACK controllerWindowProc(HWND window, UINT message, WPARAM wParam, 
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
   }
   auto* controller = controllerFrom(window);
+  if (message == taskbarCreatedMessage()) {
+    addTrayIcon(window);
+    return 0;
+  }
   switch (message) {
     case kTrayMessage:
       if (lParam == WM_LBUTTONUP) {
@@ -182,6 +211,65 @@ bool BackgroundController::waitForBackgroundServiceToStop(int timeoutMs) const {
   return true;
 }
 
+bool BackgroundController::forceStopBackgroundService() const {
+  const auto own = currentExecutablePath();
+  if (own.empty()) return false;
+  const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snapshot == INVALID_HANDLE_VALUE) return false;
+  FILETIME ownCreated{}, ignoredExit{}, ignoredKernel{}, ignoredUser{};
+  GetProcessTimes(GetCurrentProcess(), &ownCreated, &ignoredExit, &ignoredKernel, &ignoredUser);
+  bool terminated = false;
+  PROCESSENTRY32W entry{};
+  entry.dwSize = sizeof(entry);
+  for (BOOL more = Process32FirstW(snapshot, &entry); more != FALSE; more = Process32NextW(snapshot, &entry)) {
+    if (entry.th32ProcessID == GetCurrentProcessId()) continue;
+    const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE,
+                                       entry.th32ProcessID);
+    if (process == nullptr) continue;
+    std::wstring image(32768, L'\0');
+    DWORD length = static_cast<DWORD>(image.size());
+    FILETIME created{};
+    // Only an older process running this very executable can be the background service the
+    // interactive launch is waiting for; this launch already owns the interactive mutex.
+    if (QueryFullProcessImageNameW(process, 0, image.data(), &length) != 0) {
+      image.resize(length);
+      if (_wcsicmp(image.c_str(), own.c_str()) == 0 &&
+          GetProcessTimes(process, &created, &ignoredExit, &ignoredKernel, &ignoredUser) != 0 &&
+          CompareFileTime(&created, &ownCreated) < 0 && TerminateProcess(process, 1) != 0) {
+        terminated = true;
+      }
+    }
+    CloseHandle(process);
+  }
+  CloseHandle(snapshot);
+  return terminated;
+}
+
+BackgroundStopResult BackgroundController::stopBackgroundService(
+    int gracefulTimeoutMs, int forcedTimeoutMs, const std::function<void(int)>& onWaiting) const {
+  if (!backgroundServiceRunning()) return BackgroundStopResult::NotRunning;
+  const auto begin = GetTickCount64();
+  const ULONGLONG graceful = static_cast<ULONGLONG>(std::max(0, gracefulTimeoutMs));
+  bool requested = false;
+  int reportedSeconds = 0;
+  while (backgroundServiceRunning()) {
+    if (!requested) requested = requestBackgroundServiceQuit();
+    const ULONGLONG elapsed = GetTickCount64() - begin;
+    // A service without a controller window can never be asked politely; do not wait for it.
+    if (elapsed >= graceful || (!requested && elapsed >= 3000ULL)) break;
+    const int seconds = static_cast<int>(elapsed / 1000ULL);
+    if (seconds > reportedSeconds) {
+      reportedSeconds = seconds;
+      if (onWaiting) onWaiting(seconds);
+    }
+    Sleep(10);
+  }
+  if (!backgroundServiceRunning()) return BackgroundStopResult::Stopped;
+  if (!forceStopBackgroundService()) return BackgroundStopResult::Failed;
+  return waitForBackgroundServiceToStop(forcedTimeoutMs) ? BackgroundStopResult::Forced
+                                                          : BackgroundStopResult::Failed;
+}
+
 bool BackgroundController::restartAsBackgroundService() {
   if (backgroundMode_) return false;
   const auto executablePath = currentExecutablePath();
@@ -225,7 +313,8 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   trayThread_ = std::thread(&BackgroundController::trayThreadMain, this);
   {
     std::unique_lock<std::mutex> lock(trayReadyMutex_);
-    if (!trayReadyChanged_.wait_for(lock, std::chrono::seconds(2), [this] { return trayReady_; })) {
+    if (!trayReadyChanged_.wait_for(lock, hideInitially ? std::chrono::seconds(10) : std::chrono::seconds(2),
+                                  [this] { return trayReady_; })) {
       enabled_.store(false);
       trayStartupCancelled_.store(true);
       lock.unlock();
@@ -332,25 +421,17 @@ void BackgroundController::trayThreadMain() {
     return;
   }
 
-  NOTIFYICONDATAW icon{};
-  icon.cbSize = sizeof(icon);
-  icon.hWnd = window;
-  icon.uID = kTrayIconId;
-  icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-  icon.uCallbackMessage = kTrayMessage;
-  icon.hIcon = static_cast<HICON>(LoadImageW(
-      GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON,
-      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED));
-  if (icon.hIcon == nullptr) icon.hIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
-  if (icon.hIcon == nullptr) icon.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));  // IDI_APPLICATION
-  wcscpy_s(icon.szTip, L"Inventatory Scan R1 service");
-  Shell_NotifyIconW(NIM_ADD, &icon);
+  addTrayIcon(window);
 
   MSG message{};
   while (GetMessageW(&message, nullptr, 0, 0) > 0) {
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
+  NOTIFYICONDATAW icon{};
+  icon.cbSize = sizeof(icon);
+  icon.hWnd = window;
+  icon.uID = kTrayIconId;
   Shell_NotifyIconW(NIM_DELETE, &icon);
 }
 
