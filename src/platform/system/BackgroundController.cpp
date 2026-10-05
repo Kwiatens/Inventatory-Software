@@ -344,6 +344,8 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   return true;
 }
 
+void BackgroundController::disableBackgroundMode() { stop(); }
+
 void BackgroundController::stop() {
   const bool wasEnabled = enabled_.exchange(false);
   if (wasEnabled) SetConsoleCtrlHandler(consoleControlHandler, FALSE);
