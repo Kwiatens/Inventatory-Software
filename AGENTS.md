@@ -88,7 +88,7 @@ Studio 2022 has also been used successfully:
 
 ```powershell
 cmake -S . -B build
-cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
+cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
 ctest --test-dir build -C Release --output-on-failure
 ```
 
