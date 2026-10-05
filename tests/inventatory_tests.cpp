@@ -5038,6 +5038,28 @@ int main() {
   }
 
   {
+    // Typed characters keep their full UTF-8 sequence and Backspace removes
+    // whole characters, so Polish letters and unit symbols never corrupt text.
+    string buffer;
+    appendKeyText(buffer, KeyEvent{KeyType::Character, 'a'});
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC5\x82"});      // ł
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC2\xB5"});      // µ
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xE2\x84\xA6"});  // Ω
+    assert(buffer == "a\xC5\x82\xC2\xB5\xE2\x84\xA6");
+    eraseLastCharacter(buffer);
+    assert(buffer == "a\xC5\x82\xC2\xB5");
+    eraseLastCharacter(buffer);
+    eraseLastCharacter(buffer);
+    assert(buffer == "a");
+    eraseLastCharacter(buffer);
+    assert(buffer.empty());
+    eraseLastCharacter(buffer);
+    assert(buffer.empty());
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0'});
+    assert(buffer.empty());
+  }
+
+  {
     assert(isVersionNewer("v0.1.1", "0.1.0"));
     assert(isVersionNewer("0.1.1", "0.1.0"));
     assert(isVersionNewer("v1.2.3.1", "1.2.3"));

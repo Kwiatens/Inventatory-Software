@@ -40,7 +40,25 @@ enum class KeyType {
 struct KeyEvent {
   KeyType type = KeyType::Unknown;
   char ch = '\0';
+  // Character events: the complete UTF-8 sequence of the typed character.
+  // `ch` holds that character only when it is a single ASCII byte.
+  string text;
 };
+
+// Appends a typed character to an edit buffer without splitting UTF-8.
+inline void appendKeyText(string& buffer, const KeyEvent& key) {
+  if (!key.text.empty()) {
+    buffer += key.text;
+  } else if (key.ch != '\0') {
+    buffer.push_back(key.ch);
+  }
+}
+
+// Removes the last UTF-8 encoded character, never leaving a partial sequence.
+inline void eraseLastCharacter(string& buffer) {
+  while (!buffer.empty() && (static_cast<unsigned char>(buffer.back()) & 0xC0U) == 0x80U) buffer.pop_back();
+  if (!buffer.empty()) buffer.pop_back();
+}
 
 class ConsoleSession {
  public:

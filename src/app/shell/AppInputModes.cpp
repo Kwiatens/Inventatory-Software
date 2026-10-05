@@ -37,7 +37,7 @@ using namespace std;
 
 void App::handleSearchKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
-    inputBuffer_.push_back(key.ch);
+    appendKeyText(inputBuffer_, key);
     searchQuery_ = inputBuffer_;
     syncSelectionToFilter();
     dirty_ = true;
@@ -46,7 +46,7 @@ void App::handleSearchKey(const KeyEvent& key) {
 
   if (key.type == KeyType::Backspace) {
     if (!inputBuffer_.empty()) {
-      inputBuffer_.pop_back();
+      eraseLastCharacter(inputBuffer_);
       searchQuery_ = inputBuffer_;
       syncSelectionToFilter();
       dirty_ = true;
@@ -97,14 +97,14 @@ void App::handleEditMenuKey(const KeyEvent& key) {
 
 void App::handleEditValueKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
-    inputBuffer_.push_back(key.ch);
+    appendKeyText(inputBuffer_, key);
     dirty_ = true;
     return;
   }
 
   if (key.type == KeyType::Backspace) {
     if (!inputBuffer_.empty()) {
-      inputBuffer_.pop_back();
+      eraseLastCharacter(inputBuffer_);
       dirty_ = true;
     }
     return;
@@ -128,14 +128,14 @@ void App::handleEditValueKey(const KeyEvent& key) {
 
 void App::handleRackValueKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
-    inputBuffer_.push_back(key.ch);
+    appendKeyText(inputBuffer_, key);
     dirty_ = true;
     return;
   }
 
   if (key.type == KeyType::Backspace) {
     if (!inputBuffer_.empty()) {
-      inputBuffer_.pop_back();
+      eraseLastCharacter(inputBuffer_);
       dirty_ = true;
     }
     return;
