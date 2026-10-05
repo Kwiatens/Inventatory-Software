@@ -2,8 +2,6 @@
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 
-#ifdef _WIN32
-
 #include <algorithm>
 #include <cctype>
 #include <string_view>
@@ -419,5 +417,3 @@ optional<JsonPtr> parseJson(const string& body, string* error) {
 
 }  // namespace digikey_detail
 }  // namespace inventatory
-
-#endif
