@@ -87,6 +87,103 @@ namespace inventory_transfer_detail {
 #endif
   }
 
+namespace {
+
+// Files that restore replaces or discards together with the old workspace.
+// SQLite sidecars and the scanner replay state belong to the old workspace's
+// database and pairing, so keeping them next to the restored data would be
+// wrong (a stale journal could be applied to the restored database).
+constexpr const char* kRestoreReplacedNames[] = {
+    "inventory.db",      "activity.tsv",          "printer.conf",
+    "quick_labels.conf", "inventatory_scan.conf", "inventatory-scan-replay.state",
+    "inventory.db-wal",  "inventory.db-shm",      "inventory.db-journal"};
+// Names the restore bundle itself occupies in the replacement workspace.
+constexpr const char* kRestoreReservedNames[] = {"settings.conf", "manifest.tsv"};
+
+enum class WorkspaceEntryKind { Replaced, Preserved, Conflict };
+
+WorkspaceEntryKind classifyWorkspaceEntry(const filesystem::path& path, WorkspaceEntrySource source) {
+  const string name = path.filename().u8string();
+  const string lowered = lowercaseAscii(name);
+  bool replaced = false;
+  bool reserved = false;
+  bool similar = false;
+  for (const char* known : kRestoreReplacedNames) {
+    if (name == known) replaced = true;
+    else if (lowered == known) similar = true;
+  }
+  for (const char* known : kRestoreReservedNames) {
+    if (name == known) reserved = true;
+    else if (lowered == known) similar = true;
+  }
+  // A name that differs only by case would collide on a case-insensitive
+  // filesystem, so it is neither replaceable nor safe to carry over.
+  if (similar) return WorkspaceEntryKind::Conflict;
+  if (reserved) {
+    return source == WorkspaceEntrySource::RestoredCopy ? WorkspaceEntryKind::Replaced
+                                                        : WorkspaceEntryKind::Conflict;
+  }
+  if (!replaced) return WorkspaceEntryKind::Preserved;
+  // A real folder with a managed file name is user data, not a managed file.
+  error_code statusError;
+  const auto status = filesystem::symlink_status(path, statusError);
+  if (statusError || status.type() == filesystem::file_type::directory) return WorkspaceEntryKind::Conflict;
+  return WorkspaceEntryKind::Replaced;
+}
+
+bool listPreservedEntries(const filesystem::path& directory, WorkspaceEntrySource source,
+                          vector<filesystem::path>& preserved, string& error) {
+  preserved.clear();
+  error_code enumerationError;
+  for (filesystem::directory_iterator iterator(directory, enumerationError), end;
+       !enumerationError && iterator != end; iterator.increment(enumerationError)) {
+    const auto current = iterator->path();
+    switch (classifyWorkspaceEntry(current, source)) {
+      case WorkspaceEntryKind::Replaced:
+        break;
+      case WorkspaceEntryKind::Preserved:
+        preserved.push_back(current);
+        break;
+      case WorkspaceEntryKind::Conflict:
+        error = "Restore destination contains \"" + current.filename().u8string() +
+                "\", which conflicts with a managed Inventatory file name; move or rename it and try again";
+        return false;
+    }
+  }
+  if (enumerationError) {
+    error = "Unable to enumerate " + directory.string() + ": " + enumerationError.message();
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+bool checkUnmanagedEntriesPreservable(const filesystem::path& directory, WorkspaceEntrySource source,
+                                      string& error) {
+  vector<filesystem::path> preserved;
+  return listPreservedEntries(directory, source, preserved, error);
+}
+
+bool moveUnmanagedEntries(const filesystem::path& from, const filesystem::path& to, WorkspaceEntrySource source,
+                          const TransferOps& ops, string& error) {
+  vector<filesystem::path> preserved;
+  if (!listPreservedEntries(from, source, preserved, error)) return false;
+  for (const auto& entry : preserved) {
+    const auto target = to / entry.filename();
+    // rename() silently replaces an existing file, so never move onto a name
+    // that is already in use.
+    error_code statusError;
+    const auto status = filesystem::symlink_status(target, statusError);
+    if (status.type() != filesystem::file_type::not_found) {
+      error = "Unable to preserve \"" + entry.filename().u8string() + "\": the name is already in use";
+      return false;
+    }
+    if (!ops.rename(entry, target, error)) return false;
+  }
+  return true;
+}
+
 bool saveRestoreSettings(const filesystem::path& path, const AppSettings& settings, const TransferOps& ops,
                          string& error) {
   if (ops.hooks != nullptr && ops.hooks->saveSettings) return ops.hooks->saveSettings(path, settings, error);
