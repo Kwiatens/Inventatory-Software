@@ -287,7 +287,7 @@ bool App::saveSettingsDraft() {
         return false;
       }
     } else {
-      backgroundController_.stop();
+      backgroundController_.disableBackgroundMode();
     }
   }
   if (!settings_.printerQueue.empty()) {
