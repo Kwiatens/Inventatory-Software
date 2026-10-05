@@ -1467,6 +1467,128 @@ void testPackageGHardening() {
 #endif
 }
 
+// Negative Scan R1 transport cases: every rejected request must leave the sync callback untouched and
+// must not consume the replay counter; a stale lower counter is rejected like an exact replay.
+void testScannerHttpNegativeCases() {
+  const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-http-negative-test";
+  error_code cleanupError;
+  filesystem::remove_all(stateDirectory, cleanupError);
+  const string token = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+  const string deviceId = "r1-secure";
+  const string body =
+      R"({"protocolVersion":1,"requestId":"negative-sync","deviceId":"r1-secure","firmwareVersion":"0.1.0","mode":"ready","rssi":-40,"queueDepth":0,"events":[],"resultAcks":[]})";
+  atomic<int> syncCalls{0};
+  auto onSync = [&syncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response, string&) {
+    ++syncCalls;
+    response.requestId = request.requestId;
+    return true;
+  };
+  LocalHttpServer server;
+  server.setDeviceCredentials(deviceId, token, stateDirectory / "replay.state");
+  assert(server.start(19510, onSync));
+  const auto port = server.port();
+
+  const auto expectRejected = [&](const string& request, const char* statusLine) {
+    const auto response = sendLocalHttpRequest(port, request);
+    assert(response.rfind(statusLine, 0) == 0);
+    assert(syncCalls == 0);
+  };
+  // Replaces the value of one header line in a request built by signedSyncRequest.
+  const auto withHeader = [](string request, const string& name, const string& value) {
+    const auto begin = request.find(name + ": ");
+    assert(begin != string::npos);
+    const auto valueBegin = begin + name.size() + 2U;
+    const auto end = request.find("\r\n", valueBegin);
+    assert(end != string::npos);
+    request.replace(valueBegin, end - valueBegin, value);
+    return request;
+  };
+  const auto withoutHeader = [](string request, const string& name) {
+    const auto begin = request.find(name + ": ");
+    assert(begin != string::npos);
+    const auto end = request.find("\r\n", begin);
+    assert(end != string::npos);
+    request.erase(begin, end + 2U - begin);
+    return request;
+  };
+  const string syncPath = "/api/v1/device/sync";
+
+  // Routing: only POST on the sync path is served; everything else is a 404.
+  expectRejected("GET " + syncPath + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n", "HTTP/1.1 404 Not Found");
+  expectRejected("PUT " + syncPath + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n", "HTTP/1.1 404 Not Found");
+  expectRejected("POST /api/v1/device/unknown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n",
+                 "HTTP/1.1 404 Not Found");
+  expectRejected("GET /index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n", "HTTP/1.1 404 Not Found");
+
+  // Framing: chunked bodies and oversized declared bodies are refused before any authentication.
+  expectRejected("POST " + syncPath + " HTTP/1.1\r\nHost: 127.0.0.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+                 "HTTP/1.1 400 Bad Request");
+  expectRejected("POST " + syncPath + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1073741824\r\n\r\n",
+                 "HTTP/1.1 413 Payload Too Large");
+
+  // Authentication: each mutated request must be a 401 and must not reach the callback.
+  const auto base = signedSyncRequest(token, deviceId, 70, body);
+  const string protocolValue = to_string(kInventatoryScanTransportProtocolVersion);
+  expectRejected(withHeader(base, "X-Inventatory-Protocol", protocolValue + "9"), "HTTP/1.1 401 Unauthorized");
+  expectRejected(withoutHeader(base, "X-Inventatory-Protocol"), "HTTP/1.1 401 Unauthorized");
+  expectRejected(withoutHeader(base, "X-Inventatory-Device"), "HTTP/1.1 401 Unauthorized");
+  expectRejected(withHeader(base, "X-Inventatory-Counter", "abc"), "HTTP/1.1 401 Unauthorized");
+  expectRejected(withHeader(base, "X-Inventatory-Counter", "99999999999999999999999"), "HTTP/1.1 401 Unauthorized");
+  expectRejected(signedSyncRequest(token, deviceId, 0, body), "HTTP/1.1 401 Unauthorized");  // counter 0 is invalid
+
+  const auto mac = deviceRequestMac(token, "POST", syncPath, deviceId, 70, body);
+  assert(mac.size() == 64U);
+  expectRejected(withHeader(base, "X-Inventatory-Mac", mac.substr(0, mac.size() - 2U)), "HTTP/1.1 401 Unauthorized");
+  expectRejected(withHeader(base, "X-Inventatory-Mac", mac + "00"), "HTTP/1.1 401 Unauthorized");
+  expectRejected(withHeader(base, "X-Inventatory-Mac", string(mac.size(), 'z')), "HTTP/1.1 401 Unauthorized");
+  string upperMac = mac;
+  for (auto& character : upperMac) {
+    if (character >= 'a' && character <= 'f') character = static_cast<char>(character - 'a' + 'A');
+  }
+  if (upperMac != mac) expectRejected(withHeader(base, "X-Inventatory-Mac", upperMac), "HTTP/1.1 401 Unauthorized");
+
+  // A MAC computed for a different path, method or body is not valid for this request.
+  expectRejected(withHeader(base, "X-Inventatory-Mac",
+                            deviceRequestMac(token, "POST", "/api/v1/device/other", deviceId, 70, body)),
+                 "HTTP/1.1 401 Unauthorized");
+  expectRejected(withHeader(base, "X-Inventatory-Mac", deviceRequestMac(token, "GET", syncPath, deviceId, 70, body)),
+                 "HTTP/1.1 401 Unauthorized");
+  expectRejected(withHeader(base, "X-Inventatory-Mac", deviceRequestMac(token, "POST", syncPath, deviceId, 70, body + " ")),
+                 "HTTP/1.1 401 Unauthorized");
+  expectRejected(withHeader(base, "X-Inventatory-Mac", deviceRequestMac(token, "POST", syncPath, deviceId, 71, body)),
+                 "HTTP/1.1 401 Unauthorized");
+
+  // Authenticated but wrong identity: the device header differs from the paired device, or the body
+  // device id differs from the header. Both are rejected before the counter is reserved.
+  expectRejected(signedSyncRequest(token, "r1-other", 72, body), "HTTP/1.1 400 Bad Request");
+  string otherDeviceBody = body;
+  const auto deviceInBody = otherDeviceBody.find("r1-secure");
+  assert(deviceInBody != string::npos);
+  otherDeviceBody.replace(deviceInBody, 9U, "r1-other");
+  expectRejected(signedSyncRequest(token, deviceId, 73, otherDeviceBody), "HTTP/1.1 400 Bad Request");
+
+  // An invalid or empty token never yields a MAC, so nothing can authenticate against it.
+  assert(deviceRequestMac("", "POST", syncPath, deviceId, 1, body).empty());
+  assert(deviceRequestMac("zz", "POST", syncPath, deviceId, 1, body).empty());
+
+  // None of the rejections above consumed a counter: counter 100 is accepted, a stale lower counter and
+  // an exact replay are 409 conflicts, and a higher counter is accepted again.
+  const auto accepted = sendLocalHttpRequest(port, signedSyncRequest(token, deviceId, 100, body));
+  assert(accepted.rfind("HTTP/1.1 200 OK", 0) == 0);
+  assert(syncCalls == 1);
+  const auto stale = sendLocalHttpRequest(port, signedSyncRequest(token, deviceId, 99, body));
+  assert(stale.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+  const auto replay = sendLocalHttpRequest(port, signedSyncRequest(token, deviceId, 100, body));
+  assert(replay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+  assert(syncCalls == 1);
+  const auto next = sendLocalHttpRequest(port, signedSyncRequest(token, deviceId, 101, body));
+  assert(next.rfind("HTTP/1.1 200 OK", 0) == 0);
+  assert(syncCalls == 2);
+
+  server.stop();
+  filesystem::remove_all(stateDirectory, cleanupError);
+}
+
 int main() {
   testHistoryPagePresentationData();
   testHistoryPageLayoutData();
@@ -6403,6 +6525,8 @@ int main() {
     filesystem::remove_all(root, unitCleanupError);
   }
 #endif
+
+  testScannerHttpNegativeCases();
 
   cout << "Inventatory core tests passed\n";
   return 0;
