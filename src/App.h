@@ -348,6 +348,9 @@ class App {
 
   struct WorkingCopy {
     InventoryItem item;
+    // The item as it was when the edit began. Saving replays only the fields changed relative to
+    // it onto the live item (matched by id), so scanner changes committed meanwhile survive.
+    InventoryItem original;
     bool isNew = false;
     size_t originalIndex = 0;
   };
@@ -816,8 +819,13 @@ class App {
   InventoryStore store_;
   InventoryStore persistedStore_;
   bool persistedStoreValid_ = false;
+  // Snapshot taken when the import review began; the staged changes are replayed relative to it.
+  // Once the commit starts it holds the pre-commit live store instead, restored if a failed
+  // commit is cancelled.
   InventoryStore importOriginalStore_;
   InventoryStore importStagedStore_;
+  // Conflicts found while merging the staged import over scanner changes made during the review.
+  std::vector<std::string> importMergeNotices_;
   std::vector<ActivityEntry> activities_;
   LabelPrinterService printerService_;
   std::vector<PrinterQueueInfo> printerQueues_;
