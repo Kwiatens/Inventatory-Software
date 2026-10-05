@@ -30,6 +30,20 @@ cleared, and the paired-device identity is removed. The device must be paired
 again. DigiKey credentials remain local to the PC; if they are not available on
 that machine, the DigiKey setup page prompts for re-entry.
 
+Restore replaces only Inventatory's own workspace files (`inventory.db`,
+`activity.tsv`, `printer.conf`, `quick_labels.conf`, `inventatory_scan.conf`,
+the scanner replay state, and SQLite sidecar files). Any other file or folder
+in the chosen data folder, such as CSV exports, datasheets, or label PDFs, is
+user data: it is moved (renamed, never copied or deleted) into the restored
+workspace under the same name, and links are moved as links without following
+them. Because that carry-over is part of the same journaled activation,
+rollback and startup recovery return those entries to the protected old data
+before anything is discarded, and committed cleanup deletes only the replaced
+files. If an entry cannot be preserved safely (a name that differs from a
+managed file only by case, `manifest.tsv` or `settings.conf`, or a folder named
+like a managed file) restore is refused before anything changes and names the
+entry; move or rename it and restore again.
+
 Validation is read-only: it never migrates, creates, or otherwise changes the
 candidate database. The manifest has exact rows, 64-hex-digit SHA-256 hashes,
 and an allowlist of files; unknown files and symbolic links are rejected.

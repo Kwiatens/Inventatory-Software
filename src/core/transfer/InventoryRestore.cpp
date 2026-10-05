@@ -96,6 +96,13 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     error = "Restore destination must not be a link or reparse point";
     return false;
   }
+  // Restore replaces only Inventatory's managed files. Refuse up front, before
+  // any artifact exists, when another entry of the data folder could not be
+  // carried over to the restored workspace unchanged.
+  if (destinationExists &&
+      !checkUnmanagedEntriesPreservable(destinationDirectory, WorkspaceEntrySource::OldWorkspace, error)) {
+    return false;
+  }
   filesystem::path staging;
   if (!createUniqueDirectory(destinationDirectory, ".restore-staging", staging, error)) return false;
   RestoreJournal journal;
@@ -162,6 +169,18 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = true;
   journal.state = "protected";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
+    string rollbackError;
+    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
+    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
+    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
+    return false;
+  }
+  // Carry every unmanaged entry over by renaming it into the staged workspace
+  // (no copy, no delete) so the single activation rename below publishes the
+  // restored files and the user's own files together. Rollback and recovery
+  // move these entries back before discarding staging.
+  if (journal.destinationExisted &&
+      !moveUnmanagedEntries(journal.oldData, staging, WorkspaceEntrySource::OldWorkspace, ops, primaryError)) {
     string rollbackError;
     const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
     if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;

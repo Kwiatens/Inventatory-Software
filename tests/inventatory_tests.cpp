@@ -57,6 +57,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -6195,6 +6196,341 @@ int main() {
     assert(restoredSettings.dataDirectory == restoreTarget);
     assert(!filesystem::exists(restoreTarget / "manifest.tsv"));
     assert(!filesystem::exists(restoreTarget / "settings.conf"));
+
+    {
+      // Restore replaces only Inventatory's managed files. Everything else in
+      // the chosen data folder is user data and must survive every outcome:
+      // success, refusal before activation, a failed move, and a crash at any
+      // step followed by startup recovery.
+      const auto tempRoot = filesystem::temp_directory_path();
+      const auto keepTarget = tempRoot / "inventatory-transfer-preserve-target";
+      const auto keepSettings = tempRoot / "inventatory-transfer-preserve-settings.conf";
+      const auto keepJournal = tempRoot / "inventatory-transfer-preserve-settings.conf.restore-journal";
+      const auto keepOutsideFile = tempRoot / "inventatory-transfer-preserve-outside.txt";
+      const auto keepOutsideDir = tempRoot / "inventatory-transfer-preserve-outside-dir";
+      const string targetName = keepTarget.filename().u8string();
+      const string settingsName = keepSettings.filename().u8string();
+      const auto writeBytes = [](const filesystem::path& path, const string& bytes) {
+        filesystem::create_directories(path.parent_path());
+        ofstream output(path, ios::binary | ios::trunc);
+        output.write(bytes.data(), static_cast<streamsize>(bytes.size()));
+      };
+      const auto readBytes = [](const filesystem::path& path) {
+        ifstream input(path, ios::binary);
+        return string(istreambuf_iterator<char>(input), istreambuf_iterator<char>());
+      };
+      const map<string, string> unmanagedFiles = {
+          {"notes.txt", "datasheet notes\n"},
+          {"sub/x.bin", string("\0\1\2\xff binary", 11)},
+          {"sub/deeper/y.txt", "nested file"},
+          {"Datasheets/part.pdf", "%PDF-1.4 not really"},
+          {"inventory.db.bak", "a hand-made backup that only looks managed"},
+          {"inventory-export.csv", "id,name\n1,thing\n"}};
+      // Full, non-following picture of a tree so "unchanged" means unchanged.
+      const auto snapshotTree = [&readBytes](const filesystem::path& root) {
+        map<string, string> tree;
+        for (filesystem::recursive_directory_iterator iterator(root), end; iterator != end; ++iterator) {
+          const auto relative = filesystem::relative(iterator->path(), root).generic_u8string();
+          const auto status = iterator->symlink_status();
+          if (status.type() == filesystem::file_type::symlink) {
+            tree[relative] = "L:" + filesystem::read_symlink(iterator->path()).generic_u8string();
+          } else if (status.type() == filesystem::file_type::directory) {
+            tree[relative] = "D";
+          } else {
+            tree[relative] = "F:" + readBytes(iterator->path());
+          }
+        }
+        return tree;
+      };
+      const auto restoreArtifacts = [&]() {
+        vector<string> artifacts;
+        for (const auto& entry : filesystem::directory_iterator(tempRoot)) {
+          const string name = entry.path().filename().u8string();
+          if (name.find(".tmp-") != string::npos || name.find(".restore-copy-") != string::npos) continue;
+          if (name.rfind(targetName + ".restore-", 0) == 0 || name.rfind(settingsName + ".restore-", 0) == 0) {
+            artifacts.push_back(name);
+          }
+        }
+        return artifacts;
+      };
+      const auto resetWorkspace = [&]() {
+        error_code resetError;
+        filesystem::remove_all(keepTarget, resetError);
+        filesystem::remove_all(keepOutsideDir, resetError);
+        filesystem::remove(keepOutsideFile, resetError);
+        filesystem::remove(keepSettings, resetError);
+        for (const auto& name : restoreArtifacts()) filesystem::remove_all(tempRoot / filesystem::u8path(name), resetError);
+        filesystem::remove(keepJournal, resetError);
+        filesystem::create_directories(keepTarget);
+        InventoryStore original;
+        InventoryItem originalItem;
+        originalItem.id = "preserve-original";
+        originalItem.partName = "Original item";
+        original.items().push_back(originalItem);
+        assert(original.save(keepTarget / "inventory.db"));
+        writeBytes(keepTarget / "inventatory_scan.conf", "old pairing identity");
+        writeBytes(keepTarget / "inventatory-scan-replay.state", "old replay state");
+        for (const auto& file : unmanagedFiles) writeBytes(keepTarget / filesystem::u8path(file.first), file.second);
+        filesystem::create_directories(keepTarget / "empty-folder");
+#ifndef _WIN32
+        writeBytes(keepOutsideFile, "outside the data folder");
+        writeBytes(keepOutsideDir / "kept.txt", "outside folder content");
+        filesystem::create_symlink(keepOutsideFile, keepTarget / "link-to-file");
+        filesystem::create_directory_symlink(keepOutsideDir, keepTarget / "link-to-folder");
+#endif
+        AppSettings keepAppSettings;
+        keepAppSettings.dataDirectory = keepTarget;
+        assert(saveAppSettings(keepSettings, keepAppSettings));
+      };
+      const auto expectUnmanagedIntact = [&]() {
+        for (const auto& file : unmanagedFiles) {
+          const auto path = keepTarget / filesystem::u8path(file.first);
+          assert(filesystem::is_regular_file(path));
+          assert(readBytes(path) == file.second);
+        }
+        assert(filesystem::is_directory(keepTarget / "empty-folder"));
+#ifndef _WIN32
+        assert(filesystem::is_symlink(keepTarget / "link-to-file"));
+        assert(filesystem::read_symlink(keepTarget / "link-to-file") == keepOutsideFile);
+        assert(filesystem::is_symlink(keepTarget / "link-to-folder"));
+        assert(readBytes(keepOutsideFile) == "outside the data folder");
+        assert(readBytes(keepOutsideDir / "kept.txt") == "outside folder content");
+#endif
+      };
+      const auto loadItemId = [&]() {
+        InventoryStore loaded;
+        assert(loaded.load(keepTarget / "inventory.db"));
+        assert(loaded.items().size() == 1);
+        return loaded.items().front().id;
+      };
+      // Real operations that can be interleaved with injected crashes. Every
+      // hook is counted so a crash can be placed before or after any step.
+      struct CrashPlan {
+        size_t operations = 0;
+        size_t crashAt = 0;  // 1-based; 0 never crashes
+        bool crashAfter = false;
+        bool crashed = false;
+      };
+      const auto makeCrashHooks = [](CrashPlan& plan) {
+        InventoryTransferTestHooks hooks;
+        const auto step = [&plan](const function<bool()>& action) {
+          const size_t index = ++plan.operations;
+          const bool crashHere = plan.crashAt == index;
+          if (crashHere && !plan.crashAfter) {
+            plan.crashed = true;
+            throw runtime_error("injected crash");
+          }
+          const bool ok = action();
+          if (crashHere) {
+            plan.crashed = true;
+            throw runtime_error("injected crash");
+          }
+          return ok;
+        };
+        hooks.copyFile = [step](const filesystem::path& from, const filesystem::path& to, string& injected) {
+          return step([&]() {
+            error_code ec;
+            filesystem::copy_file(from, to, filesystem::copy_options::overwrite_existing, ec);
+            if (ec) injected = ec.message();
+            return !ec;
+          });
+        };
+        hooks.renamePath = [step](const filesystem::path& from, const filesystem::path& to, string& injected) {
+          return step([&]() {
+            error_code ec;
+            filesystem::rename(from, to, ec);
+            if (ec) injected = ec.message();
+            return !ec;
+          });
+        };
+        hooks.removeAll = [step](const filesystem::path& path, string& injected) {
+          return step([&]() {
+            error_code ec;
+            filesystem::remove_all(path, ec);
+            if (ec) injected = ec.message();
+            return !ec;
+          });
+        };
+        hooks.replaceFile = [step](const filesystem::path& from, const filesystem::path& to, string& injected) {
+          return step([&]() {
+            error_code ec;
+            filesystem::rename(from, to, ec);
+            if (ec) injected = ec.message();
+            return !ec;
+          });
+        };
+        return hooks;
+      };
+
+      // 1. Success: unmanaged entries are untouched, managed files are the
+      //    backup's, and workspace-bound state of the old data is gone.
+      resetWorkspace();
+      assert(restoreInventatoryBackup(bundle, keepTarget, keepSettings, error));
+      expectUnmanagedIntact();
+      assert(loadItemId() == "transfer-item");
+      assert(!filesystem::exists(keepTarget / "inventatory_scan.conf"));
+      assert(!filesystem::exists(keepTarget / "inventatory-scan-replay.state"));
+      assert(!filesystem::exists(keepTarget / "manifest.tsv"));
+      assert(!filesystem::exists(keepTarget / "settings.conf"));
+      assert(restoreArtifacts().empty());
+
+      // 2. Names that collide with managed or bundle files are refused before
+      //    anything is moved, and nothing is deleted.
+      const vector<pair<string, bool>> conflicts = {
+          {"Inventory.DB", false}, {"manifest.tsv", false}, {"settings.conf", false}, {"activity.tsv", true}};
+      for (const auto& conflict : conflicts) {
+        resetWorkspace();
+        error_code conflictError;
+        filesystem::remove(keepTarget / "inventatory-scan-replay.state", conflictError);
+        if (conflict.second) {
+          filesystem::create_directories(keepTarget / filesystem::u8path(conflict.first));
+          writeBytes(keepTarget / filesystem::u8path(conflict.first) / "inside.txt", "folder content");
+        } else {
+          writeBytes(keepTarget / filesystem::u8path(conflict.first), "user file");
+        }
+        const auto before = snapshotTree(keepTarget);
+        bool replacementActive = true;
+        assert(!restoreInventatoryBackup(bundle, keepTarget, keepSettings, error, nullptr, &replacementActive));
+        assert(!replacementActive);
+        assert(error.find(conflict.first) != string::npos);
+        assert(snapshotTree(keepTarget) == before);
+        assert(restoreArtifacts().empty());
+        assert(!filesystem::exists(keepJournal));
+        assert(loadItemId() == "preserve-original");
+      }
+
+      // 3. A failed move of any unmanaged entry rolls back completely.
+      for (size_t failingMove = 0; failingMove < 4; ++failingMove) {
+        resetWorkspace();
+        const auto before = snapshotTree(keepTarget);
+        size_t seenMoves = 0;
+        InventoryTransferTestHooks hooks;
+        hooks.renamePath = [&](const filesystem::path& from, const filesystem::path& to, string& injected) {
+          if (from.parent_path().filename().u8string().find(".restore-old-data-") != string::npos &&
+              seenMoves++ == failingMove) {
+            injected = "injected move failure";
+            return false;
+          }
+          error_code ec;
+          filesystem::rename(from, to, ec);
+          if (ec) injected = ec.message();
+          return !ec;
+        };
+        bool replacementActive = true;
+        assert(!restoreInventatoryBackup(bundle, keepTarget, keepSettings, error, &hooks, &replacementActive));
+        assert(seenMoves > failingMove);
+        assert(!replacementActive);
+        assert(snapshotTree(keepTarget) == before);
+        assert(restoreArtifacts().empty());
+        assert(!filesystem::exists(keepJournal));
+      }
+
+      // 4. A crash before or after any single step leaves a state that startup
+      //    recovery resolves without losing a byte of unmanaged data.
+      resetWorkspace();
+      CrashPlan countingPlan;
+      {
+        auto hooks = makeCrashHooks(countingPlan);
+        assert(restoreInventatoryBackup(bundle, keepTarget, keepSettings, error, &hooks));
+      }
+      assert(countingPlan.operations > 20);
+      size_t committedRecoveries = 0;
+      size_t rolledBackRecoveries = 0;
+      for (size_t crashAt = 1; crashAt <= countingPlan.operations; ++crashAt) {
+        for (const bool crashAfter : {false, true}) {
+          resetWorkspace();
+          CrashPlan plan;
+          plan.crashAt = crashAt;
+          plan.crashAfter = crashAfter;
+          auto hooks = makeCrashHooks(plan);
+          assert(!restoreInventatoryBackup(bundle, keepTarget, keepSettings, error, &hooks));
+          assert(plan.crashed);
+          string recoveryError;
+          const bool recovered = recoverInventatoryRestore(keepTarget, keepSettings, recoveryError);
+          if (!recovered) {
+            cerr << "recovery failed at step " << crashAt << (crashAfter ? " (after)" : " (before)") << ": "
+                 << recoveryError << '\n';
+          }
+          assert(recovered);
+          expectUnmanagedIntact();
+          if (crashAt == 1 && !crashAfter) {
+            // Crashing before the journal exists leaves only the empty staging
+            // directory, which holds no data and has nothing to recover.
+            for (const auto& name : restoreArtifacts()) {
+              assert(name.find(".restore-staging-") != string::npos);
+              assert(filesystem::is_empty(tempRoot / filesystem::u8path(name)));
+            }
+          } else {
+            assert(restoreArtifacts().empty());
+          }
+          assert(!filesystem::exists(keepJournal));
+          assert(!filesystem::exists(keepTarget / "manifest.tsv"));
+          const auto itemId = loadItemId();
+          assert(itemId == "preserve-original" || itemId == "transfer-item");
+          if (itemId == "transfer-item") {
+            ++committedRecoveries;
+            assert(!filesystem::exists(keepTarget / "inventatory_scan.conf"));
+            assert(!filesystem::exists(keepTarget / "inventatory-scan-replay.state"));
+          } else {
+            ++rolledBackRecoveries;
+            assert(readBytes(keepTarget / "inventatory_scan.conf") == "old pairing identity");
+          }
+        }
+      }
+      assert(committedRecoveries > 0 && rolledBackRecoveries > 0);
+
+      // 5. Committed cleanup never deletes an unmanaged entry that is still in
+      //    the protected old data (for example, from an interrupted older
+      //    release): it is moved into the active workspace first, and a name
+      //    clash leaves the protected data in place instead of deleting it.
+      const auto crashAtCleanupCommit = [&](const string& leftoverName) {
+        resetWorkspace();
+        InventoryTransferTestHooks hooks;
+        hooks.replaceFile = [&](const filesystem::path& from, const filesystem::path& to, string& injected) {
+          if (to == keepJournal && readBytes(from).find("cleanup_pending") != string::npos) {
+            for (const auto& entry : filesystem::directory_iterator(tempRoot)) {
+              if (entry.path().filename().u8string().rfind(targetName + ".restore-old-data-", 0) == 0) {
+                writeBytes(entry.path() / filesystem::u8path(leftoverName), "left in protected data");
+              }
+            }
+            throw runtime_error("injected crash");
+          }
+          error_code ec;
+          filesystem::rename(from, to, ec);
+          if (ec) injected = ec.message();
+          return !ec;
+        };
+        assert(!restoreInventatoryBackup(bundle, keepTarget, keepSettings, error, &hooks));
+        assert(filesystem::exists(keepJournal));
+      };
+      crashAtCleanupCommit("late.txt");
+      assert(recoverInventatoryRestore(keepTarget, keepSettings, error));
+      expectUnmanagedIntact();
+      assert(readBytes(keepTarget / "late.txt") == "left in protected data");
+      assert(loadItemId() == "transfer-item");
+      assert(restoreArtifacts().empty());
+      crashAtCleanupCommit("notes.txt");
+      assert(!recoverInventatoryRestore(keepTarget, keepSettings, error));
+      assert(error.find("notes.txt") != string::npos);
+      assert(filesystem::exists(keepJournal));
+      expectUnmanagedIntact();
+      bool leftoverKept = false;
+      for (const auto& entry : filesystem::directory_iterator(tempRoot)) {
+        if (entry.path().filename().u8string().rfind(targetName + ".restore-old-data-", 0) == 0) {
+          assert(readBytes(entry.path() / "notes.txt") == "left in protected data");
+          leftoverKept = true;
+        }
+      }
+      assert(leftoverKept);
+
+      error_code keepCleanupError;
+      filesystem::remove_all(keepTarget, keepCleanupError);
+      filesystem::remove_all(keepOutsideDir, keepCleanupError);
+      filesystem::remove(keepOutsideFile, keepCleanupError);
+      filesystem::remove(keepSettings, keepCleanupError);
+      filesystem::remove(keepJournal, keepCleanupError);
+      for (const auto& name : restoreArtifacts()) filesystem::remove_all(tempRoot / filesystem::u8path(name), keepCleanupError);
+    }
 
     // If the protected old directory disappears before rollback, the active
     // destination must remain intact rather than being deleted blindly.
