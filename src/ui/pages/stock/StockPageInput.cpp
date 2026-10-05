@@ -23,7 +23,7 @@ using namespace std;
 
 void App::handleClosestSearchKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
-    inputBuffer_.push_back(key.ch);
+    appendKeyText(inputBuffer_, key);
     closestSearchQuery_ = inputBuffer_;
     closestSelectedPosition_ = 0;
     dirty_ = true;
@@ -32,7 +32,7 @@ void App::handleClosestSearchKey(const KeyEvent& key) {
 
   if (key.type == KeyType::Backspace) {
     if (!inputBuffer_.empty()) {
-      inputBuffer_.pop_back();
+      eraseLastCharacter(inputBuffer_);
       closestSearchQuery_ = inputBuffer_;
       closestSelectedPosition_ = 0;
       dirty_ = true;

@@ -87,12 +87,12 @@ void App::handleDigiKeySetupKey(const KeyEvent& key) {
   if (digiKeySetupStep_ == DigiKeySetupStep::ClientId ||
       digiKeySetupStep_ == DigiKeySetupStep::ClientSecret) {
     if (key.type == KeyType::Character) {
-      inputBuffer_.push_back(key.ch);
+      appendKeyText(inputBuffer_, key);
       dirty_ = true;
       return;
     }
     if (key.type == KeyType::Backspace) {
-      if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+      if (!inputBuffer_.empty()) eraseLastCharacter(inputBuffer_);
       dirty_ = true;
       return;
     }

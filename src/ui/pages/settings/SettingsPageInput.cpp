@@ -59,10 +59,10 @@ void App::handleSettingsKey(const KeyEvent& key) {
 
   if (settingsEditingField_) {
     if (key.type == KeyType::Character) {
-      inputBuffer_.push_back(key.ch);
+      appendKeyText(inputBuffer_, key);
       dirty_ = true;
     } else if (key.type == KeyType::Backspace) {
-      if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+      if (!inputBuffer_.empty()) eraseLastCharacter(inputBuffer_);
       dirty_ = true;
     } else if (key.type == KeyType::Enter) {
       commitSettingsFieldEdit();
