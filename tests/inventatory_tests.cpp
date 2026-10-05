@@ -3,6 +3,7 @@
 #include "app/UpdateWizardPresentation.h"
 #include "app/shell/AppBootstrap.h"
 #include "app/settings/AppSettings.h"
+#include "app/common/AppActionSupport.h"
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
@@ -1587,6 +1588,78 @@ void testScannerHttpNegativeCases() {
 
   server.stop();
   filesystem::remove_all(stateDirectory, cleanupError);
+}
+
+void testScannerCredentialResolution() {
+  using namespace app_actions;
+
+  const string validLower(64, 'a');
+  const string validUpper(64, 'F');
+  assert(validScannerToken(validLower));
+  assert(validScannerToken(validUpper));
+  assert(!validScannerToken(""));
+  assert(!validScannerToken(string(63, '0')));
+  assert(!validScannerToken(string(65, '0')));
+  assert(!validScannerToken(string(63, '0') + 'g'));
+  assert(!validScannerToken(string(63, '0') + ' '));
+
+  const auto testBase = filesystem::temp_directory_path() / "inventatory-credential-resolution-test";
+  const auto workspace = testBase / ("workspace-" + to_string(static_cast<unsigned long long>(
+                                                        chrono::steady_clock::now().time_since_epoch().count())));
+  error_code cleanupError;
+  filesystem::remove_all(testBase, cleanupError);
+  assert(filesystem::create_directories(workspace));
+
+  struct CleanupGuard {
+    filesystem::path ws;
+    filesystem::path base;
+    ~CleanupGuard() {
+      CredentialStore::eraseForWorkspace(ws, kInventatoryScanTokenCredential);
+      error_code ec;
+      filesystem::remove_all(base, ec);
+    }
+  } cleanupGuard{workspace, testBase};
+  CredentialStore::eraseForWorkspace(workspace, kInventatoryScanTokenCredential);
+
+  InventatoryScanConfig config;
+  auto res = resolveWorkspaceScannerCredential(workspace, config);
+  assert(res.status == WorkspaceScannerCredentialStatus::FreshCredential && !res.token.has_value());
+
+  config = {};
+  config.setupComplete = true;
+  res = resolveWorkspaceScannerCredential(workspace, config);
+  assert(res.status == WorkspaceScannerCredentialStatus::RequiresPairing && !res.token.has_value());
+
+  config = {};
+  config.deviceId = "r1-secure";
+  res = resolveWorkspaceScannerCredential(workspace, config);
+  assert(res.status == WorkspaceScannerCredentialStatus::RequiresPairing && !res.token.has_value());
+
+  config = {};
+  config.deviceId = "   ";
+  res = resolveWorkspaceScannerCredential(workspace, config);
+  assert(res.status == WorkspaceScannerCredentialStatus::FreshCredential && !res.token.has_value());
+
+  assert(CredentialStore::writeForWorkspace(workspace, kInventatoryScanTokenCredential, validLower));
+  config = {};
+  config.setupComplete = false;
+  res = resolveWorkspaceScannerCredential(workspace, config);
+  assert(res.status == WorkspaceScannerCredentialStatus::Loaded && res.token.has_value() && *res.token == validLower);
+
+  config = {};
+  config.setupComplete = true;
+  res = resolveWorkspaceScannerCredential(workspace, config);
+  assert(res.status == WorkspaceScannerCredentialStatus::Loaded && res.token.has_value() && *res.token == validLower);
+  assert(CredentialStore::eraseForWorkspace(workspace, kInventatoryScanTokenCredential));
+
+  assert(CredentialStore::writeForWorkspace(workspace, kInventatoryScanTokenCredential, "not-a-valid-token"));
+  config = {};
+  res = resolveWorkspaceScannerCredential(workspace, config);
+  assert(res.status == WorkspaceScannerCredentialStatus::RequiresPairing && !res.token.has_value());
+  assert(CredentialStore::eraseForWorkspace(workspace, kInventatoryScanTokenCredential));
+
+  filesystem::remove_all(testBase, cleanupError);
+  assert(!cleanupError);
 }
 
 int main() {
@@ -6528,6 +6601,7 @@ int main() {
 
   testScannerHttpNegativeCases();
 
+  testScannerCredentialResolution();
   cout << "Inventatory core tests passed\n";
   return 0;
 }
