@@ -62,6 +62,7 @@
 
 #ifndef _WIN32
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <stdlib.h>
 #else
@@ -4764,6 +4765,31 @@ int main() {
     assert(launcherContent.find("Terminal=false") != string::npos);
     assert(launcherContent.find("StartupWMClass=inventatory") != string::npos);
     assert(launcherContent.find("[Desktop Entry]") != string::npos);
+
+    // A second launch must not replace the launcher or icons; a replaced launcher makes Plasma
+    // revert the taskbar icon of the already running window.
+    const auto iconPath = testData / "icons" / "hicolor" / "48x48" / "apps" / "inventatory.png";
+    struct stat launcherBefore{}, iconBefore{}, desktopBefore{};
+    const auto desktopLauncherPath = testDesktop / "inventatory.desktop";
+    assert(stat(launcher.c_str(), &launcherBefore) == 0);
+    assert(stat(iconPath.c_str(), &iconBefore) == 0);
+    assert(stat(desktopLauncherPath.c_str(), &desktopBefore) == 0);
+    assert(createDesktopShortcut(shortcutError));
+    struct stat launcherAfter{}, iconAfter{}, desktopAfter{};
+    assert(stat(launcher.c_str(), &launcherAfter) == 0);
+    assert(stat(iconPath.c_str(), &iconAfter) == 0);
+    assert(stat(desktopLauncherPath.c_str(), &desktopAfter) == 0);
+    assert(launcherAfter.st_ino == launcherBefore.st_ino);
+    assert(iconAfter.st_ino == iconBefore.st_ino);
+    assert(desktopAfter.st_ino == desktopBefore.st_ino);
+    {
+      ofstream stale(launcher, ios::trunc);
+      stale << "[Desktop Entry]\nName=stale\n";
+    }
+    assert(createDesktopShortcut(shortcutError));
+    ifstream repaired(launcher);
+    const string repairedContent((istreambuf_iterator<char>(repaired)), istreambuf_iterator<char>());
+    assert(repairedContent.find("Icon=inventatory") != string::npos);
 
     char* testArgv[] = {const_cast<char*>("inventatory"), nullptr};
     if (isatty(STDIN_FILENO) != 0) {
