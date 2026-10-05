@@ -843,7 +843,11 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
   curl_easy_setopt(request, CURLOPT_URL, url.c_str());
   curl_easy_setopt(request, CURLOPT_USERAGENT, "Inventatory updater");
   curl_easy_setopt(request, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
-  curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 15000L);
+  // A large asset on a slow link must not hit a short total deadline; abort when the
+  // transfer stalls (under 1 KiB/s for 30 s), with a generous hard cap of two hours.
+  curl_easy_setopt(request, CURLOPT_LOW_SPEED_LIMIT, 1024L);
+  curl_easy_setopt(request, CURLOPT_LOW_SPEED_TIME, 30L);
+  curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 7200000L);
   curl_easy_setopt(request, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(request, CURLOPT_MAXREDIRS, 5L);
   curl_easy_setopt(request, CURLOPT_PROTOCOLS_STR, "https");
