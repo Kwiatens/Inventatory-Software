@@ -31,6 +31,7 @@
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "label_printer/core/LabelPrinterPrivate.h"
+#include "label_printer/platform/CupsStatus.h"
 #include "app/shell/AppNavigation.h"
 #include "ui/pages/history/HistoryPagePrivate.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
@@ -5057,6 +5058,31 @@ int main() {
     assert(buffer.empty());
     appendKeyText(buffer, KeyEvent{KeyType::Character, '\0'});
     assert(buffer.empty());
+  }
+
+  {
+    // CUPS lpstat -p lines (parsed under LC_ALL=C): a disabled queue must not be ready.
+    const auto idle = parseCupsQueueLine("printer Zebra is idle.  enabled since Tue 05 Oct 2026 10:00:00");
+    assert(idle.has_value());
+    assert(idle->name == "Zebra");
+    assert(idle->ready);
+    assert(idle->status.rfind("idle.", 0) == 0);
+
+    const auto printing = parseCupsQueueLine("printer Zebra now printing Zebra-12.  enabled since Tue 05 Oct 2026 10:00:00");
+    assert(printing.has_value());
+    assert(printing->name == "Zebra");
+    assert(printing->ready);
+
+    const auto disabled = parseCupsQueueLine("printer Zebra disabled since Tue 05 Oct 2026 10:00:00 -");
+    assert(disabled.has_value());
+    assert(disabled->name == "Zebra");
+    assert(!disabled->ready);
+
+    assert(!parseCupsQueueLine("system default destination: Zebra").has_value());
+    assert(!parseCupsQueueLine("\treason unknown").has_value());
+    assert(!parseCupsQueueLine("").has_value());
+    assert(!parseCupsQueueLine("printer ").has_value());
+    assert(!parseCupsQueueLine("printer Zebra").has_value());
   }
 
   {
