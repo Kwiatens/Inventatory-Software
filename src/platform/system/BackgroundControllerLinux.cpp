@@ -348,8 +348,10 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   enabled_.store(enabled);
   {
     std::lock_guard<std::mutex> lock(callbackMutex_);
-    onQuit_ = std::move(onQuit);
-    onOpen_ = std::move(onOpen);
+    // An empty callback keeps the one installed earlier (run() passes both; the in-session enable
+    // from Settings passes only onQuit).
+    if (onQuit) onQuit_ = std::move(onQuit);
+    if (onOpen) onOpen_ = std::move(onOpen);
   }
   if (!installSignalHandlers()) return false;
   if (signalThread_.joinable()) return true;
@@ -373,6 +375,10 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   });
   return true;
 }
+
+// Linux has no tray: background mode is only the enabled flag. The instance lock, signal thread and
+// signal handlers belong to the running process and are released by stop() at shutdown.
+void BackgroundController::disableBackgroundMode() { enabled_.store(false); }
 
 void BackgroundController::stop() {
   enabled_.store(false);
