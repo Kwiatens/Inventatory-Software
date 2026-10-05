@@ -91,7 +91,8 @@ KeyEvent translateEvent(const ftxui::Event& event) {
     return {KeyType::Delete, '\0'};
   }
   if (event.is_character() && !event.character().empty()) {
-    return {KeyType::Character, event.character()[0]};
+    const auto& text = event.character();
+    return {KeyType::Character, text.size() == 1 ? text[0] : '\0', text};
   }
   return {KeyType::Unknown, '\0'};
 }

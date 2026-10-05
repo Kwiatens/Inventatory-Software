@@ -62,7 +62,7 @@ void App::handleHistorySearchKey(const KeyEvent& key) {
   }
   if (key.type == KeyType::Backspace) {
     if (!inputBuffer_.empty()) {
-      inputBuffer_.pop_back();
+      eraseLastCharacter(inputBuffer_);
       historySearchQuery_ = inputBuffer_;
       syncHistorySelectionToFilter();
     }
@@ -78,8 +78,8 @@ void App::handleHistorySearchKey(const KeyEvent& key) {
     return;
   }
   if (key.type != KeyType::Character || inputBuffer_.size() >= 160) return;
-  if (static_cast<unsigned char>(key.ch) < 32 || static_cast<unsigned char>(key.ch) > 126) return;
-  inputBuffer_.push_back(key.ch);
+  if (key.text.empty() && (static_cast<unsigned char>(key.ch) < 32 || key.ch == 127)) return;
+  appendKeyText(inputBuffer_, key);
   historySearchQuery_ = inputBuffer_;
   syncHistorySelectionToFilter();
   dirty_ = true;
@@ -125,7 +125,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
       return;
     }
     if (key.type == KeyType::Backspace) {
-      if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+      if (!inputBuffer_.empty()) eraseLastCharacter(inputBuffer_);
       dirty_ = true;
       return;
     }
@@ -145,7 +145,7 @@ void App::handleHistoryKey(const KeyEvent& key) {
       return;
     }
     if (key.type == KeyType::Character && inputBuffer_.size() < 160) {
-      inputBuffer_.push_back(key.ch);
+      appendKeyText(inputBuffer_, key);
       dirty_ = true;
     }
     return;
