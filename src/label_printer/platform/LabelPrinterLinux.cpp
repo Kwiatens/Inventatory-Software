@@ -1,6 +1,7 @@
 // Inventatory - CUPS queue integration for Linux label printers.
 
 #include "label_printer/core/LabelPrinterPrivate.h"
+#include "label_printer/platform/CupsStatus.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -130,7 +131,7 @@ class CupsPrinterBackend final : public PrinterBackend {
  public:
   std::vector<PrinterQueueInfo> enumeratePrinters() const override {
     std::string output;
-    if (!runCommand({"lpstat", "-p", "-d"}, output)) return {};
+    if (!runCommand({"env", "LC_ALL=C", "lpstat", "-p", "-d"}, output)) return {};
     std::string defaultName;
     std::vector<PrinterQueueInfo> printers;
     size_t begin = 0;
@@ -139,20 +140,13 @@ class CupsPrinterBackend final : public PrinterBackend {
       const auto line = output.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
       if (line.rfind("system default destination: ", 0) == 0) {
         defaultName = line.substr(std::string("system default destination: ").size());
-      } else if (line.rfind("printer ", 0) == 0) {
-        const auto nameBegin = std::string("printer ").size();
-        const auto nameEnd = line.find(' ', nameBegin);
-        if (nameEnd != std::string::npos) {
-          PrinterQueueInfo printer;
-          printer.name = line.substr(nameBegin, nameEnd - nameBegin);
-          printer.driverName = "CUPS";
-          const auto state = line.find(" is ", nameEnd);
-          printer.statusText = state == std::string::npos ? line.substr(nameEnd + 1U) : line.substr(state + 4U);
-          const auto status = lower(printer.statusText);
-          printer.isReady = status.find("disabled") == std::string::npos &&
-                            status.find("stopped") == std::string::npos;
-          printers.push_back(std::move(printer));
-        }
+      } else if (const auto queue = parseCupsQueueLine(line)) {
+        PrinterQueueInfo printer;
+        printer.name = queue->name;
+        printer.driverName = "CUPS";
+        printer.statusText = queue->status;
+        printer.isReady = queue->ready;
+        printers.push_back(std::move(printer));
       }
       if (end == std::string::npos) break;
       begin = end + 1U;
@@ -168,17 +162,21 @@ class CupsPrinterBackend final : public PrinterBackend {
   PrinterCheckResult probePrinter(const std::string& printerName) const override {
     if (!validQueueName(printerName)) return {false, "No printer configured"};
     std::string output;
-    if (!runCommand({"lpstat", "-p", printerName}, output)) {
+    if (!runCommand({"env", "LC_ALL=C", "lpstat", "-p", printerName}, output)) {
       return {false, output.empty() ? "Unable to query the CUPS printer queue" : output};
     }
-    const auto statusBegin = output.find(" is ");
-    if (statusBegin == std::string::npos) return {true, "Printer queue is available"};
-    auto status = output.substr(statusBegin + 4U);
-    while (!status.empty() && (status.back() == '\r' || status.back() == '\n')) status.pop_back();
-    const auto normalized = lower(status);
-    const bool ready = normalized.find("disabled") == std::string::npos &&
-                       normalized.find("stopped") == std::string::npos;
-    return {ready, status.empty() ? (ready ? "Printer queue is available" : "Printer queue is stopped") : status};
+    size_t begin = 0;
+    while (begin < output.size()) {
+      const auto end = output.find('\n', begin);
+      const auto line = output.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+      if (const auto queue = parseCupsQueueLine(line)) {
+        const std::string fallback = queue->ready ? "Printer queue is available" : "Printer queue is stopped";
+        return {queue->ready, queue->status.empty() ? fallback : queue->status};
+      }
+      if (end == std::string::npos) break;
+      begin = end + 1U;
+    }
+    return {true, "Printer queue is available"};
   }
 
   bool sendRawJob(const std::string& printerName, const std::string& jobName, const std::string& zpl,
