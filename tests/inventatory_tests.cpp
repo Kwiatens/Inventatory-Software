@@ -1164,7 +1164,6 @@ void testSqliteSchemaValidation() {
 }
 
 void testPackageGHardening() {
-#ifdef _WIN32
   {
     DigiKeyConfig baseline;
     baseline.clientId = "client-id";
@@ -1232,6 +1231,7 @@ void testPackageGHardening() {
     assert(error.find("4 MiB") != string::npos);
   }
 
+#ifdef _WIN32
   {
     string error;
     const string oversizedField = "\"" + string(1024U * 1024U + 1U, 'x') + "\"\n";
