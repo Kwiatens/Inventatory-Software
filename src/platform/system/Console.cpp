@@ -255,6 +255,27 @@ void setConsoleTitle(const string& title) {
   SetConsoleTitleA(title.c_str());
 }
 
+void requestTerminalAttention() {
+  // The existing console window is restored by BackgroundController::requestOpenFromTray.
+}
+
+void waitForAcknowledgement(int timeoutMs) {
+  const HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+  if (input == nullptr || input == INVALID_HANDLE_VALUE) return;
+  DWORD mode = 0;
+  if (GetConsoleMode(input, &mode) == 0) return;
+  FlushConsoleInputBuffer(input);
+  for (ULONGLONG start = GetTickCount64(); GetTickCount64() - start < static_cast<ULONGLONG>(timeoutMs);) {
+    if (WaitForSingleObject(input, 100) != WAIT_OBJECT_0) continue;
+    INPUT_RECORD record{};
+    DWORD count = 0;
+    if (ReadConsoleInputW(input, &record, 1, &count) != 0 && count == 1 && record.EventType == KEY_EVENT &&
+        record.Event.KeyEvent.bKeyDown != 0 && record.Event.KeyEvent.wVirtualKeyCode == VK_RETURN) {
+      return;
+    }
+  }
+}
+
 void initializeConsoleWindow() {
   SetCurrentProcessExplicitAppUserModelID(L"Kwiatens.Inventatory");
   setConsoleTitle("Inventatory");

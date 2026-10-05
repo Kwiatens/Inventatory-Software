@@ -3,6 +3,7 @@
 #include "platform/system/BackgroundController.h"
 
 #include "platform/system/Environment.h"
+#include "platform/system/StartupRegistration.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -16,6 +17,7 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <poll.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -29,14 +31,39 @@ namespace {
 
 volatile sig_atomic_t gQuitSignal = 0;
 volatile sig_atomic_t gOpenSignal = 0;
+// Self-pipe: the handler writes a byte so the signal thread sleeps in poll() instead of polling flags.
+// Both ends stay open for the life of the process so a late signal can never write to a closed
+// (or reused) descriptor.
+int gWakeRead = -1;
+int gWakeWrite = -1;
 struct sigaction gPreviousTermAction{};
+struct sigaction gPreviousHangupAction{};
 struct sigaction gPreviousInterruptAction{};
 struct sigaction gPreviousUserAction{};
 bool gSignalHandlersInstalled = false;
 
+void wakeSignalThread() {
+  if (gWakeWrite < 0) return;
+  const int savedErrno = errno;
+  const char byte = 1;
+  const auto ignored = write(gWakeWrite, &byte, 1);
+  (void)ignored;
+  errno = savedErrno;
+}
+
 void controllerSignalHandler(int signalNumber) {
   if (signalNumber == SIGUSR1) gOpenSignal = 1;
   else gQuitSignal = 1;
+  wakeSignalThread();
+}
+
+bool createWakePipe() {
+  if (gWakeRead >= 0) return true;
+  int descriptors[2]{};
+  if (pipe2(descriptors, O_CLOEXEC | O_NONBLOCK) != 0) return false;
+  gWakeRead = descriptors[0];
+  gWakeWrite = descriptors[1];
+  return true;
 }
 
 filesystem::path runtimeDirectory() {
@@ -102,29 +129,48 @@ pid_t lockedProcessId(bool backgroundMode) {
   return static_cast<pid_t>(value);
 }
 
+std::string executableName(std::string target) {
+  constexpr char kDeleted[] = " (deleted)";
+  const auto suffix = std::string(kDeleted);
+  // A binary replaced on disk (an update) is reported with this suffix while it keeps running.
+  if (target.size() > suffix.size() && target.compare(target.size() - suffix.size(), suffix.size(), suffix) == 0) {
+    target.resize(target.size() - suffix.size());
+  }
+  return filesystem::path(target).filename().string();
+}
+
+std::string readExecutableLink(const std::string& path) {
+  std::vector<char> buffer(4096U);
+  const auto length = readlink(path.c_str(), buffer.data(), buffer.size());
+  if (length <= 0 || static_cast<size_t>(length) == buffer.size()) return {};
+  return std::string(buffer.data(), static_cast<size_t>(length));
+}
+
+// The lock file only records a PID, so before signalling it make sure that PID still belongs to a
+// process of this user running this application (and not an unrelated process that reused it).
+bool processLooksLikeInventatory(pid_t process) {
+  const auto base = std::string("/proc/") + std::to_string(process);
+  struct stat status{};
+  if (stat(base.c_str(), &status) != 0 || status.st_uid != geteuid()) return false;
+  const auto target = executableName(readExecutableLink(base + "/exe"));
+  const auto own = executableName(readExecutableLink("/proc/self/exe"));
+  return !target.empty() && target == own;
+}
+
 bool sendProcessSignal(pid_t process, int signalNumber) {
   if (process <= 1) return false;
 #if defined(SYS_pidfd_open) && defined(SYS_pidfd_send_signal)
   const int processDescriptor = static_cast<int>(syscall(SYS_pidfd_open, process, 0));
   if (processDescriptor >= 0) {
-    const bool sent = syscall(SYS_pidfd_send_signal, processDescriptor, signalNumber, nullptr, 0) == 0;
+    // The descriptor pins the process, so the check below cannot be defeated by PID reuse.
+    const bool sent = processLooksLikeInventatory(process) &&
+                      syscall(SYS_pidfd_send_signal, processDescriptor, signalNumber, nullptr, 0) == 0;
     close(processDescriptor);
     return sent;
   }
   if (errno != ENOSYS && errno != EINVAL) return false;
 #endif
-  // Older kernels without pidfds still get a PID-reuse check before delivery.
-  std::vector<char> targetBuffer(4096U);
-  std::vector<char> ownBuffer(4096U);
-  const auto targetPath = std::string("/proc/") + std::to_string(process) + "/exe";
-  const auto targetLength = readlink(targetPath.c_str(), targetBuffer.data(), targetBuffer.size());
-  const auto ownLength = readlink("/proc/self/exe", ownBuffer.data(), ownBuffer.size());
-  if (targetLength <= 0 || ownLength <= 0 || static_cast<size_t>(targetLength) == targetBuffer.size() ||
-      static_cast<size_t>(ownLength) == ownBuffer.size()) return false;
-  const auto target = std::filesystem::path(std::string(targetBuffer.data(), targetLength));
-  const auto own = std::filesystem::path(std::string(ownBuffer.data(), ownLength));
-  if (target != own) return false;
-  return kill(process, signalNumber) == 0;
+  return processLooksLikeInventatory(process) && kill(process, signalNumber) == 0;
 }
 
 filesystem::path executablePath() {
@@ -140,12 +186,17 @@ filesystem::path executablePath() {
 
 bool installSignalHandlers() {
   if (gSignalHandlersInstalled) return true;
+  if (!createWakePipe()) return false;
   struct sigaction action{};
   action.sa_handler = controllerSignalHandler;
   sigemptyset(&action.sa_mask);
   action.sa_flags = 0;
   if (sigaction(SIGTERM, &action, &gPreviousTermAction) != 0 ||
       sigaction(SIGINT, &action, &gPreviousInterruptAction) != 0 ||
+      // Closing the terminal window sends SIGHUP. FTXUI re-raises the signal it received once its
+      // loop ends, so without a handler here the process would die before saving or handing the
+      // workspace back to the background service.
+      sigaction(SIGHUP, &action, &gPreviousHangupAction) != 0 ||
       sigaction(SIGUSR1, &action, &gPreviousUserAction) != 0) {
     return false;
   }
@@ -157,6 +208,7 @@ void restoreSignalHandlers() {
   if (!gSignalHandlersInstalled) return;
   sigaction(SIGTERM, &gPreviousTermAction, nullptr);
   sigaction(SIGINT, &gPreviousInterruptAction, nullptr);
+  sigaction(SIGHUP, &gPreviousHangupAction, nullptr);
   sigaction(SIGUSR1, &gPreviousUserAction, nullptr);
   gSignalHandlersInstalled = false;
 }
@@ -215,6 +267,36 @@ bool BackgroundController::waitForBackgroundServiceToStop(int timeoutMs) const {
   return true;
 }
 
+bool BackgroundController::forceStopBackgroundService() const {
+  return sendProcessSignal(lockedProcessId(true), SIGKILL);
+}
+
+BackgroundStopResult BackgroundController::stopBackgroundService(int gracefulTimeoutMs, int forcedTimeoutMs,
+                                                                 const std::function<void(int)>& onWaiting) const {
+  if (!backgroundServiceRunning()) return BackgroundStopResult::NotRunning;
+  const auto begin = std::chrono::steady_clock::now();
+  const auto elapsed = [&] { return std::chrono::steady_clock::now() - begin; };
+  const auto graceful = std::chrono::milliseconds(std::max(0, gracefulTimeoutMs));
+  bool requested = false;
+  int reportedSeconds = 0;
+  while (backgroundServiceRunning()) {
+    // The PID is written just after the lock is taken, so the request is retried until it lands.
+    if (!requested) requested = requestBackgroundServiceQuit();
+    // A request that cannot be delivered (no PID to signal) will not start working by waiting.
+    if (elapsed() >= graceful || (!requested && elapsed() >= std::chrono::seconds(3))) break;
+    const int seconds = static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(elapsed()).count());
+    if (seconds > reportedSeconds) {
+      reportedSeconds = seconds;
+      if (onWaiting) onWaiting(seconds);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (!backgroundServiceRunning()) return BackgroundStopResult::Stopped;
+  if (!forceStopBackgroundService()) return BackgroundStopResult::Failed;
+  return waitForBackgroundServiceToStop(forcedTimeoutMs) ? BackgroundStopResult::Forced
+                                                          : BackgroundStopResult::Failed;
+}
+
 bool BackgroundController::restartAsBackgroundService() {
   if (backgroundMode_) return false;
   const auto executable = executablePath();
@@ -223,6 +305,16 @@ bool BackgroundController::restartAsBackgroundService() {
     flock(instanceLockFd_, LOCK_UN);
     close(instanceLockFd_);
     instanceLockFd_ = -1;
+  }
+  // Prefer the per-user systemd unit so the service is supervised, logged and visible to
+  // `systemctl --user status`; fall back to a detached process when systemd is unavailable.
+  std::string unitError;
+  if (startBackgroundServiceUnit(unitError)) {
+    const auto unitDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (!backgroundServiceRunning() && std::chrono::steady_clock::now() < unitDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    if (backgroundServiceRunning()) return true;
   }
   const auto child = fork();
   if (child < 0) return false;
@@ -264,6 +356,11 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   trayStartupCancelled_.store(false);
   signalThread_ = std::thread([this] {
     while (!trayStartupCancelled_.load()) {
+      pollfd wake{gWakeRead, POLLIN, 0};
+      const int ready = poll(&wake, 1, -1);
+      if (ready < 0 && errno != EINTR) break;
+      char drain[64];
+      while (read(gWakeRead, drain, sizeof(drain)) > 0) {}
       if (gQuitSignal != 0) {
         gQuitSignal = 0;
         requestQuitFromTray();
@@ -272,7 +369,6 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
         gOpenSignal = 0;
         requestOpenFromTray();
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
   });
   return true;
@@ -281,6 +377,7 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
 void BackgroundController::stop() {
   enabled_.store(false);
   trayStartupCancelled_.store(true);
+  wakeSignalThread();
   if (signalThread_.joinable()) signalThread_.join();
   restoreSignalHandlers();
   if (instanceLockFd_ >= 0) {

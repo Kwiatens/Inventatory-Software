@@ -15,6 +15,13 @@ using HWND = HWND__*;
 
 namespace inventatory {
 
+enum class BackgroundStopResult {
+  NotRunning,  // no background service held its lock
+  Stopped,     // it quit after the polite request
+  Forced,      // it ignored the request and was terminated
+  Failed,      // it is still running
+};
+
 class BackgroundController {
  public:
   using Callback = std::function<void()>;
@@ -28,6 +35,14 @@ class BackgroundController {
   bool interactiveInstanceRunning() const;
   bool requestBackgroundServiceQuit() const;
   bool waitForBackgroundServiceToStop(int timeoutMs) const;
+  // Terminates a background service that ignored the quit request. Only a process verified to be
+  // this application is signalled.
+  bool forceStopBackgroundService() const;
+  // Asks the background service to quit and waits up to gracefulTimeoutMs for it to release its
+  // lock; if it does not, terminates it and waits up to forcedTimeoutMs. onWaiting (optional) is
+  // called about once a second with the seconds waited so far.
+  BackgroundStopResult stopBackgroundService(int gracefulTimeoutMs, int forcedTimeoutMs,
+                                             const std::function<void(int)>& onWaiting = {}) const;
   bool restartAsBackgroundService();
   bool start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen = {});
   void stop();

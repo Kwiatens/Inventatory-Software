@@ -178,6 +178,9 @@ class App {
   App(bool startInBackground, BackgroundController& backgroundController);
   int run();
   bool updateInstallerLaunched() const { return updateInstallerLaunched_; }
+  // True when a network worker was still running at shutdown. The final save has completed, but
+  // destroying this App would block on that worker, so the caller should exit without destroying it.
+  bool workAbandoned() const { return workAbandoned_; }
   const std::filesystem::path& updateMarkerPath() const { return updateMarkerPath_; }
 
  private:
@@ -598,6 +601,13 @@ class App {
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
+  // Shutdown variant: waits for workers only until `deadline`. Returns false when a worker
+  // outlived it; the unfinished futures and the state they use are then left untouched and
+  // workAbandoned() reports true so the caller can leave without joining them.
+  bool stopWorkspaceBoundWorkUntil(std::optional<std::chrono::steady_clock::time_point> deadline);
+  // Completes every queued device request with a 503. With closeForShutdown, later requests are
+  // refused immediately so HTTP workers never wait on a loop that is no longer running.
+  void cancelPendingDeviceRequests(const char* reason, bool closeForShutdown);
   void stopPrinterWork();
   std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
@@ -921,6 +931,11 @@ class App {
   std::atomic<bool> running_{true};
   std::atomic<bool> backgroundQuitRequested_{false};
   std::atomic<bool> foregroundRequested_{false};
+  bool workAbandoned_ = false;
+  std::atomic<bool> deviceSyncEventsHint_{true};
+  std::chrono::steady_clock::time_point lastDeviceSyncEventPoll_{};
+  // Guarded by deviceQueueMutex_.
+  bool deviceRequestsClosed_ = false;
   bool dirty_ = true;
   WorkingCopy workingCopy_;
   UndoSnapshot undoSnapshot_;

@@ -64,6 +64,10 @@ void showCursor();
 void setConsoleTitle(const string& title);
 void initializeConsoleWindow();
 bool ensureTerminalAttached(int argc, char* argv[]);
+// Asks the desktop to draw attention to this terminal window (bell / taskbar urgency).
+void requestTerminalAttention();
+// Keeps a short-lived terminal window readable: returns when Enter is pressed or after timeoutMs.
+void waitForAcknowledgement(int timeoutMs);
 #ifndef _WIN32
 vector<string> buildTerminalCandidateArgs(const string& terminalBinary, const string& executable,
                                           const vector<string>& extraArgs = {});

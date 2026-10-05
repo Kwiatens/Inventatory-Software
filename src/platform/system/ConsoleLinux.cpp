@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <string>
@@ -237,6 +238,24 @@ void setConsoleTitle(const string& title) {
   fwrite(safeTitle.data(), 1U, safeTitle.size(), stdout);
   fputs("\007", stdout);
   fflush(stdout);
+}
+
+void requestTerminalAttention() {
+  fputs("\a", stdout);
+  fflush(stdout);
+}
+
+void waitForAcknowledgement(int timeoutMs) {
+  if (isatty(STDIN_FILENO) == 0) return;
+  pollfd input{STDIN_FILENO, POLLIN, 0};
+  int ready = 0;
+  do {
+    ready = poll(&input, 1, timeoutMs);
+  } while (ready < 0 && errno == EINTR);
+  if (ready > 0 && (input.revents & POLLIN) != 0) {
+    char discard[256];
+    if (read(STDIN_FILENO, discard, sizeof(discard)) < 0) return;
+  }
 }
 
 void initializeConsoleWindow() {
