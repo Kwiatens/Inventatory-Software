@@ -2,8 +2,6 @@
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 
-#ifdef _WIN32
-
 #include <algorithm>
 #include <cctype>
 #include <string_view>
@@ -158,5 +156,3 @@ vector<string> extractCategoryPath(const JsonPtr& product) {
 
 }  // namespace digikey_detail
 }  // namespace inventatory
-
-#endif

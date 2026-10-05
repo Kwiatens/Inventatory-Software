@@ -2,8 +2,6 @@
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 
-#ifdef _WIN32
-
 #include "core/parts/PartDescriptor.h"
 #include "platform/system/Environment.h"
 
@@ -261,5 +259,3 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
 
 }  // namespace digikey_detail
 }  // namespace inventatory
-
-#endif
