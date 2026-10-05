@@ -147,7 +147,7 @@ std::string systemdUnquote(const std::string& quoted) {
 
 bool runSystemctl(const std::vector<std::string>& arguments, std::string& error) {
   int outputPipe[2]{};
-  if (pipe(outputPipe) != 0) {
+  if (pipe2(outputPipe, O_CLOEXEC) != 0) {
     error = "Unable to create a system service request";
     return false;
   }

@@ -958,7 +958,9 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
     return false;
   }
   int handshake[2]{-1, -1};
-  if (pipe(handshake) != 0 || fcntl(handshake[1], F_SETFD, FD_CLOEXEC) != 0) {
+  // Both ends are close-on-exec: a successful exec of the installer closes the write end, which is
+  // how the parent learns that the exec happened.
+  if (pipe2(handshake, O_CLOEXEC) != 0) {
     if (handshake[0] >= 0) close(handshake[0]);
     if (handshake[1] >= 0) close(handshake[1]);
     error = "Could not start the Linux update installer";

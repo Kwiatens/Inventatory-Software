@@ -64,6 +64,7 @@
 
 #ifndef _WIN32
 #include <arpa/inet.h>
+#include <cerrno>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/file.h>
@@ -4240,6 +4241,89 @@ int main() {
     assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
     assert(syncCalls == 3);
     restarted.stop();
+
+#ifndef _WIN32
+    {
+      // Linux: the listener and accepted connections must be close-on-exec so a helper process
+      // spawned while the service runs (xdg-open and the browser it starts) cannot keep the
+      // scanner port bound after the service stops or restarts.
+      const auto cloexecSocketsOnPort = [](uint16_t port, size_t& found) {
+        bool allCloexec = true;
+        found = 0;
+        for (const auto& entry : filesystem::directory_iterator("/proc/self/fd")) {
+          const int descriptor = atoi(entry.path().filename().string().c_str());
+          sockaddr_in local{};
+          socklen_t localSize = sizeof(local);
+          if (getsockname(descriptor, reinterpret_cast<sockaddr*>(&local), &localSize) != 0 ||
+              local.sin_family != AF_INET || ntohs(local.sin_port) != port) continue;
+          ++found;
+          const int flags = fcntl(descriptor, F_GETFD);
+          if (flags < 0 || (flags & FD_CLOEXEC) == 0) allCloexec = false;
+        }
+        return allCloexec;
+      };
+
+      LocalHttpServer inheritServer;
+      inheritServer.setDeviceCredentials(deviceId, rotatedToken, replayState);
+      assert(inheritServer.start(19490, onSync));
+      const uint16_t inheritPort = inheritServer.port();
+      assert(inheritPort == 19490);
+      const NativeSocket inheritClient = connectSlowLocalClient(inheritPort);
+      this_thread::sleep_for(chrono::milliseconds(100));
+      size_t socketsOnPort = 0;
+      assert(cloexecSocketsOnPort(inheritPort, socketsOnPort));
+      assert(socketsOnPort >= 1);
+
+      inheritServer.stop();
+      closeSocket(inheritClient);
+
+      // A previous application instance serves, spawns a long-lived helper (as opening a link does)
+      // and exits without a clean stop(): the helper must not keep the port in LISTEN.
+      int execReady[2]{-1, -1};
+      int helperReport[2]{-1, -1};
+      assert(pipe2(execReady, O_CLOEXEC) == 0);
+      assert(pipe2(helperReport, O_CLOEXEC) == 0);
+      const pid_t previousInstance = fork();
+      assert(previousInstance >= 0);
+      if (previousInstance == 0) {
+        LocalHttpServer previous;
+        previous.setDeviceCredentials(deviceId, rotatedToken, replayState);
+        if (!previous.start(19490, onSync)) _exit(2);
+        const pid_t helper = fork();
+        if (helper < 0) _exit(3);
+        if (helper == 0) {
+          execl("/bin/sleep", "sleep", "30", static_cast<char*>(nullptr));
+          _exit(127);
+        }
+        close(execReady[1]);
+        char readyByte = 0;
+        // EOF arrives only once the helper has exec'd (or died): its inherited copies are final.
+        while (read(execReady[0], &readyByte, 1) < 0 && errno == EINTR) {}
+        if (write(helperReport[1], &helper, sizeof(helper)) != static_cast<ssize_t>(sizeof(helper))) _exit(4);
+        _exit(0);
+      }
+      close(execReady[0]);
+      close(execReady[1]);
+      close(helperReport[1]);
+      pid_t helperPid = -1;
+      const ssize_t reported = read(helperReport[0], &helperPid, sizeof(helperPid));
+      close(helperReport[0]);
+      int previousStatus = 0;
+      assert(waitpid(previousInstance, &previousStatus, 0) == previousInstance);
+      assert(reported == static_cast<ssize_t>(sizeof(helperPid)));
+      assert(WIFEXITED(previousStatus) && WEXITSTATUS(previousStatus) == 0);
+
+      LocalHttpServer rebound;
+      rebound.setDeviceCredentials(deviceId, rotatedToken, replayState);
+      const bool reboundStarted = rebound.start(19490, onSync);
+      const uint16_t reboundPort = reboundStarted ? rebound.port() : 0;
+      rebound.stop();
+      kill(helperPid, SIGKILL);
+      waitpid(helperPid, nullptr, 0);
+      assert(reboundStarted);
+      assert(reboundPort == 19490);
+    }
+#endif
 
     const auto concurrentReplayState = stateDirectory / "concurrent-replay.state";
     atomic<int> concurrentSyncCalls{0};
