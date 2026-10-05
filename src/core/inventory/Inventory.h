@@ -281,6 +281,8 @@ struct InventoryCommitDetail {
 };
 
 vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, const InventoryStore& after);
+// True when `after` differs from `before` in any item or rack field the commit history tracks.
+bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& after);
 bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const InventoryStore& current,
                                    InventoryStore& reversed, string& conflict);
 bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryStore& current);
