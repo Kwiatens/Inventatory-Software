@@ -318,6 +318,11 @@ add_executable(inventatory_tests
   src/label_printer/layout/LabelPrinterTextLayout.cpp
 )
 
+if(NOT WIN32)
+  # Linux publishes through avahi-daemon over D-Bus (GIO, already linked below).
+  target_sources(inventatory_tests PRIVATE src/platform/scanner/MdnsService.cpp)
+endif()
+
 target_include_directories(inventatory_tests PRIVATE src)
 target_compile_definitions(inventatory_tests PRIVATE
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
