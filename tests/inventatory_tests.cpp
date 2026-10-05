@@ -5098,6 +5098,15 @@ int main() {
   }
 
   {
+    // A parameter name without ASCII letters/digits must not match every lookup.
+    assert(!parameterLabelMatches("\xE7\x94\xB5\xE5\xAE\xB9", "Package"));  // CJK name
+    assert(!parameterLabelMatches("Package", "\xE7\x94\xB5\xE5\xAE\xB9"));
+    assert(!parameterLabelMatches("", "Package"));
+    assert(parameterLabelMatches("Package / Case", "Package"));
+    assert(parameterLabelMatches("Capacitance", "capacitance"));
+  }
+
+  {
     assert(isVersionNewer("v0.1.1", "0.1.0"));
     assert(isVersionNewer("0.1.1", "0.1.0"));
     assert(isVersionNewer("v1.2.3.1", "1.2.3"));
