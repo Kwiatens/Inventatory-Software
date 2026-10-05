@@ -2,8 +2,6 @@
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 
-#ifdef _WIN32
-
 #include "core/parts/PartDescriptor.h"
 #include "platform/system/Environment.h"
 
@@ -295,5 +293,3 @@ optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& que
 
 }  // namespace digikey_detail
 }  // namespace inventatory
-
-#endif
