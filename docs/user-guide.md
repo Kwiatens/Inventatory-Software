@@ -159,9 +159,9 @@ the signed-in user, hides in the notification area after close, and continues
 the R1 service. Use the Inventatory tray icon to Open Inventatory or Quit
 Inventatory; the Windows startup entry is shown as **Inventatory Background
 Service**. On Linux, the setting manages a per-user systemd service. Launching
-Inventatory while that service is active brings the terminal UI forward through
-the existing service process; closing the UI returns it to the background
-scanner service. Linux does not provide a notification-area icon. On both
+Inventatory while that service is active stops it (forcing it after a short
+wait if it does not respond) and opens the terminal UI; closing the UI or its
+terminal window returns the workspace to the background scanner service. Linux does not provide a notification-area icon. On both
 platforms, disabling the setting removes the startup integration.
 
 An unconfigured **Settings -> Devices -> Inventatory Scan** section shows only **Begin Setup**, which opens

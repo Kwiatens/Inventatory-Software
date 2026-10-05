@@ -4,6 +4,27 @@ All notable changes to the Inventatory software are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Launching Inventatory while its background service was busy or stuck no longer fails silently: the
+  launch now waits longer with visible progress, terminates a service that does not respond, and
+  explains any failure instead of closing its window.
+- The background service now cancels in-flight scanner requests and bounds its network workers when
+  asked to quit, so it releases the workspace promptly.
+- Windows: a background service whose notification-area controller cannot start now exits instead of
+  running unreachable, no longer turns off the saved background preference, and re-adds its tray icon
+  when Explorer restarts or starts late.
+- Linux: closing the terminal window now saves the workspace and returns it to the background service.
+- Linux: launching Inventatory while it is already open now says so and flags the open window.
+- Linux: the background service is started through its systemd unit, the unit is rewritten only when
+  it changes and keeps its registered executable, and signals are only sent to verified Inventatory
+  processes.
+
+### Changed
+- The idle Linux background service uses far less CPU (event-driven signal handling and scanner
+  event polling).
+
 ## [v0.1.1] - 2026-10-04
 
 ### Changed

@@ -74,10 +74,19 @@ in the existing application on either platform.
 
 The Linux background option uses a per-user systemd unit and a private runtime
 lock. Launching Inventatory while its background scanner service is active
-opens the terminal UI through the service's signal handler; closing the UI
-returns control to the background service. It does not provide a notification
-area icon. The current Windows release retains its notification-area process
-and Windows startup integration.
+asks the service to save and quit, waits up to 12 seconds (showing progress),
+terminates it if it still has not released the workspace, and then opens the
+terminal UI. If the service cannot be stopped at all, the launch explains why
+and leaves the workspace untouched. Launching while a terminal UI is already
+open rings the bell in that window and tells the new window to close.
+
+When the UI exits normally or its terminal window is closed, the workspace is
+saved and the systemd unit is started again so the service stays supervised
+(`systemctl --user status inventatory-background.service`); a detached process
+is used only if systemd refuses. The unit is written only when its content
+changes and keeps the executable it was registered with while that file still
+exists. Linux does not provide a notification area icon. The current Windows
+release retains its notification-area process and Windows startup integration.
 
 ## Data and configuration
 
