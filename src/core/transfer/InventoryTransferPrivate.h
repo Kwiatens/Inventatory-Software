@@ -74,6 +74,24 @@ bool inspectOwnedArtifact(const std::filesystem::path& artifact, const std::file
 bool validateJournalOwnership(const RestoreJournal& journal, const std::filesystem::path& destination,
                               const std::filesystem::path& settings, string& error);
 
+// Restore replaces only Inventatory's own workspace files. Every other
+// top-level entry of the data directory is preserved by moving it (never
+// copying or deleting it) into the replacement workspace. `OldWorkspace` is a
+// data directory (or the protected copy of it); `RestoredCopy` is a staged or
+// activated replacement, where the manifest and bundled settings.conf are
+// restore-owned as well.
+enum class WorkspaceEntrySource { OldWorkspace, RestoredCopy };
+// Fails, without changing anything, when a top-level entry cannot be preserved
+// safely (a name that collides with a restored file, a folder named like a
+// managed file, an unreadable entry).
+bool checkUnmanagedEntriesPreservable(const std::filesystem::path& directory, WorkspaceEntrySource source,
+                                      string& error);
+// Renames every unmanaged top-level entry of `from` into `to`. Existing
+// entries in `to` are never overwritten. Stops at the first failure; entries
+// already moved stay moved, so callers must leave their journal in place.
+bool moveUnmanagedEntries(const std::filesystem::path& from, const std::filesystem::path& to,
+                          WorkspaceEntrySource source, const TransferOps& ops, string& error);
+
 bool copyToAtomicTarget(const std::filesystem::path& source, const std::filesystem::path& target,
                         const TransferOps& ops, string& error);
 bool restoreSettingsFromJournal(const RestoreJournal& journal, const TransferOps& ops, string& error);
