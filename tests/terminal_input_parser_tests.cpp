@@ -1,9 +1,21 @@
-#include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <utility>
 #include <vector>
 
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/terminal_input_parser.hpp>
+
+// assert() compiles to nothing under NDEBUG (Release), so the checks below
+// would never run in CI. Use an always-on check instead.
+#undef assert
+#define assert(expr)                                                                          \
+  do {                                                                                        \
+    if (!(expr)) {                                                                            \
+      std::fprintf(stderr, "Assertion failed: %s at %s:%d\n", #expr, __FILE__, __LINE__);     \
+      std::exit(1);                                                                           \
+    }                                                                                         \
+  } while (false)
 
 int main() {
   {
