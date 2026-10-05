@@ -141,7 +141,7 @@ vector<string> LocalHttpServer::addresses() const {
 }
 
 bool LocalHttpServer::bindSocket(uint16_t port, const string& ipv4Address) {
-  NativeSocket socketHandle = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  NativeSocket socketHandle = createStreamSocket();
   if (socketHandle == kInvalidSocket) {
     return false;
   }
