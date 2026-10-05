@@ -309,59 +309,93 @@ void App::stopPrinterWork() {
   }
 }
 
-void App::stopWorkspaceBoundWork() {
-  stopPrinterWork();
-  stopDigiKeyRefresh();
+namespace {
 
+// Waits for `future` to finish; false means it was still running at `deadline`.
+template <typename Future>
+bool finishWorker(Future& future, const optional<chrono::steady_clock::time_point>& deadline) {
+  if (!future.valid()) return true;
+  if (!deadline.has_value()) {
+    future.wait();
+    return true;
+  }
+  return future.wait_until(*deadline) == future_status::ready;
+}
+
+}  // namespace
+
+void App::cancelPendingDeviceRequests(const char* reason, bool closeForShutdown) {
+  lock_guard<mutex> lock(deviceQueueMutex_);
+  if (closeForShutdown) deviceRequestsClosed_ = true;
+  for (const auto& pending : deviceQuantityQueue_) {
+    lock_guard<mutex> pendingLock(pending->mutex);
+    pending->cancelled = true;
+    pending->result = {};
+    pending->result.httpStatus = 503;
+    pending->result.error = reason;
+    pending->complete = true;
+    pending->ready.notify_one();
+  }
+  deviceQuantityQueue_.clear();
+  deviceStatusQueue_.clear();
+  deviceDebugQueue_.clear();
+}
+
+void App::stopWorkspaceBoundWork() { stopWorkspaceBoundWorkUntil(nullopt); }
+
+bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point> deadline) {
+  stopPrinterWork();
+  digiKeyRefreshQueue_.clear();
+  digiKeyRefreshActiveKey_.clear();
+  scanDigiKeyEnrichmentQueue_.clear();
+  bomEnrichmentQueue_.clear();
   if (importSyncCancelFlag_ != nullptr) {
     importSyncCancelFlag_->store(true);
   }
-  if (importSyncFuture_.valid()) {
-    importSyncFuture_.wait();
+
+  // Workers capture raw pointers into the clients below, so a worker that is still running at the
+  // deadline keeps its client alive; nothing is reset until every worker has finished.
+  bool allFinished = true;
+  allFinished = finishWorker(digiKeyRefreshFuture_, deadline) && allFinished;
+  allFinished = finishWorker(importSyncFuture_, deadline) && allFinished;
+  allFinished = finishWorker(scanDigiKeyEnrichmentFuture_, deadline) && allFinished;
+  allFinished = finishWorker(bomEnrichmentFuture_, deadline) && allFinished;
+  if (!allFinished) {
+    workAbandoned_ = true;
+  } else {
+    digiKeyRefreshFuture_ = {};
+    digiKeyRefreshClient_.reset();
+    digiKeyRefreshTotal_ = 0;
+    digiKeyRefreshCompleted_ = 0;
+    digiKeyRefreshSucceeded_ = 0;
+    digiKeyRefreshFailed_ = 0;
+    digiKeyRefreshChanged_ = false;
+    digiKeyRefreshGeneration_ = 0;
+    digiKeyRefreshLastError_.clear();
+
     importSyncFuture_ = {};
-  }
-  importSyncCancelFlag_.reset();
-  importSyncRunning_ = false;
-  importSyncCancelRequested_ = false;
-  importSyncGeneration_ = 0;
+    importSyncCancelFlag_.reset();
+    importSyncRunning_ = false;
+    importSyncCancelRequested_ = false;
+    importSyncGeneration_ = 0;
 
-  if (scanDigiKeyEnrichmentFuture_.valid()) {
-    scanDigiKeyEnrichmentFuture_.wait();
     scanDigiKeyEnrichmentFuture_ = {};
-  }
-  scanDigiKeyEnrichmentQueue_.clear();
 
-  if (bomEnrichmentFuture_.valid()) {
-    bomEnrichmentFuture_.wait();
     bomEnrichmentFuture_ = {};
+    bomEnrichmentActiveKey_.clear();
+    bomEnrichmentProjectId_.clear();
+    bomEnrichmentActiveProjectId_.clear();
+    bomEnrichmentGeneration_ = 0;
+    bomEnrichmentSequence_ = 0;
+    bomEnrichmentClient_.reset();
   }
-  bomEnrichmentQueue_.clear();
-  bomEnrichmentActiveKey_.clear();
-  bomEnrichmentProjectId_.clear();
-  bomEnrichmentActiveProjectId_.clear();
-  bomEnrichmentGeneration_ = 0;
-  bomEnrichmentSequence_ = 0;
-  bomEnrichmentClient_.reset();
 
   {
     lock_guard<mutex> lock(scanMutex_);
     scanQueue_.clear();
   }
-  {
-    lock_guard<mutex> lock(deviceQueueMutex_);
-    for (const auto& pending : deviceQuantityQueue_) {
-      lock_guard<mutex> pendingLock(pending->mutex);
-      pending->cancelled = true;
-      pending->result = {};
-      pending->result.httpStatus = 503;
-      pending->result.error = "Inventatory workspace is changing";
-      pending->complete = true;
-      pending->ready.notify_one();
-    }
-    deviceQuantityQueue_.clear();
-    deviceStatusQueue_.clear();
-    deviceDebugQueue_.clear();
-  }
+  cancelPendingDeviceRequests("Inventatory workspace is changing", false);
+  return allFinished;
 }
 
 void App::requestUserExit() {

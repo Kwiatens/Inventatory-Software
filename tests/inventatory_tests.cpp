@@ -31,6 +31,7 @@
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "label_printer/core/LabelPrinterPrivate.h"
+#include "label_printer/platform/CupsStatus.h"
 #include "app/shell/AppNavigation.h"
 #include "ui/pages/history/HistoryPagePrivate.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
@@ -62,6 +63,13 @@
 
 #ifndef _WIN32
 #include <arpa/inet.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <sys/file.h>
+#include <fcntl.h>
+#include <atomic>
+#include <signal.h>
+#include <unistd.h>
 #include <sys/time.h>
 #include <stdlib.h>
 #else
@@ -557,6 +565,16 @@ void testPhysicalValueMatching() {
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
 }
 
+// Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing comma-decimal locale a failure
+// instead of a silent skip, so the locale regression tests cannot quietly stop running.
+void skipOrFailMissingLocale(const char* testName) {
+  const char* require = getenv("INVENTATORY_REQUIRE_LOCALE_TESTS");
+  if (require != nullptr && string(require) == "1") {
+    cerr << "No comma-decimal locale installed but INVENTATORY_REQUIRE_LOCALE_TESTS=1: " << testName << '\n';
+    std::exit(1);
+  }
+}
+
 // The application calls setlocale(LC_ALL, ""), so value parsing and search must
 // keep working when the user's locale writes decimals with a comma.
 void testPhysicalValueCommaDecimalLocale() {
@@ -571,6 +589,7 @@ void testPhysicalValueCommaDecimalLocale() {
   }
   if (!commaLocale) {
     setlocale(LC_ALL, previous.c_str());
+    skipOrFailMissingLocale("testPhysicalValueCommaDecimalLocale");
     cout << "No comma-decimal locale installed; skipping locale regression test\n";
     return;
   }
@@ -644,6 +663,7 @@ void testDecimalParsingCommaLocale() {
     }
   }
   setlocale(LC_ALL, previous.c_str());
+  skipOrFailMissingLocale("testDecimalParsingCommaLocale");
   cout << "No comma-decimal locale installed; skipping decimal locale regression test\n";
 }
 
@@ -1157,7 +1177,6 @@ void testSqliteSchemaValidation() {
 }
 
 void testPackageGHardening() {
-#ifdef _WIN32
   {
     DigiKeyConfig baseline;
     baseline.clientId = "client-id";
@@ -1225,6 +1244,7 @@ void testPackageGHardening() {
     assert(error.find("4 MiB") != string::npos);
   }
 
+#ifdef _WIN32
   {
     string error;
     const string oversizedField = "\"" + string(1024U * 1024U + 1U, 'x') + "\"\n";
@@ -4765,10 +4785,59 @@ int main() {
     assert(launcherContent.find("StartupWMClass=inventatory") != string::npos);
     assert(launcherContent.find("[Desktop Entry]") != string::npos);
 
+    // A second launch must not replace the launcher or icons; a replaced launcher makes Plasma
+    // revert the taskbar icon of the already running window.
+    const auto iconPath = testData / "icons" / "hicolor" / "48x48" / "apps" / "inventatory.png";
+    struct stat launcherBefore{}, iconBefore{}, desktopBefore{};
+    const auto desktopLauncherPath = testDesktop / "inventatory.desktop";
+    assert(stat(launcher.c_str(), &launcherBefore) == 0);
+    assert(stat(iconPath.c_str(), &iconBefore) == 0);
+    assert(stat(desktopLauncherPath.c_str(), &desktopBefore) == 0);
+    assert(createDesktopShortcut(shortcutError));
+    struct stat launcherAfter{}, iconAfter{}, desktopAfter{};
+    assert(stat(launcher.c_str(), &launcherAfter) == 0);
+    assert(stat(iconPath.c_str(), &iconAfter) == 0);
+    assert(stat(desktopLauncherPath.c_str(), &desktopAfter) == 0);
+    assert(launcherAfter.st_ino == launcherBefore.st_ino);
+    assert(iconAfter.st_ino == iconBefore.st_ino);
+    assert(desktopAfter.st_ino == desktopBefore.st_ino);
+    {
+      ofstream stale(launcher, ios::trunc);
+      stale << "[Desktop Entry]\nName=stale\n";
+    }
+    assert(createDesktopShortcut(shortcutError));
+    ifstream repaired(launcher);
+    const string repairedContent((istreambuf_iterator<char>(repaired)), istreambuf_iterator<char>());
+    assert(repairedContent.find("Icon=inventatory") != string::npos);
+
     char* testArgv[] = {const_cast<char*>("inventatory"), nullptr};
     if (isatty(STDIN_FILENO) != 0) {
       assert(ensureTerminalAttached(1, testArgv));
     }
+
+    const auto konsoleArgs = buildTerminalCandidateArgs("konsole", "/usr/bin/inventatory", {"--debug"});
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--separate") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--hide-menubar") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--hide-tabbar") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--hide-toolbars") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--desktopfile") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "-qwindowicon") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "Icon=inventatory") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "LocalTabTitleFormat=%w") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "ScrollBarPosition=2") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--debug") != konsoleArgs.end());
+
+    const auto gnomeArgs = buildTerminalCandidateArgs("gnome-terminal", "/usr/bin/inventatory");
+    assert(find(gnomeArgs.begin(), gnomeArgs.end(), "--hide-menubar") != gnomeArgs.end());
+    assert(find(gnomeArgs.begin(), gnomeArgs.end(), "--class=inventatory") != gnomeArgs.end());
+
+    const auto ptyxisArgs = buildTerminalCandidateArgs("ptyxis", "/usr/bin/inventatory");
+    assert(find(ptyxisArgs.begin(), ptyxisArgs.end(), "--standalone") != ptyxisArgs.end());
+    assert(find(ptyxisArgs.begin(), ptyxisArgs.end(), "--app-id=inventatory") != ptyxisArgs.end());
+
+    const auto xtermArgs = buildTerminalCandidateArgs("xterm", "/usr/bin/inventatory");
+    assert(find(xtermArgs.begin(), xtermArgs.end(), "+sb") != xtermArgs.end());
+    assert(find(xtermArgs.begin(), xtermArgs.end(), "-class") != xtermArgs.end());
 
     const auto desktopLauncher = testDesktop / "inventatory.desktop";
     assert(filesystem::is_regular_file(desktopLauncher));
@@ -4979,6 +5048,62 @@ int main() {
     assert(formatted[fixesHeadingIndex - 1].kind == UpdateNoteLineKind::Empty);
     assert(formatted[fixesHeadingIndex + 1].kind == UpdateNoteLineKind::BulletStart);
     assert(formatted[fixesHeadingIndex + 1].text == "Resolved locale bug on Linux.");
+  }
+
+  {
+    // Typed characters keep their full UTF-8 sequence and Backspace removes
+    // whole characters, so Polish letters and unit symbols never corrupt text.
+    string buffer;
+    appendKeyText(buffer, KeyEvent{KeyType::Character, 'a'});
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC5\x82"});      // ł
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC2\xB5"});      // µ
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xE2\x84\xA6"});  // Ω
+    assert(buffer == "a\xC5\x82\xC2\xB5\xE2\x84\xA6");
+    eraseLastCharacter(buffer);
+    assert(buffer == "a\xC5\x82\xC2\xB5");
+    eraseLastCharacter(buffer);
+    eraseLastCharacter(buffer);
+    assert(buffer == "a");
+    eraseLastCharacter(buffer);
+    assert(buffer.empty());
+    eraseLastCharacter(buffer);
+    assert(buffer.empty());
+    appendKeyText(buffer, KeyEvent{KeyType::Character, '\0'});
+    assert(buffer.empty());
+  }
+
+  {
+    // CUPS lpstat -p lines (parsed under LC_ALL=C): a disabled queue must not be ready.
+    const auto idle = parseCupsQueueLine("printer Zebra is idle.  enabled since Tue 05 Oct 2026 10:00:00");
+    assert(idle.has_value());
+    assert(idle->name == "Zebra");
+    assert(idle->ready);
+    assert(idle->status.rfind("idle.", 0) == 0);
+
+    const auto printing = parseCupsQueueLine("printer Zebra now printing Zebra-12.  enabled since Tue 05 Oct 2026 10:00:00");
+    assert(printing.has_value());
+    assert(printing->name == "Zebra");
+    assert(printing->ready);
+
+    const auto disabled = parseCupsQueueLine("printer Zebra disabled since Tue 05 Oct 2026 10:00:00 -");
+    assert(disabled.has_value());
+    assert(disabled->name == "Zebra");
+    assert(!disabled->ready);
+
+    assert(!parseCupsQueueLine("system default destination: Zebra").has_value());
+    assert(!parseCupsQueueLine("\treason unknown").has_value());
+    assert(!parseCupsQueueLine("").has_value());
+    assert(!parseCupsQueueLine("printer ").has_value());
+    assert(!parseCupsQueueLine("printer Zebra").has_value());
+  }
+
+  {
+    // A parameter name without ASCII letters/digits must not match every lookup.
+    assert(!parameterLabelMatches("\xE7\x94\xB5\xE5\xAE\xB9", "Package"));  // CJK name
+    assert(!parameterLabelMatches("Package", "\xE7\x94\xB5\xE5\xAE\xB9"));
+    assert(!parameterLabelMatches("", "Package"));
+    assert(parameterLabelMatches("Package / Case", "Package"));
+    assert(parameterLabelMatches("Capacitance", "capacitance"));
   }
 
   {
@@ -6072,6 +6197,13 @@ int main() {
 
 #ifndef _WIN32
   {
+    // Private runtime directory: a UI or service the developer has open must not hold these locks.
+    const auto runtimeRoot = filesystem::temp_directory_path() / ("inventatory-signal-test-" + to_string(getpid()));
+    filesystem::create_directories(runtimeRoot);
+    filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
+    const char* previousRuntime = getenv("XDG_RUNTIME_DIR");
+    const string previousRuntimeCopy = previousRuntime != nullptr ? previousRuntime : "";
+    setenv("XDG_RUNTIME_DIR", runtimeRoot.c_str(), 1);
     BackgroundController controller;
     assert(controller.acquireSingleInstance(false));
     bool opened = false;
@@ -6080,6 +6212,195 @@ int main() {
     this_thread::sleep_for(chrono::milliseconds(100));
     assert(opened);
     controller.stop();
+    if (previousRuntime != nullptr) setenv("XDG_RUNTIME_DIR", previousRuntimeCopy.c_str(), 1);
+    else unsetenv("XDG_RUNTIME_DIR");
+    error_code signalCleanupError;
+    filesystem::remove_all(runtimeRoot, signalCleanupError);
+  }
+
+  {
+    // Background-service takeover, in a private runtime directory so no real service is touched.
+    const auto runtimeRoot = filesystem::temp_directory_path() / ("inventatory-takeover-test-" + to_string(getpid()));
+    filesystem::create_directories(runtimeRoot);
+    filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
+    const char* previousRuntime = getenv("XDG_RUNTIME_DIR");
+    const string previousRuntimeCopy = previousRuntime != nullptr ? previousRuntime : "";
+    setenv("XDG_RUNTIME_DIR", runtimeRoot.c_str(), 1);
+
+    {
+      BackgroundController none;
+      assert(!none.backgroundServiceRunning());
+      assert(none.stopBackgroundService(200, 200) == BackgroundStopResult::NotRunning);
+    }
+
+    // Starts a child that owns the background lock. A cooperative child quits on SIGTERM; a stubborn
+    // one ignores it, standing in for a service stuck in its shutdown.
+    const auto spawnService = [&](bool stubborn) {
+      int ready[2]{};
+      assert(pipe(ready) == 0);
+      const pid_t child = fork();
+      assert(child >= 0);
+      if (child == 0) {
+        close(ready[0]);
+        BackgroundController service;
+        if (!service.acquireSingleInstance(true)) _exit(2);
+        atomic<bool> quit{false};
+        if (!service.start(true, true, [&quit] { quit.store(true); })) _exit(3);
+        if (stubborn) signal(SIGTERM, SIG_IGN);
+        const char go = 1;
+        if (write(ready[1], &go, 1) != 1) _exit(4);
+        close(ready[1]);
+        for (int tick = 0; tick < 3000 && (stubborn || !quit.load()); ++tick) {
+          this_thread::sleep_for(chrono::milliseconds(10));
+        }
+        service.stop();
+        _exit(stubborn ? 5 : 0);
+      }
+      close(ready[1]);
+      char go = 0;
+      assert(read(ready[0], &go, 1) == 1);
+      close(ready[0]);
+      return child;
+    };
+
+    {
+      const pid_t child = spawnService(false);
+      BackgroundController launcher;
+      assert(launcher.backgroundServiceRunning());
+      assert(launcher.stopBackgroundService(5000, 1000) == BackgroundStopResult::Stopped);
+      int status = 0;
+      assert(waitpid(child, &status, 0) == child);
+      assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+      assert(!launcher.backgroundServiceRunning());
+    }
+    {
+      const pid_t child = spawnService(true);
+      BackgroundController launcher;
+      int reported = 0;
+      assert(launcher.stopBackgroundService(1500, 2000, [&reported](int) { ++reported; }) ==
+             BackgroundStopResult::Forced);
+      assert(reported >= 1);
+      int status = 0;
+      assert(waitpid(child, &status, 0) == child);
+      assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+      assert(!launcher.backgroundServiceRunning());
+    }
+    {
+      // A stale PID that belongs to some other program must never be signalled.
+      const auto lockFile = runtimeRoot / "inventatory" / "background.lock";
+      const int descriptor = open(lockFile.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+      assert(descriptor >= 0);
+      assert(flock(descriptor, LOCK_EX | LOCK_NB) == 0);
+      const pid_t sleeper = fork();
+      assert(sleeper >= 0);
+      if (sleeper == 0) {
+        close(descriptor);
+        execlp("sleep", "sleep", "30", static_cast<char*>(nullptr));
+        _exit(127);
+      }
+      // Until it has exec'd, the child still is a copy of this test program.
+      for (int tick = 0; tick < 200; ++tick) {
+        error_code linkError;
+        if (filesystem::read_symlink("/proc/" + to_string(sleeper) + "/exe", linkError).filename() != filesystem::read_symlink("/proc/self/exe").filename()) break;
+        this_thread::sleep_for(chrono::milliseconds(10));
+      }
+      const auto text = to_string(sleeper) + "\n";
+      assert(ftruncate(descriptor, 0) == 0 && write(descriptor, text.data(), text.size()) == static_cast<ssize_t>(text.size()));
+      BackgroundController launcher;
+      assert(launcher.backgroundServiceRunning());
+      assert(!launcher.requestBackgroundServiceQuit());
+      assert(!launcher.forceStopBackgroundService());
+      assert(kill(sleeper, 0) == 0);
+      kill(sleeper, SIGKILL);
+      waitpid(sleeper, nullptr, 0);
+      close(descriptor);
+    }
+    {
+      // Closing the terminal sends SIGHUP; it must reach the quit callback instead of killing the
+      // process before its final save.
+      BackgroundController controller;
+      assert(controller.acquireSingleInstance(false));
+      atomic<bool> quit{false};
+      assert(controller.start(false, false, [&quit] { quit.store(true); }));
+      assert(raise(SIGHUP) == 0);
+      for (int tick = 0; tick < 100 && !quit.load(); ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+      assert(quit.load());
+      controller.stop();
+    }
+
+    if (previousRuntime != nullptr) setenv("XDG_RUNTIME_DIR", previousRuntimeCopy.c_str(), 1);
+    else unsetenv("XDG_RUNTIME_DIR");
+    error_code runtimeCleanupError;
+    filesystem::remove_all(runtimeRoot, runtimeCleanupError);
+  }
+
+  {
+    // The per-user unit is rewritten and reloaded only when it changes, and keeps pointing at the
+    // executable it was registered with.
+    const auto root = filesystem::temp_directory_path() / ("inventatory-unit-test-" + to_string(getpid()));
+    filesystem::create_directories(root / "bin");
+    filesystem::create_directories(root / "config");
+    const auto log = root / "systemctl.log";
+    {
+      ofstream shim(root / "bin" / "systemctl");
+      shim << "#!/bin/sh\necho \"$*\" >> '" << log.string() << "'\nexit 0\n";
+    }
+    filesystem::permissions(root / "bin" / "systemctl", filesystem::perms::owner_all, filesystem::perm_options::replace);
+    const string previousPath = getenv("PATH") != nullptr ? getenv("PATH") : "";
+    const char* previousConfig = getenv("XDG_CONFIG_HOME");
+    const string previousConfigCopy = previousConfig != nullptr ? previousConfig : "";
+    setenv("PATH", ((root / "bin").string() + ":" + previousPath).c_str(), 1);
+    setenv("XDG_CONFIG_HOME", (root / "config").c_str(), 1);
+
+    const auto countLines = [&log](const string& needle) {
+      ifstream stream(log);
+      string line;
+      int count = 0;
+      while (getline(stream, line)) count += line.find(needle) != string::npos ? 1 : 0;
+      return count;
+    };
+    string unitError;
+    const auto unit = root / "config" / "systemd" / "user" / "inventatory-background.service";
+    assert(!startBackgroundServiceUnit(unitError));  // not registered yet
+    assert(setBackgroundStartupEnabled(true, unitError));
+    assert(filesystem::is_regular_file(unit));
+    assert(countLines("daemon-reload") == 1 && countLines("enable") == 1);
+    struct stat first{}, second{};
+    assert(stat(unit.c_str(), &first) == 0);
+    assert(setBackgroundStartupEnabled(true, unitError));
+    assert(stat(unit.c_str(), &second) == 0);
+    assert(first.st_ino == second.st_ino);
+    assert(countLines("daemon-reload") == 1 && countLines("--user enable") == 1);
+
+    ifstream unitStream(unit);
+    const string unitText((istreambuf_iterator<char>(unitStream)), istreambuf_iterator<char>());
+    assert(unitText.find("After=network-online.target") == string::npos);
+    assert(unitText.find("TimeoutStopSec=15") != string::npos);
+    assert(unitText.find("--background") != string::npos);
+
+    // An existing registration that still resolves keeps its executable.
+    {
+      ofstream other(root / "other-binary");
+      other << "#!/bin/sh\n";
+    }
+    filesystem::permissions(root / "other-binary", filesystem::perms::owner_all, filesystem::perm_options::replace);
+    {
+      ofstream edited(unit, ios::trunc);
+      edited << "[Service]\nExecStart=\"" << (root / "other-binary").string() << "\" --background\n";
+    }
+    assert(setBackgroundStartupEnabled(true, unitError));
+    ifstream keptStream(unit);
+    const string keptText((istreambuf_iterator<char>(keptStream)), istreambuf_iterator<char>());
+    assert(keptText.find((root / "other-binary").string()) != string::npos);
+
+    assert(startBackgroundServiceUnit(unitError));
+    assert(countLines("start inventatory-background.service") == 1);
+
+    if (previousConfig != nullptr) setenv("XDG_CONFIG_HOME", previousConfigCopy.c_str(), 1);
+    else unsetenv("XDG_CONFIG_HOME");
+    setenv("PATH", previousPath.c_str(), 1);
+    error_code unitCleanupError;
+    filesystem::remove_all(root, unitCleanupError);
   }
 #endif
 

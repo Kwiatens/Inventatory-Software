@@ -302,6 +302,12 @@ DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& req
   pending->workspaceGeneration = context->generation;
   {
     lock_guard<mutex> lock(deviceQueueMutex_);
+    if (deviceRequestsClosed_) {
+      DeviceQuantityResult unavailable;
+      unavailable.httpStatus = 503;
+      unavailable.error = "Inventatory is shutting down";
+      return unavailable;
+    }
     if (deviceQuantityQueue_.size() >= kDeviceQuantityQueueLimit) {
       DeviceQuantityResult unavailable;
       unavailable.httpStatus = 503;

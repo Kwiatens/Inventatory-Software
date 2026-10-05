@@ -91,7 +91,8 @@ KeyEvent translateEvent(const ftxui::Event& event) {
     return {KeyType::Delete, '\0'};
   }
   if (event.is_character() && !event.character().empty()) {
-    return {KeyType::Character, event.character()[0]};
+    const auto& text = event.character();
+    return {KeyType::Character, text.size() == 1 ? text[0] : '\0', text};
   }
   return {KeyType::Unknown, '\0'};
 }
@@ -133,7 +134,16 @@ int App::run() {
       startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
         backgroundQuitRequested_.store(true);
       }, [this] { foregroundRequested_.store(true); });
-  if (!backgroundStarted && (startInBackground_ || settings_.backgroundServiceEnabled)) {
+  bool backgroundServiceUnavailable = false;
+  if (!backgroundStarted && startInBackground_) {
+    // A background process that cannot be reached through its controller can never be asked to
+    // quit by a later launch, so it must not keep running. The saved preference is left alone: the
+    // failure may be transient (for example the shell was not ready yet at sign-in) and the next
+    // sign-in should try again.
+    cerr << "Inventatory background service could not start its controller; exiting.\n";
+    running_ = false;
+    backgroundServiceUnavailable = true;
+  } else if (!backgroundStarted && settings_.backgroundServiceEnabled) {
     // A tray/controller startup failure must not leave the persisted setting
     // claiming that the background bridge is available on the next launch.
     settings_.backgroundServiceEnabled = false;
@@ -143,12 +153,12 @@ int App::run() {
     if (!saveAppSettings(settingsPath_, settings_)) {
       appSettingsSavePending_ = true;
     }
-    setMessage(startInBackground_ ? "Background service could not start; it was disabled"
-                                  : "Background service unavailable; it was disabled",
-               7);
+    setMessage("Background service unavailable; it was disabled", 7);
   }
 
-  if (startInBackground_) {
+  if (backgroundServiceUnavailable) {
+    // Skip the loop; the shutdown below still stops the services and saves.
+  } else if (startInBackground_) {
     runBackgroundLoop();
   } else {
     runInteractiveLoop();
@@ -157,9 +167,14 @@ int App::run() {
   // Stop producers before the final save.  LocalHttpServer joins all request
   // workers, and the workspace-bound futures are joined here as well, so no
   // late callback can mutate the store after the final snapshot was written.
+  //
+  // Requests parked for the (now stopped) application loop are failed first. Otherwise
+  // server_.stop() would wait for in-flight workers, which in turn wait for this thread, and a
+  // launcher waiting for this process to release its lock would time out.
+  cancelPendingDeviceRequests("Inventatory is shutting down", true);
   mdnsService_.stop();
   server_.stop();
-  stopWorkspaceBoundWork();
+  stopWorkspaceBoundWorkUntil(chrono::steady_clock::now() + chrono::seconds(3));
   const bool finalSaveSucceeded = saveState();
   if (!finalSaveSucceeded) {
     // There is no interactive frame left to display this error.  Keep the
@@ -183,7 +198,7 @@ int App::run() {
       return 1;
     }
   }
-  return finalSaveSucceeded ? 0 : 1;
+  return finalSaveSucceeded && !backgroundServiceUnavailable ? 0 : 1;
 }
 
 void App::processBackgroundWork() {
@@ -233,6 +248,10 @@ void App::runInteractiveLoop() {
   auto renderer = ftxui::Renderer([this] { return renderUi(); });
   auto component = ftxui::CatchEvent(renderer, [this, &screen](ftxui::Event event) {
     if (event == ftxui::Event::Custom) {
+      if (foregroundRequested_.exchange(false)) {
+        // Another launch found this window already open; flag it so the desktop can draw attention.
+        requestTerminalAttention();
+      }
       if (backgroundQuitRequested_.exchange(false)) {
         running_ = false;
         screen.ExitLoopClosure()();

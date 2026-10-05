@@ -11,7 +11,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <fcntl.h>
@@ -52,6 +54,28 @@ filesystem::path currentExecutablePath() {
   }
 }
 
+// Replacing a launcher or icon that already holds the same bytes still gives it a new inode and
+// mtime. Plasma then drops its link between the running window and the launcher it was started
+// from, and the taskbar falls back to the terminal emulator's own icon. Only touch the file when
+// its contents actually differ.
+bool fileHoldsContents(const filesystem::path& path, std::string_view contents) {
+  std::error_code ec;
+  if (!filesystem::is_regular_file(path, ec) || filesystem::file_size(path, ec) != contents.size() || ec) return false;
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream.is_open()) return false;
+  const std::string existing((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+  return existing == contents;
+}
+
+bool writeFileIfChanged(const filesystem::path& path, std::string_view contents, std::string* error,
+                        bool* written = nullptr) {
+  if (written != nullptr) *written = false;
+  if (fileHoldsContents(path, contents)) return true;
+  if (!writeFileAtomically(path, contents, error)) return false;
+  if (written != nullptr) *written = true;
+  return true;
+}
+
 std::string desktopQuoted(const std::string& value) {
   std::string encoded = "\"";
   for (const char ch : value) {
@@ -86,6 +110,39 @@ std::string systemdQuoted(const std::string& value) {
   }
   encoded.push_back('"');
   return encoded;
+}
+
+// Inverse of systemdQuoted for the ExecStart value this file writes.
+std::string systemdUnquote(const std::string& quoted) {
+  std::string decoded;
+  if (quoted.size() < 2U || quoted.front() != '"') return decoded;
+  const auto hexValue = [](char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    return -1;
+  };
+  for (size_t index = 1; index < quoted.size(); ++index) {
+    const char ch = quoted[index];
+    if (ch == '"') return decoded;
+    if (ch == '\\' && index + 1U < quoted.size()) {
+      const char next = quoted[++index];
+      if (next == 'x' && index + 2U < quoted.size() && hexValue(quoted[index + 1U]) >= 0 &&
+          hexValue(quoted[index + 2U]) >= 0) {
+        decoded.push_back(static_cast<char>(hexValue(quoted[index + 1U]) * 16 + hexValue(quoted[index + 2U])));
+        index += 2U;
+      } else {
+        decoded.push_back(next);
+      }
+    } else if ((ch == '%' && index + 1U < quoted.size() && quoted[index + 1U] == '%') ||
+               (ch == '$' && index + 1U < quoted.size() && quoted[index + 1U] == '$')) {
+      decoded.push_back(ch);
+      ++index;
+    } else {
+      decoded.push_back(ch);
+    }
+  }
+  return {};
 }
 
 bool runSystemctl(const std::vector<std::string>& arguments, std::string& error) {
@@ -142,6 +199,28 @@ constexpr const char* kServiceName = "inventatory-background.service";
 
 filesystem::path servicePath() { return configHome() / "systemd" / "user" / kServiceName; }
 
+// The executable an already registered unit points at, when it still exists. Launching a different
+// build (a development tree, a second install) must not silently retarget the login service.
+filesystem::path registeredExecutable() {
+  std::ifstream stream(servicePath());
+  std::string line;
+  while (std::getline(stream, line)) {
+    if (line.rfind("ExecStart=", 0) != 0) continue;
+    const auto value = line.substr(10);
+    const auto path = filesystem::u8path(systemdUnquote(value));
+    std::error_code ec;
+    if (!path.empty() && filesystem::is_regular_file(path, ec) && access(path.c_str(), X_OK) == 0) return path;
+    return {};
+  }
+  return {};
+}
+
+std::string backgroundUnitContents(const filesystem::path& executable) {
+  return "[Unit]\nDescription=Inventatory Scan R1 background service\n\n" +
+         std::string("[Service]\nType=simple\nExecStart=") + systemdQuoted(executable.u8string()) +
+         " --background\nRestart=on-failure\nTimeoutStopSec=15\n\n[Install]\nWantedBy=default.target\n";
+}
+
 }  // namespace
 
 std::wstring buildBackgroundStartupLauncherPath(const std::wstring& executablePath) {
@@ -173,7 +252,7 @@ bool installDesktopIcons(std::string& error) {
     }
     const auto iconFile = dir / "inventatory.png";
     const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
-    if (!writeFileAtomically(iconFile, iconBytes, &error)) return false;
+    if (!writeFileIfChanged(iconFile, iconBytes, &error)) return false;
   }
   const auto pixmapsDir = dataHome() / "pixmaps";
   filesystem::create_directories(pixmapsDir, ec);
@@ -181,7 +260,7 @@ bool installDesktopIcons(std::string& error) {
     for (const auto& asset : kEmbeddedIconAssets) {
       if (asset.size == 256) {
         const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
-        writeFileAtomically(pixmapsDir / "inventatory.png", iconBytes, nullptr);
+        writeFileIfChanged(pixmapsDir / "inventatory.png", iconBytes, nullptr);
         break;
       }
     }
@@ -245,22 +324,26 @@ bool createDesktopShortcut(std::string& error) {
   const std::string contents = "[Desktop Entry]\nType=Application\nName=Inventatory\nComment=Terminal inventory manager\n" +
                                std::string("Exec=") + quotedExecutable +
                                "\nIcon=inventatory\nTerminal=false\nCategories=Utility;\nStartupWMClass=inventatory\n";
-  if (!writeFileAtomically(launcher, contents, &error)) return false;
-  filesystem::permissions(launcher, filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                        filesystem::perms::owner_exec | filesystem::perms::group_read |
-                                        filesystem::perms::group_exec | filesystem::perms::others_read |
-                                        filesystem::perms::others_exec,
-                          filesystem::perm_options::replace, filesystemError);
-  if (filesystemError) {
-    error = "Unable to make the Inventatory application launcher executable: " + filesystemError.message();
-    return false;
+  bool launcherWritten = false;
+  if (!writeFileIfChanged(launcher, contents, &error, &launcherWritten)) return false;
+  if (launcherWritten) {
+    filesystem::permissions(launcher, filesystem::perms::owner_read | filesystem::perms::owner_write |
+                                          filesystem::perms::owner_exec | filesystem::perms::group_read |
+                                          filesystem::perms::group_exec | filesystem::perms::others_read |
+                                          filesystem::perms::others_exec,
+                            filesystem::perm_options::replace, filesystemError);
+    if (filesystemError) {
+      error = "Unable to make the Inventatory application launcher executable: " + filesystemError.message();
+      return false;
+    }
   }
 
   const auto desktop = userDesktopDirectory();
   if (!desktop.empty()) {
     const auto desktopLauncher = desktop / "inventatory.desktop";
     std::string desktopError;
-    if (writeFileAtomically(desktopLauncher, contents, &desktopError)) {
+    bool desktopWritten = false;
+    if (writeFileIfChanged(desktopLauncher, contents, &desktopError, &desktopWritten) && desktopWritten) {
       filesystem::permissions(desktopLauncher, filesystem::perms::owner_read | filesystem::perms::owner_write |
                                                     filesystem::perms::owner_exec | filesystem::perms::group_read |
                                                     filesystem::perms::group_exec | filesystem::perms::others_read |
@@ -292,7 +375,8 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
     return runSystemctl({"--user", "daemon-reload"}, error);
   }
 
-  const auto executable = currentExecutablePath();
+  auto executable = registeredExecutable();
+  if (executable.empty()) executable = currentExecutablePath();
   if (executable.empty()) {
     error = "Unable to find the Inventatory executable for background startup";
     return false;
@@ -303,26 +387,46 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
     error = "Unable to create the user service directory: " + filesystemError.message();
     return false;
   }
-  const std::string contents = "[Unit]\nDescription=Inventatory Scan R1 background service\nAfter=network-online.target\n\n" +
-                               std::string("[Service]\nType=simple\nExecStart=") +
-                               systemdQuoted(executable.u8string()) +
-                               " --background\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n";
-  if (!writeFileAtomically(unit, contents, &error)) return false;
-  filesystem::permissions(unit, filesystem::perms::owner_read | filesystem::perms::owner_write,
-                          filesystem::perm_options::replace, filesystemError);
-  if (filesystemError) {
-    error = "Unable to protect the Inventatory background service file: " + filesystemError.message();
-    return false;
+  // Every launch calls this; only touch the unit (and ask systemd to reload) when it changed.
+  const auto contents = backgroundUnitContents(executable);
+  const bool existed = filesystem::exists(unit, filesystemError);
+  const bool changed = !fileHoldsContents(unit, contents);
+  if (changed) {
+    if (!writeFileAtomically(unit, contents, &error)) return false;
+    filesystem::permissions(unit, filesystem::perms::owner_read | filesystem::perms::owner_write,
+                            filesystem::perm_options::replace, filesystemError);
+    if (filesystemError) {
+      error = "Unable to protect the Inventatory background service file: " + filesystemError.message();
+      return false;
+    }
   }
+  std::string enabledProbe;
+  const bool alreadyEnabled = !changed && runSystemctl({"--user", "is-enabled", "--quiet", kServiceName}, enabledProbe);
+  if (alreadyEnabled) return true;
   if (!runSystemctl({"--user", "daemon-reload"}, error) ||
       !runSystemctl({"--user", "enable", kServiceName}, error)) {
-    std::error_code ignoredFilesystemError;
-    std::string ignoredServiceError;
-    filesystem::remove(unit, ignoredFilesystemError);
-    runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
+    if (!existed) {
+      std::error_code ignoredFilesystemError;
+      std::string ignoredServiceError;
+      filesystem::remove(unit, ignoredFilesystemError);
+      runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
+    }
     return false;
   }
   return true;
+}
+
+bool startBackgroundServiceUnit(std::string& error) {
+  error.clear();
+  std::error_code filesystemError;
+  if (!filesystem::exists(servicePath(), filesystemError)) {
+    error = "The Inventatory background service is not registered";
+    return false;
+  }
+  // A unit that crashed repeatedly is refused by systemd's start-rate limit until reset.
+  std::string ignored;
+  runSystemctl({"--user", "reset-failed", kServiceName}, ignored);
+  return runSystemctl({"--user", "start", kServiceName}, error);
 }
 
 }  // namespace inventatory
