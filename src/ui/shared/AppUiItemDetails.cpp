@@ -25,8 +25,10 @@ string normalizeKey(string value) {
 
 bool categoryContains(const InventoryItem& item, initializer_list<const char*> needles) {
   const auto category = normalizeKey(displayCategory(item.category));
+  if (category.empty()) return false;
   for (const auto* needle : needles) {
     const auto normalizedNeedle = normalizeKey(needle);
+    if (normalizedNeedle.empty()) continue;
     if (category.find(normalizedNeedle) != string::npos || normalizedNeedle.find(category) != string::npos) {
       return true;
     }
@@ -37,6 +39,7 @@ bool categoryContains(const InventoryItem& item, initializer_list<const char*> n
 bool parameterLabelMatches(const string& lhs, const string& rhs) {
   const auto normalizedLhs = normalizeKey(lhs);
   const auto normalizedRhs = normalizeKey(rhs);
+  if (normalizedLhs.empty() || normalizedRhs.empty()) return false;
   return normalizedLhs == normalizedRhs || normalizedLhs.find(normalizedRhs) != string::npos ||
          normalizedRhs.find(normalizedLhs) != string::npos;
 }
