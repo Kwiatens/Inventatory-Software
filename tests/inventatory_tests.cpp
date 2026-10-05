@@ -565,6 +565,16 @@ void testPhysicalValueMatching() {
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
 }
 
+// Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing comma-decimal locale a failure
+// instead of a silent skip, so the locale regression tests cannot quietly stop running.
+void skipOrFailMissingLocale(const char* testName) {
+  const char* require = getenv("INVENTATORY_REQUIRE_LOCALE_TESTS");
+  if (require != nullptr && string(require) == "1") {
+    cerr << "No comma-decimal locale installed but INVENTATORY_REQUIRE_LOCALE_TESTS=1: " << testName << '\n';
+    std::exit(1);
+  }
+}
+
 // The application calls setlocale(LC_ALL, ""), so value parsing and search must
 // keep working when the user's locale writes decimals with a comma.
 void testPhysicalValueCommaDecimalLocale() {
@@ -579,6 +589,7 @@ void testPhysicalValueCommaDecimalLocale() {
   }
   if (!commaLocale) {
     setlocale(LC_ALL, previous.c_str());
+    skipOrFailMissingLocale("testPhysicalValueCommaDecimalLocale");
     cout << "No comma-decimal locale installed; skipping locale regression test\n";
     return;
   }
@@ -652,6 +663,7 @@ void testDecimalParsingCommaLocale() {
     }
   }
   setlocale(LC_ALL, previous.c_str());
+  skipOrFailMissingLocale("testDecimalParsingCommaLocale");
   cout << "No comma-decimal locale installed; skipping decimal locale regression test\n";
 }
 
