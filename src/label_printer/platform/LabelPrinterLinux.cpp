@@ -23,7 +23,7 @@ namespace {
 bool runCommand(const std::vector<std::string>& arguments, std::string& output) {
   if (arguments.empty()) return false;
   int descriptors[2]{};
-  if (pipe(descriptors) != 0) return false;
+  if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
   const auto child = fork();
   if (child < 0) {
     close(descriptors[0]);
@@ -186,7 +186,7 @@ class CupsPrinterBackend final : public PrinterBackend {
       return false;
     }
     int inputPipe[2]{};
-    if (pipe(inputPipe) != 0) {
+    if (pipe2(inputPipe, O_CLOEXEC) != 0) {
       if (error != nullptr) *error = "Unable to create a CUPS printer job";
       return false;
     }

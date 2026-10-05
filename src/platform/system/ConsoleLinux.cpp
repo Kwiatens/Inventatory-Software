@@ -19,6 +19,7 @@
 #include <net/if.h>
 #include <spawn.h>
 #include <sys/ioctl.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -47,7 +48,9 @@ bool executableAvailable(const char* name) {
 
 bool runCaptured(const string& executable, const vector<string>& arguments, string& output) {
   int descriptors[2]{};
-  if (pipe(descriptors) != 0) return false;
+  // Close-on-exec: the child only needs its dup2()ed copy, and a concurrently forked helper must
+  // not keep a write end open (it would stop the reader from seeing EOF).
+  if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
   const pid_t child = fork();
   if (child < 0) {
     close(descriptors[0]);
@@ -92,6 +95,16 @@ bool runCaptured(const string& executable, const vector<string>& arguments, stri
   return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+// Closes every inherited descriptor above stderr in a forked child just before exec.  Only raw
+// system calls are used, so it is async-signal-safe and does not allocate.  Everything the app
+// creates is already close-on-exec; this is defence in depth against descriptors from libraries.
+void closeInheritedDescriptors() {
+#ifdef SYS_close_range
+  if (syscall(SYS_close_range, 3U, ~0U, 0U) == 0) return;
+#endif
+  for (int descriptor = 3; descriptor < 4096; ++descriptor) close(descriptor);
+}
+
 bool spawnDetached(const string& executable, const string& argument) {
   if (!executableAvailable(executable.c_str())) return false;
   const pid_t child = fork();
@@ -108,6 +121,7 @@ bool spawnDetached(const string& executable, const string& argument) {
       dup2(nullDevice, STDERR_FILENO);
       if (nullDevice > STDERR_FILENO) close(nullDevice);
     }
+    closeInheritedDescriptors();
     execlp(executable.c_str(), executable.c_str(), argument.c_str(), static_cast<char*>(nullptr));
     _exit(127);
   }
@@ -149,7 +163,9 @@ class SigpipeBlock final {
 
 bool runClipboard(const char* executable, const vector<string>& arguments, const string& text) {
   int descriptors[2]{};
-  if (pipe(descriptors) != 0) return false;
+  // Close-on-exec: the child only needs its dup2()ed copy, and a concurrently forked helper must
+  // not keep a write end open (it would stop the reader from seeing EOF).
+  if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
   const pid_t child = fork();
   if (child < 0) {
     close(descriptors[0]);
