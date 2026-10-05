@@ -226,9 +226,15 @@ std::optional<PhysicalValue> parseRkmValue(const string& text) {
   const char marker = text[alpha];
   const bool resistanceMarker = marker == 'r' || marker == 'R';
   double multiplier = 1.0;
-  const bool knownMultiplier = parsePrefix(marker, multiplier);
-  if (!resistanceMarker && !knownMultiplier) {
+  // Only k/K/M/G/g are resistance markers in RKM position. p/n/u/m are
+  // ambiguous (4u7 may be 4.7 uF or 4.7 uH) and are left to the caller.
+  const bool resistancePrefixMarker = marker == 'k' || marker == 'K' || marker == 'M' || marker == 'g' ||
+                                      marker == 'G';
+  if (!resistanceMarker && !resistancePrefixMarker) {
     return std::nullopt;
+  }
+  if (resistancePrefixMarker) {
+    parsePrefix(marker, multiplier);
   }
 
   const auto head = text.substr(0, alpha);
@@ -243,6 +249,10 @@ std::optional<PhysicalValue> parseRkmValue(const string& text) {
   // A marker followed by digits is decimal RKM notation. A marker at the end
   // is an ordinary unit/prefix notation and is handled by parseUnit instead.
   if (tail.empty() && !resistanceMarker) {
+    return std::nullopt;
+  }
+  // Only R may omit the head (R280); M3, K4, G1 are not resistor values.
+  if (head.empty() && !resistanceMarker) {
     return std::nullopt;
   }
 
