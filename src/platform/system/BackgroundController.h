@@ -44,7 +44,14 @@ class BackgroundController {
   BackgroundStopResult stopBackgroundService(int gracefulTimeoutMs, int forcedTimeoutMs,
                                              const std::function<void(int)>& onWaiting = {}) const;
   bool restartAsBackgroundService();
+  // Linux keeps any callback it already holds when an empty one is passed, so enabling background
+  // mode later in a session does not drop the callbacks the application installed at startup.
   bool start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen = {});
+  // Ends background mode only (the "run in background" setting turned off while the process keeps
+  // running). Windows removes the notification-area icon. Linux keeps the single-instance lock, the
+  // signal handling and the callbacks, because the interactive process still owns the workspace.
+  void disableBackgroundMode();
+  // Full teardown at process shutdown; releases the single-instance ownership.
   void stop();
   bool enabled() const;
   void hideConsole(bool notifyUser);
