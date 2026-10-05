@@ -58,7 +58,9 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.mode = request.mode;
   status.pendingEventCount = request.queueDepth;
   enqueueDeviceStatus(status, context->generation);
-  if (!acceptDeviceSyncEvents(context->paths.inventory, request, response, error)) return false;
+  const bool accepted = acceptDeviceSyncEvents(context->paths.inventory, request, response, error);
+  deviceSyncEventsHint_.store(true);
+  if (!accepted) return false;
   if (request.hasLookup) {
     response.lookupResult = lookupDeviceItem(context->paths.inventory, request.lookup);
     response.hasLookupResult = true;
@@ -92,6 +94,7 @@ void App::retryFailedDeviceEvents() {
     setMessage("Unable to reopen failed scanner events", 5);
     return;
   }
+  deviceSyncEventsHint_.store(true);
   refreshDeviceEventRecords();
   setMessage(retried == 0 ? "No failed scanner events to retry"
                           : "Reopened " + to_string(retried) + " failed scanner event" +
@@ -122,10 +125,16 @@ void App::discardFailedDeviceEvents() {
 }
 
 void App::processDeviceSyncEvents() {
+  // New events announce themselves through deviceSyncEventsHint_; the periodic look is only a
+  // safety net, so an idle service does not query SQLite ten times a second.
+  const auto now = chrono::steady_clock::now();
+  if (!deviceSyncEventsHint_.exchange(false) && now - lastDeviceSyncEventPoll_ < chrono::seconds(5)) return;
+  lastDeviceSyncEventPoll_ = now;
   const auto context = currentWorkspaceContext();
   if (context == nullptr) return;
   const auto pending = loadPendingDeviceSyncEvents(context->paths.inventory, 1);
   if (pending.empty()) return;
+  deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
 
   const auto& event = pending.front();
   if (event.deviceId.empty()) {
