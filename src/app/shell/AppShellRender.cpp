@@ -235,6 +235,7 @@ ftxui::Element App::renderSearchBarUi() const {
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
                              inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
+                             inputMode_ == InputMode::BomRestock ||
                              inputMode_ == InputMode::HistorySearch ||
                              inputMode_ == InputMode::HistoryCheckpoint ||
                              inputMode_ == InputMode::ExitConfirmation);

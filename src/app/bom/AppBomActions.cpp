@@ -190,6 +190,7 @@ string App::activePrompt() const {
   if (inputMode_ == InputMode::RackFilter) return "Rack filter: ";
   if (inputMode_ == InputMode::QuantityAdjust) return "Quantity on hand: ";
   if (inputMode_ == InputMode::StocktakeCount) return "Physical count: ";
+  if (inputMode_ == InputMode::BomRestock) return "Received quantity: ";
   if (inputMode_ == InputMode::HistoryCheckpoint) return "Checkpoint name: ";
   if (inputMode_ == InputMode::ExitConfirmation) return "S save  ·  D discard  ·  Esc cancel";
   return "";
