@@ -4770,6 +4770,30 @@ int main() {
       assert(ensureTerminalAttached(1, testArgv));
     }
 
+    const auto konsoleArgs = buildTerminalCandidateArgs("konsole", "/usr/bin/inventatory", {"--debug"});
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--separate") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--hide-menubar") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--hide-tabbar") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--hide-toolbars") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--desktopfile") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "-qwindowicon") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "Icon=inventatory") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "LocalTabTitleFormat=%w") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "ScrollBarPosition=2") != konsoleArgs.end());
+    assert(find(konsoleArgs.begin(), konsoleArgs.end(), "--debug") != konsoleArgs.end());
+
+    const auto gnomeArgs = buildTerminalCandidateArgs("gnome-terminal", "/usr/bin/inventatory");
+    assert(find(gnomeArgs.begin(), gnomeArgs.end(), "--hide-menubar") != gnomeArgs.end());
+    assert(find(gnomeArgs.begin(), gnomeArgs.end(), "--class=inventatory") != gnomeArgs.end());
+
+    const auto ptyxisArgs = buildTerminalCandidateArgs("ptyxis", "/usr/bin/inventatory");
+    assert(find(ptyxisArgs.begin(), ptyxisArgs.end(), "--standalone") != ptyxisArgs.end());
+    assert(find(ptyxisArgs.begin(), ptyxisArgs.end(), "--app-id=inventatory") != ptyxisArgs.end());
+
+    const auto xtermArgs = buildTerminalCandidateArgs("xterm", "/usr/bin/inventatory");
+    assert(find(xtermArgs.begin(), xtermArgs.end(), "+sb") != xtermArgs.end());
+    assert(find(xtermArgs.begin(), xtermArgs.end(), "-class") != xtermArgs.end());
+
     const auto desktopLauncher = testDesktop / "inventatory.desktop";
     assert(filesystem::is_regular_file(desktopLauncher));
 

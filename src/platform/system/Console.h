@@ -64,6 +64,10 @@ void showCursor();
 void setConsoleTitle(const string& title);
 void initializeConsoleWindow();
 bool ensureTerminalAttached(int argc, char* argv[]);
+#ifndef _WIN32
+vector<string> buildTerminalCandidateArgs(const string& terminalBinary, const string& executable,
+                                          const vector<string>& extraArgs = {});
+#endif
 bool openUrl(const string& url);
 bool copyToClipboard(const string& text);
 bool openCsvFileDialog(filesystem::path& selectedPath);
