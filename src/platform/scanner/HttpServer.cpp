@@ -95,7 +95,7 @@ void LocalHttpServer::acceptLoop() {
     if (listeningSocket == kInvalidSocket) break;
     sockaddr_in clientAddress{};
     SocketLength clientSize = sizeof(clientAddress);
-    NativeSocket client = accept(listeningSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientSize);
+    NativeSocket client = acceptConnection(listeningSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientSize);
     if (client == kInvalidSocket) {
       if (running_.load()) continue;
       break;
