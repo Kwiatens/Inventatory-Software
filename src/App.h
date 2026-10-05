@@ -1074,7 +1074,7 @@ class App {
   std::string scanFirmwareLatestVersion_;
   bool scanFirmwareChecked_ = false;
   bool scanFirmwareCheckFailed_ = false;
-  mutable std::vector<UiTarget> uiTargets_;
+  mutable std::deque<UiTarget> uiTargets_;  // deque: element addresses must stay stable, ftxui::reflect() keeps references into it
   mutable std::string hoveredTargetId_;
   int focusedTarget_ = -1;
 };
