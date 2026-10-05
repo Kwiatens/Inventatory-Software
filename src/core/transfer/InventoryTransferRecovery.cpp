@@ -69,6 +69,20 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
     return false;
   }
   if (journal.destinationExisted) {
+    // Unmanaged entries may already have been moved out of the protected data
+    // into staging. Put them back before staging is discarded below.
+    bool stagingExists = false;
+    if (!inspectOwnedArtifact(journal.staging, journal.destination, ".restore-staging", true, false, stagingExists,
+                              stepError)) {
+      error = stepError;
+      return false;
+    }
+    if (stagingExists &&
+        !moveUnmanagedEntries(journal.staging, journal.oldData, WorkspaceEntrySource::RestoredCopy, ops,
+                              stepError)) {
+      error = "Unable to return preserved files to the protected data: " + stepError;
+      return false;
+    }
     error_code filesystemError;
     const bool destinationExists = filesystem::exists(journal.destination, filesystemError);
     if (filesystemError) {
@@ -80,6 +94,18 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
       if (!chooseUnusedSibling(journal.destination, ".restore-rollback-new", newData, stepError) ||
           !ops.rename(journal.destination, newData, stepError)) {
         error = stepError;
+        return false;
+      }
+      // The replacement was published with the preserved entries inside it.
+      // Move them back to the protected data; only restore-owned files may be
+      // removed together with the failed replacement.
+      string returnError;
+      if (!moveUnmanagedEntries(newData, journal.oldData, WorkspaceEntrySource::RestoredCopy, ops, returnError)) {
+        string restoreError;
+        if (!ops.rename(newData, journal.destination, restoreError) && !restoreError.empty()) {
+          returnError += "; failed to restore the active destination: " + restoreError;
+        }
+        error = "Unable to return preserved files to the protected data: " + returnError;
         return false;
       }
     }
@@ -152,6 +178,15 @@ bool cleanupCommittedRestore(const RestoreJournal& journal, const TransferOps& o
   }
   if (stagingExists && !ops.removeAll(journal.staging, stepError)) {
     error = "Restored data is active, but staging cleanup failed: " + stepError;
+    return false;
+  }
+  // Only Inventatory's own replaced files may be deleted with the old data.
+  // Anything else still in it (for example after an interrupted move) is
+  // moved into the active workspace; a name clash keeps the old data in place.
+  if (oldDataExists &&
+      !moveUnmanagedEntries(journal.oldData, journal.destination, WorkspaceEntrySource::OldWorkspace, ops,
+                            stepError)) {
+    error = "Restored data is active, but preserved files could not be moved back: " + stepError;
     return false;
   }
   if (oldDataExists && !ops.removeAll(journal.oldData, stepError)) {
