@@ -136,6 +136,7 @@ bool App::chooseInventatoryFolder() {
   importSourcePath_.clear();
   importOriginalStore_ = {};
   importStagedStore_ = {};
+  importMergeNotices_.clear();
   importStageActive_ = false;
   importCommitPending_ = false;
   workingCopy_ = {};

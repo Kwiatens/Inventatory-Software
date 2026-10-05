@@ -135,6 +135,7 @@ add_executable(inventatory
   src/core/history/InventoryVersionHistory.cpp
   src/core/history/InventoryVersionDiff.cpp
   src/core/inventory/InventoryMovements.cpp
+  src/core/inventory/InventoryMerge.cpp
   src/core/storage/AtomicFile.cpp
   src/core/storage/InventoryStorage.cpp
   src/core/storage/InventoryStorageSqlite.cpp
@@ -287,6 +288,7 @@ add_executable(inventatory_tests
   src/core/history/InventoryVersionDiff.cpp
   src/ui/pages/history/HistoryPagePrivate.cpp
   src/core/inventory/InventoryMovements.cpp
+  src/core/inventory/InventoryMerge.cpp
   src/core/storage/AtomicFile.cpp
   src/core/storage/InventoryStorage.cpp
   src/core/storage/InventoryStorageSqlite.cpp
