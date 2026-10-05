@@ -249,7 +249,7 @@ BackgroundStopResult BackgroundController::stopBackgroundService(
     int gracefulTimeoutMs, int forcedTimeoutMs, const std::function<void(int)>& onWaiting) const {
   if (!backgroundServiceRunning()) return BackgroundStopResult::NotRunning;
   const auto begin = GetTickCount64();
-  const ULONGLONG graceful = static_cast<ULONGLONG>(std::max(0, gracefulTimeoutMs));
+  const ULONGLONG graceful = static_cast<ULONGLONG>((std::max)(0, gracefulTimeoutMs));
   bool requested = false;
   int reportedSeconds = 0;
   while (backgroundServiceRunning()) {
