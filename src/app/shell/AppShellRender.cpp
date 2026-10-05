@@ -71,7 +71,6 @@ ftxui::Element semanticMessageRow(const string& text, UiMessageSeverity severity
 // bar; press space to open the full action sheet for the current screen.
 ftxui::Element App::renderUi() const {
   uiTargets_.clear();
-  uiTargets_.reserve(512);
   if (inventoryRecoveryRequired_) {
     return ftxui::vbox({
         ftxui::filler(),
