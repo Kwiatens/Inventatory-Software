@@ -165,6 +165,10 @@ bool readCommitSnapshot(SqliteConnection& connection, const string& id, Inventor
 
 }  // namespace
 
+bool readInventoryCommitSnapshot(SqliteConnection& connection, const string& id, InventoryStore& snapshot) {
+  return readCommitSnapshot(connection, id, snapshot);
+}
+
 bool validateInventoryCommitHistory(SqliteConnection& connection, string* error) {
   const auto fail = [&](const string& message) {
     if (error != nullptr) *error = message;

@@ -4,6 +4,7 @@
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 
+#include "core/inventory/InventoryMerge.h"
 #include "import/csv/CsvFormat.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
@@ -65,6 +66,7 @@ void App::beginCsvImport() {
   importCandidates_ = result.candidates;
   importOriginalStore_ = store_;
   importStagedStore_ = store_;
+  importMergeNotices_.clear();
   importStageActive_ = true;
   importCommitPending_ = false;
   importAcceptedItemIds_.clear();
@@ -106,6 +108,7 @@ void App::cancelImportSession() {
   importSourcePath_.clear();
   importOriginalStore_ = {};
   importStagedStore_ = {};
+  importMergeNotices_.clear();
   importStageActive_ = false;
   importCommitPending_ = false;
   importSelection_ = 0;
@@ -119,7 +122,17 @@ void App::cancelImportSession() {
 
 bool App::commitImportStage() {
   if (!importStageActive_) return true;
-  store_ = importStagedStore_;
+  if (!importCommitPending_) {
+    // The review can last minutes, during which the scanner keeps committing stock changes to
+    // store_. Replay only what the import changed relative to the snapshot taken at the start,
+    // by item id, so those changes (and parts the scanner created) are not reverted. A retry after
+    // a failed save must not replay again: store_ already holds the merged result.
+    importMergeNotices_.clear();
+    auto merged = mergeInventoryChanges(importOriginalStore_, importStagedStore_, store_, QuantityMerge::ApplyDelta,
+                                        &importMergeNotices_);
+    importOriginalStore_ = move(store_);  // what cancelImportSession restores if the save keeps failing
+    store_ = move(merged);
+  }
   if (!saveState("import", importSourcePath_.filename().string())) {
     importCommitPending_ = true;
     setMessage("Import is staged but not saved. Press R to retry or Q to cancel.", 7, UiMessageSeverity::Error);
@@ -128,6 +141,15 @@ bool App::commitImportStage() {
   }
   importStageActive_ = false;
   importCommitPending_ = false;
+  if (!importMergeNotices_.empty()) {
+    for (const auto& notice : importMergeNotices_) logActivity("import conflict", notice);
+    setMessage("Import saved. " + importMergeNotices_.front() +
+                   (importMergeNotices_.size() > 1
+                        ? " (+" + to_string(importMergeNotices_.size() - 1) + " more in Activity)"
+                        : string()),
+               8, UiMessageSeverity::Warning);
+    importMergeNotices_.clear();
+  }
   return true;
 }
 
@@ -419,6 +441,7 @@ void App::finishCsvImport(bool syncWithDigiKey) {
   importCommitPending_ = false;
   importOriginalStore_ = {};
   importStagedStore_ = {};
+  importMergeNotices_.clear();
   changePage(Page::Stock);
   setMessage(summary, 8, importSyncFailedCount_ > 0 ? UiMessageSeverity::Warning : UiMessageSeverity::Success);
 }

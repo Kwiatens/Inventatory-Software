@@ -81,6 +81,12 @@ Skip. After the final row, choose whether to enrich accepted parts with DigiKey
 metadata. Inventatory reports created, merged, skipped, and failed counts before
 returning to inventory.
 
+The review can stay open while a Scan R1 keeps updating stock. When the import is
+saved, only the accepted rows are applied on top of the current inventory by part:
+imported quantities are added to the current quantity, and parts the scanner
+created are kept. Anything that could not be merged cleanly is reported when the
+import is saved and listed in Activity.
+
 ## Project workflow
 
 A KiCad BOM becomes a project on the Projects page. Open it to compare each line
@@ -210,6 +216,13 @@ Bluetooth setup then turns off and normal mDNS discovery starts. Sync traffic
 uses the paired secret to authenticate every request and response, so an mDNS
 advertisement alone is not trusted. Hold `#` on the R1 to erase only
 provisioning and return to this flow; queued inventory events stay intact.
+
+Scanner events are applied to the saved inventory. Editing a part keeps the R1's
+stock changes made while the form was open: saving applies only the fields you
+changed (a quantity you typed replaces the scanned one and is reported). If an
+inventory save has failed and its changes are waiting for `R` to retry, scanner
+events stay queued on the desktop and are applied once the save succeeds or the
+change is discarded.
 
 On an idle R1, press `C` for the device menu. **Quick Labels** automatically checks the paired PC for the latest
 presets when opened (use `D` for the next page). **Quick Settings** changes LCD contrast, enters standby, starts OTA,
