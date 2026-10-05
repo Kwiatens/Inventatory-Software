@@ -56,7 +56,13 @@ workflows:
   provisioning. The user must enter the six-digit code shown by the scanner;
   the Linux BlueZ agent accepts the pairing only for the selected
   Inventatory service and verified code.
-- `avahi-daemon` and `avahi-utils` for private-LAN mDNS scanner discovery.
+- `avahi-daemon` for private-LAN mDNS scanner discovery. Inventatory registers
+  `_inventatory._tcp` directly with the running daemon over the system D-Bus,
+  bound to the one interface that owns the scanner service's private IPv4
+  address (never other interfaces); `avahi-utils` is not required. The daemon
+  is not started on demand: if it is not running, the service still works and
+  the app reports that network discovery is unavailable. The advertisement ends
+  when the application stops or exits.
 - `cups-client` and a configured CUPS queue for printer discovery and raw ZPL
   label output. Configure the queue for a ZPL-compatible printer.
 - `zenity` for native file and folder chooser dialogs.

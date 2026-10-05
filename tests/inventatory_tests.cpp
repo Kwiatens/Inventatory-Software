@@ -258,6 +258,27 @@ void testPrimaryNavigationContract() {
   assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('7') == nullptr);
 }
 
+#ifndef _WIN32
+// The Linux publisher talks to avahi-daemon over D-Bus, but only for an address
+// that belongs to an up, non-loopback private-LAN interface.  Anything else must
+// be refused by the interface gate before any D-Bus traffic, so these cases are
+// deterministic whether or not avahi-daemon runs on the test machine.
+void testLinuxMdnsRefusesNonPrivateInterfaces() {
+  MdnsService service;
+  service.stop();  // stop() without a prior start() is a no-op
+  assert(!service.running());
+  assert(!service.start(4567, "127.0.0.1"));       // loopback is never advertised
+  assert(!service.start(4567, "0.0.0.0"));         // wildcard is not a private LAN address
+  assert(!service.start(4567, ""));                // no bound address
+  assert(!service.start(4567, "not-an-address"));  // not parseable as an interface address
+  assert(!service.start(4567, "203.0.113.77"));    // documentation range: public, never assigned
+  assert(!service.running());
+  service.stop();
+  service.stop();  // stop() is idempotent
+  assert(!service.running());
+}
+#endif
+
 bool setScannerTestAddress(sockaddr_in& address) {
   const auto privateAddresses = privateLocalAddresses();
   const string host = privateAddresses.empty() ? "127.0.0.1" : privateAddresses.front();
@@ -1725,6 +1746,9 @@ int main() {
   testHistoryPagePresentationData();
   testHistoryPageLayoutData();
   testPrimaryNavigationContract();
+#ifndef _WIN32
+  testLinuxMdnsRefusesNonPrivateInterfaces();
+#endif
 
   {
     const auto info = uiMessagePresentation(UiMessageSeverity::Info);
