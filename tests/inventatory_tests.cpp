@@ -527,6 +527,25 @@ void testPhysicalValueParsing() {
   assert(capUpper.has_value());
   assert(capUpper->type == PhysicalValueType::Capacitance);
 
+  // RKM resistor notation keeps working.
+  assert(parsePhysicalValue("4R7")->type == PhysicalValueType::Resistance);
+  assert(std::abs(parsePhysicalValue("4R7")->value - 4.7) < 1e-12);
+  assert(std::abs(parsePhysicalValue("R280")->value - 0.28) < 1e-12);
+  assert(std::abs(parsePhysicalValue("280R")->value - 280.0) < 1e-9);
+  assert(parsePhysicalValue("4K7")->type == PhysicalValueType::Resistance);
+  assert(std::abs(parsePhysicalValue("4K7")->value - 4700.0) < 1e-9);
+  assert(std::abs(parsePhysicalValue("4k7")->value - 4700.0) < 1e-9);
+  assert(parsePhysicalValue("2M2")->type == PhysicalValueType::Resistance);
+  assert(std::abs(parsePhysicalValue("2M2")->value - 2.2e6) < 1e-3);
+  assert(std::abs(parsePhysicalValue("1G5")->value - 1.5e9) < 1.0);
+
+  // Ambiguous p/n/u/m markers in RKM position are not resistances (4u7 can be
+  // 4.7 uF or 4.7 uH), and a prefix marker without a head digit is not a value
+  // (M3 is a screw size), so queries fall back to ordinary text matching.
+  for (const char* text : {"4u7", "4U7", "4n7", "4p7", "4m7", "M3", "U1", "K4", "G1", "k7", "n5"}) {
+    assert(!parsePhysicalValue(text).has_value());
+  }
+
   // Invalid inputs
   assert(!parsePhysicalValue("").has_value());
   assert(!parsePhysicalValue("abc").has_value());
@@ -779,6 +798,46 @@ void testPhysicalValueSearchIntegration() {
     assert(named[byName[0]].id != "name-only-1uf" && named[byName[1]].id != "name-only-1uf");
     assert(filterItems(named, "100nF").size() == 2);
     assert(!findClosestPhysicalValues(named, "100nF").empty());
+  }
+
+  // Capacitor RKM notation and screw sizes are not read as resistances, so
+  // they match as ordinary text and do not rank resistors.
+  {
+    vector<InventoryItem> notation;
+    InventoryItem screw;
+    screw.id = "notation-screw";
+    screw.partName = "M3x8 screw";
+    screw.quantity = 10;
+    notation.push_back(screw);
+    InventoryItem standoff;
+    standoff.id = "notation-standoff";
+    standoff.partName = "M3 Standoff";
+    standoff.quantity = 10;
+    notation.push_back(standoff);
+    InventoryItem resistor300k;
+    resistor300k.id = "notation-300k";
+    resistor300k.partName = "Resistor";
+    resistor300k.quantity = 10;
+    resistor300k.parameters = {{"Resistance", "300 kOhm"}};
+    notation.push_back(resistor300k);
+    InventoryItem capacitor;
+    capacitor.id = "notation-4u7";
+    capacitor.partName = "Capacitor 4u7 16V";
+    capacitor.quantity = 10;
+    notation.push_back(capacitor);
+
+    const auto screws = filterItems(notation, "M3");
+    assert(screws.size() == 2);
+    for (const size_t index : screws) {
+      assert(notation[index].id == "notation-screw" || notation[index].id == "notation-standoff");
+    }
+    for (const auto& match : rankedFilterItems(notation, "M3", {}, 5)) {
+      assert(!match.hasPhysicalComparison);
+    }
+
+    const auto caps = filterItems(notation, "4u7");
+    assert(caps.size() == 1);
+    assert(notation[caps[0]].id == "notation-4u7");
   }
 
   // param: prefix should also work with physical values
