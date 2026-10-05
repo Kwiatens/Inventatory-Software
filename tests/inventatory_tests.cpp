@@ -63,6 +63,12 @@
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <sys/file.h>
+#include <fcntl.h>
+#include <atomic>
+#include <signal.h>
+#include <unistd.h>
 #include <sys/time.h>
 #include <stdlib.h>
 #else
@@ -6122,6 +6128,13 @@ int main() {
 
 #ifndef _WIN32
   {
+    // Private runtime directory: a UI or service the developer has open must not hold these locks.
+    const auto runtimeRoot = filesystem::temp_directory_path() / ("inventatory-signal-test-" + to_string(getpid()));
+    filesystem::create_directories(runtimeRoot);
+    filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
+    const char* previousRuntime = getenv("XDG_RUNTIME_DIR");
+    const string previousRuntimeCopy = previousRuntime != nullptr ? previousRuntime : "";
+    setenv("XDG_RUNTIME_DIR", runtimeRoot.c_str(), 1);
     BackgroundController controller;
     assert(controller.acquireSingleInstance(false));
     bool opened = false;
@@ -6130,6 +6143,195 @@ int main() {
     this_thread::sleep_for(chrono::milliseconds(100));
     assert(opened);
     controller.stop();
+    if (previousRuntime != nullptr) setenv("XDG_RUNTIME_DIR", previousRuntimeCopy.c_str(), 1);
+    else unsetenv("XDG_RUNTIME_DIR");
+    error_code signalCleanupError;
+    filesystem::remove_all(runtimeRoot, signalCleanupError);
+  }
+
+  {
+    // Background-service takeover, in a private runtime directory so no real service is touched.
+    const auto runtimeRoot = filesystem::temp_directory_path() / ("inventatory-takeover-test-" + to_string(getpid()));
+    filesystem::create_directories(runtimeRoot);
+    filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
+    const char* previousRuntime = getenv("XDG_RUNTIME_DIR");
+    const string previousRuntimeCopy = previousRuntime != nullptr ? previousRuntime : "";
+    setenv("XDG_RUNTIME_DIR", runtimeRoot.c_str(), 1);
+
+    {
+      BackgroundController none;
+      assert(!none.backgroundServiceRunning());
+      assert(none.stopBackgroundService(200, 200) == BackgroundStopResult::NotRunning);
+    }
+
+    // Starts a child that owns the background lock. A cooperative child quits on SIGTERM; a stubborn
+    // one ignores it, standing in for a service stuck in its shutdown.
+    const auto spawnService = [&](bool stubborn) {
+      int ready[2]{};
+      assert(pipe(ready) == 0);
+      const pid_t child = fork();
+      assert(child >= 0);
+      if (child == 0) {
+        close(ready[0]);
+        BackgroundController service;
+        if (!service.acquireSingleInstance(true)) _exit(2);
+        atomic<bool> quit{false};
+        if (!service.start(true, true, [&quit] { quit.store(true); })) _exit(3);
+        if (stubborn) signal(SIGTERM, SIG_IGN);
+        const char go = 1;
+        if (write(ready[1], &go, 1) != 1) _exit(4);
+        close(ready[1]);
+        for (int tick = 0; tick < 3000 && (stubborn || !quit.load()); ++tick) {
+          this_thread::sleep_for(chrono::milliseconds(10));
+        }
+        service.stop();
+        _exit(stubborn ? 5 : 0);
+      }
+      close(ready[1]);
+      char go = 0;
+      assert(read(ready[0], &go, 1) == 1);
+      close(ready[0]);
+      return child;
+    };
+
+    {
+      const pid_t child = spawnService(false);
+      BackgroundController launcher;
+      assert(launcher.backgroundServiceRunning());
+      assert(launcher.stopBackgroundService(5000, 1000) == BackgroundStopResult::Stopped);
+      int status = 0;
+      assert(waitpid(child, &status, 0) == child);
+      assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+      assert(!launcher.backgroundServiceRunning());
+    }
+    {
+      const pid_t child = spawnService(true);
+      BackgroundController launcher;
+      int reported = 0;
+      assert(launcher.stopBackgroundService(1500, 2000, [&reported](int) { ++reported; }) ==
+             BackgroundStopResult::Forced);
+      assert(reported >= 1);
+      int status = 0;
+      assert(waitpid(child, &status, 0) == child);
+      assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+      assert(!launcher.backgroundServiceRunning());
+    }
+    {
+      // A stale PID that belongs to some other program must never be signalled.
+      const auto lockFile = runtimeRoot / "inventatory" / "background.lock";
+      const int descriptor = open(lockFile.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+      assert(descriptor >= 0);
+      assert(flock(descriptor, LOCK_EX | LOCK_NB) == 0);
+      const pid_t sleeper = fork();
+      assert(sleeper >= 0);
+      if (sleeper == 0) {
+        close(descriptor);
+        execlp("sleep", "sleep", "30", static_cast<char*>(nullptr));
+        _exit(127);
+      }
+      // Until it has exec'd, the child still is a copy of this test program.
+      for (int tick = 0; tick < 200; ++tick) {
+        error_code linkError;
+        if (filesystem::read_symlink("/proc/" + to_string(sleeper) + "/exe", linkError).filename() != filesystem::read_symlink("/proc/self/exe").filename()) break;
+        this_thread::sleep_for(chrono::milliseconds(10));
+      }
+      const auto text = to_string(sleeper) + "\n";
+      assert(ftruncate(descriptor, 0) == 0 && write(descriptor, text.data(), text.size()) == static_cast<ssize_t>(text.size()));
+      BackgroundController launcher;
+      assert(launcher.backgroundServiceRunning());
+      assert(!launcher.requestBackgroundServiceQuit());
+      assert(!launcher.forceStopBackgroundService());
+      assert(kill(sleeper, 0) == 0);
+      kill(sleeper, SIGKILL);
+      waitpid(sleeper, nullptr, 0);
+      close(descriptor);
+    }
+    {
+      // Closing the terminal sends SIGHUP; it must reach the quit callback instead of killing the
+      // process before its final save.
+      BackgroundController controller;
+      assert(controller.acquireSingleInstance(false));
+      atomic<bool> quit{false};
+      assert(controller.start(false, false, [&quit] { quit.store(true); }));
+      assert(raise(SIGHUP) == 0);
+      for (int tick = 0; tick < 100 && !quit.load(); ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+      assert(quit.load());
+      controller.stop();
+    }
+
+    if (previousRuntime != nullptr) setenv("XDG_RUNTIME_DIR", previousRuntimeCopy.c_str(), 1);
+    else unsetenv("XDG_RUNTIME_DIR");
+    error_code runtimeCleanupError;
+    filesystem::remove_all(runtimeRoot, runtimeCleanupError);
+  }
+
+  {
+    // The per-user unit is rewritten and reloaded only when it changes, and keeps pointing at the
+    // executable it was registered with.
+    const auto root = filesystem::temp_directory_path() / ("inventatory-unit-test-" + to_string(getpid()));
+    filesystem::create_directories(root / "bin");
+    filesystem::create_directories(root / "config");
+    const auto log = root / "systemctl.log";
+    {
+      ofstream shim(root / "bin" / "systemctl");
+      shim << "#!/bin/sh\necho \"$*\" >> '" << log.string() << "'\nexit 0\n";
+    }
+    filesystem::permissions(root / "bin" / "systemctl", filesystem::perms::owner_all, filesystem::perm_options::replace);
+    const string previousPath = getenv("PATH") != nullptr ? getenv("PATH") : "";
+    const char* previousConfig = getenv("XDG_CONFIG_HOME");
+    const string previousConfigCopy = previousConfig != nullptr ? previousConfig : "";
+    setenv("PATH", ((root / "bin").string() + ":" + previousPath).c_str(), 1);
+    setenv("XDG_CONFIG_HOME", (root / "config").c_str(), 1);
+
+    const auto countLines = [&log](const string& needle) {
+      ifstream stream(log);
+      string line;
+      int count = 0;
+      while (getline(stream, line)) count += line.find(needle) != string::npos ? 1 : 0;
+      return count;
+    };
+    string unitError;
+    const auto unit = root / "config" / "systemd" / "user" / "inventatory-background.service";
+    assert(!startBackgroundServiceUnit(unitError));  // not registered yet
+    assert(setBackgroundStartupEnabled(true, unitError));
+    assert(filesystem::is_regular_file(unit));
+    assert(countLines("daemon-reload") == 1 && countLines("enable") == 1);
+    struct stat first{}, second{};
+    assert(stat(unit.c_str(), &first) == 0);
+    assert(setBackgroundStartupEnabled(true, unitError));
+    assert(stat(unit.c_str(), &second) == 0);
+    assert(first.st_ino == second.st_ino);
+    assert(countLines("daemon-reload") == 1 && countLines("--user enable") == 1);
+
+    ifstream unitStream(unit);
+    const string unitText((istreambuf_iterator<char>(unitStream)), istreambuf_iterator<char>());
+    assert(unitText.find("After=network-online.target") == string::npos);
+    assert(unitText.find("TimeoutStopSec=15") != string::npos);
+    assert(unitText.find("--background") != string::npos);
+
+    // An existing registration that still resolves keeps its executable.
+    {
+      ofstream other(root / "other-binary");
+      other << "#!/bin/sh\n";
+    }
+    filesystem::permissions(root / "other-binary", filesystem::perms::owner_all, filesystem::perm_options::replace);
+    {
+      ofstream edited(unit, ios::trunc);
+      edited << "[Service]\nExecStart=\"" << (root / "other-binary").string() << "\" --background\n";
+    }
+    assert(setBackgroundStartupEnabled(true, unitError));
+    ifstream keptStream(unit);
+    const string keptText((istreambuf_iterator<char>(keptStream)), istreambuf_iterator<char>());
+    assert(keptText.find((root / "other-binary").string()) != string::npos);
+
+    assert(startBackgroundServiceUnit(unitError));
+    assert(countLines("start inventatory-background.service") == 1);
+
+    if (previousConfig != nullptr) setenv("XDG_CONFIG_HOME", previousConfigCopy.c_str(), 1);
+    else unsetenv("XDG_CONFIG_HOME");
+    setenv("PATH", previousPath.c_str(), 1);
+    error_code unitCleanupError;
+    filesystem::remove_all(root, unitCleanupError);
   }
 #endif
 
