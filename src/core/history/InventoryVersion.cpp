@@ -45,6 +45,29 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
     return false;
   }
 
+  InventoryCommitDraft counted = draft;
+  if (!parentId.empty()) {
+    // The caller's counts come from a diff against a baseline held in memory. Only the stored
+    // parent snapshot is authoritative for validation, so derive the counts from it.
+    InventoryStore parentSnapshot;
+    if (!readInventoryCommitSnapshot(connection, parentId, parentSnapshot)) return false;
+    InventoryStore snapshot;
+    snapshot.items() = items;
+    snapshot.racks() = racks;
+    unordered_set<string> changedItems;
+    unordered_set<string> changedRacks;
+    for (const auto& change : inventoryCommitDiff(parentSnapshot, snapshot)) {
+      if (change.entityType == "item") changedItems.insert(change.entityId);
+      if (change.entityType == "rack") changedRacks.insert(change.entityId);
+    }
+    if (changedItems.empty() && changedRacks.empty() && !draft.checkpoint) {
+      committed = {};
+      return true;
+    }
+    counted.changedItemCount = changedItems.size();
+    counted.changedRackCount = changedRacks.size();
+  }
+
   InventoryCommit next;
   next.id = makeId();
   next.parentId = move(parentId);
@@ -56,8 +79,8 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
   next.checkpoint = draft.checkpoint;
   next.corrective = draft.corrective;
   next.revertedCommitId = draft.revertedCommitId;
-  next.changedItemCount = draft.changedItemCount;
-  next.changedRackCount = draft.changedRackCount;
+  next.changedItemCount = counted.changedItemCount;
+  next.changedRackCount = counted.changedRackCount;
 
   SqliteStatement statement;
   const char* sql = R"SQL(

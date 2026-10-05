@@ -167,6 +167,10 @@ vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, c
   return changes;
 }
 
+bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& after) {
+  return !inventoryCommitDiff(before, after).empty();
+}
+
 bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const InventoryStore& current,
                                    InventoryStore& reversed, string& conflict) {
   if (!detail.hasParent || detail.changes.empty()) {
