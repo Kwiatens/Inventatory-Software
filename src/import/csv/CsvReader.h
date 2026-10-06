@@ -31,7 +31,8 @@ bool decodeCsvBytes(const string& bytes, string& utf8, string& error);
 char sniffDelimiter(const string& text);
 
 // RFC4180-ish scanner. Doubled quotes inside a quoted field yield one quote,
-// CR is dropped everywhere, and fully blank rows are discarded.
+// CR is dropped everywhere, a line break inside a quoted field becomes a space (cells are single-line),
+// and fully blank rows are discarded.
 vector<vector<string>> parseCsv(const string& text, char delimiter, string& error);
 
 // Lowercases and strips every non-alphanumeric character, so "Digi-Key Part #"

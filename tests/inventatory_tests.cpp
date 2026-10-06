@@ -8361,6 +8361,11 @@ int main() {
     assert(csvError.empty() && quoted.size() == 1);
     assert(quoted[0].size() == 3 && quoted[0][1] == "a;b" && quoted[0][2] == "c\"d");
     assert(sniffDelimiter("\"a,b\";\"c,d\";e\n") == ';');
+    // A multi-line quoted cell stays one line; the row after it is still its own row.
+    const auto multiline = parseCsv("a,\"first\r\nsecond\nthird\",c\r\nd,e,f\r\n", ',', csvError);
+    assert(csvError.empty() && multiline.size() == 2);
+    assert(multiline[0].size() == 3 && multiline[0][1] == "first second third");
+    assert(multiline[1][0] == "d");
   }
 
   {
@@ -8400,6 +8405,11 @@ int main() {
     assert(!decodeCsvBytes(utf16("abc", false, {0xD83DU}), utf8, encodingError));
     assert(!decodeCsvBytes(string("\xFF\xFE\x00\x00x\x00\x00\x00", 8), utf8, encodingError));
     assert(encodingError.find("UTF-32") != string::npos);
+    // A U+0000 unit would become an embedded NUL byte; the UTF-8 route refuses those, so UTF-16 must too.
+    for (const bool littleEndian : {true, false}) {
+      assert(!decodeCsvBytes(utf16("R1;a", littleEndian, {0x0000U, 'b'}), utf8, encodingError));
+      assert(encodingError.find("NUL") != string::npos && utf8.empty());
+    }
     // Windows-1250 (0xB5 micro sign, 0xB3 for l-stroke), overlong or truncated UTF-8 and NULs without a BOM.
     for (const string bad : {string("Description\n10\xB5" "F\n"), string("Ilo\xB3\xE6\n"), string("a\xC0\x80" "b"),
                              string("a\xE2\x82"), string("a\xED\xA0\x80" "b"), string("a\xF5\x80\x80\x80"),

@@ -128,6 +128,12 @@ bool decodeCsvBytes(const string& bytes, string& utf8, string& error) {
       error = "CSV looks like UTF-16 but is truncated or corrupt; save it as CSV UTF-8 and import it again";
       return false;
     }
+    // A U+0000 unit decodes to a NUL byte, which would cut text short wherever it is bound as a C string.
+    if (utf8.find('\0') != string::npos) {
+      error = "CSV contains NUL characters; save it as CSV UTF-8 and import it again";
+      utf8.clear();
+      return false;
+    }
     return true;
   }
 
@@ -246,7 +252,11 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
           // line break cannot be closing the field, so keep it as content.
           field.push_back('"');
         }
-      } else {
+      } else if (ch == '\n') {
+        // A line break inside a quoted cell (a multi-line description) becomes a space, so every cell is
+        // one line by the time it reaches part names, the terminal and labels. CR is dropped as elsewhere.
+        field.push_back(' ');
+      } else if (ch != '\r') {
         field.push_back(ch);
       }
       if (fieldTooLarge()) return {};
