@@ -251,12 +251,6 @@ bool isSha256Digest(const string& value) {
   return all_of(value.begin(), value.end(), [](unsigned char ch) { return isxdigit(ch) != 0; });
 }
 
-string lowercaseAscii(string value) {
-  transform(value.begin(), value.end(), value.begin(),
-            [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
-  return value;
-}
-
 bool parseManifestSize(const string& text, uintmax_t& value) {
   if (text.empty() || !all_of(text.begin(), text.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) return false;
   try {
