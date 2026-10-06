@@ -353,6 +353,76 @@ void testHistoryPageLayoutData() {
   assert(minimum[0] + minimum[1] + 1 == 98);
 }
 
+#ifndef _WIN32
+// A small workspace for backup and restore tests: one stocked item with its commit history.
+void createTransferTestWorkspace(const filesystem::path& folder) {
+  filesystem::create_directories(folder);
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "link-item";
+  item.partName = "Link resistor";
+  item.category = "Resistors";
+  item.quantity = 7;
+  item.lastUpdated = 1710000000;
+  store.items().push_back(item);
+  ensureInventoryIdentifiers(store.items());
+  reconcileRackAssignments(store);
+  assert(store.save(folder / "inventory.db"));
+  assert(ensureInventoryCommitHistory(folder / "inventory.db", store));
+}
+
+void testBackupAndRestoreThroughDataFolderLinks() {
+  const auto root = filesystem::temp_directory_path() / ("inventatory-transfer-link-test-" + to_string(getpid()));
+  error_code ignored;
+  filesystem::remove_all(root, ignored);
+  const auto source = root / "source";
+  createTransferTestWorkspace(source);
+  AppSettings sourceSettings;
+  sourceSettings.dataDirectory = source;
+  sourceSettings.completedOnboardingVersion = 1;
+  assert(saveAppSettings(root / "source-settings.conf", sourceSettings));
+
+  // A data folder that is a link can be backed up.
+  const auto linkedSource = root / "linked-source";
+  filesystem::create_directory_symlink(source, linkedSource);
+  string error;
+  assert(createInventatoryBackup(linkedSource, root / "source-settings.conf", root / "bundle", "1.0.0", error));
+  assert(validateInventatoryBackup(root / "bundle", error));
+  assert(!createInventatoryBackup(root / "no-such-folder", root / "source-settings.conf", root / "bundle-2", "1.0.0", error));
+  filesystem::create_directory_symlink(root / "missing-folder", root / "dangling");
+  assert(!createInventatoryBackup(root / "dangling", root / "source-settings.conf", root / "bundle-3", "1.0.0", error));
+  assert(error.find("link") != string::npos);
+
+  // Restore through a linked data folder activates the real folder and keeps the link.
+  const auto realTarget = root / "real-target";
+  filesystem::create_directories(realTarget);
+  InventoryStore oldStore;
+  InventoryItem oldItem;
+  oldItem.id = "old-item";
+  oldItem.partName = "Old stock";
+  oldStore.items().push_back(oldItem);
+  assert(oldStore.save(realTarget / "inventory.db"));
+  writeTextFile(realTarget / "notes.txt", "user file");
+  const auto linkedTarget = root / "linked-target";
+  filesystem::create_directory_symlink(realTarget, linkedTarget);
+  AppSettings targetSettings;
+  targetSettings.dataDirectory = linkedTarget;
+  targetSettings.completedOnboardingVersion = 1;
+  assert(saveAppSettings(root / "target-settings.conf", targetSettings));
+  assert(restoreInventatoryBackup(root / "bundle", linkedTarget, root / "target-settings.conf", error));
+  assert(filesystem::is_symlink(linkedTarget));
+  InventoryStore restored;
+  assert(restored.load(linkedTarget / "inventory.db"));
+  assert(restored.items().size() == 1 && restored.items().front().id == "link-item");
+  assert(readTextFile(realTarget / "notes.txt") == "user file");
+
+  // A link that leads nowhere is refused with a message that names the link.
+  assert(!restoreInventatoryBackup(root / "bundle", root / "dangling", root / "target-settings.conf", error));
+  assert(error.find("link") != string::npos);
+  filesystem::remove_all(root, ignored);
+}
+#endif
+
 void testPrimaryNavigationContract() {
   const auto& entries = inventatory::app_navigation::primaryNavigationEntries();
   assert(entries.size() == 6);
@@ -2491,6 +2561,9 @@ int main() {
   testAtomicFileLinks();
 #endif
   testHistoryPageLayoutData();
+#ifndef _WIN32
+  testBackupAndRestoreThroughDataFolderLinks();
+#endif
   testPrimaryNavigationContract();
 #ifndef _WIN32
   testLinuxMdnsRefusesNonPrivateInterfaces();
