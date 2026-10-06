@@ -375,6 +375,10 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
 
   if (key.type != KeyType::Enter) return;
   const auto advanceScanStep = [this](ScanSetupStep next) {
+    // Every step starts with an empty field. The previous step's text (possibly the Wi-Fi
+    // password) must not carry into the next prompt or stay in memory after it was copied.
+    inputBuffer_.assign(inputBuffer_.size(), '\0');
+    inputBuffer_.clear();
     if (returnToOnboardingAfterScan_) {
       beginWizardTransition(Page::ScanSetup, onboardingStep_, next, true);
     } else {
@@ -385,7 +389,6 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
   switch (scanSetupStep_) {
     case ScanSetupStep::Introduction:
       advanceScanStep(ScanSetupStep::WifiName);
-      inputBuffer_.clear();
       break;
     case ScanSetupStep::WifiName:
       bleWifiSsid_ = trim(inputBuffer_);
