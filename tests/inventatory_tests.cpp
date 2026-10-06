@@ -897,6 +897,34 @@ void skipOrFailMissingLocale(const char* testName) {
   }
 }
 
+// The credential tests need a running, unlocked Secret Service (a desktop session, or
+// `dbus-run-session` with an unlocked gnome-keyring; see docs/linux-support.md). Without one they are
+// skipped with a visible notice and the run ends with the CTest "skipped" status (77) instead of aborting
+// every test that follows. Set INVENTATORY_REQUIRE_KEYRING_TESTS=1 (CI) to make that a failure.
+int skippedCredentialTests = 0;
+
+bool credentialStoreAvailable() {
+  static const bool available = [] {
+    const string key = "inventatory-test-probe-" +
+                       to_string(static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count()));
+    const bool wrote = CredentialStore::write(key, "probe");
+    const auto stored = CredentialStore::read(key);
+    CredentialStore::erase(key);
+    return wrote && stored.has_value() && *stored == "probe";
+  }();
+  return available;
+}
+
+void skipMissingCredentialStore(const char* testName) {
+  const char* require = getenv("INVENTATORY_REQUIRE_KEYRING_TESTS");
+  cerr << "SKIPPED (no usable credential store): " << testName << '\n';
+  if (require != nullptr && string(require) == "1") {
+    cerr << "INVENTATORY_REQUIRE_KEYRING_TESTS=1 but no unlocked Secret Service is available\n";
+    std::exit(1);
+  }
+  ++skippedCredentialTests;
+}
+
 // The application calls setlocale(LC_ALL, ""), so value parsing and search must
 // keep working when the user's locale writes decimals with a comma.
 void testPhysicalValueCommaDecimalLocale() {
@@ -3111,7 +3139,9 @@ int main() {
   assert(!onboardingRequired(false, true, 1));
   assert(!onboardingRequired(true, false, 0));
 
-  {
+  if (!credentialStoreAvailable()) {
+    skipMissingCredentialStore("credential store round trip");
+  } else {
     const string key = "release-readiness-credential-test-" +
                        to_string(static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count()));
     const bool initiallyErased = CredentialStore::erase(key);
@@ -3129,7 +3159,9 @@ int main() {
     assert(missing);
   }
 
-  {
+  if (!credentialStoreAvailable()) {
+    skipMissingCredentialStore("workspace-scoped scanner credentials");
+  } else {
     const string key = "release-readiness-scanner-scope-test-" +
                        to_string(static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count()));
     const auto scopeRoot = filesystem::temp_directory_path() / ("inventatory-scanner-scope-" + key);
@@ -8561,7 +8593,13 @@ int main() {
 
   testDeviceSyncRetryBackoff();
   testSettingsBridgeNotice();
-  testScannerCredentialResolution();
+  if (credentialStoreAvailable()) testScannerCredentialResolution();
+  else skipMissingCredentialStore("scanner credential resolution");
+  if (skippedCredentialTests > 0) {
+    cout << "Inventatory core tests passed, but " << skippedCredentialTests
+         << " credential test group(s) were SKIPPED: no unlocked Secret Service (see docs/linux-support.md)\n";
+    return 77;  // CTest SKIP_RETURN_CODE
+  }
   cout << "Inventatory core tests passed\n";
   return 0;
 }

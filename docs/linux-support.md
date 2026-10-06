@@ -27,6 +27,24 @@ cmake --build build-linux-release --parallel
 ctest --test-dir build-linux-release --output-on-failure
 ```
 
+The core tests (`inventatory_core`) exercise the credential store, so they need a
+running, unlocked Secret Service: a normal desktop session works, and a headless
+shell, container or SSH session needs a private session bus with an unlocked
+keyring, as CI uses:
+
+```sh
+sudo apt install dbus-x11 gnome-keyring
+printf '%s' 'any-password' | dbus-run-session -- bash -c '
+  eval "$(gnome-keyring-daemon --unlock --components=secrets)"
+  ctest --test-dir build-linux-debug --output-on-failure'
+```
+
+On a desktop the tests create and remove temporary entries in your login
+keyring. Without a usable Secret Service the credential test groups are skipped
+with a `SKIPPED (no usable credential store)` notice and `ctest` reports the
+suite as skipped (exit code 77) after every other test has run. Set
+`INVENTATORY_REQUIRE_KEYRING_TESTS=1`, as CI does, to make that a failure.
+
 The project builds SQLite and FTXUI from pinned source revisions. Its Linux
 executable links to OpenSSL, libcurl, libsecret, and GIO. Install locally and
 run it from a terminal with:

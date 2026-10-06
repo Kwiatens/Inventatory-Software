@@ -37,6 +37,7 @@ jobs:
       - name: Test Linux debug and release configurations
         env:
           INVENTATORY_REQUIRE_LOCALE_TESTS: "1"
+          INVENTATORY_REQUIRE_KEYRING_TESTS: "1"
         run: |
           printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
             eval "$(gnome-keyring-daemon --unlock --components=secrets)"
