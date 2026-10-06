@@ -15,8 +15,6 @@ std::string serializeRackSnapshot(const InventatoryRack& rack);
 // On failure `error` (when given) receives the reason.
 bool validateSnapshotSemantics(const InventoryStore& snapshot, std::string* error);
 
-#ifdef INVENTATORY_SQLITE_STORAGE
-
 bool ensureInventoryCommitSchema(SqliteConnection& connection);
 // Appends a commit holding the given snapshot inside the caller's transaction. The change counts
 // are recomputed here from the parent commit's stored snapshot, so they match what history
@@ -28,7 +26,5 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
 bool validateInventoryCommitHistory(SqliteConnection& connection, string* error = nullptr);
 // Reads one stored commit snapshot (items and racks) and validates it.
 bool readInventoryCommitSnapshot(SqliteConnection& connection, const string& id, InventoryStore& snapshot);
-
-#endif
 
 }  // namespace inventatory

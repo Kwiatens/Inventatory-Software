@@ -14,8 +14,6 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
-
 namespace {
 
 bool deserializeRackSnapshot(const string& line, InventatoryRack& rack) {
@@ -275,7 +273,6 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
 
 
 bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryStore& current) {
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection)) return false;
 
@@ -314,16 +311,10 @@ bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryS
     return false;
   }
   return true;
-#else
-  (void)path;
-  (void)current;
-  return false;
-#endif
 }
 
 bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits, bool validateHistory) {
   commits.clear();
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection)) return false;
   if (validateHistory && !validateInventoryCommitHistory(connection, nullptr)) return false;
@@ -352,15 +343,10 @@ bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>&
     commits.push_back(move(commit));
   }
   return stepResult == SQLITE_DONE;
-#else
-  (void)path;
-  return false;
-#endif
 }
 
 bool loadInventoryCommit(const filesystem::path& path, const string& id, InventoryCommitDetail& detail) {
   detail = {};
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection) ||
       !readCommitSummary(connection, id, detail.commit) || !readCommitSnapshot(connection, id, detail.snapshot)) {
@@ -395,14 +381,6 @@ bool loadInventoryCommit(const filesystem::path& path, const string& id, Invento
     return false;
   }
   return true;
-#else
-  (void)path;
-  (void)id;
-  return false;
-#endif
 }
-
-
-#endif
 
 }  // namespace inventatory

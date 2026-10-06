@@ -14,15 +14,10 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 namespace {
 
 int boundedSqliteLimit(size_t limit) {
   return static_cast<int>(min(limit, static_cast<size_t>(numeric_limits<int>::max())));
-}
-
-bool ensureDeviceSyncSchema(SqliteConnection& connection) {
-  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool eventIdentityMatches(SqliteConnection& connection, const string& eventId, const string& deviceId,
@@ -138,15 +133,13 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
 }
 
 }  // namespace
-#endif
 
 bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSyncRequest& request,
                             DeviceSyncResponse& response, string& error) {
   response = {};
   response.requestId = request.requestId;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     error = "Unable to open the durable device inbox";
     return false;
@@ -168,19 +161,12 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
   }
   response.results = loadResults(connection, request.deviceId, 4);
   return true;
-#else
-  (void)databasePath;
-  (void)request;
-  error = "Inventatory Scan persistence requires SQLite";
-  return false;
-#endif
 }
 
 vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& databasePath, size_t limit) {
   vector<DeviceSyncEvent> events;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return events;
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection)) return events;
   if (limit == 0) return events;
   SqliteStatement statement;
   // received_at has one-second resolution and a request carries several events, so the arrival order
@@ -202,18 +188,13 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
     events.push_back(move(event));
   }
   if (stepResult != SQLITE_DONE) events.clear();
-#else
-  (void)databasePath;
-  (void)limit;
-#endif
   return events;
 }
 
 vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path& databasePath, size_t limit) {
   vector<DeviceSyncEventRecord> records;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return records;
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection)) return records;
   if (limit == 0) return records;
   SqliteStatement statement;
   const char* sql = R"SQL(
@@ -243,18 +224,13 @@ vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path&
     records.push_back(move(record));
   }
   if (stepResult != SQLITE_DONE) records.clear();
-#else
-  (void)databasePath;
-  (void)limit;
-#endif
   return records;
 }
 
 bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& retriedCount) {
   retriedCount = 0;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
 
   SqliteStatement countStatement;
@@ -285,17 +261,12 @@ bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& r
     return false;
   }
   return true;
-#else
-  (void)databasePath;
-  return false;
-#endif
 }
 
 bool discardFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& discardedCount) {
   discardedCount = 0;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
 
   SqliteStatement countStatement;
@@ -319,10 +290,6 @@ bool discardFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t&
     return false;
   }
   return true;
-#else
-  (void)databasePath;
-  return false;
-#endif
 }
 
 DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const DeviceLookupRequest& request) {
@@ -334,7 +301,6 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
     return result;
   }
 
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection)) {
     result.status = "unavailable";
@@ -359,24 +325,19 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
     return result;
   }
   result.status = "not_found";
-#else
-  (void)databasePath;
-  result.status = "unavailable";
-#endif
   return result;
 }
 
 bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& databasePath,
                              const DeviceSyncResult& result, const InventoryStore* previousStore) {
   // Finalize identifiers in the same snapshot that is committed and returned
-  // to the application. InventoryStore::saveWithDeviceEvent() normalizes a
-  // private copy, which is sufficient for SQLite but would otherwise leave a
-  // newly received item without its Inventatory ID/machine code in live memory. The
-  // auto-label path prints from that live item immediately after this call.
+  // to the application. InventoryStore::saveWithCommit() normalizes a
+  // private copy, which would otherwise leave a newly received item without
+  // its Inventatory ID/machine code in live memory. The auto-label path
+  // prints from that live item immediately after this call.
   auto finalized = store;
   ensureInventoryIdentifiers(finalized.items());
 
-#ifdef INVENTATORY_SQLITE_STORAGE
   if (result.eventId.empty()) return false;
   string deviceId = result.deviceId;
   if (deviceId.empty()) {
@@ -390,9 +351,6 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
       return false;
     }
   }
-#else
-  const string deviceId = result.deviceId;
-#endif
 
   DeviceEventCommit commit;
   commit.eventId = result.eventId;

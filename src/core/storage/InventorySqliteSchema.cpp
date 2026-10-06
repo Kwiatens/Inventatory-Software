@@ -11,8 +11,6 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
-
 namespace {
 void setSqlError(SqliteConnection& connection, string* error, const string& fallback) {
   if (error == nullptr) return;
@@ -382,7 +380,5 @@ bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
   }
   return validateInventoryCommitHistory(connection, error);
 }
-
-#endif
 
 }  // namespace inventatory

@@ -10,8 +10,6 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
-
 bool ensureInventatoryTableSchema(SqliteConnection& connection) {
   return ensureInventoryDatabaseSchema(connection);
 }
@@ -320,7 +318,5 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
 
   return true;
 }
-
-#endif
 
 }  // namespace inventatory

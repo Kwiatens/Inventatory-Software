@@ -22,9 +22,7 @@ using std::string;
 using std::time_t;
 using std::vector;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 struct SqliteConnection;
-#endif
 
 // A pinned project keeps the BOM text rather than a file reference, so the
 // analysis can be rebuilt against current stock without the original file.
@@ -43,11 +41,9 @@ struct BomProject {
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects);
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects);
-#ifdef INVENTATORY_SQLITE_STORAGE
 // Validate the persisted BOM rows without migrating or mutating the database.
 // Backup validation uses this read-only seam before a bundle can be activated.
 bool validateBomProjects(SqliteConnection& connection, string* error = nullptr);
-#endif
 
 // How a DigiKey suggestion lookup for one BOM line ended.
 enum class BomLookupOutcome {

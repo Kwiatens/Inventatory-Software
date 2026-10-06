@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
-#include <fstream>
 #include <limits>
 #include <unordered_set>
 #include <utility>
@@ -50,7 +49,6 @@ bool storeContentChanged(const vector<InventoryItem>& beforeItems, const vector<
 
 bool InventoryStore::load(const filesystem::path& path, bool* normalized) {
   if (normalized != nullptr) *normalized = false;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
     return false;
@@ -85,36 +83,9 @@ bool InventoryStore::load(const filesystem::path& path, bool* normalized) {
   items_ = move(loadedStore.items());
   racks_ = move(loadedStore.racks());
   return true;
-#else
-  vector<InventoryItem> loadedItems;
-  ifstream file(path);
-  if (!file) {
-    return false;
-  }
-
-  string line;
-  while (getline(file, line)) {
-    line = trim(line);
-    if (line.empty() || line.front() == '#') {
-      continue;
-    }
-
-    InventoryItem item;
-    if (deserializeItem(line, item)) {
-      loadedItems.push_back(move(item));
-    }
-  }
-
-  ensureInventoryIdentifiers(loadedItems);
-  if (loadedItems.empty()) return false;
-  items_ = move(loadedItems);
-  racks_.clear();
-  return true;
-#endif
 }
 
 bool InventoryStore::save(const filesystem::path& path) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   if (!validateInventoryIdentifiers(items, racks_)) return false;
@@ -125,61 +96,21 @@ bool InventoryStore::save(const filesystem::path& path) const {
   }
 
   return writeItemsToInventatoryTable(connection, items, racks_);
-#else
-  auto items = items_;
-  ensureInventoryIdentifiers(items);
-  if (!validateInventoryIdentifiers(items, racks_)) return false;
-
-  filesystem::create_directories(path.parent_path());
-
-  ofstream file(path, ios::trunc);
-  if (!file) {
-    return false;
-  }
-
-  file << "# Inventatory inventory data\n";
-  for (const auto& item : items) {
-    file << serializeItem(item) << '\n';
-  }
-  return true;
-#endif
 }
 
 bool InventoryStore::saveWithMovements(const filesystem::path& path,
                                        const vector<InventoryMovement>& movements) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   if (!validateInventoryIdentifiers(items, racks_)) return false;
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
   return writeItemsToInventatoryTable(connection, items, racks_, nullptr, &movements);
-#else
-  (void)movements;
-  return save(path);
-#endif
-}
-
-bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
-                                          const vector<InventoryMovement>& movements) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
-  auto items = items_;
-  ensureInventoryIdentifiers(items);
-  if (!validateInventoryIdentifiers(items, racks_)) return false;
-  SqliteConnection connection;
-  if (!openDatabase(path, connection)) return false;
-  return writeItemsToInventatoryTable(connection, items, racks_, &event, &movements);
-#else
-  (void)event;
-  (void)movements;
-  return save(path);
-#endif
 }
 
 bool InventoryStore::saveWithCommit(const filesystem::path& path, const InventoryStore& previous,
                                     const InventoryCommitDraft& draft, const vector<InventoryMovement>& movements,
                                     const DeviceEventCommit* deviceEvent, InventoryCommit* committed) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   InventoryStore normalized;
@@ -225,18 +156,9 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
   return writeItemsToInventatoryTable(connection, items, racks_, deviceEvent, &movements,
                                       shouldCommit ? &enriched : nullptr, committed, true,
                                       &normalizedPrevious.items(), &normalizedPrevious.racks());
-#else
-  (void)previous;
-  (void)draft;
-  (void)movements;
-  (void)deviceEvent;
-  (void)committed;
-  return save(path);
-#endif
 }
 
 vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, size_t limit) {
-#ifdef INVENTATORY_SQLITE_STORAGE
   if (limit == 0) return {};
   error_code filesystemError;
   if (!filesystem::is_regular_file(path, filesystemError) || filesystemError) return {};
@@ -271,11 +193,6 @@ vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, s
     movements.push_back(move(movement));
   }
   return stepResult == SQLITE_DONE ? movements : vector<InventoryMovement>();
-#else
-  (void)path;
-  (void)limit;
-  return {};
-#endif
 }
 
 InventoryItem* InventoryStore::findById(const string& id) {
