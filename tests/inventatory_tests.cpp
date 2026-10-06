@@ -3626,6 +3626,38 @@ int main() {
 
 #ifdef _WIN32
   {
+    // A transient sharing violation on the destination (antivirus, indexer, cloud sync) is retried.
+    const auto retryDirectory = filesystem::temp_directory_path() / "inventatory-move-retry-test";
+    error_code retryCleanup;
+    filesystem::remove_all(retryDirectory, retryCleanup);
+    filesystem::create_directories(retryDirectory);
+    const auto retrySource = retryDirectory / "source.txt";
+    const auto retryDestination = retryDirectory / "destination.txt";
+    {
+      ofstream(retrySource, ios::binary) << "new";
+      ofstream(retryDestination, ios::binary) << "old";
+    }
+    unsigned long moveError = 0;
+    assert(!moveFileReplacing(retryDirectory / "missing.txt", retryDestination, moveError));
+    assert(moveError == 2UL);  // ERROR_FILE_NOT_FOUND is not transient and is reported at once
+
+    HANDLE held = CreateFileW(retryDestination.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    assert(held != INVALID_HANDLE_VALUE);
+    thread releaser([held] {
+      this_thread::sleep_for(chrono::milliseconds(120));
+      CloseHandle(held);
+    });
+    assert(moveFileReplacing(retrySource, retryDestination, moveError));
+    releaser.join();
+    ifstream moved(retryDestination, ios::binary);
+    const string movedText((istreambuf_iterator<char>(moved)), istreambuf_iterator<char>());
+    assert(movedText == "new");
+    moved.close();
+    filesystem::remove_all(retryDirectory, retryCleanup);
+  }
+
+  {
     // Characters outside the ANSI code page must survive the environment lookup (UTF-8 out).
     assert(_wputenv_s(L"INVENTATORY_TEST_ENVIRONMENT_WIDE", L"\u0141\u00f3d\u017a") == 0);
     const auto wide = environmentValue("INVENTATORY_TEST_ENVIRONMENT_WIDE");

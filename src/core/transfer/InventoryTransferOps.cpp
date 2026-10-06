@@ -53,6 +53,14 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
   return true;
 }
 
+#ifdef _WIN32
+bool transientWindowsMoveError(const error_code& error) {
+  if (error.category() != system_category()) return false;
+  const int code = error.value();
+  return code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION;
+}
+#endif
+
 }  // namespace
 
   bool TransferOps::copy(const filesystem::path& source, const filesystem::path& destination, string& error) const {
@@ -76,6 +84,15 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
     if (hooks != nullptr && hooks->renamePath) return hooks->renamePath(source, destination, error);
     error_code filesystemError;
     filesystem::rename(source, destination, filesystemError);
+#ifdef _WIN32
+    // An antivirus scan, the search indexer or cloud sync can briefly hold a handle inside a folder
+    // that is being moved; such access and sharing violations usually clear within a moment.
+    for (int attempt = 1; filesystemError && attempt < 5 && transientWindowsMoveError(filesystemError); ++attempt) {
+      Sleep(static_cast<DWORD>(50 * attempt));
+      filesystemError.clear();
+      filesystem::rename(source, destination, filesystemError);
+    }
+#endif
     if (filesystemError) {
       error = "Unable to rename " + source.u8string() + ": " + filesystemError.message();
       return false;
@@ -97,8 +114,9 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
   bool TransferOps::replace(const filesystem::path& source, const filesystem::path& destination, string& error) const {
     if (hooks != nullptr && hooks->replaceFile) return hooks->replaceFile(source, destination, error);
 #ifdef _WIN32
-    if (!MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-      error = "Unable to atomically replace " + destination.u8string();
+    unsigned long moveError = 0;
+    if (!moveFileReplacing(source, destination, moveError)) {
+      error = "Unable to atomically replace " + destination.u8string() + " (Win32 error " + to_string(moveError) + ")";
       return false;
     }
     return true;
