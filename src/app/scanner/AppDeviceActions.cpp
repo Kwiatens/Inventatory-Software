@@ -284,12 +284,10 @@ void App::adjustDeviceDebugScroll(int delta) {
 }
 
 void App::processDeviceRequests() {
-  vector<shared_ptr<PendingDeviceQuantity>> quantities;
   vector<QueuedDeviceStatus> statuses;
   vector<QueuedDeviceDebug> debugReports;
   {
     lock_guard<mutex> lock(deviceQueueMutex_);
-    quantities.swap(deviceQuantityQueue_);
     statuses.swap(deviceStatusQueue_);
     debugReports.swap(deviceDebugQueue_);
   }
@@ -310,8 +308,6 @@ void App::processDeviceRequests() {
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(status.deviceId);
       inventatoryScanConfig_.setupComplete = true;
-      deviceRequestCache_.clear();
-      deviceRequestOrder_.clear();
       clearQuickLabelPrintCache();
       saveScannerConfigChecked(true);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
@@ -337,67 +333,6 @@ void App::processDeviceRequests() {
                                : 0;
     }
     dirty_ = true;
-  }
-
-  for (const auto& pending : quantities) {
-    {
-      lock_guard<mutex> pendingLock(pending->mutex);
-      if (pending->cancelled || !workspaceIsCurrent(pending->workspaceGeneration)) {
-        pending->result = {};
-        pending->result.httpStatus = 409;
-        pending->result.error = "Inventatory workspace changed before the request was processed";
-        pending->complete = true;
-        pending->ready.notify_one();
-        continue;
-      }
-    }
-    bool pairingChanged = false;
-    if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(pending->request.deviceId).empty()) {
-      inventatoryScanConfig_.deviceId = trim(pending->request.deviceId);
-      inventatoryScanConfig_.setupComplete = true;
-      pairingChanged = true;
-      deviceRequestCache_.clear();
-      deviceRequestOrder_.clear();
-      clearQuickLabelPrintCache();
-    }
-    const auto before = store_;
-    auto result = applyDeviceQuantityCached(store_, pending->request, pending->workspaceGeneration,
-                                             deviceRequestCache_, deviceRequestOrder_);
-    if (pairingChanged) {
-      saveScannerConfigChecked(false);
-      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                                   inventatoryScanReplayStatePath(dataPath_));
-    }
-    if (result.ok) {
-      logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",
-                  result.item + " quantity changed by " + to_string(result.appliedDelta) +
-                      " to " + to_string(result.quantity));
-      if (!saveState("scanner", pending->request.requestId)) {
-        store_ = before;
-        deviceRequestCache_.erase(pending->request.requestId);
-        deviceRequestOrder_.erase(
-            remove(deviceRequestOrder_.begin(), deviceRequestOrder_.end(), pending->request.requestId),
-            deviceRequestOrder_.end());
-        result.ok = false;
-        result.httpStatus = 503;
-        result.error = persistenceError_.empty() ? "Inventatory could not persist the scanner update" : persistenceError_;
-        deviceLastResult_ = "ERROR " + result.error;
-      } else {
-        scannerFlashUntil_ = time(nullptr) + 3;
-        deviceLastResult_ = (result.appliedDelta >= 0 ? "+" : "") + to_string(result.appliedDelta) +
-                            " " + result.item + " QTY " + to_string(result.quantity);
-      }
-    } else {
-      deviceLastResult_ = "ERROR " + result.error;
-    }
-    deviceLastSeen_ = time(nullptr);
-    dirty_ = true;
-    {
-      lock_guard<mutex> lock(pending->mutex);
-      pending->result = result;
-      pending->complete = true;
-    }
-    pending->ready.notify_one();
   }
 }
 

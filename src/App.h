@@ -37,7 +37,6 @@
 #include <cstdint>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <charconv>
 #include <deque>
 #include <filesystem>
@@ -384,16 +383,6 @@ class App {
     bool valid = false;
   };
 
-  struct PendingDeviceQuantity {
-    DeviceQuantityRequest request;
-    DeviceQuantityResult result;
-    WorkspaceGeneration workspaceGeneration = 0;
-    std::mutex mutex;
-    std::condition_variable ready;
-    bool complete = false;
-    bool cancelled = false;
-  };
-
   // Immutable once published. Background work captures one snapshot so a
   // later data-directory change cannot redirect its completion to a new DB.
   struct WorkspaceContext {
@@ -631,7 +620,7 @@ class App {
   bool stopWorkspaceBoundWorkUntil(std::optional<std::chrono::steady_clock::time_point> deadline);
   // Completes every queued device request with a 503. With closeForShutdown, later requests are
   // refused immediately so HTTP workers never wait on a loop that is no longer running.
-  void cancelPendingDeviceRequests(const char* reason, bool closeForShutdown);
+  void cancelPendingDeviceRequests();
   void stopPrinterWork();
   std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
@@ -944,13 +933,10 @@ class App {
   std::mutex scanMutex_;
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
-  std::vector<std::shared_ptr<PendingDeviceQuantity>> deviceQuantityQueue_;
   std::vector<QueuedDeviceStatus> deviceStatusQueue_;
   std::vector<QueuedDeviceDebug> deviceDebugQueue_;
   std::vector<DeviceSyncEventRecord> deviceEventRecords_;
   std::vector<std::string> deviceDebugLog_;
-  std::unordered_map<std::string, DeviceQuantityCacheEntry> deviceRequestCache_;
-  std::deque<std::string> deviceRequestOrder_;
   time_t deviceLastSeen_ = 0;
   std::string deviceFirmwareVersion_;
   int deviceRssi_ = 0;
@@ -972,8 +958,6 @@ class App {
   int deviceSyncCommitFailures_ = 0;
   std::chrono::steady_clock::time_point deviceSyncRetryAfter_{};
   WorkspaceGeneration deviceSyncRetryGeneration_ = 0;
-  // Guarded by deviceQueueMutex_.
-  bool deviceRequestsClosed_ = false;
   bool dirty_ = true;
   WorkingCopy workingCopy_;
   UndoSnapshot undoSnapshot_;

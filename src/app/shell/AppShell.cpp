@@ -168,10 +168,8 @@ int App::run() {
   // workers, and the workspace-bound futures are joined here as well, so no
   // late callback can mutate the store after the final snapshot was written.
   //
-  // Requests parked for the (now stopped) application loop are failed first. Otherwise
-  // server_.stop() would wait for in-flight workers, which in turn wait for this thread, and a
-  // launcher waiting for this process to release its lock would time out.
-  cancelPendingDeviceRequests("Inventatory is shutting down", true);
+  // Device reports parked for the (now stopped) application loop are dropped first.
+  cancelPendingDeviceRequests();
   mdnsService_.stop();
   server_.stop();
   // An update download or release check is cancelled rather than waited for, within the same deadline.

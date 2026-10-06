@@ -59,13 +59,6 @@ void App::activateWorkspaceContext(const InventatoryDataPaths& paths) {
     inventatoryScanConfigPath_ = paths.scanConfig;
     quickLabelsPath_ = paths.dataDirectory / "quick_labels.conf";
   }
-  // Cached idempotency results belong to the old context even if their
-  // request id happens to be reused in the newly selected workspace.
-  {
-    lock_guard<mutex> lock(deviceQueueMutex_);
-    deviceRequestCache_.clear();
-    deviceRequestOrder_.clear();
-  }
   clearQuickLabelPrintCache();
 }
 
@@ -324,19 +317,8 @@ bool finishWorker(Future& future, const optional<chrono::steady_clock::time_poin
 
 }  // namespace
 
-void App::cancelPendingDeviceRequests(const char* reason, bool closeForShutdown) {
+void App::cancelPendingDeviceRequests() {
   lock_guard<mutex> lock(deviceQueueMutex_);
-  if (closeForShutdown) deviceRequestsClosed_ = true;
-  for (const auto& pending : deviceQuantityQueue_) {
-    lock_guard<mutex> pendingLock(pending->mutex);
-    pending->cancelled = true;
-    pending->result = {};
-    pending->result.httpStatus = 503;
-    pending->result.error = reason;
-    pending->complete = true;
-    pending->ready.notify_one();
-  }
-  deviceQuantityQueue_.clear();
   deviceStatusQueue_.clear();
   deviceDebugQueue_.clear();
 }
@@ -394,7 +376,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
     lock_guard<mutex> lock(scanMutex_);
     scanQueue_.clear();
   }
-  cancelPendingDeviceRequests("Inventatory workspace is changing", false);
+  cancelPendingDeviceRequests();
   return allFinished;
 }
 
