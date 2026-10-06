@@ -2,6 +2,7 @@
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/parts/DecimalParse.h"
+#include "core/text/Utf8.h"
 
 #include <algorithm>
 #include <chrono>
@@ -26,48 +27,6 @@ bool gCurlAvailable = false;
 
 void initializeCurl() {
   gCurlAvailable = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
-}
-
-void appendUtf8(std::string& output, std::uint32_t codePoint) {
-  if (codePoint <= 0x7fU) output.push_back(static_cast<char>(codePoint));
-  else if (codePoint <= 0x7ffU) {
-    output.push_back(static_cast<char>(0xc0U | (codePoint >> 6U)));
-    output.push_back(static_cast<char>(0x80U | (codePoint & 0x3fU)));
-  } else if (codePoint <= 0xffffU) {
-    output.push_back(static_cast<char>(0xe0U | (codePoint >> 12U)));
-    output.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3fU)));
-    output.push_back(static_cast<char>(0x80U | (codePoint & 0x3fU)));
-  } else {
-    output.push_back(static_cast<char>(0xf0U | (codePoint >> 18U)));
-    output.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3fU)));
-    output.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3fU)));
-    output.push_back(static_cast<char>(0x80U | (codePoint & 0x3fU)));
-  }
-}
-
-bool nextCodePoint(const std::string& input, size_t& offset, std::uint32_t& codePoint) {
-  if (offset >= input.size()) return false;
-  const auto first = static_cast<unsigned char>(input[offset++]);
-  if (first <= 0x7fU) {
-    codePoint = first;
-    return true;
-  }
-  unsigned int continuationCount = 0;
-  if ((first & 0xe0U) == 0xc0U) { codePoint = first & 0x1fU; continuationCount = 1; }
-  else if ((first & 0xf0U) == 0xe0U) { codePoint = first & 0x0fU; continuationCount = 2; }
-  else if ((first & 0xf8U) == 0xf0U) { codePoint = first & 0x07U; continuationCount = 3; }
-  else return false;
-  if (input.size() - offset < continuationCount) return false;
-  for (unsigned int index = 0; index < continuationCount; ++index) {
-    const auto continuation = static_cast<unsigned char>(input[offset++]);
-    if ((continuation & 0xc0U) != 0x80U) return false;
-    codePoint = (codePoint << 6U) | (continuation & 0x3fU);
-  }
-  if ((continuationCount == 1U && codePoint < 0x80U) ||
-      (continuationCount == 2U && codePoint < 0x800U) ||
-      (continuationCount == 3U && codePoint < 0x10000U) || codePoint > 0x10ffffU ||
-      (codePoint >= 0xd800U && codePoint <= 0xdfffU)) return false;
-  return true;
 }
 
 struct CurlResponse {
@@ -234,7 +193,7 @@ wstring widen(const string& value) {
   size_t offset = 0;
   while (offset < value.size()) {
     std::uint32_t codePoint = 0;
-    if (!nextCodePoint(value, offset, codePoint)) return {};
+    if (!nextUtf8CodePoint(value, offset, codePoint)) return {};
     output.push_back(static_cast<wchar_t>(codePoint));
   }
   return output;

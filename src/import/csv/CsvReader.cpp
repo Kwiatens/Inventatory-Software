@@ -4,6 +4,7 @@
 #include "import/csv/CsvReader.h"
 
 #include "core/inventory/Inventory.h"
+#include "core/text/Utf8.h"
 
 #include <cctype>
 
@@ -29,64 +30,15 @@ string stripByteOrderMark(string text) {
 }
 
 bool isValidUtf8(const string& text) {
-  size_t index = 0;
-  while (index < text.size()) {
-    const auto lead = static_cast<unsigned char>(text[index]);
-    size_t length = 0;
-    unsigned minimum = 0;
-    unsigned codePoint = 0;
-    if (lead < 0x80U) {
-      ++index;
-      continue;
-    }
-    if (lead >= 0xC2U && lead <= 0xDFU) {
-      length = 2;
-      minimum = 0x80U;
-      codePoint = lead & 0x1FU;
-    } else if (lead >= 0xE0U && lead <= 0xEFU) {
-      length = 3;
-      minimum = 0x800U;
-      codePoint = lead & 0x0FU;
-    } else if (lead >= 0xF0U && lead <= 0xF4U) {
-      length = 4;
-      minimum = 0x10000U;
-      codePoint = lead & 0x07U;
-    } else {
-      return false;
-    }
-    if (index + length > text.size()) return false;
-    for (size_t offset = 1; offset < length; ++offset) {
-      const auto continuation = static_cast<unsigned char>(text[index + offset]);
-      if ((continuation & 0xC0U) != 0x80U) return false;
-      codePoint = (codePoint << 6U) | (continuation & 0x3FU);
-    }
-    if (codePoint < minimum || codePoint > 0x10FFFFU || (codePoint >= 0xD800U && codePoint <= 0xDFFFU)) {
-      return false;
-    }
-    index += length;
+  size_t offset = 0;
+  uint32_t codePoint = 0;
+  while (offset < text.size()) {
+    if (!nextUtf8CodePoint(text, offset, codePoint)) return false;
   }
   return true;
 }
 
 namespace {
-
-void appendUtf8(string& out, unsigned codePoint) {
-  if (codePoint < 0x80U) {
-    out.push_back(static_cast<char>(codePoint));
-  } else if (codePoint < 0x800U) {
-    out.push_back(static_cast<char>(0xC0U | (codePoint >> 6U)));
-    out.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-  } else if (codePoint < 0x10000U) {
-    out.push_back(static_cast<char>(0xE0U | (codePoint >> 12U)));
-    out.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-  } else {
-    out.push_back(static_cast<char>(0xF0U | (codePoint >> 18U)));
-    out.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3FU)));
-    out.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-  }
-}
 
 bool decodeUtf16(const string& bytes, bool littleEndian, string& utf8) {
   if ((bytes.size() - 2U) % 2U != 0U) return false;
