@@ -216,7 +216,11 @@ void App::commitSettingsFieldEdit() {
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
     const auto preset = trim(inputBuffer_);
     if (preset.empty() || preset.size() > kQuickLabelPresetTextLimit) {
-      setMessage("Quick labels must contain 1 to 24 characters", 4);
+      // The limit is a wire/storage budget in bytes (the R1 response and settings validation both
+      // measure bytes), so say so: accented letters and symbols take 2 or more.
+      setMessage("Quick labels must be 1 to " + to_string(kQuickLabelPresetTextLimit) +
+                     " bytes of text (accented letters use 2)",
+                 5);
       return;
     }
     if (settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())) {
