@@ -109,7 +109,7 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
            result_code, result_message
     FROM inventatory_device_events
     WHERE device_id=? AND state='completed' AND result_acknowledged=0
-    ORDER BY completed_at, received_at LIMIT ?
+    ORDER BY completed_at, received_at, rowid LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return results;
   sqliteApi().bind_text(statement.stmt, 1, deviceId.c_str(), -1, SQLITE_TRANSIENT);
@@ -183,9 +183,11 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
   if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return events;
   if (limit == 0) return events;
   SqliteStatement statement;
+  // received_at has one-second resolution and a request carries several events, so the arrival order
+  // within a second is the insertion order (rowid), never the device-chosen event id.
   const char* sql = R"SQL(
     SELECT event_id, device_id, event_type, event_code, event_value
-    FROM inventatory_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
+    FROM inventatory_device_events WHERE state='received' ORDER BY received_at, rowid LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return events;
   sqliteApi().bind_int(statement.stmt, 1, boundedSqliteLimit(limit));
