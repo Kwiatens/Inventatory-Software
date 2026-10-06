@@ -51,6 +51,16 @@ suite as skipped (exit code 77) after every other test has run. Set
   (the single assert-based program in `tests/inventatory_tests.cpp`, which exits
   at the first failed assertion) and `inventatory_input`. Run the program
   directly (`<build-dir>/inventatory_tests`) to see all of its output.
+- The program prints each test as `[ RUN  ] area/Name` and a failed assertion
+  names the test and the `file:line`. `inventatory_tests --list` prints every
+  `area/Name`, and `inventatory_tests --filter <text>` runs only the tests whose
+  `area/Name` contains the text (case-insensitive), for example
+  `--filter scanner/` or `--filter BackupExport`. With no arguments every test
+  runs in the registered order.
+- The tests do not depend on each other, on a fixed TCP port or on your own
+  home, configuration or data folders: the scanner tests ask the operating
+  system for free ports, and the program points `HOME` and the `XDG_*`
+  directories at its private temporary folder while it runs.
 - Every run creates its own private, randomly named folder
   (`inventatory-tests-<random>`) under the system temporary directory, keeps all
   fixtures inside it and removes it on exit, also after a failed assertion, so
