@@ -8888,6 +8888,25 @@ int main() {
     assert(exportedText.find("Transfer resistor") != string::npos);
     assert(exportedText.find("Quantity") != string::npos);
     assert(exportedText.find("\"\t =HYPERLINK(\"\"https://example.invalid\"\")\"") != string::npos);
+    // Exporting over an existing file replaces it whole and leaves no temporary file behind; an export
+    // that cannot be written reports an error and leaves the destination as it was.
+    {
+      error_code ignoredExportError;
+      writeTextFile(csv, string("previous export that is longer than the new one ").append(4096, 'x'));
+      assert(exportInventoryCsv(store, csv, error));
+      assert(readTextFile(csv) == exportedText);
+      size_t siblings = 0;
+      for (const auto& entry : filesystem::directory_iterator(csv.parent_path())) {
+        if (entry.path().filename().string().find(csv.filename().string()) == 0) ++siblings;
+      }
+      assert(siblings == 1);
+      const auto blocked = testTempRoot() / "inventatory-transfer-export-blocked";
+      filesystem::remove_all(blocked, ignoredExportError);
+      filesystem::create_directories(blocked / "keep");
+      assert(!exportInventoryCsv(store, blocked, error) && !error.empty());
+      assert(filesystem::is_directory(blocked / "keep"));
+      filesystem::remove_all(blocked, ignoredExportError);
+    }
     assert(csvTextCell("=1+1") == "\"\t=1+1\"");
     assert(csvTextCell("+SUM(A1:A2)") == "\"\t+SUM(A1:A2)\"");
     assert(csvTextCell(" -1+1") == "\"\t -1+1\"");
