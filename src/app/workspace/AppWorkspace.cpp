@@ -144,7 +144,6 @@ bool App::chooseInventatoryFolder() {
   inventoryHistory_.clear();
   inventoryMovements_.clear();
   deviceEventRecords_.clear();
-  scanQueue_.clear();
   importCandidates_.clear();
   importAcceptedItemIds_.clear();
   importSourcePath_.clear();

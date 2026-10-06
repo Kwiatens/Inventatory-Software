@@ -390,11 +390,6 @@ class App {
     WorkspaceGeneration generation = 0;
   };
 
-  struct QueuedScan {
-    DeviceScanRequest request;
-    WorkspaceGeneration workspaceGeneration = 0;
-  };
-
   struct QueuedDeviceStatus {
     DeviceStatusReport report;
     WorkspaceGeneration workspaceGeneration = 0;
@@ -772,8 +767,6 @@ class App {
   void captureUndoSnapshot();
   bool undoLastInventoryChange();
   void logActivity(const std::string& kind, const std::string& message);
-  void pushScanCode(const DeviceScanRequest& request);
-  void processScans();
   void beginCsvImport();
   void cancelImportSession();
   bool confirmImportDiscard();
@@ -908,7 +901,6 @@ class App {
   std::string movingRackItemId_;
   std::string movingRackSource_;
   std::string rackFilter_;
-  std::vector<QueuedScan> scanQueue_;
   std::vector<CsvImportCandidate> importCandidates_;
   std::vector<std::string> importAcceptedItemIds_;
   std::filesystem::path importSourcePath_;
@@ -930,7 +922,6 @@ class App {
   mutable ftxui::Box historyListPanelBounds_;
   mutable ftxui::Box historyDetailPanelBounds_;
   InventoryRevertMode pendingHistoryRevertMode_ = InventoryRevertMode::Snapshot;
-  std::mutex scanMutex_;
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
   std::vector<QueuedDeviceStatus> deviceStatusQueue_;

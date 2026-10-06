@@ -207,7 +207,6 @@ void App::processBackgroundWork() {
     clearMessageIfExpired();
     return;
   }
-  processScans();
   processDeviceRequests();
   processDeviceSyncEvents();
   clearMessageIfExpired();

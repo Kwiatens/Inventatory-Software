@@ -372,10 +372,6 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
     bomEnrichmentClient_.reset();
   }
 
-  {
-    lock_guard<mutex> lock(scanMutex_);
-    scanQueue_.clear();
-  }
   cancelPendingDeviceRequests();
   return allFinished;
 }
