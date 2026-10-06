@@ -17,6 +17,7 @@
 #include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/InventoryTransfer.h"
+#include "core/transfer/InventoryTransferPrivate.h"
 #include "core/transfer/CsvExport.h"
 #ifdef near
 #undef near
@@ -3600,6 +3601,27 @@ int main() {
     assert(unsetenv("INVENTATORY_TEST_ENVIRONMENT") == 0);
 #endif
     assert(!environmentValue("INVENTATORY_TEST_ENVIRONMENT").has_value());
+  }
+
+  {
+    namespace transferDetail = inventatory::inventory_transfer_detail;
+    const auto compareBase = filesystem::temp_directory_path() / "inventatory-path-compare-test";
+    assert(transferDetail::equivalentPath(compareBase / "same", compareBase / "same"));
+    assert(!transferDetail::equivalentPath(compareBase / "one", compareBase / "two"));
+    bool pathsOverlapResult = false;
+    string pathsOverlapError;
+    assert(transferDetail::pathsOverlap(compareBase / "parent", compareBase / "parent" / "child", pathsOverlapResult, pathsOverlapError));
+    assert(pathsOverlapResult);
+    assert(transferDetail::pathsOverlap(compareBase / "left", compareBase / "right", pathsOverlapResult, pathsOverlapError));
+    assert(!pathsOverlapResult);
+#ifdef _WIN32
+    // Windows folds non-ASCII letters as well: U+0141 U+00D3 U+0179 equals its lower-case form.
+    const auto upperName = filesystem::path(L"\u0141\u00d3D\u0179-compare");
+    const auto lowerName = filesystem::path(L"\u0142\u00f3d\u017a-compare");
+    assert(transferDetail::equivalentPath(compareBase / upperName, compareBase / lowerName));
+    assert(transferDetail::pathsOverlap(compareBase / upperName, compareBase / lowerName / "child", pathsOverlapResult, pathsOverlapError));
+    assert(pathsOverlapResult);
+#endif
   }
 
 #ifdef _WIN32

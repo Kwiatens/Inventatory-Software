@@ -88,17 +88,42 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
   return true;
 }
 
+#ifdef _WIN32
+namespace {
+
+// Windows compares path names case-insensitively for non-ASCII letters too (for example U+0141 and
+// U+0142), so the comparison form is lowered on the UTF-16 path with the invariant locale rather
+// than byte by byte on its UTF-8 form.
+filesystem::path foldPathCase(const filesystem::path& value) {
+  const wstring& wide = value.native();
+  if (wide.empty()) return value;
+  wstring folded(wide.size(), L'\0');
+  const int count = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, wide.c_str(), static_cast<int>(wide.size()),
+                                  folded.data(), static_cast<int>(folded.size()), nullptr, nullptr, 0);
+  if (count != static_cast<int>(wide.size())) {
+    folded = wide;
+    for (auto& character : folded) {
+      if (character >= L'A' && character <= L'Z') character = static_cast<wchar_t>(character - L'A' + L'a');
+    }
+  }
+  return filesystem::path(folded);
+}
+
+}  // namespace
+#endif
+
 bool equivalentPath(const filesystem::path& first, const filesystem::path& second) {
   error_code firstError;
   error_code secondError;
   auto firstAbsolute = filesystem::weakly_canonical(first, firstError).lexically_normal();
   auto secondAbsolute = filesystem::weakly_canonical(second, secondError).lexically_normal();
   if (firstError || secondError) return false;
-  string lhs = firstAbsolute.u8string();
-  string rhs = secondAbsolute.u8string();
 #ifdef _WIN32
-  transform(lhs.begin(), lhs.end(), lhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
-  transform(rhs.begin(), rhs.end(), rhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+  const string lhs = foldPathCase(firstAbsolute).u8string();
+  const string rhs = foldPathCase(secondAbsolute).u8string();
+#else
+  const string lhs = firstAbsolute.u8string();
+  const string rhs = secondAbsolute.u8string();
 #endif
   return lhs == rhs;
 }
@@ -251,11 +276,12 @@ bool pathContains(const filesystem::path& ancestor, const filesystem::path& cand
             (ancestorError ? ancestorError.message() : candidateError.message());
     return false;
   }
+#ifdef _WIN32
+  string lhs = foldPathCase(ancestorAbsolute).generic_u8string();
+  string rhs = foldPathCase(candidateAbsolute).generic_u8string();
+#else
   string lhs = ancestorAbsolute.generic_u8string();
   string rhs = candidateAbsolute.generic_u8string();
-#ifdef _WIN32
-  transform(lhs.begin(), lhs.end(), lhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
-  transform(rhs.begin(), rhs.end(), rhs.begin(), [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
 #endif
   if (lhs == rhs) {
     contains = true;
