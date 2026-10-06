@@ -18,7 +18,6 @@ using namespace std;
 
 namespace {
 
-constexpr size_t kDebugWindowLines = 14;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 }  // namespace
@@ -58,7 +57,6 @@ bool App::regenerateInventatoryScanToken() {
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
-  deviceDebug_.clear();
   deviceLastResult_.clear();
   deviceProtocolVersion_ = 0;
   deviceMode_.clear();
@@ -116,7 +114,6 @@ bool App::clearInventatoryScanPairing() {
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
-  deviceDebug_.clear();
   deviceLastResult_.clear();
   deviceProtocolVersion_ = 0;
   deviceMode_.clear();

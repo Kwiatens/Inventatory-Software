@@ -395,11 +395,6 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
-  struct QueuedDeviceDebug {
-    DeviceDebugReport report;
-    WorkspaceGeneration workspaceGeneration = 0;
-  };
-
   struct DigiKeyRefreshResult {
     std::string itemId;
     std::optional<DigiKeyProductDetails> details;
@@ -668,15 +663,12 @@ class App {
   bool provisionSelectedBleSetupDevice();
   void enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration);
   void processDeviceRequests();
-  void enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration);
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
   void processDeviceSyncEvents();
   void refreshDeviceEventRecords();
   void retryFailedDeviceEvents();
   void discardFailedDeviceEvents();
-  void adjustDeviceDebugScroll(int delta);
   std::string inventatoryScanDeviceSummary() const;
-  ftxui::Element renderDeviceDebugConsoleUi() const;
 
   std::vector<size_t> filteredIndices() const;
   std::vector<InventorySearchMatch> stockSearchMatches() const;
@@ -925,20 +917,15 @@ class App {
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
   std::vector<QueuedDeviceStatus> deviceStatusQueue_;
-  std::vector<QueuedDeviceDebug> deviceDebugQueue_;
   std::vector<DeviceSyncEventRecord> deviceEventRecords_;
-  std::vector<std::string> deviceDebugLog_;
   time_t deviceLastSeen_ = 0;
   std::string deviceFirmwareVersion_;
   int deviceRssi_ = 0;
-  std::string deviceDebug_;
   std::string deviceLastResult_;
   int deviceProtocolVersion_ = 0;
   std::string deviceMode_;
   int devicePendingEventCount_ = 0;
   time_t deviceLastSync_ = 0;
-  size_t deviceDebugScroll_ = 0;
-  bool deviceDebugFollow_ = true;
   std::atomic<bool> running_{true};
   std::atomic<bool> backgroundQuitRequested_{false};
   std::atomic<bool> foregroundRequested_{false};

@@ -22,9 +22,7 @@ using namespace std;
 
 namespace app_actions {
 
-constexpr size_t kDeviceDebugWindowLines = 14;
 constexpr size_t kDeviceStatusQueueLimit = 256;
-constexpr size_t kDeviceDebugQueueLimit = 512;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
