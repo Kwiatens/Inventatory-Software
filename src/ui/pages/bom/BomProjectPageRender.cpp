@@ -143,12 +143,8 @@ ftxui::Color bomLitSlotBg() {
   return uiActiveBg();
 }
 
-vector<string> bomRackTitleLines(const string& value, int width) {
-  return wrapText(value, max(1, width));
-}
-
 ftxui::Element centeredBomRackText(const string& value, int width, ftxui::Color color) {
-  const auto lines = bomRackTitleLines(value, max(1, width - 2));
+  const auto lines = wrapText(value, max(1, width - 2));
   string wrapped;
   for (size_t index = 0; index < lines.size(); ++index) {
     if (index > 0) wrapped.push_back('\n');
