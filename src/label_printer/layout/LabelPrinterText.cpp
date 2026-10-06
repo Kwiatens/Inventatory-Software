@@ -131,43 +131,6 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
   return false;
 }
 
-vector<string> itemTextTokens(const InventoryItem& item) {
-  string text = item.category + " " + displayCategory(item.category) + " " + item.partName + " " +
-                item.manufacturer + " " + item.location + " " + item.notes + " " + item.digikeyPartNumber +
-                " " + item.sku;
-  for (const auto& tag : item.tags) text += " " + tag;
-  for (const auto& parameter : item.parameters) text += " " + parameter.name + " " + parameter.value;
-
-  vector<string> tokens;
-  string current;
-  for (unsigned char ch : text) {
-    if (isalnum(ch)) {
-      current.push_back(static_cast<char>(tolower(ch)));
-    } else if (!current.empty()) {
-      tokens.push_back(current);
-      current.clear();
-    }
-  }
-  if (!current.empty()) {
-    tokens.push_back(current);
-  }
-  return tokens;
-}
-
-bool itemTextHasToken(const InventoryItem& item, initializer_list<const char*> tokens) {
-  const auto haystack = itemTextTokens(item);
-  for (const auto* token : tokens) {
-    const auto normalized = normalizeKey(token);
-    if (normalized.empty()) {
-      continue;
-    }
-    if (find(haystack.begin(), haystack.end(), normalized) != haystack.end()) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool hasParameter(const InventoryItem& item, initializer_list<const char*> names) {
   return findParameter(item.parameters, names) != nullptr;
 }
