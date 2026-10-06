@@ -7,7 +7,6 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <chrono>
 #include <ctime>
 #include <limits>
 #include <string>

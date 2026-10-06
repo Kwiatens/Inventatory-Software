@@ -8,7 +8,6 @@
 #include "platform/system/Environment.h"
 
 #include <algorithm>
-#include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <limits>

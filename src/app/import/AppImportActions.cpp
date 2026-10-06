@@ -13,17 +13,14 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <ctime>
 #include <fstream>
 #include <future>
 #include <limits>
-#include <mutex>
 #include <memory>
 #include <sstream>
 #include <system_error>
-#include <unordered_set>
 
 namespace inventatory {
 

@@ -12,11 +12,7 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
-#include <chrono>
-#include <cctype>
 #include <ctime>
-#include <limits>
-#include <optional>
 #include <string>
 #include <utility>
 
