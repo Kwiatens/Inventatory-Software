@@ -12,6 +12,12 @@ Validation enforces bounded manifest (1 MiB) and aggregate payload (512 MiB)
 sizes before hashing, and parses each optional activity, printer, and Quick
 Labels sidecar before activation.
 
+On Linux the bundle is made durable before it is published: staged files, the
+manifest and the bundle folder are flushed to disk before the final rename, and
+the restore journal and each directory rename it records are flushed as they
+happen, so a power loss cannot leave an empty journal or a backup that looks
+finished but holds empty files.
+
 Inventory commit history is stored inside `inventory.db`, so every backup and
 restore preserves the complete local version history automatically. Older
 databases receive an `Initial inventory` baseline the first time Inventatory
