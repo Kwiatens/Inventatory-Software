@@ -322,6 +322,24 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
     return;
   }
 
+  // The setup result message promises "press R to retry saving"; R must reach the retry here,
+  // not be swallowed by the wizard. Only on the steps that take no typed text.
+  if (key.type == KeyType::Character && key.ch == 'R' &&
+      (scanSetupStep_ == ScanSetupStep::Confirm || scanSetupStep_ == ScanSetupStep::Complete) &&
+      (scannerConfigSavePending_ || scannerCredentialSavePending_)) {
+    retrySaveState();
+    if (scanSetupStep_ == ScanSetupStep::Confirm && !scannerConfigSavePending_ && !scannerCredentialSavePending_) {
+      // Pairing data is saved now; the R1 was already provisioned, so finish instead of re-sending.
+      if (returnToOnboardingAfterScan_) {
+        beginWizardTransition(Page::ScanSetup, onboardingStep_, ScanSetupStep::Complete, true);
+      } else {
+        scanSetupStep_ = ScanSetupStep::Complete;
+      }
+    }
+    dirty_ = true;
+    return;
+  }
+
   if (scanSetupStep_ == ScanSetupStep::WifiName || scanSetupStep_ == ScanSetupStep::WifiPassword ||
       scanSetupStep_ == ScanSetupStep::PairingCode) {
     if (key.type == KeyType::Character) {
