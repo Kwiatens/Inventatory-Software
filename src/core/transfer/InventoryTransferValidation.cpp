@@ -69,7 +69,7 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
       return false;
     }
     string actualHash;
-    if (!sha256File(path, actualHash, error) || lowercaseAscii(actualHash) != lowercaseAscii(entry.hash)) {
+    if (!sha256File(path, actualHash, error) || toLower(actualHash) != toLower(entry.hash)) {
       if (error.empty()) error = "Backup file hash mismatch: " + entry.name;
       return false;
     }

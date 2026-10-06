@@ -144,7 +144,7 @@ enum class WorkspaceEntryKind { Replaced, Preserved, Conflict };
 
 WorkspaceEntryKind classifyWorkspaceEntry(const filesystem::path& path, WorkspaceEntrySource source) {
   const string name = path.filename().u8string();
-  const string lowered = lowercaseAscii(name);
+  const string lowered = toLower(name);
   bool replaced = false;
   bool reserved = false;
   bool similar = false;
