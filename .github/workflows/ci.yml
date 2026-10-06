@@ -34,6 +34,15 @@ jobs:
           cmake --build build-linux-debug --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
           cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release
           cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+      - name: Smoke test the Linux release binary
+        run: |
+          # --version is answered before any terminal setup, so this runs headless. It catches a missing
+          # shared library or a startup crash in the binary that would be shipped.
+          build-linux-release/inventatory --version | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'
+          if ldd build-linux-release/inventatory | grep -q 'not found'; then
+            ldd build-linux-release/inventatory
+            exit 1
+          fi
       - name: Test Linux debug and release configurations
         env:
           INVENTATORY_REQUIRE_LOCALE_TESTS: "1"
@@ -46,6 +55,73 @@ jobs:
           '
       - name: Test Linux release installer
         run: bash installer/Test-InventatoryLinuxInstall.sh
+
+  # A second compiler: Clang finds portability and warning problems that GCC does not, and runs the same
+  # tests.
+  linux-clang:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Linux build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential clang cmake pkg-config \
+            libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev \
+            dbus-x11 gnome-keyring locales
+          sudo locale-gen pl_PL.UTF-8 de_DE.UTF-8
+      - name: Build with Clang
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build-linux-clang -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-linux-clang --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+      - name: Test the Clang build
+        env:
+          INVENTATORY_REQUIRE_LOCALE_TESTS: "1"
+          INVENTATORY_REQUIRE_KEYRING_TESTS: "1"
+        run: |
+          printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
+            eval "$(gnome-keyring-daemon --unlock --components=secrets)"
+            ctest --test-dir build-linux-clang --output-on-failure
+          '
+
+  # AddressSanitizer and UndefinedBehaviorSanitizer over the core tests: the scanner HTTP service,
+  # fork-based process tests, SQLite handles and manual socket code are where memory errors would hide.
+  linux-sanitizers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Linux build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential cmake pkg-config \
+            libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev \
+            dbus-x11 gnome-keyring locales
+          sudo locale-gen pl_PL.UTF-8 de_DE.UTF-8
+      - name: Build with AddressSanitizer and UndefinedBehaviorSanitizer
+        run: |
+          flags="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+          cmake -S . -B build-linux-sanitize -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="$flags" -DCMAKE_CXX_FLAGS="$flags"
+          cmake --build build-linux-sanitize --parallel 2 --target inventatory_tests inventatory_input_tests
+      - name: Test the sanitizer build
+        env:
+          INVENTATORY_REQUIRE_LOCALE_TESTS: "1"
+          INVENTATORY_REQUIRE_KEYRING_TESTS: "1"
+        run: |
+          printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
+            eval "$(gnome-keyring-daemon --unlock --components=secrets)"
+            ctest --test-dir build-linux-sanitize --output-on-failure
+          '
 
   windows:
     runs-on: windows-latest
