@@ -40,6 +40,7 @@ sleep_binary=$(command -v sleep)
 run_update_case() {
   case_name=$1
   tamper=$2
+  replace_live=${3:-keep}
   download_dir="$test_root/Inventatory-update-$case_name"
   marker="$test_root/$case_name-marker"
   mkdir -p -- "$download_dir"
@@ -51,6 +52,15 @@ run_update_case() {
   cp -- "$sleep_binary" "$live_dir/inventatory"
   "$live_dir/inventatory" 30 &
   live_pid=$!
+  if [ "$replace_live" = replace ]; then
+    # The file the process runs from was replaced on disk, so /proc/<pid>/exe now ends in " (deleted)".
+    cp -- "$sleep_binary" "$live_dir/inventatory.new"
+    mv -f -- "$live_dir/inventatory.new" "$live_dir/inventatory"
+    case "$(readlink "/proc/$live_pid/exe")" in
+      *' (deleted)') ;;
+      *) printf 'Fixture process did not report a deleted executable\n' >&2; exit 1 ;;
+    esac
+  fi
   sh "$download_dir/Install-Inventatory.sh" --update "$download_dir/Inventatory-linux-x64.tar.gz" \
     "$download_dir/SHA256SUMS-linux.txt" "$marker" "$test_root/notes" 9.9.9 "$live_pid" &
   installer_pid=$!
@@ -71,3 +81,9 @@ test "$("$live_dir/inventatory" --version)" = 'Inventatory installer fixture'
 run_update_case bad tamper
 grep -q '^state=failed$' "$test_root/bad-marker"
 printf 'Linux update hand-off test passed\n'
+
+# An executable replaced while it runs (an earlier update, a manual install) is still updated in place.
+run_update_case replaced ok replace
+grep -q '^state=complete$' "$test_root/replaced-marker"
+test "$("$live_dir/inventatory" --version)" = 'Inventatory installer fixture'
+printf 'Linux update of a replaced executable test passed\n'
