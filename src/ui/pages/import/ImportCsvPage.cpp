@@ -4,6 +4,7 @@
 #include "App.h"
 
 #include "ui/shared/AppUiShared.h"
+#include "ui/shared/ConfirmGuard.h"
 
 #include <algorithm>
 #include <cctype>
@@ -348,8 +349,7 @@ void App::handleImportCsvKey(const KeyEvent& key) {
         beginEditImportCandidate();
         break;
       case 'q':
-        changePage(Page::Stock);
-        setMessage("CSV import cancelled", 3);
+        requestImportDiscard();
         break;
       default:
         break;
@@ -378,9 +378,27 @@ void App::handleImportCsvKey(const KeyEvent& key) {
   } else if (key.type == KeyType::Backspace) {
     skipImportCandidate();
   } else if (key.type == KeyType::Escape) {
-    changePage(Page::Stock);
-    setMessage("CSV import cancelled", 3);
+    requestImportDiscard();
   }
+}
+
+// Reviewed rows (accepted, merged or skipped) live only in memory until the import is
+// finished, so leaving the review asks once before throwing them away.
+bool App::confirmImportDiscard() {
+  const int reviewed = importCreatedCount_ + importMergedCount_ + importSkippedCount_;
+  const bool needsConfirmation = importStageActive_ && !importCommitPending_ && reviewed > 0;
+  if (confirm_guard::confirmed(time(nullptr), importDiscardArmedUntil_, 6, needsConfirmation)) return true;
+  setMessage("Leaving discards " + to_string(reviewed) + " reviewed " + (reviewed == 1 ? "row" : "rows") +
+                 ". Press Esc or q again to discard, or keep reviewing.",
+             6, UiMessageSeverity::Warning);
+  return false;
+}
+
+void App::requestImportDiscard() {
+  if (!confirmImportDiscard()) return;
+  cancelImportSession();
+  changePage(Page::Stock);
+  setMessage("CSV import cancelled", 3);
 }
 
 }  // namespace inventatory

@@ -40,6 +40,7 @@
 #include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
 #include "ui/shared/ActionSheetLayout.h"
+#include "ui/shared/ConfirmGuard.h"
 #include "ui/shared/NumericPrompt.h"
 #include "ui/shared/UiFocus.h"
 #include "ui/pages/stock/StockFilterState.h"
@@ -412,6 +413,23 @@ void testNumericPromptReplacesDefault() {
   for (char ch : std::string("123456789")) assert(np::applyDigit(buffer, ch, replace, 9));
   assert(!np::applyDigit(buffer, '0', replace, 9) && buffer == "123456789");
   assert(!np::applyBackspace(buffer = "", replace));
+}
+
+
+// Discarding in-memory work needs a second, deliberate request inside the window.
+void testConfirmGuard() {
+  namespace cg = inventatory::confirm_guard;
+  std::time_t armed = 0;
+  const std::time_t now = 1000;
+  assert(cg::confirmed(now, armed, 6, false) && armed == 0);  // nothing to lose: no prompt
+  assert(!cg::confirmed(now, armed, 6, true));                 // first request only arms
+  assert(armed == now + 6);
+  assert(cg::confirmed(now + 3, armed, 6, true) && armed == 0);  // repeat inside the window confirms
+  assert(!cg::confirmed(now + 10, armed, 6, true));              // a fresh request re-arms
+  assert(!cg::confirmed(now + 20, armed, 6, true));              // an expired window never confirms
+  assert(armed == now + 26);
+  assert(cg::confirmed(now + 26, armed, 6, true));
+  assert(cg::confirmed(now + 30, armed, 6, false) && armed == 0);
 }
 
 #ifndef _WIN32
@@ -2387,6 +2405,7 @@ int main() {
   testHeaderClockYieldsToActionsControl();
   testActionSheetLayout();
   testNumericPromptReplacesDefault();
+  testConfirmGuard();
 #ifndef _WIN32
   testLinuxMdnsRefusesNonPrivateInterfaces();
 #endif

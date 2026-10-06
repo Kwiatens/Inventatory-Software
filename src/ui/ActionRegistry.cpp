@@ -293,11 +293,7 @@ vector<App::Action> App::currentActions() const {
         add("finish without sync", "Finish", "n", chr('n'), [self] { self->finishCsvImport(false); });
       } else {
         add("edit row", "Review", "e", chr('e'), [self] { self->beginEditImportCandidate(); });
-        add("cancel import", "Review", "q", chr('q'), [self] {
-          self->cancelImportSession();
-          self->changePage(Page::Stock);
-          self->setMessage("CSV import cancelled", 3);
-        });
+        add("cancel import", "Review", "q", chr('q'), [self] { self->requestImportDiscard(); });
       }
       break;
 
