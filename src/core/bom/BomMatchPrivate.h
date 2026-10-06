@@ -19,7 +19,13 @@ std::vector<std::string> splitOnUnderscore(const std::string& value);
 bool startsWithInsensitive(const std::string& value, const std::string& prefix);
 std::string diameterToken(const std::vector<std::string>& tokens);
 std::string pinCountToken(const std::vector<std::string>& tokens);
-std::optional<double> parseNumberWithMultiplier(const std::string& body, bool resistanceLike);
+// How the text around a number was written, which decides the letters it may use.
+enum class NumberNotation {
+  Unitless,    // "4k7", "10", "R280": a bare resistor value
+  Resistance,  // explicit ohm unit
+  Reactive,    // explicit F, H or Hz unit
+};
+std::optional<double> parseNumberWithMultiplier(const std::string& body, NumberNotation notation);
 bool endsWith(const std::string& value, const std::string& suffix);
 std::string compactKey(const std::string& value);
 std::optional<double> itemValueFor(const InventoryItem& item, ValueKind kind);

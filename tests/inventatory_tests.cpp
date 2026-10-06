@@ -1727,6 +1727,8 @@ void testSqliteSchemaValidation() {
     assert(readBytes(unsupportedPath) == beforeBytes);
   }
 
+
+
   const auto duplicatePath = filesystem::temp_directory_path() / "inventatory-duplicate-identifiers-test.db";
   filesystem::remove(duplicatePath, cleanupError);
   {
@@ -3665,6 +3667,8 @@ int main() {
     assert(!rackLocation(*loadedCapacitor, loadedRackStore.racks()).empty());
     filesystem::remove(tempPath);
   }
+
+
 
   {
     InventoryItem item;
@@ -7153,6 +7157,27 @@ int main() {
     assert(!parseElectricalValue("RGBW_Strip", kind).has_value());
     assert(!parseElectricalValue("", kind).has_value());
 
+    // Real RKM resistor notation keeps working.
+    assert(near(value("4R7", ValueKind::Resistance), 4.7));
+    assert(near(value("4K7", ValueKind::Resistance), 4700.0));
+    assert(near(value("2M2", ValueKind::Resistance), 2.2e6));
+    assert(near(value("100", ValueKind::Resistance), 100.0));
+    assert(near(value("4.7mF", ValueKind::Capacitance), 4.7e-3));
+    // Unitless designations, package codes and capacitor markers are not ohms.
+    assert(!parseElectricalValue("M3", kind).has_value());
+    assert(!parseElectricalValue("M4", kind).has_value());
+    assert(!parseElectricalValue("K4", kind).has_value());
+    assert(!parseElectricalValue("G1", kind).has_value());
+    assert(!parseElectricalValue("U1", kind).has_value());
+    assert(!parseElectricalValue("4u7", kind).has_value());
+    assert(!parseElectricalValue("4n7", kind).has_value());
+    assert(!parseElectricalValue("100n", kind).has_value());
+    assert(!parseElectricalValue("1e3", kind).has_value());
+    for (const char* chipCode : {"0402", "0603", "0805", "1206", "1210", "2010", "2512", "01005"}) {
+      assert(!parseElectricalValue(chipCode, kind).has_value());
+    }
+    assert(near(value("4u7F", ValueKind::Capacitance), 4.7e-6));
+
     assert(looksLikePartNumber("ESP32-S3-WROOM-1"));
     assert(looksLikePartNumber("AP63203WU"));
     assert(!looksLikePartNumber("100nF"));
@@ -7277,6 +7302,62 @@ int main() {
   }
 
   {
+    // Package codes and pin counts inside part names are not component values.
+    vector<InventoryItem> items;
+    InventoryItem cap;
+    cap.id = "cap-100nf-0603";
+    cap.partName = "CAP CER 100NF 16V X7R 0603";
+    cap.category = "Capacitors";
+    cap.quantity = 500;
+    items.push_back(cap);
+
+    InventoryItem header;
+    header.id = "header-10";
+    header.partName = "CONN HEADER 10 POS 2.54MM";
+    header.category = "Connectors";
+    header.quantity = 50;
+    items.push_back(header);
+
+    InventoryItem standoff;
+    standoff.id = "standoff-m3";
+    standoff.partName = "M3 STANDOFF 10MM";
+    standoff.category = "Hardware";
+    standoff.quantity = 20;
+    items.push_back(standoff);
+
+    InventoryItem resistor;
+    resistor.id = "res-604-0603";
+    resistor.partName = "RES 604 OHM 1% 0603";
+    resistor.category = "Resistors";
+    resistor.quantity = 100;
+    items.push_back(resistor);
+
+    KicadBomFile bom;
+    bom.ok = true;
+    const auto addLine = [&](const string& designation, const string& footprint) {
+      BomLine line;
+      line.designation = designation;
+      line.footprint = footprint;
+      line.designators = {"X1"};
+      line.quantityPerBoard = 1;
+      bom.lines.push_back(line);
+    };
+    addLine("604", "R_0603_1608Metric");
+    addLine("10", "");
+    addLine("300k", "R_0603_1608Metric");
+    addLine("4R7", "R_0603_1608Metric");
+
+    const auto analysis = analyzeBom(bom, items, 1, {});
+    // The capacitor's 0603 must not become a 603 ohm candidate for a 604 ohm line.
+    assert(analysis.matches[0].candidates.size() == 1);
+    assert(analysis.matches[0].chosenItemId() == "res-604-0603");
+    // "10 POS" is a pin count, so the 10 ohm line has no candidate.
+    assert(analysis.matches[1].candidates.empty());
+    assert(analysis.matches[2].candidates.empty());
+    assert(analysis.matches[3].candidates.empty());
+  }
+
+  {
     const auto path = filesystem::temp_directory_path() / "inventatory-bom-projects-test.db";
     error_code cleanupError;
     filesystem::remove(path, cleanupError);
@@ -7321,6 +7402,7 @@ int main() {
 
     filesystem::remove(path, cleanupError);
   }
+
 
   {
     const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
