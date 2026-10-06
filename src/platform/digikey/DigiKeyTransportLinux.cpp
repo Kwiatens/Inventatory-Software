@@ -21,7 +21,6 @@ namespace inventatory {
 namespace digikey_detail {
 namespace {
 
-constexpr size_t kMaximumDigiKeyResponseBytes = 4U * 1024U * 1024U;
 std::once_flag gCurlInitialized;
 bool gCurlAvailable = false;
 

@@ -33,7 +33,6 @@ using namespace http_server_detail;
 namespace {
 
 constexpr uint32_t kClientIoTimeoutMs = 2000U;
-constexpr size_t kWorkerCount = 4;
 constexpr size_t kMaxQueuedClients = 16;
 constexpr uint32_t kReaderSelectIntervalMs = 100U;
 // Pause after an accept() failure that is not tied to a single aborted connection (descriptor or

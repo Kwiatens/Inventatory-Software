@@ -12,7 +12,6 @@ namespace inventatory::http_server_detail {
 
 using HttpHeaderMap = std::unordered_map<std::string, std::string>;
 
-std::string jsonEscape(const std::string& value);
 std::string trimHttp(const std::string& value);
 bool parseHttpHeaders(const std::string& headers, std::string& method, std::string& target,
                       std::string& version, HttpHeaderMap& values);
