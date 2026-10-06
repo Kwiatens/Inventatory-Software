@@ -4,12 +4,12 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "label_printer/core/LabelPrinter.h"
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cctype>
@@ -17,10 +17,8 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
-#include <map>
 #include <set>
 #include <sstream>
-#include <thread>
 #include <system_error>
 #include <vector>
 
@@ -178,7 +176,7 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
   ifstream input(path, ios::binary);
   if (!input) {
     cleanup();
-    error = "Unable to read " + path.string();
+    error = "Unable to read " + path.u8string();
     return false;
   }
   array<unsigned char, 64 * 1024> buffer{};
@@ -187,13 +185,13 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
     const auto count = input.gcount();
     if (count > 0 && BCryptHashData(hashHandle, buffer.data(), static_cast<ULONG>(count), 0) != 0) {
       cleanup();
-      error = "Unable to hash " + path.string();
+      error = "Unable to hash " + path.u8string();
       return false;
     }
   }
   if (!input.eof() || BCryptFinishHash(hashHandle, digest.data(), hashLength, 0) != 0) {
     cleanup();
-    error = "Unable to finish hash for " + path.string();
+    error = "Unable to finish hash for " + path.u8string();
     return false;
   }
   hash = hexBytes(digest.data(), digest.size());
@@ -202,7 +200,7 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
 #else
   ifstream input(path, ios::binary);
   if (!input) {
-    error = "Unable to read " + path.string();
+    error = "Unable to read " + path.u8string();
     return false;
   }
   Sha256 digest;
@@ -213,7 +211,7 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
     if (count > 0) digest.update(buffer.data(), static_cast<size_t>(count));
     if (input.eof()) break;
     if (!input) {
-      error = "Unable to read " + path.string();
+      error = "Unable to read " + path.u8string();
       return false;
     }
   }
@@ -252,12 +250,6 @@ bool isSha256Digest(const string& value) {
   return all_of(value.begin(), value.end(), [](unsigned char ch) { return isxdigit(ch) != 0; });
 }
 
-string lowercaseAscii(string value) {
-  transform(value.begin(), value.end(), value.begin(),
-            [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
-  return value;
-}
-
 bool parseManifestSize(const string& text, uintmax_t& value) {
   if (text.empty() || !all_of(text.begin(), text.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) return false;
   try {
@@ -290,6 +282,11 @@ bool writeManifest(const filesystem::path& destination, const string& applicatio
   output.close();
   if (!output) {
     error = "Unable to finish backup manifest";
+    return false;
+  }
+  string syncError;
+  if (!syncFile(destination / "manifest.tsv", &syncError)) {
+    error = "Unable to flush backup manifest: " + syncError;
     return false;
   }
   return true;

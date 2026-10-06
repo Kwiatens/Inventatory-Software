@@ -18,7 +18,6 @@ using namespace std;
 
 namespace {
 
-constexpr size_t kDebugWindowLines = 14;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
 }  // namespace
@@ -58,14 +57,6 @@ bool App::regenerateInventatoryScanToken() {
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
-  deviceDebug_.clear();
-  deviceLastResult_.clear();
-  deviceProtocolVersion_ = 0;
-  deviceMode_.clear();
-  devicePendingEventCount_ = 0;
-  deviceLastSync_ = 0;
-  deviceRequestCache_.clear();
-  deviceRequestOrder_.clear();
   clearQuickLabelPrintCache();
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
@@ -118,14 +109,6 @@ bool App::clearInventatoryScanPairing() {
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
-  deviceDebug_.clear();
-  deviceLastResult_.clear();
-  deviceProtocolVersion_ = 0;
-  deviceMode_.clear();
-  devicePendingEventCount_ = 0;
-  deviceLastSync_ = 0;
-  deviceRequestCache_.clear();
-  deviceRequestOrder_.clear();
   clearQuickLabelPrintCache();
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
@@ -153,16 +136,13 @@ bool App::copyInventatoryScanToken() {
 }
 
 void App::beginScanFirmwareCheck() {
-  if (scanFirmwareFuture_.valid()) {
-    setMessage("Already checking for Scan R1 firmware updates", 3);
-    return;
-  }
+  // Started together with the software update check; the Settings > Updates row reports progress.
+  if (scanFirmwareFuture_.valid()) return;
   scanFirmwareChecked_ = false;
   scanFirmwareCheckFailed_ = false;
   scanFirmwareFuture_ = async(launch::async, [installed = deviceFirmwareVersion_] {
     return checkLatestScanFirmwareRelease(installed);
   });
-  setMessage("Checking for Scan R1 firmware updates", 4);
   dirty_ = true;
 }
 
@@ -176,31 +156,8 @@ void App::processScanFirmwareCheck() {
     setMessage("Could not reach the firmware release channel", 4);
   } else if (result.updateAvailable) {
     setMessage("Scan R1 firmware " + result.latestVersion + " is available", 6);
-  } else if (deviceFirmwareVersion_.empty()) {
-    setMessage("Firmware channel checked; connect a scanner to compare versions", 5);
-  } else {
-    setMessage("Scan R1 firmware is up to date", 4);
   }
   dirty_ = true;
-}
-
-// One short line for the Scan settings panel: the device's own version first,
-// then the result of the last release check, so the row reads as a value.
-string App::scanFirmwareStatus() const {
-  const bool installedKnown = !deviceFirmwareVersion_.empty();
-  const auto installed = installedKnown ? deviceFirmwareVersion_ : string("Not reported");
-  if (scanFirmwareFuture_.valid()) return installed + "  \xC2\xB7  checking " + uiLoadingSpinner();
-  if (!installedKnown) {
-    if (scanFirmwareCheckFailed_) return installed + "  \xC2\xB7  check failed";
-    return "Pair a scanner to compare firmware";
-  }
-  if (!scanFirmwareChecked_ || scanFirmwareLatestVersion_.empty()) {
-    return scanFirmwareCheckFailed_ ? installed + "  \xC2\xB7  check failed" : installed;
-  }
-  if (isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_)) {
-    return installed + "  \xC2\xB7  " + scanFirmwareLatestVersion_ + " available";
-  }
-  return installed + "  \xC2\xB7  up to date";
 }
 
 void App::openInventatoryScanSetup() {
@@ -219,7 +176,7 @@ void App::openInventatoryScanSetup() {
   } else {
     changePage(Page::ScanSetup);
   }
-  setMessage("Scan R1 setup wizard started", 3);
+  if (inputMode_ != InputMode::ExitConfirmation) setMessage("Scan R1 setup wizard started", 3);
 }
 
 void App::refreshBleSetupDiscovery() {
@@ -322,6 +279,24 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
     return;
   }
 
+  // The setup result message promises "press R to retry saving"; R must reach the retry here,
+  // not be swallowed by the wizard. Only on the steps that take no typed text.
+  if (key.type == KeyType::Character && key.ch == 'R' &&
+      (scanSetupStep_ == ScanSetupStep::Confirm || scanSetupStep_ == ScanSetupStep::Complete) &&
+      (scannerConfigSavePending_ || scannerCredentialSavePending_)) {
+    retrySaveState();
+    if (scanSetupStep_ == ScanSetupStep::Confirm && !scannerConfigSavePending_ && !scannerCredentialSavePending_) {
+      // Pairing data is saved now; the R1 was already provisioned, so finish instead of re-sending.
+      if (returnToOnboardingAfterScan_) {
+        beginWizardTransition(Page::ScanSetup, onboardingStep_, ScanSetupStep::Complete, true);
+      } else {
+        scanSetupStep_ = ScanSetupStep::Complete;
+      }
+    }
+    dirty_ = true;
+    return;
+  }
+
   if (scanSetupStep_ == ScanSetupStep::WifiName || scanSetupStep_ == ScanSetupStep::WifiPassword ||
       scanSetupStep_ == ScanSetupStep::PairingCode) {
     if (key.type == KeyType::Character) {
@@ -357,6 +332,10 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
 
   if (key.type != KeyType::Enter) return;
   const auto advanceScanStep = [this](ScanSetupStep next) {
+    // Every step starts with an empty field. The previous step's text (possibly the Wi-Fi
+    // password) must not carry into the next prompt or stay in memory after it was copied.
+    inputBuffer_.assign(inputBuffer_.size(), '\0');
+    inputBuffer_.clear();
     if (returnToOnboardingAfterScan_) {
       beginWizardTransition(Page::ScanSetup, onboardingStep_, next, true);
     } else {
@@ -367,7 +346,6 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
   switch (scanSetupStep_) {
     case ScanSetupStep::Introduction:
       advanceScanStep(ScanSetupStep::WifiName);
-      inputBuffer_.clear();
       break;
     case ScanSetupStep::WifiName:
       bleWifiSsid_ = trim(inputBuffer_);

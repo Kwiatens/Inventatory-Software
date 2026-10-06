@@ -25,13 +25,13 @@
 
 #pragma comment(lib, "winhttp.lib")
 
+#ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
+#define WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY 4
+#endif
+
 namespace inventatory {
 using namespace std;
 namespace digikey_detail {
-
-string trimCopy(string value) {
-  return trim(value);
-}
 
 string encodeComponent(const string& value, bool formEncoding) {
   ostringstream out;
@@ -163,8 +163,14 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     path.append(components.lpszExtraInfo, components.dwExtraInfoLength);
   }
 
-  HINTERNET session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                  WINHTTP_NO_PROXY_BYPASS, 0);
+  // Automatic proxy resolution follows the user's proxy configuration (WPAD/PAC); fall back to the
+  // machine-wide WinHTTP proxy where it is not available.
+  HINTERNET session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  if (session == nullptr) {
+    session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  }
   if (session == nullptr) {
     if (error != nullptr) {
       *error = httpErrorMessage("Unable to open WinHTTP session");
@@ -385,7 +391,7 @@ bool appendAuthorizationHeader(ostringstream& headers, const string& token, stri
 }
 
 bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   unsigned long long parsed = 0;
   for (const unsigned char character : trimmed) {
@@ -399,7 +405,7 @@ bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
 }
 
 bool isFiniteDecimal(const string& value, double maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   double parsed = 0.0;
   return parseClassicDecimal(trimmed, parsed) && isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;

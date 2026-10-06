@@ -11,15 +11,8 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
-#include <chrono>
 #include <ctime>
-#include <fstream>
-#include <future>
-#include <limits>
-#include <mutex>
 #include <memory>
-#include <sstream>
 #include <system_error>
 #include <unordered_set>
 
@@ -39,16 +32,17 @@ void App::loadState() {
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
   if (inventoryError) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not inspect the inventory database: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not inspect the inventory database: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     dirty_ = true;
     return;
   }
   InventoryStore loadedStore;
-  const bool inventoryLoaded = !inventoryFileExists || loadedStore.load(inventoryPath_);
+  bool inventoryNormalized = false;
+  const bool inventoryLoaded = !inventoryFileExists || loadedStore.load(inventoryPath_, &inventoryNormalized);
   if (inventoryFileExists && !inventoryLoaded) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not read the existing inventory database: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not read the existing inventory database: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     dirty_ = true;
     return;
@@ -66,7 +60,7 @@ void App::loadState() {
   if (scanConfigError || (scanConfigFileExists && !loadInventatoryScanConfig(inventatoryScanConfigPath_, loadedScanConfig))) {
     inventoryRecoveryRequired_ = true;
     inventoryRecoveryDetail_ = "Inventatory could not read the existing scanner configuration: " +
-                               inventatoryScanConfigPath_.string();
+                               inventatoryScanConfigPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     return;
   }
@@ -82,7 +76,7 @@ void App::loadState() {
   const bool bomProjectsLoaded = !inventoryFileExists || inventatory::loadBomProjects(inventoryPath_, loadedBomProjects);
   if (!bomProjectsLoaded) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not read the existing BOM projects from: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not read the existing BOM projects from: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". They have not been changed.";
     return;
   }
@@ -91,16 +85,18 @@ void App::loadState() {
   refreshDeviceEventRecords();
   refreshInventoryMovements();
   const bool commitHistoryReady = ensureInventoryCommitHistory(inventoryPath_, store_);
-  refreshInventoryCommits();
+  // An existing database was just validated by load(), history included; do not walk it twice.
+  refreshInventoryCommits(inventoryFileExists && inventoryLoaded);
   if (!commitHistoryReady || inventoryRecoveryRequired_) {
     if (!inventoryRecoveryRequired_) {
       inventoryRecoveryRequired_ = true;
-      inventoryRecoveryDetail_ = "Inventatory could not prepare inventory history: " + inventoryPath_.string();
+      inventoryRecoveryDetail_ = "Inventatory could not prepare inventory history: " + inventoryPath_.u8string();
       persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     }
     return;
   }
   printerService_.loadConfig(printerPath_);
+  publishConfiguredPrinter();
   refreshPrinterState();
   if (activities_.empty()) {
     activities_.push_back(makeActivity("system", "Inventory loaded"));
@@ -108,6 +104,7 @@ void App::loadState() {
   }
   // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 
+  bool scannerCredentialStoreUnavailable = false;
   if (trim(inventatoryScanConfig_.token).empty()) {
     const auto resolution = resolveWorkspaceScannerCredential(dataPath_, inventatoryScanConfig_);
     switch (resolution.status) {
@@ -121,7 +118,16 @@ void App::loadState() {
         inventatoryScanConfig_.token.clear();
         inventatoryScanConfig_.deviceId.clear();
         inventatoryScanConfig_.setupComplete = false;
-        setMessage("This workspace does not carry its Scan R1 credential; pair the scanner again", 7);
+        if (resolution.credentialStoreUnavailable) {
+          // The pairing on disk is untouched (it is not rewritten below), so it works again once
+          // the keyring is unlocked and Inventatory is restarted.
+          scannerCredentialStoreUnavailable = true;
+          setMessage("The system keyring is locked or unavailable, so the Scan R1 pairing cannot be read; "
+                     "unlock it and restart Inventatory",
+                     8, UiMessageSeverity::Warning);
+        } else {
+          setMessage("This workspace does not carry its Scan R1 credential; pair the scanner again", 7);
+        }
         break;
     }
   }
@@ -130,11 +136,19 @@ void App::loadState() {
   vector<string> saveFailures;
   bool inventorySaved = false;
   if (inventoryLoaded || !inventoryFileExists) {
-    inventorySaved = store_.save(inventoryPath_);
-    if (!inventorySaved) saveFailures.push_back("inventory");
+    // A database that loaded unchanged already holds exactly this inventory; rewriting every row
+    // on each launch would only add risk. Write when the file is new or loading repaired rows.
+    if (!inventoryFileExists || inventoryNormalized) {
+      inventorySaved = store_.save(inventoryPath_);
+      if (!inventorySaved) saveFailures.push_back("inventory");
+    } else {
+      inventorySaved = true;
+    }
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
-  if (!saveScannerConfigChecked(false)) saveFailures.push_back("scanner settings");
+  if (!scannerCredentialStoreUnavailable && !saveScannerConfigChecked(false)) {
+    saveFailures.push_back("scanner settings");
+  }
   if (scannerCredentialSavePending_ && !saveScannerCredentialChecked(false)) {
     saveFailures.push_back("scanner pairing token");
   }
@@ -156,6 +170,15 @@ void App::loadState() {
 }
 
 bool App::reloadInventoryState() {
+  // Reloading replaces the in-memory inventory with the database. Unsaved changes (for instance
+  // after a failed save, which keeps them in memory so they can be retried) must not be dropped by
+  // a stray keystroke; History and Undo refuse the same way.
+  if (pendingCommitDraftValid_ ||
+      (persistedStoreValid_ && !inventoryCommitDiff(persistedStore_, store_).empty())) {
+    setMessage("Unsaved inventory changes; press R to retry saving before reloading", 5,
+               UiMessageSeverity::Warning);
+    return false;
+  }
   InventoryStore loadedStore;
   if (!loadedStore.load(inventoryPath_)) {
     persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
@@ -171,7 +194,8 @@ bool App::reloadInventoryState() {
   }
 
   vector<InventoryCommit> loadedCommits;
-  if (!loadInventoryCommits(inventoryPath_, loadedCommits)) {
+  // load() above already validated the whole commit history.
+  if (!loadInventoryCommits(inventoryPath_, loadedCommits, false)) {
     persistenceError_ = "Unable to reload inventory commits; the in-memory data was kept.";
     setMessage(persistenceError_, 5);
     return false;
@@ -199,7 +223,6 @@ bool App::reloadInventoryState() {
   store_ = move(loadedStore);
   persistedStore_ = store_;
   persistedStoreValid_ = true;
-  inventoryHistory_ = move(loadedHistory);
   inventoryMovements_ = loadedMovements;
   inventoryCommits_ = move(loadedCommits);
   historySelection_ = loadedSelection;
@@ -269,7 +292,7 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
     persistedStore_ = store_;
     persistedStoreValid_ = true;
     refreshInventoryMovements();
-    refreshInventoryCommits();
+    refreshInventoryCommits(needsCommit);
     // Scanner events are held back while unsaved inventory changes exist; look again now.
     deviceSyncEventsHint_.store(true);
     pendingCommitDraft_ = {};

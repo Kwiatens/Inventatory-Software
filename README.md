@@ -62,6 +62,14 @@ Key features:
 - Support for custom rack sizes
 - Parametric racks
 
+## Building and testing
+
+Build with CMake 3.20 or newer and a C++17 compiler, then run `ctest --test-dir <build-dir> --output-on-failure`.
+The core tests are one program, `inventatory_tests`; run `inventatory_tests --list` to see its tests and
+`inventatory_tests --filter <text>` to run only the ones whose name contains the text. The exact build commands
+are in [docs/public-beta.md](docs/public-beta.md) and the Linux test notes in
+[docs/linux-support.md](docs/linux-support.md#running-the-tests).
+
 ## License
 
 Inventatory is licensed under GPL-3.0-only. Each release package includes the complete license text; see [LICENSE.md](LICENSE.md) for the project notice.

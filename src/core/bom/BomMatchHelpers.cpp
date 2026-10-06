@@ -9,7 +9,7 @@
 #include <cctype>
 #include <cmath>
 #include <limits>
-#include <unordered_map>
+#include <unordered_set>
 
 namespace inventatory::bom_match_detail {
 
@@ -32,10 +32,6 @@ vector<string> splitOnUnderscore(const string& value) {
     tokens.push_back(current);
   }
   return tokens;
-}
-
-bool startsWithInsensitive(const string& value, const string& prefix) {
-  return value.size() >= prefix.size() && toLower(value.substr(0, prefix.size())) == toLower(prefix);
 }
 
 // Pulls "5.0" out of a "D5.0mm" diameter token.
@@ -87,10 +83,16 @@ string pinCountToken(const vector<string>& tokens) {
 
 // Splits a multiplier letter off the numeric body, honouring RKM notation where
 // the letter also stands in for the decimal point ("4R7", "1u5").
-optional<double> parseNumberWithMultiplier(const string& body, bool resistanceLike) {
+//
+// A bare designation with no unit ("M3", "4u7", "U1") is not an electrical
+// value, so without a unit only the resistor markers R, K, M and G are read and
+// every marker except R needs digits in front of it. Under an explicit unit the
+// full SI prefix set applies.
+optional<double> parseNumberWithMultiplier(const string& body, NumberNotation notation) {
   if (body.empty()) {
     return nullopt;
   }
+  const bool resistanceLike = notation != NumberNotation::Reactive;
 
   size_t alpha = string::npos;
   for (size_t index = 0; index < body.size(); ++index) {
@@ -111,6 +113,12 @@ optional<double> parseNumberWithMultiplier(const string& body, bool resistanceLi
     const auto letter = static_cast<char>(tolower(static_cast<unsigned char>(body[alpha])));
     const auto head = body.substr(0, alpha);
     const auto tail = body.substr(alpha + 1);
+
+    // Only a leading R is a decimal point on its own (R280 is 0.28 ohm); any
+    // other marker with nothing in front of it is a designator such as M3.
+    if (head.empty() && letter != 'r') {
+      return nullopt;
+    }
 
     switch (letter) {
       case 'p':
@@ -133,11 +141,15 @@ optional<double> parseNumberWithMultiplier(const string& body, bool resistanceLi
         multiplier = 1e9;
         break;
       case 'r':
-      case 'e':
         multiplier = 1.0;
         break;
       default:
         return nullopt;
+    }
+    // Without a unit the value is a resistor, and p/n/u are capacitor or
+    // inductor markers ("4u7"), so they never read as ohms.
+    if (notation == NumberNotation::Unitless && (letter == 'p' || letter == 'n' || letter == 'u')) {
+      return nullopt;
     }
     // An uppercase M is always mega, whatever the unit.
     if (body[alpha] == 'M') {
@@ -164,10 +176,6 @@ optional<double> parseNumberWithMultiplier(const string& body, bool resistanceLi
   return result;
 }
 
-bool endsWith(const string& value, const string& suffix) {
-  return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
-
 string compactKey(const string& value) {
   string compact;
   compact.reserve(value.size());
@@ -177,6 +185,13 @@ string compactKey(const string& value) {
     }
   }
   return compact;
+}
+
+// Unit spellings that DigiKey-style descriptions put in their own word.
+bool isStandaloneUnitWord(const string& word) {
+  static const unordered_set<string> kUnitWords = {"ohm", "ohms", "hz",  "khz", "mhz", "f",  "uf", "nf",
+                                                   "pf",  "mf",   "h",   "uh",  "nh",  "mh"};
+  return kUnitWords.count(toLower(word)) != 0;
 }
 
 // The item-side value for a kind, taken from DigiKey parameters when present
@@ -210,8 +225,19 @@ optional<double> itemValueFor(const InventoryItem& item, ValueKind kind) {
   }
 
   // DigiKey descriptions such as "CAP CER 1UF 25V X7R 0603" carry the value in
-  // free text, which covers items that were never enriched.
-  for (const auto& token : tokenizeQuery(item.partName + " " + item.notes)) {
+  // free text, which covers items that were never enriched. A number needs an explicit unit or RKM marker: bare numbers in a name are
+  // package codes ("0603") or pin counts ("10 POS"), never component values. A
+  // unit written as its own word ("604 OHM", "100 nF") still belongs to the
+  // number in front of it.
+  const auto tokens = tokenizeQuery(item.partName + " " + item.notes);
+  for (size_t index = 0; index < tokens.size(); ++index) {
+    auto token = tokens[index];
+    if (none_of(token.begin(), token.end(), [](unsigned char ch) { return isalpha(ch) != 0; })) {
+      if (index + 1 >= tokens.size() || !isStandaloneUnitWord(tokens[index + 1])) {
+        continue;
+      }
+      token += tokens[index + 1];
+    }
     ValueKind parsedKind = ValueKind::None;
     if (const auto value = parseElectricalValue(token, parsedKind); value && parsedKind == kind) {
       return value;

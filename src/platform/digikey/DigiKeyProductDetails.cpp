@@ -6,11 +6,7 @@
 #include "platform/system/Environment.h"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
-#include <limits>
 #include <regex>
-#include <sstream>
 #include <utility>
 
 namespace inventatory {
@@ -22,35 +18,38 @@ optional<string> extractComponentPackageFromText(const string& text) {
     return nullopt;
   }
 
-  static const pair<const char*, const char*> kPatterns[] = {
-      {R"(\b(AXIAL|RADIAL|THROUGH HOLE|SURFACE MOUNT|SMD|SMT|MODULE)\b)", "$1"},
-      {R"(\b(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)\b)", "$1"},
-      {R"(\b(SOT-?23(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(SOT-?223(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(SOIC-?\d+)\b)", "$1"},
-      {R"(\b(TSSOP-?\d+)\b)", "$1"},
-      {R"(\b(SSOP-?\d+)\b)", "$1"},
-      {R"(\b(MSOP-?\d+)\b)", "$1"},
-      {R"(\b(QFN-?\d+)\b)", "$1"},
-      {R"(\b(DFN-?\d+)\b)", "$1"},
-      {R"(\b(QFP-?\d+)\b)", "$1"},
-      {R"(\b(TQFP-?\d+)\b)", "$1"},
-      {R"(\b(LQFP-?\d+)\b)", "$1"},
-      {R"(\b(DIP-?\d+)\b)", "$1"},
-      {R"(\b(BGA-?\d+)\b)", "$1"},
-      {R"(\b(LGA-?\d+)\b)", "$1"},
-      {R"(\b(TO-?92(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(TO-?220(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(TO-?263(?:-?\d+)?)\b)", "$1"},
-  };
-
-  for (const auto& [pattern, replacement] : kPatterns) {
-    regex re(pattern, regex_constants::icase);
-    smatch match;
-    if (regex_search(text, match, re) && match.size() > 1) {
-      auto package = match[1].str();
-      return package;
+  // Compiled once: building a std::regex is far costlier than matching it.
+  static const vector<regex> kPatterns = [] {
+    vector<regex> patterns;
+    for (const char* pattern : {
+             R"(\b(AXIAL|RADIAL|THROUGH HOLE|SURFACE MOUNT|SMD|SMT|MODULE)\b)",
+             R"(\b(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)\b)",
+             R"(\b(SOT-?23(?:-?\d+)?)\b)",
+             R"(\b(SOT-?223(?:-?\d+)?)\b)",
+             R"(\b(SOIC-?\d+)\b)",
+             R"(\b(TSSOP-?\d+)\b)",
+             R"(\b(SSOP-?\d+)\b)",
+             R"(\b(MSOP-?\d+)\b)",
+             R"(\b(QFN-?\d+)\b)",
+             R"(\b(DFN-?\d+)\b)",
+             R"(\b(QFP-?\d+)\b)",
+             R"(\b(TQFP-?\d+)\b)",
+             R"(\b(LQFP-?\d+)\b)",
+             R"(\b(DIP-?\d+)\b)",
+             R"(\b(BGA-?\d+)\b)",
+             R"(\b(LGA-?\d+)\b)",
+             R"(\b(TO-?92(?:-?\d+)?)\b)",
+             R"(\b(TO-?220(?:-?\d+)?)\b)",
+             R"(\b(TO-?263(?:-?\d+)?)\b)",
+         }) {
+      patterns.emplace_back(pattern, regex_constants::icase);
     }
+    return patterns;
+  }();
+
+  for (const auto& re : kPatterns) {
+    smatch match;
+    if (regex_search(text, match, re) && match.size() > 1) return match[1].str();
   }
 
   return nullopt;
@@ -62,48 +61,18 @@ bool looksLikeInductorText(const string& text) {
          normalized.find("choke") != string::npos || normalized.find("coil") != string::npos;
 }
 
-string canonicalInductanceUnit(string unit) {
-  transform(unit.begin(), unit.end(), unit.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
-  if (unit == "uh") {
-    return "uH";
-  }
-  if (unit == "nh") {
-    return "nH";
-  }
-  if (unit == "mh") {
-    return "mH";
-  }
-  if (unit == "ph") {
-    return "pH";
-  }
-  return "H";
-}
-
 optional<string> extractInductanceFromText(const string& text) {
   if (!looksLikeInductorText(text)) {
     return nullopt;
   }
-
-  regex valuePattern(R"(\b(\d+(?:\.\d+)?|\d+[rR]\d+)\s*([munp]?h)\b)", regex_constants::icase);
-  smatch match;
-  if (regex_search(text, match, valuePattern) && match.size() > 2) {
-    auto number = match[1].str();
-    replace(number.begin(), number.end(), 'R', '.');
-    replace(number.begin(), number.end(), 'r', '.');
-    return number + canonicalInductanceUnit(match[2].str());
-  }
-
-  return nullopt;
+  return value_text::extractInductance(text);
 }
 
 optional<string> extractComponentPackage(const JsonPtr& product) {
   const auto fromParameter = [&](initializer_list<const char*> names) -> optional<string> {
-    if (const auto value = readParameterValue(product, names); value.has_value() && !looksLikePackagingType(*value)) {
-      return value;
-    }
-    return nullopt;
+    // Packaging ("Tape & Reel") is a different parameter that can share the "Package" label; skip it and
+    // keep looking for the real case.
+    return readParameterValue(product, names, [](const string& value) { return !looksLikePackagingType(value); });
   };
 
   if (const auto package = fromParameter({"Package / Case", "Package Case", "Case / Package", "Case Package",
@@ -139,8 +108,8 @@ vector<Parameter> extractParameters(const JsonPtr& product) {
     const auto label = readFirstMember(entry, {"Parameter", "ParameterText"});
     const auto value = readParameterText(entry, label.value_or(""));
     if (label.has_value() && value.has_value()) {
-      auto labelText = trimCopy(*label);
-      auto valueText = trimCopy(*value);
+      auto labelText = trim(*label);
+      auto valueText = trim(*value);
       if (toLower(labelText) == "package") {
         labelText = "Packaging";
       }
@@ -154,7 +123,7 @@ vector<Parameter> extractParameters(const JsonPtr& product) {
 }
 
 void upsertExtractedInductance(vector<Parameter>& parameters, const string& value) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty() || !looksLikeInductanceValue(trimmed)) {
     return;
   }
@@ -176,7 +145,7 @@ optional<string> extractPackagingType(const JsonPtr& product) {
   if (const auto* variations = asArray(findMember(product, "ProductVariations") == nullptr ? nullptr : *findMember(product, "ProductVariations"));
       variations != nullptr && !variations->empty()) {
     const auto package = readPath((*variations)[0], {"PackageType", "Name"});
-    if (package.has_value() && !trimCopy(*package).empty()) {
+    if (package.has_value() && !trim(*package).empty()) {
       return package;
     }
   }
@@ -255,6 +224,30 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
   details.vendorMetadata.productUrl = details.productUrl;
 
   return details;
+}
+
+bool clearInvalidOptionalFields(DigiKeyProductDetails& details) {
+  bool cleared = false;
+  const auto dropIfInvalid = [&](string& value, bool valid) {
+    if (!value.empty() && !valid) {
+      value.clear();
+      cleared = true;
+    }
+  };
+  dropIfInvalid(details.quantityAvailable, isUnsignedDecimal(details.quantityAvailable, 1000000000000ULL));
+  dropIfInvalid(details.manufacturerLeadWeeks, isUnsignedDecimal(details.manufacturerLeadWeeks, 1000000ULL));
+  dropIfInvalid(details.unitPrice, isFiniteDecimal(details.unitPrice, 1000000000000.0));
+  return cleared;
+}
+
+int tokenLifetimeSeconds(const string& expiresIn) {
+  constexpr int kDefaultSeconds = 540;
+  constexpr int kMarginSeconds = 60;
+  constexpr int kMinimumSeconds = 30;
+  constexpr int kMaximumSeconds = 3600;
+  if (!isUnsignedDecimal(expiresIn, 86400ULL)) return kDefaultSeconds;
+  const auto granted = static_cast<int>(stoull(trim(expiresIn)));
+  return clamp(granted - kMarginSeconds, kMinimumSeconds, kMaximumSeconds);
 }
 
 }  // namespace digikey_detail

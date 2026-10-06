@@ -25,10 +25,29 @@ constexpr wchar_t kValueName[] = L"Inventatory Background Service";
 constexpr wchar_t kLegacyValueNames[][32] = {L"InventatorySoftware", L"HIMSSoftware"};
 
 std::string systemError(DWORD code) {
-  char message[256] = {};
-  const DWORD count = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, code, 0,
-                                     message, static_cast<DWORD>(sizeof(message)), nullptr);
-  return count == 0 ? "Windows error " + std::to_string(code) : std::string(message, count);
+  const std::string fallback = "Windows error " + std::to_string(code);
+  LPWSTR buffer = nullptr;
+  const DWORD count = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+                                         FORMAT_MESSAGE_IGNORE_INSERTS,
+                                     nullptr, code, 0, reinterpret_cast<LPWSTR>(&buffer), 0, nullptr);
+  if (count == 0 || buffer == nullptr) return fallback;
+  std::wstring wide(buffer, count);
+  LocalFree(buffer);
+  // The system text ends with "\r\n"; keep it on one line and return it as UTF-8.
+  for (wchar_t& character : wide) {
+    if (character == L'\r' || character == L'\n') character = L' ';
+  }
+  while (!wide.empty() && wide.back() == L' ') wide.pop_back();
+  if (wide.empty()) return fallback;
+  const int length = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0,
+                                         nullptr, nullptr);
+  if (length <= 0) return fallback;
+  std::string text(static_cast<std::size_t>(length), '\0');
+  if (WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(), length, nullptr,
+                          nullptr) <= 0) {
+    return fallback;
+  }
+  return text;
 }
 
 std::wstring currentExecutablePath() {

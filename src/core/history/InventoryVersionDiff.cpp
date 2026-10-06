@@ -3,7 +3,6 @@
 #include "core/history/InventoryVersionInternal.h"
 
 #include <algorithm>
-#include <limits>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -13,15 +12,31 @@ namespace inventatory {
 using namespace std;
 
 namespace {
+// The diff compares these rendered strings, so the rendering must be injective: values that contain a
+// separator are quoted, which keeps ["a,b"] distinct from ["a", "b"] and {"a", "b=c"} from {"a=b", "c"}.
+// Ordinary values render exactly as before.
+string listElement(const string& value, const char* separators) {
+  if (value.find_first_of(separators) == string::npos && value.find_first_of("\"\\") == string::npos) return value;
+  string quotedValue = "\"";
+  for (const char character : value) {
+    if (character == '"' || character == '\\') quotedValue += '\\';
+    quotedValue += character;
+  }
+  return quotedValue + '"';
+}
+
 string joinTags(const vector<string>& values) {
-  return join(values, ',');
+  vector<string> rendered;
+  rendered.reserve(values.size());
+  for (const auto& value : values) rendered.push_back(listElement(value, ","));
+  return join(rendered, ',');
 }
 
 string joinParameters(const vector<Parameter>& values) {
   vector<string> rendered;
   rendered.reserve(values.size());
   for (const auto& value : values) {
-    rendered.push_back(value.name + "=" + value.value);
+    rendered.push_back(listElement(value.name, "=;") + "=" + listElement(value.value, ";"));
   }
   return join(rendered, ';');
 }
@@ -167,6 +182,20 @@ vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, c
   return changes;
 }
 
+bool countChangedEntities(const vector<InventoryFieldChange>& changes, size_t& itemCount, size_t& rackCount) {
+  unordered_set<string> items;
+  unordered_set<string> racks;
+  bool known = true;
+  for (const auto& change : changes) {
+    if (change.entityType == "item") items.insert(change.entityId);
+    else if (change.entityType == "rack") racks.insert(change.entityId);
+    else known = false;
+  }
+  itemCount = items.size();
+  rackCount = racks.size();
+  return known;
+}
+
 bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& after) {
   return !inventoryCommitDiff(before, after).empty();
 }
@@ -248,6 +277,14 @@ bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const In
         }
       }
     }
+  }
+
+  // Parts and racks that changed independently can make the reversed state inconsistent, for example
+  // a restored part whose rack was deleted since, or whose slot another part now holds.
+  string invalid;
+  if (!validateSnapshotSemantics(reversed, &invalid)) {
+    conflict = "Later changes conflict with this commit; " + invalid;
+    return false;
   }
   return true;
 }
