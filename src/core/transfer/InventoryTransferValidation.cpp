@@ -8,25 +8,20 @@
 #include "label_printer/core/LabelPrinter.h"
 
 #include <algorithm>
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cctype>
 #include <exception>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <set>
 #include <sstream>
-#include <thread>
 #include <system_error>
 #include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <bcrypt.h>
 #else
 #include <unistd.h>
 #endif
@@ -302,8 +297,6 @@ bool pathsOverlap(const filesystem::path& first, const filesystem::path& second,
   overlaps = firstContainsSecond || secondContainsFirst;
   return true;
 }
-
-bool ownedRestoreSibling(const filesystem::path& artifact, const filesystem::path& base, const string& marker);
 
 bool ownedRestoreSibling(const filesystem::path& artifact, const filesystem::path& base, const string& marker) {
   if (!equivalentPath(artifact.parent_path(), base.parent_path())) return false;

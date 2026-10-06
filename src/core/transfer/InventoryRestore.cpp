@@ -1,7 +1,5 @@
 // Inventatory - Inventory restore activation workflow.
 
-// Inventatory - Inventory export and backup/restore workflows.
-
 #include "core/transfer/InventoryTransferPrivate.h"
 
 #include "app/settings/AppSettings.h"
@@ -10,25 +8,20 @@
 #include "label_printer/core/LabelPrinter.h"
 
 #include <algorithm>
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cctype>
 #include <exception>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <set>
 #include <sstream>
-#include <thread>
 #include <system_error>
 #include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <bcrypt.h>
 #else
 #include <unistd.h>
 #endif
@@ -189,43 +182,30 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
   // leave the on-disk workspace in an indeterminate state unless rollback
   // completes, so callers must keep dependent services stopped.
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = true;
-  journal.state = "protected";
-  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
+  const auto failWithRollback = [&](const string& primary) {
     string rollbackError;
     const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
     if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
+    error = primary + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
-  }
+  };
+  journal.state = "protected";
+  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
   // Carry every unmanaged entry over by renaming it into the staged workspace
   // (no copy, no delete) so the single activation rename below publishes the
   // restored files and the user's own files together. Rollback and recovery
   // move these entries back before discarding staging.
   if (journal.destinationExisted &&
       !moveUnmanagedEntries(journal.oldData, staging, WorkspaceEntrySource::OldWorkspace, ops, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
   journal.state = "activating";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError) ||
       !ops.rename(staging, destinationDirectory, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
   journal.state = "activated";
-  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
 
   AppSettings restoredSettings;
   if (!loadAppSettings(destinationDirectory / "settings.conf", restoredSettings)) {
@@ -247,21 +227,9 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
       if (primaryError.empty()) primaryError = "Unable to activate restored settings";
     }
   }
-  if (!primaryError.empty()) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!primaryError.empty()) return failWithRollback(primaryError);
   journal.state = "settings_activated";
-  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
 
   // The manifest and sanitized settings belong to the bundle, not to the
   // selected data directory. Remove them only after the active DB/settings
@@ -272,28 +240,14 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
   if (primaryError.empty() && !validateWorkspaceSettings(appSettingsPath, destinationDirectory, primaryError)) {
     if (primaryError.empty()) primaryError = "Restored application settings could not be validated";
   }
-  if (!primaryError.empty()) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!primaryError.empty()) return failWithRollback(primaryError);
   if (filesystem::exists(destinationDirectory / "manifest.tsv") &&
       !ops.removeAll(destinationDirectory / "manifest.tsv", primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
   if (filesystem::exists(destinationDirectory / "settings.conf") &&
       !ops.removeAll(destinationDirectory / "settings.conf", primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
 
   journal.state = "cleanup_pending";
