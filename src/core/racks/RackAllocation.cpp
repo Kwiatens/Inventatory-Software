@@ -7,6 +7,7 @@
 #include <cctype>
 #include <limits>
 #include <optional>
+#include <unordered_map>
 
 namespace inventatory {
 
@@ -126,6 +127,52 @@ bool slotOccupied(const InventoryStore& store, const string& rackId, const strin
   });
 }
 
+// Which rack slots are taken, built once per reconcile pass instead of scanning every item for each
+// candidate slot. Slots are keyed by rack id plus normalized slot; `hints` remembers, per rack, the
+// first slot that may still be free so repeated allocations do not rescan a full rack.
+class SlotIndex {
+ public:
+  explicit SlotIndex(const InventoryStore& store) {
+    for (const auto& item : store.items()) add(item);
+  }
+
+  void add(const InventoryItem& item) {
+    if (item.rackId.empty()) return;
+    ++counts_[key(item.rackId, item.rackSlot)];
+  }
+
+  // Must be called before the item's rackId/rackSlot change.
+  void remove(const InventoryItem& item) {
+    if (item.rackId.empty()) return;
+    const auto found = counts_.find(key(item.rackId, item.rackSlot));
+    if (found != counts_.end() && --found->second <= 0) counts_.erase(found);
+    hints_.erase(item.rackId);  // a slot may have become free
+  }
+
+  // True when a different item holds the slot; `except` is the item being placed.
+  bool occupied(const string& rackId, const string& slot, const InventoryItem* except) const {
+    const auto found = counts_.find(key(rackId, slot));
+    if (found == counts_.end()) return false;
+    int holders = found->second;
+    if (except != nullptr && !except->rackId.empty() && key(except->rackId, except->rackSlot) == found->first) {
+      --holders;
+    }
+    return holders > 0;
+  }
+
+  int hint(const string& rackId) const {
+    const auto found = hints_.find(rackId);
+    return found == hints_.end() ? 0 : found->second;
+  }
+  void setHint(const string& rackId, int value) { hints_[rackId] = value; }
+
+ private:
+  static string key(const string& rackId, const string& slot) { return rackId + '\x1f' + toUpper(trim(slot)); }
+
+  unordered_map<string, int> counts_;
+  unordered_map<string, int> hints_;
+};
+
 bool rackSupportsSlot(const InventatoryRack& rack, const string& slot) {
   const auto normalized = toUpper(trim(slot));
   if (normalized.size() != 2 || normalized.front() < 'A' || normalized.front() > 'E' || normalized.back() < '1' ||
@@ -140,15 +187,19 @@ bool rackSupportsSlot(const InventatoryRack& rack, const string& slot) {
   return row < min(rack.rows, 5) && column <= min(rack.columns, 5);
 }
 
-string firstFreeSlot(const InventoryStore& store, const InventatoryRack& rack, const InventoryItem* except) {
+// The first free slot of `rack` in row-major order (A1, A2, ... B1, ...), or empty when it is full.
+string firstFreeSlot(SlotIndex& index, const InventatoryRack& rack) {
   const int rows = min(max(rack.rows, 0), 5);
   const int columns = min(max(rack.columns, 0), 5);
-  for (int row = 0; row < rows; ++row) {
-    for (int column = 1; column <= columns; ++column) {
-      const string slot = string(1, static_cast<char>('A' + row)) + to_string(column);
-      if (!slotOccupied(store, rack.id, slot, except)) return slot;
+  const int total = rows * columns;
+  for (int position = index.hint(rack.id); position < total; ++position) {
+    const string slot = string(1, static_cast<char>('A' + position / columns)) + to_string(position % columns + 1);
+    if (!index.occupied(rack.id, slot, nullptr)) {
+      index.setHint(rack.id, position);
+      return slot;
     }
   }
+  index.setHint(rack.id, total);
   return {};
 }
 
@@ -183,7 +234,9 @@ bool isValidRackSlot(const string& value) {
   return slot.size() == 2 && slot[0] >= 'a' && slot[0] <= 'e' && slot[1] >= '1' && slot[1] <= '5';
 }
 
-bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
+namespace {
+
+bool reconcileRackAssignmentWithIndex(InventoryStore& store, InventoryItem& item, SlotIndex& slots) {
   if (item.rackAssignment != RackAssignmentMode::Automatic) return false;
   const auto componentType = componentTypeFor(item);
   auto* currentRack = findRack(store, item.rackId);
@@ -193,25 +246,28 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
       // reconcile place the part once enrichment supplies a category; the Unassigned
       // mode is reserved for parts that cannot be racked or that the user opted out.
       const bool pending = !item.rackId.empty() || !item.rackSlot.empty();
+      slots.remove(item);
       item.rackId.clear();
       item.rackSlot.clear();
       return pending;
     }
     const bool changed = item.rackAssignment != RackAssignmentMode::Unassigned || !item.rackId.empty() ||
                          !item.rackSlot.empty();
+    slots.remove(item);
     item.rackId.clear();
     item.rackSlot.clear();
     item.rackAssignment = RackAssignmentMode::Unassigned;
     return changed;
   }
   if (currentRack != nullptr && sameRackType(currentRack->componentType, *componentType) &&
-      rackSupportsSlot(*currentRack, item.rackSlot) && !slotOccupied(store, item.rackId, item.rackSlot, &item)) {
+      rackSupportsSlot(*currentRack, item.rackSlot) && !slots.occupied(item.rackId, item.rackSlot, &item)) {
     const auto canonicalSlot = toUpper(trim(item.rackSlot));
     const bool changed = item.rackSlot != canonicalSlot;
     item.rackSlot = canonicalSlot;
     return changed;
   }
 
+  slots.remove(item);
   item.rackId.clear();
   item.rackSlot.clear();
   vector<InventatoryRack*> compatible;
@@ -221,11 +277,12 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
     return rackNumber(lhs->code) < rackNumber(rhs->code);
   });
   for (auto* rack : compatible) {
-    const auto slot = firstFreeSlot(store, *rack, &item);
+    const auto slot = firstFreeSlot(slots, *rack);
     if (!slot.empty()) {
       item.rackId = rack->id;
       item.rackSlot = slot;
       item.rackAssignment = RackAssignmentMode::Manual;
+      slots.add(item);
       return true;
     }
   }
@@ -251,12 +308,23 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
   item.rackId = rack.id;
   item.rackSlot = "A1";
   item.rackAssignment = RackAssignmentMode::Manual;
+  slots.add(item);
   return true;
 }
 
+}  // namespace
+
+bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
+  if (item.rackAssignment != RackAssignmentMode::Automatic) return false;
+  SlotIndex slots(store);
+  return reconcileRackAssignmentWithIndex(store, item, slots);
+}
+
 bool reconcileRackAssignments(InventoryStore& store) {
+  // One occupancy index serves the whole pass; building it per part made large imports cubic.
+  SlotIndex slots(store);
   bool changed = false;
-  for (auto& item : store.items()) changed = reconcileRackAssignment(store, item) || changed;
+  for (auto& item : store.items()) changed = reconcileRackAssignmentWithIndex(store, item, slots) || changed;
   return changed;
 }
 

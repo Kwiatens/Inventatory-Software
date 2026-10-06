@@ -59,6 +59,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -2853,6 +2854,47 @@ int main() {
     filesystem::remove(tempPath);
   }
 
+  {
+    // Automatic allocation of a large batch must stay fast (it used to rescan every item for every
+    // slot of every rack) and still fill racks in order, one slot per part.
+    InventoryStore bulkStore;
+    constexpr int kBulkParts = 2000;
+    for (int index = 0; index < kBulkParts; ++index) {
+      InventoryItem resistor;
+      resistor.id = "bulk-resistor-" + to_string(index);
+      resistor.partName = to_string(index) + "k resistor";
+      resistor.category = "Resistors";
+      resistor.parameters = {{"Package", "0603"}};
+      bulkStore.items().push_back(resistor);
+    }
+    const auto bulkStarted = chrono::steady_clock::now();
+    assert(reconcileRackAssignments(bulkStore));
+    const auto bulkElapsed = chrono::steady_clock::now() - bulkStarted;
+    assert(bulkElapsed < chrono::seconds(10));
+    assert(bulkStore.racks().size() == static_cast<size_t>(kBulkParts / 25));
+    set<string> bulkSlots;
+    for (int index = 0; index < kBulkParts; ++index) {
+      const auto& placed = bulkStore.items()[static_cast<size_t>(index)];
+      assert(placed.rackAssignment == RackAssignmentMode::Manual);
+      assert(placed.rackId == bulkStore.racks()[static_cast<size_t>(index / 25)].id);
+      assert(placed.rackSlot == rackSlotLabel((index % 25) / 5, index % 5));
+      assert(bulkSlots.insert(placed.rackId + "/" + placed.rackSlot).second);
+    }
+    // A second pass changes nothing, and freeing a slot makes the next part reuse it.
+    assert(!reconcileRackAssignments(bulkStore));
+    const auto freedRack = bulkStore.items()[7].rackId;
+    const auto freedSlot = bulkStore.items()[7].rackSlot;
+    assert(unassignItemFromRack(bulkStore.items()[7]));
+    InventoryItem late;
+    late.id = "bulk-late";
+    late.partName = "late resistor";
+    late.category = "Resistors";
+    late.parameters = {{"Package", "0603"}};
+    bulkStore.items().push_back(late);
+    assert(reconcileRackAssignments(bulkStore));
+    assert(bulkStore.items().back().rackId == freedRack);
+    assert(bulkStore.items().back().rackSlot == freedSlot);
+  }
 
   {
     // A scan placeholder has no category yet. It must stay pending (Automatic) instead of being
