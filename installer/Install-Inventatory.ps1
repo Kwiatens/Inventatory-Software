@@ -76,8 +76,12 @@ function Get-InventatoryProcesses {
   )
   $candidates = @(Get-CimInstance -ClassName Win32_Process `
     -Filter "Name = 'inventatory.exe' OR Name = 'inventatory-background.exe'" -ErrorAction Stop)
+  $currentSession = (Get-Process -Id $PID).SessionId
   foreach ($candidate in $candidates) {
     if ([string]::IsNullOrWhiteSpace($candidate.ExecutablePath)) {
+      # Another user's process cannot be inspected without elevation; it runs in its own session, so
+      # it cannot be the copy that this script replaces.
+      if ([int]$candidate.SessionId -ne [int]$currentSession) { continue }
       throw "Unable to verify the executable path for Inventatory process $($candidate.ProcessId). Close Inventatory and run the installer again."
     }
     $candidatePath = ConvertTo-NormalizedPath $candidate.ExecutablePath
