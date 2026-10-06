@@ -21,7 +21,11 @@ using namespace std;
 void App::handleBomProjectKey(const KeyEvent& key) {
   if (bomDeductPrompt_) {
     if (key.type == KeyType::Enter) {
-      finishBomBuild(true);
+      // Enter is the key that walks the stops, so a key repeat on the last stop lands here.
+      // Subtracting stock needs the explicit `y`; Enter must never answer the question.
+      setMessage(bomBuildReady(bomAnalysis_) ? "Press y to subtract these parts from stock, or n to keep stock"
+                                             : "Shortages remain; press Esc to return",
+                 4);
       return;
     }
     if (key.type == KeyType::Escape) {
