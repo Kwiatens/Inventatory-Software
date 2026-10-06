@@ -24,6 +24,13 @@ bool ensureInventoryCommitSchema(SqliteConnection& connection) {
 bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryItem>& items,
                           const vector<InventatoryRack>& racks, const InventoryCommitDraft& draft,
                           InventoryCommit& committed) {
+  // A snapshot that history validation rejects would make the whole database unloadable, so refuse
+  // it here and let the caller's transaction roll back.
+  InventoryStore snapshot;
+  snapshot.items() = items;
+  snapshot.racks() = racks;
+  if (!validateSnapshotSemantics(snapshot, nullptr)) return false;
+
   SqliteStatement latestStatement;
   if (sqliteApi().prepare_v2(connection.db,
                               "SELECT commit_id, sequence FROM inventatory_inventory_commits "
@@ -51,9 +58,6 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
     // parent snapshot is authoritative for validation, so derive the counts from it.
     InventoryStore parentSnapshot;
     if (!readInventoryCommitSnapshot(connection, parentId, parentSnapshot)) return false;
-    InventoryStore snapshot;
-    snapshot.items() = items;
-    snapshot.racks() = racks;
     unordered_set<string> changedItems;
     unordered_set<string> changedRacks;
     for (const auto& change : inventoryCommitDiff(parentSnapshot, snapshot)) {
