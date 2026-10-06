@@ -4,18 +4,13 @@
 #include "core/storage/InventorySqlite.h"
 #include "core/history/InventoryVersionInternal.h"
 
-#include <initializer_list>
 #include <limits>
-#include <sstream>
 #include <thread>
 #include <chrono>
-#include <utility>
 
 namespace inventatory {
 
 using namespace std;
-
-#ifdef INVENTATORY_SQLITE_STORAGE
 
 namespace {
 
@@ -84,6 +79,8 @@ bool openDatabase(const filesystem::path& path, SqliteConnection& connection) {
   const auto utf8Path = sqlitePath(path);
   if (api.open_v2(utf8Path.c_str(), &connection.db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) !=
       SQLITE_OK) {
+    // SQLite hands back a handle even when opening fails; it must still be closed.
+    if (connection.db != nullptr) api.close(connection.db);
     connection.db = nullptr;
     return false;
   }
@@ -97,6 +94,7 @@ bool openDatabaseReadOnly(const filesystem::path& path, SqliteConnection& connec
   if (api.open_v2 == nullptr) return false;
   const auto utf8Path = sqlitePath(path);
   if (api.open_v2(utf8Path.c_str(), &connection.db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+    if (connection.db != nullptr) api.close(connection.db);
     connection.db = nullptr;
     return false;
   }
@@ -243,7 +241,5 @@ bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value) {
   value = static_cast<time_t>(raw);
   return true;
 }
-
-#endif
 
 }  // namespace inventatory

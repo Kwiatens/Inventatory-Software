@@ -16,6 +16,7 @@
 #include "core/bom/BomProjectStore.h"
 #include "app/settings/AppSettings.h"
 #include "app/shell/AppBootstrap.h"
+#include "app/shell/AppNavigation.h"
 #include "import/digikey/DigiKeyCsvImport.h"
 #include "import/kicad/KicadBom.h"
 #include "platform/digikey/DigiKeyApi.h"
@@ -37,7 +38,6 @@
 #include <cstdint>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <charconv>
 #include <deque>
 #include <filesystem>
@@ -47,7 +47,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <sstream>
 #include <utility>
 #include <string>
 #include <vector>
@@ -61,6 +60,10 @@ std::filesystem::path discoverInventatoryDataPath();
 using WorkspaceGeneration = std::uint64_t;
 
 enum class UiMessageSeverity { Info, Success, Warning, Error };
+
+// Result of App::restartDeviceService(). DisabledUntilPaired is the expected state of a workspace
+// that has no usable Scan R1 pairing; it is not a failure to start.
+enum class DeviceServiceRestart { Restarted, DisabledUntilPaired, Failed };
 
 enum class UiMessageColorRole { Info, Success, Warning, Error };
 
@@ -380,16 +383,6 @@ class App {
     bool valid = false;
   };
 
-  struct PendingDeviceQuantity {
-    DeviceQuantityRequest request;
-    DeviceQuantityResult result;
-    WorkspaceGeneration workspaceGeneration = 0;
-    std::mutex mutex;
-    std::condition_variable ready;
-    bool complete = false;
-    bool cancelled = false;
-  };
-
   // Immutable once published. Background work captures one snapshot so a
   // later data-directory change cannot redirect its completion to a new DB.
   struct WorkspaceContext {
@@ -397,18 +390,8 @@ class App {
     WorkspaceGeneration generation = 0;
   };
 
-  struct QueuedScan {
-    DeviceScanRequest request;
-    WorkspaceGeneration workspaceGeneration = 0;
-  };
-
   struct QueuedDeviceStatus {
     DeviceStatusReport report;
-    WorkspaceGeneration workspaceGeneration = 0;
-  };
-
-  struct QueuedDeviceDebug {
-    DeviceDebugReport report;
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
@@ -425,12 +408,21 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
+  // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
+  // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
+  // it, and only while no lookup is running.
+  struct BomEnrichmentSession {
+    std::unique_ptr<DigiKeyApiClient> client;
+  };
+
   struct BomEnrichmentResult {
     std::string key;
     std::string suggestion;
+    BomLookupOutcome outcome = BomLookupOutcome::Failed;
     std::string projectId;
     WorkspaceGeneration workspaceGeneration = 0;
     std::uint64_t requestSequence = 0;
+    bool credentialsMissing = false;
   };
 
   // Printer work is always executed against a value snapshot.  The worker
@@ -480,6 +472,7 @@ class App {
     std::vector<std::pair<std::string, std::optional<DigiKeyProductDetails>>> results;
     std::vector<std::string> failedItemIds;
     WorkspaceGeneration workspaceGeneration = 0;
+    std::string unavailableReason;  // set when the worker could not start (no DigiKey credentials)
   };
 
   void loadState();
@@ -490,7 +483,6 @@ class App {
   void refreshHistoryDetail();
   void moveHistorySelection(int delta);
   void moveHistoryRecordSelection(int delta);
-  void openSelectedHistoryCommit();
   void beginHistoryCheckpoint();
   void beginHistoryRestore(InventoryRevertMode mode);
   void startHistorySearch();
@@ -514,6 +506,7 @@ class App {
   void handleEditValueKey(const KeyEvent& key);
   void handleRackValueKey(const KeyEvent& key);
   void handleStockFilterKey(const KeyEvent& key);
+  void activateStockFilterMenuItem(int index);
   void handleStocktakeCountKey(const KeyEvent& key);
   void handleQuantityAdjustKey(const KeyEvent& key);
   void handleBomRestockKey(const KeyEvent& key);
@@ -563,6 +556,7 @@ class App {
   bool triggerMatches(const KeyEvent& trigger, const KeyEvent& key) const;
   bool dispatchAction(const KeyEvent& key);
   void openActionSheet();
+  void activateActionsControl();
   void handleActionSheetKey(const KeyEvent& key);
   ftxui::Element target(ftxui::Element element, std::string id, UiTargetKind kind,
                         std::function<void()> activate, bool enabled = true, bool focusable = true) const;
@@ -576,7 +570,9 @@ class App {
   void clearMessageIfExpired();
   void requestUserExit();
   void completeSettingsExit(bool saveChanges);
-  void restartDeviceService();
+  void releasePageState(Page leaving);
+  bool workspaceBlockedByTerminalSize() const;
+  DeviceServiceRestart restartDeviceService();
   void processBackgroundWork();
   void processPrinterWork();
   void processScanDigiKeyEnrichment();
@@ -598,9 +594,13 @@ class App {
   bool writeUpdateMarker(const std::string& state, const std::string& version,
                          const std::string& error = {});
   bool prepareUpdateHandoff();
+  // Removes the private download folder of the update in progress, unless the installer already owns it.
+  void discardUpdateDownload();
+  // Shutdown: asks an in-flight update download, update check or firmware check to stop and waits for
+  // them until `deadline`. Returns false when one outlived it; workAbandoned() then reports true.
+  bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
-  std::string scanFirmwareStatus() const;
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -610,7 +610,7 @@ class App {
   bool stopWorkspaceBoundWorkUntil(std::optional<std::chrono::steady_clock::time_point> deadline);
   // Completes every queued device request with a 503. With closeForShutdown, later requests are
   // refused immediately so HTTP workers never wait on a loop that is no longer running.
-  void cancelPendingDeviceRequests(const char* reason, bool closeForShutdown);
+  void cancelPendingDeviceRequests();
   void stopPrinterWork();
   std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
@@ -620,12 +620,16 @@ class App {
   bool saveScannerConfigChecked(bool notify = false);
   bool savePendingAppSettings();
   bool hasPendingPersistence() const;
-  void markDirty();
   void refreshPrinterState();
+  void publishConfiguredPrinter();
   bool enqueuePrinterProbe(const std::string& printerName);
   bool enqueuePrinterWork(PrinterWork work);
+  std::optional<PrinterWork> beginPrinterJob(PrinterWorkKind kind);
+  bool queuePrinterJob(PrinterWork work);
   void refreshInventoryMovements();
-  void refreshInventoryCommits();
+  // `afterOwnSave` skips re-validating the entire history after this process appended a commit; only the
+  // newest commit (the one just written) is checked.
+  void refreshInventoryCommits(bool afterOwnSave = false);
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);
@@ -641,7 +645,6 @@ class App {
   bool printLabelForItem(const InventoryItem& item, const std::string& successPrefix, bool openSetupOnMissingPrinter);
   void toggleAutoPrintScannedLabels();
   bool autoPrintScannedLabel(const std::string& itemId);
-  std::string printerSummary() const;
   void stageSelectedPrinterQueue();
   void toggleSymbolStandard();
   void openInventatoryScanSetup();
@@ -658,18 +661,13 @@ class App {
   bool copyInventatoryScanToken();
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
-  DeviceQuantityResult enqueueDeviceQuantity(const DeviceQuantityRequest& request);
   void enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration);
   void processDeviceRequests();
-  void enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration);
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
   void processDeviceSyncEvents();
   void refreshDeviceEventRecords();
   void retryFailedDeviceEvents();
   void discardFailedDeviceEvents();
-  void adjustDeviceDebugScroll(int delta);
-  std::string inventatoryScanDeviceSummary() const;
-  ftxui::Element renderDeviceDebugConsoleUi() const;
 
   std::vector<size_t> filteredIndices() const;
   std::vector<InventorySearchMatch> stockSearchMatches() const;
@@ -681,9 +679,9 @@ class App {
   void syncSelectionToFilter();
   void moveSelection(int delta);
   void changePage(Page page);
+  static Page pageFor(app_navigation::PrimaryPage page);
   bool chooseInventatoryFolder();
   void openSettings(SettingsCategory category = SettingsCategory::General);
-  void beginSettingsEdit();
   bool settingsDraftHasChanges() const;
   bool saveSettingsDraft();
   void cancelSettingsDraft();
@@ -746,7 +744,6 @@ class App {
   void cancelInput();
   void beginEditCurrentItem(bool createNew);
   void beginEditImportCandidate();
-  void openFieldMenu();
   void commitEditField(EditField field, const std::string& value);
   void saveWorkingCopy();
   void adjustQuantity(int delta);
@@ -760,10 +757,10 @@ class App {
   void captureUndoSnapshot();
   bool undoLastInventoryChange();
   void logActivity(const std::string& kind, const std::string& message);
-  void pushScanCode(const DeviceScanRequest& request);
-  void processScans();
   void beginCsvImport();
   void cancelImportSession();
+  bool confirmImportDiscard();
+  void requestImportDiscard();
   bool commitImportStage();
   void moveImportSelection(int delta);
   void acceptImportCandidate();
@@ -779,7 +776,6 @@ class App {
 
   // KiCad BOM workflow. Analysis always runs against live stock, so a pinned
   // project stays accurate as inventory changes.
-  void openBomProjects();
   void beginBomProject(const std::string& bomText, const std::string& name,
                        const std::filesystem::path& sourcePath);
   void refreshBomAnalysis();
@@ -797,6 +793,7 @@ class App {
   void finishBomBuild(bool subtractFromStock);
   bool exportBomShortages();
   void queueBomEnrichment();
+  void clearBomEnrichmentRun();
   void processBomEnrichment();
   bool saveBomProjects();
   bool exportInventory();
@@ -812,8 +809,6 @@ class App {
   std::string currentFieldValue(EditField field) const;
   std::vector<FieldOption> fieldOptions() const;
   std::string softwareVersion() const;
-  std::string itemDetailText(const InventoryItem& item, int width) const;
-  std::string summaryLine() const;
   std::string activePrompt() const;
 
   InventoryStore store_;
@@ -835,7 +830,6 @@ class App {
   bool startInBackground_ = false;
   BleProvisioningService bleProvisioning_;
   MdnsService mdnsService_;
-  std::filesystem::path root_;
   std::filesystem::path dataPath_;
   std::filesystem::path inventoryPath_;
   std::filesystem::path printerPath_;
@@ -844,7 +838,6 @@ class App {
   std::filesystem::path quickLabelsPath_;
   Page page_ = Page::Stock;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
-  bool onboardingActive_ = false;
   bool returnToOnboardingAfterScan_ = false;
   WizardTransition wizardTransition_;
   std::optional<KeyEvent> bufferedWizardKey_;
@@ -885,8 +878,6 @@ class App {
   size_t selectedPosition_ = 0;
   size_t closestSelectedPosition_ = 0;
   bool closestSearchActive_ = false;
-  size_t stockScroll_ = 0;
-  size_t detailScroll_ = 0;
   size_t rackSelection_ = 0;
   mutable ftxui::Box rackListPanelBounds_;
   int rackRow_ = 0;
@@ -894,13 +885,12 @@ class App {
   std::string movingRackItemId_;
   std::string movingRackSource_;
   std::string rackFilter_;
-  std::vector<QueuedScan> scanQueue_;
   std::vector<CsvImportCandidate> importCandidates_;
   std::vector<std::string> importAcceptedItemIds_;
   std::filesystem::path importSourcePath_;
   bool importStageActive_ = false;
+  std::time_t importDiscardArmedUntil_ = 0;
   bool importCommitPending_ = false;
-  std::vector<InventoryHistoryPoint> inventoryHistory_;
   std::vector<InventoryMovement> inventoryMovements_;
   std::vector<InventoryCommit> inventoryCommits_;
   std::string historySearchQuery_;
@@ -915,35 +905,23 @@ class App {
   mutable ftxui::Box historyListPanelBounds_;
   mutable ftxui::Box historyDetailPanelBounds_;
   InventoryRevertMode pendingHistoryRevertMode_ = InventoryRevertMode::Snapshot;
-  std::mutex scanMutex_;
   InventatoryScanConfig inventatoryScanConfig_;
   std::mutex deviceQueueMutex_;
-  std::vector<std::shared_ptr<PendingDeviceQuantity>> deviceQuantityQueue_;
   std::vector<QueuedDeviceStatus> deviceStatusQueue_;
-  std::vector<QueuedDeviceDebug> deviceDebugQueue_;
   std::vector<DeviceSyncEventRecord> deviceEventRecords_;
-  std::vector<std::string> deviceDebugLog_;
-  std::unordered_map<std::string, DeviceQuantityCacheEntry> deviceRequestCache_;
-  std::deque<std::string> deviceRequestOrder_;
   time_t deviceLastSeen_ = 0;
   std::string deviceFirmwareVersion_;
   int deviceRssi_ = 0;
-  std::string deviceDebug_;
-  std::string deviceLastResult_;
-  int deviceProtocolVersion_ = 0;
-  std::string deviceMode_;
-  int devicePendingEventCount_ = 0;
-  time_t deviceLastSync_ = 0;
-  size_t deviceDebugScroll_ = 0;
-  bool deviceDebugFollow_ = true;
   std::atomic<bool> running_{true};
   std::atomic<bool> backgroundQuitRequested_{false};
   std::atomic<bool> foregroundRequested_{false};
   bool workAbandoned_ = false;
   std::atomic<bool> deviceSyncEventsHint_{true};
   std::chrono::steady_clock::time_point lastDeviceSyncEventPoll_{};
-  // Guarded by deviceQueueMutex_.
-  bool deviceRequestsClosed_ = false;
+  // UI thread only: back-off after the oldest device event could not be committed.
+  int deviceSyncCommitFailures_ = 0;
+  std::chrono::steady_clock::time_point deviceSyncRetryAfter_{};
+  WorkspaceGeneration deviceSyncRetryGeneration_ = 0;
   bool dirty_ = true;
   WorkingCopy workingCopy_;
   UndoSnapshot undoSnapshot_;
@@ -991,7 +969,7 @@ class App {
   // seconds and would otherwise freeze the terminal for the whole shortage run.
   // The client is declared first on purpose: members are destroyed in reverse,
   // so the future (which joins its task) must outlive the client it borrows.
-  std::unique_ptr<DigiKeyApiClient> bomEnrichmentClient_;
+  std::shared_ptr<BomEnrichmentSession> bomEnrichmentClient_;
   std::future<BomEnrichmentResult> bomEnrichmentFuture_;
   std::string bomEnrichmentProjectId_;
   std::string bomEnrichmentActiveProjectId_;
@@ -1007,7 +985,6 @@ class App {
   size_t digiKeyRefreshFailed_ = 0;
   bool digiKeyRefreshChanged_ = false;
   WorkspaceGeneration digiKeyRefreshGeneration_ = 0;
-  std::string digiKeyRefreshActiveKey_;
   std::string digiKeyRefreshLastError_;
   std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
   std::future<DigiKeyRefreshResult> digiKeyRefreshFuture_;
@@ -1033,8 +1010,6 @@ class App {
   ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
   DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
-  time_t scannerFlashUntil_ = 0;
-  time_t printerFlashUntil_ = 0;
   bool autoPrintScannedLabels_ = true;
   std::filesystem::path settingsPath_;
   AppSettings settings_;
@@ -1052,7 +1027,12 @@ class App {
   bool hasStoredDigiKeySecret_ = false;
   std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
+  // quickLabelMutex_ guards the quick-label presets in settings_, the print-result cache above and
+  // configuredPrinterSnapshot_, the only printer state the device-service worker threads may read.
+  // The UI thread refreshes the snapshot through publishConfiguredPrinter() after every change to
+  // printerService_, which itself stays UI-owned.
   mutable std::mutex quickLabelMutex_;
+  std::string configuredPrinterSnapshot_;
   std::string settingsConfirmAction_;
   std::filesystem::path pendingRestoreBackupPath_;
   std::optional<Page> pendingPageAfterSettings_;
@@ -1061,7 +1041,6 @@ class App {
   std::future<UpdateCheckResult> scanFirmwareFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
-  bool updateCheckChecked_ = false;
   bool updateCheckFailed_ = false;
   UpdateWizardStep updateStep_ = UpdateWizardStep::Preparing;
   std::future<UpdateOperationResult> updateOperationFuture_;
@@ -1084,7 +1063,11 @@ class App {
   bool scanFirmwareCheckFailed_ = false;
   mutable std::deque<UiTarget> uiTargets_;  // deque: element addresses must stay stable, ftxui::reflect() keeps references into it
   mutable std::string hoveredTargetId_;
-  int focusedTarget_ = -1;
+  // Keyboard focus by target id (see ui/shared/UiFocus.h): set only by Tab, cleared by any other
+  // key or mouse click and whenever the page changes.
+  std::string focusedTargetId_;
+  // True while a pre-filled numeric prompt still holds its default: the first digit replaces it.
+  bool inputReplaceOnType_ = false;
 };
 
 }  // namespace inventatory

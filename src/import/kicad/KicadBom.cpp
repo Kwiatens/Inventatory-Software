@@ -8,9 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
-#include <fstream>
 #include <optional>
-#include <sstream>
 
 namespace inventatory {
 
@@ -18,7 +16,6 @@ using namespace std;
 
 namespace {
 
-constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr size_t kMaximumDesignatorsPerRow = 10000;
 
 struct BomColumns {
@@ -135,7 +132,7 @@ bool isNonOrderableDesignator(const string& designator, const string& footprint)
 KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
   KicadBomFile bom;
   bom.projectName = projectName;
-  if (text.size() > kMaximumImportBytes) {
+  if (text.size() > kMaximumCsvInputBytes) {
     bom.error = "BOM import exceeds the 25 MiB safety limit";
     return bom;
   }
@@ -219,33 +216,10 @@ string projectNameFromPath(const filesystem::path& path) {
 }
 
 KicadBomFile loadKicadBomFile(const filesystem::path& path) {
-  error_code error;
-  const auto size = filesystem::file_size(path, error);
-  if (error) {
-    KicadBomFile bom;
-    bom.error = "Unable to inspect BOM file";
-    return bom;
-  }
-  if (size > kMaximumImportBytes) {
-    KicadBomFile bom;
-    bom.error = "BOM import exceeds the 25 MiB safety limit";
-    return bom;
-  }
-  ifstream input(path, ios::binary);
-  if (!input) {
-    KicadBomFile bom;
-    bom.error = "Unable to open BOM file";
-    return bom;
-  }
-
-  ostringstream buffer;
-  buffer << input.rdbuf();
-  if (input.bad()) {
-    KicadBomFile bom;
-    bom.error = "Unable to read BOM file";
-    return bom;
-  }
-  return parseKicadBomText(buffer.str(), projectNameFromPath(path));
+  string decoded;
+  KicadBomFile bom;
+  if (!readCsvFile(path, "BOM", decoded, bom.error)) return bom;
+  return parseKicadBomText(decoded, projectNameFromPath(path));
 }
 
 }  // namespace inventatory

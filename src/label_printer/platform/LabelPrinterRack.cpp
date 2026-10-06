@@ -36,7 +36,7 @@ string rackDisplayCategory(string value) {
   if (value.empty()) {
     return "RACK";
   }
-  return uppercaseAscii(fieldOrBlank(value, 20));
+  return toUpper(fieldOrBlank(value, 20));
 }
 
 // "R12" -> "12", "R7" -> "07"; a code that is not an R-number prints as typed.
@@ -48,7 +48,7 @@ string rackNumberText(const string& code) {
     return out.str();
   }
   const auto cleaned = trim(code);
-  return cleaned.empty() ? string("RACK") : uppercaseAscii(fieldOrBlank(cleaned, 6));
+  return cleaned.empty() ? string("RACK") : toUpper(fieldOrBlank(cleaned, 6));
 }
 
 // Friendlier short forms for the long built-in type names; custom types have none.

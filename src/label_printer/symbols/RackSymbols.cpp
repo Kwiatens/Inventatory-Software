@@ -2,7 +2,6 @@
 
 #include "label_printer/symbols/RackSymbols.h"
 
-#include <algorithm>
 #include <cctype>
 #include <cstring>
 

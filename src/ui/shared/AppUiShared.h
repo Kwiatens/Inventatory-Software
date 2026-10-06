@@ -67,13 +67,10 @@ ftxui::Color uiActiveBg();
 ftxui::Color uiActiveSoftBg();
 ftxui::Color uiWarningBg();
 ftxui::Color uiDangerBg();
-ftxui::Color uiDangerFlashBg();
 ftxui::Color uiMutedColor();
 ftxui::Color uiDimColor();
 ftxui::Color uiPanelLeftBg();
 ftxui::Color uiPanelRightBg();
-ftxui::Color uiRowDarkBg();
-ftxui::Color uiRowLightBg();
 ftxui::Color uiRowSelectedBg();
 
 ftxui::Element styledText(const string& text, optional<ftxui::Color> fg = nullopt,
@@ -88,14 +85,13 @@ ftxui::Element uiSectionHeader(const string& text, optional<ftxui::Color> fg = n
                                optional<ftxui::Color> bg = nullopt);
 ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg = nullopt,
                         optional<ftxui::Color> bg = nullopt);
-ftxui::Element bulletLine(const string& label, const string& value, ftxui::Color labelColor,
-                          ftxui::Color valueColor);
+// A table cell exactly `width` columns wide: text clipped with an ellipsis, left or right aligned.
+ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool rightAlign = false);
+ftxui::Element centered(ftxui::Element element);
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor = nullopt,
                      optional<ftxui::Color> borderColor = nullopt);
 ftxui::Element footerField(const string& title, const string& body, ftxui::Color titleColor, ftxui::Color bodyColor,
                            ftxui::Color background, bool flashing = false);
-ftxui::Element statusTextBox(const string& label, bool active);
-ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected = false);
 
 // Button roles. uiSecondaryButton is the ordinary raised text control used for
 // operational actions; uiPrimaryButton is the filled cyan control that
@@ -120,12 +116,19 @@ ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui:
 bool uiBoxContains(const ftxui::Box& box, int x, int y);
 
 string displayCategory(const string& category);
+// Terminal display width of UTF-8 text in cells (double-width glyphs count 2,
+// combining marks 0). Use this, never size(), for anything laid out in columns.
+size_t displayWidth(const string& value);
+// Longest prefix of `value` that fits in `cells` columns, cut on a glyph boundary.
+string takeCells(const string& value, size_t cells);
+// Both helpers measure and cut in cells, so multi-byte text is never split
+// inside a UTF-8 sequence. `maxLength` / `width` are columns.
 string ellipsize(const string& value, size_t maxLength);
+// Word-wraps on spaces; a word wider than the line is split on glyph boundaries.
 vector<string> wrapText(const string& text, int width);
 
 string joinTags(const vector<string>& tags);
 string renderTags(const vector<string>& tags);
-string renderParameters(const vector<Parameter>& parameters);
 string renderUrl(const string& url);
 
 string normalizeKey(string value);

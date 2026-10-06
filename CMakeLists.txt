@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(InventatorySoftware VERSION 0.1.2 LANGUAGES C CXX)
+project(InventatorySoftware VERSION 0.1.3 LANGUAGES C CXX)
 
 option(INVENTATORY_PARALLEL_MSVC "Enable MSVC parallel compilation" ON)
 
@@ -20,10 +20,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# The Windows and Linux desktops share the same durable SQLite inventory
-# implementation and on-disk format.
-add_compile_definitions(INVENTATORY_SQLITE_STORAGE=1)
-
 # Release artifacts must run on a clean Windows PC without a separate
 # Visual C++ runtime installation.
 if(MSVC)
@@ -31,7 +27,9 @@ if(MSVC)
 endif()
 
 if(MSVC)
-  add_compile_options(/W4 /permissive-)
+  # Sources are UTF-8 without a BOM; decode them (and encode narrow literals) as UTF-8 regardless of
+  # the build machine's ANSI code page.
+  add_compile_options(/W4 /permissive- /utf-8)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -49,6 +47,7 @@ if(WIN32)
   set(INVENTATORY_CREDENTIAL_SOURCE src/platform/security/CredentialStore.cpp)
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningService.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
+  set(INVENTATORY_CHILD_PROCESS_SOURCE)
 else()
   find_package(PkgConfig REQUIRED)
   find_package(OpenSSL REQUIRED)
@@ -63,6 +62,7 @@ else()
   set(INVENTATORY_CREDENTIAL_SOURCE src/platform/security/CredentialStoreLinux.cpp)
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningServiceLinux.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
+  set(INVENTATORY_CHILD_PROCESS_SOURCE src/platform/system/ChildProcess.cpp)
 endif()
 
 # SQLite is compiled into the executable so the release never depends on an
@@ -185,6 +185,7 @@ add_executable(inventatory
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
+  ${INVENTATORY_CHILD_PROCESS_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   ${INVENTATORY_BLE_SOURCE}
@@ -254,6 +255,7 @@ add_executable(inventatory_tests
   src/platform/scanner/HttpServerLifecycle.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
+  ${INVENTATORY_CHILD_PROCESS_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   src/platform/digikey/DigiKeyApi.cpp
@@ -329,6 +331,7 @@ target_include_directories(inventatory_tests PRIVATE src)
 target_compile_definitions(inventatory_tests PRIVATE
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
   Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"
+  Inventatory_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 if(WIN32)
   target_link_libraries(inventatory_tests PRIVATE ws2_32 shell32 ole32 propsys winspool winhttp bcrypt advapi32)
@@ -348,6 +351,8 @@ target_link_libraries(inventatory_input_tests PRIVATE Threads::Threads)
 
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)
+  # Exit code 77 reports "credential tests skipped: no Secret Service" without hiding the other results.
+  set_tests_properties(inventatory_core PROPERTIES SKIP_RETURN_CODE 77)
   add_test(NAME inventatory_input COMMAND inventatory_input_tests)
 endif()
 

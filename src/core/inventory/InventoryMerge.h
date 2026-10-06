@@ -34,6 +34,14 @@ InventoryItem mergeEditedItem(const InventoryItem& base, const InventoryItem& ed
                               const InventoryItem& current, QuantityMerge quantity,
                               std::vector<std::string>* notices = nullptr);
 
+// Call after merging an edited item into `store` (where `item` is the merged copy, or the live item
+// itself). A manual placement taken from the edit may name a rack that no longer exists or a slot another
+// part took while the form was open; sharing it would make the save fail repeatedly. In that case the
+// placement is cleared back to automatic (the caller re-places it) and a notice is added. Returns true
+// when the placement was cleared.
+bool releaseConflictingRackPlacement(const InventoryStore& store, InventoryItem& item,
+                                     std::vector<std::string>* notices = nullptr);
+
 // Replays the changes between `base` and `staged` onto `current` and returns the result:
 // items are matched by id, so scanner quantity changes and scanner-created items in `current`
 // survive. Staged additions are appended, staged edits are merged field by field, staged

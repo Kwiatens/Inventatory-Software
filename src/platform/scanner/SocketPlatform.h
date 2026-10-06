@@ -25,8 +25,20 @@ inline int setSocketNonBlocking(NativeSocket socket, bool enabled) {
   u_long value = enabled ? 1UL : 0UL;
   return ioctlsocket(socket, FIONBIO, &value);
 }
+// Listener port policy. On Windows SO_REUSEADDR would let another socket bind the same address and
+// port while this one listens, so the exclusive option is used and a port that is taken is reported
+// as taken. Closing the listener frees the port again without a TIME_WAIT delay.
+inline int setListenerAddressPolicy(NativeSocket socket) {
+  const BOOL exclusive = TRUE;
+  return setsockopt(socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive),
+                    sizeof(exclusive));
+}
 inline int socketLastError() { return WSAGetLastError(); }
 inline bool socketWouldBlock(int error) { return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS; }
+// A blocking call that was interrupted and should simply be repeated.
+inline bool socketInterrupted(int error) { return error == WSAEINTR; }
+// accept() failures that concern one aborted connection, not the listener; retry without a pause.
+inline bool socketAcceptRetryable(int error) { return error == WSAEINTR || error == WSAECONNRESET; }
 }  // namespace inventatory
 #else
 #include <cerrno>
@@ -56,7 +68,17 @@ inline int setSocketNonBlocking(NativeSocket socket, bool enabled) {
   if (flags < 0) return -1;
   return fcntl(socket, F_SETFL, enabled ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK));
 }
+// Listener port policy. SO_REUSEADDR only allows a rebind while old connections are in TIME_WAIT;
+// a port with an active listener still reports "in use".
+inline int setListenerAddressPolicy(NativeSocket socket) {
+  const int reuse = 1;
+  return setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+}
 inline int socketLastError() { return errno; }
 inline bool socketWouldBlock(int error) { return error == EWOULDBLOCK || error == EAGAIN || error == EINPROGRESS; }
+// A blocking call that was interrupted by a signal and should simply be repeated.
+inline bool socketInterrupted(int error) { return error == EINTR; }
+// accept() failures that concern one aborted connection, not the listener; retry without a pause.
+inline bool socketAcceptRetryable(int error) { return error == EINTR || error == ECONNABORTED; }
 }  // namespace inventatory
 #endif

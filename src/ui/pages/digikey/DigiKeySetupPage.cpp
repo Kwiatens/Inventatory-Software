@@ -12,14 +12,18 @@ namespace inventatory {
 using namespace std;
 
 void App::openDigiKeySetup() {
+  digiKeySetupStep_ = DigiKeySetupStep::Introduction;
+  // Navigate first: with staged Settings edits changePage opens the save/discard prompt instead of
+  // leaving, and the draft must survive until that prompt is answered.
+  changePage(Page::DigiKeySetup);
+  if (page_ != Page::DigiKeySetup) return;
   settingsDraft_ = settings_;
   settingsDirty_ = false;
   settingsEditingField_ = false;
+  stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   inputBuffer_.clear();
-  digiKeySetupStep_ = DigiKeySetupStep::Introduction;
-  changePage(Page::DigiKeySetup);
   setMessage("DigiKey setup started", 3);
 }
 

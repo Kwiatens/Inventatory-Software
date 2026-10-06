@@ -399,12 +399,35 @@ bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activit
   return true;
 }
 
+namespace {
+
+// Serializes one record so that its line never exceeds what loadActivities accepts. Quoting doubles
+// every quote and backslash, so a message that is valid on its own can still produce an oversized
+// line; such a message is cut (on a UTF-8 boundary) and marked, instead of making the whole log
+// unreadable on the next start.
+string serializeActivityWithinLineLimit(const ActivityEntry& entry) {
+  auto line = serializeActivity(entry);
+  if (line.size() <= kMaxActivityLineBytes) return line;
+  ActivityEntry shortened = entry;
+  size_t keep = entry.message.size();
+  while (line.size() > kMaxActivityLineBytes && keep > 0) {
+    keep -= max<size_t>(1, keep / 8);
+    size_t cut = keep;
+    while (cut > 0 && (static_cast<unsigned char>(entry.message[cut]) & 0xC0U) == 0x80U) --cut;
+    shortened.message = entry.message.substr(0, cut) + "...";
+    line = serializeActivity(shortened);
+  }
+  return line;
+}
+
+}  // namespace
+
 bool saveActivities(const filesystem::path& path, const vector<ActivityEntry>& activities) {
   ostringstream file;
   file << "# Inventatory activity log\n";
   for (const auto& entry : activities) {
     if (!validActivity(entry)) return false;
-    file << serializeActivity(entry) << '\n';
+    file << serializeActivityWithinLineLimit(entry) << '\n';
     if (!file || static_cast<size_t>(file.tellp()) > kMaxActivityFileBytes) return false;
   }
   const auto text = file.str();

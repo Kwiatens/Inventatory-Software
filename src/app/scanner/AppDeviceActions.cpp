@@ -10,14 +10,11 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <ctime>
-#include <future>
 #include <limits>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -34,14 +31,6 @@ void App::enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGenerat
   deviceStatusQueue_.push_back({report, workspaceGeneration});
 }
 
-void App::enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration) {
-  lock_guard<mutex> lock(deviceQueueMutex_);
-  if (deviceDebugQueue_.size() >= kDeviceDebugQueueLimit) {
-    deviceDebugQueue_.erase(deviceDebugQueue_.begin());
-  }
-  deviceDebugQueue_.push_back({report, workspaceGeneration});
-}
-
 bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
@@ -52,11 +41,6 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
   status.rssi = request.rssi;
-  status.debug = "protocol=v" + to_string(request.protocolVersion) + " mode=" + request.mode +
-                 " queue=" + to_string(request.queueDepth);
-  status.protocolVersion = request.protocolVersion;
-  status.mode = request.mode;
-  status.pendingEventCount = request.queueDepth;
   enqueueDeviceStatus(status, context->generation);
   const bool accepted = acceptDeviceSyncEvents(context->paths.inventory, request, response, error);
   deviceSyncEventsHint_.store(true);
@@ -81,10 +65,6 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
 
 void App::refreshDeviceEventRecords() {
   deviceEventRecords_ = loadDeviceSyncEventRecords(inventoryPath_);
-  devicePendingEventCount_ = static_cast<int>(count_if(
-      deviceEventRecords_.begin(), deviceEventRecords_.end(), [](const DeviceSyncEventRecord& record) {
-        return record.state == "received";
-      }));
   dirty_ = true;
 }
 
@@ -128,6 +108,9 @@ void App::processDeviceSyncEvents() {
   // New events announce themselves through deviceSyncEventsHint_; the periodic look is only a
   // safety net, so an idle service does not query SQLite ten times a second.
   const auto now = chrono::steady_clock::now();
+  // After a failed commit the same oldest event would fail again immediately, so it is not retried
+  // before the back-off expires. The hint is left alone so the retry happens as soon as it does.
+  if (now < deviceSyncRetryAfter_ && workspaceIsCurrent(deviceSyncRetryGeneration_)) return;
   if (!deviceSyncEventsHint_.exchange(false) && now - lastDeviceSyncEventPoll_ < chrono::seconds(5)) return;
   lastDeviceSyncEventPoll_ = now;
   const auto context = currentWorkspaceContext();
@@ -144,7 +127,6 @@ void App::processDeviceSyncEvents() {
                UiMessageSeverity::Warning);
     return;
   }
-  deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
 
   const auto& event = pending.front();
   if (event.deviceId.empty()) {
@@ -161,6 +143,7 @@ void App::processDeviceSyncEvents() {
   result.message = "Invalid inventory event";
 
   string affectedItemId;
+  string enrichmentLookup;  // queued for DigiKey only after the event is durably committed
   bool created = false;
   if (event.type == "inventory.adjust") {
     DeviceQuantityRequest request{{}, event.eventId, event.code, event.value};
@@ -203,7 +186,7 @@ void App::processDeviceSyncEvents() {
       string warning;
       const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
                                 trim(item->partName) == "Scanned DigiKey Item";
-      if (shouldEnrich && !trim(event.code).empty()) scanDigiKeyEnrichmentQueue_.emplace_back(item->id, event.code);
+      enrichmentLookup = shouldEnrich ? trim(event.code) : string();
       reconcileRackAssignment(candidate, *item);
       result.itemName = item->partName;
       result.location = rackLocation(*item, candidate.racks());
@@ -222,25 +205,33 @@ void App::processDeviceSyncEvents() {
 
   if (!workspaceIsCurrent(context->generation)) return;
   if (!completeDeviceSyncEvent(candidate, context->paths.inventory, result, &persistedStore_)) {
-    setMessage("Inventatory Scan event could not be committed", 4);
+    // The event stays in the durable inbox in the received state and is retried with a growing delay;
+    // the status line keeps saying so instead of the loop re-running on every tick.
+    ++deviceSyncCommitFailures_;
+    deviceSyncRetryAfter_ = now + app_actions::deviceSyncRetryDelay(deviceSyncCommitFailures_);
+    deviceSyncRetryGeneration_ = context->generation;
+    setMessage("Inventatory Scan event could not be committed; it stays queued and will be retried", 5,
+               UiMessageSeverity::Warning);
+    dirty_ = true;
     return;
   }
+  deviceSyncCommitFailures_ = 0;
+  deviceSyncRetryAfter_ = {};
+  deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
+  if (!enrichmentLookup.empty()) scanDigiKeyEnrichmentQueue_.emplace_back(affectedItemId, enrichmentLookup);
   store_ = move(candidate);
   persistedStore_ = store_;
   persistedStoreValid_ = true;
   refreshInventoryMovements();
-  refreshInventoryCommits();
-  deviceLastResult_ = result.status == "failed"
-                          ? "ERROR " + result.message
-                          : (result.existing ? "EXISTING " : "NEW ") + result.itemName + " QTY " +
-                                to_string(result.quantity);
+  // The commit was just appended through the same transaction as a normal save; validating the whole
+  // history again for every scanned event would grow with each scan.
+  refreshInventoryCommits(true);
   if (result.status == "failed") {
     logActivity("device error", result.message);
   } else {
     logActivity(created ? "scan receive" : "stock receive",
                 result.itemName + " changed by " + to_string(result.appliedDelta) + " to " +
                     to_string(result.quantity));
-    scannerFlashUntil_ = time(nullptr) + 3;
     if (created) autoPrintScannedLabel(affectedItemId);
   }
   saveActivitiesChecked();
@@ -248,33 +239,11 @@ void App::processDeviceSyncEvents() {
   dirty_ = true;
 }
 
-void App::adjustDeviceDebugScroll(int delta) {
-  const auto total = deviceDebugLog_.size();
-  if (total == 0) {
-    deviceDebugScroll_ = 0;
-    deviceDebugFollow_ = true;
-    return;
-  }
-  const size_t step = static_cast<size_t>(delta < 0 ? -delta : delta);
-  const auto maxScroll = total > kDeviceDebugWindowLines ? total - kDeviceDebugWindowLines : 0;
-  if (delta < 0) {
-    deviceDebugFollow_ = false;
-    deviceDebugScroll_ = min(deviceDebugScroll_ + step, maxScroll);
-  } else if (delta > 0) {
-    deviceDebugFollow_ = false;
-    deviceDebugScroll_ = deviceDebugScroll_ > step ? deviceDebugScroll_ - step : 0;
-  }
-}
-
 void App::processDeviceRequests() {
-  vector<shared_ptr<PendingDeviceQuantity>> quantities;
   vector<QueuedDeviceStatus> statuses;
-  vector<QueuedDeviceDebug> debugReports;
   {
     lock_guard<mutex> lock(deviceQueueMutex_);
-    quantities.swap(deviceQuantityQueue_);
     statuses.swap(deviceStatusQueue_);
-    debugReports.swap(deviceDebugQueue_);
   }
 
   for (const auto& queuedStatus : statuses) {
@@ -283,18 +252,9 @@ void App::processDeviceRequests() {
     deviceLastSeen_ = time(nullptr);
     deviceFirmwareVersion_ = status.firmwareVersion;
     deviceRssi_ = status.rssi;
-    deviceDebug_ = status.debug;
-    if (status.protocolVersion > 0) {
-      deviceProtocolVersion_ = status.protocolVersion;
-      deviceMode_ = status.mode;
-      devicePendingEventCount_ = status.pendingEventCount;
-      deviceLastSync_ = time(nullptr);
-    }
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(status.deviceId);
       inventatoryScanConfig_.setupComplete = true;
-      deviceRequestCache_.clear();
-      deviceRequestOrder_.clear();
       clearQuickLabelPrintCache();
       saveScannerConfigChecked(true);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
@@ -302,94 +262,6 @@ void App::processDeviceRequests() {
     }
     dirty_ = true;
   }
-
-  for (const auto& queuedDebug : debugReports) {
-    if (!workspaceIsCurrent(queuedDebug.workspaceGeneration)) continue;
-    const auto& debug = queuedDebug.report;
-    const auto now = time(nullptr);
-    const auto level = trim(debug.level).empty() ? string("info") : trim(debug.level);
-    ostringstream out;
-    out << nowTimestampString(now) << " [" << level << "] " << debug.message;
-    deviceDebugLog_.push_back(out.str());
-    if (deviceDebugLog_.size() > 400U) {
-      deviceDebugLog_.erase(deviceDebugLog_.begin(), deviceDebugLog_.begin() + 100);
-    }
-    if (deviceDebugFollow_) {
-      deviceDebugScroll_ = deviceDebugLog_.size() > kDeviceDebugWindowLines
-                               ? deviceDebugLog_.size() - kDeviceDebugWindowLines
-                               : 0;
-    }
-    dirty_ = true;
-  }
-
-  for (const auto& pending : quantities) {
-    {
-      lock_guard<mutex> pendingLock(pending->mutex);
-      if (pending->cancelled || !workspaceIsCurrent(pending->workspaceGeneration)) {
-        pending->result = {};
-        pending->result.httpStatus = 409;
-        pending->result.error = "Inventatory workspace changed before the request was processed";
-        pending->complete = true;
-        pending->ready.notify_one();
-        continue;
-      }
-    }
-    bool pairingChanged = false;
-    if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(pending->request.deviceId).empty()) {
-      inventatoryScanConfig_.deviceId = trim(pending->request.deviceId);
-      inventatoryScanConfig_.setupComplete = true;
-      pairingChanged = true;
-      deviceRequestCache_.clear();
-      deviceRequestOrder_.clear();
-      clearQuickLabelPrintCache();
-    }
-    const auto before = store_;
-    auto result = applyDeviceQuantityCached(store_, pending->request, pending->workspaceGeneration,
-                                             deviceRequestCache_, deviceRequestOrder_);
-    if (pairingChanged) {
-      saveScannerConfigChecked(false);
-      server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                                   inventatoryScanReplayStatePath(dataPath_));
-    }
-    if (result.ok) {
-      logActivity(result.appliedDelta < 0 ? "usage scan" : "stock scan",
-                  result.item + " quantity changed by " + to_string(result.appliedDelta) +
-                      " to " + to_string(result.quantity));
-      if (!saveState("scanner", pending->request.requestId)) {
-        store_ = before;
-        deviceRequestCache_.erase(pending->request.requestId);
-        deviceRequestOrder_.erase(
-            remove(deviceRequestOrder_.begin(), deviceRequestOrder_.end(), pending->request.requestId),
-            deviceRequestOrder_.end());
-        result.ok = false;
-        result.httpStatus = 503;
-        result.error = persistenceError_.empty() ? "Inventatory could not persist the scanner update" : persistenceError_;
-        deviceLastResult_ = "ERROR " + result.error;
-      } else {
-        scannerFlashUntil_ = time(nullptr) + 3;
-        deviceLastResult_ = (result.appliedDelta >= 0 ? "+" : "") + to_string(result.appliedDelta) +
-                            " " + result.item + " QTY " + to_string(result.quantity);
-      }
-    } else {
-      deviceLastResult_ = "ERROR " + result.error;
-    }
-    deviceLastSeen_ = time(nullptr);
-    dirty_ = true;
-    {
-      lock_guard<mutex> lock(pending->mutex);
-      pending->result = result;
-      pending->complete = true;
-    }
-    pending->ready.notify_one();
-  }
-}
-
-string App::inventatoryScanDeviceSummary() const {
-  if (trim(inventatoryScanConfig_.token).empty()) return "R1 UNPAIRED";
-  if (trim(inventatoryScanConfig_.deviceId).empty()) return "R1 WAITING FOR DEVICE";
-  if (deviceLastSeen_ == 0 || time(nullptr) - deviceLastSeen_ > 15) return "R1 OFFLINE";
-  if (!deviceLastResult_.empty()) return "R1 ONLINE  " + deviceLastResult_;
-  return "R1 ONLINE  RSSI " + to_string(deviceRssi_);
 }
 
 }  // namespace inventatory

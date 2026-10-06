@@ -10,8 +10,10 @@ namespace inventatory {
 
 // Shared by the SQLite commit writer and the commit-diff/reversal unit.
 std::string serializeRackSnapshot(const InventatoryRack& rack);
-
-#ifdef INVENTATORY_SQLITE_STORAGE
+// True when the items and racks form a snapshot that history validation accepts: valid identifiers,
+// timestamps, and rack assignments that name an existing rack, a valid slot, and a slot used once.
+// On failure `error` (when given) receives the reason.
+bool validateSnapshotSemantics(const InventoryStore& snapshot, std::string* error);
 
 bool ensureInventoryCommitSchema(SqliteConnection& connection);
 // Appends a commit holding the given snapshot inside the caller's transaction. The change counts
@@ -24,7 +26,5 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
 bool validateInventoryCommitHistory(SqliteConnection& connection, string* error = nullptr);
 // Reads one stored commit snapshot (items and racks) and validates it.
 bool readInventoryCommitSnapshot(SqliteConnection& connection, const string& id, InventoryStore& snapshot);
-
-#endif
 
 }  // namespace inventatory

@@ -2,10 +2,12 @@
 
 #pragma once
 
+#include "core/parts/PhysicalValue.h"
 #include "platform/digikey/DigiKeyApi.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -67,7 +69,6 @@ struct SearchMatch {
   string detailedDescription;
 };
 
-string trimCopy(string value);
 string encodeFormValue(const string& value);
 string encodePathSegment(const string& value);
 string encodeComponent(const string& value, bool formEncoding);
@@ -89,10 +90,14 @@ optional<string> readFirstMember(const JsonPtr& root, initializer_list<const cha
 vector<string> extractCategoryPath(const JsonPtr& product);
 
 string normalizeParameterKey(const string& value);
-bool looksLikeInductanceValue(const string& value);
+using value_text::looksLikeFrequencyValue;
+using value_text::looksLikeInductanceValue;
 optional<string> readParameterText(const JsonPtr& entry, const string& label);
 bool looksLikePackagingType(const string& value);
-optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names);
+// Looks a product parameter up by label: an exact label match wins over a loose (substring) one, and
+// entries whose value `accept` rejects are skipped so a later, better entry is still found.
+optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names,
+                                    const std::function<bool(const string&)>& accept = {});
 optional<string> extractInductanceFromText(const string& text);
 
 optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& query);
@@ -101,6 +106,12 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
 bool isSafeHeaderValue(const string& value);
 bool appendHeader(std::ostringstream& headers, const char* name, const string& value, string* error);
 bool appendAuthorizationHeader(std::ostringstream& headers, const string& token, string* error);
+// Blanks the display-only numeric fields (stock, lead time, price) that are not valid numbers, so one odd
+// value does not discard an otherwise usable product. Returns true when something was cleared.
+bool clearInvalidOptionalFields(DigiKeyProductDetails& details);
+// Seconds an access token may be reused: the server's expires_in minus a safety margin, or a default
+// when the field is missing or unusable.
+int tokenLifetimeSeconds(const string& expiresIn);
 bool isUnsignedDecimal(const string& value, unsigned long long maximum);
 bool isFiniteDecimal(const string& value, double maximum);
 

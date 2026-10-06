@@ -4,30 +4,15 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/storage/AtomicFile.h"
 #include "core/transfer/CsvExport.h"
 #include "core/storage/InventorySqlite.h"
 #include "label_printer/core/LabelPrinter.h"
 
-#include <algorithm>
-#include <array>
-#include <chrono>
-#include <cstddef>
-#include <cstdint>
-#include <cctype>
-#include <exception>
-#include <fstream>
-#include <iomanip>
-#include <limits>
-#include <map>
-#include <set>
 #include <sstream>
-#include <thread>
-#include <system_error>
-#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <bcrypt.h>
 #else
 #include <unistd.h>
 #endif
@@ -45,12 +30,9 @@ string rackLocationForExport(const InventoryItem& item, const InventoryStore& st
 using namespace inventory_transfer_detail;
 
 bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& path, string& error) {
-  ofstream output(path, ios::binary | ios::trunc);
-  if (!output) {
-    error = "Unable to create " + path.string();
-    return false;
-  }
-
+  // Build the whole file first and replace the destination atomically, so a failed or interrupted
+  // export never leaves a truncated file over the previous one.
+  ostringstream output;
   output << "ID,Part name,Manufacturer,Category,Quantity,Location,SKU,Machine code,"
             "DigiKey part,Sync status,Tags,Parameters,Notes,Datasheet URL,Product URL,Last updated\r\n";
   for (const auto& item : store.items()) {
@@ -64,9 +46,9 @@ bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& pat
            << csvTextCell(nowTimestampString(item.lastUpdated)) << "\r\n";
   }
 
-  output.close();
-  if (!output) {
-    error = "Unable to finish writing " + path.string();
+  string writeError;
+  if (!writeFileAtomically(path, output.str(), &writeError)) {
+    error = "Unable to write " + path.u8string() + (writeError.empty() ? string() : ": " + writeError);
     return false;
   }
   return true;

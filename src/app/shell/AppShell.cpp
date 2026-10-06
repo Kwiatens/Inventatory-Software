@@ -15,21 +15,11 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cctype>
 #include <cstdlib>
 #include <ctime>
-#include <initializer_list>
-#include <iomanip>
 #include <iostream>
-#include <limits>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <thread>
-#include <future>
 
 namespace inventatory {
 
@@ -39,56 +29,28 @@ namespace {
 
 
 KeyEvent translateEvent(const ftxui::Event& event) {
-  if (event == ftxui::Event::Return) {
-    return {KeyType::Enter, '\0'};
-  }
-  if (event == ftxui::Event::Escape) {
-    return {KeyType::Escape, '\0'};
-  }
-  if (event == ftxui::Event::CtrlH) {
-    return {KeyType::CtrlBackspace, '\0'};
-  }
-  if (event == ftxui::Event::CtrlZ) {
-    return {KeyType::CtrlZ, '\0'};
+  static const std::pair<ftxui::Event, KeyType> kKeys[] = {
+      {ftxui::Event::Return, KeyType::Enter},
+      {ftxui::Event::Escape, KeyType::Escape},
+      {ftxui::Event::CtrlH, KeyType::CtrlBackspace},
+      {ftxui::Event::CtrlZ, KeyType::CtrlZ},
+      {ftxui::Event::Tab, KeyType::Tab},
+      {ftxui::Event::TabReverse, KeyType::TabReverse},
+      {ftxui::Event::ArrowUp, KeyType::Up},
+      {ftxui::Event::ArrowDown, KeyType::Down},
+      {ftxui::Event::ArrowLeft, KeyType::Left},
+      {ftxui::Event::ArrowRight, KeyType::Right},
+      {ftxui::Event::Home, KeyType::Home},
+      {ftxui::Event::End, KeyType::End},
+      {ftxui::Event::PageUp, KeyType::PageUp},
+      {ftxui::Event::PageDown, KeyType::PageDown},
+      {ftxui::Event::Delete, KeyType::Delete},
+  };
+  for (const auto& [key, type] : kKeys) {
+    if (event == key) return {type, '\0'};
   }
   if (event == ftxui::Event::Backspace) {
-    if (controlModifierPressed()) {
-      return {KeyType::CtrlBackspace, '\0'};
-    }
-    return {KeyType::Backspace, '\0'};
-  }
-  if (event == ftxui::Event::Tab) {
-    return {KeyType::Tab, '\0'};
-  }
-  if (event == ftxui::Event::TabReverse) {
-    return {KeyType::TabReverse, '\0'};
-  }
-  if (event == ftxui::Event::ArrowUp) {
-    return {KeyType::Up, '\0'};
-  }
-  if (event == ftxui::Event::ArrowDown) {
-    return {KeyType::Down, '\0'};
-  }
-  if (event == ftxui::Event::ArrowLeft) {
-    return {KeyType::Left, '\0'};
-  }
-  if (event == ftxui::Event::ArrowRight) {
-    return {KeyType::Right, '\0'};
-  }
-  if (event == ftxui::Event::Home) {
-    return {KeyType::Home, '\0'};
-  }
-  if (event == ftxui::Event::End) {
-    return {KeyType::End, '\0'};
-  }
-  if (event == ftxui::Event::PageUp) {
-    return {KeyType::PageUp, '\0'};
-  }
-  if (event == ftxui::Event::PageDown) {
-    return {KeyType::PageDown, '\0'};
-  }
-  if (event == ftxui::Event::Delete) {
-    return {KeyType::Delete, '\0'};
+    return {controlModifierPressed() ? KeyType::CtrlBackspace : KeyType::Backspace, '\0'};
   }
   if (event.is_character() && !event.character().empty()) {
     const auto& text = event.character();
@@ -168,13 +130,14 @@ int App::run() {
   // workers, and the workspace-bound futures are joined here as well, so no
   // late callback can mutate the store after the final snapshot was written.
   //
-  // Requests parked for the (now stopped) application loop are failed first. Otherwise
-  // server_.stop() would wait for in-flight workers, which in turn wait for this thread, and a
-  // launcher waiting for this process to release its lock would time out.
-  cancelPendingDeviceRequests("Inventatory is shutting down", true);
+  // Device reports parked for the (now stopped) application loop are dropped first.
+  cancelPendingDeviceRequests();
   mdnsService_.stop();
   server_.stop();
-  stopWorkspaceBoundWorkUntil(chrono::steady_clock::now() + chrono::seconds(3));
+  // An update download or release check is cancelled rather than waited for, within the same deadline.
+  const auto shutdownDeadline = chrono::steady_clock::now() + chrono::seconds(3);
+  stopUpdateWorkUntil(shutdownDeadline);
+  stopWorkspaceBoundWorkUntil(shutdownDeadline);
   const bool finalSaveSucceeded = saveState();
   if (!finalSaveSucceeded) {
     // There is no interactive frame left to display this error.  Keep the
@@ -206,7 +169,6 @@ void App::processBackgroundWork() {
     clearMessageIfExpired();
     return;
   }
-  processScans();
   processDeviceRequests();
   processDeviceSyncEvents();
   clearMessageIfExpired();
