@@ -156,20 +156,20 @@ string httpStatusText(int status) {
   }
 }
 
-bool loadReplayState(const filesystem::path& path, const string& fingerprint, uint64_t& counter) {
+ReplayStateLoad loadReplayState(const filesystem::path& path, const string& fingerprint, uint64_t& counter) {
   counter = 0;
-  if (path.empty() || fingerprint.empty()) return true;
+  if (path.empty() || fingerprint.empty()) return ReplayStateLoad::Missing;
 
   error_code existenceError;
   const bool exists = filesystem::exists(path, existenceError);
-  if (existenceError) return false;
-  if (!exists) return true;
+  if (existenceError) return ReplayStateLoad::Invalid;
+  if (!exists) return ReplayStateLoad::Missing;
   error_code sizeError;
   const auto fileSize = filesystem::file_size(path, sizeError);
-  if (sizeError || fileSize > 256U) return false;
+  if (sizeError || fileSize > 256U) return ReplayStateLoad::Invalid;
 
   ifstream input(path);
-  if (!input) return false;
+  if (!input) return ReplayStateLoad::Invalid;
 
   string storedFingerprint;
   bool hasFingerprint = false;
@@ -177,33 +177,40 @@ bool loadReplayState(const filesystem::path& path, const string& fingerprint, ui
   string line;
   while (getline(input, line)) {
     const auto separator = line.find('=');
-    if (separator == string::npos) return false;
+    if (separator == string::npos) return ReplayStateLoad::Invalid;
 
     const auto key = line.substr(0, separator);
     const auto value = line.substr(separator + 1);
     if (key == "fingerprint") {
       if (hasFingerprint || value.size() != 64 ||
-          any_of(value.begin(), value.end(), [](unsigned char ch) { return !isxdigit(ch); })) return false;
+          any_of(value.begin(), value.end(), [](unsigned char ch) { return !isxdigit(ch); })) {
+        return ReplayStateLoad::Invalid;
+      }
       storedFingerprint = value;
       hasFingerprint = true;
     } else if (key == "counter") {
       if (hasCounter || value.empty() ||
           any_of(value.begin(), value.end(), [](unsigned char ch) { return !isdigit(ch); })) {
-        return false;
+        return ReplayStateLoad::Invalid;
       }
       try {
         size_t parsed = 0;
         counter = stoull(value, &parsed);
-        if (parsed != value.size()) return false;
+        if (parsed != value.size()) return ReplayStateLoad::Invalid;
       } catch (...) {
-        return false;
+        return ReplayStateLoad::Invalid;
       }
       hasCounter = true;
     } else {
-      return false;
+      return ReplayStateLoad::Invalid;
     }
   }
-  return !input.bad() && hasFingerprint && hasCounter && storedFingerprint == fingerprint;
+  if (input.bad() || !hasFingerprint || !hasCounter) return ReplayStateLoad::Invalid;
+  if (storedFingerprint != fingerprint) {
+    counter = 0;
+    return ReplayStateLoad::ForeignKey;
+  }
+  return ReplayStateLoad::Valid;
 }
 
 bool saveReplayState(const filesystem::path& path, const string& fingerprint, uint64_t counter) {

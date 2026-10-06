@@ -15,6 +15,15 @@ workspace's `inventatory-scan-replay.state` file and refuses lower or equal
 counters, including after restart. The R1 reserves the next counter in NVS
 before sending, so a failed attempt can be retried only with a newer counter.
 
+Only a request that is accepted advances the stored counter. An authenticated request that the
+desktop answers with an error (for example a malformed body or an unavailable sync service) does not
+consume its counter, so that exact signed request stays replayable until a later request is accepted;
+the R1 never reuses a counter and sync events are idempotent by event id. A replay state file that is
+unreadable or malformed fails closed: the service refuses requests until the pairing is cleared or
+regenerated. A well-formed state file written for a different pairing secret (for example left behind by
+a rotation that was interrupted before the file was removed) describes a different key, so the current
+secret starts a fresh sequence and the next accepted request rewrites the file.
+
 The PC signs each response with a distinct, derived server-to-client key and
 the same request counter. The R1 rejects unsigned, altered, mismatched, or
 replayed responses. Derived directional keys prevent a request MAC from being

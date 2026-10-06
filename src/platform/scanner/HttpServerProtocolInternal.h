@@ -20,8 +20,12 @@ bool parseContentLength(const HttpHeaderMap& headers, std::size_t& length);
 std::optional<std::uint64_t> headerCounter(const HttpHeaderMap& headers);
 bool tokensMatch(const std::string& expected, const std::string& supplied);
 std::string httpStatusText(int status);
-bool loadReplayState(const std::filesystem::path& path, const std::string& fingerprint,
-                     std::uint64_t& counter);
+// Missing: no state file, a fresh sequence. ForeignKey: a well-formed state written for a different
+// pairing secret; its counters say nothing about this key, so the sequence restarts at zero. Invalid:
+// unreadable or malformed state; the high-water mark is unknown and requests are refused.
+enum class ReplayStateLoad { Valid, Missing, ForeignKey, Invalid };
+ReplayStateLoad loadReplayState(const std::filesystem::path& path, const std::string& fingerprint,
+                                std::uint64_t& counter);
 bool saveReplayState(const std::filesystem::path& path, const std::string& fingerprint,
                      std::uint64_t counter);
 
