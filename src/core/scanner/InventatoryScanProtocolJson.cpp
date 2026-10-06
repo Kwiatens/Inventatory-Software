@@ -15,49 +15,95 @@ namespace inventatory::scan_protocol_detail {
 using namespace std;
 
 
-optional<string> jsonString(const string& body, const string& key) {
-  const auto valuePosition = jsonMemberValuePosition(body, key);
-  if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != '"') return nullopt;
-  auto position = *valuePosition;
+namespace {
+
+optional<unsigned> hexQuad(const string& text, size_t at) {
+  if (at + 4U > text.size()) return nullopt;
+  unsigned value = 0;
+  for (size_t offset = 0; offset < 4U; ++offset) {
+    const int digit = hexDigit(text[at + offset]);
+    if (digit < 0) return nullopt;
+    value = (value << 4U) | static_cast<unsigned>(digit);
+  }
+  return value;
+}
+
+void appendUtf8(string& out, unsigned codepoint) {
+  if (codepoint < 0x80U) {
+    out.push_back(static_cast<char>(codepoint));
+  } else if (codepoint < 0x800U) {
+    out.push_back(static_cast<char>(0xC0U | (codepoint >> 6U)));
+    out.push_back(static_cast<char>(0x80U | (codepoint & 0x3FU)));
+  } else if (codepoint < 0x10000U) {
+    out.push_back(static_cast<char>(0xE0U | (codepoint >> 12U)));
+    out.push_back(static_cast<char>(0x80U | ((codepoint >> 6U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | (codepoint & 0x3FU)));
+  } else {
+    out.push_back(static_cast<char>(0xF0U | (codepoint >> 18U)));
+    out.push_back(static_cast<char>(0x80U | ((codepoint >> 12U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | ((codepoint >> 6U) & 0x3FU)));
+    out.push_back(static_cast<char>(0x80U | (codepoint & 0x3FU)));
+  }
+}
+
+}  // namespace
+
+// The one JSON string decoder for Scan R1 messages. `position` is the opening quote; on success it is
+// moved past the closing quote. Escapes decode to UTF-8 (surrogate pairs included). Raw control
+// characters, a NUL escape (it would truncate the value at the SQLite binding), unpaired surrogates and
+// unknown escapes are rejected rather than altered.
+optional<string> decodeJsonStringLiteral(const string& text, size_t& position) {
+  if (position >= text.size() || text[position] != '"') return nullopt;
   string value;
-  bool escaped = false;
-  for (++position; position < body.size(); ++position) {
-    const char ch = body[position];
-    if (escaped) {
-      switch (ch) {
-        case 'n': value.push_back('\n'); break;
-        case 'r': value.push_back('\r'); break;
-        case 't': value.push_back('\t'); break;
-        case 'u':
-          if (position + 4 < body.size()) {
-            const auto hi = hexDigit(body[position + 1]);
-            const auto h2 = hexDigit(body[position + 2]);
-            const auto h3 = hexDigit(body[position + 3]);
-            const auto lo = hexDigit(body[position + 4]);
-            if (hi >= 0 && h2 >= 0 && h3 >= 0 && lo >= 0) {
-              const auto codepoint = static_cast<unsigned>(hi << 12 | h2 << 8 | h3 << 4 | lo);
-              if (codepoint <= 0xFFU) {
-                value.push_back(static_cast<char>(codepoint));
-                position += 4;
-                escaped = false;
-                continue;
-              }
-            }
-          }
-          value.push_back(ch);
-          break;
-        default: value.push_back(ch); break;
-      }
-      escaped = false;
-    } else if (ch == '\\') {
-      escaped = true;
-    } else if (ch == '"') {
+  for (size_t index = position + 1U; index < text.size(); ++index) {
+    const unsigned char ch = static_cast<unsigned char>(text[index]);
+    if (ch == '"') {
+      position = index + 1U;
       return value;
-    } else {
-      value.push_back(ch);
+    }
+    if (ch < 0x20U) return nullopt;
+    if (ch != '\\') {
+      value.push_back(static_cast<char>(ch));
+      continue;
+    }
+    if (++index >= text.size()) return nullopt;
+    switch (text[index]) {
+      case '"': value.push_back('"'); break;
+      case '\\': value.push_back('\\'); break;
+      case '/': value.push_back('/'); break;
+      case 'b': value.push_back('\b'); break;
+      case 'f': value.push_back('\f'); break;
+      case 'n': value.push_back('\n'); break;
+      case 'r': value.push_back('\r'); break;
+      case 't': value.push_back('\t'); break;
+      case 'u': {
+        const auto unit = hexQuad(text, index + 1U);
+        if (!unit) return nullopt;
+        index += 4U;
+        unsigned codepoint = *unit;
+        if (codepoint >= 0xD800U && codepoint <= 0xDBFFU) {
+          if (index + 2U >= text.size() || text[index + 1U] != '\\' || text[index + 2U] != 'u') return nullopt;
+          const auto low = hexQuad(text, index + 3U);
+          if (!low || *low < 0xDC00U || *low > 0xDFFFU) return nullopt;
+          index += 6U;
+          codepoint = 0x10000U + ((codepoint - 0xD800U) << 10U) + (*low - 0xDC00U);
+        } else if (codepoint >= 0xDC00U && codepoint <= 0xDFFFU) {
+          return nullopt;
+        }
+        if (codepoint == 0U) return nullopt;
+        appendUtf8(value, codepoint);
+        break;
+      }
+      default: return nullopt;
     }
   }
   return nullopt;
+}
+
+optional<string> jsonString(const string& body, const string& key) {
+  auto position = jsonMemberValuePosition(body, key);
+  if (!position) return nullopt;
+  return decodeJsonStringLiteral(body, *position);
 }
 
 optional<int> jsonInt(const string& body, const string& key) {
@@ -206,41 +252,9 @@ optional<vector<string>> jsonStringArray(const string& body, const string& key) 
   skipWhitespace();
   if (position == array->size()) return values;
   while (position < array->size()) {
-    if ((*array)[position] != '"') return nullopt;
-    string value;
-    bool escaped = false;
-    bool closed = false;
-    size_t index = position + 1;
-    for (; index < array->size(); ++index) {
-      const char ch = (*array)[index];
-      if (escaped) {
-        if (ch == 'u') {
-          if (index + 4 >= array->size() || hexDigit((*array)[index + 1]) < 0 ||
-              hexDigit((*array)[index + 2]) < 0 || hexDigit((*array)[index + 3]) < 0 ||
-              hexDigit((*array)[index + 4]) < 0) return nullopt;
-          value.push_back(ch);
-          index += 4;
-        } else if (ch != '"' && ch != '\\' && ch != '/' && ch != 'b' && ch != 'f' && ch != 'n' &&
-                   ch != 'r' && ch != 't') {
-          return nullopt;
-        } else {
-          value.push_back(ch);
-        }
-        escaped = false;
-      } else if (ch == '\\') {
-        escaped = true;
-      } else if (ch == '"') {
-        closed = true;
-        ++index;
-        break;
-      } else {
-        if (static_cast<unsigned char>(ch) < 0x20U) return nullopt;
-        value.push_back(ch);
-      }
-    }
-    if (!closed || escaped) return nullopt;
-    values.push_back(move(value));
-    position = index;
+    auto value = decodeJsonStringLiteral(*array, position);
+    if (!value) return nullopt;
+    values.push_back(move(*value));
     skipWhitespace();
     if (position == array->size()) return values;
     if ((*array)[position] != ',') return nullopt;
