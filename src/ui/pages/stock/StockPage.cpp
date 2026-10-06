@@ -42,9 +42,9 @@ ftxui::Element App::renderStockUi() const {
   size_t longestPartName = string("Part").size();
   size_t longestCategory = string("Category").size();
   for (const auto& item : store_.items()) {
-    longestPartName = max(longestPartName, item.partName.size());
+    longestPartName = max(longestPartName, displayWidth(item.partName));
     longestQuantity = max(longestQuantity, to_string(item.quantity).size());
-    longestCategory = max(longestCategory, displayCategory(item.category).size());
+    longestCategory = max(longestCategory, displayWidth(displayCategory(item.category)));
   }
   // The separators are positioned from the complete inventory, not just the
   // current filter result, so columns do not jump or truncate a later row.

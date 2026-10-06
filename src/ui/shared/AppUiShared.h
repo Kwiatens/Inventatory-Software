@@ -120,7 +120,15 @@ ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui:
 bool uiBoxContains(const ftxui::Box& box, int x, int y);
 
 string displayCategory(const string& category);
+// Terminal display width of UTF-8 text in cells (double-width glyphs count 2,
+// combining marks 0). Use this, never size(), for anything laid out in columns.
+size_t displayWidth(const string& value);
+// Longest prefix of `value` that fits in `cells` columns, cut on a glyph boundary.
+string takeCells(const string& value, size_t cells);
+// Both helpers measure and cut in cells, so multi-byte text is never split
+// inside a UTF-8 sequence. `maxLength` / `width` are columns.
 string ellipsize(const string& value, size_t maxLength);
+// Word-wraps on spaces; a word wider than the line is split on glyph boundaries.
 vector<string> wrapText(const string& text, int width);
 
 string joinTags(const vector<string>& tags);

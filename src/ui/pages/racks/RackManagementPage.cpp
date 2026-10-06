@@ -110,42 +110,7 @@ ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, i
 }
 
 vector<string> rackTitleLines(const string& value, int width) {
-  const int lineWidth = max(1, width);
-  vector<string> lines;
-  istringstream words(value);
-  string word;
-  string line;
-
-  const auto flushLine = [&] {
-    if (!line.empty()) {
-      lines.push_back(move(line));
-      line.clear();
-    }
-  };
-
-  while (words >> word) {
-    if (static_cast<int>(word.size()) > lineWidth) {
-      flushLine();
-      for (size_t offset = 0; offset < word.size(); offset += static_cast<size_t>(lineWidth)) {
-        lines.push_back(word.substr(offset, static_cast<size_t>(lineWidth)));
-      }
-      continue;
-    }
-
-    if (!line.empty() && static_cast<int>(line.size() + word.size() + 1) > lineWidth) {
-      flushLine();
-    }
-    if (!line.empty()) {
-      line.push_back(' ');
-    }
-    line += word;
-  }
-
-  flushLine();
-  if (lines.empty()) {
-    lines.push_back({});
-  }
-  return lines;
+  return wrapText(value, max(1, width));
 }
 
 ftxui::Element centeredRackText(const string& value, int width, ftxui::Color color, int maxLines = 0) {

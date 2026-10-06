@@ -623,6 +623,71 @@ void testConfirmGuard() {
   assert(cg::confirmed(now + 30, armed, 6, false) && armed == 0);
 }
 
+// UI text helpers measure and cut in terminal cells, never inside a UTF-8 sequence.
+namespace {
+bool wellFormedUtf8(const std::string& text) {
+  size_t index = 0;
+  while (index < text.size()) {
+    const auto lead = static_cast<unsigned char>(text[index]);
+    size_t length = lead < 0x80 ? 1 : (lead >> 5) == 0x6 ? 2 : (lead >> 4) == 0xE ? 3 : (lead >> 3) == 0x1E ? 4 : 0;
+    if (length == 0 || index + length > text.size()) return false;
+    for (size_t offset = 1; offset < length; ++offset) {
+      if ((static_cast<unsigned char>(text[index + offset]) & 0xC0U) != 0x80U) return false;
+    }
+    index += length;
+  }
+  return true;
+}
+}  // namespace
+
+void testUtf8AwareTextLayout() {
+  using inventatory::displayWidth;
+  using inventatory::ellipsize;
+  using inventatory::takeCells;
+  using inventatory::wrapText;
+
+  const std::string capacitor = "Kondensator 1000\xC2\xB5" "F";  // 18 cells, 19 bytes
+  assert(capacitor.size() == 19 && displayWidth(capacitor) == 18);
+  assert(ellipsize(capacitor, 18) == capacitor);                    // fits: nothing is dropped early
+  assert(ellipsize(capacitor, 17) == "Kondensator 10...");
+  assert(displayWidth("\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E") == 6);  // wide glyphs count 2 cells
+
+  const std::vector<std::string> samples = {
+      capacitor, "\xCE\xA9mega 10k\xCE\xA9 \xC2\xB1" "1% 25\xC2\xB0" "C", "Pojemno\xC5\x9B\xC4\x87 kondensatora ceramicznego",
+      "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E\xE3\x83\x86\xE3\x82\xAD\xE3\x82\xB9\xE3\x83\x88", "e\xCC\x81" "e\xCC\x81" "e\xCC\x81" "e\xCC\x81"};
+  for (const auto& sample : samples) {
+    for (size_t limit = 1; limit <= 24; ++limit) {
+      const auto cut = ellipsize(sample, limit);
+      assert(wellFormedUtf8(cut));
+      assert(displayWidth(cut) <= limit);
+      assert(wellFormedUtf8(takeCells(sample, limit)));
+      assert(displayWidth(takeCells(sample, limit)) <= limit);
+    }
+    for (int width = 1; width <= 24; ++width) {
+      std::string rejoined;
+      for (const auto& line : wrapText(sample, width)) {
+        assert(wellFormedUtf8(line));
+        // A double-width glyph cannot be split, so a 1-cell line may hold one 2-cell glyph.
+        assert(displayWidth(line) <= static_cast<size_t>(std::max(width, 2)));
+        rejoined += line;
+      }
+      std::string expected;
+      for (char ch : sample) if (ch != ' ') expected.push_back(ch);
+      assert(wellFormedUtf8(rejoined));
+      std::string rejoinedNoSpace;
+      for (char ch : rejoined) if (ch != ' ') rejoinedNoSpace.push_back(ch);
+      assert(rejoinedNoSpace == expected);  // wrapping neither loses nor splits a character
+    }
+  }
+  // A long unbroken word (a URL, a part number) is hard-wrapped instead of overflowing.
+  const auto url = wrapText("https://example.com/a-very-long-datasheet-path/part.pdf", 20);
+  assert(url.size() >= 3);
+  for (const auto& line : url) assert(displayWidth(line) <= 20);
+  assert(wrapText("alpha beta gamma", 11) == (std::vector<std::string>{"alpha beta", "gamma"}));
+  assert(wrapText("", 10) == std::vector<std::string>{""});
+  assert(wrapText("x", 0).empty());
+}
+
 #ifndef _WIN32
 void testRestoreKeepsMachineSpecificSettings() {
   const auto root = filesystem::temp_directory_path() / ("inventatory-transfer-local-test-" + to_string(getpid()));
@@ -3547,6 +3612,7 @@ int main() {
   testNumericPromptReplacesDefault();
   testTerminalSizeGate();
   testConfirmGuard();
+  testUtf8AwareTextLayout();
 #ifndef _WIN32
   testRestoreKeepsMachineSpecificSettings();
 #endif
