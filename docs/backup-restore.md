@@ -50,6 +50,11 @@ managed file only by case, `manifest.tsv` or `settings.conf`, or a folder named
 like a managed file) restore is refused before anything changes and names the
 entry; move or rename it and restore again.
 
+A data folder that is a symbolic link (a dotfile manager, a folder moved to
+another disk) is followed to the folder it names for both backup and restore;
+the link keeps pointing at the restored workspace. A link that leads nowhere is
+refused with a message that names the link.
+
 Validation is read-only: it never migrates, creates, or otherwise changes the
 candidate database. The manifest has exact rows, 64-hex-digit SHA-256 hashes,
 and an allowlist of files; unknown files and symbolic links are rejected.
