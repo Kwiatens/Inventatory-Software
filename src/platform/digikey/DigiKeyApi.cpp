@@ -16,6 +16,17 @@ namespace inventatory {
 using namespace std;
 using namespace digikey_detail;
 
+namespace {
+
+// True for a 2xx status; otherwise reports `what` as failed with the HTTP status.
+bool isSuccessStatus(std::uint32_t statusCode, const char* what, string* error) {
+  if (statusCode >= 200 && statusCode < 300) return true;
+  if (error != nullptr) *error = string("DigiKey ") + what + " failed with HTTP " + to_string(statusCode);
+  return false;
+}
+
+}  // namespace
+
 bool DigiKeyConfig::valid() const {
   return !trimCopy(clientId).empty() && !trimCopy(clientSecret).empty() &&
          clientId.size() <= kMaximumDigiKeyFieldBytes && clientSecret.size() <= kMaximumDigiKeyFieldBytes &&
@@ -86,12 +97,7 @@ optional<string> DigiKeyApiClient::requestToken(string* error) {
   if (!requestHttp(L"POST", url, L"Content-Type: application/x-www-form-urlencoded\r\n", body.str(), response, error)) {
     return nullopt;
   }
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    if (error != nullptr) {
-      ostringstream out;
-      out << "DigiKey token request failed with HTTP " << response.statusCode;
-      *error = out.str();
-    }
+  if (!isSuccessStatus(response.statusCode, "token request", error)) {
     return nullopt;
   }
 
@@ -132,19 +138,27 @@ bool DigiKeyApiClient::ensureAccessToken(string* error) {
 
 // Sends one request with the cached token. A 401 means the token was revoked or shortened server side
 // before our own expiry estimate, so the token is dropped and the request is repeated once with a new one.
-bool DigiKeyApiClient::sendAuthorized(const function<optional<string>(const string&, string*)>& buildHeaders,
-                                      const wstring& method, const wstring& url, const string& body,
-                                      std::uint32_t& statusCode, string& responseBody, string* error) {
+bool DigiKeyApiClient::sendAuthorized(const wstring& method, const wstring& url, const string& body,
+                                      bool jsonBody, std::uint32_t& statusCode, string& responseBody,
+                                      string* error) {
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (!ensureAccessToken(error)) {
       return false;
     }
-    const auto headers = buildHeaders(accessToken_, error);
-    if (!headers.has_value()) {
+    ostringstream headers;
+    if (!appendAuthorizationHeader(headers, accessToken_, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, error)) {
       return false;
     }
+    if (!config_.accountId.empty() && !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, error)) {
+      return false;
+    }
+    if (jsonBody) headers << "Content-Type: application/json\r\n";
     HttpResponse response;
-    if (!requestHttp(method, url, widen(*headers), body, response, error)) {
+    if (!requestHttp(method, url, widen(headers.str()), body, response, error)) {
       return false;
     }
     statusCode = response.statusCode;
@@ -174,33 +188,8 @@ optional<string> DigiKeyApiClient::requestProductDetails(const string& productNu
 
   std::uint32_t statusCode = 0;
   string responseBody;
-  const bool sent = sendAuthorized(
-      [&](const string& token, string* headerError) -> optional<string> {
-        ostringstream headers;
-        if (!appendAuthorizationHeader(headers, token, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, headerError)) {
-          return nullopt;
-        }
-        if (!config_.accountId.empty() &&
-            !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, headerError)) {
-          return nullopt;
-        }
-        return headers.str();
-      },
-      L"GET", widen(url.str()), "", statusCode, responseBody, error);
-  if (!sent) {
-    return nullopt;
-  }
-
-  if (statusCode < 200 || statusCode >= 300) {
-    if (error != nullptr) {
-      ostringstream out;
-      out << "DigiKey details request failed with HTTP " << statusCode;
-      *error = out.str();
-    }
+  if (!sendAuthorized(L"GET", widen(url.str()), "", false, statusCode, responseBody, error) ||
+      !isSuccessStatus(statusCode, "details request", error)) {
     return nullopt;
   }
 
@@ -217,34 +206,9 @@ optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, 
 
   std::uint32_t statusCode = 0;
   string responseBody;
-  const bool sent = sendAuthorized(
-      [&](const string& token, string* headerError) -> optional<string> {
-        ostringstream headers;
-        if (!appendAuthorizationHeader(headers, token, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, headerError) ||
-            !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, headerError)) {
-          return nullopt;
-        }
-        if (!config_.accountId.empty() &&
-            !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, headerError)) {
-          return nullopt;
-        }
-        headers << "Content-Type: application/json\r\n";
-        return headers.str();
-      },
-      L"POST", L"https://api.digikey.com/products/v4/search/keyword", body.str(), statusCode, responseBody, error);
-  if (!sent) {
-    return nullopt;
-  }
-
-  if (statusCode < 200 || statusCode >= 300) {
-    if (error != nullptr) {
-      ostringstream out;
-      out << "DigiKey keyword search failed with HTTP " << statusCode;
-      *error = out.str();
-    }
+  if (!sendAuthorized(L"POST", L"https://api.digikey.com/products/v4/search/keyword", body.str(), true,
+                      statusCode, responseBody, error) ||
+      !isSuccessStatus(statusCode, "keyword search", error)) {
     return nullopt;
   }
 
