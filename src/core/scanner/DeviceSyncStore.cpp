@@ -132,6 +132,28 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
   return results;
 }
 
+// Counts the completed events whose result failed, then applies `sql` to them, in one transaction.
+bool changeFailedEvents(const filesystem::path& databasePath, size_t& count, const char* sql) {
+  count = 0;
+  SqliteConnection connection;
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
+      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
+  const auto rollback = [&connection]() {
+    execSql(connection, "ROLLBACK");
+    return false;
+  };
+
+  SqliteStatement countStatement;
+  if (sqliteApi().prepare_v2(connection.db,
+      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
+      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW ||
+      !sqliteSize(countStatement.stmt, 0, count)) {
+    return rollback();
+  }
+  if (!execSql(connection, sql) || !execSql(connection, "COMMIT")) return rollback();
+  return true;
+}
+
 }  // namespace
 
 bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSyncRequest& request,
@@ -228,68 +250,19 @@ vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path&
 }
 
 bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& retriedCount) {
-  retriedCount = 0;
-  SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
-      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
-
-  SqliteStatement countStatement;
-  if (sqliteApi().prepare_v2(connection.db,
-      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
-      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!sqliteSize(countStatement.stmt, 0, retriedCount)) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-
-  if (!execSql(connection, R"SQL(
+  return changeFailedEvents(databasePath, retriedCount, R"SQL(
       UPDATE inventatory_device_events
       SET state='received', result_id='', result_status='', result_existing=0,
           result_item_name='', result_requested_delta=0, result_applied_delta=0,
           result_quantity=0, result_location='', result_code='', result_message='',
           result_acknowledged=0, completed_at=0
       WHERE state='completed' AND result_status='failed'
-    )SQL")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!execSql(connection, "COMMIT")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  return true;
+    )SQL");
 }
 
 bool discardFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& discardedCount) {
-  discardedCount = 0;
-  SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
-      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
-
-  SqliteStatement countStatement;
-  if (sqliteApi().prepare_v2(connection.db,
-      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
-      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!sqliteSize(countStatement.stmt, 0, discardedCount)) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!execSql(connection,
-               "DELETE FROM inventatory_device_events WHERE state='completed' AND result_status='failed'")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!execSql(connection, "COMMIT")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  return true;
+  return changeFailedEvents(databasePath, discardedCount,
+                            "DELETE FROM inventatory_device_events WHERE state='completed' AND result_status='failed'");
 }
 
 DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const DeviceLookupRequest& request) {
