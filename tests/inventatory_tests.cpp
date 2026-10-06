@@ -39,6 +39,7 @@
 #include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
+#include "ui/shared/ActionSheetLayout.h"
 #include "ui/shared/UiFocus.h"
 #include "ui/pages/stock/StockFilterState.h"
 
@@ -324,6 +325,64 @@ void testHeaderClockYieldsToActionsControl() {
     }
     assert(used <= width);
   }
+}
+
+// The action sheet groups each header once and scrolls so the cursor row is
+// always on screen, including for the largest registry (Stock with a selection).
+void testActionSheetLayout() {
+  namespace as = inventatory::action_sheet;
+  const std::vector<std::string> stock = {
+      "Edit",  "Edit",   "Edit",  "Edit",   "Edit",  "Links", "Links", "Links",  "Print", "Print",  "Go",    "View",
+      "View",  "System", "Search", "System", "System", "System", "Data", "Data",  "Data",  "System", "Search"};
+  assert(stock.size() == 23);
+
+  // Merging repeated groups keeps the registry order inside each group.
+  const auto order = as::groupedOrder(stock);
+  assert(order.size() == stock.size());
+  std::vector<std::string> ordered;
+  for (const auto index : order) ordered.push_back(stock[index]);
+  size_t headers = 0;
+  for (size_t index = 0; index < ordered.size(); ++index) {
+    if (index == 0 || ordered[index] != ordered[index - 1]) ++headers;
+  }
+  assert(headers == 8);  // Edit Links Print Go View System Search Data
+  assert(as::rowCountFor(ordered) == stock.size() + 8);
+  for (size_t index = 1; index < order.size(); ++index) {
+    if (stock[order[index]] == stock[order[index - 1]]) assert(order[index] > order[index - 1]);
+  }
+  // The unmerged list needed one header per run of groups.
+  assert(as::rowCountFor(stock) > as::rowCountFor(ordered));
+
+  // At 30 terminal rows the sheet may use at most 18 body rows; the whole sheet,
+  // chrome included, must fit in the terminal.
+  assert(as::maxBodyRows(30) == 18);
+  assert(as::maxBodyRows(30) + as::kTitleRows + as::kChromeRows + as::kMinPageRows <= 30);
+  assert(as::maxBodyRows(10) == as::kMinBodyRows);
+  assert(as::maxBodyRows(60) > as::maxBodyRows(30));
+
+  const auto rows = as::rowsFor(ordered);
+  for (int terminalRows : {30, 31, 45, 80}) {
+    const size_t maxRows = static_cast<size_t>(as::maxBodyRows(terminalRows));
+    for (size_t action = 0; action < ordered.size(); ++action) {
+      const auto cursor = as::rowOfAction(rows, action);
+      const auto window = as::windowFor(rows.size(), cursor, maxRows);
+      assert(window.count <= maxRows);
+      assert(window.count == std::min(maxRows, rows.size()));
+      assert(window.first <= cursor && cursor < window.first + window.count);  // cursor row is drawn
+      assert(window.first + window.count <= rows.size());
+    }
+  }
+  // Small lists are never windowed; windows move one row at a time with the cursor.
+  assert(as::windowFor(10, 9, 18).first == 0 && as::windowFor(10, 9, 18).count == 10);
+  size_t previous = as::windowFor(rows.size(), 0, 18).first;
+  assert(previous == 0);
+  for (size_t cursor = 1; cursor < rows.size(); ++cursor) {
+    const auto first = as::windowFor(rows.size(), cursor, 18).first;
+    assert(first >= previous && first - previous <= 1);
+    previous = first;
+  }
+  assert(as::windowFor(0, 0, 18).count == 0);
+  assert(as::windowFor(5, 3, 0).count == 0);
 }
 
 #ifndef _WIN32
@@ -2297,6 +2356,7 @@ int main() {
   testPrimaryNavigationContract();
   testUiFocusTracking();
   testHeaderClockYieldsToActionsControl();
+  testActionSheetLayout();
 #ifndef _WIN32
   testLinuxMdnsRefusesNonPrivateInterfaces();
 #endif

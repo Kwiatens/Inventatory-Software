@@ -6,6 +6,7 @@
 #include "App.h"
 
 #include "platform/digikey/DigiKeyApi.h"
+#include "ui/shared/ActionSheetLayout.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/dom/elements.hpp>
@@ -35,6 +36,13 @@ vector<App::Action> App::currentActions() const {
       return isalnum(ch) ? static_cast<char>(tolower(ch)) : '.';
     });
     id.erase(unique(id.begin(), id.end(), [](char lhs, char rhs) { return lhs == '.' && rhs == '.'; }), id.end());
+    // Symbol-only hints ("+" and "-", "[" and "]") collapse to the same text; keep the
+    // first id as is and number later duplicates so hover and click state stay per row.
+    const string baseId = id;
+    for (int duplicate = 2; any_of(actions.begin(), actions.end(), [&](const Action& other) { return other.id == id; });
+         ++duplicate) {
+      id = baseId + "." + to_string(duplicate);
+    }
     actions.push_back(Action{move(id), move(label), move(group), move(keyHint), trigger, move(run)});
   };
 
@@ -363,14 +371,37 @@ bool App::dispatchAction(const KeyEvent& key) {
 }
 
 void App::openActionSheet() {
-  sheetActions_ = currentActions();
-  if (sheetActions_.empty()) {
+  auto actions = currentActions();
+  if (actions.empty()) {
     setMessage("No actions available here", 2, UiMessageSeverity::Warning);
     return;
   }
+  // List every group once so the sheet shows one header per group; Up/Down then
+  // follow the order the rows are drawn in.
+  vector<string> groups;
+  groups.reserve(actions.size());
+  for (const auto& action : actions) groups.push_back(action.group);
+  sheetActions_.clear();
+  sheetActions_.reserve(actions.size());
+  for (const auto index : action_sheet::groupedOrder(groups)) sheetActions_.push_back(move(actions[index]));
   sheetIndex_ = 0;
   inputMode_ = InputMode::ActionSheet;
   dirty_ = true;
+}
+
+// The header "Actions" control: opens the sheet like Space does, closes it when
+// it is already open, and never replaces a prompt the user is typing into.
+void App::activateActionsControl() {
+  if (inputMode_ == InputMode::ActionSheet) {
+    inputMode_ = InputMode::None;
+    dirty_ = true;
+    return;
+  }
+  if (inputMode_ != InputMode::None) {
+    setMessage("Finish or cancel the current input first", 2, UiMessageSeverity::Warning);
+    return;
+  }
+  openActionSheet();
 }
 
 void App::handleActionSheetKey(const KeyEvent& key) {
@@ -398,36 +429,40 @@ void App::handleActionSheetKey(const KeyEvent& key) {
 }
 
 ftxui::Element App::renderActionSheetUi() const {
-// The header "Actions" control: opens the sheet like Space does, closes it when
-// it is already open, and never replaces a prompt the user is typing into.
-void App::activateActionsControl() {
-  if (inputMode_ == InputMode::ActionSheet) {
-    inputMode_ = InputMode::None;
-    dirty_ = true;
-    return;
-  }
-  if (inputMode_ != InputMode::None) {
-    setMessage("Finish or cancel the current input first", 2, UiMessageSeverity::Warning);
-    return;
-  }
-  openActionSheet();
-}
-
   const auto* active = ftxui::ScreenInteractive::Active();
   const int screenWidth = active != nullptr ? active->dimx() : 120;
+  const int screenHeight = active != nullptr ? active->dimy() : 40;
+
+  vector<string> groups;
+  groups.reserve(sheetActions_.size());
+  for (const auto& action : sheetActions_) groups.push_back(action.group);
+  const auto allRows = action_sheet::rowsFor(groups);
+  const auto cursorRow = action_sheet::rowOfAction(allRows, static_cast<size_t>(max(0, sheetIndex_)));
+  const auto window = action_sheet::windowFor(allRows.size(), cursorRow,
+                                              static_cast<size_t>(action_sheet::maxBodyRows(screenHeight)));
+  const bool moreAbove = window.first > 0;
+  const bool moreBelow = window.first + window.count < allRows.size();
+
+  string title = "  Inventatory actions \xE2\x80\x94 \xE2\x86\x91\xE2\x86\x93 move  \xE2\x8F\x8E run  esc close";
+  if (moreAbove || moreBelow) {
+    title += "   " + to_string(min(static_cast<size_t>(max(0, sheetIndex_)) + 1, sheetActions_.size())) + "/" +
+             to_string(sheetActions_.size()) + (moreAbove ? " \xE2\x96\xB2" : "") +
+             (moreBelow ? " \xE2\x96\xBC" : "");
+  }
 
   ftxui::Elements rows;
-  rows.push_back(fullLine("  Inventatory actions \xE2\x80\x94 \xE2\x86\x91\xE2\x86\x93 move  \xE2\x8F\x8E run  esc close",
-                          uiAccentColor(), uiPanelRightBg()));
+  rows.push_back(fullLine(title, uiAccentColor(), uiPanelRightBg()));
   rows.push_back(uiDivider());
 
-  string currentGroup;
-  for (size_t index = 0; index < sheetActions_.size(); ++index) {
-    const auto& action = sheetActions_[index];
-    if (action.group != currentGroup) {
-      currentGroup = action.group;
-      rows.push_back(fullLine("  " + currentGroup, uiAccentColor(), uiPanelLeftBg()));
+  auto self = const_cast<App*>(this);
+  for (size_t position = window.first; position < window.first + window.count; ++position) {
+    const auto& row = allRows[position];
+    const auto& action = sheetActions_[row.action];
+    if (row.header) {
+      rows.push_back(fullLine("  " + action.group, uiAccentColor(), uiPanelLeftBg()));
+      continue;
     }
+    const size_t index = row.action;
     const bool selected = static_cast<int>(index) == sheetIndex_;
     const auto bg = selected ? uiRowSelectedBg() : uiSurfaceBg();
     auto keyCell = ftxui::hbox({
@@ -435,14 +470,13 @@ void App::activateActionsControl() {
                        ftxui::filler(),
                    }) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 14);
-    auto row = ftxui::hbox({
-                   keyCell,
-                   styledText(action.label, selected ? uiTitleColor() : uiMutedColor()),
-                   ftxui::filler(),
-               }) |
-               ftxui::bgcolor(bg);
-    auto self = const_cast<App*>(this);
-    rows.push_back(target(row, "action." + action.id, UiTargetKind::Action, [self, index] {
+    auto line = ftxui::hbox({
+                    keyCell,
+                    styledText(action.label, selected ? uiTitleColor() : uiMutedColor()),
+                    ftxui::filler(),
+                }) |
+                ftxui::bgcolor(bg);
+    rows.push_back(target(line, "action." + action.id, UiTargetKind::Action, [self, index] {
       if (index >= self->sheetActions_.size()) return;
       auto selected = self->sheetActions_[index];
       self->inputMode_ = InputMode::None;
