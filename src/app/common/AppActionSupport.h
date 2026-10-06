@@ -88,7 +88,7 @@ inline filesystem::path resolveInventoryDatabasePath(const filesystem::path& sel
   }
 
   if (filesystem::is_regular_file(selectedPath, error) &&
-      toLower(selectedPath.extension().string()) == ".db") {
+      toLower(selectedPath.extension().u8string()) == ".db") {
     return selectedPath;
   }
 

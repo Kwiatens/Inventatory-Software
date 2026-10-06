@@ -39,7 +39,7 @@ void App::loadState() {
   const bool inventoryFileExists = filesystem::exists(inventoryPath_, inventoryError);
   if (inventoryError) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not inspect the inventory database: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not inspect the inventory database: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     dirty_ = true;
     return;
@@ -49,7 +49,7 @@ void App::loadState() {
   const bool inventoryLoaded = !inventoryFileExists || loadedStore.load(inventoryPath_, &inventoryNormalized);
   if (inventoryFileExists && !inventoryLoaded) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not read the existing inventory database: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not read the existing inventory database: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     dirty_ = true;
     return;
@@ -67,7 +67,7 @@ void App::loadState() {
   if (scanConfigError || (scanConfigFileExists && !loadInventatoryScanConfig(inventatoryScanConfigPath_, loadedScanConfig))) {
     inventoryRecoveryRequired_ = true;
     inventoryRecoveryDetail_ = "Inventatory could not read the existing scanner configuration: " +
-                               inventatoryScanConfigPath_.string();
+                               inventatoryScanConfigPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     return;
   }
@@ -83,7 +83,7 @@ void App::loadState() {
   const bool bomProjectsLoaded = !inventoryFileExists || inventatory::loadBomProjects(inventoryPath_, loadedBomProjects);
   if (!bomProjectsLoaded) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not read the existing BOM projects from: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not read the existing BOM projects from: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". They have not been changed.";
     return;
   }
@@ -96,7 +96,7 @@ void App::loadState() {
   if (!commitHistoryReady || inventoryRecoveryRequired_) {
     if (!inventoryRecoveryRequired_) {
       inventoryRecoveryRequired_ = true;
-      inventoryRecoveryDetail_ = "Inventatory could not prepare inventory history: " + inventoryPath_.string();
+      inventoryRecoveryDetail_ = "Inventatory could not prepare inventory history: " + inventoryPath_.u8string();
       persistenceError_ = inventoryRecoveryDetail_ + ". It has not been changed.";
     }
     return;

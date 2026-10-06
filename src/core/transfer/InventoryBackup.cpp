@@ -50,7 +50,7 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   if (filesystem::is_symlink(dataDirectory, filesystemError) && !filesystemError) {
     const auto resolved = filesystem::canonical(dataDirectory, filesystemError);
     if (filesystemError || !filesystem::is_directory(resolved, filesystemError) || filesystemError) {
-      error = "Inventatory data folder is a link that does not lead to a folder: " + dataDirectory.string();
+      error = "Inventatory data folder is a link that does not lead to a folder: " + dataDirectory.u8string();
       return false;
     }
     return createInventatoryBackup(resolved, appSettingsPath, destinationDirectory, applicationVersion, error,
@@ -59,7 +59,7 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   filesystemError.clear();
 #endif
   if (!filesystem::is_directory(dataDirectory, filesystemError) || filesystemError) {
-    error = "Inventatory data folder does not exist: " + dataDirectory.string();
+    error = "Inventatory data folder does not exist: " + dataDirectory.u8string();
     return false;
   }
   if (isLinkedOrReparseArtifact(dataDirectory, filesystemError) || filesystemError) {

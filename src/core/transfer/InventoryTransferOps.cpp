@@ -47,7 +47,7 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
   string syncError;
   if (!syncDirectory(parentOf(destination), &syncError) ||
       (parentOf(source) != parentOf(destination) && !syncDirectory(parentOf(source), &syncError))) {
-    error = "Unable to flush " + destination.string() + ": " + syncError;
+    error = "Unable to flush " + destination.u8string() + ": " + syncError;
     return false;
   }
   return true;
@@ -60,13 +60,13 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
     error_code filesystemError;
     filesystem::copy_file(source, destination, filesystem::copy_options::overwrite_existing, filesystemError);
     if (filesystemError) {
-      error = "Unable to copy " + source.filename().string() + ": " + filesystemError.message();
+      error = "Unable to copy " + source.filename().u8string() + ": " + filesystemError.message();
       return false;
     }
     // A staged copy is published by a later rename, so its content must already be on disk.
     string syncError;
     if (!syncFile(destination, &syncError)) {
-      error = "Unable to flush " + destination.filename().string() + ": " + syncError;
+      error = "Unable to flush " + destination.filename().u8string() + ": " + syncError;
       return false;
     }
     return true;
@@ -77,7 +77,7 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
     error_code filesystemError;
     filesystem::rename(source, destination, filesystemError);
     if (filesystemError) {
-      error = "Unable to rename " + source.string() + ": " + filesystemError.message();
+      error = "Unable to rename " + source.u8string() + ": " + filesystemError.message();
       return false;
     }
     return syncRenamedEntry(source, destination, error);
@@ -88,7 +88,7 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
     error_code filesystemError;
     filesystem::remove_all(path, filesystemError);
     if (filesystemError) {
-      error = "Unable to remove " + path.string() + ": " + filesystemError.message();
+      error = "Unable to remove " + path.u8string() + ": " + filesystemError.message();
       return false;
     }
     return true;
@@ -98,7 +98,7 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
     if (hooks != nullptr && hooks->replaceFile) return hooks->replaceFile(source, destination, error);
 #ifdef _WIN32
     if (!MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-      error = "Unable to atomically replace " + destination.string();
+      error = "Unable to atomically replace " + destination.u8string();
       return false;
     }
     return true;
@@ -106,7 +106,7 @@ bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& de
     error_code filesystemError;
     filesystem::rename(source, destination, filesystemError);
     if (filesystemError) {
-      error = "Unable to atomically replace " + destination.string() + ": " + filesystemError.message();
+      error = "Unable to atomically replace " + destination.u8string() + ": " + filesystemError.message();
       return false;
     }
     return syncRenamedEntry(source, destination, error);
@@ -177,7 +177,7 @@ bool listPreservedEntries(const filesystem::path& directory, WorkspaceEntrySourc
     }
   }
   if (enumerationError) {
-    error = "Unable to enumerate " + directory.string() + ": " + enumerationError.message();
+    error = "Unable to enumerate " + directory.u8string() + ": " + enumerationError.message();
     return false;
   }
   return true;
@@ -279,14 +279,14 @@ bool atomicWriteText(const filesystem::path& target, const string& text, const T
   error_code filesystemError;
   ofstream output(temporary, ios::binary | ios::trunc);
   if (!output) {
-    error = "Unable to create " + target.string();
+    error = "Unable to create " + target.u8string();
     return false;
   }
   output.write(text.data(), static_cast<streamsize>(text.size()));
   output.flush();
   output.close();
   if (!output) {
-    error = "Unable to finish writing " + target.string();
+    error = "Unable to finish writing " + target.u8string();
     filesystem::remove(temporary, filesystemError);
     return false;
   }
@@ -294,7 +294,7 @@ bool atomicWriteText(const filesystem::path& target, const string& text, const T
   // a journal that is empty or older than the layout it describes.
   string syncError;
   if (!syncFile(temporary, &syncError)) {
-    error = "Unable to flush " + target.string() + ": " + syncError;
+    error = "Unable to flush " + target.u8string() + ": " + syncError;
     filesystem::remove(temporary, filesystemError);
     return false;
   }

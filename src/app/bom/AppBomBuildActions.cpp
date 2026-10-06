@@ -222,12 +222,12 @@ bool App::exportBomShortages() {
   const auto exported = buildBomShortageCsv(bomAnalysis_, project->enrichment);
   string writeError;
   if (!writeFileAtomically(target, exported.text, &writeError)) {
-    setMessage("Unable to write " + target.filename().string() + (writeError.empty() ? string() : ": " + writeError), 5,
+    setMessage("Unable to write " + target.filename().u8string() + (writeError.empty() ? string() : ": " + writeError), 5,
                UiMessageSeverity::Error);
     return false;
   }
 
-  setMessage("Wrote " + to_string(exported.rows) + " shortages to " + target.filename().string(), 6);
+  setMessage("Wrote " + to_string(exported.rows) + " shortages to " + target.filename().u8string(), 6);
   return true;
 }
 

@@ -53,7 +53,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (settingsFileError) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not inspect its application settings: " + settingsPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not inspect its application settings: " + settingsPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". The existing workspace was not changed.";
   } else if (settingsFileExists && !loadedSettings) {
     inventoryRecoveryRequired_ = true;
@@ -100,7 +100,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       (quickLabelsFileExists &&
        !loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision))) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not read Quick Labels settings: " + quickLabelsPath_.string() +
+    inventoryRecoveryDetail_ = "Inventatory could not read Quick Labels settings: " + quickLabelsPath_.u8string() +
                                ". The original file was preserved.";
     persistenceError_ = inventoryRecoveryDetail_;
   }

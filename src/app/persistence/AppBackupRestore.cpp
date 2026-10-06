@@ -29,7 +29,7 @@ bool App::exportInventory() {
     setMessage("Inventory export failed: " + error, 5);
     return false;
   }
-  setMessage("Exported " + to_string(store_.items().size()) + " inventory parts to " + target.filename().string(), 5);
+  setMessage("Exported " + to_string(store_.items().size()) + " inventory parts to " + target.filename().u8string(), 5);
   return true;
 }
 
@@ -64,7 +64,7 @@ bool App::backupData() {
     setMessage("Backup failed: " + error, 5);
     return false;
   }
-  setMessage("Backup created in " + destination.filename().string(), 6);
+  setMessage("Backup created in " + destination.filename().u8string(), 6);
   return true;
 }
 
