@@ -4,10 +4,12 @@
 
 #include "core/storage/AtomicFile.h"
 #include "platform/system/AppIconsLinux.h"
+#include "platform/system/ChildProcess.h"
 #include "platform/system/Environment.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -134,51 +136,27 @@ std::string systemdUnquote(const std::string& quoted) {
   return {};
 }
 
-bool runSystemctl(const std::vector<std::string>& arguments, std::string& error) {
-  int outputPipe[2]{};
-  if (pipe2(outputPipe, O_CLOEXEC) != 0) {
-    error = "Unable to create a system service request";
-    return false;
-  }
-  const auto child = fork();
-  if (child < 0) {
-    close(outputPipe[0]);
-    close(outputPipe[1]);
+// systemctl talks to the user manager over D-Bus and can wait for a unit's stop timeout, so it runs with
+// a deadline instead of blocking the interface indefinitely. Its output is captured, never printed.
+bool runSystemctl(const std::vector<std::string>& arguments, std::string& error,
+                  std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+  std::vector<std::string> command{"systemctl"};
+  command.insert(command.end(), arguments.begin(), arguments.end());
+  ChildProcessOptions options;
+  options.timeout = timeout;
+  options.maxOutputBytes = 4096U;
+  options.mergeStderr = true;
+  const auto result = runChildProcess(command, options);
+  if (result.succeeded()) return true;
+  if (!result.started) {
     error = "Unable to start systemctl";
     return false;
   }
-  if (child == 0) {
-    close(outputPipe[0]);
-    dup2(outputPipe[1], STDOUT_FILENO);
-    dup2(outputPipe[1], STDERR_FILENO);
-    close(outputPipe[1]);
-    std::vector<char*> argv;
-    argv.reserve(arguments.size() + 2U);
-    argv.push_back(const_cast<char*>("systemctl"));
-    for (const auto& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
-    argv.push_back(nullptr);
-    execvp("systemctl", argv.data());
-    _exit(127);
+  if (result.timedOut) {
+    error = "systemctl --user did not respond in time";
+    return false;
   }
-  close(outputPipe[1]);
-  std::string output;
-  char buffer[1024];
-  for (;;) {
-    const auto count = read(outputPipe[0], buffer, sizeof(buffer));
-    if (count == 0) break;
-    if (count < 0) {
-      if (errno == EINTR) continue;
-      close(outputPipe[0]);
-      waitpid(child, nullptr, 0);
-      error = "Unable to read systemctl's response";
-      return false;
-    }
-    if (output.size() < 4096U) output.append(buffer, std::min<size_t>(static_cast<size_t>(count), 4096U - output.size()));
-  }
-  close(outputPipe[0]);
-  int status = 0;
-  while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return true;
+  auto output = result.output;
   while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
   error = output.empty() ? "systemctl --user is unavailable" : output;
   return false;
@@ -355,7 +333,7 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
       return false;
     }
     if (!exists) return true;
-    if (!runSystemctl({"--user", "disable", "--now", kServiceName}, error)) return false;
+    if (!runSystemctl({"--user", "disable", "--now", kServiceName}, error, std::chrono::seconds(25))) return false;
     filesystem::remove(unit, filesystemError);
     if (filesystemError) {
       error = "Unable to remove the Inventatory background service file: " + filesystemError.message();
