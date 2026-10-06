@@ -176,6 +176,24 @@ bool removeOwnedTemporary(const filesystem::path& temporary) {
 
 }  // namespace
 
+#ifdef _WIN32
+bool moveFileReplacing(const filesystem::path& source, const filesystem::path& destination,
+                       unsigned long& errorCode) {
+  constexpr int kAttempts = 5;
+  for (int attempt = 1;; ++attempt) {
+    if (MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0) {
+      errorCode = 0;
+      return true;
+    }
+    errorCode = GetLastError();
+    const bool transient = errorCode == ERROR_ACCESS_DENIED || errorCode == ERROR_SHARING_VIOLATION ||
+                           errorCode == ERROR_LOCK_VIOLATION;
+    if (!transient || attempt >= kAttempts) return false;
+    Sleep(static_cast<DWORD>(50 * attempt));
+  }
+}
+#endif
+
 bool writeFileAtomically(const filesystem::path& destination, string_view contents, string* error) {
   setError(error, {});
 
@@ -227,8 +245,9 @@ bool writeFileAtomically(const filesystem::path& destination, string_view conten
     }
 
 #ifdef _WIN32
-    if (MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
-      setError(error, win32ErrorText("Unable to replace destination file", GetLastError()));
+    unsigned long moveError = 0;
+    if (!moveFileReplacing(temporary, destination, moveError)) {
+      setError(error, win32ErrorText("Unable to replace destination file", static_cast<DWORD>(moveError)));
       removeOwnedTemporary(temporary);
       return false;
     }

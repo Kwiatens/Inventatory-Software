@@ -33,4 +33,13 @@ bool syncFile(const std::filesystem::path& file, std::string* error = nullptr);
 // this is a successful no-op there.
 bool syncDirectory(const std::filesystem::path& directory, std::string* error = nullptr);
 
+#ifdef _WIN32
+// Moves source over destination (MoveFileExW, replace-existing, write-through) and retries a few
+// times, with a short pause, when the failure is a transient access or sharing violation caused by an
+// antivirus scan, the search indexer or cloud sync briefly holding the destination. On failure
+// errorCode is the last Win32 error.
+bool moveFileReplacing(const std::filesystem::path& source, const std::filesystem::path& destination,
+                       unsigned long& errorCode);
+#endif
+
 }  // namespace inventatory
