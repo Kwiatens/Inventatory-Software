@@ -1576,6 +1576,68 @@ void testInventoryCommitHistory() {
 #endif
 }
 
+#ifndef _WIN32
+void testDesktopLauncherKeepsRegisteredExecutable() {
+  StartupTestEnvironment environment("launcher");
+  const auto applications = environment.launcher();
+  const auto desktopCopy = environment.desktopCopy();
+  string shortcutError;
+  assert(createDesktopShortcut(shortcutError));
+  assert(filesystem::is_regular_file(applications) && filesystem::is_regular_file(desktopCopy));
+  const auto currentExec = "Exec=\"" + currentExecutablePath().string() + "\"\n";
+  assert(readTextFile(applications).find(currentExec) != string::npos);
+
+  // A launcher created for another build keeps that executable while it exists.
+  const auto other = environment.root / "other install" / "inventatory";
+  writeTextFile(other, "#!/bin/sh\n", true);
+  const auto otherExec = "Exec=\"" + other.string() + "\"\n";
+  string text = readTextFile(applications);
+  const auto execAt = text.find("Exec=");
+  text.replace(execAt, text.find('\n', execAt) - execAt + 1U, otherExec);
+  writeTextFile(applications, text);
+  writeTextFile(desktopCopy, text);
+  assert(createDesktopShortcut(shortcutError));
+  assert(readTextFile(applications) == text);
+  assert(readTextFile(desktopCopy) == text);
+
+  // The desktop copy is offered once: a user who deleted it does not get it back.
+  filesystem::remove(desktopCopy);
+  assert(createDesktopShortcut(shortcutError));
+  assert(!filesystem::exists(desktopCopy));
+
+  // When the registered executable is gone the launcher follows the running one again.
+  filesystem::remove(other);
+  assert(createDesktopShortcut(shortcutError));
+  assert(readTextFile(applications).find(currentExec) != string::npos);
+}
+
+// Exec quoting round-trips paths with characters that are special in a desktop entry.
+void testDesktopLauncherExecQuoting() {
+  StartupTestEnvironment environment("launcher-quoting");
+  string shortcutError;
+  assert(createDesktopShortcut(shortcutError));
+  const auto applications = environment.launcher();
+  const auto special = environment.root / "sp $dollar `tick` \\slash \"quote\" 100%" / "inventatory";
+  writeTextFile(special, "#!/bin/sh\n", true);
+  // The same path as the key-file text of a spec-conformant Exec value: backslash-escaped \" ` $ and
+  // backslash, every backslash doubled, and % written as %%.
+  const string quoted = "Exec=\"" +
+                        (environment.root / "sp \\\\$dollar \\\\`tick\\\\` \\\\\\\\slash \\\\\"quote\\\\\" 100%%").string() +
+                        "/inventatory\"\n";
+  string text = readTextFile(applications);
+  const auto execAt = text.find("Exec=");
+  text.replace(execAt, text.find('\n', execAt) - execAt + 1U, quoted);
+  writeTextFile(applications, text);
+  struct stat before{}, after{};
+  assert(stat(applications.c_str(), &before) == 0);
+  assert(createDesktopShortcut(shortcutError));
+  assert(stat(applications.c_str(), &after) == 0);
+  // Parsed back to the real path, the launcher is already correct and is not rewritten.
+  assert(before.st_ino == after.st_ino);
+  assert(readTextFile(applications) == text);
+}
+#endif
+
 void testSqliteSchemaValidation() {
 #ifdef INVENTATORY_SQLITE_STORAGE
   const auto unsupportedPath = filesystem::temp_directory_path() / "inventatory-unsupported-schema-test.db";
@@ -3274,6 +3336,13 @@ int main() {
     assert(items[0].machineCode != "0002");
     assert(items[1].machineCode != "0002");
   }
+
+#ifndef _WIN32
+  testDesktopLauncherKeepsRegisteredExecutable();
+#endif
+#ifndef _WIN32
+  testDesktopLauncherExecQuoting();
+#endif
 
   {
     InventoryStore rackStore;

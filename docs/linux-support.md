@@ -93,7 +93,10 @@ saved and the systemd unit is started again so the service stays supervised
 (`systemctl --user status inventatory-background.service`); a detached process
 is used only if systemd refuses. The unit is written only when its content
 changes and keeps the executable it was registered with while that file still
-exists. If registering it fails, the previous unit is put back. A binary that
+exists. If registering it fails, the previous unit is put back. The same rule
+applies to the application launcher (`inventatory.desktop`): it keeps the
+executable it was created for while that file exists, and the copy on the
+desktop is offered once and not recreated after you delete it. A binary that
 was replaced on disk while it runs (an update or reinstall) is never registered
 as `... (deleted)`. `systemctl` runs with a deadline and its messages are
 reported by Inventatory instead of being printed over the interface. The
