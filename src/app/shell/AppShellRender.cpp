@@ -91,8 +91,8 @@ ftxui::Element App::renderUi() const {
   if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
     return renderWizardUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
-  const auto* active = ftxui::ScreenInteractive::Active();
-  if (active != nullptr && (active->dimx() < 100 || active->dimy() < 30)) {
+  if (workspaceBlockedByTerminalSize()) {
+    const auto* active = ftxui::ScreenInteractive::Active();
     return ftxui::vbox({
                ftxui::filler(),
                ftxui::hbox({ftxui::filler(),
@@ -121,6 +121,17 @@ ftxui::Element App::renderUi() const {
   // flexible. Keep the application background and every full-width chrome row
   // attached to the actual terminal width so no right-edge strip is exposed.
   return ftxui::vbox(move(body)) | ftxui::xflex | ftxui::bgcolor(uiCanvasBg());
+}
+
+// True while the normal workspace is replaced by the resize notice. Recovery, the update wizard
+// and the first-run wizard have their own full-window layouts and are exempt (see renderUi).
+bool App::workspaceBlockedByTerminalSize() const {
+  if (inventoryRecoveryRequired_ || page_ == Page::Update || page_ == Page::Onboarding ||
+      (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
+    return false;
+  }
+  const auto* active = ftxui::ScreenInteractive::Active();
+  return active != nullptr && app_navigation::terminalTooSmall(active->dimx(), active->dimy());
 }
 
 // Human-readable name of the active screen, used in the header breadcrumb.

@@ -48,6 +48,8 @@ void App::handleKey(const KeyEvent& key) {
     if (!bufferedWizardKey_.has_value()) bufferedWizardKey_ = key;
     return;
   }
+  // Below the supported size only the resize notice is drawn; keys must not act on the hidden page.
+  if (workspaceBlockedByTerminalSize()) return;
   // A Tab-set focus only survives Tab, Shift+Tab and Enter. Any other key (arrows,
   // j/k, shortcuts, typing) or an open prompt drops it, so Enter cannot re-run a
   // control the user is no longer looking at.
@@ -282,6 +284,7 @@ ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
 }
 
 bool App::handleMouse(const ftxui::Mouse& mouse) {
+  if (workspaceBlockedByTerminalSize()) return false;
   const auto contains = [&](const UiTarget& target) {
     return uiBoxContains(target.bounds, mouse.x, mouse.y);
   };

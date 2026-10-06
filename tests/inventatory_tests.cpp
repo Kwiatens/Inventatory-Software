@@ -597,6 +597,15 @@ void testNumericPromptReplacesDefault() {
   assert(!np::applyBackspace(buffer = "", replace));
 }
 
+// Below 100x30 the resize notice replaces the workspace and input is ignored.
+void testTerminalSizeGate() {
+  namespace nav = inventatory::app_navigation;
+  assert(!nav::terminalTooSmall(100, 30));
+  assert(!nav::terminalTooSmall(240, 60));
+  assert(nav::terminalTooSmall(99, 30));
+  assert(nav::terminalTooSmall(100, 29));
+  assert(nav::terminalTooSmall(80, 24));
+}
 
 // Discarding in-memory work needs a second, deliberate request inside the window.
 void testConfirmGuard() {
@@ -3536,6 +3545,7 @@ int main() {
   testHeaderClockYieldsToActionsControl();
   testActionSheetLayout();
   testNumericPromptReplacesDefault();
+  testTerminalSizeGate();
   testConfirmGuard();
 #ifndef _WIN32
   testRestoreKeepsMachineSpecificSettings();

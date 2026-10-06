@@ -592,6 +592,7 @@ class App {
   void requestUserExit();
   void completeSettingsExit(bool saveChanges);
   void releasePageState(Page leaving);
+  bool workspaceBlockedByTerminalSize() const;
   DeviceServiceRestart restartDeviceService();
   void processBackgroundWork();
   void processPrinterWork();
