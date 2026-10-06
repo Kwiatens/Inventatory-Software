@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 
@@ -37,6 +38,28 @@ inline std::optional<CupsQueueLine> parseCupsQueueLine(const std::string& line) 
   }
   parsed.ready = lowered.find("disabled") == std::string::npos && lowered.find("stopped") == std::string::npos;
   return parsed;
+}
+
+// The first non-empty line of command output, trimmed and bounded, for a one-line status text.
+// `lpstat` failures can print several lines (and a trailing newline) that must not reach the status row.
+inline std::string firstOutputLine(const std::string& output, std::size_t maximumLength = 160) {
+  std::size_t begin = 0;
+  while (begin < output.size()) {
+    const auto end = output.find('\n', begin);
+    auto line = output.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+    const auto isSpace = [](char value) { return value == ' ' || value == '\t' || value == '\r'; };
+    while (!line.empty() && isSpace(line.back())) line.pop_back();
+    std::size_t start = 0;
+    while (start < line.size() && isSpace(line[start])) ++start;
+    line.erase(0, start);
+    if (!line.empty()) {
+      if (line.size() > maximumLength) line.resize(maximumLength);
+      return line;
+    }
+    if (end == std::string::npos) break;
+    begin = end + 1U;
+  }
+  return {};
 }
 
 }  // namespace inventatory
