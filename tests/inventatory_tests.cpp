@@ -13,6 +13,7 @@
 #endif
 #include "platform/digikey/DigiKeyApi.h"
 #include "core/inventory/InventoryInternals.h"
+#include "core/history/InventoryVersionInternal.h"
 #include "core/inventory/InventoryMerge.h"
 #include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
@@ -2206,6 +2207,106 @@ void testInventoryHistoryValidation() {
 #endif
 }
 
+// A reversal must never produce, and the commit writer must never store, a snapshot that history
+// validation would later reject: that would make the whole database unloadable.
+void testInventoryCommitSnapshotsStayValid() {
+#ifdef INVENTATORY_SQLITE_STORAGE
+  const auto path = testTempRoot() / "inventatory-commit-snapshot-validity-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  InventoryStore store;
+  InventatoryRack rack;
+  rack.id = "sv-rack";
+  rack.code = "R5";
+  rack.componentType = "Resistors";
+  rack.rows = 2;
+  rack.columns = 2;
+  store.racks().push_back(rack);
+  InventoryItem part;
+  part.id = "sv-item-a";
+  part.partName = "Racked resistor";
+  part.category = "Resistors";
+  part.quantity = 3;
+  part.lastUpdated = 1710000000;
+  part.rackId = rack.id;
+  part.rackSlot = "A1";
+  part.rackAssignment = RackAssignmentMode::Manual;
+  store.items().push_back(part);
+  ensureInventoryIdentifiers(store.items());
+  assert(store.save(path));
+  assert(ensureInventoryCommitHistory(path, store));
+
+  const auto commit = [&](const InventoryStore& next, const string& message) {
+    InventoryCommitDraft draft;
+    draft.source = "manual";
+    draft.message = message;
+    InventoryCommit committed;
+    assert(next.saveWithCommit(path, store, draft, {}, nullptr, &committed));
+    assert(!committed.id.empty());
+    store = next;
+    return committed;
+  };
+
+  // C1 deletes the part, C2 deletes the now empty rack.
+  InventoryStore withoutPart = store;
+  withoutPart.items().clear();
+  const auto deletePart = commit(withoutPart, "Delete part");
+  InventoryStore withoutRack = store;
+  withoutRack.racks().clear();
+  commit(withoutRack, "Delete rack");
+
+  InventoryCommitDetail detail;
+  assert(loadInventoryCommit(path, deletePart.id, detail));
+  InventoryStore reversed;
+  string conflict;
+  // Restoring the part would point it at a rack that no longer exists.
+  assert(!prepareInventoryCommitReverse(detail, store, reversed, conflict));
+  assert(!conflict.empty());
+
+  // Re-adding the rack leaves the slot free again, so the reversal is valid.
+  InventoryStore withRack = store;
+  withRack.racks().push_back(rack);
+  commit(withRack, "Re-add rack");
+  assert(prepareInventoryCommitReverse(detail, store, reversed, conflict));
+  assert(validateSnapshotSemantics(reversed, nullptr));
+
+  // A different part taking the slot in the meantime blocks the reversal.
+  InventoryStore occupied = store;
+  InventoryItem other = part;
+  other.id = "sv-item-b";
+  other.partName = "Other resistor";
+  other.inventatoryId.clear();
+  other.machineCode.clear();
+  occupied.items().push_back(other);
+  ensureInventoryIdentifiers(occupied.items());
+  commit(occupied, "Other part takes the slot");
+  conflict.clear();
+  assert(!prepareInventoryCommitReverse(detail, store, reversed, conflict));
+  assert(!conflict.empty());
+
+  // The commit writer refuses a snapshot history validation would reject, and the database stays usable.
+  vector<InventoryCommit> before;
+  assert(loadInventoryCommits(path, before));
+  InventoryStore dangling = store;
+  dangling.items().front().rackId = "missing-rack";
+  InventoryCommitDraft draft;
+  draft.source = "manual";
+  draft.message = "Dangling rack";
+  InventoryCommit refused;
+  assert(!dangling.saveWithCommit(path, store, draft, {}, nullptr, &refused));
+  assert(refused.id.empty());
+  vector<InventoryCommit> after;
+  assert(loadInventoryCommits(path, after));
+  assert(after.size() == before.size());
+  InventoryStore reloaded;
+  assert(reloaded.load(path));
+  assert(inventoryCommitDiff(reloaded, store).empty());
+
+  filesystem::remove(path, cleanupError);
+#endif
+}
+
 // DigiKey response parsing must not lose a usable product to an odd display-only value, must find the
 // real package among look-alike parameters, and must size the token lifetime from the server's answer.
 void testDigiKeyParsingRobustness() {
@@ -4006,6 +4107,7 @@ int main() {
   testStockFilterState();
   testInventoryCommitHistory();
   testInventoryHistoryValidation();
+  testInventoryCommitSnapshotsStayValid();
   testDigiKeyParsingRobustness();
   testSqliteSchemaValidation();
   testPackageGHardening();

@@ -10,6 +10,10 @@ namespace inventatory {
 
 // Shared by the SQLite commit writer and the commit-diff/reversal unit.
 std::string serializeRackSnapshot(const InventatoryRack& rack);
+// True when the items and racks form a snapshot that history validation accepts: valid identifiers,
+// timestamps, and rack assignments that name an existing rack, a valid slot, and a slot used once.
+// On failure `error` (when given) receives the reason.
+bool validateSnapshotSemantics(const InventoryStore& snapshot, std::string* error);
 
 #ifdef INVENTATORY_SQLITE_STORAGE
 

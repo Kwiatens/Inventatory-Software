@@ -26,6 +26,8 @@ bool deserializeRackSnapshot(const string& line, InventatoryRack& rack) {
   return input.eof();
 }
 
+}  // namespace
+
 bool validateSnapshotSemantics(const InventoryStore& snapshot, string* error) {
   const auto fail = [&](const string& message) {
     if (error != nullptr) *error = message;
@@ -75,6 +77,8 @@ bool validateSnapshotSemantics(const InventoryStore& snapshot, string* error) {
   }
   return true;
 }
+
+namespace {
 
 bool readCommitSummary(SqliteConnection& connection, const string& id, InventoryCommit& commit) {
   SqliteStatement statement;

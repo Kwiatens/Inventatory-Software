@@ -249,6 +249,14 @@ bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const In
       }
     }
   }
+
+  // Parts and racks that changed independently can make the reversed state inconsistent, for example
+  // a restored part whose rack was deleted since, or whose slot another part now holds.
+  string invalid;
+  if (!validateSnapshotSemantics(reversed, &invalid)) {
+    conflict = "Later changes conflict with this commit; " + invalid;
+    return false;
+  }
   return true;
 }
 
