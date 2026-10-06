@@ -138,6 +138,25 @@ InventoryItem mergeEditedItem(const InventoryItem& base, const InventoryItem& ed
   return merged;
 }
 
+bool releaseConflictingRackPlacement(const InventoryStore& store, InventoryItem& item, vector<string>* notices) {
+  if (item.rackId.empty() && item.rackSlot.empty()) return false;
+  const bool rackExists = any_of(store.racks().begin(), store.racks().end(),
+                                 [&](const InventatoryRack& rack) { return rack.id == item.rackId; });
+  const auto slot = toUpper(trim(item.rackSlot));
+  const bool slotTaken = rackExists && !slot.empty() &&
+                         any_of(store.items().begin(), store.items().end(), [&](const InventoryItem& other) {
+                           return other.id != item.id && other.rackId == item.rackId &&
+                                  toUpper(trim(other.rackSlot)) == slot;
+                         });
+  if (rackExists && !slot.empty() && !slotTaken) return false;
+  addNotice(notices, displayName(item) + ": rack slot " + (slot.empty() ? string("(none)") : slot) +
+                         " is no longer available; the part will be placed again");
+  item.rackId.clear();
+  item.rackSlot.clear();
+  item.rackAssignment = RackAssignmentMode::Automatic;
+  return true;
+}
+
 InventoryStore mergeInventoryChanges(const InventoryStore& base, const InventoryStore& staged,
                                      const InventoryStore& current, QuantityMerge quantity,
                                      vector<string>* notices) {

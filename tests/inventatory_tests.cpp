@@ -3545,6 +3545,49 @@ void testInventoryMerge() {
     assert(merged.lastUpdated == base.lastUpdated + 100);
     assert(notices.empty());
   }
+  // A manual rack slot chosen in the form that another part took meanwhile is released, not shared.
+  {
+    InventoryStore store;
+    InventatoryRack rack;
+    rack.id = "merge-rack";
+    rack.code = "R1";
+    rack.componentType = "Resistors";
+    rack.rows = 2;
+    rack.columns = 3;
+    store.racks().push_back(rack);
+    const auto base = mergeTestItem("merge-slot-a", "Resistor", 10);
+    auto edited = base;
+    edited.rackId = rack.id;
+    edited.rackSlot = "A3";
+    edited.rackAssignment = RackAssignmentMode::Manual;
+    auto taker = mergeTestItem("merge-slot-b", "Scanned part", 1);
+    taker.rackId = rack.id;
+    taker.rackSlot = "a3";
+    taker.rackAssignment = RackAssignmentMode::Manual;
+    store.items().push_back(base);
+    store.items().push_back(taker);
+    vector<string> notices;
+    auto merged = mergeEditedItem(base, edited, base, QuantityMerge::PreferEdited, &notices);
+    assert(merged.rackSlot == "A3");  // the merge alone cannot see the other parts
+    assert(releaseConflictingRackPlacement(store, merged, &notices));
+    assert(merged.rackId.empty() && merged.rackSlot.empty());
+    assert(merged.rackAssignment == RackAssignmentMode::Automatic);
+    assert(anyNoticeContains(notices, "A3"));
+
+    // A free slot, and a rack that no longer exists.
+    notices.clear();
+    auto free = edited;
+    free.rackSlot = "B1";
+    assert(!releaseConflictingRackPlacement(store, free, &notices));
+    assert(free.rackSlot == "B1" && notices.empty());
+    auto orphan = edited;
+    orphan.rackId = "gone";
+    assert(releaseConflictingRackPlacement(store, orphan, &notices));
+    assert(orphan.rackId.empty());
+    // An item never conflicts with its own slot.
+    auto holder = taker;
+    assert(!releaseConflictingRackPlacement(store, holder, nullptr));
+  }
   // The user typed a quantity as well: the typed value wins and the replaced scanner value is reported.
   {
     const auto base = mergeTestItem("merge-b", "Capacitor", 10);
