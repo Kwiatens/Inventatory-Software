@@ -39,7 +39,10 @@ cmake --install build-linux-release --prefix "$HOME/.local"
 In-app release updates require a build configured with
 `-DINVENTATORY_RELEASE_REPOSITORY=owner/repository`, as in the CI release job.
 The updater verifies the archive and installer checksums before replacing a
-user-writable executable.
+user-writable executable. It checks up front that the folder holding the
+executable is writable, downloads into a new private (mode 0700) folder, and the
+installer removes that folder when the update has been applied or has failed;
+quitting while a download or release check is running cancels it.
 
 ## Runtime integrations
 

@@ -30,3 +30,44 @@ test -x "$installed"
 version=$("$installed" --version)
 test "$version" = 'Inventatory installer fixture'
 printf 'Linux installer smoke test passed: %s\n' "$version"
+
+# In-app update: the installer replaces the running executable once it exits and then removes the
+# private download folder the application created, whether the update succeeded or failed.
+live_dir="$test_root/live"
+mkdir -p -- "$live_dir"
+sleep_binary=$(command -v sleep)
+
+run_update_case() {
+  case_name=$1
+  tamper=$2
+  download_dir="$test_root/Inventatory-update-$case_name"
+  marker="$test_root/$case_name-marker"
+  mkdir -p -- "$download_dir"
+  chmod 700 -- "$download_dir"
+  cp -- "$package_dir/Inventatory-linux-x64.tar.gz" "$download_dir/"
+  cp -- "$package_dir/Install-Inventatory.sh" "$download_dir/"
+  (cd -- "$download_dir" && sha256sum Inventatory-linux-x64.tar.gz Install-Inventatory.sh > SHA256SUMS-linux.txt)
+  if [ "$tamper" = tamper ]; then printf 'tampered' >> "$download_dir/Inventatory-linux-x64.tar.gz"; fi
+  cp -- "$sleep_binary" "$live_dir/inventatory"
+  "$live_dir/inventatory" 30 &
+  live_pid=$!
+  sh "$download_dir/Install-Inventatory.sh" --update "$download_dir/Inventatory-linux-x64.tar.gz" \
+    "$download_dir/SHA256SUMS-linux.txt" "$marker" "$test_root/notes" 9.9.9 "$live_pid" &
+  installer_pid=$!
+  sleep 1
+  kill "$live_pid" 2>/dev/null || true
+  wait "$live_pid" 2>/dev/null || true
+  wait "$installer_pid" || true
+  if [ -e "$download_dir" ]; then
+    printf 'Update download folder was left behind (%s)\n' "$case_name" >&2
+    exit 1
+  fi
+}
+
+run_update_case good ok
+grep -q '^state=complete$' "$test_root/good-marker"
+test "$("$live_dir/inventatory" --version)" = 'Inventatory installer fixture'
+
+run_update_case bad tamper
+grep -q '^state=failed$' "$test_root/bad-marker"
+printf 'Linux update hand-off test passed\n'

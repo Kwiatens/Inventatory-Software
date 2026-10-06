@@ -34,6 +34,13 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
                           const UpdateDownloadProgress& progress, std::string& error);
 bool verifyReleaseFileSha256(const std::filesystem::path& path, const std::string& expectedHash,
                              std::string& error);
+// A new, empty, private download folder for one update ("Inventatory-update-*" under `parent`, or the
+// system temporary folder when `parent` is empty). Never reuses an existing folder; empty on failure.
+// On Linux its mode is 0700. The installer removes it once the update has been applied or has failed.
+std::filesystem::path createUpdateDownloadDirectory(const std::filesystem::path& parent = {});
+// Whether the folder holding `executable` can be written, so an update can replace it. Always true
+// on Windows, whose installer reports its own failures; true when the path is unknown.
+bool isInstallDirectoryWritable(const std::filesystem::path& executable);
 bool launchUpdateInstaller(const std::filesystem::path& installerPath,
                            const std::filesystem::path& archivePath,
                            const std::filesystem::path& checksumsPath,

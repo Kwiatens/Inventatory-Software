@@ -602,6 +602,11 @@ class App {
   bool writeUpdateMarker(const std::string& state, const std::string& version,
                          const std::string& error = {});
   bool prepareUpdateHandoff();
+  // Removes the private download folder of the update in progress, unless the installer already owns it.
+  void discardUpdateDownload();
+  // Shutdown: asks an in-flight update download, update check or firmware check to stop and waits for
+  // them until `deadline`. Returns false when one outlived it; workAbandoned() then reports true.
+  bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
   std::string scanFirmwareStatus() const;

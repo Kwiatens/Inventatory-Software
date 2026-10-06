@@ -4,6 +4,7 @@
 
 #include "app/UpdateWizardPresentation.h"
 #include "core/storage/AtomicFile.h"
+#include "platform/system/Environment.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <ftxui/dom/elements.hpp>
@@ -107,16 +108,6 @@ string previewNotes(const string& notes) {
 }
 
 
-filesystem::path updateDownloadDirectory() {
-#ifdef _WIN32
-  const auto process = static_cast<unsigned long long>(GetCurrentProcessId());
-#else
-  const auto process = static_cast<unsigned long long>(getpid());
-#endif
-  const auto tick = static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count());
-  return filesystem::temp_directory_path() / ("Inventatory-update-" + to_string(process) + "-" + to_string(tick));
-}
-
 void removeUpdateDownloadDirectory(const filesystem::path& directory) {
   if (directory.empty()) return;
   error_code ignored;
@@ -173,6 +164,14 @@ void App::beginSoftwareUpdate() {
     setMessage("Checking for the latest Inventatory release", 4);
     return;
   }
+#ifndef _WIN32
+  // The installer replaces the executable in place; find out now, before the download and before the
+  // interface closes, that this installation cannot be written by the current user.
+  if (!isInstallDirectoryWritable(currentExecutablePath())) {
+    setMessage("This Inventatory install is not writable by you; update it with the tool that installed it", 8);
+    return;
+  }
+#endif
   updateCompletionPending_ = false;
   updateError_.clear();
   updatePackage_.reset();
@@ -210,6 +209,19 @@ void App::beginUpdatePreparation() {
 
 void App::beginUpdateDownload() {
   if (!updatePackage_.has_value() || updateOperationFuture_.valid()) return;
+  if (updatePackage_->downloadDirectory.empty()) {
+    const auto directory = createUpdateDownloadDirectory();
+    if (directory.empty()) {
+      updateStep_ = UpdateWizardStep::Failed;
+      updateError_ = "Could not create a private temporary update folder.";
+      dirty_ = true;
+      return;
+    }
+    updatePackage_->downloadDirectory = directory;
+    updatePackage_->archivePath = directory / kUpdateArchiveAsset;
+    updatePackage_->checksumsPath = directory / kUpdateChecksumsAsset;
+    updatePackage_->installerPath = directory / kUpdateInstallerAsset;
+  }
   updateStep_ = UpdateWizardStep::Downloading;
   updateError_.clear();
   updateNotesScroll_ = 0;
@@ -330,14 +342,14 @@ void App::processSoftwareUpdate() {
   } catch (const exception&) {
     updateStep_ = UpdateWizardStep::Failed;
     updateError_ = "The update failed unexpectedly while checking its files.";
-    if (updatePackage_.has_value()) removeUpdateDownloadDirectory(updatePackage_->downloadDirectory);
+    discardUpdateDownload();
     updateDownloadState_.reset();
     dirty_ = true;
     return;
   } catch (...) {
     updateStep_ = UpdateWizardStep::Failed;
     updateError_ = "The update failed unexpectedly while checking its files.";
-    if (updatePackage_.has_value()) removeUpdateDownloadDirectory(updatePackage_->downloadDirectory);
+    discardUpdateDownload();
     updateDownloadState_.reset();
     dirty_ = true;
     return;
@@ -353,10 +365,7 @@ void App::processSoftwareUpdate() {
         updateError_ = result.error;
       }
     } else {
-      result.package.downloadDirectory = updateDownloadDirectory();
-      result.package.archivePath = result.package.downloadDirectory / kUpdateArchiveAsset;
-      result.package.checksumsPath = result.package.downloadDirectory / kUpdateChecksumsAsset;
-      result.package.installerPath = result.package.downloadDirectory / kUpdateInstallerAsset;
+      // The download folder is created when the download starts, not before the user accepts.
       updatePackage_ = move(result.package);
       updateStep_ = UpdateWizardStep::Preview;
       updateNotesScroll_ = 0;
@@ -370,7 +379,7 @@ void App::processSoftwareUpdate() {
         updateStep_ = UpdateWizardStep::Failed;
         updateError_ = result.error.empty() ? "The update package could not be downloaded." : result.error;
       }
-      removeUpdateDownloadDirectory(result.package.downloadDirectory);
+      discardUpdateDownload();
       updateDownloadState_.reset();
     } else {
       updatePackage_ = move(result.package);
@@ -386,7 +395,7 @@ void App::processSoftwareUpdate() {
         updateStep_ = UpdateWizardStep::Failed;
         updateError_ = result.error.empty() ? "The update package failed checksum verification." : result.error;
       }
-      removeUpdateDownloadDirectory(result.package.downloadDirectory);
+      discardUpdateDownload();
       updateDownloadState_.reset();
     } else {
       updatePackage_ = move(result.package);
@@ -412,6 +421,7 @@ bool App::prepareUpdateHandoff() {
   if (importSyncRunning_ || hasPendingPersistence()) {
     updateStep_ = UpdateWizardStep::Failed;
     updateError_ = "Inventatory has pending work that must be saved before updating.";
+    discardUpdateDownload();
     return false;
   }
   const bool serviceWasRunning = server_.running();
@@ -422,6 +432,7 @@ bool App::prepareUpdateHandoff() {
     if (serviceWasRunning) restartDeviceService();
     updateStep_ = UpdateWizardStep::Failed;
     updateError_ = persistenceError_.empty() ? "Inventatory could not save before updating." : persistenceError_;
+    discardUpdateDownload();
     return false;
   }
   string notesError;
@@ -430,6 +441,7 @@ bool App::prepareUpdateHandoff() {
     if (serviceWasRunning) restartDeviceService();
     updateStep_ = UpdateWizardStep::Failed;
     updateError_ = notesError.empty() ? updateError_ : notesError;
+    discardUpdateDownload();
     return false;
   }
   string launchError;
@@ -440,11 +452,22 @@ bool App::prepareUpdateHandoff() {
     if (serviceWasRunning) restartDeviceService();
     updateStep_ = UpdateWizardStep::Failed;
     updateError_ = launchError;
+    discardUpdateDownload();
     return false;
   }
   updateInstallerLaunched_ = true;
   running_ = false;
   return true;
+}
+
+void App::discardUpdateDownload() {
+  // After a successful hand-off the installer owns the folder and removes it itself.
+  if (updateInstallerLaunched_ || !updatePackage_.has_value()) return;
+  removeUpdateDownloadDirectory(updatePackage_->downloadDirectory);
+  updatePackage_->downloadDirectory.clear();
+  updatePackage_->archivePath.clear();
+  updatePackage_->checksumsPath.clear();
+  updatePackage_->installerPath.clear();
 }
 
 void App::cancelSoftwareUpdate() {
@@ -453,6 +476,7 @@ void App::cancelSoftwareUpdate() {
     return;
   }
   if (updateOperationFuture_.valid()) return;
+  discardUpdateDownload();
   updatePackage_.reset();
   updateError_.clear();
   updateStep_ = UpdateWizardStep::Preparing;
@@ -463,6 +487,7 @@ void App::cancelSoftwareUpdate() {
 
 void App::retrySoftwareUpdate() {
   if (updateOperationFuture_.valid()) return;
+  discardUpdateDownload();
   updateCompletionPending_ = false;
   updateError_.clear();
   updatePackage_.reset();

@@ -23,6 +23,7 @@
 #include <cerrno>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -906,6 +907,40 @@ bool verifyReleaseFileSha256(const std::filesystem::path& path, const std::strin
     return false;
   }
   return true;
+}
+
+std::filesystem::path createUpdateDownloadDirectory(const std::filesystem::path& parent) {
+  std::error_code filesystemError;
+  const auto base = parent.empty() ? std::filesystem::temp_directory_path(filesystemError) : parent;
+  if (filesystemError || base.empty()) return {};
+#ifdef _WIN32
+  const auto name = "Inventatory-update-" + std::to_string(static_cast<unsigned long long>(GetCurrentProcessId())) + "-" +
+                    std::to_string(static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+  const auto directory = base / name;
+  // create_directory reports false for a folder that already exists, which is never reused.
+  if (!std::filesystem::create_directory(directory, filesystemError) || filesystemError) return {};
+  return directory;
+#else
+  // mkdtemp picks an unused name and creates it with mode 0700, so another local user can neither
+  // pre-create nor read the downloaded package.
+  auto pattern = (base / "Inventatory-update-XXXXXX").string();
+  pattern.push_back('\0');
+  if (mkdtemp(pattern.data()) == nullptr) return {};
+  pattern.pop_back();
+  return std::filesystem::path(pattern);
+#endif
+}
+
+bool isInstallDirectoryWritable(const std::filesystem::path& executable) {
+#ifdef _WIN32
+  (void)executable;
+  return true;
+#else
+  if (executable.empty()) return true;
+  auto directory = executable.parent_path();
+  if (directory.empty()) directory = ".";
+  return access(directory.c_str(), W_OK | X_OK) == 0;
+#endif
 }
 
 bool launchUpdateInstaller(const std::filesystem::path& installerPath,
