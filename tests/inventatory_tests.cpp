@@ -2707,6 +2707,27 @@ int main() {
     assert(items[1].machineCode != "0002");
   }
 
+  {
+    // Two parts carrying the same well-formed Inventatory ID (copied or imported data) must not
+    // leave the inventory unsaveable: the later one is given a fresh ID.
+    vector<InventoryItem> items;
+    for (const char* id : {"dup-id-1", "dup-id-2", "dup-id-3"}) {
+      InventoryItem item;
+      item.id = id;
+      item.category = "Resistors";
+      item.inventatoryId = "Inventatory:R-00005";
+      item.lastUpdated = 1710005000;
+      items.push_back(item);
+    }
+    items[2].inventatoryId = "inventatory:r-00005";  // same ID, different case
+    ensureInventoryIdentifiers(items);
+    assert(items[0].inventatoryId == "Inventatory:R-00005");
+    assert(items[1].inventatoryId != items[0].inventatoryId);
+    assert(items[2].inventatoryId != items[0].inventatoryId);
+    assert(items[1].inventatoryId != items[2].inventatoryId);
+    assert(isInventatoryId(items[1].inventatoryId) && isInventatoryId(items[2].inventatoryId));
+    assert(validateInventoryIdentifiers(items, {}));
+  }
 
   {
     InventoryStore rackStore;

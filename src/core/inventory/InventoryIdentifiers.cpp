@@ -256,6 +256,7 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
   unordered_map<string, size_t> machineCodeCounts;
   unordered_set<string> reservedMachineCodes;
   unordered_set<string> usedIds;
+  unordered_set<string> keptIds;
   unordered_set<string> usedMachineCodes;
   size_t nextMachineSequence = 1;
 
@@ -283,7 +284,9 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
     }
 
     auto normalizedId = trim(item.inventatoryId);
-    if (!normalizedId.empty() && isInventatoryId(normalizedId)) {
+    // A well-formed ID is kept only by the first part that carries it; a later duplicate (copied or
+    // imported data) gets a fresh one so the inventory stays saveable.
+    if (!normalizedId.empty() && isInventatoryId(normalizedId) && keptIds.insert(toLower(normalizedId)).second) {
       item.inventatoryId = normalizedId;
     } else {
       const auto prefix = inventatoryCategoryPrefix(item.category);
@@ -299,6 +302,7 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
 
       item.inventatoryId = move(candidate);
       usedIds.insert(toLower(item.inventatoryId));
+      keptIds.insert(toLower(item.inventatoryId));
     }
 
     auto normalizedMachineCode = normalizeMachineCode(item.machineCode);
