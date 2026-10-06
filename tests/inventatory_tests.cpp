@@ -7828,8 +7828,12 @@ int main() {
 
       // 2. Names that collide with managed or bundle files are refused before
       //    anything is moved, and nothing is deleted.
-      const vector<pair<string, bool>> conflicts = {
-          {"Inventory.DB", false}, {"manifest.tsv", false}, {"settings.conf", false}, {"activity.tsv", true}};
+      vector<pair<string, bool>> conflicts = {{"manifest.tsv", false}, {"settings.conf", false}, {"activity.tsv", true}};
+#ifndef _WIN32
+      // A case variant is a separate entry only on a case-sensitive filesystem; on Windows it would
+      // be the managed file itself.
+      conflicts.insert(conflicts.begin(), {"Inventory.DB", false});
+#endif
       for (const auto& conflict : conflicts) {
         resetWorkspace();
         error_code conflictError;
