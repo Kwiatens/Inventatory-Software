@@ -1564,6 +1564,21 @@ void testDeviceSyncRetryBackoff() {
   assert(deviceSyncRetryDelay(0) == chrono::seconds(2));
 }
 
+void testSettingsBridgeNotice() {
+  using settings_page_detail::settingsBridgeNotice;
+  const auto restarted = settingsBridgeNotice(DeviceServiceRestart::Restarted);
+  assert(string(restarted.text) == "Settings saved; device bridge restarted");
+  assert(restarted.severity == UiMessageSeverity::Success);
+  // A workspace without a usable pairing is not a failed restart.
+  const auto unpaired = settingsBridgeNotice(DeviceServiceRestart::DisabledUntilPaired);
+  assert(string(unpaired.text).find("could not restart") == string::npos);
+  assert(string(unpaired.text).find("until this workspace is paired") != string::npos);
+  assert(unpaired.severity == UiMessageSeverity::Info);
+  const auto failed = settingsBridgeNotice(DeviceServiceRestart::Failed);
+  assert(string(failed.text).find("could not restart") != string::npos);
+  assert(failed.severity == UiMessageSeverity::Warning);
+}
+
 // Negative Scan R1 transport cases: every rejected request must leave the sync callback untouched and
 // must not consume the replay counter; a stale lower counter is rejected like an exact replay.
 void testScannerHttpNegativeCases() {
@@ -7861,6 +7876,7 @@ int main() {
 #endif
 
   testDeviceSyncRetryBackoff();
+  testSettingsBridgeNotice();
   testScannerCredentialResolution();
   cout << "Inventatory core tests passed\n";
   return 0;
