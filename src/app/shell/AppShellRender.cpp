@@ -365,6 +365,31 @@ ftxui::Element App::renderSearchBarUi() const {
 
   ftxui::Elements rows;
   auto context = footerField(contextTitle, contextText, uiSecondaryText(), bodyColor, activeBg);
+  if (inputMode_ == InputMode::ExitConfirmation) {
+    // The prompt has a mouse route as well as S / D / Esc, so a mouse-only user can answer it.
+    auto self = const_cast<App*>(this);
+    const auto answer = [self](KeyType type, char ch) {
+      return [self, type, ch] {
+        KeyEvent event;
+        event.type = type;
+        event.ch = ch;
+        self->handleExitConfirmationKey(event);
+      };
+    };
+    context = ftxui::hbox({
+                  uiHeaderText(" " + contextTitle + ": ", uiSecondaryText(), activeBg),
+                  target(uiSecondaryButton(exitSavePending_ ? "S Retry save" : "S Save"), "exit.save",
+                         UiTargetKind::Button, answer(KeyType::Character, 's')),
+                  uiBodyText(" ", bodyColor, activeBg),
+                  target(uiSecondaryButton(exitSavePending_ ? "D Exit anyway" : "D Discard", uiDangerColor()),
+                         "exit.discard", UiTargetKind::Button, answer(KeyType::Character, 'd')),
+                  uiBodyText(" ", bodyColor, activeBg),
+                  target(uiSecondaryButton("Esc Stay"), "exit.stay", UiTargetKind::Button,
+                         answer(KeyType::Escape, '\0')),
+                  ftxui::filler(),
+              }) |
+              ftxui::bgcolor(activeBg);
+  }
   if (page_ == Page::Stock && inputMode_ == InputMode::None) {
     auto self = const_cast<App*>(this);
     context = target(context, closestSearchActive_ ? "stock.closest.search" : "stock.search", UiTargetKind::Field,
