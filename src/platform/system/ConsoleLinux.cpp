@@ -388,7 +388,13 @@ bool openUrl(const string& url) {
 }
 
 bool copyToClipboard(const string& text) {
-  if (executableAvailable("wl-copy") && runClipboard("wl-copy", {}, text)) return true;
+  // The only caller copies the Scan R1 pairing token, so ask for the clipboard-manager "sensitive"
+  // hint where it exists (wl-copy 2.2 and newer). Older wl-copy rejects the option and is retried
+  // without it; xclip and xsel have no equivalent.
+  if (executableAvailable("wl-copy") &&
+      (runClipboard("wl-copy", {"--sensitive"}, text) || runClipboard("wl-copy", {}, text))) {
+    return true;
+  }
   if (executableAvailable("xclip") && runClipboard("xclip", {"-selection", "clipboard", "-in"}, text)) return true;
   return executableAvailable("xsel") && runClipboard("xsel", {"--clipboard", "--input"}, text);
 }
