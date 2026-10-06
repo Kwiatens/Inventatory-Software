@@ -20,10 +20,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# The Windows and Linux desktops share the same durable SQLite inventory
-# implementation and on-disk format.
-add_compile_definitions(INVENTATORY_SQLITE_STORAGE=1)
-
 # Release artifacts must run on a clean Windows PC without a separate
 # Visual C++ runtime installation.
 if(MSVC)
