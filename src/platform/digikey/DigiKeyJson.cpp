@@ -33,7 +33,7 @@ string valueText(const JsonPtr& value) {
   if (const auto* json = asValue(value); json != nullptr) {
     if (const auto* text = get_if<string>(&json->data)) {
       if (text->size() > kMaximumDigiKeyFieldBytes) return {};
-      return trimCopy(*text);
+      return trim(*text);
     }
     if (const auto* number = get_if<JsonValue::Number>(&json->data)) {
       if (number->text.size() > kMaximumDigiKeyFieldBytes) return {};
@@ -81,7 +81,7 @@ optional<string> readStringPath(const JsonPtr& root, initializer_list<const char
   const auto* json = asValue(current);
   const auto* text = json == nullptr ? nullptr : get_if<string>(&json->data);
   if (text == nullptr || text->empty() || text->size() > kMaximumDigiKeyFieldBytes) return nullopt;
-  return trimCopy(*text);
+  return trim(*text);
 }
 
 optional<string> readFirstMember(const JsonPtr& root, initializer_list<const char*> keys) {

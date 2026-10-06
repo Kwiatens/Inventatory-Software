@@ -112,8 +112,8 @@ vector<Parameter> extractParameters(const JsonPtr& product) {
     const auto label = readFirstMember(entry, {"Parameter", "ParameterText"});
     const auto value = readParameterText(entry, label.value_or(""));
     if (label.has_value() && value.has_value()) {
-      auto labelText = trimCopy(*label);
-      auto valueText = trimCopy(*value);
+      auto labelText = trim(*label);
+      auto valueText = trim(*value);
       if (toLower(labelText) == "package") {
         labelText = "Packaging";
       }
@@ -127,7 +127,7 @@ vector<Parameter> extractParameters(const JsonPtr& product) {
 }
 
 void upsertExtractedInductance(vector<Parameter>& parameters, const string& value) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty() || !looksLikeInductanceValue(trimmed)) {
     return;
   }
@@ -149,7 +149,7 @@ optional<string> extractPackagingType(const JsonPtr& product) {
   if (const auto* variations = asArray(findMember(product, "ProductVariations") == nullptr ? nullptr : *findMember(product, "ProductVariations"));
       variations != nullptr && !variations->empty()) {
     const auto package = readPath((*variations)[0], {"PackageType", "Name"});
-    if (package.has_value() && !trimCopy(*package).empty()) {
+    if (package.has_value() && !trim(*package).empty()) {
       return package;
     }
   }
@@ -250,7 +250,7 @@ int tokenLifetimeSeconds(const string& expiresIn) {
   constexpr int kMinimumSeconds = 30;
   constexpr int kMaximumSeconds = 3600;
   if (!isUnsignedDecimal(expiresIn, 86400ULL)) return kDefaultSeconds;
-  const auto granted = static_cast<int>(stoull(trimCopy(expiresIn)));
+  const auto granted = static_cast<int>(stoull(trim(expiresIn)));
   return clamp(granted - kMarginSeconds, kMinimumSeconds, kMaximumSeconds);
 }
 

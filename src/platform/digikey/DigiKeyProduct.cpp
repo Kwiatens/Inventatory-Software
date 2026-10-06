@@ -132,7 +132,7 @@ optional<string> readParameterValue(const JsonPtr& product, initializer_list<con
                                    : normalizedLabel.find(normalizedNeedle) != string::npos ||
                                          normalizedNeedle.find(normalizedLabel) != string::npos;
         if (!matches) continue;
-        const auto trimmed = trimCopy(*value);
+        const auto trimmed = trim(*value);
         if (!trimmed.empty() && (!accept || accept(trimmed))) {
           return trimmed;
         }
