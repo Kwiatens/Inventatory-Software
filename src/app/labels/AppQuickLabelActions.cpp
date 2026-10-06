@@ -233,6 +233,26 @@ void App::resetStockFilters() {
   dirty_ = true;
 }
 
+void App::activateStockFilterMenuItem(int index) {
+  switch (stockFilterMenuItemAt(index)) {
+    case StockFilterMenuItem::Date:
+      openStockDateFilterSubmenu();
+      break;
+    case StockFilterMenuItem::Quantity:
+      applyStockSortOrder(StockSortOrder::Quantity);
+      break;
+    case StockFilterMenuItem::Az:
+      applyStockSortOrder(StockSortOrder::Az);
+      break;
+    case StockFilterMenuItem::Za:
+      applyStockSortOrder(StockSortOrder::Za);
+      break;
+    case StockFilterMenuItem::Reset:
+      resetStockFilters();
+      break;
+  }
+}
+
 void App::handleStockFilterKey(const KeyEvent& key) {
   const int optionCount = stockDateFilterSubmenuOpen_ ? kStockDateFilterOptionCount : kStockFilterMenuOptionCount;
   if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
@@ -243,23 +263,7 @@ void App::handleStockFilterKey(const KeyEvent& key) {
     if (stockDateFilterSubmenuOpen_) {
       applyStockDateFilter(stockDateFilterAt(stockFilterSelection_));
     } else {
-      switch (stockFilterMenuItemAt(stockFilterSelection_)) {
-        case StockFilterMenuItem::Date:
-          openStockDateFilterSubmenu();
-          break;
-        case StockFilterMenuItem::Quantity:
-          applyStockSortOrder(StockSortOrder::Quantity);
-          break;
-        case StockFilterMenuItem::Az:
-          applyStockSortOrder(StockSortOrder::Az);
-          break;
-        case StockFilterMenuItem::Za:
-          applyStockSortOrder(StockSortOrder::Za);
-          break;
-        case StockFilterMenuItem::Reset:
-          resetStockFilters();
-          break;
-      }
+      activateStockFilterMenuItem(stockFilterSelection_);
     }
     return;
   } else if (key.type == KeyType::Escape || (key.type == KeyType::Character && key.ch == 'f')) {
@@ -270,24 +274,7 @@ void App::handleStockFilterKey(const KeyEvent& key) {
     stockDateFilterSubmenuOpen_ = false;
     stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
   } else if (key.type == KeyType::Character && key.ch >= '1' && key.ch <= '5' && !stockDateFilterSubmenuOpen_) {
-    const auto choice = key.ch - '1';
-    switch (stockFilterMenuItemAt(choice)) {
-      case StockFilterMenuItem::Date:
-        openStockDateFilterSubmenu();
-        break;
-      case StockFilterMenuItem::Quantity:
-        applyStockSortOrder(StockSortOrder::Quantity);
-        break;
-      case StockFilterMenuItem::Az:
-        applyStockSortOrder(StockSortOrder::Az);
-        break;
-      case StockFilterMenuItem::Za:
-        applyStockSortOrder(StockSortOrder::Za);
-        break;
-      case StockFilterMenuItem::Reset:
-        resetStockFilters();
-        break;
-    }
+    activateStockFilterMenuItem(key.ch - '1');
     return;
   } else {
     return;

@@ -506,6 +506,7 @@ class App {
   void handleEditValueKey(const KeyEvent& key);
   void handleRackValueKey(const KeyEvent& key);
   void handleStockFilterKey(const KeyEvent& key);
+  void activateStockFilterMenuItem(int index);
   void handleStocktakeCountKey(const KeyEvent& key);
   void handleQuantityAdjustKey(const KeyEvent& key);
   void handleBomRestockKey(const KeyEvent& key);
