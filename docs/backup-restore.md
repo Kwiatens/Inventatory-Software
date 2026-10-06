@@ -31,6 +31,12 @@ listed file and the database before activation, creates an automatic
 pre-restore backup, and leaves the active workspace unchanged if validation or
 activation fails.
 
+Application settings that describe the computer rather than the workspace are
+not taken from a bundle: whether the background service is enabled, whether the
+background prompt was answered, and the Scan R1 service port keep their local
+values (or their defaults on a computer without settings), so restoring a bundle
+made elsewhere never registers a startup service or moves the scanner port.
+
 After a successful restore, the Scan R1 token is rotated, replay state is
 cleared, and the paired-device identity is removed. The device must be paired
 again. DigiKey credentials remain local to the PC; if they are not available on

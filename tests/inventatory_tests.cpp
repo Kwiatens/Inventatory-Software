@@ -440,6 +440,53 @@ void testPrimaryNavigationContract() {
 }
 
 #ifndef _WIN32
+void testRestoreKeepsMachineSpecificSettings() {
+  const auto root = filesystem::temp_directory_path() / ("inventatory-transfer-local-test-" + to_string(getpid()));
+  error_code ignored;
+  filesystem::remove_all(root, ignored);
+  const auto source = root / "source";
+  createTransferTestWorkspace(source);
+
+  // The bundle comes from a computer where the background service was enabled on another port.
+  AppSettings bundleSettings;
+  bundleSettings.dataDirectory = source;
+  bundleSettings.completedOnboardingVersion = 1;
+  bundleSettings.backgroundServiceEnabled = true;
+  bundleSettings.backgroundConsentAsked = true;
+  bundleSettings.deviceServicePort = 7070;
+  assert(saveAppSettings(root / "source-settings.conf", bundleSettings));
+  string error;
+  assert(createInventatoryBackup(source, root / "source-settings.conf", root / "bundle", "1.0.0", error));
+
+  const auto target = root / "target";
+  filesystem::create_directories(target);
+  AppSettings localSettings;
+  localSettings.dataDirectory = target;
+  localSettings.completedOnboardingVersion = 1;
+  localSettings.backgroundServiceEnabled = false;
+  localSettings.backgroundConsentAsked = false;
+  localSettings.deviceServicePort = 9191;
+  assert(saveAppSettings(root / "local-settings.conf", localSettings));
+  assert(restoreInventatoryBackup(root / "bundle", target, root / "local-settings.conf", error));
+  AppSettings afterRestore;
+  assert(loadAppSettings(root / "local-settings.conf", afterRestore));
+  // Machine-specific state is not taken from the bundle; workspace state still is.
+  assert(!afterRestore.backgroundServiceEnabled && !afterRestore.backgroundConsentAsked);
+  assert(afterRestore.deviceServicePort == 9191);
+  assert(afterRestore.completedOnboardingVersion == 1 && afterRestore.dataDirectory == target);
+
+  // A computer without settings starts from the defaults, not from the bundle's machine state.
+  const auto freshTarget = root / "fresh-target";
+  assert(restoreInventatoryBackup(root / "bundle", freshTarget, root / "fresh-settings.conf", error));
+  AppSettings fresh;
+  assert(loadAppSettings(root / "fresh-settings.conf", fresh));
+  assert(!fresh.backgroundServiceEnabled && !fresh.backgroundConsentAsked);
+  assert(fresh.deviceServicePort == AppSettings{}.deviceServicePort);
+  filesystem::remove_all(root, ignored);
+}
+#endif
+
+#ifndef _WIN32
 // The Linux publisher talks to avahi-daemon over D-Bus, but only for an address
 // that belongs to an up, non-loopback private-LAN interface.  Anything else must
 // be refused by the interface gate before any D-Bus traffic, so these cases are
@@ -2565,6 +2612,9 @@ int main() {
   testBackupAndRestoreThroughDataFolderLinks();
 #endif
   testPrimaryNavigationContract();
+#ifndef _WIN32
+  testRestoreKeepsMachineSpecificSettings();
+#endif
 #ifndef _WIN32
   testLinuxMdnsRefusesNonPrivateInterfaces();
 #endif
