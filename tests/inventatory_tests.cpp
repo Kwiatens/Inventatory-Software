@@ -6533,13 +6533,6 @@ int main() {
 
   {
     DeviceQuantityRequest request;
-    string error;
-    assert(parseQuantityRequestJson(
-        R"({"deviceId":"r1-a","requestId":"req-1","code":"0002","delta":-12})", request, error));
-    assert(request.delta == -12);
-    assert(!parseQuantityRequestJson(
-        R"({"deviceId":"r1-a","requestId":"req-2","code":"0002","delta":0})", request, error));
-
     InventoryStore store;
     InventoryItem item;
     item.id = "scan-r1-item";
@@ -6560,27 +6553,6 @@ int main() {
     assert(applyDeviceQuantity(store, request).httpStatus == 400);
     request = {"r1-a", "req-6", "308-1571-1-ND", 2};
     assert(applyDeviceQuantity(store, request).httpStatus == 400);
-  }
-
-  {
-    DeviceScanRequest request;
-    string error;
-    assert(parseScanRequestJson(
-        R"({"deviceId":"r1-a","requestId":"req-1","code":"[)>\u001e06\u001dP718-2362-1-ND\u001dQ2\u001e\u0004","quantity":2})",
-        request, error));
-    assert(request.quantity == 2);
-    assert(request.code == string("[)>") + '\x1e' + "06" + '\x1d' + "P718-2362-1-ND" + '\x1d' + "Q2" + '\x1e' + '\x04');
-
-    assert(parseScanRequestJson(R"({"deviceId":"r1-a","requestId":"req-2","code":"ABC123"})", request, error));
-    assert(request.quantity == 1);
-    assert(parseScanRequestJson(
-        R"({"deviceId":"r1-a","requestId":"req-3","code":"ABC123","metadata":{"code":"ignored"}})",
-        request, error));
-    assert(request.code == "ABC123");
-    assert(!parseScanRequestJson(
-        R"({"deviceId":"r1-a","requestId":"req-4","code":"ABC123","code":"ambiguous"})", request, error));
-    assert(!parseScanRequestJson(
-        R"({"deviceId":"r1-a","requestId":"req-5","code":"ABC123")", request, error));
   }
 
   {
@@ -7388,6 +7360,27 @@ int main() {
     deeplyNested += '}';
     assert(!parseDeviceSyncRequestJson(deeplyNested, request, error));
 
+    // Escapes are decoded, keys of nested objects are ignored, and ambiguous or truncated bodies are rejected.
+    const string syncEnvelope =
+        R"({"protocolVersion":1,"requestId":"sync-json","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"resultAcks":[],"events":[)";
+    assert(parseDeviceSyncRequestJson(
+        syncEnvelope +
+            R"({"eventId":"e1","type":"inventory.adjust","code":"[)>\u001e06\u001dP718-2362-1-ND\u001dQ2\u001e\u0004","value":2}]})",
+        request, error));
+    assert(request.events.size() == 1 && request.events.front().value == 2);
+    assert(request.events.front().code ==
+           string("[)>") + '\x1e' + "06" + '\x1d' + "P718-2362-1-ND" + '\x1d' + "Q2" + '\x1e' + '\x04');
+    assert(parseDeviceSyncRequestJson(
+        syncEnvelope +
+            R"({"eventId":"e2","type":"inventory.adjust","code":"ABC123","metadata":{"code":"ignored"},"value":1}]})",
+        request, error));
+    assert(request.events.front().code == "ABC123");
+    assert(!parseDeviceSyncRequestJson(
+        syncEnvelope + R"({"eventId":"e3","type":"inventory.adjust","code":"ABC123","code":"ambiguous","value":1}]})",
+        request, error));
+    assert(!parseDeviceSyncRequestJson(
+        syncEnvelope + R"({"eventId":"e4","type":"inventory.adjust","code":"ABC123","value":1}])", request, error));
+
     const auto databasePath = testTempRoot() / "inventatory-device-sync-v1-test.db";
     filesystem::remove(databasePath);
     InventoryStore store;
@@ -7402,26 +7395,17 @@ int main() {
     assert(store.save(databasePath));
 
     const auto beforeLookupQuantity = store.items().front().quantity;
-    InventoryStore lookupSnapshot;
-    assert(lookupSnapshot.load(databasePath));
-    const auto foundLookup = lookupDeviceItem(lookupSnapshot, {"lookup-9", "0002"});
+    const auto foundLookup = lookupDeviceItem(databasePath, {"lookup-9", "0002"});
     assert(foundLookup.status == "found");
     assert(foundLookup.itemName == "10k resistor");
-    assert(lookupSnapshot.items().front().quantity == beforeLookupQuantity);
-    const auto databaseFoundLookup = lookupDeviceItem(databasePath, {"lookup-9-db", "0002"});
-    assert(databaseFoundLookup.status == "found");
-    assert(databaseFoundLookup.itemName == "10k resistor");
-    const auto digiKeyLookup = lookupDeviceItem(lookupSnapshot, {"lookup-dk-1", "718-2362-1-ND"});
+    const auto digiKeyLookup = lookupDeviceItem(databasePath, {"lookup-dk-1", "718-2362-1-ND"});
     assert(digiKeyLookup.status == "found");
     assert(digiKeyLookup.itemName == "10k resistor");
-    const auto databaseDigiKeyLookup =
-        lookupDeviceItem(databasePath, {"lookup-dk-1-db", "718-2362-1-ND"});
-    assert(databaseDigiKeyLookup.status == "found");
-    assert(databaseDigiKeyLookup.itemName == "10k resistor");
-    const auto missingLookup = lookupDeviceItem(lookupSnapshot, {"lookup-10", "9999"});
+    const auto missingLookup = lookupDeviceItem(databasePath, {"lookup-10", "9999"});
     assert(missingLookup.status == "not_found");
-    const auto databaseMissingLookup = lookupDeviceItem(databasePath, {"lookup-10-db", "9999"});
-    assert(databaseMissingLookup.status == "not_found");
+    InventoryStore lookupSnapshot;
+    assert(lookupSnapshot.load(databasePath));
+    assert(lookupSnapshot.items().front().quantity == beforeLookupQuantity);
 
     DeviceSyncResponse lookupResponse;
     lookupResponse.requestId = "sync-lookup";

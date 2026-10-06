@@ -70,96 +70,6 @@ bool looksLikeSupportedLookupCode(const string& code) {
 
 }  // namespace
 
-bool parseQuantityRequestJson(const string& body, DeviceQuantityRequest& request, string& error) {
-  if (!jsonObjectIsComplete(body)) {
-    error = "Invalid JSON request";
-    return false;
-  }
-  const auto deviceId = jsonString(body, "deviceId");
-  const auto requestId = jsonString(body, "requestId");
-  const auto code = jsonString(body, "code");
-  const auto delta = jsonInt(body, "delta");
-  if (!deviceId || trim(*deviceId).empty() || !requestId || trim(*requestId).empty() || !code || !delta) {
-    error = "Missing or invalid deviceId, requestId, code, or delta";
-    return false;
-  }
-  if (requestId->size() > 96 || deviceId->size() > 96 || code->size() > 128) {
-    error = "Request field is too long";
-    return false;
-  }
-  if (*delta == 0 || *delta < -999999 || *delta > 999999) {
-    error = "Delta must be between -999999 and 999999 and cannot be zero";
-    return false;
-  }
-  request = {*deviceId, *requestId, *code, *delta};
-  return true;
-}
-
-bool parseScanRequestJson(const string& body, DeviceScanRequest& request, string& error) {
-  if (!jsonObjectIsComplete(body)) {
-    error = "Invalid JSON request";
-    return false;
-  }
-  const auto deviceId = jsonString(body, "deviceId");
-  const auto requestId = jsonString(body, "requestId");
-  const auto code = jsonString(body, "code");
-  const auto quantity = jsonInt(body, "quantity");
-  if (!deviceId || trim(*deviceId).empty() || !requestId || trim(*requestId).empty() || !code ||
-      trim(*code).empty()) {
-    error = "Missing or invalid deviceId, requestId, or code";
-    return false;
-  }
-  if (requestId->size() > 96 || deviceId->size() > 96 || code->size() > 128) {
-    error = "Request field is too long";
-    return false;
-  }
-  if (quantity && *quantity <= 0) {
-    error = "Quantity must be positive";
-    return false;
-  }
-  request = {*deviceId, *requestId, *code, quantity ? *quantity : 1};
-  return true;
-}
-
-bool parseDebugReportJson(const string& body, DeviceDebugReport& report, string& error) {
-  if (!jsonObjectIsComplete(body)) {
-    error = "Invalid JSON request";
-    return false;
-  }
-  const auto deviceId = jsonString(body, "deviceId");
-  const auto requestId = jsonString(body, "requestId");
-  const auto level = jsonString(body, "level");
-  const auto message = jsonString(body, "message");
-  if (!deviceId || trim(*deviceId).empty() || !requestId || trim(*requestId).empty() || !message ||
-      trim(*message).empty()) {
-    error = "Missing or invalid deviceId, requestId, or message";
-    return false;
-  }
-  if (requestId->size() > 96 || deviceId->size() > 96 || message->size() > 512 || (level && level->size() > 24)) {
-    error = "Debug field is too long";
-    return false;
-  }
-  report = {*deviceId, *requestId, level ? *level : string("info"), *message};
-  return true;
-}
-
-bool parseStatusReportJson(const string& body, DeviceStatusReport& report, string& error) {
-  if (!jsonObjectIsComplete(body)) {
-    error = "Invalid JSON request";
-    return false;
-  }
-  const auto deviceId = jsonString(body, "deviceId");
-  const auto version = jsonString(body, "firmwareVersion");
-  const auto rssi = jsonInt(body, "rssi");
-  const auto debug = jsonString(body, "debug");
-  if (!deviceId || trim(*deviceId).empty() || !version || !rssi) {
-    error = "Missing or invalid deviceId, firmwareVersion, or rssi";
-    return false;
-  }
-  report = {*deviceId, *version, *rssi, debug ? *debug : string{}, 0, {}, 0};
-  return true;
-}
-
 bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, string& error) {
   if (!jsonObjectIsComplete(body)) {
     error = "Invalid JSON request";
@@ -324,44 +234,6 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
   return out.str();
 }
 
-DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLookupRequest& request) {
-  DeviceLookupResult result;
-  result.lookupId = request.lookupId;
-  const auto code = trim(request.code);
-  if (!looksLikeSupportedLookupCode(code)) {
-    result.status = "not_found";
-    return result;
-  }
-  const InventoryItem* item = nullptr;
-  if (looksLikeSupportedInventatoryScanCode(code)) {
-    item = store.findByMachineCode(code);
-  } else {
-    const auto foldedCode = [&code] {
-      string folded = code;
-      transform(folded.begin(), folded.end(), folded.begin(),
-                [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
-      return folded;
-    }();
-    const auto match = find_if(store.items().begin(), store.items().end(), [&](const InventoryItem& candidate) {
-      auto equalsCode = [&foldedCode](string value) {
-        value = trim(value);
-        transform(value.begin(), value.end(), value.begin(),
-                  [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
-        return value == foldedCode;
-      };
-      return equalsCode(candidate.digikeyPartNumber) || equalsCode(candidate.sku);
-    });
-    if (match != store.items().end()) item = &(*match);
-  }
-  if (item == nullptr) {
-    result.status = "not_found";
-    return result;
-  }
-  result.status = "found";
-  result.itemName = item->partName;
-  return result;
-}
-
 DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuantityRequest& request) {
   DeviceQuantityResult result;
   result.requestedDelta = request.delta;
@@ -420,29 +292,6 @@ DeviceQuantityResult applyDeviceQuantityCached(InventoryStore& store, const Devi
     order.pop_front();
   }
   return result;
-}
-
-string scanResultJson(bool ok, const string& error) {
-  return ok ? string("{\"ok\":true}") : string("{\"ok\":false,\"error\":\"") + jsonEscape(error) + "\"}";
-}
-
-string quantityResultJson(const DeviceQuantityResult& result) {
-  ostringstream out;
-  out << "{\"ok\":" << (result.ok ? "true" : "false");
-  if (result.ok) {
-    out << ",\"item\":\"" << jsonEscape(result.item) << "\""
-        << ",\"requestedDelta\":" << result.requestedDelta
-        << ",\"appliedDelta\":" << result.appliedDelta
-        << ",\"quantity\":" << result.quantity;
-  } else {
-    out << ",\"error\":\"" << jsonEscape(result.error) << "\"";
-  }
-  out << '}';
-  return out.str();
-}
-
-string debugResultJson(bool ok, const string& error) {
-  return ok ? string("{\"ok\":true}") : string("{\"ok\":false,\"error\":\"") + jsonEscape(error) + "\"}";
 }
 
 string statusResultJson(bool ok, const string& error) {
