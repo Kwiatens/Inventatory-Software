@@ -1242,6 +1242,11 @@ void testPhysicalValueMatching() {
   // 1MHz should match 1000kHz
   assert(comparePhysicalValues("1MHz", "1000kHz")->band == PhysicalValueMatchBand::Exact);
 
+  // Affix helpers shared by the BOM matcher and the label printer
+  assert(startsWithInsensitive("ARM Cortex-M4", "arm ") && !startsWithInsensitive("AR", "arm"));
+  assert(startsWithInsensitive("abc", "") && endsWith("10 Typ", " Typ") && !endsWith("Typ", " Typ"));
+  assert(endsWith("abc", "") && !endsWith("10 typ", " Typ"));
+
   // Free-text helpers shared by the DigiKey importer and the label printer
   assert(value_text::extractInductance("FIXED IND 4R7 uH 3.7A").value_or("") == "4.7uH");
   assert(value_text::extractInductance("10 MH choke").value_or("") == "10mH");

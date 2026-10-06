@@ -55,7 +55,6 @@ optional<string> firstInductanceParameter(const InventoryItem& item);
 bool itemTextContains(const InventoryItem& item, initializer_list<const char*> needles);
 bool hasParameter(const InventoryItem& item, initializer_list<const char*> names);
 
-bool startsWithInsensitive(const string& value, const string& prefix);
 string diodeMainLabelValue(const InventoryItem& item);
 bool isIcLikeItem(const InventoryItem& item);
 

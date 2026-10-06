@@ -12,13 +12,6 @@ using namespace std;
 
 namespace label_printer_detail {
 
-bool startsWithInsensitive(const string& value, const string& prefix) {
-  if (value.size() < prefix.size()) {
-    return false;
-  }
-  return toLower(value.substr(0, prefix.size())) == toLower(prefix);
-}
-
 string diodeMainLabelValue(const InventoryItem& item) {
   // The diode type (Zener/Schottky/TVS/Rectifier) is already printed in the
   // header bar, so the main line should carry the

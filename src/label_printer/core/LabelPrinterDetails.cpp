@@ -40,10 +40,6 @@ string measuredMainValue(const InventoryItem& item) {
   return {};
 }
 
-bool endsWith(const string& value, const string& suffix) {
-  return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
-
 void replaceAll(string& value, const string& from, const string& to) {
   for (size_t at = value.find(from); at != string::npos; at = value.find(from, at + to.size())) {
     value.replace(at, from.size(), to);

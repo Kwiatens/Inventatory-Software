@@ -16,7 +16,6 @@ inline const std::initializer_list<const char*> kPackageFamilies = {
     "TQFP",   "LQFP",  "QFP",  "BGA",  "WSON", "VSON", "SC",  "TO",  "DIP", "PDIP"};
 
 std::vector<std::string> splitOnUnderscore(const std::string& value);
-bool startsWithInsensitive(const std::string& value, const std::string& prefix);
 std::string diameterToken(const std::vector<std::string>& tokens);
 std::string pinCountToken(const std::vector<std::string>& tokens);
 // How the text around a number was written, which decides the letters it may use.
@@ -26,7 +25,6 @@ enum class NumberNotation {
   Reactive,    // explicit F, H or Hz unit
 };
 std::optional<double> parseNumberWithMultiplier(const std::string& body, NumberNotation notation);
-bool endsWith(const std::string& value, const std::string& suffix);
 std::string compactKey(const std::string& value);
 std::optional<double> itemValueFor(const InventoryItem& item, ValueKind kind);
 std::optional<std::string> itemPackage(const InventoryItem& item);
