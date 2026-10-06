@@ -3,9 +3,6 @@
 #include "platform/digikey/DigiKeyApiPrivate.h"
 
 #include <algorithm>
-#include <cctype>
-#include <string_view>
-#include <utility>
 
 namespace inventatory {
 using namespace std;

@@ -4,10 +4,7 @@
 #include "core/history/InventoryVersionInternal.h"
 
 #include <algorithm>
-#include <iomanip>
 #include <limits>
-#include <sstream>
-#include <unordered_map>
 #include <utility>
 
 namespace inventatory {

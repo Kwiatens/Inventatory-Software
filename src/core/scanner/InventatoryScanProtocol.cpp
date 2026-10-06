@@ -9,7 +9,6 @@
 #include <cctype>
 #include <cstring>
 #include <limits>
-#include <optional>
 #include <sstream>
 
 namespace inventatory {

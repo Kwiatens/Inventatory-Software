@@ -3,7 +3,6 @@
 #include "core/history/InventoryVersionInternal.h"
 
 #include <algorithm>
-#include <limits>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>

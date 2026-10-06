@@ -9,7 +9,6 @@
 #include <cctype>
 #include <cmath>
 #include <limits>
-#include <unordered_map>
 #include <unordered_set>
 
 namespace inventatory::bom_match_detail {

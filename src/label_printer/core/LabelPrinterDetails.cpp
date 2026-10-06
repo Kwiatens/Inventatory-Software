@@ -7,19 +7,10 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cctype>
-#include <cstdint>
 #include <cstring>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <memory>
 #include <regex>
 #include <sstream>
-#include <system_error>
 
 namespace inventatory {
 

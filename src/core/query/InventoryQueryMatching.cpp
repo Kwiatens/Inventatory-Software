@@ -7,9 +7,7 @@
 #include <charconv>
 #include <cstddef>
 #include <limits>
-#include <sstream>
 #include <system_error>
-#include <unordered_set>
 
 namespace inventatory::query_detail {
 
