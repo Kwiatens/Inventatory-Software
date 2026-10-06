@@ -196,7 +196,7 @@ the credentials are saved. A live credential test remains available afterward.
 
 ### Updates
 
-The section lists Inventatory software, Inventascan firmware, and hardware versions in a table with a status column (up to date / update available / check failed) and the time of the last completed check. **Auto-check for updates** toggles the daily background check; like other setting changes it is staged and applied with Save.
+The section lists Inventatory software, Inventascan firmware, and hardware versions in a table with a status column (checking / update available / check failed, plus "Up to date" for the software) and the time of the last completed check. Checking for software updates, manually or in the daily background check, also checks the Inventascan firmware release channel, which needs a paired scanner that has reported its firmware version. **Auto-check for updates** toggles the daily background check; like other setting changes it is staged and applied with Save.
 
 Open **Settings → Updates** and choose **Check for software updates**. When a newer
 Inventatory release, including a published GitHub prerelease, is available, the

@@ -458,6 +458,7 @@ void App::beginUpdateCheckIfDue() {
   updateCheckChecked_ = false;
   updateCheckFailed_ = false;
   updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
+  beginScanFirmwareCheck();
 }
 
 void App::beginUpdateChecks() {
@@ -471,6 +472,7 @@ void App::beginUpdateChecks() {
     updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
     started = true;
   }
+  beginScanFirmwareCheck();
   setMessage(started ? "Checking for software updates" : "Already checking for software updates", 4);
   dirty_ = true;
 }
