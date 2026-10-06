@@ -41,12 +41,16 @@ constexpr PhysicalValueBandLimits physicalValueBandLimits(PhysicalValueType type
 // Converts a plain decimal literal without consulting the process locale. The
 // application calls setlocale(LC_ALL, ""), and strtod would then read "0.1" as
 // "0" under locales that use a comma as the decimal separator.
-double parseClassicDouble(const string& literal) {
+//
+// A literal that overflows (or is not a number at all) has no value; returning 0 there would make
+// "1e999 k" compare as an exact 0-ohm match.
+std::optional<double> parseClassicDouble(const string& literal) {
   std::istringstream stream(literal);
   stream.imbue(std::locale::classic());
   double value = 0.0;
   stream >> value;
-  return stream.fail() ? 0.0 : value;
+  if (stream.fail() || !std::isfinite(value)) return std::nullopt;
+  return value;
 }
 
 // Scans a leading signed decimal number (digits, optional fraction, optional
@@ -74,7 +78,9 @@ size_t scanLeadingNumber(const string& text, double& value) {
     const auto exponentEnd = digitsFrom(exponent);
     if (exponentEnd > exponent) end = exponentEnd;
   }
-  value = parseClassicDouble(text.substr(0, end));
+  const auto parsed = parseClassicDouble(text.substr(0, end));
+  if (!parsed.has_value()) return 0;
+  value = *parsed;
   return end;
 }
 
@@ -140,22 +146,29 @@ bool parseUnicodeMicroPrefix(const string& value, size_t& consumed, double& mult
   return false;
 }
 
+// The unit must be a whole word ("ohm", "F", "Hz"), not just start with the right letter: "10 hours"
+// is not an inductance and "5 ft" is not a capacitance. Anything after the word (a tolerance such
+// as "1%", a rating) is ignored.
 PhysicalValueType unitType(const string& unit) {
   if (unit.empty()) {
     return PhysicalValueType::Unknown;
   }
 
-  if (unit == "\xCE\xA9" || startsWithInsensitive(unit, "ohm") || unit[0] == 'R' || unit[0] == 'r') {
-    return PhysicalValueType::Resistance;
+  static constexpr char kOmega[] = "\xCE\xA9";
+  if (unit.rfind(kOmega, 0) == 0) {
+    const bool wordEnds = unit.size() == 2 || isalpha(static_cast<unsigned char>(unit[2])) == 0;
+    return wordEnds ? PhysicalValueType::Resistance : PhysicalValueType::Unknown;
   }
-  if (startsWithInsensitive(unit, "hz") || startsWithInsensitive(unit, "hertz")) {
-    return PhysicalValueType::Frequency;
-  }
-  if (unit[0] == 'F' || unit[0] == 'f' || startsWithInsensitive(unit, "farad")) {
-    return PhysicalValueType::Capacitance;
-  }
-  if (unit[0] == 'H' || unit[0] == 'h' || startsWithInsensitive(unit, "henry") ||
-      startsWithInsensitive(unit, "henries")) {
+
+  size_t length = 0;
+  while (length < unit.size() && isalpha(static_cast<unsigned char>(unit[length])) != 0) ++length;
+  string word = unit.substr(0, length);
+  std::transform(word.begin(), word.end(), word.begin(),
+                 [](unsigned char character) { return static_cast<char>(tolower(character)); });
+  if (word == "ohm" || word == "ohms" || word == "r") return PhysicalValueType::Resistance;
+  if (word == "hz" || word == "hertz") return PhysicalValueType::Frequency;
+  if (word == "f" || word == "farad" || word == "farads") return PhysicalValueType::Capacitance;
+  if (word == "h" || word == "henry" || word == "henrys" || word == "henries") {
     return PhysicalValueType::Inductance;
   }
   return PhysicalValueType::Unknown;
@@ -259,28 +272,38 @@ std::optional<PhysicalValue> parseRkmValue(const string& text) {
   double integerPart = 0.0;
   double fractionalPart = 0.0;
   if (!head.empty()) {
-    integerPart = parseClassicDouble(head);
+    const auto parsedHead = parseClassicDouble(head);
+    if (!parsedHead.has_value()) return std::nullopt;
+    integerPart = *parsedHead;
   }
   if (!tail.empty()) {
-    fractionalPart = parseClassicDouble(tail);
+    const auto parsedTail = parseClassicDouble(tail);
+    if (!parsedTail.has_value()) return std::nullopt;
+    fractionalPart = *parsedTail;
     for (size_t index = 0; index < tail.size(); ++index) {
       fractionalPart /= 10.0;
     }
   }
 
   const auto value = integerPart + fractionalPart;
-  if (resistanceMarker) {
-    return PhysicalValue{value, PhysicalValueType::Resistance};
-  }
-  return PhysicalValue{value * multiplier, PhysicalValueType::Resistance};
+  const auto scaled = resistanceMarker ? value : value * multiplier;
+  if (!std::isfinite(scaled)) return std::nullopt;
+  return PhysicalValue{scaled, PhysicalValueType::Resistance};
 }
 
 }  // namespace
 
 std::optional<PhysicalValue> parsePhysicalValue(const std::string& text) {
-  const auto trimmed = trimValue(text);
+  auto trimmed = trimValue(text);
   if (trimmed.empty()) {
     return std::nullopt;
+  }
+  // Datasheets often carry U+2126 OHM SIGN, which is canonically the same letter as the Greek
+  // capital omega the unit parser knows.
+  static constexpr char kOhmSign[] = "\xE2\x84\xA6";
+  static constexpr char kGreekOmega[] = "\xCE\xA9";
+  for (auto at = trimmed.find(kOhmSign); at != string::npos; at = trimmed.find(kOhmSign, at + 2)) {
+    trimmed.replace(at, 3, kGreekOmega);
   }
 
   if (const auto rkm = parseRkmValue(trimmed); rkm.has_value()) {
@@ -301,7 +324,9 @@ std::optional<PhysicalValue> parsePhysicalValue(const std::string& text) {
     return std::nullopt;
   }
 
-  return PhysicalValue{number * parsedUnit.multiplier, parsedUnit.type};
+  const auto scaled = number * parsedUnit.multiplier;
+  if (!std::isfinite(scaled)) return std::nullopt;
+  return PhysicalValue{scaled, parsedUnit.type};
 }
 
 std::optional<PhysicalValueComparison> comparePhysicalValues(const std::string& candidate,
