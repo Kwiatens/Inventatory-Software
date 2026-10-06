@@ -36,10 +36,6 @@ string dateKey(const tm& value) {
   return key.str();
 }
 
-bool sameDate(const tm& lhs, const tm& rhs) {
-  return lhs.tm_year == rhs.tm_year && lhs.tm_mon == rhs.tm_mon && lhs.tm_mday == rhs.tm_mday;
-}
-
 string previousDateKey(const tm& current) {
   tm yesterday = current;
   yesterday.tm_hour = 12;

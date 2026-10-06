@@ -67,13 +67,10 @@ ftxui::Color uiActiveBg();
 ftxui::Color uiActiveSoftBg();
 ftxui::Color uiWarningBg();
 ftxui::Color uiDangerBg();
-ftxui::Color uiDangerFlashBg();
 ftxui::Color uiMutedColor();
 ftxui::Color uiDimColor();
 ftxui::Color uiPanelLeftBg();
 ftxui::Color uiPanelRightBg();
-ftxui::Color uiRowDarkBg();
-ftxui::Color uiRowLightBg();
 ftxui::Color uiRowSelectedBg();
 
 ftxui::Element styledText(const string& text, optional<ftxui::Color> fg = nullopt,
@@ -88,14 +85,10 @@ ftxui::Element uiSectionHeader(const string& text, optional<ftxui::Color> fg = n
                                optional<ftxui::Color> bg = nullopt);
 ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg = nullopt,
                         optional<ftxui::Color> bg = nullopt);
-ftxui::Element bulletLine(const string& label, const string& value, ftxui::Color labelColor,
-                          ftxui::Color valueColor);
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor = nullopt,
                      optional<ftxui::Color> borderColor = nullopt);
 ftxui::Element footerField(const string& title, const string& body, ftxui::Color titleColor, ftxui::Color bodyColor,
                            ftxui::Color background, bool flashing = false);
-ftxui::Element statusTextBox(const string& label, bool active);
-ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected = false);
 
 // Button roles. uiSecondaryButton is the ordinary raised text control used for
 // operational actions; uiPrimaryButton is the filled cyan control that
@@ -133,7 +126,6 @@ vector<string> wrapText(const string& text, int width);
 
 string joinTags(const vector<string>& tags);
 string renderTags(const vector<string>& tags);
-string renderParameters(const vector<Parameter>& parameters);
 string renderUrl(const string& url);
 
 string normalizeKey(string value);

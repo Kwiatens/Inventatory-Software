@@ -142,10 +142,6 @@ ftxui::Color uiDangerBg() {
   return uiAppearanceColor(AppearanceColorRole::DangerBg);
 }
 
-ftxui::Color uiDangerFlashBg() {
-  return uiAppearanceColor(AppearanceColorRole::DangerFlashBg);
-}
-
 ftxui::Color uiMutedColor() {
   return uiMutedText();
 }
@@ -159,14 +155,6 @@ ftxui::Color uiPanelLeftBg() {
 }
 
 ftxui::Color uiPanelRightBg() {
-  return uiSurfaceBg();
-}
-
-ftxui::Color uiRowDarkBg() {
-  return uiSurfaceBg();
-}
-
-ftxui::Color uiRowLightBg() {
   return uiSurfaceBg();
 }
 
@@ -215,15 +203,6 @@ ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg,
   return element;
 }
 
-ftxui::Element bulletLine(const string& label, const string& value, ftxui::Color labelColor,
-                          ftxui::Color valueColor) {
-  return ftxui::hbox({
-      styledText(label, labelColor),
-      styledText(value, valueColor),
-      ftxui::filler(),
-  });
-}
-
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor,
                      optional<ftxui::Color> borderColor) {
   (void)borderColor;
@@ -257,29 +236,8 @@ ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg,
                     uiRaisedSurfaceBg());
 }
 
-ftxui::Element statusTextBox(const string& label, bool active) {
-  auto box = styledText(" " + label + " ", active ? uiFocusColor() : uiMutedColor(),
-                        active ? uiActiveSoftBg() : uiSurfaceBg());
-  if (active) box = uiHeaderText(" " + label + " ", uiFocusColor(), uiActiveSoftBg());
-  return box;
-}
-
 bool uiBoxContains(const ftxui::Box& box, int x, int y) {
   return x >= box.x_min && x <= box.x_max && y >= box.y_min && y <= box.y_max;
-}
-
-ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected) {
-  InventoryItem item;
-  item.quantity = quantity;
-  const auto fg = quantity <= 0 ? uiDangerColor()
-                                : (isLowStock(item, lowStockThreshold) ? uiWarnColor() : uiSuccessColor());
-  const auto bg = selected ? uiRowSelectedBg()
-                           : (quantity <= 0 ? uiDangerBg()
-                                            : (isLowStock(item, lowStockThreshold) ? uiWarningBg()
-                                                             : uiRaisedSurfaceBg()));
-  auto badge = uiBodyText(" " + to_string(quantity) + " ", fg, bg);
-  if (selected) badge = badge | ftxui::bold;
-  return badge;
 }
 
 long long uiAnimationTicks() {
@@ -462,21 +420,6 @@ string renderTags(const vector<string>& tags) {
     return "-";
   }
   return ellipsize(joinTags(tags), 32);
-}
-
-string renderParameters(const vector<Parameter>& parameters) {
-  if (parameters.empty()) {
-    return "-";
-  }
-
-  ostringstream out;
-  for (size_t index = 0; index < parameters.size(); ++index) {
-    if (index > 0) {
-      out << "; ";
-    }
-    out << parameters[index].name << '=' << parameters[index].value;
-  }
-  return out.str();
 }
 
 string renderUrl(const string& url) {
