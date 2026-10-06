@@ -92,7 +92,8 @@ void App::loadState() {
   refreshDeviceEventRecords();
   refreshInventoryMovements();
   const bool commitHistoryReady = ensureInventoryCommitHistory(inventoryPath_, store_);
-  refreshInventoryCommits();
+  // An existing database was just validated by load(), history included; do not walk it twice.
+  refreshInventoryCommits(inventoryFileExists && inventoryLoaded);
   if (!commitHistoryReady || inventoryRecoveryRequired_) {
     if (!inventoryRecoveryRequired_) {
       inventoryRecoveryRequired_ = true;
@@ -200,7 +201,8 @@ bool App::reloadInventoryState() {
   }
 
   vector<InventoryCommit> loadedCommits;
-  if (!loadInventoryCommits(inventoryPath_, loadedCommits)) {
+  // load() above already validated the whole commit history.
+  if (!loadInventoryCommits(inventoryPath_, loadedCommits, false)) {
     persistenceError_ = "Unable to reload inventory commits; the in-memory data was kept.";
     setMessage(persistenceError_, 5);
     return false;
