@@ -228,6 +228,15 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     primaryError = "Restored settings are invalid";
   } else {
     restoredSettings.dataDirectory = destinationDirectory;
+    // Whether the background service is registered, which port the paired scanner uses and whether the
+    // user answered the background prompt describe this computer, not the workspace. They stay as they
+    // are here (or at their defaults on a computer without settings) so the next launch does not register
+    // a startup service nobody agreed to, and the scanner is not moved to another port.
+    AppSettings localSettings;
+    if (journal.settingsExisted) loadAppSettings(appSettingsPath, localSettings);
+    restoredSettings.backgroundServiceEnabled = localSettings.backgroundServiceEnabled;
+    restoredSettings.backgroundConsentAsked = localSettings.backgroundConsentAsked;
+    restoredSettings.deviceServicePort = localSettings.deviceServicePort;
     journal.state = "writing_settings";
     if (!writeRestoreJournal(journalPath, journal, ops, primaryError) ||
         !saveRestoreSettings(appSettingsPath, restoredSettings, ops, primaryError)) {
