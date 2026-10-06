@@ -38,10 +38,18 @@ char sniffDelimiter(const string& text) {
   size_t tab = 0;
   bool inQuotes = false;
   bool sawContent = false;
+  // A quote only opens a quoted section at the start of a field; inside 2.13" ePaper it is a literal
+  // inch mark and must not swallow the delimiters that follow it.
+  bool atFieldStart = true;
 
   for (const char ch : text) {
     if (ch == '"') {
-      inQuotes = !inQuotes;
+      if (inQuotes) {
+        inQuotes = false;
+      } else if (atFieldStart) {
+        inQuotes = true;
+      }
+      atFieldStart = false;
       sawContent = true;
       continue;
     }
@@ -54,17 +62,19 @@ char sniffDelimiter(const string& text) {
       if (sawContent) {
         break;
       }
+      atFieldStart = true;
       continue;
     }
     if (ch == '\r') {
       continue;
     }
-    if (ch == ',') {
-      ++comma;
-    } else if (ch == ';') {
-      ++semicolon;
-    } else if (ch == '\t') {
-      ++tab;
+    if (ch == ',' || ch == ';' || ch == '\t') {
+      if (ch == ',') ++comma;
+      else if (ch == ';') ++semicolon;
+      else ++tab;
+      atFieldStart = true;
+    } else if (!isspace(static_cast<unsigned char>(ch))) {
+      atFieldStart = false;
     }
     if (!isspace(static_cast<unsigned char>(ch))) {
       sawContent = true;
@@ -125,7 +135,10 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
       continue;
     }
 
-    if (ch == '"') {
+    if (ch == '"' && field.find_first_not_of(" \t") == string::npos) {
+      // A quote opens a quoted section only at the start of a field. Elsewhere (2.13" ePaper in an
+      // unquoted field) it is an inch mark; treating it as an opener would swallow the delimiters and
+      // line breaks that follow.
       inQuotes = true;
     } else if (ch == delimiter) {
       row.push_back(trim(field));
