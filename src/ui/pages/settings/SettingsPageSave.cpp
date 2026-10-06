@@ -173,8 +173,13 @@ bool App::saveSettingsDraft() {
       !saveQuickLabels(quickLabelsPath(settingsDraft_.dataDirectory), settingsDraft_.quickLabelPresets,
                        settingsDraft_.quickLabelRevision)) {
     const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
-    settings_ = oldSettings;
-    settingsDraft_ = oldSettings;
+    {
+      lock_guard<mutex> lock(quickLabelMutex_);
+      settings_ = oldSettings;
+    }
+    // The draft keeps every staged edit (data folder, colours, DigiKey fields, printer) so the user can
+    // retry or pick another folder instead of redoing the whole form.
+    settingsDirty_ = true;
     if (startupChanged) {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
