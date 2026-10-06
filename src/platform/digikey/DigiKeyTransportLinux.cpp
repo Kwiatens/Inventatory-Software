@@ -157,6 +157,8 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_setopt(handle, CURLOPT_USERAGENT, "Inventatory DigiKey client/1.0");
   curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
   curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 8000L);
+  // Requests run on worker threads next to other libcurl users; never let libcurl install signal handlers.
+  curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
   // DigiKey's API endpoints do not require redirects. Keep the authenticated
   // custom headers bound to the HTTPS origin instead of forwarding them to a
   // redirect target.
