@@ -19,6 +19,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 #include "core/inventory/Inventory.h"
@@ -35,6 +36,9 @@ constexpr uint32_t kClientIoTimeoutMs = 2000U;
 constexpr size_t kWorkerCount = 4;
 constexpr size_t kMaxQueuedClients = 16;
 constexpr uint32_t kReaderSelectIntervalMs = 100U;
+// Pause after an accept() failure that is not tied to a single aborted connection (descriptor or
+// kernel memory exhaustion), so a persistent error does not turn the acceptor into a busy loop.
+constexpr uint32_t kAcceptFailureBackoffMs = 50U;
 
 struct PendingClient {
   NativeSocket socket = kInvalidSocket;
@@ -97,8 +101,12 @@ void LocalHttpServer::acceptLoop() {
     SocketLength clientSize = sizeof(clientAddress);
     NativeSocket client = acceptConnection(listeningSocket, reinterpret_cast<sockaddr*>(&clientAddress), &clientSize);
     if (client == kInvalidSocket) {
-      if (running_.load()) continue;
-      break;
+      const int acceptError = socketLastError();
+      if (!running_.load()) break;
+      if (!socketAcceptRetryable(acceptError)) {
+        this_thread::sleep_for(chrono::milliseconds(kAcceptFailureBackoffMs));
+      }
+      continue;
     }
 #ifndef _WIN32
     if (client >= FD_SETSIZE) {
@@ -207,6 +215,10 @@ void LocalHttpServer::readerLoop() {
 #endif
     const int selected = select(selectDescriptorCount, &readable, nullptr, nullptr, &timeout);
     if (selected < 0) {
+      // A signal delivered to this thread (a terminal resize, a second launch asking this instance
+      // to come forward) interrupts select(); that is not a socket failure, so keep the pending
+      // requests and wait again.
+      if (socketInterrupted(socketLastError())) continue;
       for (auto& client : pending) closePendingClient(client);
       pending.clear();
       continue;
@@ -222,7 +234,8 @@ void LocalHttpServer::readerLoop() {
         if (received == 0) {
           close = true;
         } else if (received < 0) {
-          close = !socketWouldBlock(socketLastError());
+          const int receiveError = socketLastError();
+          close = !socketWouldBlock(receiveError) && !socketInterrupted(receiveError);
         } else {
           client.request.append(buffer.data(), buffer.data() + static_cast<size_t>(received));
           if (client.request.size() > kMaxHttpHeaderBytes + kMaxHttpBodyBytes) {
@@ -373,6 +386,7 @@ bool LocalHttpServer::sendAll(NativeSocket clientSocket, const string& response)
     const auto remaining = response.size() - sent;
     const int chunk = static_cast<int>(min(remaining, static_cast<size_t>(numeric_limits<int>::max())));
     const auto written = send(clientSocket, response.data() + sent, chunk, kSocketSendFlags);
+    if (written < 0 && socketInterrupted(socketLastError())) continue;
     if (written <= 0) return false;
     sent += static_cast<size_t>(written);
   }
