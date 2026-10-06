@@ -290,42 +290,4 @@ void App::stopDigiKeyRefresh() {
   digiKeyRefreshLastError_.clear();
 }
 
-DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& request) {
-  auto pending = make_shared<PendingDeviceQuantity>();
-  pending->request = request;
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    DeviceQuantityResult unavailable;
-    unavailable.httpStatus = 503;
-    unavailable.error = "Inventatory workspace is unavailable";
-    return unavailable;
-  }
-  pending->workspaceGeneration = context->generation;
-  {
-    lock_guard<mutex> lock(deviceQueueMutex_);
-    if (deviceRequestsClosed_) {
-      DeviceQuantityResult unavailable;
-      unavailable.httpStatus = 503;
-      unavailable.error = "Inventatory is shutting down";
-      return unavailable;
-    }
-    if (deviceQuantityQueue_.size() >= kDeviceQuantityQueueLimit) {
-      DeviceQuantityResult unavailable;
-      unavailable.httpStatus = 503;
-      unavailable.error = "Inventatory request queue is full";
-      return unavailable;
-    }
-    deviceQuantityQueue_.push_back(pending);
-  }
-  unique_lock<mutex> lock(pending->mutex);
-  if (!pending->ready.wait_for(lock, chrono::seconds(3), [&] { return pending->complete; })) {
-    pending->cancelled = true;
-    DeviceQuantityResult timeout;
-    timeout.httpStatus = 503;
-    timeout.error = "Inventatory did not process the request in time";
-    return timeout;
-  }
-  return pending->result;
-}
-
 }  // namespace inventatory
