@@ -73,6 +73,14 @@ bool isSmdRackEligible(const string& text) {
           hasCompactDiscretePackage(text));
 }
 
+// A category that says nothing about the part yet: a scan placeholder or an import row
+// waiting for DigiKey metadata. These parts stay pending instead of being given up on.
+bool hasPlaceholderCategory(const InventoryItem& item) {
+  const auto category = toLower(trim(item.category));
+  return category.empty() || category == "unsorted" || category == "unknown" ||
+         category == "scanned digikey item";
+}
+
 optional<string> componentTypeFor(const InventoryItem& item) {
   const auto text = classificationText(item);
   if (containsAny(text, {"fuse", "fuses"})) return "Fuses";
@@ -180,6 +188,15 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
   const auto componentType = componentTypeFor(item);
   auto* currentRack = findRack(store, item.rackId);
   if (!componentType) {
+    if (hasPlaceholderCategory(item)) {
+      // Not classifiable yet. Staying Automatic (without a slot) lets the next
+      // reconcile place the part once enrichment supplies a category; the Unassigned
+      // mode is reserved for parts that cannot be racked or that the user opted out.
+      const bool pending = !item.rackId.empty() || !item.rackSlot.empty();
+      item.rackId.clear();
+      item.rackSlot.clear();
+      return pending;
+    }
     const bool changed = item.rackAssignment != RackAssignmentMode::Unassigned || !item.rackId.empty() ||
                          !item.rackSlot.empty();
     item.rackId.clear();

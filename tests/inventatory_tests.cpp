@@ -2818,6 +2818,44 @@ int main() {
   }
 
 
+  {
+    // A scan placeholder has no category yet. It must stay pending (Automatic) instead of being
+    // marked Unassigned, so enrichment can rack it; a deliberate Unassigned stays untouched.
+    InventoryStore scanStore;
+    InventatoryRack resistorRack;
+    resistorRack.id = "rack-scan-resistors";
+    resistorRack.code = "R1";
+    resistorRack.componentType = "Resistors";
+    scanStore.racks().push_back(resistorRack);
+
+    const auto created = resolveScanCode(scanStore, "311-10KHRCT-ND");
+    assert(created.created);
+    auto* placeholder = scanStore.findById(created.itemId);
+    assert(placeholder != nullptr);
+    reconcileRackAssignment(scanStore, *placeholder);
+    assert(placeholder->rackAssignment == RackAssignmentMode::Automatic);
+    assert(placeholder->rackId.empty());
+
+    placeholder->category = "Resistors";
+    placeholder->partName = "RES 10K OHM 1% 1/10W 0603";
+    placeholder->parameters = {{"Package / Case", "0603 (1608 Metric)"}, {"Mounting Type", "Surface Mount"}};
+    assert(reconcileRackAssignments(scanStore));
+    assert(placeholder->rackAssignment == RackAssignmentMode::Manual);
+    assert(rackLocation(*placeholder, scanStore.racks()) == "R1-A1");
+
+    // The user opted out of racking for another placeholder: enrichment must not override it.
+    const auto second = resolveScanCode(scanStore, "311-22KHRCT-ND");
+    auto* optedOut = scanStore.findById(second.itemId);
+    assert(optedOut != nullptr);
+    string unassignError;
+    assert(setManualRackLocation(scanStore, *optedOut, "", unassignError));
+    optedOut->category = "Resistors";
+    optedOut->partName = "RES 22K OHM 1% 1/10W 0603";
+    optedOut->parameters = {{"Package / Case", "0603 (1608 Metric)"}, {"Mounting Type", "Surface Mount"}};
+    reconcileRackAssignments(scanStore);
+    assert(optedOut->rackAssignment == RackAssignmentMode::Unassigned);
+    assert(optedOut->rackId.empty());
+  }
 
   {
     InventoryItem item;
