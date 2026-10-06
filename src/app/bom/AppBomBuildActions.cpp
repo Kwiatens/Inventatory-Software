@@ -3,6 +3,7 @@
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 
+#include "core/storage/AtomicFile.h"
 #include "core/transfer/CsvExport.h"
 #include "core/storage/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
@@ -216,28 +217,17 @@ bool App::exportBomShortages() {
     return false;
   }
 
-  ofstream output(target, ios::binary);
-  if (!output) {
-    setMessage("Unable to write " + target.filename().string(), 5);
+  // Build the whole file first and replace the target atomically: a full disk or a removed drive must
+  // neither leave a truncated export behind nor report success.
+  const auto exported = buildBomShortageCsv(bomAnalysis_, project->enrichment);
+  string writeError;
+  if (!writeFileAtomically(target, exported.text, &writeError)) {
+    setMessage("Unable to write " + target.filename().string() + (writeError.empty() ? string() : ": " + writeError), 5,
+               UiMessageSeverity::Error);
     return false;
   }
 
-  output << "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n";
-  size_t rows = 0;
-  for (const auto& match : bomAnalysis_.matches) {
-    if (match.sufficient) {
-      continue;
-    }
-    const auto& line = bomAnalysis_.lines[match.lineIndex];
-    const auto suggestion = project->enrichment.find(bomLineKey(line));
-    output << csvTextCell(line.designation) << ',' << csvTextCell(line.footprint) << ','
-           << csvTextCell(packageFromFootprint(line.footprint)) << ',' << csvTextCell(join(line.designators, ' ')) << ','
-           << match.needed << ',' << match.available << ','
-           << csvTextCell(suggestion == project->enrichment.end() ? string() : bomEnrichmentExportText(suggestion->second)) << "\r\n";
-    ++rows;
-  }
-
-  setMessage("Wrote " + to_string(rows) + " shortages to " + target.filename().string(), 6);
+  setMessage("Wrote " + to_string(exported.rows) + " shortages to " + target.filename().string(), 6);
   return true;
 }
 
