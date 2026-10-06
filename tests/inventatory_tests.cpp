@@ -1552,6 +1552,17 @@ void testPackageGHardening() {
 #endif
 }
 
+void testDeviceSyncRetryBackoff() {
+  using app_actions::deviceSyncRetryDelay;
+  assert(deviceSyncRetryDelay(1) == chrono::seconds(2));
+  assert(deviceSyncRetryDelay(2) == chrono::seconds(4));
+  assert(deviceSyncRetryDelay(3) == chrono::seconds(8));
+  assert(deviceSyncRetryDelay(5) == chrono::seconds(32));
+  assert(deviceSyncRetryDelay(6) == chrono::seconds(60));
+  assert(deviceSyncRetryDelay(1000) == chrono::seconds(60));
+  assert(deviceSyncRetryDelay(0) == chrono::seconds(2));
+}
+
 // Negative Scan R1 transport cases: every rejected request must leave the sync callback untouched and
 // must not consume the replay counter; a stale lower counter is rejected like an exact replay.
 void testScannerHttpNegativeCases() {
@@ -7666,6 +7677,7 @@ int main() {
 
   testScannerHttpNegativeCases();
 
+  testDeviceSyncRetryBackoff();
   testScannerCredentialResolution();
   cout << "Inventatory core tests passed\n";
   return 0;

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -28,6 +29,14 @@ constexpr size_t kScanQueueLimit = 256;
 constexpr size_t kDeviceQuantityQueueLimit = 64;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
+
+// Delay before the oldest scanner event is committed again after a failed commit: 2 s, doubling up
+// to 60 s.
+inline chrono::seconds deviceSyncRetryDelay(int consecutiveFailures) {
+  int seconds = 2;
+  for (int step = 1; step < consecutiveFailures && seconds < 60; ++step) seconds *= 2;
+  return chrono::seconds(min(seconds, 60));
+}
 
 enum class WorkspaceScannerCredentialStatus {
   Loaded,
