@@ -6758,6 +6758,28 @@ int main() {
     assert(loadedActivities.size() == preservedActivities.size());
     assert(loadedActivities[0].message == preservedActivities[0].message);
 
+    // A message that is valid on its own can serialize past the loader's line limit once its
+    // quotes are doubled. It is cut on save so the log stays readable on the next start.
+    {
+      const string quotes(64U * 1024U, '"');
+      string multibyte;
+      while (multibyte.size() < 64U * 1024U - 4U) multibyte += "\xC5\x82\"";
+      const vector<ActivityEntry> oversized = {{1, "import", quotes}, {2, "import", multibyte}, {3, "scan", "short"}};
+      assert(saveActivities(activityPath, oversized));
+      vector<ActivityEntry> reloaded;
+      assert(loadActivities(activityPath, reloaded));
+      assert(reloaded.size() == 3);
+      assert(reloaded[0].message.size() < quotes.size() && reloaded[0].message.size() > 1024U);
+      assert(reloaded[0].message.substr(reloaded[0].message.size() - 3) == "...");
+      assert(reloaded[1].message.size() < multibyte.size());
+      assert(reloaded[1].message.substr(reloaded[1].message.size() - 3) == "...");
+      // The cut never leaves half a two-byte character in front of the marker.
+      const auto body = reloaded[1].message.substr(0, reloaded[1].message.size() - 3);
+      assert(!body.empty());
+      assert(body.back() == '"' || body.substr(body.size() - 2) == "\xC5\x82");
+      assert(reloaded[2].message == "short");
+    }
+
     filesystem::remove_all(root, cleanupError);
     assert(!cleanupError);
   }
