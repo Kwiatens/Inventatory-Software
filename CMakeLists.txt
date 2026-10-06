@@ -352,6 +352,8 @@ target_link_libraries(inventatory_input_tests PRIVATE Threads::Threads)
 
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)
+  # Exit code 77 reports "credential tests skipped: no Secret Service" without hiding the other results.
+  set_tests_properties(inventatory_core PROPERTIES SKIP_RETURN_CODE 77)
   add_test(NAME inventatory_input COMMAND inventatory_input_tests)
 endif()
 
