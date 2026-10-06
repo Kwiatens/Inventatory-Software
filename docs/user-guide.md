@@ -71,10 +71,19 @@ assignment, unassignment, filtering, and other rack administration are in
 Actions. Empty racks show a Delete rack button (also `x`); confirm with Enter
 to remove the rack from the database, which is recorded in History.
 
+A part whose category is not known yet, such as a scanned code waiting for its
+DigiKey details, stays on automatic placement and receives a slot as soon as its
+category is known. A part is only marked Unassigned when it cannot be racked or when
+you unassign it yourself, and automatic placement never overrides that choice.
+
 ## Import workflow
 
 Open Import and choose a CSV file. The format is detected from its header: a
 DigiKey order CSV goes to the review list, a KiCad BOM goes to Projects.
+The file must be UTF-8 or UTF-16 text (UTF-16 needs its byte order mark, as Excel's
+"Unicode Text" writes). An old Windows code page such as Windows-1250 cannot be
+recognised reliably, so Inventatory refuses it with a message instead of importing
+damaged text; re-save the file as "CSV UTF-8" and import it again.
 
 For a DigiKey order, review each candidate, correct it if needed, then Accept or
 Skip. After the final row, choose whether to enrich accepted parts with DigiKey
@@ -96,8 +105,11 @@ as `Capacitors` or `Resistors`. Each row keeps Part, Package, the rack location
 or suggested match, a merged Need / Have count, and Status together. The primary action is
 **Find in racks** (`f`), which walks the available parts rack by rack and
 highlights the slots to pick. Shortages are looked up on DigiKey in the
-background; `o` opens a save dialog for a CSV in the active Inventatory
-workspace by default.
+background; a lookup that fails (network, rate limit, credentials) is not
+remembered and is retried the next time the project opens. `o` opens a save
+dialog for a CSV in the active Inventatory workspace by default; the file is
+written atomically, an error is reported, and lines without a DigiKey suggestion
+are left blank.
 
 `+` and `-` change the board count and re-run the analysis. `a` cycles to the next
 matching part when one line has several candidates, and that choice is remembered.
@@ -223,6 +235,8 @@ changed (a quantity you typed replaces the scanned one and is reported). If an
 inventory save has failed and its changes are waiting for `R` to retry, scanner
 events stay queued on the desktop and are applied once the save succeeds or the
 change is discarded.
+While those changes wait, reload (`r`) is refused so they are not discarded; press
+`R` to retry the save first.
 
 On an idle R1, press `C` for the device menu. **Quick Labels** automatically checks the paired PC for the latest
 presets when opened (use `D` for the next page). **Quick Settings** changes LCD contrast, enters standby, starts OTA,
