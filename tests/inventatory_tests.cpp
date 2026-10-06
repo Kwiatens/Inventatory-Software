@@ -1296,7 +1296,36 @@ void testDigiKeyParsingRobustness() {
     assert(skipped.has_value() && *skipped == "0603 (1608 Metric)");
   }
 
+  {
+    DigiKeyProductDetails details;
+    details.productDescription = "CAP CER 100NF";
+    details.quantityAvailable = "1,200";
+    details.manufacturerLeadWeeks = "12 Weeks";
+    details.unitPrice = "0.0123";
+    assert(clearInvalidOptionalFields(details));
+    assert(details.quantityAvailable.empty() && details.manufacturerLeadWeeks.empty());
+    assert(details.unitPrice == "0.0123");
+    assert(details.productDescription == "CAP CER 100NF");
+    details.quantityAvailable = "5000";
+    details.manufacturerLeadWeeks = "8";
+    assert(!clearInvalidOptionalFields(details));
+    assert(details.quantityAvailable == "5000" && details.manufacturerLeadWeeks == "8");
+    details.unitPrice = "1e999999";
+    assert(clearInvalidOptionalFields(details) && details.unitPrice.empty());
+  }
 
+  {
+    // expires_in minus a margin, bounded, with a default when it is missing or unusable.
+    assert(tokenLifetimeSeconds("599") == 539);
+    assert(tokenLifetimeSeconds("3600") == 3540);
+    assert(tokenLifetimeSeconds("86400") == 3600);
+    assert(tokenLifetimeSeconds("90") == 30);
+    assert(tokenLifetimeSeconds("10") == 30);
+    assert(tokenLifetimeSeconds("0") == 30);
+    for (const char* unusable : {"", "abc", "-5", "1.5", "99999999999999999999", "86401"}) {
+      assert(tokenLifetimeSeconds(unusable) == 540);
+    }
+  }
 }
 
 void testSqliteSchemaValidation() {

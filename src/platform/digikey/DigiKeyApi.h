@@ -2,7 +2,9 @@
 
 #include "core/inventory/Inventory.h"
 
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <ctime>
 #include <optional>
 #include <string>
@@ -79,6 +81,9 @@ class DigiKeyApiClient {
 
  private:
   bool ensureAccessToken(string* error);
+  bool sendAuthorized(const std::function<optional<string>(const string&, string*)>& buildHeaders,
+                      const std::wstring& method, const std::wstring& url, const string& body,
+                      std::uint32_t& statusCode, string& responseBody, string* error);
   optional<string> requestToken(string* error);
   optional<string> requestProductDetails(const string& productNumber, string* error,
                                                    const string& manufacturerId = "");
