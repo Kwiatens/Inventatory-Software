@@ -4992,6 +4992,57 @@ int main() {
     assert(emptyContents == "\"\"\n");
     emptyConfig.close();
 
+    {
+      const auto readConfig = [](const filesystem::path& path) {
+        ifstream input(path, ios::binary);
+        return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+      };
+      const auto writeConfig = [](const filesystem::path& path, const string& text) {
+        ofstream output(path, ios::binary | ios::trunc);
+        output << text;
+      };
+
+      // An unchanged configuration is not rewritten on every save; a changed one is.
+      const auto stablePath = directory / "stable.conf";
+      LabelPrinterService stable(make_unique<MockPrinterBackend>());
+      stable.setConfiguredPrinter("Queue A");
+      assert(stable.saveConfig(stablePath));
+      writeConfig(stablePath, "\"Queue External\"\n");
+      assert(stable.saveConfig(stablePath));
+      assert(readConfig(stablePath) == "\"Queue External\"\n");
+      stable.setConfiguredPrinter("Queue C");
+      assert(stable.saveConfig(stablePath));
+      assert(readConfig(stablePath) == "\"Queue C\"\n");
+      // The file is restored when it disappeared meanwhile.
+      filesystem::remove(stablePath, cleanupError);
+      assert(stable.saveConfig(stablePath));
+      assert(readConfig(stablePath) == "\"Queue C\"\n");
+
+      // A workspace without a printer file does not get an empty one created at every save.
+      const auto missingPath = directory / "missing.conf";
+      LabelPrinterService fresh(make_unique<MockPrinterBackend>());
+      assert(!fresh.loadConfig(missingPath));
+      assert(fresh.saveConfig(missingPath));
+      assert(!filesystem::exists(missingPath, cleanupError));
+      fresh.setConfiguredPrinter("Queue D");
+      assert(fresh.saveConfig(missingPath));
+      assert(readConfig(missingPath) == "\"Queue D\"\n");
+
+      // A file that exists but cannot be read is never replaced by an empty configuration. It is
+      // replaced only once the user chooses a printer again.
+      const auto damagedPath = directory / "damaged.conf";
+      const string damaged = "\"Queue E\" trailing-data\n";
+      writeConfig(damagedPath, damaged);
+      LabelPrinterService unreadable(make_unique<MockPrinterBackend>());
+      assert(!unreadable.loadConfig(damagedPath));
+      assert(unreadable.saveConfig(damagedPath));
+      assert(unreadable.saveConfig(damagedPath));
+      assert(readConfig(damagedPath) == damaged);
+      unreadable.setConfiguredPrinter("Queue F");
+      assert(unreadable.saveConfig(damagedPath));
+      assert(readConfig(damagedPath) == "\"Queue F\"\n");
+    }
+
     filesystem::remove_all(directory, cleanupError);
     assert(!cleanupError);
   }
