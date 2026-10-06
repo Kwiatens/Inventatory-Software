@@ -173,7 +173,8 @@ jobs:
           sudo apt-get install --yes \
             build-essential cmake pkg-config \
             libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev \
-            dbus-x11 gnome-keyring
+            dbus-x11 gnome-keyring locales
+          sudo locale-gen pl_PL.UTF-8 de_DE.UTF-8
       - name: Build and test Linux debug and release configurations
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
@@ -191,6 +192,7 @@ jobs:
             -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
             -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$GITHUB_REPOSITORY_OWNER/Inventatory-Hardware"
           cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+          export INVENTATORY_REQUIRE_LOCALE_TESTS=1
           export INVENTATORY_REQUIRE_KEYRING_TESTS=1
           printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
             eval "$(gnome-keyring-daemon --unlock --components=secrets)"
