@@ -591,6 +591,7 @@ class App {
   void clearMessageIfExpired();
   void requestUserExit();
   void completeSettingsExit(bool saveChanges);
+  void releasePageState(Page leaving);
   DeviceServiceRestart restartDeviceService();
   void processBackgroundWork();
   void processPrinterWork();
