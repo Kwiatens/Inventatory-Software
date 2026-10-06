@@ -169,30 +169,12 @@ ftxui::Element App::renderHeaderUi() const {
     return target(item, id, UiTargetKind::Navigation, [self, page] { self->changePage(page); });
   };
 
-  const auto pageForNavigation = [](app_navigation::PrimaryPage page) {
-    switch (page) {
-      case app_navigation::PrimaryPage::Stock:
-        return Page::Stock;
-      case app_navigation::PrimaryPage::Racks:
-        return Page::Racks;
-      case app_navigation::PrimaryPage::Import:
-        return Page::Import;
-      case app_navigation::PrimaryPage::Projects:
-        return Page::Projects;
-      case app_navigation::PrimaryPage::History:
-        return Page::History;
-      case app_navigation::PrimaryPage::Settings:
-        return Page::Settings;
-    }
-    return Page::Stock;
-  };
-
   ftxui::Elements navigation;
   // The prompt of the ›i mark in the accent before the name.
   navigation.push_back(uiHeaderText(u8" \u203A", uiInteractiveColor()));
   navigation.push_back(uiHeaderText("Inventatory ", uiPrimaryText()));
   for (const auto& entry : app_navigation::primaryNavigationEntries()) {
-    const auto page = pageForNavigation(entry.page);
+    const auto page = pageFor(entry.page);
     navigation.push_back(nav(page, "nav." + string(entry.id),
                              string(1, entry.shortcut) + " " + entry.label));
   }

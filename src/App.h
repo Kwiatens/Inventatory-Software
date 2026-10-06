@@ -16,6 +16,7 @@
 #include "core/bom/BomProjectStore.h"
 #include "app/settings/AppSettings.h"
 #include "app/shell/AppBootstrap.h"
+#include "app/shell/AppNavigation.h"
 #include "import/digikey/DigiKeyCsvImport.h"
 #include "import/kicad/KicadBom.h"
 #include "platform/digikey/DigiKeyApi.h"
@@ -675,6 +676,7 @@ class App {
   void syncSelectionToFilter();
   void moveSelection(int delta);
   void changePage(Page page);
+  static Page pageFor(app_navigation::PrimaryPage page);
   bool chooseInventatoryFolder();
   void openSettings(SettingsCategory category = SettingsCategory::General);
   bool settingsDraftHasChanges() const;
