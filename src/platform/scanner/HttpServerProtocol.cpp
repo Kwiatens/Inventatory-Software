@@ -16,33 +16,6 @@ namespace inventatory::http_server_detail {
 
 using namespace std;
 
-string jsonEscape(const string& value) {
-  ostringstream out;
-  for (char ch : value) {
-    switch (ch) {
-      case '\\':
-        out << "\\\\";
-        break;
-      case '"':
-        out << "\\\"";
-        break;
-      case '\n':
-        out << "\\n";
-        break;
-      case '\r':
-        out << "\\r";
-        break;
-      case '\t':
-        out << "\\t";
-        break;
-      default:
-        out << ch;
-        break;
-    }
-  }
-  return out.str();
-}
-
 string trimHttp(const string& value) {
   size_t begin = 0;
   while (begin < value.size() && isspace(static_cast<unsigned char>(value[begin])) != 0) {

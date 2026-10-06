@@ -281,10 +281,9 @@ class WindowsPrinterBackend final : public PrinterBackend {
         break;
       }
 
-      const auto body = zpl;
       DWORD bytesWritten = 0;
-      if (!WritePrinter(handle, const_cast<char*>(body.data()), static_cast<DWORD>(body.size()), &bytesWritten) ||
-          bytesWritten != body.size()) {
+      if (!WritePrinter(handle, const_cast<char*>(zpl.data()), static_cast<DWORD>(zpl.size()), &bytesWritten) ||
+          bytesWritten != zpl.size()) {
         if (error != nullptr) {
           *error = "Unable to write print data: " + windowsErrorText(GetLastError());
         }
