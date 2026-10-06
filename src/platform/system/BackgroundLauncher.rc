@@ -5,8 +5,8 @@
 1 ICON "../../../branding/icons/inventatory.ico"
 
 1 VERSIONINFO
-FILEVERSION 0,1,2,0
-PRODUCTVERSION 0,1,2,0
+FILEVERSION 0,1,3,0
+PRODUCTVERSION 0,1,3,0
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 FILEFLAGS 0
 FILEOS VOS__WINDOWS32
@@ -19,11 +19,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "Inventatory\0"
       VALUE "FileDescription", "Inventatory Background Service\0"
-      VALUE "FileVersion", "0.1.2.0\0"
+      VALUE "FileVersion", "0.1.3.0\0"
       VALUE "InternalName", "inventatory-background\0"
       VALUE "OriginalFilename", "inventatory-background.exe\0"
       VALUE "ProductName", "Inventatory Background Service\0"
-      VALUE "ProductVersion", "0.1.2\0"
+      VALUE "ProductVersion", "0.1.3\0"
     END
   END
   BLOCK "VarFileInfo"
