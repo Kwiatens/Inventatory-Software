@@ -21,7 +21,6 @@ bool jsonObjectIsComplete(const std::string& body);
 std::optional<std::string> decodeJsonStringLiteral(const std::string& text, std::size_t& position);
 std::optional<std::string> jsonString(const std::string& body, const std::string& key);
 std::optional<int> jsonInt(const std::string& body, const std::string& key);
-std::optional<bool> jsonBool(const std::string& body, const std::string& key);
 std::optional<std::string> jsonObjectBody(const std::string& body, const std::string& key);
 std::optional<std::vector<std::string>> jsonObjectArray(const std::string& body, const std::string& key);
 std::optional<std::vector<std::string>> jsonStringArray(const std::string& body, const std::string& key);

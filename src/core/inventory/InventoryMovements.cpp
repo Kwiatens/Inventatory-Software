@@ -7,6 +7,7 @@
 #include <ctime>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace inventatory {
 
@@ -22,7 +23,7 @@ vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, co
     if (!item.id.empty()) beforeById[item.id] = &item;
   }
 
-  unordered_map<string, bool> seen;
+  unordered_set<string> seen;
   seen.reserve(before.items().size() + after.items().size());
   vector<InventoryMovement> movements;
   movements.reserve(before.items().size() + after.items().size());
@@ -48,7 +49,7 @@ vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, co
 
   for (const auto& item : after.items()) {
     if (item.id.empty()) continue;
-    seen[item.id] = true;
+    seen.insert(item.id);
     const auto beforeIt = beforeById.find(item.id);
     if (beforeIt == beforeById.end()) {
       appendMovement(item, 0, item.quantity);
@@ -58,7 +59,7 @@ vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, co
   }
 
   for (const auto& item : before.items()) {
-    if (item.id.empty() || seen.find(item.id) != seen.end()) continue;
+    if (item.id.empty() || seen.count(item.id) != 0) continue;
     appendMovement(item, item.quantity, 0);
   }
   return movements;

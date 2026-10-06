@@ -19,6 +19,4 @@ enum class CsvFormat {
 // whether the file happens to contain valid product lines.
 CsvFormat detectCsvFormat(const string& text);
 
-string csvFormatName(CsvFormat format);
-
 }  // namespace inventatory

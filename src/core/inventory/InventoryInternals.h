@@ -9,9 +9,6 @@ namespace inventatory {
 
 time_t nowEpoch();
 string sanitizeIdPart(const string& value);
-string compactInventatoryDisplayCode(const string& inventatoryId);
-string compactInventatoryBarcodeCode(const string& inventatoryId);
-bool matchesInventatoryScanCode(const string& inventatoryId, const string& code);
 string formatMachineCode(size_t sequence);
 string normalizeMachineCode(const string& value);
 bool isMachineCode(const string& value);

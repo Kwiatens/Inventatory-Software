@@ -18,9 +18,7 @@ namespace inventatory {
 
 using namespace std;
 
-namespace {
-
-string normalizeInventatoryPrefix(const string& category) {
+string inventatoryCategoryPrefix(const string& category) {
   const auto lowered = toLower(trim(category));
   if (lowered.find("capacitor") != string::npos) {
     return "C";
@@ -73,6 +71,8 @@ string normalizeInventatoryPrefix(const string& category) {
   return "X";
 }
 
+namespace {
+
 bool parseInventatoryIdValue(const string& value, string& prefix, size_t& sequence) {
   const auto trimmed = trim(value);
   constexpr string_view kInventatoryIdPrefix = "Inventatory:";
@@ -105,52 +105,13 @@ bool parseInventatoryIdValue(const string& value, string& prefix, size_t& sequen
   return true;
 }
 
-string compactInventatoryDisplayCodeImpl(const string& inventatoryId) {
-  auto compact = trim(inventatoryId);
-  const auto colon = compact.find(':');
-  if (colon != string::npos && colon + 1 < compact.size()) {
-    compact = compact.substr(colon + 1);
-  }
-
-  const auto dash = compact.find('-');
-  if (dash != string::npos && dash + 1 < compact.size()) {
-    auto prefix = trim(compact.substr(0, dash + 1));
-    auto suffix = trim(compact.substr(dash + 1));
-    if (suffix.size() > 1 && suffix.front() == '0') {
-      suffix.erase(0, 1);
-    }
-    return prefix + suffix;
-  }
-
-  if (compact.size() > 1 && compact.front() == '0') {
-    compact.erase(0, 1);
-  }
-  return compact;
-}
-
 bool digitsOnly(const string& value) {
   return !value.empty() && all_of(value.begin(), value.end(), [](unsigned char ch) {
            return isdigit(ch) != 0;
          });
 }
 
-string normalizeMachineCodeImpl(const string& value) {
-  auto code = trim(value);
-  if (!digitsOnly(code)) {
-    return {};
-  }
-
-  if (code.size() < 4) {
-    code.insert(code.begin(), 4 - code.size(), '0');
-  }
-  return code;
-}
-
 }  // namespace
-
-string inventatoryCategoryPrefix(const string& category) {
-  return normalizeInventatoryPrefix(category);
-}
 
 string makeInventatoryId(const string& category, size_t sequence) {
   ostringstream out;
@@ -171,7 +132,15 @@ string formatMachineCode(size_t sequence) {
 }
 
 string normalizeMachineCode(const string& value) {
-  return normalizeMachineCodeImpl(value);
+  auto code = trim(value);
+  if (!digitsOnly(code)) {
+    return {};
+  }
+
+  if (code.size() < 4) {
+    code.insert(code.begin(), 4 - code.size(), '0');
+  }
+  return code;
 }
 
 bool isMachineCode(const string& value) {
@@ -195,51 +164,6 @@ string buildVisibleInventatoryId(const InventoryItem& item) {
   }
 
   return prefix + '-' + code;
-}
-
-string compactInventatoryDisplayCode(const string& inventatoryId) {
-  return compactInventatoryDisplayCodeImpl(inventatoryId);
-}
-
-string compactInventatoryBarcodeCode(const string& inventatoryId) {
-  auto code = compactInventatoryDisplayCodeImpl(inventatoryId);
-  code.erase(remove(code.begin(), code.end(), '-'), code.end());
-  if (code.size() > 1 && code[1] == '0') {
-    code.erase(1, 1);
-  }
-  return code;
-}
-
-bool matchesInventatoryScanCode(const string& inventatoryId, const string& code) {
-  const auto needle = toLower(trim(code));
-  if (needle.empty()) {
-    return false;
-  }
-
-  const auto full = toLower(trim(inventatoryId));
-  if (!full.empty() && full == needle) {
-    return true;
-  }
-
-  const auto display = toLower(compactInventatoryDisplayCode(inventatoryId));
-  if (!display.empty() && display == needle) {
-    return true;
-  }
-
-  const auto barcode = toLower(compactInventatoryBarcodeCode(inventatoryId));
-  if (!barcode.empty() && barcode == needle) {
-    return true;
-  }
-
-  const auto dash = display.find('-');
-  if (dash != string::npos && dash + 1 < display.size()) {
-    const auto compactCode = toLower(display.substr(dash + 1));
-    if (compactCode == needle) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 bool matchesMachineCode(const string& machineCode, const string& code) {
