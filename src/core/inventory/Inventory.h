@@ -251,7 +251,9 @@ class InventoryStore {
   vector<InventatoryRack>& racks();
   const vector<InventatoryRack>& racks() const;
 
-  bool load(const filesystem::path& path);
+  // `normalized`, when given, reports whether loading had to repair the stored rows (missing
+  // identifiers, rack placement) so that the caller knows the database no longer matches memory.
+  bool load(const filesystem::path& path, bool* normalized = nullptr);
   bool save(const filesystem::path& path) const;
   bool saveWithMovements(const filesystem::path& path, const vector<InventoryMovement>& movements) const;
   bool saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,

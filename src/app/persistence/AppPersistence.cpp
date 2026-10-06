@@ -45,7 +45,8 @@ void App::loadState() {
     return;
   }
   InventoryStore loadedStore;
-  const bool inventoryLoaded = !inventoryFileExists || loadedStore.load(inventoryPath_);
+  bool inventoryNormalized = false;
+  const bool inventoryLoaded = !inventoryFileExists || loadedStore.load(inventoryPath_, &inventoryNormalized);
   if (inventoryFileExists && !inventoryLoaded) {
     inventoryRecoveryRequired_ = true;
     inventoryRecoveryDetail_ = "Inventatory could not read the existing inventory database: " + inventoryPath_.string();
@@ -130,8 +131,14 @@ void App::loadState() {
   vector<string> saveFailures;
   bool inventorySaved = false;
   if (inventoryLoaded || !inventoryFileExists) {
-    inventorySaved = store_.save(inventoryPath_);
-    if (!inventorySaved) saveFailures.push_back("inventory");
+    // A database that loaded unchanged already holds exactly this inventory; rewriting every row
+    // on each launch would only add risk. Write when the file is new or loading repaired rows.
+    if (!inventoryFileExists || inventoryNormalized) {
+      inventorySaved = store_.save(inventoryPath_);
+      if (!inventorySaved) saveFailures.push_back("inventory");
+    } else {
+      inventorySaved = true;
+    }
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
   if (!saveScannerConfigChecked(false)) saveFailures.push_back("scanner settings");

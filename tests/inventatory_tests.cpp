@@ -1144,6 +1144,42 @@ void testSqliteSchemaValidation() {
   }
 
 
+  {
+    // load() reports whether it had to repair stored rows, so the startup rewrite can be skipped
+    // for a database that already matches memory.
+    const auto normalizedPath = filesystem::temp_directory_path() / "inventatory-load-normalized-test.db";
+    filesystem::remove(normalizedPath, cleanupError);
+    {
+      InventoryStore store;
+      InventoryItem item;
+      item.id = "normalized-item";
+      item.partName = "Normalized part";
+      item.category = "Resistors";
+      item.quantity = 3;
+      store.items().push_back(item);
+      reconcileRackAssignments(store);  // the application stores reconciled rows
+      assert(store.save(normalizedPath));
+    }
+    {
+      InventoryStore store;
+      bool normalized = true;
+      assert(store.load(normalizedPath, &normalized));
+      assert(!normalized);
+    }
+    {
+      SqliteConnection connection;
+      assert(openDatabase(normalizedPath, connection));
+      assert(execSql(connection, "UPDATE inventatory_items SET inventatory_id='', machine_code=''"));
+    }
+    {
+      InventoryStore store;
+      bool normalized = false;
+      assert(store.load(normalizedPath, &normalized));
+      assert(normalized);
+      assert(!store.items().front().inventatoryId.empty());
+    }
+    filesystem::remove(normalizedPath, cleanupError);
+  }
 
   const auto duplicatePath = filesystem::temp_directory_path() / "inventatory-duplicate-identifiers-test.db";
   filesystem::remove(duplicatePath, cleanupError);
