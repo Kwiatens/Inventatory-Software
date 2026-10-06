@@ -8909,7 +8909,7 @@ int main() {
       }
       assert(exportInventoryCsv(store, csv, error));
       {
-        ifstream replacedExport(csv, ios::binary);
+        ifstream replacedExport(csv);  // same text mode as the baseline read
         assert(string((istreambuf_iterator<char>(replacedExport)), istreambuf_iterator<char>()) == exportedText);
       }
       size_t siblings = 0;
