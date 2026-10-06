@@ -159,7 +159,7 @@ void writeParameterTiles(ostringstream& out, const vector<LabelParameterTile>& t
   for (size_t index = 0; index < count; ++index) {
     const auto x = kLeft + static_cast<int>(index % 2) * kTileColumnPitch;
     const auto y = kTileY + static_cast<int>(index / 2) * kTileRowPitch;
-    const auto caption = fitFont0Text(uppercaseAscii(tiles[index].caption), kLabelTileWidth, {12, 11, 10});
+    const auto caption = fitFont0Text(toUpper(tiles[index].caption), kLabelTileWidth, {12, 11, 10});
     if (!caption.text.empty()) {
       writeText(out, x, y, caption.size, caption.size == 12 ? 11 : caption.size, caption.text);
     }
@@ -230,7 +230,7 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
   out << "\r\n";
 
   out << "^FX --- Header: logo and category ---\r\n";
-  writeBrandHeader(out, uppercaseAscii(plan.categoryHeader));
+  writeBrandHeader(out, toUpper(plan.categoryHeader));
   out << "\r\n";
 
   out << "^FX --- Main value ---\r\n";

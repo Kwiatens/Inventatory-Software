@@ -26,20 +26,6 @@ using namespace std;
 
 namespace label_printer_detail {
 
-string uppercaseAscii(string value) {
-  transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-    return static_cast<char>(toupper(ch));
-  });
-  return value;
-}
-
-string lowerAscii(string value) {
-  transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
-  return value;
-}
-
 string shortCode(const string& value, size_t maxLength) {
   return ellipsize(trim(value), maxLength);
 }

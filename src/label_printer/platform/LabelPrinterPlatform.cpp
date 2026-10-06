@@ -189,9 +189,9 @@ optional<PrinterQueueInfo> LabelPrinterService::configuredPrinterInfo() const {
   }
 
   const auto printers = enumeratePrinters();
-  const auto needle = lowerAscii(trim(configuredPrinter_));
+  const auto needle = toLower(trim(configuredPrinter_));
   for (const auto& printer : printers) {
-    if (lowerAscii(trim(printer.name)) == needle) {
+    if (toLower(trim(printer.name)) == needle) {
       return printer;
     }
   }

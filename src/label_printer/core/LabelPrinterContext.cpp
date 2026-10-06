@@ -29,7 +29,7 @@ bool startsWithInsensitive(const string& value, const string& prefix) {
   if (value.size() < prefix.size()) {
     return false;
   }
-  return lowerAscii(value.substr(0, prefix.size())) == lowerAscii(prefix);
+  return toLower(value.substr(0, prefix.size())) == toLower(prefix);
 }
 
 string diodeMainLabelValue(const InventoryItem& item) {

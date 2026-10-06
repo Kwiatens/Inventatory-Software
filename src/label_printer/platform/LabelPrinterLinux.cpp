@@ -37,13 +37,6 @@ bool validQueueName(const std::string& name) {
   });
 }
 
-std::string lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-  return value;
-}
-
 class CupsPrinterBackend final : public PrinterBackend {
  public:
   std::vector<PrinterQueueInfo> enumeratePrinters() const override {
@@ -71,7 +64,7 @@ class CupsPrinterBackend final : public PrinterBackend {
     for (auto& printer : printers) printer.isDefault = printer.name == defaultName;
     std::sort(printers.begin(), printers.end(), [](const auto& first, const auto& second) {
       if (first.isDefault != second.isDefault) return first.isDefault > second.isDefault;
-      return lower(first.name) < lower(second.name);
+      return toLower(first.name) < toLower(second.name);
     });
     return printers;
   }

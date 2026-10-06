@@ -17,8 +17,6 @@ inline constexpr int kLabelTileWidth = 78;
 // The smallest size a tile value is printed at; longer values are left off.
 inline constexpr int kLabelTileMinSize = 13;
 
-string uppercaseAscii(string value);
-string lowerAscii(string value);
 string shortCode(const string& value, size_t maxLength = 14);
 string fieldOrBlank(const string& value, size_t maxLength);
 string sanitiseZplFragment(const string& value);
