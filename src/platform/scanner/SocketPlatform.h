@@ -27,6 +27,10 @@ inline int setSocketNonBlocking(NativeSocket socket, bool enabled) {
 }
 inline int socketLastError() { return WSAGetLastError(); }
 inline bool socketWouldBlock(int error) { return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS; }
+// A blocking call that was interrupted and should simply be repeated.
+inline bool socketInterrupted(int error) { return error == WSAEINTR; }
+// accept() failures that concern one aborted connection, not the listener; retry without a pause.
+inline bool socketAcceptRetryable(int error) { return error == WSAEINTR || error == WSAECONNRESET; }
 }  // namespace inventatory
 #else
 #include <cerrno>
@@ -58,5 +62,9 @@ inline int setSocketNonBlocking(NativeSocket socket, bool enabled) {
 }
 inline int socketLastError() { return errno; }
 inline bool socketWouldBlock(int error) { return error == EWOULDBLOCK || error == EAGAIN || error == EINPROGRESS; }
+// A blocking call that was interrupted by a signal and should simply be repeated.
+inline bool socketInterrupted(int error) { return error == EINTR; }
+// accept() failures that concern one aborted connection, not the listener; retry without a pause.
+inline bool socketAcceptRetryable(int error) { return error == EINTR || error == ECONNABORTED; }
 }  // namespace inventatory
 #endif
