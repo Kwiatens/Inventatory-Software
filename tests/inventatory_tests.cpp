@@ -4325,6 +4325,36 @@ void testWindowsMoveRetriesSharingViolation() {
   filesystem::remove_all(retryDirectory, retryCleanup);
 }
 
+// A destination that stays locked for the whole retry budget (about half a second) is reported, and neither
+// file is touched. Windows only: it needs a handle opened without sharing. The lock is released only after
+// the call returns, so the test has no timing dependence.
+void testWindowsMoveGivesUpWhenDestinationStaysLocked() {
+  const auto lockedDirectory = testTempRoot() / "inventatory-move-locked-test";
+  error_code lockedCleanup;
+  filesystem::remove_all(lockedDirectory, lockedCleanup);
+  filesystem::create_directories(lockedDirectory);
+  const auto lockedSource = lockedDirectory / "source.txt";
+  const auto lockedDestination = lockedDirectory / "destination.txt";
+  {
+    ofstream(lockedSource, ios::binary) << "new";
+    ofstream(lockedDestination, ios::binary) << "old";
+  }
+  HANDLE held = CreateFileW(lockedDestination.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  assert(held != INVALID_HANDLE_VALUE);
+  unsigned long moveError = 0;
+  const bool moved = moveFileReplacing(lockedSource, lockedDestination, moveError);
+  CloseHandle(held);
+  assert(!moved);
+  assert(moveError == 32UL || moveError == 5UL);  // ERROR_SHARING_VIOLATION or ERROR_ACCESS_DENIED
+  assert(filesystem::exists(lockedSource));
+  ifstream unchanged(lockedDestination, ios::binary);
+  const string unchangedText((istreambuf_iterator<char>(unchanged)), istreambuf_iterator<char>());
+  assert(unchangedText == "old");
+  unchanged.close();
+  filesystem::remove_all(lockedDirectory, lockedCleanup);
+}
+
 void testWindowsEnvironmentValueIsUtf8() {
   // Characters outside the ANSI code page must survive the environment lookup (UTF-8 out).
   assert(_wputenv_s(L"INVENTATORY_TEST_ENVIRONMENT_WIDE", L"\u0141\u00f3d\u017a") == 0);
@@ -9464,6 +9494,8 @@ void testBackupExportAndRestoreWorkflow() {
         }
       }
     }
+    // Crash points before the commit point must roll back and later ones must complete the restore, so both
+    // outcomes have to occur; their split depends on the number of steps and is not pinned.
     assert(committedRecoveries > 0 && rolledBackRecoveries > 0);
 
     // 5. Committed cleanup never deletes an unmanaged entry that is still in
@@ -9494,8 +9526,6 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoverInventatoryRestore(keepTarget, keepSettings, error));
     expectUnmanagedIntact();
     assert(readBytes(keepTarget / "late.txt") == "left in protected data");
-    // Crash points before the commit point must roll back and later ones must complete the restore, so both
-    // outcomes have to occur; their split depends on the number of steps and is not pinned.
     assert(loadItemId() == "transfer-item");
     assert(restoreArtifacts().empty());
     crashAtCleanupCommit("notes.txt");
@@ -10155,6 +10185,111 @@ void testSystemdUnitRegistration() {
 
 #endif
 
+// Every way a stored or reversed snapshot can be semantically invalid is refused with its own message, so a
+// corrupt commit is reported precisely instead of making the whole history unloadable.
+void testSnapshotSemanticsRejectInvalidSnapshots() {
+  const auto makeStore = [] {
+    InventoryStore store;
+    InventatoryRack rack;
+    rack.id = "sem-rack";
+    rack.code = "R7";
+    rack.componentType = "Resistors";
+    rack.rows = 2;
+    rack.columns = 2;
+    rack.createdAt = 1710000000;
+    store.racks().push_back(rack);
+    for (const char* id : {"sem-a", "sem-b"}) {
+      InventoryItem item;
+      item.id = id;
+      item.partName = string("Part ") + id;
+      item.category = "Resistors";
+      item.quantity = 1;
+      item.lastUpdated = 1710000000;
+      store.items().push_back(item);
+    }
+    store.items()[0].rackId = "sem-rack";
+    store.items()[0].rackSlot = "A1";
+    ensureInventoryIdentifiers(store.items());
+    return store;
+  };
+  const auto rejected = [](const InventoryStore& store, const string& expectedMessage) {
+    string error;
+    assert(!validateSnapshotSemantics(store, &error));
+    assert(error.find(expectedMessage) != string::npos);
+    assert(!validateSnapshotSemantics(store, nullptr));  // A null error sink is allowed.
+  };
+
+  string error;
+  const auto valid = makeStore();
+  assert(validateSnapshotSemantics(valid, &error));
+  assert(error.empty());
+
+  auto duplicateIds = makeStore();
+  duplicateIds.items()[1].inventatoryId = duplicateIds.items()[0].inventatoryId;
+  rejected(duplicateIds, "duplicate or invalid identifiers");
+
+  auto badRackTime = makeStore();
+  badRackTime.racks()[0].createdAt = -1;
+  rejected(badRackTime, "invalid rack timestamp");
+
+  auto badItemTime = makeStore();
+  badItemTime.items()[1].lastUpdated = -1;
+  rejected(badItemTime, "invalid item timestamp");
+  auto badCreatedTime = makeStore();
+  badCreatedTime.items()[1].createdAt = -1;
+  rejected(badCreatedTime, "invalid item timestamp");
+
+  auto rackWithoutSlot = makeStore();
+  rackWithoutSlot.items()[0].rackSlot.clear();
+  rejected(rackWithoutSlot, "partial rack assignment");
+  auto slotWithoutRack = makeStore();
+  slotWithoutRack.items()[1].rackSlot = "B2";
+  rejected(slotWithoutRack, "partial rack assignment");
+
+  auto missingRack = makeStore();
+  missingRack.items()[0].rackId = "deleted-rack";
+  rejected(missingRack, "invalid rack assignment");
+  // The rack is 2 rows by 2 columns, so only A1..B2 exist and a slot is a letter followed by a number.
+  for (const char* slot : {"C1", "A3", "A0", "1A", "A", "AA", "A-1", "B99999999999999999999999"}) {
+    auto outOfRange = makeStore();
+    outOfRange.items()[0].rackSlot = slot;
+    rejected(outOfRange, "invalid rack assignment");
+  }
+
+  auto sameSlotTwice = makeStore();
+  sameSlotTwice.items()[1].rackId = "sem-rack";
+  sameSlotTwice.items()[1].rackSlot = "A1";
+  rejected(sameSlotTwice, "occupied rack slot twice");
+  // Case and surrounding blanks do not make a different slot.
+  sameSlotTwice.items()[1].rackSlot = " a1 ";
+  rejected(sameSlotTwice, "occupied rack slot twice");
+  // A different free slot, spelled loosely, is fine.
+  sameSlotTwice.items()[1].rackSlot = " b2 ";
+  assert(validateSnapshotSemantics(sameSlotTwice, &error));
+}
+
+// The lenient recovery for an unescaped inch mark has one failure mode that the importers rely on being an
+// error rather than silent data loss: a quote followed by text swallows the rest of the file.
+void testCsvQuotedFieldRecovery() {
+  string error;
+  // The inch mark inside a quoted field is content; only the quote before the delimiter closes it.
+  const auto inch = parseCsv("\"2.13\" ePaper\",x\n", ',', error);
+  assert(error.empty());
+  assert(inch.size() == 1 && inch[0].size() == 2);
+  assert(inch[0][0] == "2.13\" ePaper" && inch[0][1] == "x");
+
+  // A closing quote before CRLF, and one at the very end of the text, both close the field.
+  const auto closed = parseCsv("\"a\"\r\n\"b\"", ',', error);
+  assert(error.empty());
+  assert(closed.size() == 2 && closed[0] == vector<string>{"a"} && closed[1] == vector<string>{"b"});
+
+  // A quote followed by text cannot close the field, so the field runs on to the end of the file; that is
+  // reported as an unterminated field and no partial rows are returned.
+  const auto swallowed = parseCsv("\"abc\"def,ghi\nnext,row\n", ',', error);
+  assert(swallowed.empty());
+  assert(error.find("unterminated quoted field") != string::npos);
+}
+
 // Credential-backed groups skip themselves (and are counted) when the host has no unlocked keyring.
 void testScannerCredentialResolutionOrSkip() {
   if (credentialStoreAvailable()) testScannerCredentialResolution();
@@ -10222,6 +10357,7 @@ const vector<TestCase>& registeredTests() {
     {"history", "InventoryHistoryValidation", testInventoryHistoryValidation},
     {"history", "InventoryCommitSnapshotsStayValid", testInventoryCommitSnapshotsStayValid},
     {"history", "InventoryCommitDiffSeparatesAmbiguousValues", testInventoryCommitDiffSeparatesAmbiguousValues},
+    {"history", "SnapshotSemanticsRejectInvalidSnapshots", testSnapshotSemanticsRejectInvalidSnapshots},
     {"import", "DigiKeyParsingRobustness", testDigiKeyParsingRobustness},
     {"storage", "SqliteSchemaValidation", testSqliteSchemaValidation},
     {"import", "PackageGHardening", testPackageGHardening},
@@ -10231,6 +10367,7 @@ const vector<TestCase>& registeredTests() {
     {"transfer", "PathComparisonHelpers", testPathComparisonHelpers},
 #ifdef _WIN32
     {"platform", "WindowsMoveRetriesSharingViolation", testWindowsMoveRetriesSharingViolation},
+    {"platform", "WindowsMoveGivesUpWhenDestinationStaysLocked", testWindowsMoveGivesUpWhenDestinationStaysLocked},
     {"platform", "WindowsEnvironmentValueIsUtf8", testWindowsEnvironmentValueIsUtf8},
 #endif
     {"inventory", "ItemFilterQueries", testItemFilterQueries},
@@ -10312,6 +10449,7 @@ const vector<TestCase>& registeredTests() {
     {"update", "ReleaseMetadataParsing", testReleaseMetadataParsing},
     {"import", "CsvDelimiterSniffing", testCsvDelimiterSniffing},
     {"import", "CsvInchMarkInUnquotedField", testCsvInchMarkInUnquotedField},
+    {"import", "CsvQuotedFieldRecovery", testCsvQuotedFieldRecovery},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
