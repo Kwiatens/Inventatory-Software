@@ -36,7 +36,7 @@ void App::refreshInventoryCommits(bool afterOwnSave) {
     InventoryCommitDetail newest;
     if (!loadInventoryCommit(inventoryPath_, loadedCommits.front().id, newest)) {
       inventoryRecoveryRequired_ = true;
-      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.string();
+      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.u8string();
       persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
       return;
     }
