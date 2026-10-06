@@ -31,7 +31,9 @@ if(MSVC)
 endif()
 
 if(MSVC)
-  add_compile_options(/W4 /permissive-)
+  # Sources are UTF-8 without a BOM; decode them (and encode narrow literals) as UTF-8 regardless of
+  # the build machine's ANSI code page.
+  add_compile_options(/W4 /permissive- /utf-8)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
