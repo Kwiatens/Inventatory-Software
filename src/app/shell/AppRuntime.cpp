@@ -430,7 +430,7 @@ void App::requestUserExit() {
   }
 }
 
-void App::restartDeviceService() {
+DeviceServiceRestart App::restartDeviceService() {
   mdnsService_.stop();
   server_.stop();
   if (!inventatoryScanConfig_.setupComplete || inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_) {
@@ -438,7 +438,7 @@ void App::restartDeviceService() {
                    ? "Scan R1 service is disabled until this workspace is paired"
                    : "Scan R1 service is disabled until its pairing token is stored securely",
                6);
-    return;
+    return DeviceServiceRestart::DisabledUntilPaired;
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
@@ -447,7 +447,7 @@ void App::restartDeviceService() {
                        return handleDeviceSync(request, response, error);
                      })) {
     setMessage("Inventatory Scan R1 service failed to restart; terminal still works", 6);
-    return;
+    return DeviceServiceRestart::Failed;
   }
   const auto boundAddresses = server_.addresses();
   if (!boundAddresses.empty() && mdnsService_.start(server_.port(), boundAddresses.front())) {
@@ -456,6 +456,7 @@ void App::restartDeviceService() {
     setMessage("Inventatory Scan R1 bridge restarted; network discovery unavailable", 5);
   }
   dirty_ = true;
+  return DeviceServiceRestart::Restarted;
 }
 
 void App::completeSettingsExit(bool saveChanges) {

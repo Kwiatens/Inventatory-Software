@@ -62,6 +62,10 @@ using WorkspaceGeneration = std::uint64_t;
 
 enum class UiMessageSeverity { Info, Success, Warning, Error };
 
+// Result of App::restartDeviceService(). DisabledUntilPaired is the expected state of a workspace
+// that has no usable Scan R1 pairing; it is not a failure to start.
+enum class DeviceServiceRestart { Restarted, DisabledUntilPaired, Failed };
+
 enum class UiMessageColorRole { Info, Success, Warning, Error };
 
 struct UiMessagePresentation {
@@ -576,7 +580,7 @@ class App {
   void clearMessageIfExpired();
   void requestUserExit();
   void completeSettingsExit(bool saveChanges);
-  void restartDeviceService();
+  DeviceServiceRestart restartDeviceService();
   void processBackgroundWork();
   void processPrinterWork();
   void processScanDigiKeyEnrichment();
