@@ -7,7 +7,6 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <sstream>
 #include <system_error>

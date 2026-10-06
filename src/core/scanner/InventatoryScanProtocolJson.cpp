@@ -4,10 +4,8 @@
 #include "core/text/Utf8.h"
 
 #include <cctype>
-#include <cstring>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <vector>
 

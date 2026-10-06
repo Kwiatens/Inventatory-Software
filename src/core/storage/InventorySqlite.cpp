@@ -4,12 +4,9 @@
 #include "core/storage/InventorySqlite.h"
 #include "core/history/InventoryVersionInternal.h"
 
-#include <initializer_list>
 #include <limits>
-#include <sstream>
 #include <thread>
 #include <chrono>
-#include <utility>
 
 namespace inventatory {
 

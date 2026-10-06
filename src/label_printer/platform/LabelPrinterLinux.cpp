@@ -5,7 +5,6 @@
 #include "platform/system/ChildProcess.h"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <string>
 #include <utility>

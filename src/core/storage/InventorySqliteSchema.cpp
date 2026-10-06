@@ -4,7 +4,6 @@
 #include "core/history/InventoryVersionInternal.h"
 
 #include <limits>
-#include <sstream>
 #include <vector>
 
 namespace inventatory {

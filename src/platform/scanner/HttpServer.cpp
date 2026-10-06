@@ -9,18 +9,11 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <chrono>
-#include <cstring>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <limits>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
-#include <unordered_map>
 
 #include "core/inventory/Inventory.h"
 #include "platform/system/Console.h"

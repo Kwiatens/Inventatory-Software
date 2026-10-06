@@ -6,11 +6,7 @@
 #include "platform/system/Environment.h"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
-#include <limits>
 #include <regex>
-#include <sstream>
 #include <utility>
 
 namespace inventatory {

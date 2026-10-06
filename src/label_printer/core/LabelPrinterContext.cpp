@@ -6,19 +6,6 @@
 #include "core/parts/PartDescriptor.h"
 #include "ui/shared/AppUiShared.h"
 
-#include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <cctype>
-#include <cstdint>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <memory>
-#include <sstream>
-#include <system_error>
-
 namespace inventatory {
 
 using namespace std;
