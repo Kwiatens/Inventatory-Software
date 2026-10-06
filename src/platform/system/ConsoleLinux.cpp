@@ -225,67 +225,26 @@ void initializeConsoleWindow() {
 
 vector<string> buildTerminalCandidateArgs(const string& terminalBinary, const string& executable,
                                           const vector<string>& extraArgs) {
-  if (terminalBinary == "konsole") {
-    vector<string> args = {
-        "konsole",
-        "--separate",
-        "--hide-menubar",
-        "--hide-tabbar",
-        "--hide-toolbars",
-        "--desktopfile", "inventatory",
-        "-qwindowtitle", "Inventatory",
-        "-qwindowicon", "inventatory",
-        "-p", "Icon=inventatory",
-        "-p", "tabtitle=Inventatory",
-        "-p", "LocalTabTitleFormat=%w",
-        "-p", "RemoteTabTitleFormat=%w",
-        "-p", "ShowTerminalSizeHint=false",
-        "-p", "ScrollBarPosition=2",
-        "-e", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
+  // Each terminal's own flags up to the point where the command to run begins.
+  static const vector<vector<string>> kLaunchers = {
+      {"konsole", "--separate", "--hide-menubar", "--hide-tabbar", "--hide-toolbars", "--desktopfile", "inventatory",
+       "-qwindowtitle", "Inventatory", "-qwindowicon", "inventatory", "-p", "Icon=inventatory", "-p",
+       "tabtitle=Inventatory", "-p", "LocalTabTitleFormat=%w", "-p", "RemoteTabTitleFormat=%w", "-p",
+       "ShowTerminalSizeHint=false", "-p", "ScrollBarPosition=2", "-e"},
+      {"gnome-terminal", "--hide-menubar", "--class=inventatory", "--title=Inventatory", "--"},
+      {"ptyxis", "--standalone", "--app-id=inventatory", "--title=Inventatory", "--"},
+      {"alacritty", "--class", "inventatory,inventatory", "--title", "Inventatory", "-e"},
+      {"kitty", "--class", "inventatory", "-T", "Inventatory"},
+      {"foot", "--app-id", "inventatory", "-T", "Inventatory"},
+      {"wezterm", "start", "--class", "inventatory"},
+      {"xterm", "+sb", "-class", "inventatory", "-title", "Inventatory", "-e"},
+      {"xdg-terminal-exec", "--app-id=inventatory"},
+  };
+  vector<string> args = {"x-terminal-emulator", "-e"};
+  for (const auto& launcher : kLaunchers) {
+    if (launcher.front() == terminalBinary) args = launcher;
   }
-  if (terminalBinary == "gnome-terminal") {
-    vector<string> args = {"gnome-terminal", "--hide-menubar", "--class=inventatory", "--title=Inventatory", "--", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "ptyxis") {
-    vector<string> args = {"ptyxis", "--standalone", "--app-id=inventatory", "--title=Inventatory", "--", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "alacritty") {
-    vector<string> args = {"alacritty", "--class", "inventatory,inventatory", "--title", "Inventatory", "-e", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "kitty") {
-    vector<string> args = {"kitty", "--class", "inventatory", "-T", "Inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "foot") {
-    vector<string> args = {"foot", "--app-id", "inventatory", "-T", "Inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "wezterm") {
-    vector<string> args = {"wezterm", "start", "--class", "inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "xterm") {
-    vector<string> args = {"xterm", "+sb", "-class", "inventatory", "-title", "Inventatory", "-e", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "xdg-terminal-exec") {
-    vector<string> args = {"xdg-terminal-exec", "--app-id=inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  vector<string> args = {"x-terminal-emulator", "-e", executable};
+  args.push_back(executable);
   args.insert(args.end(), extraArgs.begin(), extraArgs.end());
   return args;
 }
