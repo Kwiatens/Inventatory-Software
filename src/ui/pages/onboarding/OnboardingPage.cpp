@@ -362,7 +362,7 @@ void App::applyWizardTransitionTarget() {
   returnToOnboardingAfterScan_ = wizardTransition_.targetReturnToOnboardingAfterScan;
   inputMode_ = InputMode::None;
   inputBuffer_.clear();
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   if (previousPage == Page::ScanSetup && page_ == Page::Onboarding) {
     bleWifiSsid_.clear();
     bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
