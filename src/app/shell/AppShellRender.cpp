@@ -8,6 +8,7 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/string.hpp>
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
@@ -149,8 +150,8 @@ std::string App::pageName() const {
   return "";
 }
 
-// Header region: navigation only. The action sheet remains keyboard-accessible
-// through Space without taking permanent space from the workspace.
+// Header region: brand, navigation, the Actions control and (width permitting)
+// the clock. The sheet opens from the Actions control or from Space.
 ftxui::Element App::renderHeaderUi() const {
   auto self = const_cast<App*>(this);
   const auto nav = [&](Page page, const string& id, const string& label) {
@@ -189,10 +190,37 @@ ftxui::Element App::renderHeaderUi() const {
                              string(1, entry.shortcut) + " " + entry.label));
   }
 
+  // The always-visible, clickable route to the action sheet. Space remains the
+  // keyboard route; both go through openActionSheet().
+  const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::DigiKeySetup;
+  const string actionsLabel = " Actions \xC2\xB7 Space ";
+  auto actions = uiBodyText(actionsLabel, inputMode_ == InputMode::ActionSheet ? uiFocusColor() : uiInteractiveColor(),
+                            inputMode_ == InputMode::ActionSheet ? uiSelectionBg() : uiSurfaceBg());
+
+  const auto* active = ftxui::ScreenInteractive::Active();
+  const int screenWidth = active != nullptr ? active->dimx() : 120;
+  const auto stringWidth = [](const string& text) { return static_cast<int>(ftxui::string_width(text)); };
+  // Brand plus the six destinations ("  1 Stock " and so on) plus the Actions control.
+  int fixedColumns = stringWidth(u8" ›") + stringWidth("Inventatory ") + stringWidth(actionsLabel);
+  for (const auto& entry : app_navigation::primaryNavigationEntries()) {
+    fixedColumns += stringWidth(" " + string(1, entry.shortcut) + " " + entry.label + " ");
+  }
+
   ftxui::Elements header;
   header.push_back(ftxui::hbox(move(navigation)));
   header.push_back(ftxui::filler());
-  header.push_back(uiBodyText(" " + currentDateTimeText() + " ", uiSecondaryText()));
+  header.push_back(target(actions, "header.actions", UiTargetKind::Action, [self] { self->activateActionsControl(); },
+                          actionsAvailable));
+  switch (app_navigation::headerClockFor(screenWidth, fixedColumns)) {
+    case app_navigation::HeaderClock::Full:
+      header.push_back(uiBodyText(" " + currentDateTimeText() + " ", uiSecondaryText()));
+      break;
+    case app_navigation::HeaderClock::Compact:
+      header.push_back(uiBodyText(" " + currentDateTimeText().substr(11, 5) + " ", uiSecondaryText()));
+      break;
+    case app_navigation::HeaderClock::Hidden:
+      break;
+  }
 
   return ftxui::hbox(move(header)) | ftxui::xflex | ftxui::bgcolor(uiSurfaceBg());
 }

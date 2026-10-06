@@ -398,6 +398,21 @@ void App::handleActionSheetKey(const KeyEvent& key) {
 }
 
 ftxui::Element App::renderActionSheetUi() const {
+// The header "Actions" control: opens the sheet like Space does, closes it when
+// it is already open, and never replaces a prompt the user is typing into.
+void App::activateActionsControl() {
+  if (inputMode_ == InputMode::ActionSheet) {
+    inputMode_ = InputMode::None;
+    dirty_ = true;
+    return;
+  }
+  if (inputMode_ != InputMode::None) {
+    setMessage("Finish or cancel the current input first", 2, UiMessageSeverity::Warning);
+    return;
+  }
+  openActionSheet();
+}
+
   const auto* active = ftxui::ScreenInteractive::Active();
   const int screenWidth = active != nullptr ? active->dimx() : 120;
 
