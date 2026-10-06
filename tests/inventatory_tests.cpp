@@ -45,6 +45,7 @@
 #include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
 #include "ui/shared/ActionSheetLayout.h"
+#include "ui/shared/NumericPrompt.h"
 #include "ui/shared/UiFocus.h"
 #include "ui/pages/stock/StockFilterState.h"
 
@@ -565,6 +566,34 @@ void testActionSheetLayout() {
   }
   assert(as::windowFor(0, 0, 18).count == 0);
   assert(as::windowFor(5, 3, 0).count == 0);
+}
+
+// Pre-filled numeric prompts (set quantity, receive shortage) behave like a
+// selected field: the first digit replaces the default.
+void testNumericPromptReplacesDefault() {
+  namespace np = inventatory::numeric_prompt;
+  std::string buffer = "5";
+  bool replace = true;
+  assert(np::applyDigit(buffer, '1', replace, 9));
+  assert(buffer == "1" && !replace);  // "5" then "10" must never become "510"
+  assert(np::applyDigit(buffer, '0', replace, 9));
+  assert(buffer == "10");
+  assert(!np::applyDigit(buffer, 'x', replace, 9) && buffer == "10");  // non-digits are ignored
+
+  // Backspace edits the default as text and ends the replace behaviour.
+  buffer = "25";
+  replace = true;
+  assert(np::applyBackspace(buffer, replace));
+  assert(buffer == "2" && !replace);
+  assert(np::applyDigit(buffer, '7', replace, 9));
+  assert(buffer == "27");
+
+  // A non-pre-filled prompt just appends and honours the digit limit.
+  buffer.clear();
+  replace = false;
+  for (char ch : std::string("123456789")) assert(np::applyDigit(buffer, ch, replace, 9));
+  assert(!np::applyDigit(buffer, '0', replace, 9) && buffer == "123456789");
+  assert(!np::applyBackspace(buffer = "", replace));
 }
 
 #ifndef _WIN32
@@ -3488,6 +3517,7 @@ int main() {
   testUiFocusTracking();
   testHeaderClockYieldsToActionsControl();
   testActionSheetLayout();
+  testNumericPromptReplacesDefault();
 #ifndef _WIN32
   testRestoreKeepsMachineSpecificSettings();
 #endif

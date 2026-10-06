@@ -225,6 +225,7 @@ ftxui::Element App::renderStockUi() const {
                [self] {
                  if (const auto* item = self->selectedItem()) {
                    self->inputBuffer_ = to_string(item->quantity);
+                   self->inputReplaceOnType_ = true;
                    self->inputMode_ = App::InputMode::QuantityAdjust;
                    self->setMessage("Enter the total quantity on hand", 3);
                  }
