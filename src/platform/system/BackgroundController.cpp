@@ -214,6 +214,10 @@ bool BackgroundController::waitForBackgroundServiceToStop(int timeoutMs) const {
 bool BackgroundController::forceStopBackgroundService() const {
   const auto own = currentExecutablePath();
   if (own.empty()) return false;
+  // The single-instance mutexes are per logon session, so only a process of this session can be the
+  // background service this launch is waiting for.
+  DWORD ownSession = 0;
+  if (ProcessIdToSessionId(GetCurrentProcessId(), &ownSession) == 0) return false;
   const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snapshot == INVALID_HANDLE_VALUE) return false;
   FILETIME ownCreated{}, ignoredExit{}, ignoredKernel{}, ignoredUser{};
@@ -223,6 +227,8 @@ bool BackgroundController::forceStopBackgroundService() const {
   entry.dwSize = sizeof(entry);
   for (BOOL more = Process32FirstW(snapshot, &entry); more != FALSE; more = Process32NextW(snapshot, &entry)) {
     if (entry.th32ProcessID == GetCurrentProcessId()) continue;
+    DWORD session = 0;
+    if (ProcessIdToSessionId(entry.th32ProcessID, &session) == 0 || session != ownSession) continue;
     const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE,
                                        entry.th32ProcessID);
     if (process == nullptr) continue;
