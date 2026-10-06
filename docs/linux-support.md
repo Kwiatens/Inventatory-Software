@@ -115,7 +115,10 @@ workflows:
   unreachable CUPS server cannot leave printing stuck.
 - `zenity` for native file and folder chooser dialogs.
 - `xdg-utils` for opening HTTPS links; `wl-clipboard` on Wayland, or `xclip` or
-  `xsel` on X11, for clipboard output.
+  `xsel` on X11, for clipboard output. The copied Scan R1 pairing token is
+  marked sensitive for clipboard managers only with `wl-copy` 2.2 or newer;
+  `xclip` and `xsel` cannot mark it, so a clipboard manager on X11 may keep it
+  in its history until cleared.
 
 Scan R1 data sync continues to use the existing authenticated HTTP protocol
 over the private LAN. Authentication, device identity, monotonic replay
