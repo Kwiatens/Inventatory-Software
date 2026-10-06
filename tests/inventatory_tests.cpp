@@ -6812,6 +6812,9 @@ int main() {
     assert(!isUpdateCheckDue(false, 0, 100));
     assert(!isUpdateCheckDue(true, 100, 100 + 60));
     assert(isUpdateCheckDue(true, 100, 100 + 24 * 60 * 60));
+    // A stored time in the future (a clock that was once ahead) must not postpone checks.
+    assert(isUpdateCheckDue(true, 100 + 30 * 24 * 60 * 60, 100));
+    assert(!isUpdateCheckDue(false, 100 + 30 * 24 * 60 * 60, 100));
     assert(updateEtaSeconds(50, 100, 10.0) == 5.0);
     assert(updateEtaSeconds(100, 100, 10.0) == 0.0);
     assert(updateEtaSeconds(0, 0, 10.0) == 0.0);
