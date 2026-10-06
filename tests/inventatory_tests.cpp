@@ -3525,6 +3525,38 @@ void testScannerCommitIgnoresUnsavedMemoryEdits() {
 #endif
 }
 
+void testPendingDeviceEventsKeepArrivalOrder() {
+#ifdef INVENTATORY_SQLITE_STORAGE
+  const auto path = testTempRoot() / "inventatory-pending-event-order-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  InventoryStore store;
+  store.items().push_back(mergeTestItem("order-a", "Ordered part", 5));
+  ensureInventoryIdentifiers(store.items());
+  assert(store.save(path));
+  assert(ensureInventoryCommitHistory(path, store));
+
+  // Event ids that do not sort in arrival order must not reorder the events that share a second.
+  DeviceSyncRequest request;
+  request.protocolVersion = 1;
+  request.requestId = "order-sync";
+  request.deviceId = "device-order";
+  const auto code = store.items().front().machineCode;
+  request.events = {{"ev-9", "inventory.adjust", code, 5},
+                    {"ev-10", "inventory.adjust", code, -8},
+                    {"ev-1", "inventory.adjust", code, 1}};
+  DeviceSyncResponse response;
+  string error;
+  assert(acceptDeviceSyncEvents(path, request, response, error));
+  const auto pending = loadPendingDeviceSyncEvents(path, 10);
+  assert(pending.size() == 3);
+  assert(pending[0].eventId == "ev-9");
+  assert(pending[1].eventId == "ev-10");
+  assert(pending[2].eventId == "ev-1");
+  filesystem::remove(path, cleanupError);
+#endif
+}
+
 void testInventoryMerge() {
   // Edit form: the scanner changed quantity while the form was open.
   {
@@ -10046,6 +10078,7 @@ int main() {
 #endif
 
   testDeviceSyncRetryBackoff();
+  testPendingDeviceEventsKeepArrivalOrder();
   testSettingsBridgeNotice();
   if (credentialStoreAvailable()) testScannerCredentialResolution();
   else skipMissingCredentialStore("scanner credential resolution");
