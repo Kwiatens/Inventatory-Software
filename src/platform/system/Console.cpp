@@ -71,6 +71,26 @@ struct ComApartment {
   bool shouldUninitialize;
 };
 
+// Places a DWORD on the open clipboard under a registered format name.
+bool setClipboardDword(const wchar_t* formatName, DWORD value) {
+  const UINT format = RegisterClipboardFormatW(formatName);
+  if (format == 0) return false;
+  HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+  if (handle == nullptr) return false;
+  auto* buffer = static_cast<DWORD*>(GlobalLock(handle));
+  if (buffer == nullptr) {
+    GlobalFree(handle);
+    return false;
+  }
+  *buffer = value;
+  GlobalUnlock(handle);
+  if (SetClipboardData(format, handle) == nullptr) {
+    GlobalFree(handle);
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 bool controlModifierPressed() {
@@ -102,6 +122,12 @@ bool openUrl(const string& url) {
 }
 
 bool copyToClipboard(const string& text) {
+  // The text is UTF-16 (CF_UNICODETEXT) so non-ASCII text is not mangled by the ANSI code page.
+  const wstring wideText = widenUtf8(text);
+  if (wideText.empty() && !text.empty()) {
+    return false;
+  }
+
   if (!OpenClipboard(nullptr)) {
     return false;
   }
@@ -116,25 +142,31 @@ bool copyToClipboard(const string& text) {
     return false;
   }
 
-  const size_t byteCount = (text.size() + 1) * sizeof(char);
+  const size_t byteCount = (wideText.size() + 1) * sizeof(wchar_t);
   HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, byteCount);
   if (handle == nullptr) {
     return false;
   }
 
-  auto* buffer = static_cast<char*>(GlobalLock(handle));
+  auto* buffer = static_cast<wchar_t*>(GlobalLock(handle));
   if (buffer == nullptr) {
     GlobalFree(handle);
     return false;
   }
 
-  memcpy(buffer, text.c_str(), byteCount);
+  memcpy(buffer, wideText.c_str(), byteCount);
   GlobalUnlock(handle);
 
-  if (SetClipboardData(CF_TEXT, handle) == nullptr) {
+  if (SetClipboardData(CF_UNICODETEXT, handle) == nullptr) {
     GlobalFree(handle);
     return false;
   }
+
+  // Best effort: the copied text can be a pairing secret, so keep it out of Windows clipboard
+  // history and cloud clipboard sync. A failure here does not fail the copy itself.
+  setClipboardDword(L"ExcludeClipboardContentFromMonitorProcessing", 1U);
+  setClipboardDword(L"CanIncludeInClipboardHistory", 0U);
+  setClipboardDword(L"CanUploadToCloudClipboard", 0U);
 
   return true;
 }
