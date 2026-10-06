@@ -3,9 +3,9 @@
 #include "core/storage/InventorySqlite.h"
 #include "core/history/InventoryVersionInternal.h"
 
-#include <initializer_list>
 #include <limits>
 #include <sstream>
+#include <vector>
 
 namespace inventatory {
 
@@ -53,7 +53,7 @@ bool queryHasRows(SqliteConnection& connection, const string& sql, bool& hasRows
   return result == SQLITE_DONE;
 }
 
-bool requireColumns(SqliteConnection& connection, const string& table, initializer_list<const char*> columns,
+bool requireColumns(SqliteConnection& connection, const string& table, const vector<const char*>& columns,
                     string* error) {
   if (!tableExists(connection, table)) {
     setSqlError(connection, error, "Missing SQLite table: " + table);
@@ -174,33 +174,6 @@ bool createSchemaIndexes(SqliteConnection& connection, string* error) {
   return true;
 }
 
-bool validateExistingColumns(SqliteConnection& connection, string* error) {
-  if (!requireColumns(connection, "inventatory_items",
-                     {"id", "part_name", "manufacturer", "category", "quantity", "reorder_threshold", "location",
-                      "tags", "parameters", "notes", "digikey_part_number", "datasheet_url", "product_url",
-                      "sync_status", "sku", "last_updated"},
-                     error)) return false;
-  if (!requireColumns(connection, "inventatory_racks", {"id", "code", "component_type"}, error)) return false;
-  if (!requireColumns(connection, "inventatory_stock_movements",
-                     {"movement_id", "item_id", "item_name", "source", "quantity_before", "delta", "quantity_after",
-                      "occurred_at"},
-                     error)) return false;
-  if (!requireColumns(connection, "inventatory_device_events",
-                     {"event_id", "device_id", "event_type", "event_code", "event_value", "state"}, error)) return false;
-  if (!requireColumns(connection, "inventatory_inventory_history",
-                     {"timestamp", "item_count", "total_units", "low_stock_count", "out_of_stock_count", "data_error_count"},
-                     error)) return false;
-  if (!requireColumns(connection, "inventatory_inventory_commits",
-                     {"commit_id", "sequence", "parent_id", "committed_at", "source", "message"}, error)) return false;
-  if (!requireColumns(connection, "inventatory_inventory_commit_items", {"commit_id", "item_id", "item_data"}, error)) {
-    return false;
-  }
-  if (!requireColumns(connection, "inventatory_inventory_commit_racks", {"commit_id", "rack_id", "rack_data"}, error)) {
-    return false;
-  }
-  return requireColumns(connection, "inventatory_bom_projects", {"id", "name", "source_path", "bom_text"}, error);
-}
-
 bool validateDataValues(SqliteConnection& connection, string* error) {
   const auto intMin = to_string(numeric_limits<int>::min());
   const auto intMax = to_string(numeric_limits<int>::max());
@@ -279,21 +252,39 @@ bool readIntegrityOk(SqliteConnection& connection, string* error) {
 }
 
 bool validateCurrentSchema(SqliteConnection& connection, string* error) {
-  if (!validateExistingColumns(connection, error)) return false;
-  if (!requireColumns(connection, "inventatory_racks", {"rows_count", "columns_count", "created_at"}, error) ||
-      !requireColumns(connection, "inventatory_stock_movements", {"reference"}, error) ||
-      !requireColumns(connection, "inventatory_device_events",
-                      {"result_id", "result_status", "result_existing", "result_item_name", "result_requested_delta",
-                       "result_applied_delta", "result_quantity", "result_location", "result_code", "result_message",
-                       "result_acknowledged", "received_at", "completed_at"},
-                      error) ||
-      !requireColumns(connection, "inventatory_inventory_commits",
-                      {"reference", "checkpoint", "corrective", "reverted_commit_id", "changed_item_count",
-                       "changed_rack_count", "snapshot_version"},
-                      error) ||
-      !requireColumns(connection, "inventatory_bom_projects",
-                      {"boards", "created_at", "last_opened", "last_built", "overrides", "enrichment"}, error)) {
-    return false;
+  struct RequiredColumns {
+    const char* table;
+    vector<const char*> columns;
+  };
+  const RequiredColumns required[] = {
+      {"inventatory_items",
+       {"id", "part_name", "manufacturer", "category", "quantity", "reorder_threshold", "location", "tags",
+        "parameters", "notes", "digikey_part_number", "datasheet_url", "product_url", "sync_status", "sku",
+        "last_updated"}},
+      {"inventatory_racks", {"id", "code", "component_type"}},
+      {"inventatory_stock_movements",
+       {"movement_id", "item_id", "item_name", "source", "quantity_before", "delta", "quantity_after",
+        "occurred_at"}},
+      {"inventatory_device_events", {"event_id", "device_id", "event_type", "event_code", "event_value", "state"}},
+      {"inventatory_inventory_history",
+       {"timestamp", "item_count", "total_units", "low_stock_count", "out_of_stock_count", "data_error_count"}},
+      {"inventatory_inventory_commits", {"commit_id", "sequence", "parent_id", "committed_at", "source", "message"}},
+      {"inventatory_inventory_commit_items", {"commit_id", "item_id", "item_data"}},
+      {"inventatory_inventory_commit_racks", {"commit_id", "rack_id", "rack_data"}},
+      {"inventatory_bom_projects", {"id", "name", "source_path", "bom_text"}},
+      {"inventatory_racks", {"rows_count", "columns_count", "created_at"}},
+      {"inventatory_stock_movements", {"reference"}},
+      {"inventatory_device_events",
+       {"result_id", "result_status", "result_existing", "result_item_name", "result_requested_delta",
+        "result_applied_delta", "result_quantity", "result_location", "result_code", "result_message",
+        "result_acknowledged", "received_at", "completed_at"}},
+      {"inventatory_inventory_commits",
+       {"reference", "checkpoint", "corrective", "reverted_commit_id", "changed_item_count", "changed_rack_count",
+        "snapshot_version"}},
+      {"inventatory_bom_projects", {"boards", "created_at", "last_opened", "last_built", "overrides", "enrichment"}},
+  };
+  for (const auto& entry : required) {
+    if (!requireColumns(connection, entry.table, entry.columns, error)) return false;
   }
   const char* const itemColumns[] = {
       "label_override", "vendor_provider", "vendor_product_number", "vendor_manufacturer_part_number",
