@@ -809,7 +809,7 @@ void testUtf8AwareTextLayout() {
   }
   // A long unbroken word (a URL, a part number) is hard-wrapped instead of overflowing.
   const auto url = wrapText("https://example.com/a-very-long-datasheet-path/part.pdf", 20);
-  assert(url.size() >= 3);
+  assert(url.size() == 3);  // 55 characters at width 20: 20 + 20 + 15
   for (const auto& line : url) assert(displayWidth(line) <= 20);
   assert(wrapText("alpha beta gamma", 11) == (std::vector<std::string>{"alpha beta", "gamma"}));
   assert(wrapText("", 10) == std::vector<std::string>{""});
@@ -1407,7 +1407,7 @@ void testPhysicalValueCommaDecimalLocale() {
   const auto tenth = parsePhysicalValue("0.1uF");
   assert(tenth.has_value());
   assert(std::abs(tenth->value - 1e-7) < 1e-15);
-  assert(parsePhysicalValue("4.7k Ohm").has_value());
+  assert(std::abs(parsePhysicalValue("4.7k Ohm")->value - 4700.0) < 1e-9);
   assert(std::abs(parsePhysicalValue("4R7")->value - 4.7) < 1e-12);
   assert(std::abs(parsePhysicalValue("1e-3F")->value - 1e-3) < 1e-15);
   assert(std::abs(parsePhysicalValue(".5uH")->value - 5e-7) < 1e-15);
@@ -1478,7 +1478,7 @@ void testLinuxControllerLockProbesNeverBlockAcquisition() {
   }
   stopProbing.store(true);
   prober.join();
-  assert(probes.load() > 0);
+  assert(probes.load() > 0);  // the prober really ran concurrently; the exact count depends on scheduling
   assert(failures == 0);
 
   // A genuinely held lock is still refused, and is reported by every probe.
@@ -1505,7 +1505,8 @@ void testDecimalParsingCommaLocale() {
     assert(tenth.has_value() && kind == ValueKind::Capacitance && std::abs(*tenth - 1e-7) < 1e-15);
     const auto resistor = parseElectricalValue("4.7k", kind);
     assert(resistor.has_value() && std::abs(*resistor - 4700.0) < 1e-9);
-    assert(parseElectricalValue("4k7", kind).has_value());
+    const auto fourK7 = parseElectricalValue("4k7", kind);
+    assert(fourK7.has_value() && std::abs(*fourK7 - 4700.0) < 1e-9);  // RKM notation: 4k7 is 4.7 kOhm
     assert(!parseElectricalValue("1.2.3k", kind).has_value());
 
     assert(digikey_detail::isFiniteDecimal("0.1", 1000.0));
@@ -1735,7 +1736,7 @@ void testPhysicalValueSearchIntegration() {
 
   // Search for "100nF" should find both cap1 and cap2
   auto capFiltered = filterItems(items, "100nF");
-  assert(capFiltered.size() >= 2);
+  assert(capFiltered.size() == 2);  // exactly the two equivalent capacitors, nothing else
   bool foundCap1 = false, foundCap2 = false;
   for (size_t idx : capFiltered) {
     if (items[idx].id == "cap-01uf") foundCap1 = true;
@@ -1746,7 +1747,7 @@ void testPhysicalValueSearchIntegration() {
 
   // Search for "0.1uF" should find both cap1 and cap2
   capFiltered = filterItems(items, "0.1uF");
-  assert(capFiltered.size() >= 2);
+  assert(capFiltered.size() == 2);  // exactly the two equivalent capacitors, nothing else
   foundCap1 = false;
   foundCap2 = false;
   for (size_t idx : capFiltered) {
@@ -1758,7 +1759,7 @@ void testPhysicalValueSearchIntegration() {
 
   // Search for "10k" should find both res1 and res2
   auto resFiltered = filterItems(items, "10k");
-  assert(resFiltered.size() >= 2);
+  assert(resFiltered.size() == 2);  // 10k and 10000 Ohm, nothing else
   bool foundRes1 = false, foundRes2 = false;
   for (size_t idx : resFiltered) {
     if (items[idx].id == "res-10k") foundRes1 = true;
@@ -1840,7 +1841,7 @@ void testPhysicalValueSearchIntegration() {
 
   // param: prefix should also work with physical values
   auto paramFiltered = filterItems(items, "param:Capacitance=0.1uF");
-  assert(paramFiltered.size() >= 2);
+  assert(paramFiltered.size() == 2);
   foundCap1 = false;
   foundCap2 = false;
   for (size_t idx : paramFiltered) {
@@ -2021,7 +2022,7 @@ void testInventoryCommitHistory() {
   conflicting.items().front().notes = "Changed later";
   InventoryStore untouched;
   assert(!prepareInventoryCommitReverse(detail, conflicting, untouched, conflict));
-  assert(!conflict.empty());
+  assert(conflict == "Part Versioned resistor changed after the selected commit");
   assert(inventoryCommitDiff(conflicting, changed).size() == 1);
 
   InventoryCommitDraft correctiveDraft;
@@ -2321,7 +2322,7 @@ void testInventoryCommitSnapshotsStayValid() {
   string conflict;
   // Restoring the part would point it at a rack that no longer exists.
   assert(!prepareInventoryCommitReverse(detail, store, reversed, conflict));
-  assert(!conflict.empty());
+  assert(conflict == "Later changes conflict with this commit; Inventory commit snapshot has an invalid rack assignment");
 
   // Re-adding the rack leaves the slot free again, so the reversal is valid.
   InventoryStore withRack = store;
@@ -2342,7 +2343,7 @@ void testInventoryCommitSnapshotsStayValid() {
   commit(occupied, "Other part takes the slot");
   conflict.clear();
   assert(!prepareInventoryCommitReverse(detail, store, reversed, conflict));
-  assert(!conflict.empty());
+  assert(conflict == "Later changes conflict with this commit; Inventory commit snapshot has duplicate or invalid identifiers");
 
   // The commit writer refuses a snapshot history validation would reject, and the database stays usable.
   vector<InventoryCommit> before;
@@ -3861,7 +3862,7 @@ void testInventoryMerge() {
     size_t twins = 0;
     for (const auto& item : merged.items()) twins += item.id == "twin" ? 1 : 0;
     assert(twins == 1 && merged.findById("twin")->quantity == 7);
-    assert(anyNoticeContains(notices, "twin") || anyNoticeContains(notices, "Same id"));
+    assert(anyNoticeContains(notices, "Same id staged: a part with the same id already exists"));
     // A staged removal of an unchanged live part applies.
     InventoryStore plainBase;
     plainBase.items().push_back(mergeTestItem("rm", "Plain removal", 5));
@@ -4226,7 +4227,9 @@ if (!credentialStoreAvailable()) {
   const auto scopedB = CredentialStore::readForWorkspace(workspaceB, key);
   assert(scopedA.has_value() && *scopedA == "workspace-a-token");
   assert(scopedB.has_value() && *scopedB == "workspace-b-token");
-  assert(CredentialStore::readForWorkspace(workspaceA / "child" / "..", key).has_value());
+  // The workspace path is normalised, so an equivalent spelling reaches the same entry.
+  const auto equivalentSpelling = CredentialStore::readForWorkspace(workspaceA / "child" / "..", key);
+  assert(equivalentSpelling.has_value() && *equivalentSpelling == "workspace-a-token");
 
   const auto replayA = inventatoryScanReplayStatePath(workspaceA);
   const auto replayB = inventatoryScanReplayStatePath(workspaceB);
@@ -5763,7 +5766,7 @@ void testCategoryHeadersAndPartDescriptors() {
     buckIc.notes = "Integrated circuit with diode clamp and switching regulator topology from a wide input rail.";
     buckIc.parameters = {{"Function", "DC-DC converter"}, {"Topology", "Buck"}, {"Package / Case", "QFN-16"}};
     const auto buckPlan = expectHeader(buckIc, "Buck Converter");
-    assert(buckPlan.mainValue.find("buck") != string::npos || buckPlan.mainValue.find("converter") != string::npos);
+    assert(buckPlan.mainValue == "Synchronous buck converter");
   }
 
   {
@@ -6100,8 +6103,8 @@ void testLongHeaderKeepsPartName() {
   longHeader.labelOverride = "Custom label beyond sixteen";
   const auto zpl = service.buildZpl(longHeader);
   assert(partShortDescription(longHeader) == "Custom label beyond sixteen");
-  assert(zpl.find("^FR^FDCUSTOM LABEL BEYOND SIXTEEN^FS") != string::npos ||
-         zpl.find("^FR^FDCUSTOM LABEL BEYOND") != string::npos);
+  // The whole override is printed, upper-cased, not cut at sixteen characters.
+  assert(zpl.find("^FR^FDCUSTOM LABEL BEYOND SIXTEEN^FS") != string::npos);
   assert(zpl.find("^FO7,0^GB236,22,22,B,4^FS") != string::npos);
 }
 
@@ -8384,7 +8387,7 @@ void testCsvEncodingValidation() {
     assert(encodingError.find("NUL") != string::npos && utf8.empty());
   }
   // Windows-1250 (0xB5 micro sign, 0xB3 for l-stroke), overlong or truncated UTF-8 and NULs without a BOM.
-  for (const string bad : {string("Description\n10\xB5" "F\n"), string("Ilo\xB3\xE6\n"), string("a\xC0\x80" "b"),
+  for (const string& bad : {string("Description\n10\xB5" "F\n"), string("Ilo\xB3\xE6\n"), string("a\xC0\x80" "b"),
                            string("a\xE2\x82"), string("a\xED\xA0\x80" "b"), string("a\xF5\x80\x80\x80"),
                            string("R\0e\0f\0", 6)}) {
     utf8 = "unchanged";
@@ -8634,7 +8637,7 @@ void testMatchingPrefersValueAndPackage() {
   const auto radialIndex = lineIndexOf("100uF");
   assert(analysis.matches[radialIndex].candidates.empty());
   assert(!analysis.matches[radialIndex].sufficient);
-  assert(analysis.shortCount > 0);
+  assert(analysis.shortCount == 5);  // five of the eight KiCad lines are not sufficiently covered by this stock
   assert(!bomBuildReady(analysis));
 
   // A line needing more than the shelf holds is short.
@@ -9491,6 +9494,8 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoverInventatoryRestore(keepTarget, keepSettings, error));
     expectUnmanagedIntact();
     assert(readBytes(keepTarget / "late.txt") == "left in protected data");
+    // Crash points before the commit point must roll back and later ones must complete the restore, so both
+    // outcomes have to occur; their split depends on the number of steps and is not pinned.
     assert(loadItemId() == "transfer-item");
     assert(restoreArtifacts().empty());
     crashAtCleanupCommit("notes.txt");
@@ -9955,7 +9960,7 @@ void testBackgroundServiceTakeover() {
     int reported = 0;
     assert(launcher.stopBackgroundService(1500, 2000, [&reported](int) { ++reported; }) ==
            BackgroundStopResult::Forced);
-    assert(reported >= 1);
+    assert(reported >= 1);  // the countdown callback fires while waiting; how often depends on timing
     int status = 0;
     assert(waitpid(child, &status, 0) == child);
     assert(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
