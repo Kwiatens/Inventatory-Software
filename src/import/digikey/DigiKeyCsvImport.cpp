@@ -8,10 +8,8 @@
 #include <algorithm>
 #include <cctype>
 #include <ctime>
-#include <fstream>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <unordered_map>
 
 namespace inventatory {
@@ -20,7 +18,6 @@ using namespace std;
 
 namespace {
 
-constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 
 struct ColumnMap {
   int digikeyPart = -1;
@@ -302,7 +299,7 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
 
 CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryItem>& existingItems) {
   CsvImportResult result;
-  if (text.size() > kMaximumImportBytes) {
+  if (text.size() > kMaximumCsvInputBytes) {
     result.error = "CSV import exceeds the 25 MiB safety limit";
     return result;
   }
@@ -371,39 +368,9 @@ CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryIt
 }
 
 CsvImportResult loadDigiKeyCsvFile(const filesystem::path& path, const vector<InventoryItem>& existingItems) {
-  error_code error;
-  const auto size = filesystem::file_size(path, error);
-  if (error) {
-    CsvImportResult result;
-    result.error = "Unable to inspect CSV file";
-    return result;
-  }
-  if (size > kMaximumImportBytes) {
-    CsvImportResult result;
-    result.error = "CSV import exceeds the 25 MiB safety limit";
-    return result;
-  }
-  ifstream input(path, ios::binary);
-  if (!input) {
-    CsvImportResult result;
-    result.error = "Unable to open CSV file";
-    return result;
-  }
-
-  ostringstream buffer;
-  buffer << input.rdbuf();
-  if (input.bad()) {
-    CsvImportResult result;
-    result.error = "Unable to read CSV file";
-    return result;
-  }
   string decoded;
-  string encodingError;
-  if (!decodeCsvBytes(buffer.str(), decoded, encodingError)) {
-    CsvImportResult result;
-    result.error = encodingError;
-    return result;
-  }
+  CsvImportResult result;
+  if (!readCsvFile(path, "CSV", decoded, result.error)) return result;
   return parseDigiKeyCsvText(decoded, existingItems);
 }
 

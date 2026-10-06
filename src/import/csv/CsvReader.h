@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cstdint>
+#include <filesystem>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -12,6 +14,9 @@ namespace inventatory {
 using std::initializer_list;
 using std::string;
 using std::vector;
+
+// The largest CSV text, in bytes, any importer reads.
+inline constexpr std::uintmax_t kMaximumCsvInputBytes = 25U * 1024U * 1024U;
 
 // Removes a leading UTF-8 byte order mark so the first header cell stays clean.
 string stripByteOrderMark(string text);
@@ -25,6 +30,10 @@ bool isValidUtf8(const string& text);
 // so they are refused with a message that tells the user how to re-save the file, instead of letting
 // invalid bytes into part names, the database and labels.
 bool decodeCsvBytes(const string& bytes, string& utf8, string& error);
+
+// Reads a CSV file of at most kMaximumCsvInputBytes and decodes it with decodeCsvBytes. `kind` names the file
+// in the messages ("CSV", "BOM"). Returns false with a user-facing `error` when it cannot be read or decoded.
+bool readCsvFile(const std::filesystem::path& path, const string& kind, string& utf8, string& error);
 
 // Picks the delimiter used by the first non-blank line: ',', ';' or '\t'.
 // Quoted sections are ignored so a quoted "2,62800 zl" cannot win the vote.

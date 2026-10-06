@@ -7,6 +7,9 @@
 #include "core/text/Utf8.h"
 
 #include <cctype>
+#include <fstream>
+#include <sstream>
+#include <system_error>
 
 namespace inventatory {
 
@@ -17,7 +20,6 @@ namespace {
 constexpr size_t kMaximumCsvRows = 100000;
 constexpr size_t kMaximumCsvFieldsPerRow = 512;
 constexpr size_t kMaximumCsvFieldBytes = 1024U * 1024U;
-constexpr size_t kMaximumCsvInputBytes = 25U * 1024U * 1024U;
 
 }  // namespace
 
@@ -102,6 +104,31 @@ bool decodeCsvBytes(const string& bytes, string& utf8, string& error) {
   }
   utf8 = move(text);
   return true;
+}
+
+bool readCsvFile(const filesystem::path& path, const string& kind, string& utf8, string& error) {
+  error_code fileError;
+  const auto size = filesystem::file_size(path, fileError);
+  if (fileError) {
+    error = "Unable to inspect " + kind + " file";
+    return false;
+  }
+  if (size > kMaximumCsvInputBytes) {
+    error = kind + " import exceeds the 25 MiB safety limit";
+    return false;
+  }
+  ifstream input(path, ios::binary);
+  if (!input) {
+    error = "Unable to open " + kind + " file";
+    return false;
+  }
+  ostringstream buffer;
+  buffer << input.rdbuf();
+  if (input.bad()) {
+    error = "Unable to read " + kind + " file";
+    return false;
+  }
+  return decodeCsvBytes(buffer.str(), utf8, error);
 }
 
 char sniffDelimiter(const string& text) {
