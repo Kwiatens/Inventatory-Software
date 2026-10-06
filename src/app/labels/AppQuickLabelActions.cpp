@@ -180,14 +180,14 @@ void App::openStockFilterPanel() {
   if (inputMode_ == InputMode::StockFilter) {
     stockDateFilterSubmenuOpen_ = false;
     inputMode_ = InputMode::None;
-    focusedTarget_ = -1;
+    focusedTargetId_.clear();
     dirty_ = true;
     return;
   }
   inputMode_ = InputMode::StockFilter;
   stockDateFilterSubmenuOpen_ = false;
   stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   dirty_ = true;
 }
 
@@ -223,7 +223,7 @@ void App::applyStockSortOrder(StockSortOrder order) {
 void App::resetStockFilters() {
   resetStockFilterState(stockDateFilter_, stockSortOrder_, stockFilterSelection_, stockDateFilterSubmenuOpen_);
   inputMode_ = InputMode::None;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   syncSelectionToFilter();
   setMessage("Stock filters reset", 2);
   dirty_ = true;

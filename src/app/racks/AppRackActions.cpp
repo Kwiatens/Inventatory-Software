@@ -51,7 +51,7 @@ void App::changePage(Page page) {
     closestSearchQuery_.clear();
     closestSelectedPosition_ = 0;
   }
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   cancelDeleteConfirmation();
   cancelRackDeletion();
   if (page != Page::Racks) {
@@ -387,7 +387,7 @@ void App::openSelectedRackItemDetail() {
   searchQuery_.clear();
   selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
   inputMode_ = InputMode::None;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   page_ = Page::Stock;
   syncSelectionToFilter();
   dirty_ = true;

@@ -178,7 +178,7 @@ void App::beginSoftwareUpdate() {
   updatePackage_.reset();
   updateNotesScroll_ = 0;
   inputMode_ = InputMode::None;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   page_ = Page::Update;
   if (settingsDirty_) {
     updateStep_ = UpdateWizardStep::SavePrompt;
@@ -271,7 +271,7 @@ void App::beginUpdateVerification() {
   if (!updatePackage_.has_value() || updateOperationFuture_.valid()) return;
   updateStep_ = UpdateWizardStep::Verifying;
   updateError_.clear();
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   const auto package = *updatePackage_;
   const auto state = updateDownloadState_;
   if (state != nullptr) {
@@ -457,7 +457,7 @@ void App::cancelSoftwareUpdate() {
   updateError_.clear();
   updateStep_ = UpdateWizardStep::Preparing;
   page_ = Page::Settings;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   dirty_ = true;
 }
 
@@ -484,7 +484,7 @@ void App::dismissUpdateResult() {
   updateStep_ = UpdateWizardStep::Preparing;
   updateNotesScroll_ = 0;
   page_ = Page::Stock;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   dirty_ = true;
 }
 

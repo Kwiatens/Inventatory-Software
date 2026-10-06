@@ -39,6 +39,7 @@
 #include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
+#include "ui/shared/UiFocus.h"
 #include "ui/pages/stock/StockFilterState.h"
 
 #include <ftxui/dom/node.hpp>
@@ -260,6 +261,43 @@ void testPrimaryNavigationContract() {
   assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('1') == &entries[0]);
   assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('6') == &entries[5]);
   assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('7') == nullptr);
+}
+
+// Keyboard focus is tracked by target id, so a changing target list cannot make
+// Enter land on a different control, and only Tab can create a focus.
+void testUiFocusTracking() {
+  using inventatory::ui_focus::Candidate;
+  namespace uf = inventatory::ui_focus;
+  std::vector<Candidate> targets = {
+      {"nav.stock", true, true}, {"row.a", true, true},  {"row.b", true, true},
+      {"hidden", false, true},   {"static", true, false}, {"stock.print", true, true}};
+
+  // Tab walks focusable, enabled targets in order and wraps.
+  std::string focus;
+  focus = uf::next(targets, focus, 1);
+  assert(focus == "nav.stock");
+  focus = uf::next(targets, focus, 1);
+  assert(focus == "row.a");
+  focus = uf::next(targets, "row.b", 1);
+  assert(focus == "stock.print");  // skips disabled and non-focusable targets
+  assert(uf::next(targets, "stock.print", 1) == "nav.stock");
+  // Shift+Tab with no focus lands on the last target, not the one before it.
+  assert(uf::next(targets, "", -1) == "stock.print");
+  assert(uf::next(targets, "nav.stock", -1) == "stock.print");
+  assert(uf::next(targets, "stock.print", -1) == "row.b");
+
+  // The focus follows the id when the list changes between frames.
+  std::vector<Candidate> filtered = {{"nav.stock", true, true}, {"row.b", true, true}, {"stock.print", true, true}};
+  assert(uf::next(filtered, "row.b", 1) == "stock.print");
+  assert(uf::indexOf(filtered, "row.a") == -1);
+  // A focus that vanished starts over instead of pointing at a stranger.
+  assert(!uf::isActivatable(filtered, "row.a"));
+  assert(uf::isActivatable(filtered, "row.b"));
+  assert(uf::next(filtered, "row.a", 1) == "nav.stock");
+
+  assert(uf::next({}, "", 1).empty());
+  assert(uf::next({{"off", false, true}}, "", 1).empty());
+  assert(!uf::isActivatable({{"off", false, true}}, "off"));
 }
 
 #ifndef _WIN32
@@ -2231,6 +2269,7 @@ int main() {
   testHistoryPagePresentationData();
   testHistoryPageLayoutData();
   testPrimaryNavigationContract();
+  testUiFocusTracking();
 #ifndef _WIN32
   testLinuxMdnsRefusesNonPrivateInterfaces();
 #endif
