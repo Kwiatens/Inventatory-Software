@@ -7533,6 +7533,83 @@ int main() {
     assert(sniffDelimiter("\"a,b\";\"c,d\";e\n") == ';');
   }
 
+  {
+    // CSV bytes become UTF-8 text, or the import is refused: invalid bytes never reach part names.
+    string utf8;
+    string encodingError;
+    assert(decodeCsvBytes("\xEF\xBB\xBFRef;Ilo\xC5\x9B\xC4\x87\n", utf8, encodingError));
+    assert(utf8 == "Ref;Ilo\xC5\x9B\xC4\x87\n" && encodingError.empty());
+
+    const auto utf16 = [](const string& ascii, bool littleEndian, const vector<unsigned>& extraUnits) {
+      string bytes = littleEndian ? string("\xFF\xFE", 2) : string("\xFE\xFF", 2);
+      const auto appendUnit = [&](unsigned unit) {
+        const char high = static_cast<char>((unit >> 8U) & 0xFFU);
+        const char low = static_cast<char>(unit & 0xFFU);
+        if (littleEndian) {
+          bytes.push_back(low);
+          bytes.push_back(high);
+        } else {
+          bytes.push_back(high);
+          bytes.push_back(low);
+        }
+      };
+      for (const unsigned char ch : ascii) appendUnit(ch);
+      for (const unsigned unit : extraUnits) appendUnit(unit);
+      return bytes;
+    };
+    for (const bool littleEndian : {true, false}) {
+      // 0xB5 is the micro sign, 0xD83D 0xDE00 a surrogate pair (U+1F600).
+      const auto bytes = utf16("Ref;Value\r\nR1;10", littleEndian, {0x00B5U, 'F', 0xD83DU, 0xDE00U});
+      assert(decodeCsvBytes(bytes, utf8, encodingError));
+      assert(utf8 == "Ref;Value\r\nR1;10\xC2\xB5" "F\xF0\x9F\x98\x80");
+    }
+    // Truncated, lone-surrogate and UTF-32 input is refused with a message that says what to do.
+    assert(!decodeCsvBytes(utf16("abc", true, {}) + "x", utf8, encodingError));
+    assert(encodingError.find("UTF-8") != string::npos);
+    assert(!decodeCsvBytes(utf16("abc", true, {0xDC00U}), utf8, encodingError));
+    assert(!decodeCsvBytes(utf16("abc", false, {0xD83DU}), utf8, encodingError));
+    assert(!decodeCsvBytes(string("\xFF\xFE\x00\x00x\x00\x00\x00", 8), utf8, encodingError));
+    assert(encodingError.find("UTF-32") != string::npos);
+    // Windows-1250 (0xB5 micro sign, 0xB3 for l-stroke), overlong or truncated UTF-8 and NULs without a BOM.
+    for (const string bad : {string("Description\n10\xB5" "F\n"), string("Ilo\xB3\xE6\n"), string("a\xC0\x80" "b"),
+                             string("a\xE2\x82"), string("a\xED\xA0\x80" "b"), string("a\xF5\x80\x80\x80"),
+                             string("R\0e\0f\0", 6)}) {
+      utf8 = "unchanged";
+      assert(!decodeCsvBytes(bad, utf8, encodingError));
+      assert(!encodingError.empty());
+      assert(utf8 == "unchanged");
+    }
+    assert(isValidUtf8("zażółć gęślą jaźń \xF0\x9F\x98\x80"));
+    assert(!isValidUtf8("\xC3"));
+
+    // The file loaders use the same conversion.
+    const auto encodingRoot = filesystem::temp_directory_path() / "inventatory-csv-encoding-test";
+    error_code encodingCleanup;
+    filesystem::remove_all(encodingRoot, encodingCleanup);
+    filesystem::create_directories(encodingRoot);
+    const auto writeBytes = [](const filesystem::path& path, const string& bytes) {
+      ofstream output(path, ios::binary | ios::trunc);
+      output.write(bytes.data(), static_cast<streamsize>(bytes.size()));
+    };
+    const string digiKeyHeader = "Index,Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n";
+    writeBytes(encodingRoot / "cp1250.csv", digiKeyHeader + "1,100-1-ND,MPN-1,Acme,CAP CER 10\xB5" "F,2\n");
+    const auto legacy = loadDigiKeyCsvFile(encodingRoot / "cp1250.csv", {});
+    assert(!legacy.ok && legacy.error.find("UTF-8") != string::npos && legacy.candidates.empty());
+    string digiKeyUtf16 = string("\xFF\xFE", 2);
+    for (const unsigned char ch : string("Index,Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,"
+                                         "Quantity\n1,100-1-ND,MPN-1,Acme,RES 10K OHM,2\n")) {
+      digiKeyUtf16.push_back(static_cast<char>(ch));
+      digiKeyUtf16.push_back('\0');
+    }
+    writeBytes(encodingRoot / "utf16.csv", digiKeyUtf16);
+    const auto converted = loadDigiKeyCsvFile(encodingRoot / "utf16.csv", {});
+    assert(converted.ok && converted.candidates.size() == 1);
+    assert(converted.candidates.front().item.partName == "RES 10K OHM");
+    writeBytes(encodingRoot / "legacy-bom.csv", "Id;Designator;Footprint;Quantity;Designation\n1;R1;R_0603;1;10k\xB5\n");
+    const auto legacyBom = loadKicadBomFile(encodingRoot / "legacy-bom.csv");
+    assert(!legacyBom.ok && legacyBom.error.find("UTF-8") != string::npos);
+    filesystem::remove_all(encodingRoot, encodingCleanup);
+  }
 
   {
     assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);

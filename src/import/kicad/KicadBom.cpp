@@ -245,7 +245,14 @@ KicadBomFile loadKicadBomFile(const filesystem::path& path) {
     bom.error = "Unable to read BOM file";
     return bom;
   }
-  return parseKicadBomText(buffer.str(), projectNameFromPath(path));
+  string decoded;
+  string encodingError;
+  if (!decodeCsvBytes(buffer.str(), decoded, encodingError)) {
+    KicadBomFile bom;
+    bom.error = encodingError;
+    return bom;
+  }
+  return parseKicadBomText(decoded, projectNameFromPath(path));
 }
 
 }  // namespace inventatory
