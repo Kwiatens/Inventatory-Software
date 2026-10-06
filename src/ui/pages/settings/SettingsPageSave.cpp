@@ -111,9 +111,19 @@ bool App::saveSettingsDraft() {
   const auto restartOldService = [&] {
     if (serviceWasRunning) restartDeviceService();
   };
-  const auto oldDigiKeySecret = CredentialStore::read(kDigiKeySecretName);
+  const auto oldDigiKeySecret = CredentialStore::lookup(kDigiKeySecretName);
   bool startupChanged = false;
   bool credentialChanged = false;
+  // Puts the DigiKey secret back after a later step failed. When the store could not be read the
+  // previous state is unknown, so nothing is erased: a stored secret must never be lost to a failed read.
+  const auto rollbackDigiKeySecret = [&] {
+    if (!credentialChanged) return;
+    if (oldDigiKeySecret.status == CredentialReadStatus::Found && oldDigiKeySecret.secret.has_value()) {
+      CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret.secret);
+    } else if (oldDigiKeySecret.status == CredentialReadStatus::NotFound) {
+      CredentialStore::erase(kDigiKeySecretName);
+    }
+  };
 
   if (dataChanged) {
     mdnsService_.stop();
@@ -135,10 +145,7 @@ bool App::saveSettingsDraft() {
   if (backgroundChanged) {
     string startupError;
     if (!setBackgroundStartupEnabled(settingsDraft_.backgroundServiceEnabled, startupError)) {
-      if (credentialChanged) {
-        if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-        else CredentialStore::erase(kDigiKeySecretName);
-      }
+      rollbackDigiKeySecret();
       restartOldService();
 #ifdef _WIN32
       setMessage(startupError.empty() ? "Unable to update Windows startup" : startupError, 5, UiMessageSeverity::Error);
@@ -155,10 +162,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    if (credentialChanged) {
-      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-      else CredentialStore::erase(kDigiKeySecretName);
-    }
+    rollbackDigiKeySecret();
     restartOldService();
     setMessage("Unable to save Inventatory settings", 5, UiMessageSeverity::Error);
     return false;
@@ -175,10 +179,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    if (credentialChanged) {
-      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-      else CredentialStore::erase(kDigiKeySecretName);
-    }
+    rollbackDigiKeySecret();
     restartOldService();
     setMessage(rollbackSaved ? "Unable to save Quick Labels in the selected data folder"
                              : "Unable to save Quick Labels and restore previous settings; verify the settings file",
@@ -239,10 +240,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    if (credentialChanged) {
-      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-      else CredentialStore::erase(kDigiKeySecretName);
-    }
+    rollbackDigiKeySecret();
     restartOldService();
     setMessage(rollbackSaved
                    ? "Unable to save quick-label settings"
@@ -297,10 +295,10 @@ bool App::saveSettingsDraft() {
   }
   if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
+    publishConfiguredPrinter();
     if (!printerService_.saveConfig(printerPath_)) {
       persistenceError_ = "Could not save printer settings; changes remain in memory.";
       setMessage(persistenceError_ + " Press R to retry.", 6, UiMessageSeverity::Error);
-    publishConfiguredPrinter();
       settingsDirty_ = true;
       return false;
     }
