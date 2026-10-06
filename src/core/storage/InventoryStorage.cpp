@@ -30,7 +30,25 @@ const vector<InventoryItem>& InventoryStore::items() const {
   return items_;
 }
 
-bool InventoryStore::load(const filesystem::path& path) {
+namespace {
+
+// True when normalization changed anything that is persisted for an item or a rack.
+bool storeContentChanged(const vector<InventoryItem>& beforeItems, const vector<InventatoryRack>& beforeRacks,
+                         const vector<InventoryItem>& afterItems, const vector<InventatoryRack>& afterRacks) {
+  if (beforeItems.size() != afterItems.size() || beforeRacks.size() != afterRacks.size()) return true;
+  for (size_t index = 0; index < beforeItems.size(); ++index) {
+    if (serializeItem(beforeItems[index]) != serializeItem(afterItems[index])) return true;
+  }
+  for (size_t index = 0; index < beforeRacks.size(); ++index) {
+    if (serializeRackSnapshot(beforeRacks[index]) != serializeRackSnapshot(afterRacks[index])) return true;
+  }
+  return false;
+}
+
+}  // namespace
+
+bool InventoryStore::load(const filesystem::path& path, bool* normalized) {
+  if (normalized != nullptr) *normalized = false;
 #ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
@@ -55,9 +73,14 @@ bool InventoryStore::load(const filesystem::path& path) {
   loadedStore.items() = move(inventatoryItems);
   loadedStore.racks() = move(loadedRacks);
 
+  const auto storedItems = normalized != nullptr ? loadedStore.items() : vector<InventoryItem>();
+  const auto storedRacks = normalized != nullptr ? loadedStore.racks() : vector<InventatoryRack>();
   ensureInventoryIdentifiers(loadedStore.items());
   if (!validateInventoryIdentifiers(loadedStore.items(), loadedStore.racks())) return false;
   reconcileRackAssignments(loadedStore);
+  if (normalized != nullptr) {
+    *normalized = storeContentChanged(storedItems, storedRacks, loadedStore.items(), loadedStore.racks());
+  }
   items_ = move(loadedStore.items());
   racks_ = move(loadedStore.racks());
   return true;
