@@ -51,6 +51,7 @@ void App::changePage(Page page) {
     setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
     return;
   }
+  if (page != page_) releasePageState(page_);
   page_ = page;
   inputMode_ = InputMode::None;
   if (page != Page::Stock) {
@@ -77,6 +78,39 @@ void App::changePage(Page page) {
     bomDeleteConfirmationUntil_ = 0;
   }
   dirty_ = true;
+}
+
+// Drops the transient state of a page that is being left, on every exit path (Esc, a header
+// click, a number key): wizard secrets, Bluetooth discovery and half-edited settings fields.
+void App::releasePageState(Page leaving) {
+  switch (leaving) {
+    case Page::ScanSetup:
+      bleProvisioning_.stopDiscovery();
+      bleWifiSsid_.clear();
+      bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+      bleWifiPassword_.clear();
+      blePairingCode_.clear();
+      inputBuffer_.assign(inputBuffer_.size(), '\0');
+      inputBuffer_.clear();
+      break;
+    case Page::DigiKeySetup:
+      settingsDraft_ = settings_;
+      settingsDirty_ = false;
+      settingsEditingField_ = false;
+      stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
+      stagedDigiKeySecret_.clear();
+      stagedDigiKeySecretChanged_ = false;
+      inputBuffer_.assign(inputBuffer_.size(), '\0');
+      inputBuffer_.clear();
+      break;
+    case Page::Settings:
+      if (settingsEditingField_ || appearancePickerOpen_) inputBuffer_.clear();
+      settingsEditingField_ = false;
+      appearancePickerOpen_ = false;
+      break;
+    default:
+      break;
+  }
 }
 
 void App::openSelectedDetail() {
