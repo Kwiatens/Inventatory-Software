@@ -36,6 +36,15 @@ inline constexpr const std::array<PrimaryNavigationEntry, 6>& primaryNavigationE
   return kPrimaryNavigationEntries;
 }
 
+// Supported terminal size. Anything smaller shows the resize notice and ignores input, so keys
+// and clicks cannot act on a screen the user cannot see.
+inline constexpr int kMinimumTerminalColumns = 100;
+inline constexpr int kMinimumTerminalRows = 30;
+
+inline constexpr bool terminalTooSmall(int columns, int rows) {
+  return columns < kMinimumTerminalColumns || rows < kMinimumTerminalRows;
+}
+
 // The header row holds the brand, the six destinations, the always-visible
 // "Actions - Space" control and, only when there is room left over, the clock.
 // At the 100-column minimum the clock would push the Actions control off the
