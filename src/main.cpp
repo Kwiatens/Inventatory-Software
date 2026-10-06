@@ -108,8 +108,12 @@ int main(int argc, char* argv[]) {
 #ifndef _WIN32
   if (std::setlocale(LC_ALL, "") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
     if (std::setlocale(LC_ALL, "C.UTF-8") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
-      std::cerr << "Inventatory requires a UTF-8 terminal locale. Set LANG to an installed UTF-8 locale and retry.\n";
-      return 1;
+      // The background service never draws a terminal UI, so a missing UTF-8 locale must not stop it
+      // (a restart loop would silently disable Scan R1 bridging); only the interactive UI needs it.
+      if (!startInBackground) {
+        std::cerr << "Inventatory requires a UTF-8 terminal locale. Set LANG to an installed UTF-8 locale and retry.\n";
+        return 1;
+      }
     }
   }
 #endif
