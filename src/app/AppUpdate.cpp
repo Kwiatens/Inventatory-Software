@@ -102,9 +102,11 @@ string previewNotes(const string& notes) {
   if (notes.empty()) return "No release notes were provided for this release.";
   constexpr size_t kPreviewCharacters = 1800U;
   if (notes.size() <= kPreviewCharacters) return notes;
-  auto prefix = notes.substr(0, kPreviewCharacters);
-  while (!prefix.empty() && (static_cast<unsigned char>(prefix.back()) & 0xC0U) == 0x80U) prefix.pop_back();
-  return prefix + "\n\n… release notes continue after the update";
+  // Cut on a character boundary: back up while the first dropped byte is a continuation byte, so a
+  // multi-byte character is either kept whole or removed whole (never left as a dangling lead byte).
+  size_t cut = kPreviewCharacters;
+  while (cut > 0 && (static_cast<unsigned char>(notes[cut]) & 0xC0U) == 0x80U) --cut;
+  return notes.substr(0, cut) + "\n\n… release notes continue after the update";
 }
 
 
