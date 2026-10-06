@@ -244,7 +244,9 @@ void App::processDeviceSyncEvents() {
   persistedStore_ = store_;
   persistedStoreValid_ = true;
   refreshInventoryMovements();
-  refreshInventoryCommits();
+  // The commit was just appended through the same transaction as a normal save; validating the whole
+  // history again for every scanned event would grow with each scan.
+  refreshInventoryCommits(true);
   deviceLastResult_ = result.status == "failed"
                           ? "ERROR " + result.message
                           : (result.existing ? "EXISTING " : "NEW ") + result.itemName + " QTY " +
