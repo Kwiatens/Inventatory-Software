@@ -8,10 +8,8 @@
 #include <algorithm>
 #include <cctype>
 #include <ctime>
-#include <fstream>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <unordered_map>
 
 namespace inventatory {
@@ -20,7 +18,6 @@ using namespace std;
 
 namespace {
 
-constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 
 struct ColumnMap {
   int digikeyPart = -1;
@@ -87,36 +84,74 @@ ColumnMap mapColumns(const vector<string>& headers) {
   return columns;
 }
 
+// Lowercase alphanumeric words of a description: "IC BUF 5.5V SC70-5" -> ic, buf, 5, 5v, sc70, 5.
+vector<string> descriptionWords(const string& description) {
+  vector<string> words;
+  string current;
+  for (const unsigned char ch : description) {
+    if (isalnum(ch) != 0) {
+      current.push_back(static_cast<char>(tolower(ch)));
+    } else if (!current.empty()) {
+      words.push_back(move(current));
+      current.clear();
+    }
+  }
+  if (!current.empty()) words.push_back(move(current));
+  return words;
+}
+
+// "100nf", "1uf" and "22pf" in a description are capacitor values; "uf" or "nf" inside another word
+// (BUF, UFBGA, INFRARED) are not.
+bool isCapacitanceWord(const string& word) {
+  if (word.size() < 3) return false;
+  const auto suffix = word.substr(word.size() - 2);
+  if (suffix != "uf" && suffix != "nf" && suffix != "pf") return false;
+  return all_of(word.begin(), word.end() - 2, [](unsigned char ch) { return isdigit(ch) != 0; });
+}
+
+// Matches whole words only, so SHIELDED, CONTROLLED and BUNDLED are not LEDs and BUF is not a capacitor.
 string inferCategory(const string& description) {
-  const auto text = toLower(description);
-  if (text.find("res ") != string::npos || text.find("resistor") != string::npos ||
-      text.find(" ohm") != string::npos) {
-    return "Resistors";
-  }
-  if (text.find("cap ") != string::npos || text.find("capacitor") != string::npos ||
-      text.find("uf") != string::npos || text.find("nf") != string::npos) {
-    return "Capacitors";
-  }
-  if (text.find("led") != string::npos) {
-    return "Indicators";
-  }
-  if (text.find("conn") != string::npos || text.find("header") != string::npos) {
-    return "Connectors";
-  }
-  if (text.find("ic ") != string::npos || text.find("mcu") != string::npos ||
-      text.find("microcontroller") != string::npos) {
-    return "Integrated Circuits";
-  }
-  if (text.find("inductor") != string::npos || text.find("fixed ind") != string::npos) {
+  const auto words = descriptionWords(description);
+  const auto hasWord = [&](initializer_list<const char*> candidates) {
+    return any_of(words.begin(), words.end(), [&](const string& word) {
+      return any_of(candidates.begin(), candidates.end(), [&](const char* candidate) { return word == candidate; });
+    });
+  };
+  // A ferrite bead is rated in ohms but is an inductor-class part, not a resistor.
+  if (hasWord({"ferrite", "bead", "beads"})) {
     return "Inductors";
   }
-  if (text.find("fuse") != string::npos) {
+  if (hasWord({"res", "resistor", "resistors", "ohm", "ohms"})) {
+    return "Resistors";
+  }
+  if (hasWord({"cap", "capacitor", "capacitors"}) || any_of(words.begin(), words.end(), isCapacitanceWord)) {
+    return "Capacitors";
+  }
+  if (hasWord({"led", "leds"})) {
+    return "Indicators";
+  }
+  if (hasWord({"conn", "connector", "connectors", "header", "headers"})) {
+    return "Connectors";
+  }
+  if (hasWord({"ic", "ics", "mcu", "microcontroller", "microcontrollers"})) {
+    return "Integrated Circuits";
+  }
+  const bool fixedInductor = [&] {
+    for (size_t index = 0; index + 1 < words.size(); ++index) {
+      if (words[index] == "fixed" && words[index + 1] == "ind") return true;
+    }
+    return false;
+  }();
+  if (hasWord({"inductor", "inductors"}) || fixedInductor) {
+    return "Inductors";
+  }
+  if (hasWord({"fuse", "fuses"})) {
     return "Fuses";
   }
-  if (text.find("diode") != string::npos || text.find("rectifier") != string::npos) {
+  if (hasWord({"diode", "diodes", "rectifier", "rectifiers"})) {
     return "Diodes";
   }
-  if (text.find("switch") != string::npos) {
+  if (hasWord({"switch", "switches"})) {
     return "Switches";
   }
   return "Unsorted";
@@ -264,7 +299,7 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
 
 CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryItem>& existingItems) {
   CsvImportResult result;
-  if (text.size() > kMaximumImportBytes) {
+  if (text.size() > kMaximumCsvInputBytes) {
     result.error = "CSV import exceeds the 25 MiB safety limit";
     return result;
   }
@@ -333,33 +368,10 @@ CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryIt
 }
 
 CsvImportResult loadDigiKeyCsvFile(const filesystem::path& path, const vector<InventoryItem>& existingItems) {
-  error_code error;
-  const auto size = filesystem::file_size(path, error);
-  if (error) {
-    CsvImportResult result;
-    result.error = "Unable to inspect CSV file";
-    return result;
-  }
-  if (size > kMaximumImportBytes) {
-    CsvImportResult result;
-    result.error = "CSV import exceeds the 25 MiB safety limit";
-    return result;
-  }
-  ifstream input(path, ios::binary);
-  if (!input) {
-    CsvImportResult result;
-    result.error = "Unable to open CSV file";
-    return result;
-  }
-
-  ostringstream buffer;
-  buffer << input.rdbuf();
-  if (input.bad()) {
-    CsvImportResult result;
-    result.error = "Unable to read CSV file";
-    return result;
-  }
-  return parseDigiKeyCsvText(buffer.str(), existingItems);
+  string decoded;
+  CsvImportResult result;
+  if (!readCsvFile(path, "CSV", decoded, result.error)) return result;
+  return parseDigiKeyCsvText(decoded, existingItems);
 }
 
 void mergeImportedMetadata(InventoryItem& target, const InventoryItem& source) {

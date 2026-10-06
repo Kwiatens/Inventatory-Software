@@ -10,11 +10,7 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
-#include <chrono>
 #include <ctime>
-#include <future>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -31,26 +27,16 @@ bool App::printWireLabel(const string& text) {
     openSettings(SettingsCategory::Printer);
     return false;
   }
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    setMessage("Printer unavailable while the workspace is changing", 4);
-    return false;
-  }
-  if (printerWorkCompletion_ != nullptr) {
-    setMessage("A printer job is already running; try again shortly", 3);
-    return false;
-  }
-  PrinterWork work;
-  work.kind = PrinterWorkKind::PrintWire;
-  work.workspaceGeneration = context->generation;
-  work.printerName = printerService_.configuredPrinter();
-  work.text = text;
-  if (!enqueuePrinterWork(move(work))) {
-    setMessage("Printer request queue is full; try again shortly", 4);
-    return false;
-  }
-  setMessage("Printer job queued", 3);
-  return true;
+  auto work = beginPrinterJob(PrinterWorkKind::PrintWire);
+  if (!work) return false;
+  work->text = text;
+  return queuePrinterJob(move(*work));
+}
+
+void App::publishConfiguredPrinter() {
+  const string name = printerService_.configuredPrinter();
+  lock_guard<mutex> lock(quickLabelMutex_);
+  configuredPrinterSnapshot_ = name;
 }
 
 void App::storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result,
@@ -95,6 +81,7 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
                                 DeviceQuickLabelPrintResult& result) {
   result.requestId = request.requestId;
   string text;
+  string printerName;
   QuickLabelPrintCacheIdentity identity;
   identity.request = request;
   identity.deviceId = deviceId;
@@ -121,6 +108,10 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
     } else {
       text = settings_.quickLabelPresets[static_cast<size_t>(request.presetIndex - 1)];
     }
+    // printer.conf belongs to the active workspace. The app-settings copy can still describe the
+    // previously selected workspace during a switch. This runs on a worker thread, so it reads the
+    // snapshot the UI thread publishes rather than the UI-owned printer service.
+    printerName = configuredPrinterSnapshot_;
   }
 
   if (!result.status.empty()) {
@@ -128,9 +119,6 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
     return false;
   }
 
-  // printer.conf belongs to the active workspace. The app-settings copy can
-  // still describe the previously selected workspace during a switch.
-  string printerName = printerService_.configuredPrinter();
   if (trim(printerName).empty()) {
     result = {request.requestId, "failed", "printer_unconfigured", "No printer configured"};
   } else {
@@ -180,14 +168,14 @@ void App::openStockFilterPanel() {
   if (inputMode_ == InputMode::StockFilter) {
     stockDateFilterSubmenuOpen_ = false;
     inputMode_ = InputMode::None;
-    focusedTarget_ = -1;
+    focusedTargetId_.clear();
     dirty_ = true;
     return;
   }
   inputMode_ = InputMode::StockFilter;
   stockDateFilterSubmenuOpen_ = false;
   stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   dirty_ = true;
 }
 
@@ -223,10 +211,30 @@ void App::applyStockSortOrder(StockSortOrder order) {
 void App::resetStockFilters() {
   resetStockFilterState(stockDateFilter_, stockSortOrder_, stockFilterSelection_, stockDateFilterSubmenuOpen_);
   inputMode_ = InputMode::None;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   syncSelectionToFilter();
   setMessage("Stock filters reset", 2);
   dirty_ = true;
+}
+
+void App::activateStockFilterMenuItem(int index) {
+  switch (stockFilterMenuItemAt(index)) {
+    case StockFilterMenuItem::Date:
+      openStockDateFilterSubmenu();
+      break;
+    case StockFilterMenuItem::Quantity:
+      applyStockSortOrder(StockSortOrder::Quantity);
+      break;
+    case StockFilterMenuItem::Az:
+      applyStockSortOrder(StockSortOrder::Az);
+      break;
+    case StockFilterMenuItem::Za:
+      applyStockSortOrder(StockSortOrder::Za);
+      break;
+    case StockFilterMenuItem::Reset:
+      resetStockFilters();
+      break;
+  }
 }
 
 void App::handleStockFilterKey(const KeyEvent& key) {
@@ -239,23 +247,7 @@ void App::handleStockFilterKey(const KeyEvent& key) {
     if (stockDateFilterSubmenuOpen_) {
       applyStockDateFilter(stockDateFilterAt(stockFilterSelection_));
     } else {
-      switch (stockFilterMenuItemAt(stockFilterSelection_)) {
-        case StockFilterMenuItem::Date:
-          openStockDateFilterSubmenu();
-          break;
-        case StockFilterMenuItem::Quantity:
-          applyStockSortOrder(StockSortOrder::Quantity);
-          break;
-        case StockFilterMenuItem::Az:
-          applyStockSortOrder(StockSortOrder::Az);
-          break;
-        case StockFilterMenuItem::Za:
-          applyStockSortOrder(StockSortOrder::Za);
-          break;
-        case StockFilterMenuItem::Reset:
-          resetStockFilters();
-          break;
-      }
+      activateStockFilterMenuItem(stockFilterSelection_);
     }
     return;
   } else if (key.type == KeyType::Escape || (key.type == KeyType::Character && key.ch == 'f')) {
@@ -266,24 +258,7 @@ void App::handleStockFilterKey(const KeyEvent& key) {
     stockDateFilterSubmenuOpen_ = false;
     stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
   } else if (key.type == KeyType::Character && key.ch >= '1' && key.ch <= '5' && !stockDateFilterSubmenuOpen_) {
-    const auto choice = key.ch - '1';
-    switch (stockFilterMenuItemAt(choice)) {
-      case StockFilterMenuItem::Date:
-        openStockDateFilterSubmenu();
-        break;
-      case StockFilterMenuItem::Quantity:
-        applyStockSortOrder(StockSortOrder::Quantity);
-        break;
-      case StockFilterMenuItem::Az:
-        applyStockSortOrder(StockSortOrder::Az);
-        break;
-      case StockFilterMenuItem::Za:
-        applyStockSortOrder(StockSortOrder::Za);
-        break;
-      case StockFilterMenuItem::Reset:
-        resetStockFilters();
-        break;
-    }
+    activateStockFilterMenuItem(key.ch - '1');
     return;
   } else {
     return;

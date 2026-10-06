@@ -10,19 +10,10 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
-#include <chrono>
 #include <ctime>
-#include <fstream>
-#include <future>
-#include <limits>
-#include <map>
 #include <memory>
-#include <mutex>
 #include <numeric>
-#include <sstream>
 #include <system_error>
-#include <unordered_set>
 
 namespace inventatory {
 
@@ -132,13 +123,6 @@ bool App::saveBomProjects() {
   return saved;
 }
 
-void App::openBomProjects() {
-  bomView_ = BomView::List;
-  bomDeductPrompt_ = false;
-  bomProjectSelection_ = bomProjects_.empty() ? 0 : min(bomProjectSelection_, bomProjects_.size() - 1);
-  changePage(Page::Projects);
-}
-
 void App::beginBomProject(const string& bomText, const string& name, const filesystem::path& sourcePath) {
   bomFile_ = parseKicadBomText(bomText, name);
   if (!bomFile_.ok) {
@@ -151,7 +135,7 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   BomProject project;
   project.id = "bom-" + makeId().substr(0, 12);
   project.name = name;
-  project.sourcePath = sourcePath.string();
+  project.sourcePath = sourcePath.u8string();
   project.boards = 1;
   project.createdAt = time(nullptr);
   project.lastOpened = project.createdAt;
@@ -377,6 +361,7 @@ void App::beginBomRestock() {
   }
   bomRestockItemId_ = itemId;
   inputBuffer_ = to_string(max(1, match.needed - match.available));
+  inputReplaceOnType_ = true;
   inputMode_ = InputMode::BomRestock;
   setMessage("Enter received quantity; default is the shortage", 4);
   dirty_ = true;

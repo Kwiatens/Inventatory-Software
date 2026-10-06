@@ -7,11 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cmath>
 #include <ctime>
-#include <iomanip>
-#include <limits>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -203,44 +199,6 @@ void App::handleStockKey(const KeyEvent& key) {
                                          : "https://www.digikey.com/en/products/result?keywords=" + item->digikeyPartNumber;
           openCurrentUrl(digiKeySearch, "DigiKey");
         }
-        break;
-      case 'r':
-        {
-          InventoryStore loadedStore;
-          vector<InventoryHistoryPoint> loadedHistory;
-          if (!loadedStore.load(inventoryPath_)) {
-            persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
-            setMessage(persistenceError_, 6);
-            break;
-          }
-          if (!loadInventoryHistory(inventoryPath_, loadedHistory)) {
-            inventoryRecoveryRequired_ = true;
-            inventoryRecoveryDetail_ = "Unable to reload inventory history: " + inventoryPath_.string();
-            persistenceError_ = inventoryRecoveryDetail_ + ". The original history was preserved.";
-            setMessage(persistenceError_, 6);
-            break;
-          }
-          if (loadedHistory.empty()) {
-            appendInventoryHistory(loadedHistory,
-                                   makeInventoryHistoryPoint(loadedStore.items(), settings_.lowStockThreshold));
-          }
-          if (!saveInventoryHistory(inventoryPath_, loadedHistory)) {
-            inventoryRecoveryRequired_ = true;
-            inventoryRecoveryDetail_ = "Unable to save the reloaded inventory history: " + inventoryPath_.string();
-            persistenceError_ = inventoryRecoveryDetail_ + ". The original history was preserved.";
-            setMessage(persistenceError_, 6);
-            break;
-          }
-          refreshInventoryCommits();
-          if (inventoryRecoveryRequired_) break;
-          store_ = move(loadedStore);
-          inventoryHistory_ = move(loadedHistory);
-          persistedStore_ = store_;
-          persistedStoreValid_ = true;
-        }
-        refreshInventoryMovements();
-        syncSelectionToFilter();
-        setMessage("Inventory refreshed", 2);
         break;
       case 'p':
         printSelectedLabel();

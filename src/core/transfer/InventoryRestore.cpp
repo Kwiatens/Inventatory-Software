@@ -1,7 +1,5 @@
 // Inventatory - Inventory restore activation workflow.
 
-// Inventatory - Inventory export and backup/restore workflows.
-
 #include "core/transfer/InventoryTransferPrivate.h"
 
 #include "app/settings/AppSettings.h"
@@ -10,25 +8,12 @@
 #include "label_printer/core/LabelPrinter.h"
 
 #include <algorithm>
-#include <array>
-#include <chrono>
-#include <cstddef>
-#include <cstdint>
-#include <cctype>
 #include <exception>
-#include <fstream>
-#include <iomanip>
-#include <limits>
-#include <map>
-#include <set>
-#include <sstream>
-#include <thread>
 #include <system_error>
 #include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <bcrypt.h>
 #else
 #include <unistd.h>
 #endif
@@ -38,13 +23,33 @@ using namespace std;
 
 using namespace inventory_transfer_detail;
 
-bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
-                              const filesystem::path& appSettingsPath, string& error,
-                              const InventoryTransferTestHooks* testHooks,
-                              bool* replacementWorkspaceActiveOnFailure) {
+namespace {
+
+// `recordedDirectory` is the data directory as the user named it; it is what the restored settings
+// record, even when the work is done on the folder a symbolic link resolves to.
+bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
+                                  const filesystem::path& recordedDirectory, const filesystem::path& appSettingsPath,
+                                  string& error, const InventoryTransferTestHooks* testHooks,
+                                  bool* replacementWorkspaceActiveOnFailure) {
   try {
   error.clear();
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
+#ifndef _WIN32
+  {
+    // Activation renames the data folder itself, which for a symbolic link would move the link instead
+    // of the data. Work on the folder the link names; the link keeps pointing at the restored workspace.
+    error_code linkError;
+    if (filesystem::is_symlink(destinationDirectory, linkError) && !linkError) {
+      const auto resolved = filesystem::canonical(destinationDirectory, linkError);
+      if (linkError || !filesystem::is_directory(resolved, linkError) || linkError) {
+        error = "Restore destination is a link that does not lead to a folder";
+        return false;
+      }
+      return restoreInventatoryBackupImpl(backupDirectory, resolved, recordedDirectory, appSettingsPath, error,
+                                          testHooks, replacementWorkspaceActiveOnFailure);
+    }
+  }
+#endif
   const TransferOps ops{testHooks};
   bool overlap = false;
   if (!pathsOverlap(backupDirectory, destinationDirectory, overlap, error)) return false;
@@ -82,18 +87,20 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
-  if (destinationExists && (isLinkedOrReparseArtifact(destinationDirectory, filesystemError) ||
-                            !filesystem::is_directory(destinationDirectory, filesystemError))) {
-    error = "Restore destination is not a directory";
+  if (destinationExists && isLinkedOrReparseArtifact(destinationDirectory, filesystemError)) {
+    error = "Restore destination must not be a link or reparse point";
     return false;
   }
   if (filesystemError) {
     error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
-  if (destinationExists &&
-      (isLinkedOrReparseArtifact(destinationDirectory, filesystemError) || filesystemError)) {
-    error = "Restore destination must not be a link or reparse point";
+  if (destinationExists && !filesystem::is_directory(destinationDirectory, filesystemError)) {
+    error = "Restore destination is not a directory";
+    return false;
+  }
+  if (filesystemError) {
+    error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
   // Restore replaces only Inventatory's managed files. Refuse up front, before
@@ -167,70 +174,54 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   // leave the on-disk workspace in an indeterminate state unless rollback
   // completes, so callers must keep dependent services stopped.
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = true;
-  journal.state = "protected";
-  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
+  const auto failWithRollback = [&](const string& primary) {
     string rollbackError;
     const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
     if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
+    error = primary + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
     return false;
-  }
+  };
+  journal.state = "protected";
+  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
   // Carry every unmanaged entry over by renaming it into the staged workspace
   // (no copy, no delete) so the single activation rename below publishes the
   // restored files and the user's own files together. Rollback and recovery
   // move these entries back before discarding staging.
   if (journal.destinationExisted &&
       !moveUnmanagedEntries(journal.oldData, staging, WorkspaceEntrySource::OldWorkspace, ops, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
   journal.state = "activating";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError) ||
       !ops.rename(staging, destinationDirectory, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
   journal.state = "activated";
-  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
 
   AppSettings restoredSettings;
   if (!loadAppSettings(destinationDirectory / "settings.conf", restoredSettings)) {
     primaryError = "Restored settings are invalid";
   } else {
-    restoredSettings.dataDirectory = destinationDirectory;
+    restoredSettings.dataDirectory = recordedDirectory;
+    // Whether the background service is registered, which port the paired scanner uses and whether the
+    // user answered the background prompt describe this computer, not the workspace. They stay as they
+    // are here (or at their defaults on a computer without settings) so the next launch does not register
+    // a startup service nobody agreed to, and the scanner is not moved to another port.
+    AppSettings localSettings;
+    if (journal.settingsExisted) loadAppSettings(appSettingsPath, localSettings);
+    restoredSettings.backgroundServiceEnabled = localSettings.backgroundServiceEnabled;
+    restoredSettings.backgroundConsentAsked = localSettings.backgroundConsentAsked;
+    restoredSettings.deviceServicePort = localSettings.deviceServicePort;
     journal.state = "writing_settings";
     if (!writeRestoreJournal(journalPath, journal, ops, primaryError) ||
         !saveRestoreSettings(appSettingsPath, restoredSettings, ops, primaryError)) {
       if (primaryError.empty()) primaryError = "Unable to activate restored settings";
     }
   }
-  if (!primaryError.empty()) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!primaryError.empty()) return failWithRollback(primaryError);
   journal.state = "settings_activated";
-  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
 
   // The manifest and sanitized settings belong to the bundle, not to the
   // selected data directory. Remove them only after the active DB/settings
@@ -241,28 +232,14 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   if (primaryError.empty() && !validateWorkspaceSettings(appSettingsPath, destinationDirectory, primaryError)) {
     if (primaryError.empty()) primaryError = "Restored application settings could not be validated";
   }
-  if (!primaryError.empty()) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
-  }
+  if (!primaryError.empty()) return failWithRollback(primaryError);
   if (filesystem::exists(destinationDirectory / "manifest.tsv") &&
       !ops.removeAll(destinationDirectory / "manifest.tsv", primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
   if (filesystem::exists(destinationDirectory / "settings.conf") &&
       !ops.removeAll(destinationDirectory / "settings.conf", primaryError)) {
-    string rollbackError;
-    const bool rolledBack = rollbackRestore(journal, ops, rollbackError);
-    if (rolledBack && replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
-    error = primaryError + (rollbackError.empty() ? string() : "; rollback failed: " + rollbackError);
-    return false;
+    return failWithRollback(primaryError);
   }
 
   journal.state = "cleanup_pending";
@@ -278,6 +255,16 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     error = string("Restore error: ") + exception.what();
     return false;
   }
+}
+
+}  // namespace
+
+bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
+                              const filesystem::path& appSettingsPath, string& error,
+                              const InventoryTransferTestHooks* testHooks,
+                              bool* replacementWorkspaceActiveOnFailure) {
+  return restoreInventatoryBackupImpl(backupDirectory, destinationDirectory, destinationDirectory, appSettingsPath,
+                                      error, testHooks, replacementWorkspaceActiveOnFailure);
 }
 
 }  // namespace inventatory

@@ -14,15 +14,10 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 namespace {
 
 int boundedSqliteLimit(size_t limit) {
   return static_cast<int>(min(limit, static_cast<size_t>(numeric_limits<int>::max())));
-}
-
-bool ensureDeviceSyncSchema(SqliteConnection& connection) {
-  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool eventIdentityMatches(SqliteConnection& connection, const string& eventId, const string& deviceId,
@@ -109,7 +104,7 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
            result_code, result_message
     FROM inventatory_device_events
     WHERE device_id=? AND state='completed' AND result_acknowledged=0
-    ORDER BY completed_at, received_at LIMIT ?
+    ORDER BY completed_at, received_at, rowid LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return results;
   sqliteApi().bind_text(statement.stmt, 1, deviceId.c_str(), -1, SQLITE_TRANSIENT);
@@ -137,16 +132,36 @@ vector<DeviceSyncResult> loadResults(SqliteConnection& connection, const string&
   return results;
 }
 
+// Counts the completed events whose result failed, then applies `sql` to them, in one transaction.
+bool changeFailedEvents(const filesystem::path& databasePath, size_t& count, const char* sql) {
+  count = 0;
+  SqliteConnection connection;
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
+      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
+  const auto rollback = [&connection]() {
+    execSql(connection, "ROLLBACK");
+    return false;
+  };
+
+  SqliteStatement countStatement;
+  if (sqliteApi().prepare_v2(connection.db,
+      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
+      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW ||
+      !sqliteSize(countStatement.stmt, 0, count)) {
+    return rollback();
+  }
+  if (!execSql(connection, sql) || !execSql(connection, "COMMIT")) return rollback();
+  return true;
+}
+
 }  // namespace
-#endif
 
 bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSyncRequest& request,
                             DeviceSyncResponse& response, string& error) {
   response = {};
   response.requestId = request.requestId;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     error = "Unable to open the durable device inbox";
     return false;
@@ -168,24 +183,19 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
   }
   response.results = loadResults(connection, request.deviceId, 4);
   return true;
-#else
-  (void)databasePath;
-  (void)request;
-  error = "Inventatory Scan persistence requires SQLite";
-  return false;
-#endif
 }
 
 vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& databasePath, size_t limit) {
   vector<DeviceSyncEvent> events;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return events;
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection)) return events;
   if (limit == 0) return events;
   SqliteStatement statement;
+  // received_at has one-second resolution and a request carries several events, so the arrival order
+  // within a second is the insertion order (rowid), never the device-chosen event id.
   const char* sql = R"SQL(
     SELECT event_id, device_id, event_type, event_code, event_value
-    FROM inventatory_device_events WHERE state='received' ORDER BY received_at, event_id LIMIT ?
+    FROM inventatory_device_events WHERE state='received' ORDER BY received_at, rowid LIMIT ?
   )SQL";
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) return events;
   sqliteApi().bind_int(statement.stmt, 1, boundedSqliteLimit(limit));
@@ -200,18 +210,13 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
     events.push_back(move(event));
   }
   if (stepResult != SQLITE_DONE) events.clear();
-#else
-  (void)databasePath;
-  (void)limit;
-#endif
   return events;
 }
 
 vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path& databasePath, size_t limit) {
   vector<DeviceSyncEventRecord> records;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection)) return records;
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection)) return records;
   if (limit == 0) return records;
   SqliteStatement statement;
   const char* sql = R"SQL(
@@ -241,86 +246,23 @@ vector<DeviceSyncEventRecord> loadDeviceSyncEventRecords(const filesystem::path&
     records.push_back(move(record));
   }
   if (stepResult != SQLITE_DONE) records.clear();
-#else
-  (void)databasePath;
-  (void)limit;
-#endif
   return records;
 }
 
 bool retryFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& retriedCount) {
-  retriedCount = 0;
-#ifdef INVENTATORY_SQLITE_STORAGE
-  SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
-      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
-
-  SqliteStatement countStatement;
-  if (sqliteApi().prepare_v2(connection.db,
-      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
-      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!sqliteSize(countStatement.stmt, 0, retriedCount)) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-
-  if (!execSql(connection, R"SQL(
+  return changeFailedEvents(databasePath, retriedCount, R"SQL(
       UPDATE inventatory_device_events
       SET state='received', result_id='', result_status='', result_existing=0,
           result_item_name='', result_requested_delta=0, result_applied_delta=0,
           result_quantity=0, result_location='', result_code='', result_message='',
           result_acknowledged=0, completed_at=0
       WHERE state='completed' AND result_status='failed'
-    )SQL")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!execSql(connection, "COMMIT")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  return true;
-#else
-  (void)databasePath;
-  return false;
-#endif
+    )SQL");
 }
 
 bool discardFailedDeviceSyncEvents(const filesystem::path& databasePath, size_t& discardedCount) {
-  discardedCount = 0;
-#ifdef INVENTATORY_SQLITE_STORAGE
-  SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureDeviceSyncSchema(connection) ||
-      !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
-
-  SqliteStatement countStatement;
-  if (sqliteApi().prepare_v2(connection.db,
-      "SELECT COUNT(*) FROM inventatory_device_events WHERE state='completed' AND result_status='failed'",
-      -1, &countStatement.stmt, nullptr) != SQLITE_OK || sqliteApi().step(countStatement.stmt) != SQLITE_ROW) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!sqliteSize(countStatement.stmt, 0, discardedCount)) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!execSql(connection,
-               "DELETE FROM inventatory_device_events WHERE state='completed' AND result_status='failed'")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  if (!execSql(connection, "COMMIT")) {
-    execSql(connection, "ROLLBACK");
-    return false;
-  }
-  return true;
-#else
-  (void)databasePath;
-  return false;
-#endif
+  return changeFailedEvents(databasePath, discardedCount,
+                            "DELETE FROM inventatory_device_events WHERE state='completed' AND result_status='failed'");
 }
 
 DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const DeviceLookupRequest& request) {
@@ -332,7 +274,6 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
     return result;
   }
 
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(databasePath, connection)) {
     result.status = "unavailable";
@@ -357,24 +298,19 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
     return result;
   }
   result.status = "not_found";
-#else
-  (void)databasePath;
-  result.status = "unavailable";
-#endif
   return result;
 }
 
 bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& databasePath,
                              const DeviceSyncResult& result, const InventoryStore* previousStore) {
   // Finalize identifiers in the same snapshot that is committed and returned
-  // to the application. InventoryStore::saveWithDeviceEvent() normalizes a
-  // private copy, which is sufficient for SQLite but would otherwise leave a
-  // newly received item without its Inventatory ID/machine code in live memory. The
-  // auto-label path prints from that live item immediately after this call.
+  // to the application. InventoryStore::saveWithCommit() normalizes a
+  // private copy, which would otherwise leave a newly received item without
+  // its Inventatory ID/machine code in live memory. The auto-label path
+  // prints from that live item immediately after this call.
   auto finalized = store;
   ensureInventoryIdentifiers(finalized.items());
 
-#ifdef INVENTATORY_SQLITE_STORAGE
   if (result.eventId.empty()) return false;
   string deviceId = result.deviceId;
   if (deviceId.empty()) {
@@ -388,9 +324,6 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
       return false;
     }
   }
-#else
-  const string deviceId = result.deviceId;
-#endif
 
   DeviceEventCommit commit;
   commit.eventId = result.eventId;

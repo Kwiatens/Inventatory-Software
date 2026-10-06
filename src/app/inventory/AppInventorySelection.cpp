@@ -7,7 +7,6 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <chrono>
 #include <ctime>
 #include <limits>
 #include <string>
@@ -84,10 +83,6 @@ void App::clearMessageIfExpired() {
     messageFlashStartedAt_ = -1;
     dirty_ = true;
   }
-}
-
-void App::markDirty() {
-  dirty_ = true;
 }
 
 string App::stockDateFilterName(StockDateFilter filter) const {

@@ -5,13 +5,11 @@
 
 #include "core/parts/PartDescriptor.h"
 
+#include <ftxui/screen/string.hpp>
+
 #include <algorithm>
-#include <cctype>
 #include <chrono>
-#include <initializer_list>
-#include <limits>
 #include <optional>
-#include <regex>
 #include <sstream>
 
 namespace inventatory {
@@ -140,10 +138,6 @@ ftxui::Color uiDangerBg() {
   return uiAppearanceColor(AppearanceColorRole::DangerBg);
 }
 
-ftxui::Color uiDangerFlashBg() {
-  return uiAppearanceColor(AppearanceColorRole::DangerFlashBg);
-}
-
 ftxui::Color uiMutedColor() {
   return uiMutedText();
 }
@@ -157,14 +151,6 @@ ftxui::Color uiPanelLeftBg() {
 }
 
 ftxui::Color uiPanelRightBg() {
-  return uiSurfaceBg();
-}
-
-ftxui::Color uiRowDarkBg() {
-  return uiSurfaceBg();
-}
-
-ftxui::Color uiRowLightBg() {
   return uiSurfaceBg();
 }
 
@@ -213,13 +199,15 @@ ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg,
   return element;
 }
 
-ftxui::Element bulletLine(const string& label, const string& value, ftxui::Color labelColor,
-                          ftxui::Color valueColor) {
-  return ftxui::hbox({
-      styledText(label, labelColor),
-      styledText(value, valueColor),
-      ftxui::filler(),
-  });
+ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool rightAlign) {
+  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
+  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
+                            : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
+  return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+}
+
+ftxui::Element centered(ftxui::Element element) {
+  return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
 }
 
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor,
@@ -255,29 +243,8 @@ ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg,
                     uiRaisedSurfaceBg());
 }
 
-ftxui::Element statusTextBox(const string& label, bool active) {
-  auto box = styledText(" " + label + " ", active ? uiFocusColor() : uiMutedColor(),
-                        active ? uiActiveSoftBg() : uiSurfaceBg());
-  if (active) box = uiHeaderText(" " + label + " ", uiFocusColor(), uiActiveSoftBg());
-  return box;
-}
-
 bool uiBoxContains(const ftxui::Box& box, int x, int y) {
   return x >= box.x_min && x <= box.x_max && y >= box.y_min && y <= box.y_max;
-}
-
-ftxui::Element quantityBadge(int quantity, int lowStockThreshold, bool selected) {
-  InventoryItem item;
-  item.quantity = quantity;
-  const auto fg = quantity <= 0 ? uiDangerColor()
-                                : (isLowStock(item, lowStockThreshold) ? uiWarnColor() : uiSuccessColor());
-  const auto bg = selected ? uiRowSelectedBg()
-                           : (quantity <= 0 ? uiDangerBg()
-                                            : (isLowStock(item, lowStockThreshold) ? uiWarningBg()
-                                                             : uiRaisedSurfaceBg()));
-  auto badge = uiBodyText(" " + to_string(quantity) + " ", fg, bg);
-  if (selected) badge = badge | ftxui::bold;
-  return badge;
 }
 
 long long uiAnimationTicks() {
@@ -366,14 +333,38 @@ string displayCategory(const string& category) {
   return value;
 }
 
+size_t displayWidth(const string& value) {
+  return static_cast<size_t>(max(0, ftxui::string_width(value)));
+}
+
+string takeCells(const string& value, size_t cells) {
+  // Utf8ToGlyphs yields one entry per terminal cell: a double-width glyph is
+  // followed by an empty entry, and combining marks are merged into their base.
+  const auto glyphs = ftxui::Utf8ToGlyphs(value);
+  string result;
+  size_t used = 0;
+  for (size_t index = 0; index < glyphs.size();) {
+    if (glyphs[index].empty()) {
+      ++index;
+      continue;
+    }
+    const size_t width = index + 1 < glyphs.size() && glyphs[index + 1].empty() ? 2 : 1;
+    if (used + width > cells) break;
+    result += glyphs[index];
+    used += width;
+    index += width;
+  }
+  return result;
+}
+
 string ellipsize(const string& value, size_t maxLength) {
-  if (maxLength == 0 || value.size() <= maxLength) {
+  if (maxLength == 0 || displayWidth(value) <= maxLength) {
     return value;
   }
   if (maxLength <= 3) {
-    return value.substr(0, maxLength);
+    return takeCells(value, maxLength);
   }
-  return value.substr(0, maxLength - 3) + "...";
+  return takeCells(value, maxLength - 3) + "...";
 }
 
 vector<string> wrapText(const string& text, int width) {
@@ -381,27 +372,45 @@ vector<string> wrapText(const string& text, int width) {
   if (width <= 0) {
     return lines;
   }
+  const size_t limit = static_cast<size_t>(width);
 
   istringstream words(text);
   string word;
   string line;
+  size_t lineWidth = 0;
+
+  const auto flushLine = [&] {
+    if (!line.empty()) lines.push_back(move(line));
+    line.clear();
+    lineWidth = 0;
+  };
 
   while (words >> word) {
-    if (static_cast<int>(line.size() + word.size() + 1) > width && !line.empty()) {
-      lines.push_back(line);
-      line.clear();
+    size_t wordWidth = displayWidth(word);
+    // A word wider than the line is split on glyph boundaries instead of overflowing.
+    while (wordWidth > limit) {
+      flushLine();
+      auto head = takeCells(word, limit);
+      if (head.empty()) {
+        // A glyph wider than the whole line: emit it alone rather than looping forever.
+        head = takeCells(word, 2);
+        if (head.empty()) head = word.substr(0, 1);
+      }
+      word.erase(0, head.size());
+      lines.push_back(move(head));
+      wordWidth = displayWidth(word);
     }
-
+    if (word.empty()) continue;
+    if (!line.empty() && lineWidth + wordWidth + 1 > limit) flushLine();
     if (!line.empty()) {
       line.push_back(' ');
+      ++lineWidth;
     }
     line += word;
+    lineWidth += wordWidth;
   }
 
-  if (!line.empty()) {
-    lines.push_back(line);
-  }
-
+  flushLine();
   if (lines.empty()) {
     lines.push_back({});
   }
@@ -418,21 +427,6 @@ string renderTags(const vector<string>& tags) {
     return "-";
   }
   return ellipsize(joinTags(tags), 32);
-}
-
-string renderParameters(const vector<Parameter>& parameters) {
-  if (parameters.empty()) {
-    return "-";
-  }
-
-  ostringstream out;
-  for (size_t index = 0; index < parameters.size(); ++index) {
-    if (index > 0) {
-      out << "; ";
-    }
-    out << parameters[index].name << '=' << parameters[index].value;
-  }
-  return out.str();
 }
 
 string renderUrl(const string& url) {

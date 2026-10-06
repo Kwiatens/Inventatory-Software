@@ -4,14 +4,11 @@
 
 #include "core/parts/PartDescriptor.h"
 #include "ui/shared/AppUiShared.h"
+#include "ui/shared/NumericPrompt.h"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
 #include <ctime>
-#include <iomanip>
 #include <limits>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -42,7 +39,7 @@ void App::beginStocktake() {
   stocktakeCommitPending_ = false;
   selectedPosition_ = 0;
   inputMode_ = InputMode::None;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   syncSelectionToFilter();
   setMessage("Stocktake started · count every part, then press S to finish", 5);
   dirty_ = true;
@@ -56,6 +53,7 @@ void App::beginStocktakeCount() {
     return;
   }
   inputBuffer_.clear();
+  inputReplaceOnType_ = false;
   inputMode_ = InputMode::StocktakeCount;
   setMessage("Enter the physical count for " + item->partName, 4);
   dirty_ = true;
@@ -63,14 +61,11 @@ void App::beginStocktakeCount() {
 
 void App::handleStocktakeCountKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
-    if (isdigit(static_cast<unsigned char>(key.ch)) != 0 && inputBuffer_.size() < 10U) {
-      inputBuffer_.push_back(key.ch);
-      dirty_ = true;
-    }
+    if (numeric_prompt::applyDigit(inputBuffer_, key.ch, inputReplaceOnType_, 10U)) dirty_ = true;
     return;
   }
   if (key.type == KeyType::Backspace) {
-    if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+    numeric_prompt::applyBackspace(inputBuffer_, inputReplaceOnType_);
     dirty_ = true;
     return;
   }

@@ -12,10 +12,7 @@
 #include <ftxui/component/screen_interactive.hpp>
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
 #include <cstdint>
-#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -48,16 +45,11 @@ void App::openSettings(SettingsCategory category) {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value();
+  hasStoredDigiKeySecret_ = credentialPresence(CredentialStore::lookup(kDigiKeySecretName), hasStoredDigiKeySecret_);
   inputBuffer_.clear();
   applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
   if (category == SettingsCategory::Printer) refreshPrinterState();
-}
-
-void App::beginSettingsEdit() {
-  settingsDraft_ = settings_;
-  settingsDirty_ = false;
 }
 
 bool App::settingsDraftHasChanges() const {
@@ -118,8 +110,14 @@ bool App::testStagedDigiKey() {
   config.currency = settingsDraft_.digiKeyCurrency;
   if (stagedDigiKeySecretChanged_) {
     config.clientSecret = stagedDigiKeySecret_;
-  } else if (const auto secret = CredentialStore::read(kDigiKeySecretName); secret.has_value()) {
-    config.clientSecret = *secret;
+  } else {
+    const auto stored = CredentialStore::lookup(kDigiKeySecretName);
+    if (stored.status == CredentialReadStatus::Found && stored.secret.has_value()) {
+      config.clientSecret = *stored.secret;
+    } else if (stored.status == CredentialReadStatus::Unavailable) {
+      setMessage("Secure credential storage is unavailable; the saved DigiKey secret cannot be read", 5);
+      return false;
+    }
   }
   if (!config.valid()) {
     setMessage("Client ID and client secret are required", 4);
@@ -216,7 +214,11 @@ void App::commitSettingsFieldEdit() {
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
     const auto preset = trim(inputBuffer_);
     if (preset.empty() || preset.size() > kQuickLabelPresetTextLimit) {
-      setMessage("Quick labels must contain 1 to 24 characters", 4);
+      // The limit is a wire/storage budget in bytes (the R1 response and settings validation both
+      // measure bytes), so say so: accented letters and symbols take 2 or more.
+      setMessage("Quick labels must be 1 to " + to_string(kQuickLabelPresetTextLimit) +
+                     " bytes of text (accented letters use 2)",
+                 5);
       return;
     }
     if (settingsField_ >= 0 && settingsField_ < static_cast<int>(settingsDraft_.quickLabelPresets.size())) {

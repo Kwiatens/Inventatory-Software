@@ -2,6 +2,7 @@
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/parts/DecimalParse.h"
+#include "core/text/Utf8.h"
 
 #include <algorithm>
 #include <chrono>
@@ -21,54 +22,11 @@ namespace inventatory {
 namespace digikey_detail {
 namespace {
 
-constexpr size_t kMaximumDigiKeyResponseBytes = 4U * 1024U * 1024U;
 std::once_flag gCurlInitialized;
 bool gCurlAvailable = false;
 
 void initializeCurl() {
   gCurlAvailable = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
-}
-
-void appendUtf8(std::string& output, std::uint32_t codePoint) {
-  if (codePoint <= 0x7fU) output.push_back(static_cast<char>(codePoint));
-  else if (codePoint <= 0x7ffU) {
-    output.push_back(static_cast<char>(0xc0U | (codePoint >> 6U)));
-    output.push_back(static_cast<char>(0x80U | (codePoint & 0x3fU)));
-  } else if (codePoint <= 0xffffU) {
-    output.push_back(static_cast<char>(0xe0U | (codePoint >> 12U)));
-    output.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3fU)));
-    output.push_back(static_cast<char>(0x80U | (codePoint & 0x3fU)));
-  } else {
-    output.push_back(static_cast<char>(0xf0U | (codePoint >> 18U)));
-    output.push_back(static_cast<char>(0x80U | ((codePoint >> 12U) & 0x3fU)));
-    output.push_back(static_cast<char>(0x80U | ((codePoint >> 6U) & 0x3fU)));
-    output.push_back(static_cast<char>(0x80U | (codePoint & 0x3fU)));
-  }
-}
-
-bool nextCodePoint(const std::string& input, size_t& offset, std::uint32_t& codePoint) {
-  if (offset >= input.size()) return false;
-  const auto first = static_cast<unsigned char>(input[offset++]);
-  if (first <= 0x7fU) {
-    codePoint = first;
-    return true;
-  }
-  unsigned int continuationCount = 0;
-  if ((first & 0xe0U) == 0xc0U) { codePoint = first & 0x1fU; continuationCount = 1; }
-  else if ((first & 0xf0U) == 0xe0U) { codePoint = first & 0x0fU; continuationCount = 2; }
-  else if ((first & 0xf8U) == 0xf0U) { codePoint = first & 0x07U; continuationCount = 3; }
-  else return false;
-  if (input.size() - offset < continuationCount) return false;
-  for (unsigned int index = 0; index < continuationCount; ++index) {
-    const auto continuation = static_cast<unsigned char>(input[offset++]);
-    if ((continuation & 0xc0U) != 0x80U) return false;
-    codePoint = (codePoint << 6U) | (continuation & 0x3fU);
-  }
-  if ((continuationCount == 1U && codePoint < 0x80U) ||
-      (continuationCount == 2U && codePoint < 0x800U) ||
-      (continuationCount == 3U && codePoint < 0x10000U) || codePoint > 0x10ffffU ||
-      (codePoint >= 0xd800U && codePoint <= 0xdfffU)) return false;
-  return true;
 }
 
 struct CurlResponse {
@@ -101,7 +59,7 @@ size_t receiveHeader(char* data, size_t size, size_t count, void* context) {
     return static_cast<char>(std::tolower(ch));
   });
   if (name != "retry-after") return bytes;
-  std::string value = trimCopy(line.substr(colon + 1U));
+  std::string value = trim(line.substr(colon + 1U));
   if (value.empty() || !std::all_of(value.begin(), value.end(), [](unsigned char ch) { return ch >= '0' && ch <= '9'; })) {
     return bytes;
   }
@@ -157,6 +115,8 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_setopt(handle, CURLOPT_USERAGENT, "Inventatory DigiKey client/1.0");
   curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
   curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 8000L);
+  // Requests run on worker threads next to other libcurl users; never let libcurl install signal handlers.
+  curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
   // DigiKey's API endpoints do not require redirects. Keep the authenticated
   // custom headers bound to the HTTPS origin instead of forwarding them to a
   // redirect target.
@@ -188,8 +148,6 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
 }
 
 }  // namespace
-
-string trimCopy(string value) { return trim(std::move(value)); }
 
 string encodeComponent(const string& value, bool formEncoding) {
   std::ostringstream out;
@@ -233,7 +191,7 @@ wstring widen(const string& value) {
   size_t offset = 0;
   while (offset < value.size()) {
     std::uint32_t codePoint = 0;
-    if (!nextCodePoint(value, offset, codePoint)) return {};
+    if (!nextUtf8CodePoint(value, offset, codePoint)) return {};
     output.push_back(static_cast<wchar_t>(codePoint));
   }
   return output;
@@ -300,7 +258,7 @@ bool appendAuthorizationHeader(std::ostringstream& headers, const string& token,
 }
 
 bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   unsigned long long parsed = 0;
   for (const unsigned char character : trimmed) {
@@ -314,7 +272,7 @@ bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
 }
 
 bool isFiniteDecimal(const string& value, double maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   double parsed = 0.0;
   return parseClassicDecimal(trimmed, parsed) && std::isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;

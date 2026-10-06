@@ -4,6 +4,61 @@ All notable changes to the Inventatory software are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.3] - 2026-10-06
+
+### Security
+- Scan R1: the copied pairing token is kept out of Windows clipboard history and cloud clipboard sync,
+  and is flagged sensitive for `wl-copy` on Linux.
+- Restore, backup, settings, activity and pairing-data writes are now durable (the file and its folder
+  are flushed to disk), and external helper processes run with bounded time and output.
+- Windows: the scanner listener port can no longer be shared with another program.
+
+### Fixed
+- History: reversing a commit can no longer write an invalid snapshot (for example into a deleted
+  rack) that left the database unreadable; commits are validated before they are stored.
+- Scanner stock changes that arrive during an edit, an import or a failed save are kept instead of
+  being overwritten, and pending device events are applied in arrival order.
+- Quantity and rack-number arithmetic saturates instead of overflowing, quantities are parsed
+  strictly, duplicate Inventatory IDs are repaired instead of blocking saves, and an edit no longer
+  keeps a rack slot another part took in the meantime.
+- Restore and backup keep inventory history, reject unsafe or unreadable folders without throwing,
+  keep a linked data folder path, and roll back identically on every failure.
+- Importing: CSV files with a byte order mark, UTF-16 text, or quotes inside quoted cells are read
+  correctly, a reviewed import asks before it is discarded, and DigiKey rows are classified by whole
+  words with the real Package / Case parameter and refreshed tokens.
+- Exports are written atomically (a full disk no longer leaves a truncated file).
+- Part values: the ohm sign and overflowing numbers are handled in value parsing.
+- Scan setup wizard: each step starts empty (the Wi-Fi password no longer carries into the next
+  step), secrets are cleared on every page exit, and R retries saving pairing data.
+- Leaving a screen asks about unsaved changes first; the exit prompt can no longer offer
+  "Exit anyway" after it was cancelled; opening DigiKey setup keeps staged Settings edits; a pending
+  rack move is dropped when opening part details; input is ignored while the resize notice is shown.
+- A Ctrl+Z on Projects undoes a finished build, Enter keeps the page action after a mouse click,
+  the action sheet scrolls and has a clickable Actions control, and typing replaces a prefilled
+  quantity.
+- Wide characters are measured by display width in tables and wrapped text.
+- Printers: failures show one clear line instead of raw output, and unknown Windows printer states are
+  reported as not ready.
+- Linux: the background service starts without a UTF-8 locale, abandoned update download folders are
+  removed, the installer updates an executable whose path ends in a deleted suffix, subprocesses no
+  longer inherit file descriptors, and the DigiKey transport no longer uses signals.
+- Windows: paths and error messages are UTF-8 end to end (environment, file and folder dialogs,
+  case-insensitive backup path comparison), your proxy settings are honoured, transient sharing
+  violations on file replacement are retried, a relative inventory folder is rejected, the uninstaller
+  removes stored credentials and leftovers, the installer ignores other users' processes, and a
+  background service is only force-stopped from the same session.
+- The software update check also checks Inventascan firmware again.
+
+### Changed
+- Faster saves and startup: commit history is validated while streaming and not repeated after a
+  save, an unchanged database is not rewritten at startup, and merged items are looked up by id.
+- The Windows desktop shortcut is left to the installer.
+- About 2,600 lines of dead or duplicated source were removed (legacy scan and quantity queues, unused
+  console API and helpers, redundant includes); behavior is unchanged.
+- Tests: the core test program is split into named tests (`--list`, `--filter`), uses private
+  temporary folders and free ports, and has stronger assertions. CI now also builds with Clang and
+  with AddressSanitizer/UndefinedBehaviorSanitizer and smoke-tests the release binary.
+
 ## [v0.1.2] - 2026-10-05
 
 ### Fixed

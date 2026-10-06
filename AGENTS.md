@@ -107,9 +107,12 @@ ctest --test-dir build-linux-release --output-on-failure
 
 See `docs/linux-support.md` for optional runtime services and installation.
 
-For a focused core test iteration, build and run the `inventatory_tests` target.
-Use `--output-on-failure` so a failing test retains its assertion output. The
-same Release build and CTest sequence is used by
+For a focused core test iteration, build and run the `inventatory_tests` target;
+`inventatory_tests --list` shows its named tests and `--filter <text>` runs only
+the matching ones. Register a new test in the table at the end of
+`tests/inventatory_tests.cpp` under the area it covers, and keep it independent
+of the other tests. Use `--output-on-failure` so a failing test retains its
+assertion output. The same Release build and CTest sequence is used by
 `.github/workflows/release.yml`.
 
 `run.ps1` is the supported convenience launcher for local use. Do not assume

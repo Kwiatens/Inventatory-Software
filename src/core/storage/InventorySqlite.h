@@ -8,7 +8,6 @@
 
 namespace inventatory {
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 struct SqliteApi {
   decltype(&::sqlite3_initialize) initialize = &::sqlite3_initialize;
   decltype(&::sqlite3_open_v2) open_v2 = &::sqlite3_open_v2;
@@ -67,7 +66,13 @@ bool tableColumnExists(SqliteConnection& connection, const string& tableName, co
 // databases must already match the current schema; validation never creates or
 // alters objects.
 constexpr int kInventoryDatabaseSchemaVersion = 1;
+//
+// ensureInventoryDatabaseSchema() is the cheap structural check every entry point runs (version,
+// tables and columns). The row-by-row value checks scan whole tables, so they are separate:
+// validateInventoryDataValues() runs when a workspace is loaded and validateInventoryDatabase()
+// (structure, values, integrity and history) when a database is restored, backed up or switched to.
 bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error = nullptr);
+bool validateInventoryDataValues(SqliteConnection& connection, string* error = nullptr);
 bool validateInventoryDatabase(SqliteConnection& connection, string* error = nullptr);
 
 // sqlite3_column_int()/column_int64() silently coerce and truncate values.
@@ -77,7 +82,5 @@ bool sqliteInt32(sqlite3_stmt* statement, int column, int& value);
 bool sqliteUInt64(sqlite3_stmt* statement, int column, std::uint64_t& value);
 bool sqliteSize(sqlite3_stmt* statement, int column, size_t& value);
 bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value);
-
-#endif
 
 }  // namespace inventatory

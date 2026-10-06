@@ -6,29 +6,18 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "label_printer/core/LabelPrinter.h"
 
 #include <algorithm>
-#include <array>
-#include <chrono>
-#include <cstddef>
 #include <cstdint>
-#include <cctype>
 #include <exception>
-#include <fstream>
-#include <iomanip>
-#include <limits>
-#include <map>
-#include <set>
-#include <sstream>
-#include <thread>
 #include <system_error>
 #include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <bcrypt.h>
 #else
 #include <unistd.h>
 #endif
@@ -43,8 +32,22 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
                              string& error, const InventoryTransferTestHooks* testHooks) {
   error.clear();
   error_code filesystemError;
+#ifndef _WIN32
+  // A data folder that is a symbolic link (a dotfile manager, a folder moved to another disk) is only
+  // read here, so it is followed to the folder it names.
+  if (filesystem::is_symlink(dataDirectory, filesystemError) && !filesystemError) {
+    const auto resolved = filesystem::canonical(dataDirectory, filesystemError);
+    if (filesystemError || !filesystem::is_directory(resolved, filesystemError) || filesystemError) {
+      error = "Inventatory data folder is a link that does not lead to a folder: " + dataDirectory.u8string();
+      return false;
+    }
+    return createInventatoryBackup(resolved, appSettingsPath, destinationDirectory, applicationVersion, error,
+                                   testHooks);
+  }
+  filesystemError.clear();
+#endif
   if (!filesystem::is_directory(dataDirectory, filesystemError) || filesystemError) {
-    error = "Inventatory data folder does not exist: " + dataDirectory.string();
+    error = "Inventatory data folder does not exist: " + dataDirectory.u8string();
     return false;
   }
   if (isLinkedOrReparseArtifact(dataDirectory, filesystemError) || filesystemError) {
@@ -192,6 +195,9 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   // The manifest is written only after every staged file is complete; this
   // validation is read-only and therefore cannot migrate or create the DB.
   if (!validateInventatoryBackup(staging, error)) return fail(error);
+  // The bundle's file names must be on disk before the rename publishes it as a finished backup.
+  string syncError;
+  if (!syncDirectory(staging, &syncError)) return fail("Unable to flush the backup folder: " + syncError);
   if (!ops.rename(staging, destinationDirectory, error)) return fail(error);
   return true;
 }

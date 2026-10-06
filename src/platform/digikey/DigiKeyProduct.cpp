@@ -7,10 +7,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cmath>
-#include <limits>
-#include <regex>
-#include <sstream>
 #include <utility>
 
 namespace inventatory {
@@ -26,25 +22,6 @@ string normalizeParameterKey(const string& value) {
     }
   }
   return normalized;
-}
-
-bool looksLikeFrequencyValue(const string& value) {
-  const auto normalized = normalizeParameterKey(value);
-  return normalized.find("hz") != string::npos;
-}
-
-bool looksLikeInductanceValue(const string& value) {
-  const auto normalized = normalizeParameterKey(value);
-  if (normalized.empty() || normalized.find("hz") != string::npos) {
-    return false;
-  }
-
-  if (normalized.find("uh") != string::npos || normalized.find("nh") != string::npos ||
-      normalized.find("ph") != string::npos || normalized.find("henry") != string::npos) {
-    return true;
-  }
-
-  return normalized.find_first_of("0123456789") != string::npos && !normalized.empty() && normalized.back() == 'h';
 }
 
 optional<string> readParameterText(const JsonPtr& entry, const string& label) {
@@ -114,7 +91,8 @@ bool looksLikePackagingType(const string& value) {
   });
 }
 
-optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names) {
+optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names,
+                                    const function<bool(const string&)>& accept) {
   const auto* entries = asArray(findMember(product, "Parameters") == nullptr ? nullptr : *findMember(product, "Parameters"));
   if (entries == nullptr) {
     return nullopt;
@@ -131,20 +109,28 @@ optional<string> readParameterValue(const JsonPtr& product, initializer_list<con
     return normalized;
   };
 
-  for (const auto& entry : *entries) {
-    const auto label = readFirstMember(entry, {"Parameter", "ParameterText"});
-    const auto value = readParameterText(entry, label.value_or(""));
-    if (!label.has_value() || !value.has_value()) {
-      continue;
-    }
+  // An exact label wins over a loose one: "Package" must not shadow "Package / Case" just because it
+  // comes first in DigiKey's (unordered) parameter list.
+  for (const bool exact : {true, false}) {
+    for (const auto& entry : *entries) {
+      const auto label = readFirstMember(entry, {"Parameter", "ParameterText"});
+      const auto value = readParameterText(entry, label.value_or(""));
+      if (!label.has_value() || !value.has_value()) {
+        continue;
+      }
 
-    const auto normalizedLabel = normalize(*label);
-    for (const auto* name : names) {
-      const auto normalizedNeedle = normalize(name);
-      if (normalizedLabel == normalizedNeedle || normalizedLabel.find(normalizedNeedle) != string::npos ||
-          normalizedNeedle.find(normalizedLabel) != string::npos) {
-        const auto trimmed = trimCopy(*value);
-        if (!trimmed.empty()) {
+      const auto normalizedLabel = normalize(*label);
+      if (normalizedLabel.empty()) {
+        continue;  // a label such as "-" would otherwise match every needle
+      }
+      for (const auto* name : names) {
+        const auto normalizedNeedle = normalize(name);
+        const bool matches = exact ? normalizedLabel == normalizedNeedle
+                                   : normalizedLabel.find(normalizedNeedle) != string::npos ||
+                                         normalizedNeedle.find(normalizedLabel) != string::npos;
+        if (!matches) continue;
+        const auto trimmed = trim(*value);
+        if (!trimmed.empty() && (!accept || accept(trimmed))) {
           return trimmed;
         }
       }

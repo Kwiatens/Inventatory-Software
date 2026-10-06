@@ -54,4 +54,14 @@ const char* physicalValueMatchBandName(PhysicalValueMatchBand band);
 // Recognizes common aliases: "res", "cap", "ind", "freq", etc.
 PhysicalValueType parameterNameToType(const std::string& name);
 
+// Heuristics on free-form parameter text, shared by the DigiKey importer and the label printer.
+namespace value_text {
+
+bool looksLikeFrequencyValue(const std::string& value);
+bool looksLikeInductanceValue(const std::string& value);
+// Finds a value such as "4R7 uH" or "10 mH" in running text and returns it as "4.7uH" or "10mH".
+std::optional<std::string> extractInductance(const std::string& text);
+
+}  // namespace value_text
+
 }  // namespace inventatory

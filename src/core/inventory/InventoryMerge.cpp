@@ -138,6 +138,25 @@ InventoryItem mergeEditedItem(const InventoryItem& base, const InventoryItem& ed
   return merged;
 }
 
+bool releaseConflictingRackPlacement(const InventoryStore& store, InventoryItem& item, vector<string>* notices) {
+  if (item.rackId.empty() && item.rackSlot.empty()) return false;
+  const bool rackExists = any_of(store.racks().begin(), store.racks().end(),
+                                 [&](const InventatoryRack& rack) { return rack.id == item.rackId; });
+  const auto slot = toUpper(trim(item.rackSlot));
+  const bool slotTaken = rackExists && !slot.empty() &&
+                         any_of(store.items().begin(), store.items().end(), [&](const InventoryItem& other) {
+                           return other.id != item.id && other.rackId == item.rackId &&
+                                  toUpper(trim(other.rackSlot)) == slot;
+                         });
+  if (rackExists && !slot.empty() && !slotTaken) return false;
+  addNotice(notices, displayName(item) + ": rack slot " + (slot.empty() ? string("(none)") : slot) +
+                         " is no longer available; the part will be placed again");
+  item.rackId.clear();
+  item.rackSlot.clear();
+  item.rackAssignment = RackAssignmentMode::Automatic;
+  return true;
+}
+
 InventoryStore mergeInventoryChanges(const InventoryStore& base, const InventoryStore& staged,
                                      const InventoryStore& current, QuantityMerge quantity,
                                      vector<string>* notices) {
@@ -168,7 +187,12 @@ InventoryStore mergeInventoryChanges(const InventoryStore& base, const Inventory
     }
   }
 
-  // Items that existed when the work started.
+  // Items that existed when the work started. `merged` still lists the live items in their original
+  // order here; the first item with an id is the one an edit applies to.
+  unordered_map<string, size_t> mergedPosition;
+  for (size_t index = 0; index < merged.items().size(); ++index) {
+    mergedPosition.emplace(merged.items()[index].id, index);
+  }
   unordered_set<string> removedIds;
   for (const auto& baseItem : base.items()) {
     const auto stagedFound = stagedItems.find(baseItem.id);
@@ -189,11 +213,10 @@ InventoryStore mergeInventoryChanges(const InventoryStore& base, const Inventory
       addNotice(notices, displayName(baseItem) + ": changes were not applied because the part was removed in the meantime");
       continue;
     }
-    for (auto& item : merged.items()) {
-      if (item.id != baseItem.id) continue;
+    if (const auto position = mergedPosition.find(baseItem.id); position != mergedPosition.end()) {
+      auto& item = merged.items()[position->second];
       item = mergeEditedItem(baseItem, *stagedItem, *liveItem, quantity, notices);
       touchedItemIds.insert(item.id);
-      break;
     }
   }
   if (!removedIds.empty()) {

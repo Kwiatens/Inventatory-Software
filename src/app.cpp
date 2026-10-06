@@ -14,22 +14,9 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
-#include <chrono>
-#include <cctype>
 #include <cstdlib>
 #include <ctime>
-#include <initializer_list>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
-#include <thread>
-#include <future>
 
 namespace inventatory {
 
@@ -38,7 +25,6 @@ using namespace std;
 App::App(bool startInBackground, BackgroundController& backgroundController)
     : backgroundController_(backgroundController),
       startInBackground_(startInBackground),
-      root_(filesystem::current_path()),
       settingsPath_(appSettingsPath()),
       updateMarkerPath_(appSettingsDirectory() / "update-status.conf"),
       updateNotesPath_(appSettingsDirectory() / "update-notes.md"),
@@ -53,7 +39,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
   if (settingsFileError) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not inspect its application settings: " + settingsPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not inspect its application settings: " + settingsPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". The existing workspace was not changed.";
   } else if (settingsFileExists && !loadedSettings) {
     inventoryRecoveryRequired_ = true;
@@ -62,22 +48,24 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   }
   applyUiAppearance(settings_.appearance);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
-#ifndef _WIN32
+    // A relative folder would resolve against whatever directory the process was started from, so the
+    // interactive app and the background service could open different workspaces.
     if (!settings_.dataDirectory.is_absolute()) {
       inventoryRecoveryRequired_ = true;
+#ifdef _WIN32
+      inventoryRecoveryDetail_ = "The configured inventory folder is not an absolute path";
+#else
       inventoryRecoveryDetail_ = "The configured Linux inventory folder is not an absolute path";
+#endif
       persistenceError_ = inventoryRecoveryDetail_ + ". Choose the folder containing your inventory.";
     } else {
-#endif
     dataPath_ = settings_.dataDirectory;
     inventoryPath_ = dataPath_ / "inventory.db";
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
     quickLabelsPath_ = dataPath_ / "quick_labels.conf";
-#ifndef _WIN32
     }
-#endif
   } else {
     if (loadedSettings) {
       inventoryRecoveryRequired_ = true;
@@ -100,13 +88,14 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       (quickLabelsFileExists &&
        !loadQuickLabels(quickLabelsPath_, settings_.quickLabelPresets, settings_.quickLabelRevision))) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not read Quick Labels settings: " + quickLabelsPath_.string() +
+    inventoryRecoveryDetail_ = "Inventatory could not read Quick Labels settings: " + quickLabelsPath_.u8string() +
                                ". The original file was preserved.";
     persistenceError_ = inventoryRecoveryDetail_;
   }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
-  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
+  hasStoredDigiKeySecret_ =
+      credentialPresence(CredentialStore::lookup("digikey-client-secret"), hasStoredDigiKeySecret_);
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   if (!inventoryRecoveryRequired_) {
     loadState();
@@ -132,14 +121,16 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     }
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
+    publishConfiguredPrinter();
     // Queue the potentially slow Windows spooler probe.  Startup must remain
     // responsive even when a disconnected queue takes seconds to answer.
     refreshPrinterState();
   }
   loadUpdateCompletionMarker();
+  // Update folders abandoned by an earlier run (closed mid-download, crash, installer never started).
+  removeStaleUpdateDownloadDirectories();
   if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion) &&
       !inventoryRecoveryRequired_) {
-    onboardingActive_ = true;
     page_ = Page::Onboarding;
   } else if (updateCompletionPending_ && !startInBackground_ && !inventoryRecoveryRequired_) {
     page_ = Page::Update;

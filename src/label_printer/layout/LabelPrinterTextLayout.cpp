@@ -7,19 +7,8 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cctype>
 #include <cstring>
-#include <cstdint>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <memory>
-#include <regex>
-#include <sstream>
-#include <system_error>
 
 namespace inventatory {
 
@@ -27,26 +16,9 @@ using namespace std;
 
 namespace label_printer_detail {
 
-string uppercaseAscii(string value) {
-  transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-    return static_cast<char>(toupper(ch));
-  });
-  return value;
-}
-
-string lowerAscii(string value) {
-  transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
-  return value;
-}
-
 string shortCode(const string& value, size_t maxLength) {
   return ellipsize(trim(value), maxLength);
 }
-
-string fieldOrBlank(const string& value, size_t maxLength);
-string sanitiseZplFragment(const string& value);
 
 string shortParameterLabel(const string& label) {
   const auto key = normalizeKey(label);
@@ -194,24 +166,6 @@ string shortParameterLabel(const string& label) {
   return trim(label);
 }
 
-string shortValueLine(const string& label, optional<string> value, size_t maxLength) {
-  if (!value) {
-    return {};
-  }
-
-  const auto cleaned = trim(*value);
-  if (cleaned.empty()) {
-    return {};
-  }
-
-  const auto shortLabel = shortParameterLabel(label);
-  if (shortLabel.empty()) {
-    return fieldOrBlank(cleaned, maxLength);
-  }
-
-  return fieldOrBlank(shortLabel + " " + cleaned, maxLength);
-}
-
 string compactDescriptor(const string& value, size_t maxLength) {
   auto cleaned = trim(value);
   if (cleaned.empty()) {
@@ -224,25 +178,6 @@ string compactDescriptor(const string& value, size_t maxLength) {
   }
 
   return ellipsize(cleaned, maxLength);
-}
-
-string dateOnly(time_t value) {
-  const auto ts = nowTimestampString(value);
-  if (ts.size() >= 10) {
-    return ts.substr(0, 10);
-  }
-  return ts;
-}
-
-string compactJoin(const vector<string>& parts, const string& separator) {
-  vector<string> filtered;
-  for (const auto& part : parts) {
-    const auto cleaned = trim(part);
-    if (!cleaned.empty()) {
-      filtered.push_back(cleaned);
-    }
-  }
-  return join(filtered, separator.empty() ? ' ' : separator.front());
 }
 
 string normalizeResistanceValue(string value) {
@@ -277,24 +212,8 @@ string normalizeResistanceValue(string value) {
   return value + u8"\u03A9";
 }
 
-string fieldOrBlank(const string& value, size_t maxLength);
-
 string fitSingleLineLabel(const string& value, size_t maxLength) {
   return fieldOrBlank(value, maxLength);
-}
-
-bool isCompactManufacturerPartNumber(const string& value) {
-  const auto text = trim(value);
-  if (text.empty() || text.size() > 18 || text.find_first_of(" \t") != string::npos) return false;
-  bool hasLetter = false;
-  bool hasDigit = false;
-  for (const auto character : text) {
-    const auto ch = static_cast<unsigned char>(character);
-    if (isalpha(ch)) hasLetter = true;
-    else if (isdigit(ch)) hasDigit = true;
-    else if (character != '-' && character != '_' && character != '.' && character != '+') return false;
-  }
-  return hasLetter && hasDigit;
 }
 
 int estimateFont0Width(const string& text, int height, int width) {
@@ -354,58 +273,6 @@ CableFlagFont cableFlagFont(const string& text) {
   return {28, 16};
 }
 
-vector<string> wrapLabelLines(const string& value, size_t maxWidth, size_t maxLines) {
-  vector<string> lines;
-  if (maxWidth == 0 || maxLines == 0) {
-    return lines;
-  }
-
-  istringstream input(trim(value));
-  string word;
-  string current;
-
-  auto flushCurrent = [&]() {
-    if (!current.empty()) {
-      lines.push_back(current);
-      current.clear();
-    }
-  };
-
-  while (input >> word) {
-    if (word.size() > maxWidth) {
-      word = ellipsize(word, maxWidth);
-    }
-
-    if (current.empty()) {
-      current = word;
-      continue;
-    }
-
-    if (current.size() + 1 + word.size() <= maxWidth) {
-      current.push_back(' ');
-      current += word;
-      continue;
-    }
-
-    flushCurrent();
-    if (lines.size() >= maxLines) {
-      break;
-    }
-    current = word;
-  }
-
-  flushCurrent();
-  if (lines.size() > maxLines) {
-    lines.resize(maxLines);
-  }
-
-  if (!input.eof() && !lines.empty()) {
-    lines.back() = ellipsize(lines.back(), maxWidth);
-  }
-
-  return lines;
-}
-
 string sanitiseZplFragment(const string& value) {
   string output;
   output.reserve(value.size());
@@ -441,20 +308,6 @@ string sanitiseZplFragment(const string& value) {
 
 string fieldOrBlank(const string& value, size_t maxLength) {
   return sanitiseZplFragment(ellipsize(trim(value), maxLength));
-}
-
-string collectLineFromValues(initializer_list<string> values, const string& separator, size_t maxLength) {
-  vector<string> parts;
-  for (const auto& value : values) {
-    const auto cleaned = trim(value);
-    if (!cleaned.empty()) {
-      parts.push_back(cleaned);
-    }
-  }
-  if (parts.empty()) {
-    return {};
-  }
-  return fieldOrBlank(join(parts, separator.empty() ? ' ' : separator.front()), maxLength);
 }
 
 }  // namespace label_printer_detail

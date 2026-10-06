@@ -7,12 +7,7 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
 #include <ctime>
-#include <iomanip>
-#include <limits>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -42,9 +37,9 @@ ftxui::Element App::renderStockUi() const {
   size_t longestPartName = string("Part").size();
   size_t longestCategory = string("Category").size();
   for (const auto& item : store_.items()) {
-    longestPartName = max(longestPartName, item.partName.size());
+    longestPartName = max(longestPartName, displayWidth(item.partName));
     longestQuantity = max(longestQuantity, to_string(item.quantity).size());
-    longestCategory = max(longestCategory, displayCategory(item.category).size());
+    longestCategory = max(longestCategory, displayWidth(displayCategory(item.category)));
   }
   // The separators are positioned from the complete inventory, not just the
   // current filter result, so columns do not jump or truncate a later row.
@@ -129,33 +124,17 @@ ftxui::Element App::renderStockUi() const {
       filterRows.push_back(fullLine("Filter", uiSecondaryText(), uiPanelLeftBg()));
       const vector<string> labels = {"Date of modification", "Sort: quantity", "Sort: A-Z", "Sort: Z-A",
                                     "Reset filters"};
+      static const char* const kFilterTargetIds[] = {"stock.filter.date", "stock.filter.sort.1",
+                                                     "stock.filter.sort.2", "stock.filter.sort.3",
+                                                     "stock.filter.reset"};
       for (size_t index = 0; index < labels.size(); ++index) {
         const bool selected = static_cast<int>(index) == stockFilterSelection_;
         auto row = fullLine(string(selected ? "  > " : "    ") + labels[index],
                             selected ? uiTitleColor() : uiMutedColor(),
                             selected ? uiSelectionBg() : uiPanelLeftBg());
-        switch (stockFilterMenuItemAt(static_cast<int>(index))) {
-          case StockFilterMenuItem::Date:
-            filterRows.push_back(target(row, "stock.filter.date", UiTargetKind::Button,
-                                        [self] { self->openStockDateFilterSubmenu(); }));
-            break;
-          case StockFilterMenuItem::Quantity:
-            filterRows.push_back(target(row, "stock.filter.sort.1", UiTargetKind::Button,
-                                        [self] { self->applyStockSortOrder(StockSortOrder::Quantity); }));
-            break;
-          case StockFilterMenuItem::Az:
-            filterRows.push_back(target(row, "stock.filter.sort.2", UiTargetKind::Button,
-                                        [self] { self->applyStockSortOrder(StockSortOrder::Az); }));
-            break;
-          case StockFilterMenuItem::Za:
-            filterRows.push_back(target(row, "stock.filter.sort.3", UiTargetKind::Button,
-                                        [self] { self->applyStockSortOrder(StockSortOrder::Za); }));
-            break;
-          case StockFilterMenuItem::Reset:
-            filterRows.push_back(target(row, "stock.filter.reset", UiTargetKind::Button,
-                                        [self] { self->resetStockFilters(); }));
-            break;
-        }
+        const int itemIndex = static_cast<int>(index);
+        filterRows.push_back(target(row, kFilterTargetIds[index], UiTargetKind::Button,
+                                    [self, itemIndex] { self->activateStockFilterMenuItem(itemIndex); }));
       }
     }
     filterMenu = ftxui::window(styledText(" Sort / Filter ", uiAccentColor()),
@@ -225,6 +204,7 @@ ftxui::Element App::renderStockUi() const {
                [self] {
                  if (const auto* item = self->selectedItem()) {
                    self->inputBuffer_ = to_string(item->quantity);
+                   self->inputReplaceOnType_ = true;
                    self->inputMode_ = App::InputMode::QuantityAdjust;
                    self->setMessage("Enter the total quantity on hand", 3);
                  }

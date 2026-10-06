@@ -1,0 +1,4 @@
+# Files that Linux executes or parses must keep LF line endings on every checkout, including a Windows
+# checkout with core.autocrlf=true: a CR after a shebang or in a desktop entry breaks them.
+*.sh text eol=lf
+*.desktop text eol=lf

@@ -4,11 +4,9 @@
 
 #include <cctype>
 #include <cstring>
-#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
 
 namespace inventatory::scan_protocol_detail {
 

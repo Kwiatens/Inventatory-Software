@@ -12,8 +12,6 @@
 #include <sstream>
 #include <string_view>
 #include <utility>
-#include <unordered_map>
-#include <unordered_set>
 
 namespace inventatory {
 
@@ -200,6 +198,15 @@ bool containsInsensitive(string_view haystack, string_view needle) {
   loweredHaystack = toLower(move(loweredHaystack));
   loweredNeedle = toLower(move(loweredNeedle));
   return loweredHaystack.find(loweredNeedle) != string::npos;
+}
+
+bool startsWithInsensitive(string_view value, string_view prefix) {
+  return value.size() >= prefix.size() &&
+         toLower(string(value.substr(0, prefix.size()))) == toLower(string(prefix));
+}
+
+bool endsWith(string_view value, string_view suffix) {
+  return value.size() >= suffix.size() && value.substr(value.size() - suffix.size()) == suffix;
 }
 
 }  // namespace inventatory

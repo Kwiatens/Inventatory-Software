@@ -29,7 +29,7 @@ bool App::exportInventory() {
     setMessage("Inventory export failed: " + error, 5);
     return false;
   }
-  setMessage("Exported " + to_string(store_.items().size()) + " inventory parts to " + target.filename().string(), 5);
+  setMessage("Exported " + to_string(store_.items().size()) + " inventory parts to " + target.filename().u8string(), 5);
   return true;
 }
 
@@ -48,7 +48,10 @@ bool App::backupData() {
   replace(stamp.begin(), stamp.end(), ':', '-');
   replace(stamp.begin(), stamp.end(), ' ', '_');
   auto destination = parent / ("Inventatory Backup " + stamp);
-  for (int suffix = 2; filesystem::exists(destination); ++suffix) {
+  for (int suffix = 2;; ++suffix) {
+    // An uninspectable name ends the search; creating the bundle then reports the real problem.
+    error_code existsError;
+    if (!filesystem::exists(destination, existsError) || existsError) break;
     destination = parent / ("Inventatory Backup " + stamp + "-" + to_string(suffix));
   }
 
@@ -61,7 +64,7 @@ bool App::backupData() {
     setMessage("Backup failed: " + error, 5);
     return false;
   }
-  setMessage("Backup created in " + destination.filename().string(), 6);
+  setMessage("Backup created in " + destination.filename().u8string(), 6);
   return true;
 }
 
@@ -106,7 +109,9 @@ bool App::restoreData() {
   replace(stamp.begin(), stamp.end(), ':', '-');
   replace(stamp.begin(), stamp.end(), ' ', '_');
   auto preRestore = dataPath_.parent_path() / ("Inventatory Pre-Restore " + stamp);
-  for (int suffix = 2; filesystem::exists(preRestore); ++suffix) {
+  for (int suffix = 2;; ++suffix) {
+    error_code existsError;
+    if (!filesystem::exists(preRestore, existsError) || existsError) break;
     preRestore = dataPath_.parent_path() / ("Inventatory Pre-Restore " + stamp + "-" + to_string(suffix));
   }
   string error;
@@ -189,7 +194,8 @@ bool App::restoreData() {
                7);
     return false;
   }
-  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
+  hasStoredDigiKeySecret_ =
+      credentialPresence(CredentialStore::lookup("digikey-client-secret"), hasStoredDigiKeySecret_);
   applyUiAppearance(settings_.appearance);
   settingsDirty_ = false;
   restartDeviceService();

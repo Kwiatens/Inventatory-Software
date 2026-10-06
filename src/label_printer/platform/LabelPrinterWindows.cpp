@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 
 #ifdef _WIN32
@@ -26,6 +27,8 @@ using namespace label_printer_detail;
 
 namespace {
 
+string narrowFromWide(const wstring& value);
+
 string windowsErrorText(unsigned long code) {
 #ifdef _WIN32
   if (code == 0) {
@@ -41,19 +44,15 @@ string windowsErrorText(unsigned long code) {
 
   wstring wide(buffer, length);
   LocalFree(buffer);
-  string result;
-  result.reserve(wide.size());
-  for (wchar_t ch : wide) {
+  // The system text ends with "\r\n" and may wrap lines; keep it on one line and convert it as UTF-16
+  // so localized messages are not reduced to '?'.
+  for (wchar_t& ch : wide) {
     if (ch == L'\r' || ch == L'\n') {
-      continue;
-    }
-    if (ch <= 0x7f) {
-      result.push_back(static_cast<char>(ch));
-    } else {
-      result.push_back('?');
+      ch = L' ';
     }
   }
-  return trim(result);
+  const string result = trim(narrowFromWide(wide));
+  return result.empty() ? "Windows error " + to_string(code) : result;
 #else
   (void)code;
   return "Windows error";
@@ -129,6 +128,20 @@ PrinterQueueInfo makePrinterInfo(const wstring& name, const wstring& driver, con
     if (status & PRINTER_STATUS_DOOR_OPEN) {
       statusParts.push_back("Door open");
     }
+    // Flags that only say the printer is working do not make it unready. Any other flag that is set and
+    // not named above (paper jam, user intervention, out of memory, ...) means it needs attention, and
+    // is shown with its value instead of being reported as ready.
+    const DWORD named = PRINTER_STATUS_PAUSED | PRINTER_STATUS_OFFLINE | PRINTER_STATUS_ERROR |
+                        PRINTER_STATUS_PAPER_OUT | PRINTER_STATUS_NOT_AVAILABLE | PRINTER_STATUS_NO_TONER |
+                        PRINTER_STATUS_DOOR_OPEN;
+    const DWORD working = PRINTER_STATUS_PRINTING | PRINTER_STATUS_BUSY | PRINTER_STATUS_WARMING_UP |
+                          PRINTER_STATUS_PROCESSING | PRINTER_STATUS_POWER_SAVE | PRINTER_STATUS_WAITING |
+                          PRINTER_STATUS_INITIALIZING | PRINTER_STATUS_IO_ACTIVE;
+    if (const DWORD unknown = status & ~(named | working)) {
+      char hex[32];
+      snprintf(hex, sizeof(hex), "Needs attention (0x%lX)", static_cast<unsigned long>(unknown));
+      statusParts.push_back(hex);
+    }
     info.isReady = statusParts.empty();
   }
   if (statusParts.empty()) {
@@ -169,7 +182,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
       if (lhs.isDefault != rhs.isDefault) {
         return lhs.isDefault > rhs.isDefault;
       }
-      return lowerAscii(lhs.name) < lowerAscii(rhs.name);
+      return toLower(lhs.name) < toLower(rhs.name);
     });
     return printers;
   }
@@ -268,10 +281,9 @@ class WindowsPrinterBackend final : public PrinterBackend {
         break;
       }
 
-      const auto body = zpl;
       DWORD bytesWritten = 0;
-      if (!WritePrinter(handle, const_cast<char*>(body.data()), static_cast<DWORD>(body.size()), &bytesWritten) ||
-          bytesWritten != body.size()) {
+      if (!WritePrinter(handle, const_cast<char*>(zpl.data()), static_cast<DWORD>(zpl.size()), &bytesWritten) ||
+          bytesWritten != zpl.size()) {
         if (error != nullptr) {
           *error = "Unable to write print data: " + windowsErrorText(GetLastError());
         }

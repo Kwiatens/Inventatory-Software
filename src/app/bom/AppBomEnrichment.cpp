@@ -20,6 +20,14 @@ namespace inventatory {
 using namespace std;
 using namespace app_actions;
 
+void App::clearBomEnrichmentRun() {
+  bomEnrichmentQueue_.clear();
+  bomEnrichmentTotal_ = 0;
+  bomEnrichmentActiveKey_.clear();
+  bomEnrichmentActiveProjectId_.clear();
+  bomEnrichmentClient_.reset();
+}
+
 void App::queueBomEnrichment() {
   bomEnrichmentQueue_.clear();
   bomEnrichmentTotal_ = 0;
@@ -28,9 +36,7 @@ void App::queueBomEnrichment() {
     bomEnrichmentProjectId_.clear();
     ++bomEnrichmentSequence_;
     if (!bomEnrichmentFuture_.valid()) {
-      bomEnrichmentActiveKey_.clear();
-      bomEnrichmentActiveProjectId_.clear();
-      bomEnrichmentClient_.reset();
+      clearBomEnrichmentRun();
     }
     return;
   }
@@ -39,11 +45,8 @@ void App::queueBomEnrichment() {
   // allowed to finish against its captured client, then its project/sequence
   // pair is checked before anything is applied or saved.
   ++bomEnrichmentSequence_;
-  // Silently skipped without credentials, so an offline user never sees an
-  // error they cannot act on.
-  if (!loadDigiKeyConfig().valid()) {
-    return;
-  }
+  // Credentials are looked up by the worker (the credential store can block on a locked keyring) and a
+  // missing configuration ends the run quietly, so an offline user never sees an error they cannot act on.
   if (const auto context = currentWorkspaceContext(); context != nullptr) {
     bomEnrichmentGeneration_ = context->generation;
   } else {
@@ -54,8 +57,8 @@ void App::queueBomEnrichment() {
       continue;
     }
     const auto key = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
-    if (project->enrichment.count(key) != 0) {
-      continue;  // cached with the pinned project
+    if (bomEnrichmentCached(project->enrichment, key)) {
+      continue;  // answered earlier and cached with the pinned project
     }
     if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), key) == bomEnrichmentQueue_.end()) {
       bomEnrichmentQueue_.push_back(key);
@@ -87,20 +90,26 @@ void App::processBomEnrichment() {
         return candidate.id == result.projectId;
       });
       if (targetProject != bomProjects_.end() && !result.key.empty()) {
-        targetProject->enrichment[result.key] = result.suggestion;
+        // A failed lookup stores nothing so the line is retried the next time the project opens.
+        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion)) {
+          targetProject->enrichment[result.key] = *entry;
+        } else {
+          // Drop a stale "-" left behind by earlier versions rather than keep showing it.
+          targetProject->enrichment.erase(result.key);
+        }
         dirty_ = true;
       }
+    }
+    if (result.credentialsMissing) {
+      clearBomEnrichmentRun();
+      return;
     }
     if (result.projectId == bomEnrichmentActiveProjectId_) {
       bomEnrichmentActiveKey_.clear();
       bomEnrichmentActiveProjectId_.clear();
     }
     if (context == nullptr || !workspaceGenerationMatches(context->generation, result.workspaceGeneration)) {
-      bomEnrichmentQueue_.clear();
-      bomEnrichmentTotal_ = 0;
-      bomEnrichmentActiveKey_.clear();
-      bomEnrichmentActiveProjectId_.clear();
-      bomEnrichmentClient_.reset();
+      clearBomEnrichmentRun();
       return;
     }
     if (bomEnrichmentQueue_.empty() && result.requestSequence == bomEnrichmentSequence_) {
@@ -115,11 +124,7 @@ void App::processBomEnrichment() {
   auto* project = activeBomProject();
   if (project == nullptr || !bomAnalysisValid_ || project->id != bomEnrichmentProjectId_) {
     if (!bomEnrichmentFuture_.valid()) {
-      bomEnrichmentQueue_.clear();
-      bomEnrichmentTotal_ = 0;
-      bomEnrichmentActiveKey_.clear();
-      bomEnrichmentActiveProjectId_.clear();
-      bomEnrichmentClient_.reset();
+      clearBomEnrichmentRun();
     }
     return;
   }
@@ -129,14 +134,7 @@ void App::processBomEnrichment() {
   }
 
   if (bomEnrichmentClient_ == nullptr) {
-    const auto config = loadDigiKeyConfig();
-    if (!config.valid()) {
-      bomEnrichmentQueue_.clear();
-      bomEnrichmentTotal_ = 0;
-      bomEnrichmentActiveKey_.clear();
-      return;
-    }
-    bomEnrichmentClient_ = make_unique<DigiKeyApiClient>(config);
+    bomEnrichmentClient_ = make_shared<BomEnrichmentSession>();
   }
 
   const auto key = bomEnrichmentQueue_.front();
@@ -153,19 +151,29 @@ void App::processBomEnrichment() {
   // fetchProductDetails falls back to a keyword search, so a free-form value
   // such as "470uF Radial 8.0mm" resolves as well as a real part number.
   const auto keywords = trim(line->designation + " " + packageFromFootprint(line->footprint));
-  auto* client = bomEnrichmentClient_.get();
+  const auto session = bomEnrichmentClient_;
   const auto generation = bomEnrichmentGeneration_;
   const auto projectId = project->id;
   const auto requestSequence = bomEnrichmentSequence_;
-  bomEnrichmentFuture_ = async(launch::async, [client, key, keywords, projectId, generation, requestSequence] {
+  bomEnrichmentFuture_ = async(launch::async, [session, key, keywords, projectId, generation, requestSequence] {
     string error;
-    if (const auto details = client->fetchProductDetails(keywords, &error)) {
-      const auto suggestion =
-          details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
-      return BomEnrichmentResult{key, suggestion.empty() ? string("-") : suggestion, projectId, generation,
-                                 requestSequence};
+    DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
+    BomEnrichmentResult result{key, {}, BomLookupOutcome::Failed, projectId, generation, requestSequence};
+    if (session->client == nullptr) {
+      const auto config = loadDigiKeyConfig();
+      if (!config.valid()) {
+        result.credentialsMissing = true;
+        return result;
+      }
+      session->client = make_unique<DigiKeyApiClient>(config);
     }
-    return BomEnrichmentResult{key, string("-"), projectId, generation, requestSequence};
+    if (const auto details = session->client->lookupProductDetails(keywords, lookup, &error)) {
+      result.suggestion = details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
+      result.outcome = BomLookupOutcome::Found;
+    } else if (lookup == DigiKeyLookupOutcome::NoMatch) {
+      result.outcome = BomLookupOutcome::NoMatch;
+    }
+    return result;
   });
   dirty_ = true;
 }

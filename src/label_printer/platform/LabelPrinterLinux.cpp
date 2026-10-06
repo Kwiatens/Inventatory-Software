@@ -2,115 +2,31 @@
 
 #include "label_printer/core/LabelPrinterPrivate.h"
 #include "label_printer/platform/CupsStatus.h"
+#include "platform/system/ChildProcess.h"
 
 #include <algorithm>
-#include <cerrno>
-#include <cctype>
-#include <ctime>
+#include <chrono>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <fcntl.h>
-#include <pthread.h>
-#include <signal.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
 namespace inventatory {
 namespace {
 
+// CUPS clients wait on cupsd or a remote server; a deadline keeps the single printer worker from
+// stalling forever behind an unreachable queue.
+constexpr std::chrono::seconds kQueryTimeout{10};
+constexpr std::chrono::seconds kPrintTimeout{30};
+
 bool runCommand(const std::vector<std::string>& arguments, std::string& output) {
   if (arguments.empty()) return false;
-  int descriptors[2]{};
-  if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
-  const auto child = fork();
-  if (child < 0) {
-    close(descriptors[0]);
-    close(descriptors[1]);
-    return false;
-  }
-  if (child == 0) {
-    close(descriptors[0]);
-    if (dup2(descriptors[1], STDOUT_FILENO) < 0 || dup2(descriptors[1], STDERR_FILENO) < 0) _exit(127);
-    close(descriptors[1]);
-    std::vector<char*> argv;
-    argv.reserve(arguments.size() + 1U);
-    for (const auto& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
-    argv.push_back(nullptr);
-    execvp(argv.front(), argv.data());
-    _exit(127);
-  }
-  close(descriptors[1]);
-  output.clear();
-  char buffer[2048];
-  for (;;) {
-    const auto count = read(descriptors[0], buffer, sizeof(buffer));
-    if (count == 0) break;
-    if (count < 0) {
-      if (errno == EINTR) continue;
-      close(descriptors[0]);
-      waitpid(child, nullptr, 0);
-      return false;
-    }
-    if (output.size() + static_cast<size_t>(count) > 64U * 1024U) {
-      close(descriptors[0]);
-      waitpid(child, nullptr, 0);
-      output.clear();
-      return false;
-    }
-    output.append(buffer, static_cast<size_t>(count));
-  }
-  close(descriptors[0]);
-  int status = 0;
-  while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
-
-class SigpipeBlock final {
- public:
-  SigpipeBlock() {
-    sigemptyset(&blocked_);
-    sigaddset(&blocked_, SIGPIPE);
-    valid_ = pthread_sigmask(SIG_BLOCK, &blocked_, &previous_) == 0;
-    if (valid_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0) hadPending_ = sigismember(&pending, SIGPIPE) == 1;
-    }
-  }
-
-  ~SigpipeBlock() {
-    if (!valid_) return;
-    if (!hadPending_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
-        timespec noWait{};
-        sigtimedwait(&blocked_, nullptr, &noWait);
-      }
-    }
-    pthread_sigmask(SIG_SETMASK, &previous_, nullptr);
-  }
-
- private:
-  sigset_t blocked_{};
-  sigset_t previous_{};
-  bool valid_ = false;
-  bool hadPending_ = false;
-};
-
-bool writeAll(int descriptor, const std::string& contents) {
-  SigpipeBlock block;
-  size_t offset = 0;
-  while (offset < contents.size()) {
-    const auto written = write(descriptor, contents.data() + offset, contents.size() - offset);
-    if (written < 0) {
-      if (errno == EINTR) continue;
-      return false;
-    }
-    if (written == 0) return false;
-    offset += static_cast<size_t>(written);
-  }
-  return true;
+  ChildProcessOptions options;
+  options.timeout = kQueryTimeout;
+  options.mergeStderr = true;
+  auto result = runChildProcess(arguments, options);
+  output = std::move(result.output);
+  if (result.outputTooLarge) output.clear();
+  return result.succeeded();
 }
 
 bool validQueueName(const std::string& name) {
@@ -118,13 +34,6 @@ bool validQueueName(const std::string& name) {
   return std::none_of(name.begin(), name.end(), [](unsigned char value) {
     return value == 0 || value == '\r' || value == '\n';
   });
-}
-
-std::string lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-    return static_cast<char>(std::tolower(ch));
-  });
-  return value;
 }
 
 class CupsPrinterBackend final : public PrinterBackend {
@@ -154,7 +63,7 @@ class CupsPrinterBackend final : public PrinterBackend {
     for (auto& printer : printers) printer.isDefault = printer.name == defaultName;
     std::sort(printers.begin(), printers.end(), [](const auto& first, const auto& second) {
       if (first.isDefault != second.isDefault) return first.isDefault > second.isDefault;
-      return lower(first.name) < lower(second.name);
+      return toLower(first.name) < toLower(second.name);
     });
     return printers;
   }
@@ -163,7 +72,8 @@ class CupsPrinterBackend final : public PrinterBackend {
     if (!validQueueName(printerName)) return {false, "No printer configured"};
     std::string output;
     if (!runCommand({"env", "LC_ALL=C", "lpstat", "-p", printerName}, output)) {
-      return {false, output.empty() ? "Unable to query the CUPS printer queue" : output};
+      const auto reason = firstOutputLine(output);
+      return {false, reason.empty() ? "Unable to query the CUPS printer queue" : reason};
     }
     size_t begin = 0;
     while (begin < output.size()) {
@@ -185,40 +95,19 @@ class CupsPrinterBackend final : public PrinterBackend {
       if (error != nullptr) *error = "Printer job details are invalid";
       return false;
     }
-    int inputPipe[2]{};
-    if (pipe2(inputPipe, O_CLOEXEC) != 0) {
-      if (error != nullptr) *error = "Unable to create a CUPS printer job";
-      return false;
-    }
-    const auto child = fork();
-    if (child < 0) {
-      close(inputPipe[0]);
-      close(inputPipe[1]);
-      if (error != nullptr) *error = "Unable to start the CUPS printer job";
-      return false;
-    }
-    if (child == 0) {
-      close(inputPipe[1]);
-      if (dup2(inputPipe[0], STDIN_FILENO) < 0) _exit(127);
-      close(inputPipe[0]);
-      const int nullDevice = open("/dev/null", O_WRONLY);
-      if (nullDevice >= 0) {
-        dup2(nullDevice, STDOUT_FILENO);
-        dup2(nullDevice, STDERR_FILENO);
-        close(nullDevice);
-      }
-      execlp("lp", "lp", "-d", printerName.c_str(), "-o", "raw", "-t",
-             (jobName.empty() ? "Inventatory label" : jobName.c_str()), static_cast<char*>(nullptr));
-      _exit(127);
-    }
-    close(inputPipe[0]);
-    const bool wrote = writeAll(inputPipe[1], zpl);
-    close(inputPipe[1]);
-    int status = 0;
-    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-    const bool accepted = wrote && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    ChildProcessOptions options;
+    options.timeout = kPrintTimeout;
+    options.hasInput = true;
+    options.input = zpl;
+    const auto result = runChildProcess({"lp", "-d", printerName, "-o", "raw", "-t",
+                                         jobName.empty() ? std::string("Inventatory label") : jobName},
+                                        options);
+    const bool wrote = result.started && !result.inputFailed;
+    const bool accepted = result.succeeded();
     if (!accepted && error != nullptr) {
-      *error = wrote ? "CUPS did not accept the raw label job" : "The CUPS printer queue closed the label job early";
+      if (result.timedOut) *error = "The CUPS printer queue did not accept the label job in time";
+      else if (!result.started) *error = "Unable to start the CUPS printer job";
+      else *error = wrote ? "CUPS did not accept the raw label job" : "The CUPS printer queue closed the label job early";
     }
     return accepted;
   }

@@ -5,6 +5,7 @@
 #include "platform/system/UpdateService.h"
 
 #include "core/transfer/InventoryTransferPrivate.h"
+#include "platform/system/Environment.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -13,6 +14,7 @@
 #else
 #include <curl/curl.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -22,6 +24,7 @@
 #include <cerrno>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -337,10 +340,25 @@ bool jsonContainsStringValue(const std::string& json, const std::string& key, co
 }
 
 #ifdef _WIN32
+#ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
+#define WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY 4
+#endif
+
+// Automatic proxy resolution follows the user's proxy configuration (WPAD/PAC); fall back to the
+// machine-wide WinHTTP proxy where it is not available.
+HINTERNET openUpdaterWinHttpSession() {
+  HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  if (session == nullptr) {
+    session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  }
+  return session;
+}
+
 std::string fetchLatestReleaseJson(const std::string& repository) {
   if (!validRepository(repository)) return {};
-  HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  HINTERNET session = openUpdaterWinHttpSession();
   if (session == nullptr) return {};
   WinHttpSetTimeouts(session, 5000, 5000, 5000, 8000);
   HINTERNET connection = WinHttpConnect(session, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
@@ -476,7 +494,9 @@ UpdateCheckResult latestRelease(const std::string& repository, const std::string
 }  // namespace
 
 bool isUpdateCheckDue(bool enabled, std::int64_t lastCheckUnixSeconds, std::int64_t nowUnixSeconds) {
-  return enabled && (lastCheckUnixSeconds <= 0 || nowUnixSeconds - lastCheckUnixSeconds >= kUpdateCheckIntervalSeconds);
+  // A stored time in the future (the clock was once ahead) cannot be trusted, so the check is due.
+  return enabled && (lastCheckUnixSeconds <= 0 || lastCheckUnixSeconds > nowUnixSeconds ||
+                     nowUnixSeconds - lastCheckUnixSeconds >= kUpdateCheckIntervalSeconds);
 }
 
 bool isVersionNewer(const std::string& candidate, const std::string& installed) {
@@ -672,8 +692,7 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
     error = "Could not create the update download folder";
     return false;
   }
-  HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  HINTERNET session = openUpdaterWinHttpSession();
   if (session == nullptr) { error = "Could not start the update download"; return false; }
   WinHttpSetTimeouts(session, 5000, 5000, 5000, 15000);
   HINTERNET connection = WinHttpConnect(session, wideHost.c_str(), components.nPort, 0);
@@ -905,6 +924,72 @@ bool verifyReleaseFileSha256(const std::filesystem::path& path, const std::strin
   return true;
 }
 
+std::filesystem::path createUpdateDownloadDirectory(const std::filesystem::path& parent) {
+  std::error_code filesystemError;
+  const auto base = parent.empty() ? std::filesystem::temp_directory_path(filesystemError) : parent;
+  if (filesystemError || base.empty()) return {};
+#ifdef _WIN32
+  const auto name = "Inventatory-update-" + std::to_string(static_cast<unsigned long long>(GetCurrentProcessId())) + "-" +
+                    std::to_string(static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+  const auto directory = base / name;
+  // create_directory reports false for a folder that already exists, which is never reused.
+  if (!std::filesystem::create_directory(directory, filesystemError) || filesystemError) return {};
+  return directory;
+#else
+  // mkdtemp picks an unused name and creates it with mode 0700, so another local user can neither
+  // pre-create nor read the downloaded package.
+  auto pattern = (base / "Inventatory-update-XXXXXX").string();
+  pattern.push_back('\0');
+  if (mkdtemp(pattern.data()) == nullptr) return {};
+  pattern.pop_back();
+  return std::filesystem::path(pattern);
+#endif
+}
+
+std::size_t removeStaleUpdateDownloadDirectories(const std::filesystem::path& parent,
+                                                 std::chrono::seconds minimumAge) {
+  constexpr char kPrefix[] = "Inventatory-update-";
+  std::error_code filesystemError;
+  const auto base = parent.empty() ? std::filesystem::temp_directory_path(filesystemError) : parent;
+  if (filesystemError || base.empty()) return 0;
+  std::filesystem::directory_iterator iterator(base, std::filesystem::directory_options::skip_permission_denied,
+                                               filesystemError);
+  if (filesystemError) return 0;
+  const auto now = std::filesystem::file_time_type::clock::now();
+  std::size_t removed = 0;
+  for (; iterator != std::filesystem::directory_iterator(); iterator.increment(filesystemError)) {
+    if (filesystemError) break;
+    const auto& entry = *iterator;
+    const auto name = entry.path().filename().string();
+    if (name.size() <= sizeof(kPrefix) - 1U || name.compare(0, sizeof(kPrefix) - 1U, kPrefix) != 0) continue;
+    // A symbolic link, or anything that is not a plain folder, is never followed or removed.
+    std::error_code entryError;
+    const auto status = entry.symlink_status(entryError);
+    if (entryError || !std::filesystem::is_directory(status)) continue;
+#ifndef _WIN32
+    struct stat information{};
+    if (lstat(entry.path().c_str(), &information) != 0 || information.st_uid != geteuid()) continue;
+#endif
+    const auto modified = std::filesystem::last_write_time(entry.path(), entryError);
+    if (entryError || now - modified < minimumAge) continue;
+    std::filesystem::remove_all(entry.path(), entryError);
+    if (!entryError) ++removed;
+  }
+  return removed;
+}
+
+bool isInstallDirectoryWritable(const std::filesystem::path& executable) {
+#ifdef _WIN32
+  (void)executable;
+  return true;
+#else
+  if (executable.empty()) return true;
+  auto directory = executable.parent_path();
+  if (directory.empty()) directory = ".";
+  return access(directory.c_str(), W_OK | X_OK) == 0;
+#endif
+}
+
 bool launchUpdateInstaller(const std::filesystem::path& installerPath,
                            const std::filesystem::path& archivePath,
                            const std::filesystem::path& checksumsPath,
@@ -1025,9 +1110,8 @@ void relaunchAfterUpdate(const std::filesystem::path& markerPath) {
 #ifdef _WIN32
   (void)markerPath;
 #else
-  std::error_code filesystemError;
-  const auto executable = std::filesystem::read_symlink("/proc/self/exe", filesystemError);
-  if (filesystemError || executable.empty()) return;
+  const auto executable = currentExecutablePath();
+  if (executable.empty()) return;
   const auto exe = executable.u8string();
   const auto marker = markerPath.u8string();
   // The installer waits while /proc/<pid>/exe still names the Inventatory

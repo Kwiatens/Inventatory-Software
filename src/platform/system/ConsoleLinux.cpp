@@ -2,8 +2,12 @@
 
 #include "platform/system/Console.h"
 
+#include "platform/system/ChildProcess.h"
+#include "platform/system/Environment.h"
+
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -18,7 +22,6 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <spawn.h>
-#include <sys/ioctl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -46,53 +49,19 @@ bool executableAvailable(const char* name) {
   return false;
 }
 
+// Runs a desktop helper (the zenity dialogs) and captures its standard output. The helper's own
+// warnings (GTK, dconf, a missing display) are discarded instead of being printed over the terminal
+// interface. A dialog waits for the user, so the deadline is only a backstop for a helper that never
+// returns.
 bool runCaptured(const string& executable, const vector<string>& arguments, string& output) {
-  int descriptors[2]{};
-  // Close-on-exec: the child only needs its dup2()ed copy, and a concurrently forked helper must
-  // not keep a write end open (it would stop the reader from seeing EOF).
-  if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
-  const pid_t child = fork();
-  if (child < 0) {
-    close(descriptors[0]);
-    close(descriptors[1]);
-    return false;
-  }
-  if (child == 0) {
-    close(descriptors[0]);
-    if (dup2(descriptors[1], STDOUT_FILENO) < 0) _exit(127);
-    close(descriptors[1]);
-    vector<char*> argv;
-    argv.reserve(arguments.size() + 2U);
-    argv.push_back(const_cast<char*>(executable.c_str()));
-    for (const auto& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
-    argv.push_back(nullptr);
-    execvp(executable.c_str(), argv.data());
-    _exit(127);
-  }
-  close(descriptors[1]);
-  output.clear();
-  char buffer[4096];
-  for (;;) {
-    const auto count = read(descriptors[0], buffer, sizeof(buffer));
-    if (count == 0) break;
-    if (count < 0) {
-      if (errno == EINTR) continue;
-      close(descriptors[0]);
-      waitpid(child, nullptr, 0);
-      return false;
-    }
-    output.append(buffer, static_cast<size_t>(count));
-    if (output.size() > 32768U) {
-      close(descriptors[0]);
-      waitpid(child, nullptr, 0);
-      output.clear();
-      return false;
-    }
-  }
-  close(descriptors[0]);
-  int status = 0;
-  while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  vector<string> command{executable};
+  command.insert(command.end(), arguments.begin(), arguments.end());
+  ChildProcessOptions options;
+  options.timeout = std::chrono::hours(24);
+  options.maxOutputBytes = 32768U;
+  auto result = runChildProcess(command, options);
+  output = result.succeeded() ? std::move(result.output) : string();
+  return result.succeeded();
 }
 
 // Closes every inherited descriptor above stderr in a forked child just before exec.  Only raw
@@ -130,37 +99,6 @@ bool spawnDetached(const string& executable, const string& argument) {
   return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-class SigpipeBlock final {
- public:
-  SigpipeBlock() {
-    sigemptyset(&blocked_);
-    sigaddset(&blocked_, SIGPIPE);
-    valid_ = pthread_sigmask(SIG_BLOCK, &blocked_, &previous_) == 0;
-    if (valid_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0) hadPending_ = sigismember(&pending, SIGPIPE) == 1;
-    }
-  }
-
-  ~SigpipeBlock() {
-    if (!valid_) return;
-    if (!hadPending_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
-        timespec noWait{};
-        sigtimedwait(&blocked_, nullptr, &noWait);
-      }
-    }
-    pthread_sigmask(SIG_SETMASK, &previous_, nullptr);
-  }
-
- private:
-  sigset_t blocked_{};
-  sigset_t previous_{};
-  bool valid_ = false;
-  bool hadPending_ = false;
-};
-
 bool runClipboard(const char* executable, const vector<string>& arguments, const string& text) {
   int descriptors[2]{};
   // Close-on-exec: the child only needs its dup2()ed copy, and a concurrently forked helper must
@@ -191,7 +129,7 @@ bool runClipboard(const char* executable, const vector<string>& arguments, const
     _exit(127);
   }
   close(descriptors[0]);
-  SigpipeBlock sigpipe;
+  SigpipeGuard sigpipe;
   size_t offset = 0;
   while (offset < text.size()) {
     const auto count = write(descriptors[1], text.data() + offset, text.size() - offset);
@@ -219,30 +157,6 @@ bool runFileChooser(const vector<string>& arguments, filesystem::path& selectedP
 }
 
 }  // namespace
-
-ConsoleSession::ConsoleSession() : active_(true) {}
-ConsoleSession::~ConsoleSession() { restore(); }
-
-void ConsoleSession::restore() {
-  if (!active_) return;
-  showCursor();
-  if (alternateScreen_) fputs("\033[?1049l", stdout);
-  fflush(stdout);
-  active_ = false;
-  alternateScreen_ = false;
-}
-
-ConsoleSize consoleSize() {
-  winsize size{};
-  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0 && size.ws_row > 0) {
-    return {size.ws_col, size.ws_row};
-  }
-  return {};
-}
-
-void clearConsole() { fputs("\033[2J\033[H", stdout); fflush(stdout); }
-void hideCursor() { fputs("\033[?25l", stdout); fflush(stdout); }
-void showCursor() { fputs("\033[?25h", stdout); fflush(stdout); }
 
 void setConsoleTitle(const string& title) {
   string safeTitle;
@@ -280,67 +194,26 @@ void initializeConsoleWindow() {
 
 vector<string> buildTerminalCandidateArgs(const string& terminalBinary, const string& executable,
                                           const vector<string>& extraArgs) {
-  if (terminalBinary == "konsole") {
-    vector<string> args = {
-        "konsole",
-        "--separate",
-        "--hide-menubar",
-        "--hide-tabbar",
-        "--hide-toolbars",
-        "--desktopfile", "inventatory",
-        "-qwindowtitle", "Inventatory",
-        "-qwindowicon", "inventatory",
-        "-p", "Icon=inventatory",
-        "-p", "tabtitle=Inventatory",
-        "-p", "LocalTabTitleFormat=%w",
-        "-p", "RemoteTabTitleFormat=%w",
-        "-p", "ShowTerminalSizeHint=false",
-        "-p", "ScrollBarPosition=2",
-        "-e", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
+  // Each terminal's own flags up to the point where the command to run begins.
+  static const vector<vector<string>> kLaunchers = {
+      {"konsole", "--separate", "--hide-menubar", "--hide-tabbar", "--hide-toolbars", "--desktopfile", "inventatory",
+       "-qwindowtitle", "Inventatory", "-qwindowicon", "inventatory", "-p", "Icon=inventatory", "-p",
+       "tabtitle=Inventatory", "-p", "LocalTabTitleFormat=%w", "-p", "RemoteTabTitleFormat=%w", "-p",
+       "ShowTerminalSizeHint=false", "-p", "ScrollBarPosition=2", "-e"},
+      {"gnome-terminal", "--hide-menubar", "--class=inventatory", "--title=Inventatory", "--"},
+      {"ptyxis", "--standalone", "--app-id=inventatory", "--title=Inventatory", "--"},
+      {"alacritty", "--class", "inventatory,inventatory", "--title", "Inventatory", "-e"},
+      {"kitty", "--class", "inventatory", "-T", "Inventatory"},
+      {"foot", "--app-id", "inventatory", "-T", "Inventatory"},
+      {"wezterm", "start", "--class", "inventatory"},
+      {"xterm", "+sb", "-class", "inventatory", "-title", "Inventatory", "-e"},
+      {"xdg-terminal-exec", "--app-id=inventatory"},
+  };
+  vector<string> args = {"x-terminal-emulator", "-e"};
+  for (const auto& launcher : kLaunchers) {
+    if (launcher.front() == terminalBinary) args = launcher;
   }
-  if (terminalBinary == "gnome-terminal") {
-    vector<string> args = {"gnome-terminal", "--hide-menubar", "--class=inventatory", "--title=Inventatory", "--", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "ptyxis") {
-    vector<string> args = {"ptyxis", "--standalone", "--app-id=inventatory", "--title=Inventatory", "--", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "alacritty") {
-    vector<string> args = {"alacritty", "--class", "inventatory,inventatory", "--title", "Inventatory", "-e", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "kitty") {
-    vector<string> args = {"kitty", "--class", "inventatory", "-T", "Inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "foot") {
-    vector<string> args = {"foot", "--app-id", "inventatory", "-T", "Inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "wezterm") {
-    vector<string> args = {"wezterm", "start", "--class", "inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "xterm") {
-    vector<string> args = {"xterm", "+sb", "-class", "inventatory", "-title", "Inventatory", "-e", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  if (terminalBinary == "xdg-terminal-exec") {
-    vector<string> args = {"xdg-terminal-exec", "--app-id=inventatory", executable};
-    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
-    return args;
-  }
-  vector<string> args = {"x-terminal-emulator", "-e", executable};
+  args.push_back(executable);
   args.insert(args.end(), extraArgs.begin(), extraArgs.end());
   return args;
 }
@@ -350,17 +223,7 @@ bool ensureTerminalAttached(int argc, char* argv[]) {
     return true;
   }
 
-  std::vector<char> buffer(4096U);
-  string executable;
-  for (;;) {
-    const auto count = readlink("/proc/self/exe", buffer.data(), buffer.size());
-    if (count > 0 && static_cast<size_t>(count) < buffer.size()) {
-      executable.assign(buffer.data(), count);
-      break;
-    }
-    if (count <= 0 || buffer.size() >= 1024U * 1024U) break;
-    buffer.resize(buffer.size() * 2U);
-  }
+  string executable = currentExecutablePath().string();
   if (executable.empty() && argc > 0 && argv[0] != nullptr) {
     executable = argv[0];
   }
@@ -428,7 +291,13 @@ bool openUrl(const string& url) {
 }
 
 bool copyToClipboard(const string& text) {
-  if (executableAvailable("wl-copy") && runClipboard("wl-copy", {}, text)) return true;
+  // The only caller copies the Scan R1 pairing token, so ask for the clipboard-manager "sensitive"
+  // hint where it exists (wl-copy 2.2 and newer). Older wl-copy rejects the option and is retried
+  // without it; xclip and xsel have no equivalent.
+  if (executableAvailable("wl-copy") &&
+      (runClipboard("wl-copy", {"--sensitive"}, text) || runClipboard("wl-copy", {}, text))) {
+    return true;
+  }
   if (executableAvailable("xclip") && runClipboard("xclip", {"-selection", "clipboard", "-in"}, text)) return true;
   return executableAvailable("xsel") && runClipboard("xsel", {"--clipboard", "--input"}, text);
 }
@@ -457,24 +326,6 @@ bool openFolderDialog(filesystem::path& selectedPath, const string& title) {
   return runFileChooser({"--file-selection", "--directory", "--title=" + title}, selectedPath);
 }
 
-vector<string> localAddresses() {
-  vector<string> addresses;
-  ifaddrs* interfaces = nullptr;
-  if (getifaddrs(&interfaces) != 0) return addresses;
-  for (auto* entry = interfaces; entry != nullptr; entry = entry->ifa_next) {
-    if (entry->ifa_addr == nullptr || (entry->ifa_flags & IFF_UP) == 0 || (entry->ifa_flags & IFF_LOOPBACK) != 0 ||
-        entry->ifa_addr->sa_family != AF_INET) continue;
-    const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
-    char buffer[INET_ADDRSTRLEN]{};
-    if (inet_ntop(AF_INET, &ipv4->sin_addr, buffer, sizeof(buffer)) == nullptr) continue;
-    const string address(buffer);
-    if (find(addresses.begin(), addresses.end(), address) == addresses.end()) addresses.push_back(address);
-  }
-  freeifaddrs(interfaces);
-  if (addresses.empty()) addresses.push_back("127.0.0.1");
-  return addresses;
-}
-
 vector<string> privateLocalAddresses() {
   vector<string> addresses;
   ifaddrs* interfaces = nullptr;
@@ -499,6 +350,5 @@ vector<string> privateLocalAddresses() {
 }
 
 bool controlModifierPressed() { return false; }
-vector<KeyEvent> pollKeys() { return {}; }
 
 }  // namespace inventatory

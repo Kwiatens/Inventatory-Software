@@ -10,13 +10,10 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <ctime>
 #include <future>
-#include <limits>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -60,72 +57,6 @@ bool App::autoPrintScannedLabel(const string& itemId) {
   return true;
 }
 
-void App::pushScanCode(const DeviceScanRequest& request) {
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) return;
-  lock_guard<mutex> lock(scanMutex_);
-  if (scanQueue_.size() >= kScanQueueLimit) {
-    return;
-  }
-  scanQueue_.push_back({request, context->generation});
-}
-
-void App::processScans() {
-  vector<QueuedScan> pending;
-  {
-    lock_guard<mutex> lock(scanMutex_);
-    pending.swap(scanQueue_);
-  }
-
-  for (const auto& queued : pending) {
-    if (!workspaceIsCurrent(queued.workspaceGeneration)) continue;
-    const auto& request = queued.request;
-    const auto& code = request.code;
-    const auto resolution = resolveScanCode(store_, code);
-    if (resolution.matched) {
-      if (auto* item = store_.findById(resolution.itemId)) {
-        const auto shouldTrySync = resolution.created || trim(item->syncStatus) != "synced" ||
-                                   trim(item->partName) == "Scanned DigiKey Item";
-        if (shouldTrySync) {
-          const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : code;
-          if (!trim(lookup).empty()) scanDigiKeyEnrichmentQueue_.emplace_back(item->id, lookup);
-        }
-      }
-
-      if (resolution.created) {
-        if (auto* item = store_.findById(resolution.itemId)) {
-          item->quantity = max(0, request.quantity);
-          reconcileRackAssignment(store_, *item);
-        }
-        logActivity("scan", "Created item from code " + code + " qty " + to_string(max(0, request.quantity)));
-      } else {
-        if (auto* item = store_.findById(resolution.itemId)) {
-          reconcileRackAssignment(store_, *item);
-        }
-        logActivity("scan", "Matched existing item with code " + code);
-      }
-
-      if (const auto* item = store_.findById(resolution.itemId)) {
-        const auto it = find_if(store_.items().begin(), store_.items().end(), [&](const InventoryItem& entry) {
-          return entry.id == item->id;
-        });
-        if (it != store_.items().end()) {
-          selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
-        }
-      }
-
-      changePage(Page::Stock);
-      saveState("scanner", code, "Scanner event " + code);
-      if (!resolution.created || !autoPrintScannedLabel(resolution.itemId)) {
-        setMessage(resolution.message, 3);
-      }
-    } else {
-      setMessage("Scan ignored: " + resolution.message, 3);
-    }
-    syncSelectionToFilter();
-  }
-}
-
 void App::processScanDigiKeyEnrichment() {
   if (scanDigiKeyEnrichmentFuture_.valid()) {
     if (scanDigiKeyEnrichmentFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
@@ -143,15 +74,16 @@ void App::processScanDigiKeyEnrichment() {
   if (scanDigiKeyEnrichmentQueue_.empty()) return;
   const auto [itemId, lookup] = scanDigiKeyEnrichmentQueue_.front();
   scanDigiKeyEnrichmentQueue_.pop_front();
-  const auto config = loadDigiKeyConfig();
-  if (!config.valid()) return;
   const auto context = currentWorkspaceContext();
   if (context == nullptr) return;
   const auto generation = context->generation;
-  scanDigiKeyEnrichmentFuture_ = async(launch::async, [itemId, lookup, config, generation] {
+  scanDigiKeyEnrichmentFuture_ = async(launch::async, [itemId, lookup, generation] {
     ScanDigiKeyEnrichmentResult result;
     result.itemId = itemId;
     result.workspaceGeneration = generation;
+    // Reading the credentials can block on a locked keyring, so it happens here and not on the UI thread.
+    const auto config = loadDigiKeyConfig();
+    if (!config.valid()) return result;
     DigiKeyApiClient client(config);
     string error;
     result.details = client.fetchProductDetails(lookup, &error);
@@ -175,14 +107,7 @@ void App::beginDigiKeyRefresh() {
     return;
   }
 
-  digiKeyRefreshQueue_.clear();
-  digiKeyRefreshTotal_ = 0;
-  digiKeyRefreshCompleted_ = 0;
-  digiKeyRefreshSucceeded_ = 0;
-  digiKeyRefreshFailed_ = 0;
-  digiKeyRefreshChanged_ = false;
-  digiKeyRefreshActiveKey_.clear();
-  digiKeyRefreshLastError_.clear();
+  stopDigiKeyRefresh();  // no refresh is running here, so this only resets the previous run's state
   digiKeyRefreshClient_ = move(api.client);
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
@@ -218,10 +143,8 @@ void App::processDigiKeyRefresh() {
     if (!workspaceIsCurrent(result.workspaceGeneration)) {
       digiKeyRefreshQueue_.clear();
       digiKeyRefreshClient_.reset();
-      digiKeyRefreshActiveKey_.clear();
       return;
     }
-    digiKeyRefreshActiveKey_.clear();
     ++digiKeyRefreshCompleted_;
 
     if (result.details) {
@@ -258,7 +181,6 @@ void App::processDigiKeyRefresh() {
 
   const auto [itemId, lookup] = digiKeyRefreshQueue_.front();
   digiKeyRefreshQueue_.pop_front();
-  digiKeyRefreshActiveKey_ = lookup;
   auto* client = digiKeyRefreshClient_.get();
   digiKeyRefreshFuture_ = async(launch::async, [client, itemId, lookup, generation = digiKeyRefreshGeneration_] {
     DigiKeyRefreshResult result;
@@ -274,7 +196,6 @@ void App::processDigiKeyRefresh() {
 
 void App::stopDigiKeyRefresh() {
   digiKeyRefreshQueue_.clear();
-  digiKeyRefreshActiveKey_.clear();
   if (digiKeyRefreshFuture_.valid()) {
     digiKeyRefreshFuture_.wait();
     digiKeyRefreshFuture_ = {};
@@ -287,44 +208,6 @@ void App::stopDigiKeyRefresh() {
   digiKeyRefreshChanged_ = false;
   digiKeyRefreshGeneration_ = 0;
   digiKeyRefreshLastError_.clear();
-}
-
-DeviceQuantityResult App::enqueueDeviceQuantity(const DeviceQuantityRequest& request) {
-  auto pending = make_shared<PendingDeviceQuantity>();
-  pending->request = request;
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    DeviceQuantityResult unavailable;
-    unavailable.httpStatus = 503;
-    unavailable.error = "Inventatory workspace is unavailable";
-    return unavailable;
-  }
-  pending->workspaceGeneration = context->generation;
-  {
-    lock_guard<mutex> lock(deviceQueueMutex_);
-    if (deviceRequestsClosed_) {
-      DeviceQuantityResult unavailable;
-      unavailable.httpStatus = 503;
-      unavailable.error = "Inventatory is shutting down";
-      return unavailable;
-    }
-    if (deviceQuantityQueue_.size() >= kDeviceQuantityQueueLimit) {
-      DeviceQuantityResult unavailable;
-      unavailable.httpStatus = 503;
-      unavailable.error = "Inventatory request queue is full";
-      return unavailable;
-    }
-    deviceQuantityQueue_.push_back(pending);
-  }
-  unique_lock<mutex> lock(pending->mutex);
-  if (!pending->ready.wait_for(lock, chrono::seconds(3), [&] { return pending->complete; })) {
-    pending->cancelled = true;
-    DeviceQuantityResult timeout;
-    timeout.httpStatus = 503;
-    timeout.error = "Inventatory did not process the request in time";
-    return timeout;
-  }
-  return pending->result;
 }
 
 }  // namespace inventatory

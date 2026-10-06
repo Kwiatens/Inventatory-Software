@@ -8,7 +8,6 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
 #include <ctime>
 #include <string>
 #include <vector>
@@ -78,16 +77,9 @@ string changedCount(size_t count, const char* singular, const char* plural) {
   return to_string(count) + " " + (count == 1 ? singular : plural) + " changed";
 }
 
-string lowercaseCopy(string value) {
-  transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
-    return static_cast<char>(tolower(character));
-  });
-  return value;
-}
-
 string compactHistoryMessage(const InventoryCommit& commit) {
   const auto message = historyCommitDisplayMessage(commit);
-  const auto lower = lowercaseCopy(message);
+  const auto lower = toLower(message);
   const string reversePrefix = "reversed changes from commit ";
   if (lower.rfind(reversePrefix, 0) == 0) return "Reverted " + message.substr(reversePrefix.size());
   if (lower.rfind("digikey refresh batch", 0) == 0) return "DigiKey refresh";

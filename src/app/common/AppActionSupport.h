@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -21,13 +22,17 @@ using namespace std;
 
 namespace app_actions {
 
-constexpr size_t kDeviceDebugWindowLines = 14;
 constexpr size_t kDeviceStatusQueueLimit = 256;
-constexpr size_t kDeviceDebugQueueLimit = 512;
-constexpr size_t kScanQueueLimit = 256;
-constexpr size_t kDeviceQuantityQueueLimit = 64;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
+
+// Delay before the oldest scanner event is committed again after a failed commit: 2 s, doubling up
+// to 60 s.
+inline chrono::seconds deviceSyncRetryDelay(int consecutiveFailures) {
+  int seconds = 2;
+  for (int step = 1; step < consecutiveFailures && seconds < 60; ++step) seconds *= 2;
+  return chrono::seconds(min(seconds, 60));
+}
 
 enum class WorkspaceScannerCredentialStatus {
   Loaded,
@@ -38,6 +43,9 @@ enum class WorkspaceScannerCredentialStatus {
 struct WorkspaceScannerCredentialResolution {
   WorkspaceScannerCredentialStatus status = WorkspaceScannerCredentialStatus::RequiresPairing;
   optional<string> token;
+  // The credential store could not answer (locked or missing keyring). The scanner stays disabled
+  // exactly as for a missing credential, but the user is told the real reason.
+  bool credentialStoreUnavailable = false;
 };
 
 inline bool validScannerToken(const string& token) {
@@ -45,17 +53,28 @@ inline bool validScannerToken(const string& token) {
          all_of(token.begin(), token.end(), [](unsigned char ch) { return isxdigit(ch) != 0; });
 }
 
+inline WorkspaceScannerCredentialResolution resolveScannerCredential(const CredentialLookup& lookup,
+                                                                     const InventatoryScanConfig& config) {
+  if (lookup.status == CredentialReadStatus::Unavailable) {
+    // Whether a token exists is unknown. Never mint a fresh one: it would replace the real token as
+    // soon as the store answers again.
+    return {WorkspaceScannerCredentialStatus::RequiresPairing, nullopt, true};
+  }
+  const auto& scopedCredential = lookup.secret;
+  if (lookup.status == CredentialReadStatus::Found && scopedCredential.has_value() &&
+      validScannerToken(*scopedCredential)) {
+    return {WorkspaceScannerCredentialStatus::Loaded, scopedCredential, false};
+  }
+  if (lookup.status == CredentialReadStatus::Found || config.setupComplete || !trim(config.deviceId).empty()) {
+    return {WorkspaceScannerCredentialStatus::RequiresPairing, nullopt, false};
+  }
+  return {WorkspaceScannerCredentialStatus::FreshCredential, nullopt, false};
+}
+
 inline WorkspaceScannerCredentialResolution resolveWorkspaceScannerCredential(const filesystem::path& workspaceDirectory,
                                                                         const InventatoryScanConfig& config) {
-  const auto scopedCredential =
-      CredentialStore::readForWorkspace(workspaceDirectory, kInventatoryScanTokenCredential);
-  if (scopedCredential.has_value() && validScannerToken(*scopedCredential)) {
-    return {WorkspaceScannerCredentialStatus::Loaded, scopedCredential};
-  }
-  if (scopedCredential.has_value() || config.setupComplete || !trim(config.deviceId).empty()) {
-    return {WorkspaceScannerCredentialStatus::RequiresPairing, nullopt};
-  }
-  return {WorkspaceScannerCredentialStatus::FreshCredential, nullopt};
+  return resolveScannerCredential(
+      CredentialStore::lookupForWorkspace(workspaceDirectory, kInventatoryScanTokenCredential), config);
 }
 
 inline filesystem::path resolveInventoryDatabasePath(const filesystem::path& selectedPath) {
@@ -65,7 +84,7 @@ inline filesystem::path resolveInventoryDatabasePath(const filesystem::path& sel
   }
 
   if (filesystem::is_regular_file(selectedPath, error) &&
-      toLower(selectedPath.extension().string()) == ".db") {
+      toLower(selectedPath.extension().u8string()) == ".db") {
     return selectedPath;
   }
 

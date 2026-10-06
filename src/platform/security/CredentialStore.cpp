@@ -108,15 +108,22 @@ optional<string> workspaceDigest(const filesystem::path& workspaceDirectory) {
 
 }  // namespace
 
-optional<string> CredentialStore::read(const string& key) {
+CredentialLookup CredentialStore::lookup(const string& key) {
   PCREDENTIALW credential = nullptr;
   const auto target = targetName(key);
-  if (!CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &credential)) return nullopt;
+  if (!CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &credential)) {
+    return {GetLastError() == ERROR_NOT_FOUND ? CredentialReadStatus::NotFound : CredentialReadStatus::Unavailable,
+            nullopt};
+  }
   const auto* text = reinterpret_cast<const wchar_t*>(credential->CredentialBlob);
   const auto length = credential->CredentialBlobSize / sizeof(wchar_t);
   auto result = narrow(text, length);
   CredFree(credential);
-  return result;
+  return {CredentialReadStatus::Found, move(result)};
+}
+
+optional<string> CredentialStore::read(const string& key) {
+  return lookup(key).secret;
 }
 
 bool CredentialStore::write(const string& key, const string& secret) {
@@ -144,6 +151,11 @@ string CredentialStore::workspaceScopedKey(const filesystem::path& workspaceDire
   const auto digest = workspaceDigest(workspaceDirectory);
   if (!digest.has_value()) return {};
   return key + "@" + *digest;
+}
+
+CredentialLookup CredentialStore::lookupForWorkspace(const filesystem::path& workspaceDirectory, const string& key) {
+  const auto scopedKey = workspaceScopedKey(workspaceDirectory, key);
+  return scopedKey.empty() ? CredentialLookup{} : lookup(scopedKey);
 }
 
 optional<string> CredentialStore::readForWorkspace(const filesystem::path& workspaceDirectory, const string& key) {

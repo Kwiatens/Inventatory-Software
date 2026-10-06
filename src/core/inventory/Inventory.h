@@ -217,6 +217,8 @@ vector<string> split(const string& value, char delimiter);
 vector<string> tokenizeQuery(const string& query);
 
 bool containsInsensitive(string_view haystack, string_view needle);
+bool startsWithInsensitive(string_view value, string_view prefix);
+bool endsWith(string_view value, string_view suffix);
 int effectiveReorderThreshold(const InventoryItem& item, int globalThreshold);
 bool isLowStock(const InventoryItem& item, int threshold);
 bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold);
@@ -251,11 +253,11 @@ class InventoryStore {
   vector<InventatoryRack>& racks();
   const vector<InventatoryRack>& racks() const;
 
-  bool load(const filesystem::path& path);
+  // `normalized`, when given, reports whether loading had to repair the stored rows (missing
+  // identifiers, rack placement) so that the caller knows the database no longer matches memory.
+  bool load(const filesystem::path& path, bool* normalized = nullptr);
   bool save(const filesystem::path& path) const;
   bool saveWithMovements(const filesystem::path& path, const vector<InventoryMovement>& movements) const;
-  bool saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
-                           const vector<InventoryMovement>& movements = {}) const;
   bool saveWithCommit(const filesystem::path& path, const InventoryStore& previous,
                       const InventoryCommitDraft& draft, const vector<InventoryMovement>& movements = {},
                       const DeviceEventCommit* deviceEvent = nullptr, InventoryCommit* committed = nullptr) const;
@@ -281,12 +283,19 @@ struct InventoryCommitDetail {
 };
 
 vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, const InventoryStore& after);
+// Counts the distinct items and racks that `changes` touch. Returns false when a change names any
+// other entity type; the counts still cover the item and rack changes.
+bool countChangedEntities(const vector<InventoryFieldChange>& changes, size_t& itemCount, size_t& rackCount);
 // True when `after` differs from `before` in any item or rack field the commit history tracks.
 bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& after);
 bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const InventoryStore& current,
                                    InventoryStore& reversed, string& conflict);
 bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryStore& current);
-bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits);
+// Lists the commits newest first. The whole history is validated first unless `validateHistory` is
+// false, which is only for a caller that has just appended a commit through this API and checks that
+// commit itself; load, restore and backup validation always use the default.
+bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits,
+                          bool validateHistory = true);
 bool loadInventoryCommit(const filesystem::path& path, const string& id, InventoryCommitDetail& detail);
 
 vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, const InventoryStore& after,

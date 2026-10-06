@@ -4,29 +4,22 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "label_printer/core/LabelPrinter.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
-#include <cctype>
-#include <exception>
 #include <fstream>
-#include <iomanip>
-#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
-#include <thread>
 #include <system_error>
 #include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <bcrypt.h>
 #else
 #include <unistd.h>
 #endif
@@ -35,12 +28,45 @@ namespace inventatory {
 using namespace std;
 namespace inventory_transfer_detail {
 
+namespace {
+
+// The restore journal and the directory renames are the crash-recovery protocol, so a rename must be on
+// disk before the next step is recorded. A move between directories changes both of them.
+bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& destination, string& error) {
+  const auto parentOf = [](const filesystem::path& path) {
+    return path.parent_path().empty() ? filesystem::path(".") : path.parent_path();
+  };
+  string syncError;
+  if (!syncDirectory(parentOf(destination), &syncError) ||
+      (parentOf(source) != parentOf(destination) && !syncDirectory(parentOf(source), &syncError))) {
+    error = "Unable to flush " + destination.u8string() + ": " + syncError;
+    return false;
+  }
+  return true;
+}
+
+#ifdef _WIN32
+bool transientWindowsMoveError(const error_code& error) {
+  if (error.category() != system_category()) return false;
+  const int code = error.value();
+  return code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION;
+}
+#endif
+
+}  // namespace
+
   bool TransferOps::copy(const filesystem::path& source, const filesystem::path& destination, string& error) const {
     if (hooks != nullptr && hooks->copyFile) return hooks->copyFile(source, destination, error);
     error_code filesystemError;
     filesystem::copy_file(source, destination, filesystem::copy_options::overwrite_existing, filesystemError);
     if (filesystemError) {
-      error = "Unable to copy " + source.filename().string() + ": " + filesystemError.message();
+      error = "Unable to copy " + source.filename().u8string() + ": " + filesystemError.message();
+      return false;
+    }
+    // A staged copy is published by a later rename, so its content must already be on disk.
+    string syncError;
+    if (!syncFile(destination, &syncError)) {
+      error = "Unable to flush " + destination.filename().u8string() + ": " + syncError;
       return false;
     }
     return true;
@@ -50,11 +76,20 @@ namespace inventory_transfer_detail {
     if (hooks != nullptr && hooks->renamePath) return hooks->renamePath(source, destination, error);
     error_code filesystemError;
     filesystem::rename(source, destination, filesystemError);
+#ifdef _WIN32
+    // An antivirus scan, the search indexer or cloud sync can briefly hold a handle inside a folder
+    // that is being moved; such access and sharing violations usually clear within a moment.
+    for (int attempt = 1; filesystemError && attempt < 5 && transientWindowsMoveError(filesystemError); ++attempt) {
+      Sleep(static_cast<DWORD>(50 * attempt));
+      filesystemError.clear();
+      filesystem::rename(source, destination, filesystemError);
+    }
+#endif
     if (filesystemError) {
-      error = "Unable to rename " + source.string() + ": " + filesystemError.message();
+      error = "Unable to rename " + source.u8string() + ": " + filesystemError.message();
       return false;
     }
-    return true;
+    return syncRenamedEntry(source, destination, error);
   }
 
   bool TransferOps::removeAll(const filesystem::path& path, string& error) const {
@@ -62,7 +97,7 @@ namespace inventory_transfer_detail {
     error_code filesystemError;
     filesystem::remove_all(path, filesystemError);
     if (filesystemError) {
-      error = "Unable to remove " + path.string() + ": " + filesystemError.message();
+      error = "Unable to remove " + path.u8string() + ": " + filesystemError.message();
       return false;
     }
     return true;
@@ -71,8 +106,9 @@ namespace inventory_transfer_detail {
   bool TransferOps::replace(const filesystem::path& source, const filesystem::path& destination, string& error) const {
     if (hooks != nullptr && hooks->replaceFile) return hooks->replaceFile(source, destination, error);
 #ifdef _WIN32
-    if (!MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-      error = "Unable to atomically replace " + destination.string();
+    unsigned long moveError = 0;
+    if (!moveFileReplacing(source, destination, moveError)) {
+      error = "Unable to atomically replace " + destination.u8string() + " (Win32 error " + to_string(moveError) + ")";
       return false;
     }
     return true;
@@ -80,10 +116,10 @@ namespace inventory_transfer_detail {
     error_code filesystemError;
     filesystem::rename(source, destination, filesystemError);
     if (filesystemError) {
-      error = "Unable to atomically replace " + destination.string() + ": " + filesystemError.message();
+      error = "Unable to atomically replace " + destination.u8string() + ": " + filesystemError.message();
       return false;
     }
-    return true;
+    return syncRenamedEntry(source, destination, error);
 #endif
   }
 
@@ -104,7 +140,7 @@ enum class WorkspaceEntryKind { Replaced, Preserved, Conflict };
 
 WorkspaceEntryKind classifyWorkspaceEntry(const filesystem::path& path, WorkspaceEntrySource source) {
   const string name = path.filename().u8string();
-  const string lowered = lowercaseAscii(name);
+  const string lowered = toLower(name);
   bool replaced = false;
   bool reserved = false;
   bool similar = false;
@@ -151,7 +187,7 @@ bool listPreservedEntries(const filesystem::path& directory, WorkspaceEntrySourc
     }
   }
   if (enumerationError) {
-    error = "Unable to enumerate " + directory.string() + ": " + enumerationError.message();
+    error = "Unable to enumerate " + directory.u8string() + ": " + enumerationError.message();
     return false;
   }
   return true;
@@ -253,14 +289,22 @@ bool atomicWriteText(const filesystem::path& target, const string& text, const T
   error_code filesystemError;
   ofstream output(temporary, ios::binary | ios::trunc);
   if (!output) {
-    error = "Unable to create " + target.string();
+    error = "Unable to create " + target.u8string();
     return false;
   }
   output.write(text.data(), static_cast<streamsize>(text.size()));
   output.flush();
   output.close();
   if (!output) {
-    error = "Unable to finish writing " + target.string();
+    error = "Unable to finish writing " + target.u8string();
+    filesystem::remove(temporary, filesystemError);
+    return false;
+  }
+  // The content must be on disk before the rename can make it the journal; otherwise a crash can leave
+  // a journal that is empty or older than the layout it describes.
+  string syncError;
+  if (!syncFile(temporary, &syncError)) {
+    error = "Unable to flush " + target.u8string() + ": " + syncError;
     filesystem::remove(temporary, filesystemError);
     return false;
   }

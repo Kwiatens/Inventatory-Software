@@ -10,16 +10,10 @@
 
 #include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <ctime>
-#include <fstream>
-#include <future>
 #include <limits>
 #include <memory>
-#include <mutex>
-#include <sstream>
 #include <system_error>
-#include <unordered_set>
 
 namespace inventatory {
 
@@ -27,6 +21,13 @@ using namespace std;
 using namespace app_actions;
 
 void App::changePage(Page page) {
+  // The unsaved-settings / unsaved-data prompt is modal. Leaving through a header click would
+  // skip it and strand the staged draft, so it must be answered (S / D / Esc or its buttons)
+  // first. completeSettingsExit() closes the prompt before it navigates.
+  if (inputMode_ == InputMode::ExitConfirmation) {
+    setMessage("Answer the unsaved-changes prompt first: Save, Discard, or Stay", 4, UiMessageSeverity::Warning);
+    return;
+  }
   if (page != page_ && page_ == Page::Stock && stocktakeActive_) {
     setMessage("Finish or cancel the stocktake before leaving Stock", 5);
     return;
@@ -36,14 +37,17 @@ void App::changePage(Page page) {
     return;
   }
   if (page != page_ && page_ == Page::Import && importStageActive_) {
+    if (!confirmImportDiscard()) return;
     cancelImportSession();
   }
-  if (page != page_ && page_ == Page::Settings && settingsDirty_ && inputMode_ != InputMode::ExitConfirmation) {
+  if (page != page_ && page_ == Page::Settings && settingsDirty_) {
     pendingPageAfterSettings_ = page;
+    exitSavePending_ = false;
     inputMode_ = InputMode::ExitConfirmation;
     setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
     return;
   }
+  if (page != page_) releasePageState(page_);
   page_ = page;
   inputMode_ = InputMode::None;
   if (page != Page::Stock) {
@@ -51,7 +55,7 @@ void App::changePage(Page page) {
     closestSearchQuery_.clear();
     closestSelectedPosition_ = 0;
   }
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   cancelDeleteConfirmation();
   cancelRackDeletion();
   if (page != Page::Racks) {
@@ -70,6 +74,39 @@ void App::changePage(Page page) {
     bomDeleteConfirmationUntil_ = 0;
   }
   dirty_ = true;
+}
+
+// Drops the transient state of a page that is being left, on every exit path (Esc, a header
+// click, a number key): wizard secrets, Bluetooth discovery and half-edited settings fields.
+void App::releasePageState(Page leaving) {
+  switch (leaving) {
+    case Page::ScanSetup:
+      bleProvisioning_.stopDiscovery();
+      bleWifiSsid_.clear();
+      bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
+      bleWifiPassword_.clear();
+      blePairingCode_.clear();
+      inputBuffer_.assign(inputBuffer_.size(), '\0');
+      inputBuffer_.clear();
+      break;
+    case Page::DigiKeySetup:
+      settingsDraft_ = settings_;
+      settingsDirty_ = false;
+      settingsEditingField_ = false;
+      stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
+      stagedDigiKeySecret_.clear();
+      stagedDigiKeySecretChanged_ = false;
+      inputBuffer_.assign(inputBuffer_.size(), '\0');
+      inputBuffer_.clear();
+      break;
+    case Page::Settings:
+      if (settingsEditingField_ || appearancePickerOpen_) inputBuffer_.clear();
+      settingsEditingField_ = false;
+      appearancePickerOpen_ = false;
+      break;
+    default:
+      break;
+  }
 }
 
 void App::openSelectedDetail() {
@@ -207,11 +244,13 @@ void App::changeSelectedRackType(const string& value) {
   }
   captureUndoSnapshot();
   const auto previous = rack->componentType;
+  // saveState() may reconcile parts and add racks, which invalidates `rack`; keep what is still needed.
+  const auto code = rack->code;
   rack->componentType = type;
-  logActivity("rack", rack->code + " type " + previous + " -> " + type);
+  logActivity("rack", code + " type " + previous + " -> " + type);
   saveState();
   syncRackSelection();
-  setMessage(rack->code + " type updated", 2);
+  setMessage(code + " type updated", 2);
 }
 
 void App::createRackWithType(const string& value) {
@@ -220,9 +259,14 @@ void App::createRackWithType(const string& value) {
     setMessage("Rack type cannot be empty", 3);
     return;
   }
-  int nextNumber = 1;
+  // A rack renamed to R2147483647 leaves no representable next code.
+  long long nextNumber = 1;
   for (const auto& rack : store_.racks()) {
-    nextNumber = max(nextNumber, rackNumberFromCode(rack.code) + 1);
+    nextNumber = max(nextNumber, static_cast<long long>(rackNumberFromCode(rack.code)) + 1);
+  }
+  if (nextNumber > numeric_limits<int>::max()) {
+    setMessage("No further rack codes are available", 4, UiMessageSeverity::Warning);
+    return;
   }
   InventatoryRack rack;
   rack.id = makeId();
@@ -359,7 +403,9 @@ void App::adjustSelectedRackItemQuantity(int delta) {
   }
 
   captureUndoSnapshot();
-  item->quantity = max(0, item->quantity + delta);
+  // Widen before adding: INT_MAX plus a positive delta must clamp, not overflow.
+  item->quantity = static_cast<int>(
+      clamp<long long>(static_cast<long long>(item->quantity) + delta, 0, numeric_limits<int>::max()));
   item->lastUpdated = time(nullptr);
   logActivity(delta > 0 ? "stock" : "usage", item->partName + " quantity changed to " + to_string(item->quantity));
   saveState();
@@ -387,7 +433,12 @@ void App::openSelectedRackItemDetail() {
   searchQuery_.clear();
   selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
   inputMode_ = InputMode::None;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
+  // Leaving Racks drops a half-finished move and pending confirmations, as changePage does.
+  movingRackItemId_.clear();
+  movingRackSource_.clear();
+  cancelDeleteConfirmation();
+  cancelRackDeletion();
   page_ = Page::Stock;
   syncSelectionToFilter();
   dirty_ = true;

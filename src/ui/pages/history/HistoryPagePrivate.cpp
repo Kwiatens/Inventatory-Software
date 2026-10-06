@@ -36,10 +36,6 @@ string dateKey(const tm& value) {
   return key.str();
 }
 
-bool sameDate(const tm& lhs, const tm& rhs) {
-  return lhs.tm_year == rhs.tm_year && lhs.tm_mon == rhs.tm_mon && lhs.tm_mday == rhs.tm_mday;
-}
-
 string previousDateKey(const tm& current) {
   tm yesterday = current;
   yesterday.tm_hour = 12;
@@ -58,13 +54,6 @@ string explicitDateLabel(const tm& value) {
   if (value.tm_mday < 10) label << '0';
   label << value.tm_mday << ", " << (value.tm_year + 1900);
   return label.str();
-}
-
-string lowercase(string value) {
-  transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
-    return static_cast<char>(tolower(character));
-  });
-  return value;
 }
 
 bool contains(const string& haystack, const string& needle) {
@@ -164,7 +153,7 @@ string historySourceFilterLabel(HistorySourceFilter filter) {
 string historyCommitType(const InventoryCommit& commit) {
   if (commit.checkpoint) return "CHECKPOINT";
   if (commit.corrective) return "CORRECTIVE";
-  const auto source = lowercase(trim(commit.source));
+  const auto source = toLower(trim(commit.source));
   return source.empty() || source == "manual" ? "MANUAL" : toUpper(source);
 }
 
@@ -192,14 +181,14 @@ string historyCommitImpactSummary(const InventoryCommit& commit) {
 
 vector<size_t> filteredHistoryIndices(const vector<InventoryCommit>& commits, const string& query,
                                       HistorySourceFilter filter) {
-  const auto normalizedQuery = lowercase(trim(query));
+  const auto normalizedQuery = toLower(trim(query));
   vector<size_t> indices;
   indices.reserve(commits.size());
   for (size_t index = 0; index < commits.size(); ++index) {
     const auto& commit = commits[index];
     if (!filterMatches(commit, filter)) continue;
     if (!normalizedQuery.empty()) {
-      const auto searchable = lowercase(to_string(commit.sequence) + " " + commit.id + " " +
+      const auto searchable = toLower(to_string(commit.sequence) + " " + commit.id + " " +
                                         historyCommitType(commit) + " " + commit.source + " " + commit.message + " " +
                                         commit.reference);
       if (!contains(searchable, normalizedQuery)) continue;

@@ -12,10 +12,7 @@
 #include <ftxui/component/screen_interactive.hpp>
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
 #include <cstdint>
-#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -111,9 +108,19 @@ bool App::saveSettingsDraft() {
   const auto restartOldService = [&] {
     if (serviceWasRunning) restartDeviceService();
   };
-  const auto oldDigiKeySecret = CredentialStore::read(kDigiKeySecretName);
+  const auto oldDigiKeySecret = CredentialStore::lookup(kDigiKeySecretName);
   bool startupChanged = false;
   bool credentialChanged = false;
+  // Puts the DigiKey secret back after a later step failed. When the store could not be read the
+  // previous state is unknown, so nothing is erased: a stored secret must never be lost to a failed read.
+  const auto rollbackDigiKeySecret = [&] {
+    if (!credentialChanged) return;
+    if (oldDigiKeySecret.status == CredentialReadStatus::Found && oldDigiKeySecret.secret.has_value()) {
+      CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret.secret);
+    } else if (oldDigiKeySecret.status == CredentialReadStatus::NotFound) {
+      CredentialStore::erase(kDigiKeySecretName);
+    }
+  };
 
   if (dataChanged) {
     mdnsService_.stop();
@@ -135,10 +142,7 @@ bool App::saveSettingsDraft() {
   if (backgroundChanged) {
     string startupError;
     if (!setBackgroundStartupEnabled(settingsDraft_.backgroundServiceEnabled, startupError)) {
-      if (credentialChanged) {
-        if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-        else CredentialStore::erase(kDigiKeySecretName);
-      }
+      rollbackDigiKeySecret();
       restartOldService();
 #ifdef _WIN32
       setMessage(startupError.empty() ? "Unable to update Windows startup" : startupError, 5, UiMessageSeverity::Error);
@@ -155,10 +159,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    if (credentialChanged) {
-      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-      else CredentialStore::erase(kDigiKeySecretName);
-    }
+    rollbackDigiKeySecret();
     restartOldService();
     setMessage("Unable to save Inventatory settings", 5, UiMessageSeverity::Error);
     return false;
@@ -169,16 +170,18 @@ bool App::saveSettingsDraft() {
       !saveQuickLabels(quickLabelsPath(settingsDraft_.dataDirectory), settingsDraft_.quickLabelPresets,
                        settingsDraft_.quickLabelRevision)) {
     const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
-    settings_ = oldSettings;
-    settingsDraft_ = oldSettings;
+    {
+      lock_guard<mutex> lock(quickLabelMutex_);
+      settings_ = oldSettings;
+    }
+    // The draft keeps every staged edit (data folder, colours, DigiKey fields, printer) so the user can
+    // retry or pick another folder instead of redoing the whole form.
+    settingsDirty_ = true;
     if (startupChanged) {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    if (credentialChanged) {
-      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-      else CredentialStore::erase(kDigiKeySecretName);
-    }
+    rollbackDigiKeySecret();
     restartOldService();
     setMessage(rollbackSaved ? "Unable to save Quick Labels in the selected data folder"
                              : "Unable to save Quick Labels and restore previous settings; verify the settings file",
@@ -228,16 +231,18 @@ bool App::saveSettingsDraft() {
   if (quickLabelsChanged && !dataChanged &&
       !saveQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision)) {
     const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
-    settings_ = oldSettings;
-    settingsDraft_ = oldSettings;
+    {
+      // The bridge is still serving here: its workers read the quick-label presets under this lock.
+      lock_guard<mutex> lock(quickLabelMutex_);
+      settings_ = oldSettings;
+    }
+    // The draft keeps every staged edit so the user can retry after fixing the write problem.
+    settingsDirty_ = true;
     if (startupChanged) {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    if (credentialChanged) {
-      if (oldDigiKeySecret.has_value()) CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret);
-      else CredentialStore::erase(kDigiKeySecretName);
-    }
+    rollbackDigiKeySecret();
     restartOldService();
     setMessage(rollbackSaved
                    ? "Unable to save quick-label settings"
@@ -253,14 +258,8 @@ bool App::saveSettingsDraft() {
   applyUiAppearance(settings_.appearance);
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
-  bool bridgeRestarted = true;
-  if (portChanged) {
-    restartDeviceService();
-    bridgeRestarted = server_.running();
-  } else if (dataChanged) {
-    restartDeviceService();
-    bridgeRestarted = server_.running();
-  }
+  auto bridgeRestart = DeviceServiceRestart::Restarted;
+  if (portChanged || dataChanged) bridgeRestart = restartDeviceService();
   if (backgroundChanged) {
     if (settings_.backgroundServiceEnabled) {
       const bool backgroundStarted = backgroundController_.start(true, false, [this] {
@@ -292,6 +291,7 @@ bool App::saveSettingsDraft() {
   }
   if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
+    publishConfiguredPrinter();
     if (!printerService_.saveConfig(printerPath_)) {
       persistenceError_ = "Could not save printer settings; changes remain in memory.";
       setMessage(persistenceError_ + " Press R to retry.", 6, UiMessageSeverity::Error);
@@ -310,9 +310,8 @@ bool App::saveSettingsDraft() {
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   if (portChanged || dataChanged) {
-    setMessage(bridgeRestarted ? "Settings saved; device bridge restarted"
-                               : "Settings saved, but the device bridge could not restart",
-               4, bridgeRestarted ? UiMessageSeverity::Success : UiMessageSeverity::Warning);
+    const auto notice = settingsBridgeNotice(bridgeRestart);
+    setMessage(notice.text, 4, notice.severity);
   } else {
     setMessage("Settings saved", 4, UiMessageSeverity::Success);
   }

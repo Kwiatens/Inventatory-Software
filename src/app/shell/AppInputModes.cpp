@@ -7,6 +7,7 @@
 #include "platform/system/StartupRegistration.h"
 #include "platform/system/UpdateService.h"
 #include "ui/shared/AppUiShared.h"
+#include "ui/shared/NumericPrompt.h"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -14,22 +15,11 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
-#include <initializer_list>
-#include <iomanip>
-#include <iostream>
 #include <limits>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
-#include <thread>
-#include <future>
 
 namespace inventatory {
 
@@ -179,14 +169,11 @@ void App::handleRackValueKey(const KeyEvent& key) {
 
 void App::handleQuantityAdjustKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
-    if (isdigit(static_cast<unsigned char>(key.ch)) != 0 && inputBuffer_.size() < 9U) {
-      inputBuffer_.push_back(key.ch);
-      dirty_ = true;
-    }
+    if (numeric_prompt::applyDigit(inputBuffer_, key.ch, inputReplaceOnType_, 9U)) dirty_ = true;
     return;
   }
   if (key.type == KeyType::Backspace) {
-    if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+    numeric_prompt::applyBackspace(inputBuffer_, inputReplaceOnType_);
     dirty_ = true;
     return;
   }
@@ -206,14 +193,11 @@ void App::handleQuantityAdjustKey(const KeyEvent& key) {
 
 void App::handleBomRestockKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
-    if (isdigit(static_cast<unsigned char>(key.ch)) != 0 && inputBuffer_.size() < 9U) {
-      inputBuffer_.push_back(key.ch);
-      dirty_ = true;
-    }
+    if (numeric_prompt::applyDigit(inputBuffer_, key.ch, inputReplaceOnType_, 9U)) dirty_ = true;
     return;
   }
   if (key.type == KeyType::Backspace) {
-    if (!inputBuffer_.empty()) inputBuffer_.pop_back();
+    numeric_prompt::applyBackspace(inputBuffer_, inputReplaceOnType_);
     dirty_ = true;
     return;
   }
@@ -263,6 +247,7 @@ void App::handleBomRestockKey(const KeyEvent& key) {
 void App::handleExitConfirmationKey(const KeyEvent& key) {
   if (key.type == KeyType::Escape) {
     pendingPageAfterSettings_.reset();
+    exitSavePending_ = false;
     inputMode_ = InputMode::None;
     setMessage("Stayed on the current screen", 2);
     return;

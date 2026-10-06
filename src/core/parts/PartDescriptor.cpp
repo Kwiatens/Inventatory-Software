@@ -30,8 +30,4 @@ string partShortDescription(const InventoryItem& item) {
   return describePart(item).printLabel;
 }
 
-string partPurposeLabel(const InventoryItem& item) {
-  return describePart(item).purposeLabel;
-}
-
 }  // namespace inventatory

@@ -6,23 +6,21 @@
 
 #include "core/inventory/InventoryMerge.h"
 #include "import/csv/CsvFormat.h"
+#include "import/csv/CsvReader.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <ctime>
 #include <fstream>
 #include <future>
 #include <limits>
-#include <mutex>
 #include <memory>
 #include <sstream>
 #include <system_error>
-#include <unordered_set>
 
 namespace inventatory {
 
@@ -38,7 +36,7 @@ void App::beginCsvImport() {
 
   ifstream input(selectedPath, ios::binary);
   if (!input) {
-    setMessage("Unable to open " + selectedPath.filename().string(), 6);
+    setMessage("Unable to open " + selectedPath.filename().u8string(), 6);
     return;
   }
   error_code fileError;
@@ -48,7 +46,12 @@ void App::beginCsvImport() {
   }
   ostringstream buffer;
   buffer << input.rdbuf();
-  const auto text = buffer.str();
+  string text;
+  string encodingError;
+  if (!decodeCsvBytes(buffer.str(), text, encodingError)) {
+    setMessage("CSV import failed: " + encodingError, 7);
+    return;
+  }
 
   // The file picker is the only way in, so detection replaces asking the user
   // which dialect they just chose.
@@ -133,7 +136,7 @@ bool App::commitImportStage() {
     importOriginalStore_ = move(store_);  // what cancelImportSession restores if the save keeps failing
     store_ = move(merged);
   }
-  if (!saveState("import", importSourcePath_.filename().string())) {
+  if (!saveState("import", importSourcePath_.filename().u8string())) {
     importCommitPending_ = true;
     setMessage("Import is staged but not saved. Press R to retry or Q to cancel.", 7, UiMessageSeverity::Error);
     dirty_ = true;
@@ -277,7 +280,6 @@ void App::beginImportSync(bool retryFailed) {
     return;
   }
 
-  const auto api = createDigiKeyApi();
   importSyncTotal_ = itemIds.size();
   importSyncCompleted_ = 0;
   importSyncFailedCount_ = 0;
@@ -302,14 +304,6 @@ void App::beginImportSync(bool retryFailed) {
     requests.emplace_back(itemId, lookup);
   }
 
-  if (api.client == nullptr) {
-    importSyncCompleted_ = importSyncTotal_;
-    importSyncHasRun_ = true;
-    importSyncPrompt_ = true;
-    setMessage("DigiKey sync unavailable: " + api.error + "; press R to retry after configuring it", 6);
-    return;
-  }
-
   if (requests.empty()) {
     importSyncCompleted_ = importSyncTotal_;
     importSyncHasRun_ = true;
@@ -318,7 +312,6 @@ void App::beginImportSync(bool retryFailed) {
     return;
   }
 
-  const auto config = loadDigiKeyConfig();
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
     setMessage("DigiKey sync unavailable while the workspace is changing", 5);
@@ -328,9 +321,16 @@ void App::beginImportSync(bool retryFailed) {
   importSyncCancelFlag_ = make_shared<atomic<bool>>(false);
   const auto cancelFlag = importSyncCancelFlag_;
   const auto generation = importSyncGeneration_;
-  importSyncFuture_ = async(launch::async, [requests = move(requests), config, cancelFlag, generation] {
+  importSyncFuture_ = async(launch::async, [requests = move(requests), cancelFlag, generation] {
     ImportSyncBatchResult batch;
     batch.workspaceGeneration = generation;
+    // Reading the credentials can block on a locked keyring, so it happens here and not on the UI thread.
+    const auto config = loadDigiKeyConfig();
+    if (!config.valid()) {
+      batch.unavailableReason = "DigiKey API credentials are not configured";
+      for (const auto& request : requests) batch.failedItemIds.push_back(request.first);
+      return batch;
+    }
     DigiKeyApiClient client(config);
     for (size_t index = 0; index < requests.size(); ++index) {
       if (cancelFlag->load()) {
@@ -396,6 +396,9 @@ void App::processImportSync() {
   importSyncCancelFlag_.reset();
   if (!cancelled && !batch.results.empty() && !saveState("digikey", "import sync", "DigiKey enrichment batch")) {
     setMessage("DigiKey metadata is in memory; press R to retry saving", 6, UiMessageSeverity::Error);
+  } else if (!batch.unavailableReason.empty()) {
+    setMessage("DigiKey sync unavailable: " + batch.unavailableReason + "; press R to retry after configuring it", 6,
+               UiMessageSeverity::Warning);
   } else {
     const auto message = cancelled ? "DigiKey sync cancelled; press R to retry failed rows"
                                    : "DigiKey sync finished; press R to retry failed rows or Enter to finish";

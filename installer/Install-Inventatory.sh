@@ -10,6 +10,7 @@ marker_path=''
 release_version=''
 target=''
 stage=''
+download_dir=''
 
 write_marker() {
   [ -n "$marker_path" ] || return 0
@@ -27,8 +28,26 @@ write_marker() {
   mv -f -- "$marker_tmp" "$marker_path"
 }
 
+# The executable of a running process. The kernel appends " (deleted)" to the link once the file has been
+# replaced or removed on disk (for example by an earlier update); the path before the suffix is where the
+# update belongs, and without stripping it the path would never match an executable name or the wait below.
+running_executable() {
+  exe_path=$(readlink -f -- "/proc/$1/exe" 2>/dev/null) || return 1
+  case "$exe_path" in
+    *' (deleted)') exe_path=${exe_path%' (deleted)'} ;;
+  esac
+  printf '%s\n' "$exe_path"
+}
+
 cleanup() {
   if [ -n "$stage" ] && [ -d "$stage" ]; then rm -rf -- "$stage"; fi
+  # The application downloads an update into its own private Inventatory-update-* folder and leaves it
+  # for this script to remove, whether the update was applied or not.
+  if [ -n "$download_dir" ] && [ -d "$download_dir" ] && [ ! -L "$download_dir" ] && [ -O "$download_dir" ]; then
+    case "$(basename -- "$download_dir")" in
+      Inventatory-update-?*) rm -rf -- "$download_dir" ;;
+    esac
+  fi
 }
 
 fail() {
@@ -91,17 +110,18 @@ if [ "${1-}" = '--update' ]; then
   case "$parent_pid" in
     ''|*[!0-9]*) fail 'The Inventatory process identity is invalid' ;;
   esac
-  target=$(readlink -f -- "/proc/$parent_pid/exe" 2>/dev/null) || fail 'Could not locate the running Inventatory executable'
+  download_dir=$(dirname -- "$archive_path")
+  trap cleanup EXIT HUP INT TERM
+  target=$(running_executable "$parent_pid") || fail 'Could not locate the running Inventatory executable'
   [ "$(basename -- "$target")" = 'inventatory' ] || fail 'The running executable path is not an Inventatory Linux installation'
   [ -f "$target" ] && [ ! -L "$target" ] || fail 'The running executable could not be safely replaced'
-  trap cleanup EXIT HUP INT TERM
   stage=$(mktemp -d "$(dirname -- "$target")/.inventatory-update.XXXXXX") || fail 'The installation folder is not writable'
   verify_asset "$archive_path" "$archive_name"
   verify_asset "$0" "$installer_name"
   validate_archive
   tries=0
   while [ -e "/proc/$parent_pid/exe" ]; do
-    current=$(readlink -f -- "/proc/$parent_pid/exe" 2>/dev/null || true)
+    current=$(running_executable "$parent_pid" || true)
     [ "$current" = "$target" ] || break
     [ "$tries" -lt 300 ] || fail 'Inventatory did not close in time; the existing executable was left unchanged'
     tries=$((tries + 1))

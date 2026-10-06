@@ -11,17 +11,10 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
-#include <chrono>
 #include <ctime>
-#include <fstream>
-#include <future>
 #include <limits>
 #include <memory>
-#include <mutex>
-#include <sstream>
 #include <system_error>
-#include <unordered_set>
 
 namespace inventatory {
 
@@ -115,12 +108,6 @@ void App::beginEditImportCandidate() {
   inputMode_ = InputMode::EditFieldMenu;
   page_ = Page::Import;
   setMessage("Editing import row: \xE2\x86\x91\xE2\x86\x93 field, \xE2\x8F\x8E edit, s save, esc cancel", 4);
-}
-
-void App::openFieldMenu() {
-  menuOptions_ = fieldOptions();
-  fieldMenuIndex_ = 0;
-  inputMode_ = InputMode::EditFieldMenu;
 }
 
 void App::commitEditField(EditField field, const string& value) {
@@ -224,6 +211,7 @@ void App::saveWorkingCopy() {
     captureUndoSnapshot();
     *live = mergeEditedItem(workingCopy_.original, workingCopy_.item, *live, QuantityMerge::PreferEdited,
                             &mergeNotices);
+    releaseConflictingRackPlacement(store_, *live, &mergeNotices);
     reconcileRackAssignment(store_, *live);
   } else {
     inputMode_ = InputMode::None;
@@ -315,12 +303,6 @@ void App::setSelectedQuantityFromInput(const string& value) {
 
 void App::logActivity(const string& kind, const string& message) {
   appendActivity(activities_, makeActivity(kind, message));
-  const auto now = time(nullptr);
-  if (kind == "scan") {
-    scannerFlashUntil_ = now + 3;
-  } else if (kind == "print") {
-    printerFlashUntil_ = now + 3;
-  }
   saveActivitiesChecked();
   dirty_ = true;
 }

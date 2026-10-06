@@ -7,10 +7,9 @@
 #include "core/history/InventoryVersionInternal.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
-#include <fstream>
 #include <limits>
-#include <unordered_set>
 #include <utility>
 
 namespace inventatory {
@@ -30,14 +29,31 @@ const vector<InventoryItem>& InventoryStore::items() const {
   return items_;
 }
 
-bool InventoryStore::load(const filesystem::path& path) {
-#ifdef INVENTATORY_SQLITE_STORAGE
+namespace {
+
+// True when normalization changed anything that is persisted for an item or a rack.
+bool storeContentChanged(const vector<InventoryItem>& beforeItems, const vector<InventatoryRack>& beforeRacks,
+                         const vector<InventoryItem>& afterItems, const vector<InventatoryRack>& afterRacks) {
+  if (beforeItems.size() != afterItems.size() || beforeRacks.size() != afterRacks.size()) return true;
+  for (size_t index = 0; index < beforeItems.size(); ++index) {
+    if (serializeItem(beforeItems[index]) != serializeItem(afterItems[index])) return true;
+  }
+  for (size_t index = 0; index < beforeRacks.size(); ++index) {
+    if (serializeRackSnapshot(beforeRacks[index]) != serializeRackSnapshot(afterRacks[index])) return true;
+  }
+  return false;
+}
+
+}  // namespace
+
+bool InventoryStore::load(const filesystem::path& path, bool* normalized) {
+  if (normalized != nullptr) *normalized = false;
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
     return false;
   }
 
-  if (!ensureInventatoryTableSchema(connection)) {
+  if (!ensureInventatoryTableSchema(connection) || !validateInventoryDataValues(connection)) {
     return false;
   }
   if (!validateInventoryCommitHistory(connection, nullptr)) {
@@ -55,42 +71,20 @@ bool InventoryStore::load(const filesystem::path& path) {
   loadedStore.items() = move(inventatoryItems);
   loadedStore.racks() = move(loadedRacks);
 
+  const auto storedItems = normalized != nullptr ? loadedStore.items() : vector<InventoryItem>();
+  const auto storedRacks = normalized != nullptr ? loadedStore.racks() : vector<InventatoryRack>();
   ensureInventoryIdentifiers(loadedStore.items());
   if (!validateInventoryIdentifiers(loadedStore.items(), loadedStore.racks())) return false;
   reconcileRackAssignments(loadedStore);
+  if (normalized != nullptr) {
+    *normalized = storeContentChanged(storedItems, storedRacks, loadedStore.items(), loadedStore.racks());
+  }
   items_ = move(loadedStore.items());
   racks_ = move(loadedStore.racks());
   return true;
-#else
-  vector<InventoryItem> loadedItems;
-  ifstream file(path);
-  if (!file) {
-    return false;
-  }
-
-  string line;
-  while (getline(file, line)) {
-    line = trim(line);
-    if (line.empty() || line.front() == '#') {
-      continue;
-    }
-
-    InventoryItem item;
-    if (deserializeItem(line, item)) {
-      loadedItems.push_back(move(item));
-    }
-  }
-
-  ensureInventoryIdentifiers(loadedItems);
-  if (loadedItems.empty()) return false;
-  items_ = move(loadedItems);
-  racks_.clear();
-  return true;
-#endif
 }
 
 bool InventoryStore::save(const filesystem::path& path) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   if (!validateInventoryIdentifiers(items, racks_)) return false;
@@ -101,61 +95,21 @@ bool InventoryStore::save(const filesystem::path& path) const {
   }
 
   return writeItemsToInventatoryTable(connection, items, racks_);
-#else
-  auto items = items_;
-  ensureInventoryIdentifiers(items);
-  if (!validateInventoryIdentifiers(items, racks_)) return false;
-
-  filesystem::create_directories(path.parent_path());
-
-  ofstream file(path, ios::trunc);
-  if (!file) {
-    return false;
-  }
-
-  file << "# Inventatory inventory data\n";
-  for (const auto& item : items) {
-    file << serializeItem(item) << '\n';
-  }
-  return true;
-#endif
 }
 
 bool InventoryStore::saveWithMovements(const filesystem::path& path,
                                        const vector<InventoryMovement>& movements) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   if (!validateInventoryIdentifiers(items, racks_)) return false;
   SqliteConnection connection;
   if (!openDatabase(path, connection)) return false;
   return writeItemsToInventatoryTable(connection, items, racks_, nullptr, &movements);
-#else
-  (void)movements;
-  return save(path);
-#endif
-}
-
-bool InventoryStore::saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
-                                          const vector<InventoryMovement>& movements) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
-  auto items = items_;
-  ensureInventoryIdentifiers(items);
-  if (!validateInventoryIdentifiers(items, racks_)) return false;
-  SqliteConnection connection;
-  if (!openDatabase(path, connection)) return false;
-  return writeItemsToInventatoryTable(connection, items, racks_, &event, &movements);
-#else
-  (void)event;
-  (void)movements;
-  return save(path);
-#endif
 }
 
 bool InventoryStore::saveWithCommit(const filesystem::path& path, const InventoryStore& previous,
                                     const InventoryCommitDraft& draft, const vector<InventoryMovement>& movements,
                                     const DeviceEventCommit* deviceEvent, InventoryCommit* committed) const {
-#ifdef INVENTATORY_SQLITE_STORAGE
   auto items = items_;
   ensureInventoryIdentifiers(items);
   InventoryStore normalized;
@@ -167,16 +121,7 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
   if (!validateInventoryIdentifiers(normalizedPrevious.items(), normalizedPrevious.racks())) return false;
   const auto changes = inventoryCommitDiff(normalizedPrevious, normalized);
   InventoryCommitDraft enriched = draft;
-  enriched.changedItemCount = 0;
-  enriched.changedRackCount = 0;
-  unordered_set<string> changedItems;
-  unordered_set<string> changedRacks;
-  for (const auto& change : changes) {
-    if (change.entityType == "item") changedItems.insert(change.entityId);
-    if (change.entityType == "rack") changedRacks.insert(change.entityId);
-  }
-  enriched.changedItemCount = changedItems.size();
-  enriched.changedRackCount = changedRacks.size();
+  countChangedEntities(changes, enriched.changedItemCount, enriched.changedRackCount);
   if (trim(enriched.message).empty()) {
     string operation = "Updated inventory";
     if (enriched.source == "import") operation = "Imported inventory";
@@ -201,18 +146,9 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
   return writeItemsToInventatoryTable(connection, items, racks_, deviceEvent, &movements,
                                       shouldCommit ? &enriched : nullptr, committed, true,
                                       &normalizedPrevious.items(), &normalizedPrevious.racks());
-#else
-  (void)previous;
-  (void)draft;
-  (void)movements;
-  (void)deviceEvent;
-  (void)committed;
-  return save(path);
-#endif
 }
 
 vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, size_t limit) {
-#ifdef INVENTATORY_SQLITE_STORAGE
   if (limit == 0) return {};
   error_code filesystemError;
   if (!filesystem::is_regular_file(path, filesystemError) || filesystemError) return {};
@@ -247,11 +183,6 @@ vector<InventoryMovement> loadInventoryMovements(const filesystem::path& path, s
     movements.push_back(move(movement));
   }
   return stepResult == SQLITE_DONE ? movements : vector<InventoryMovement>();
-#else
-  (void)path;
-  (void)limit;
-  return {};
-#endif
 }
 
 InventoryItem* InventoryStore::findById(const string& id) {
@@ -268,23 +199,50 @@ const InventoryItem* InventoryStore::findById(const string& id) const {
   return it == items_.end() ? nullptr : &(*it);
 }
 
+namespace {
+
+bool equalsInsensitiveAscii(const string& value, const string& loweredNeedle) {
+  if (value.size() != loweredNeedle.size()) return false;
+  for (size_t index = 0; index < value.size(); ++index) {
+    if (tolower(static_cast<unsigned char>(value[index])) != static_cast<unsigned char>(loweredNeedle[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+string withoutTrailingSlashes(string value) {
+  while (!value.empty() && value.back() == '/') value.pop_back();
+  return value;
+}
+
+// A scanned URL identifies a part only when it is the whole stored URL. A short or generic code
+// must never match as a substring of some product or datasheet link.
+bool urlMatchesScannedCode(const string& url, const string& loweredNeedle) {
+  if (loweredNeedle.rfind("http://", 0) != 0 && loweredNeedle.rfind("https://", 0) != 0) return false;
+  return !url.empty() && withoutTrailingSlashes(toLower(url)) == withoutTrailingSlashes(loweredNeedle);
+}
+
+bool itemMatchesScannedCode(const InventoryItem& item, const string& needle) {
+  return equalsInsensitiveAscii(item.id, needle) || equalsInsensitiveAscii(item.inventatoryId, needle) ||
+         equalsInsensitiveAscii(item.sku, needle) || equalsInsensitiveAscii(item.machineCode, needle) ||
+         equalsInsensitiveAscii(item.digikeyPartNumber, needle) || urlMatchesScannedCode(item.productUrl, needle) ||
+         urlMatchesScannedCode(item.datasheetUrl, needle);
+}
+
+}  // namespace
+
 InventoryItem* InventoryStore::findByCode(const string& code) {
   const auto needle = toLower(trim(code));
-  const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
-           toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
-           containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
-  });
+  const auto it = find_if(items_.begin(), items_.end(),
+                          [&](const InventoryItem& item) { return itemMatchesScannedCode(item, needle); });
   return it == items_.end() ? nullptr : &(*it);
 }
 
 const InventoryItem* InventoryStore::findByCode(const string& code) const {
   const auto needle = toLower(trim(code));
-  const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
-           toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
-           containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
-  });
+  const auto it = find_if(items_.begin(), items_.end(),
+                          [&](const InventoryItem& item) { return itemMatchesScannedCode(item, needle); });
   return it == items_.end() ? nullptr : &(*it);
 }
 
