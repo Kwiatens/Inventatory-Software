@@ -440,6 +440,11 @@ void App::openSelectedRackItemDetail() {
   selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
   inputMode_ = InputMode::None;
   focusedTargetId_.clear();
+  // Leaving Racks drops a half-finished move and pending confirmations, as changePage does.
+  movingRackItemId_.clear();
+  movingRackSource_.clear();
+  cancelDeleteConfirmation();
+  cancelRackDeletion();
   page_ = Page::Stock;
   syncSelectionToFilter();
   dirty_ = true;
