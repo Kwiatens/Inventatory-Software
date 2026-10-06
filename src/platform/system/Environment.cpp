@@ -67,6 +67,26 @@ std::optional<std::string> environmentValue(const char* name) {
 }
 
 #ifndef _WIN32
+std::filesystem::path homeDirectory() {
+  if (const auto home = environmentValue("HOME"); home.has_value() && !home->empty()) return std::filesystem::path(*home);
+  return std::filesystem::current_path();
+}
+
+namespace {
+
+std::filesystem::path xdgHome(const char* variable, const char* fallback) {
+  if (const auto xdg = environmentValue(variable);
+      xdg.has_value() && !xdg->empty() && std::filesystem::path(*xdg).is_absolute()) {
+    return std::filesystem::path(*xdg);
+  }
+  return homeDirectory() / fallback;
+}
+
+}  // namespace
+
+std::filesystem::path xdgConfigHome() { return xdgHome("XDG_CONFIG_HOME", ".config"); }
+std::filesystem::path xdgDataHome() { return xdgHome("XDG_DATA_HOME", ".local/share"); }
+
 std::string stripDeletedExecutableSuffix(std::string path) {
   static const std::string kSuffix = " (deleted)";
   if (path.size() > kSuffix.size() && path.compare(path.size() - kSuffix.size(), kSuffix.size(), kSuffix) == 0) {

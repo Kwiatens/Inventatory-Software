@@ -15,6 +15,12 @@ namespace inventatory {
 std::optional<std::string> environmentValue(const char* name);
 
 #ifndef _WIN32
+// $HOME, or the working directory when it is unset or empty.
+std::filesystem::path homeDirectory();
+// $XDG_CONFIG_HOME / $XDG_DATA_HOME when set to an absolute path, otherwise $HOME/.config / $HOME/.local/share.
+std::filesystem::path xdgConfigHome();
+std::filesystem::path xdgDataHome();
+
 // Linux reports the running binary as "<path> (deleted)" after it was replaced on disk (an update,
 // a reinstall). This removes that suffix; other strings are returned unchanged.
 std::string stripDeletedExecutableSuffix(std::string path);
