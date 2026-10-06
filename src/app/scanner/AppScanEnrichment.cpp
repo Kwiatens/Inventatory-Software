@@ -143,15 +143,16 @@ void App::processScanDigiKeyEnrichment() {
   if (scanDigiKeyEnrichmentQueue_.empty()) return;
   const auto [itemId, lookup] = scanDigiKeyEnrichmentQueue_.front();
   scanDigiKeyEnrichmentQueue_.pop_front();
-  const auto config = loadDigiKeyConfig();
-  if (!config.valid()) return;
   const auto context = currentWorkspaceContext();
   if (context == nullptr) return;
   const auto generation = context->generation;
-  scanDigiKeyEnrichmentFuture_ = async(launch::async, [itemId, lookup, config, generation] {
+  scanDigiKeyEnrichmentFuture_ = async(launch::async, [itemId, lookup, generation] {
     ScanDigiKeyEnrichmentResult result;
     result.itemId = itemId;
     result.workspaceGeneration = generation;
+    // Reading the credentials can block on a locked keyring, so it happens here and not on the UI thread.
+    const auto config = loadDigiKeyConfig();
+    if (!config.valid()) return result;
     DigiKeyApiClient client(config);
     string error;
     result.details = client.fetchProductDetails(lookup, &error);
