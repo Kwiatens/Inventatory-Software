@@ -801,6 +801,21 @@ void testPhysicalValueParsing() {
   assert(!parsePhysicalValue("123").has_value());
 }
 
+#ifndef _WIN32
+void testLinuxExecutablePathHasNoDeletedSuffix() {
+  // A binary replaced on disk is reported by /proc as "<path> (deleted)".
+  assert(stripDeletedExecutableSuffix("/home/u/.local/bin/inventatory (deleted)") == "/home/u/.local/bin/inventatory");
+  assert(stripDeletedExecutableSuffix("/home/u/.local/bin/inventatory") == "/home/u/.local/bin/inventatory");
+  assert(stripDeletedExecutableSuffix(" (deleted)") == " (deleted)");
+  assert(stripDeletedExecutableSuffix("/opt/app (deleted)/bin") == "/opt/app (deleted)/bin");
+  const auto executable = currentExecutablePath();
+  assert(!executable.empty() && executable.is_absolute());
+  assert(executable.string().find("(deleted)") == string::npos);
+  error_code ignored;
+  assert(filesystem::is_regular_file(executable, ignored));
+}
+#endif
+
 void testPhysicalValueMatching() {
   // 100nF should match 0.1uF (same value, different prefix)
   const auto exactCap = comparePhysicalValues("100nF", "0.1uF");
@@ -2617,6 +2632,7 @@ int main() {
 #endif
 #ifndef _WIN32
   testLinuxMdnsRefusesNonPrivateInterfaces();
+  testLinuxExecutablePathHasNoDeletedSuffix();
 #endif
 
   {

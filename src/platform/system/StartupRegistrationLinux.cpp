@@ -43,17 +43,6 @@ filesystem::path dataHome() {
   return homeDirectory() / ".local" / "share";
 }
 
-filesystem::path currentExecutablePath() {
-  std::vector<char> buffer(4096U);
-  for (;;) {
-    const auto count = readlink("/proc/self/exe", buffer.data(), buffer.size());
-    if (count < 0) return {};
-    if (static_cast<size_t>(count) < buffer.size()) return filesystem::u8path(std::string(buffer.data(), count));
-    if (buffer.size() >= 1024U * 1024U) return {};
-    buffer.resize(buffer.size() * 2U);
-  }
-}
-
 // Replacing a launcher or icon that already holds the same bytes still gives it a new inode and
 // mtime. Plasma then drops its link between the running window and the launcher it was started
 // from, and the taskbar falls back to the terminal emulator's own icon. Only touch the file when
