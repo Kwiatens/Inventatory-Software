@@ -128,6 +128,9 @@ void App::processDeviceSyncEvents() {
   // New events announce themselves through deviceSyncEventsHint_; the periodic look is only a
   // safety net, so an idle service does not query SQLite ten times a second.
   const auto now = chrono::steady_clock::now();
+  // After a failed commit the same oldest event would fail again immediately, so it is not retried
+  // before the back-off expires. The hint is left alone so the retry happens as soon as it does.
+  if (now < deviceSyncRetryAfter_ && workspaceIsCurrent(deviceSyncRetryGeneration_)) return;
   if (!deviceSyncEventsHint_.exchange(false) && now - lastDeviceSyncEventPoll_ < chrono::seconds(5)) return;
   lastDeviceSyncEventPoll_ = now;
   const auto context = currentWorkspaceContext();
@@ -144,7 +147,6 @@ void App::processDeviceSyncEvents() {
                UiMessageSeverity::Warning);
     return;
   }
-  deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
 
   const auto& event = pending.front();
   if (event.deviceId.empty()) {
@@ -161,6 +163,7 @@ void App::processDeviceSyncEvents() {
   result.message = "Invalid inventory event";
 
   string affectedItemId;
+  string enrichmentLookup;  // queued for DigiKey only after the event is durably committed
   bool created = false;
   if (event.type == "inventory.adjust") {
     DeviceQuantityRequest request{{}, event.eventId, event.code, event.value};
@@ -203,7 +206,7 @@ void App::processDeviceSyncEvents() {
       string warning;
       const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
                                 trim(item->partName) == "Scanned DigiKey Item";
-      if (shouldEnrich && !trim(event.code).empty()) scanDigiKeyEnrichmentQueue_.emplace_back(item->id, event.code);
+      enrichmentLookup = shouldEnrich ? trim(event.code) : string();
       reconcileRackAssignment(candidate, *item);
       result.itemName = item->partName;
       result.location = rackLocation(*item, candidate.racks());
@@ -222,9 +225,21 @@ void App::processDeviceSyncEvents() {
 
   if (!workspaceIsCurrent(context->generation)) return;
   if (!completeDeviceSyncEvent(candidate, context->paths.inventory, result, &persistedStore_)) {
-    setMessage("Inventatory Scan event could not be committed", 4);
+    // The event stays in the durable inbox in the received state and is retried with a growing delay;
+    // the status line keeps saying so instead of the loop re-running on every tick.
+    ++deviceSyncCommitFailures_;
+    deviceSyncRetryAfter_ = now + app_actions::deviceSyncRetryDelay(deviceSyncCommitFailures_);
+    deviceSyncRetryGeneration_ = context->generation;
+    deviceLastResult_ = "ERROR scanner event not saved; retrying";
+    setMessage("Inventatory Scan event could not be committed; it stays queued and will be retried", 5,
+               UiMessageSeverity::Warning);
+    dirty_ = true;
     return;
   }
+  deviceSyncCommitFailures_ = 0;
+  deviceSyncRetryAfter_ = {};
+  deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
+  if (!enrichmentLookup.empty()) scanDigiKeyEnrichmentQueue_.emplace_back(affectedItemId, enrichmentLookup);
   store_ = move(candidate);
   persistedStore_ = store_;
   persistedStoreValid_ = true;

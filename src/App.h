@@ -942,6 +942,10 @@ class App {
   bool workAbandoned_ = false;
   std::atomic<bool> deviceSyncEventsHint_{true};
   std::chrono::steady_clock::time_point lastDeviceSyncEventPoll_{};
+  // UI thread only: back-off after the oldest device event could not be committed.
+  int deviceSyncCommitFailures_ = 0;
+  std::chrono::steady_clock::time_point deviceSyncRetryAfter_{};
+  WorkspaceGeneration deviceSyncRetryGeneration_ = 0;
   // Guarded by deviceQueueMutex_.
   bool deviceRequestsClosed_ = false;
   bool dirty_ = true;
