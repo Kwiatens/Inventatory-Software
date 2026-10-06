@@ -8392,6 +8392,14 @@ int main() {
     }
     assert(isValidUtf8("zażółć gęślą jaźń \xF0\x9F\x98\x80"));
     assert(!isValidUtf8("\xC3"));
+    assert(isValidUtf8("\xF4\x8F\xBF\xBF"));    // U+10FFFF, the last scalar value
+    assert(!isValidUtf8("\x80"));                // stray continuation byte
+    assert(!isValidUtf8("\xC0\x80"));            // overlong two-byte form
+    assert(!isValidUtf8("\xE0\x80\x80"));        // overlong three-byte form
+    assert(!isValidUtf8("\xED\xA0\x80"));        // surrogate
+    assert(!isValidUtf8("\xF4\x90\x80\x80"));    // above U+10FFFF
+    assert(!isValidUtf8("\xF8\x88\x80\x80\x80"));  // five-byte form
+    assert(!isValidUtf8("\xE2\x82"));            // truncated
 
     // The file loaders use the same conversion.
     const auto encodingRoot = testTempRoot() / "inventatory-csv-encoding-test";
