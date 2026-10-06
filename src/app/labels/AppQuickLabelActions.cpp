@@ -27,26 +27,10 @@ bool App::printWireLabel(const string& text) {
     openSettings(SettingsCategory::Printer);
     return false;
   }
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    setMessage("Printer unavailable while the workspace is changing", 4);
-    return false;
-  }
-  if (printerWorkCompletion_ != nullptr) {
-    setMessage("A printer job is already running; try again shortly", 3);
-    return false;
-  }
-  PrinterWork work;
-  work.kind = PrinterWorkKind::PrintWire;
-  work.workspaceGeneration = context->generation;
-  work.printerName = printerService_.configuredPrinter();
-  work.text = text;
-  if (!enqueuePrinterWork(move(work))) {
-    setMessage("Printer request queue is full; try again shortly", 4);
-    return false;
-  }
-  setMessage("Printer job queued", 3);
-  return true;
+  auto work = beginPrinterJob(PrinterWorkKind::PrintWire);
+  if (!work) return false;
+  work->text = text;
+  return queuePrinterJob(move(*work));
 }
 
 void App::publishConfiguredPrinter() {

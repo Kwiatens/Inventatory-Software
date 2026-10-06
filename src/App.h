@@ -624,6 +624,8 @@ class App {
   void publishConfiguredPrinter();
   bool enqueuePrinterProbe(const std::string& printerName);
   bool enqueuePrinterWork(PrinterWork work);
+  std::optional<PrinterWork> beginPrinterJob(PrinterWorkKind kind);
+  bool queuePrinterJob(PrinterWork work);
   void refreshInventoryMovements();
   // `afterOwnSave` skips re-validating the entire history after this process appended a commit; only the
   // newest commit (the one just written) is checked.
