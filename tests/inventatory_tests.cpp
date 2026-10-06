@@ -63,12 +63,16 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <limits>
 #include <map>
 #include <set>
+#include <mutex>
+#include <random>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -92,13 +96,15 @@
 #include <ws2tcpip.h>
 #endif
 
+// The always-on assert used by every test. A failure prints the expression and exits instead of
+// throwing: production code under test catches exceptions from hooks and callbacks, and a thrown
+// failure there would be swallowed and turn a failed check into a pass. testAssertionFailed() runs
+// the registered cleanups first, and std::exit() then runs the static destructors, so neither the
+// private temp root nor a test credential outlives a failing run.
 #undef assert
 #define assert(expr)                                                                                                 \
   do {                                                                                                                \
-    if (!(expr)) {                                                                                                    \
-      cerr << "Assertion failed: " << #expr << " at " << __FILE__ << ":" << __LINE__ << '\n';                     \
-      std::exit(1);                                                                                                   \
-    }                                                                                                                 \
+    if (!(expr)) testAssertionFailed(#expr, __FILE__, __LINE__);                                                      \
   } while (false)
 
 using namespace inventatory;
@@ -118,6 +124,113 @@ constexpr const char* kTestApplicationArchive = "Inventatory-linux-x64.tar.gz";
 constexpr const char* kTestApplicationChecksums = "SHA256SUMS-linux.txt";
 constexpr const char* kTestApplicationInstaller = "Install-Inventatory.sh";
 #endif
+
+// Runs an action when it leaves scope and, if an assert fails first, before the process exits. Use it for
+// state outside the temp root (for example credential-store entries) that a plain destructor would leak,
+// because a failing assert exits the process without unwinding.
+class TestCleanup final {
+ public:
+  explicit TestCleanup(function<void()> action) : action_(std::move(action)) {
+    lock_guard<mutex> lock(registryMutex());
+    registry().push_back(this);
+  }
+  ~TestCleanup() { run(); }
+  TestCleanup(const TestCleanup&) = delete;
+  TestCleanup& operator=(const TestCleanup&) = delete;
+
+  static void runAllPending() {
+    vector<TestCleanup*> pending;
+    {
+      lock_guard<mutex> lock(registryMutex());
+      pending.assign(registry().rbegin(), registry().rend());
+    }
+    for (TestCleanup* cleanup : pending) cleanup->run();
+  }
+
+ private:
+  static mutex& registryMutex() {
+    static mutex instance;
+    return instance;
+  }
+  static vector<TestCleanup*>& registry() {
+    static vector<TestCleanup*> instance;
+    return instance;
+  }
+  void run() {
+    function<void()> action;
+    {
+      lock_guard<mutex> lock(registryMutex());
+      action.swap(action_);
+      auto& entries = registry();
+      entries.erase(std::remove(entries.begin(), entries.end(), this), entries.end());
+    }
+    if (action) action();
+  }
+
+  function<void()> action_;
+};
+
+// Every fixture lives under one private directory that is created fresh (random name, never reused) for
+// each run of the test program and removed when the program ends, including after a failed assert. Two runs
+// (Debug and Release, ctest -j, two terminals) therefore cannot clobber each other, a predictable name in a
+// shared temp directory cannot be pre-created by someone else, and nothing is left behind. Set
+// INVENTATORY_KEEP_TEST_TEMP=1 to keep the directory and print its path when investigating a failure.
+class TestTempRoot final {
+ public:
+  TestTempRoot() {
+    random_device entropy;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+      ostringstream name;
+      name << "inventatory-tests-" << hex << setfill('0') << setw(16)
+           << ((static_cast<unsigned long long>(entropy()) << 32U) | entropy());
+      error_code error;
+      const auto candidate = filesystem::temp_directory_path(error) / name.str();
+      if (error) break;
+      if (filesystem::create_directory(candidate, error) && !error) {
+        filesystem::permissions(candidate, filesystem::perms::owner_all, filesystem::perm_options::replace, error);
+        path_ = candidate;
+        break;
+      }
+    }
+    if (path_.empty()) {
+      cerr << "Cannot create a private temporary directory for the tests\n";
+      std::exit(1);
+    }
+  }
+  ~TestTempRoot() {
+#ifndef _WIN32
+    // A forked test child that exits normally must not delete the parent's fixtures.
+    if (getpid() != ownerProcess_) return;
+#endif
+    if (const char* keep = getenv("INVENTATORY_KEEP_TEST_TEMP"); keep != nullptr && string(keep) == "1") {
+      cerr << "Keeping test fixtures in " << path_.string() << '\n';
+      return;
+    }
+    error_code error;
+    filesystem::remove_all(path_, error);
+  }
+  TestTempRoot(const TestTempRoot&) = delete;
+  TestTempRoot& operator=(const TestTempRoot&) = delete;
+
+  const filesystem::path& path() const { return path_; }
+
+ private:
+  filesystem::path path_;
+#ifndef _WIN32
+  const pid_t ownerProcess_ = getpid();
+#endif
+};
+
+const filesystem::path& testTempRoot() {
+  static const TestTempRoot root;
+  return root.path();
+}
+
+[[noreturn]] void testAssertionFailed(const char* expression, const char* file, int line) {
+  cerr << "Assertion failed: " << expression << " at " << file << ":" << line << '\n';
+  TestCleanup::runAllPending();
+  std::exit(1);
+}
 
 string currentPlatformReleaseFixture(string fixture) {
 #ifndef _WIN32
@@ -296,7 +409,7 @@ void testHistoryPagePresentationData() {
 
 #ifndef _WIN32
 void testAtomicFileLinks() {
-  const auto root = filesystem::temp_directory_path() / ("inventatory-atomic-file-test-" + to_string(getpid()));
+  const auto root = testTempRoot() / ("inventatory-atomic-file-test-" + to_string(getpid()));
   error_code ignored;
   filesystem::remove_all(root, ignored);
   filesystem::create_directories(root / "real");
@@ -381,7 +494,7 @@ void createTransferTestWorkspace(const filesystem::path& folder) {
 }
 
 void testBackupAndRestoreThroughDataFolderLinks() {
-  const auto root = filesystem::temp_directory_path() / ("inventatory-transfer-link-test-" + to_string(getpid()));
+  const auto root = testTempRoot() / ("inventatory-transfer-link-test-" + to_string(getpid()));
   error_code ignored;
   filesystem::remove_all(root, ignored);
   const auto source = root / "source";
@@ -690,7 +803,7 @@ void testUtf8AwareTextLayout() {
 
 #ifndef _WIN32
 void testRestoreKeepsMachineSpecificSettings() {
-  const auto root = filesystem::temp_directory_path() / ("inventatory-transfer-local-test-" + to_string(getpid()));
+  const auto root = testTempRoot() / ("inventatory-transfer-local-test-" + to_string(getpid()));
   error_code ignored;
   filesystem::remove_all(root, ignored);
   const auto source = root / "source";
@@ -1137,7 +1250,7 @@ void testPhysicalValueMatching() {
 #ifndef _WIN32
 void testBackgroundRuntimeDirectory() {
   error_code ignored;
-  const auto root = filesystem::temp_directory_path() / ("inventatory-runtime-dir-test-" + to_string(getpid()));
+  const auto root = testTempRoot() / ("inventatory-runtime-dir-test-" + to_string(getpid()));
   filesystem::remove_all(root, ignored);
   const auto xdg = root / "xdg";
   const auto userRun = root / "run-user";
@@ -1263,7 +1376,7 @@ void testPhysicalValueCommaDecimalLocale() {
 
 #ifndef _WIN32
 void testLinuxControllerLockProbesNeverBlockAcquisition() {
-  const auto root = filesystem::temp_directory_path() / ("inventatory-lock-probe-test-" + to_string(getpid()));
+  const auto root = testTempRoot() / ("inventatory-lock-probe-test-" + to_string(getpid()));
   error_code ignored;
   filesystem::remove_all(root, ignored);
   filesystem::create_directories(root);
@@ -1398,7 +1511,7 @@ void testLinuxChildProcessIsBounded() {
   }
   {
     // A helper that never answers is stopped at the deadline, together with what it started.
-    const auto root = filesystem::temp_directory_path() / ("inventatory-child-test-" + to_string(getpid()));
+    const auto root = testTempRoot() / ("inventatory-child-test-" + to_string(getpid()));
     error_code ignored;
     filesystem::remove_all(root, ignored);
     filesystem::create_directories(root);
@@ -1439,7 +1552,7 @@ void testLinuxChildProcessIsBounded() {
 // a warning to stderr on every call, and private XDG folders.
 struct StartupTestEnvironment {
   explicit StartupTestEnvironment(const string& name)
-      : root(filesystem::temp_directory_path() / ("inventatory-" + name + "-test-" + to_string(getpid()))),
+      : root(testTempRoot() / ("inventatory-" + name + "-test-" + to_string(getpid()))),
         failEnable(root / "fail-enable"),
         path("PATH", (root / "bin").string() + ":" + (getenv("PATH") != nullptr ? getenv("PATH") : "")),
         config("XDG_CONFIG_HOME", (root / "config").string()),
@@ -1695,7 +1808,7 @@ void testFailedUnitRegistrationRestoresPreviousUnit() {
 
 void testInventoryCommitHistory() {
 #ifdef INVENTATORY_SQLITE_STORAGE
-  const auto path = filesystem::temp_directory_path() / "inventatory-inventory-commit-history-test.db";
+  const auto path = testTempRoot() / "inventatory-inventory-commit-history-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
 
@@ -1952,8 +2065,8 @@ void testDesktopLauncherExecQuoting() {
 // still be rejected, and an untouched history must still load.
 void testInventoryHistoryValidation() {
 #ifdef INVENTATORY_SQLITE_STORAGE
-  const auto path = filesystem::temp_directory_path() / "inventatory-history-validation-test.db";
-  const auto pristine = filesystem::temp_directory_path() / "inventatory-history-validation-pristine.db";
+  const auto path = testTempRoot() / "inventatory-history-validation-test.db";
+  const auto pristine = testTempRoot() / "inventatory-history-validation-pristine.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
   filesystem::remove(pristine, cleanupError);
@@ -2158,8 +2271,8 @@ void testDigiKeyParsingRobustness() {
 
 void testSqliteSchemaValidation() {
 #ifdef INVENTATORY_SQLITE_STORAGE
-  const auto unsupportedPath = filesystem::temp_directory_path() / "inventatory-unsupported-schema-test.db";
-  const auto invalidPath = filesystem::temp_directory_path() / "inventatory-invalid-schema-test.db";
+  const auto unsupportedPath = testTempRoot() / "inventatory-unsupported-schema-test.db";
+  const auto invalidPath = testTempRoot() / "inventatory-invalid-schema-test.db";
   error_code cleanupError;
   filesystem::remove(unsupportedPath, cleanupError);
   filesystem::remove(invalidPath, cleanupError);
@@ -2220,7 +2333,7 @@ void testSqliteSchemaValidation() {
   {
     // Entry points only run the structural schema check; the table-scanning value checks belong to
     // load, restore and backup validation, which must still reject a bad row.
-    const auto valuesPath = filesystem::temp_directory_path() / "inventatory-data-values-test.db";
+    const auto valuesPath = testTempRoot() / "inventatory-data-values-test.db";
     filesystem::remove(valuesPath, cleanupError);
     {
       InventoryStore store;
@@ -2250,7 +2363,7 @@ void testSqliteSchemaValidation() {
   {
     // load() reports whether it had to repair stored rows, so the startup rewrite can be skipped
     // for a database that already matches memory.
-    const auto normalizedPath = filesystem::temp_directory_path() / "inventatory-load-normalized-test.db";
+    const auto normalizedPath = testTempRoot() / "inventatory-load-normalized-test.db";
     filesystem::remove(normalizedPath, cleanupError);
     {
       InventoryStore store;
@@ -2284,7 +2397,7 @@ void testSqliteSchemaValidation() {
     filesystem::remove(normalizedPath, cleanupError);
   }
 
-  const auto duplicatePath = filesystem::temp_directory_path() / "inventatory-duplicate-identifiers-test.db";
+  const auto duplicatePath = testTempRoot() / "inventatory-duplicate-identifiers-test.db";
   filesystem::remove(duplicatePath, cleanupError);
   {
     InventoryStore duplicate;
@@ -2331,7 +2444,7 @@ void testSqliteSchemaValidation() {
   }
 
   {
-    const auto completionPath = filesystem::temp_directory_path() / "inventatory-device-event-completion-test.db";
+    const auto completionPath = testTempRoot() / "inventatory-device-event-completion-test.db";
     filesystem::remove(completionPath, cleanupError);
     InventoryStore original;
     InventoryItem item;
@@ -2404,7 +2517,7 @@ void testSqliteSchemaValidation() {
 
 #ifndef _WIN32
 void testUpdateDownloadFolderAndInstallDirectory() {
-  const auto root = filesystem::temp_directory_path() / ("inventatory-update-helper-test-" + to_string(getpid()));
+  const auto root = testTempRoot() / ("inventatory-update-helper-test-" + to_string(getpid()));
   error_code ignored;
   filesystem::remove_all(root, ignored);
   filesystem::create_directories(root);
@@ -2439,7 +2552,7 @@ void testUpdateDownloadFolderAndInstallDirectory() {
 
 #ifndef _WIN32
 void testCupsBackendRunsBoundedHelpers() {
-  const auto root = filesystem::temp_directory_path() / ("inventatory-cups-test-" + to_string(getpid()));
+  const auto root = testTempRoot() / ("inventatory-cups-test-" + to_string(getpid()));
   error_code ignored;
   filesystem::remove_all(root, ignored);
   filesystem::create_directories(root / "bin");
@@ -2584,7 +2697,7 @@ void testPackageGHardening() {
     assert(!oversizedDigiKey.ok);
     assert(oversizedDigiKey.error.find("25 MiB") != string::npos);
 
-    const auto oversizedCsvPath = filesystem::temp_directory_path() / "inventatory-package-g-oversized.csv";
+    const auto oversizedCsvPath = testTempRoot() / "inventatory-package-g-oversized.csv";
     error_code fileError;
     filesystem::remove(oversizedCsvPath, fileError);
     {
@@ -2625,7 +2738,7 @@ void testPackageGHardening() {
     assert(!oversizedTextResult.ok);
     assert(oversizedTextResult.error.find("25 MiB") != string::npos);
 
-    const auto oversizedBomPath = filesystem::temp_directory_path() / "inventatory-package-g-oversized-bom.csv";
+    const auto oversizedBomPath = testTempRoot() / "inventatory-package-g-oversized-bom.csv";
     error_code fileError;
     filesystem::remove(oversizedBomPath, fileError);
     {
@@ -2737,7 +2850,7 @@ void testPackageGHardening() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-package-g-quick-labels.conf";
+    const auto path = testTempRoot() / "inventatory-package-g-quick-labels.conf";
     error_code cleanupError;
     filesystem::remove(path, cleanupError);
     assert(!saveQuickLabels(path, {"label"}, 0));
@@ -2799,7 +2912,7 @@ void testSettingsBridgeNotice() {
 // Negative Scan R1 transport cases: every rejected request must leave the sync callback untouched and
 // must not consume the replay counter; a stale lower counter is rejected like an exact replay.
 void testScannerHttpNegativeCases() {
-  const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-http-negative-test";
+  const auto stateDirectory = testTempRoot() / "inventatory-http-negative-test";
   error_code cleanupError;
   filesystem::remove_all(stateDirectory, cleanupError);
   const string token = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
@@ -2934,7 +3047,7 @@ vector<long> currentTaskIds() {
 // instance to come forward) interrupts select()/recv()/send() with EINTR. That must not drop the
 // pending device request or lose the response.
 void testScannerServerSurvivesSignals() {
-  const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-http-signal-test";
+  const auto stateDirectory = testTempRoot() / "inventatory-http-signal-test";
   error_code cleanupError;
   filesystem::remove_all(stateDirectory, cleanupError);
   const string token = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
@@ -3056,22 +3169,19 @@ void testScannerCredentialResolution() {
     }
   }
 
-  const auto testBase = filesystem::temp_directory_path() / "inventatory-credential-resolution-test";
+  const auto testBase = testTempRoot() / "inventatory-credential-resolution-test";
   const auto workspace = testBase / ("workspace-" + to_string(static_cast<unsigned long long>(
                                                         chrono::steady_clock::now().time_since_epoch().count())));
   error_code cleanupError;
   filesystem::remove_all(testBase, cleanupError);
   assert(filesystem::create_directories(workspace));
 
-  struct CleanupGuard {
-    filesystem::path ws;
-    filesystem::path base;
-    ~CleanupGuard() {
-      CredentialStore::eraseForWorkspace(ws, kInventatoryScanTokenCredential);
-      error_code ec;
-      filesystem::remove_all(base, ec);
-    }
-  } cleanupGuard{workspace, testBase};
+  // Also runs when an assert fails, so the keyring never keeps this workspace's token.
+  const TestCleanup cleanupGuard([workspace, testBase] {
+    CredentialStore::eraseForWorkspace(workspace, kInventatoryScanTokenCredential);
+    error_code ec;
+    filesystem::remove_all(testBase, ec);
+  });
   CredentialStore::eraseForWorkspace(workspace, kInventatoryScanTokenCredential);
 
   InventatoryScanConfig config;
@@ -3181,7 +3291,7 @@ void testScannerCommitIgnoresUnsavedMemoryEdits() {
   // window must not use the unsaved store as its diff baseline: the commit would count only the
   // scanner change while its snapshot also carried the edit, which fails history validation on
   // every later save and refuses to load on the next launch.
-  const auto path = filesystem::temp_directory_path() / "inventatory-scanner-unsaved-edit-test.db";
+  const auto path = testTempRoot() / "inventatory-scanner-unsaved-edit-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
 
@@ -3521,7 +3631,7 @@ void testInventoryMerge() {
   // way the import commit does it. History stays valid and keeps both changes.
   {
 #ifdef INVENTATORY_SQLITE_STORAGE
-    const auto path = filesystem::temp_directory_path() / "inventatory-merge-scanner-import-test.db";
+    const auto path = testTempRoot() / "inventatory-merge-scanner-import-test.db";
     error_code cleanupError;
     filesystem::remove(path, cleanupError);
 
@@ -3770,7 +3880,7 @@ int main() {
   } else {
     const string key = "release-readiness-scanner-scope-test-" +
                        to_string(static_cast<unsigned long long>(chrono::steady_clock::now().time_since_epoch().count()));
-    const auto scopeRoot = filesystem::temp_directory_path() / ("inventatory-scanner-scope-" + key);
+    const auto scopeRoot = testTempRoot() / ("inventatory-scanner-scope-" + key);
     const auto workspaceA = scopeRoot / "workspace-a";
     const auto workspaceB = scopeRoot / "workspace-b";
     error_code cleanupError;
@@ -3781,6 +3891,13 @@ int main() {
     // A global target must never be implicitly visible through a workspace
     // scope. Scanner pairing is deliberately workspace-local.
     const auto legacyKey = key + "-legacy";
+    // Erase every credential this block can create, even when an assert below fails, so the user's
+    // keyring is left as it was found.
+    const TestCleanup credentialCleanup([workspaceA, workspaceB, key, legacyKey] {
+      CredentialStore::erase(legacyKey);
+      CredentialStore::eraseForWorkspace(workspaceA, key);
+      CredentialStore::eraseForWorkspace(workspaceB, key);
+    });
     CredentialStore::erase(legacyKey);
     CredentialStore::eraseForWorkspace(workspaceA, key);
     CredentialStore::eraseForWorkspace(workspaceB, key);
@@ -3856,7 +3973,7 @@ int main() {
 
   {
     namespace transferDetail = inventatory::inventory_transfer_detail;
-    const auto compareBase = filesystem::temp_directory_path() / "inventatory-path-compare-test";
+    const auto compareBase = testTempRoot() / "inventatory-path-compare-test";
     assert(transferDetail::equivalentPath(compareBase / "same", compareBase / "same"));
     assert(!transferDetail::equivalentPath(compareBase / "one", compareBase / "two"));
     bool pathsOverlapResult = false;
@@ -3878,7 +3995,7 @@ int main() {
 #ifdef _WIN32
   {
     // A transient sharing violation on the destination (antivirus, indexer, cloud sync) is retried.
-    const auto retryDirectory = filesystem::temp_directory_path() / "inventatory-move-retry-test";
+    const auto retryDirectory = testTempRoot() / "inventatory-move-retry-test";
     error_code retryCleanup;
     filesystem::remove_all(retryDirectory, retryCleanup);
     filesystem::create_directories(retryDirectory);
@@ -4361,7 +4478,7 @@ int main() {
     assert(!coreFields.empty());
     assert(coreFields.front().value == automaticLocation);
 
-    const auto tempPath = filesystem::temp_directory_path() / "inventatory-rack-roundtrip.db";
+    const auto tempPath = testTempRoot() / "inventatory-rack-roundtrip.db";
     assert(rackStore.save(tempPath));
     InventoryStore loadedRackStore;
     assert(loadedRackStore.load(tempPath));
@@ -4507,7 +4624,7 @@ int main() {
   {
     // A failed rack read must not replace an existing in-memory store or make
     // the successfully read item subset eligible for a later write-back.
-    const auto databasePath = filesystem::temp_directory_path() / "inventatory-incomplete-load-test.db";
+    const auto databasePath = testTempRoot() / "inventatory-incomplete-load-test.db";
     error_code removeError;
     filesystem::remove(databasePath, removeError);
 
@@ -4542,7 +4659,7 @@ int main() {
 #endif
 
   {
-    const auto tempPath = filesystem::temp_directory_path() / "inventatory-machine-code-roundtrip.db";
+    const auto tempPath = testTempRoot() / "inventatory-machine-code-roundtrip.db";
     InventoryStore store;
     InventoryItem item;
     item.id = "roundtrip-1";
@@ -4639,7 +4756,7 @@ int main() {
     assert(inventoryMovementDiff(after, metadataOnly, "manual").empty());
 
 #ifdef INVENTATORY_SQLITE_STORAGE
-    const auto databasePath = filesystem::temp_directory_path() / "inventatory-stock-movements-test.db";
+    const auto databasePath = testTempRoot() / "inventatory-stock-movements-test.db";
     error_code cleanupError;
     filesystem::remove(databasePath, cleanupError);
     assert(before.save(databasePath));
@@ -6185,7 +6302,7 @@ int main() {
   }
 
   {
-    const auto configPath = filesystem::temp_directory_path() / "inventatory-scan-config-test.conf";
+    const auto configPath = testTempRoot() / "inventatory-scan-config-test.conf";
     const InventatoryScanConfig expected{"r1-test", string(64, 'a'), "192.168.1.2", 8080, true};
     assert(saveInventatoryScanConfig(configPath, expected));
     InventatoryScanConfig loaded;
@@ -6197,7 +6314,7 @@ int main() {
     assert(loaded.setupComplete);
     assert(loaded.paired());
 
-    const auto pendingPath = filesystem::temp_directory_path() / "inventatory-scan-config-pending-test.conf";
+    const auto pendingPath = testTempRoot() / "inventatory-scan-config-pending-test.conf";
     const InventatoryScanConfig pending{"", string(64, 'b'), "", 0, true};
     assert(saveInventatoryScanConfig(pendingPath, pending));
     InventatoryScanConfig pendingLoaded;
@@ -6206,7 +6323,7 @@ int main() {
     assert(pendingLoaded.paired());
     filesystem::remove(pendingPath);
 
-    const auto legacyPath = filesystem::temp_directory_path() / "inventatory-scan-config-legacy-test.conf";
+    const auto legacyPath = testTempRoot() / "inventatory-scan-config-legacy-test.conf";
     {
       ofstream legacy(legacyPath, ios::trunc);
       legacy << "device_id=r1-legacy\n"
@@ -6238,9 +6355,9 @@ int main() {
     // file has been written and flushed. A failed replacement must not damage
     // the existing path, and malformed/oversized files must not be accepted.
 #ifdef _WIN32
-    const auto directory = filesystem::temp_directory_path() / L"inventatory-printer-\u017c\u00f3\u0142\u0107";
+    const auto directory = testTempRoot() / L"inventatory-printer-\u017c\u00f3\u0142\u0107";
 #else
-    const auto directory = filesystem::temp_directory_path() / "inventatory-printer-config-test";
+    const auto directory = testTempRoot() / "inventatory-printer-config-test";
 #endif
     error_code cleanupError;
     filesystem::remove_all(directory, cleanupError);
@@ -6349,7 +6466,7 @@ int main() {
   }
 
   {
-    const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-http-test";
+    const auto stateDirectory = testTempRoot() / "inventatory-http-test";
     error_code cleanupError;
     filesystem::remove_all(stateDirectory, cleanupError);
     const auto replayState = stateDirectory / "replay.state";
@@ -6989,7 +7106,7 @@ int main() {
     deeplyNested += '}';
     assert(!parseDeviceSyncRequestJson(deeplyNested, request, error));
 
-    const auto databasePath = filesystem::temp_directory_path() / "inventatory-device-sync-v1-test.db";
+    const auto databasePath = testTempRoot() / "inventatory-device-sync-v1-test.db";
     filesystem::remove(databasePath);
     InventoryStore store;
     InventoryItem item;
@@ -7159,9 +7276,9 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-app-settings-test.conf";
+    const auto path = testTempRoot() / "inventatory-app-settings-test.conf";
     AppSettings expected;
-    expected.dataDirectory = filesystem::temp_directory_path() / "Inventatory test data";
+    expected.dataDirectory = testTempRoot() / "Inventatory test data";
     expected.printerQueue = "ZDesigner Test Queue";
     expected.autoPrintScannedLabels = false;
     expected.backgroundServiceEnabled = true;
@@ -7268,7 +7385,7 @@ int main() {
     // Quick label presets travel with the Inventatory data folder rather than
     // the machine-local settings file, so they survive a restart even if the
     // data folder is the thing the user backs up or moves.
-    const auto path = filesystem::temp_directory_path() / "inventatory-quick-labels-test.conf";
+    const auto path = testTempRoot() / "inventatory-quick-labels-test.conf";
     error_code removeError;
     filesystem::remove(path, removeError);
 
@@ -7292,7 +7409,7 @@ int main() {
   {
     // Small auxiliary files must validate before publication and preserve the
     // last good bytes when a draft or final replacement is rejected.
-    const auto root = filesystem::temp_directory_path() / "inventatory-atomic-auxiliary-test";
+    const auto root = testTempRoot() / "inventatory-atomic-auxiliary-test";
     error_code cleanupError;
     filesystem::remove_all(root, cleanupError);
     assert(!cleanupError);
@@ -7429,7 +7546,7 @@ int main() {
 
 #ifndef _WIN32
   {
-    const auto tempDir = filesystem::temp_directory_path() / ("inventatory-shortcut-test-" + to_string(getpid()));
+    const auto tempDir = testTempRoot() / ("inventatory-shortcut-test-" + to_string(getpid()));
     const auto testData = tempDir / "data";
     const auto testConfig = tempDir / "config";
     const auto testDesktop = tempDir / "desktop";
@@ -7437,13 +7554,9 @@ int main() {
     filesystem::create_directories(testConfig);
     filesystem::create_directories(testDesktop);
 
-    const auto oldData = getenv("XDG_DATA_HOME");
-    const auto oldConfig = getenv("XDG_CONFIG_HOME");
-    const auto oldDesktop = getenv("XDG_DESKTOP_DIR");
-
-    setenv("XDG_DATA_HOME", testData.c_str(), 1);
-    setenv("XDG_CONFIG_HOME", testConfig.c_str(), 1);
-    setenv("XDG_DESKTOP_DIR", testDesktop.c_str(), 1);
+    const ScopedEnvironment dataHome("XDG_DATA_HOME", testData.string());
+    const ScopedEnvironment configHome("XDG_CONFIG_HOME", testConfig.string());
+    const ScopedEnvironment desktopDirectory("XDG_DESKTOP_DIR", testDesktop.string());
 
     string shortcutError;
     assert(createDesktopShortcut(shortcutError));
@@ -7525,10 +7638,6 @@ int main() {
       assert(memcmp(header, "\x89PNG\r\n\x1a\n", 8) == 0);
     }
 
-    if (oldData) setenv("XDG_DATA_HOME", oldData, 1); else unsetenv("XDG_DATA_HOME");
-    if (oldConfig) setenv("XDG_CONFIG_HOME", oldConfig, 1); else unsetenv("XDG_CONFIG_HOME");
-    if (oldDesktop) setenv("XDG_DESKTOP_DIR", oldDesktop, 1); else unsetenv("XDG_DESKTOP_DIR");
-
     error_code cleanupEc;
     filesystem::remove_all(tempDir, cleanupEc);
   }
@@ -7585,7 +7694,7 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-unsupported-settings-test.conf";
+    const auto path = testTempRoot() / "inventatory-unsupported-settings-test.conf";
     ofstream unsupported(path, ios::trunc);
     unsupported << "schema_version=0\n";
     unsupported.close();
@@ -7601,7 +7710,7 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-legacy-settings-test.conf";
+    const auto path = testTempRoot() / "inventatory-legacy-settings-test.conf";
     ofstream legacy(path, ios::trunc);
     legacy << "schema_version=1\n";
     legacy << "data_directory=\"legacy\"\n";
@@ -7618,7 +7727,7 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-invalid-threshold-settings-test.conf";
+    const auto path = testTempRoot() / "inventatory-invalid-threshold-settings-test.conf";
     ofstream invalid(path, ios::trunc);
     invalid << "schema_version=1\n";
     invalid << "low_stock_threshold=0\n";
@@ -7632,7 +7741,7 @@ int main() {
 
   {
     // The EU default is not written, so the file stays readable by releases that predate the setting.
-    const auto path = filesystem::temp_directory_path() / "inventatory-symbol-standard-settings-test.conf";
+    const auto path = testTempRoot() / "inventatory-symbol-standard-settings-test.conf";
     AppSettings defaults;
     defaults.dataDirectory = "data";
     assert(saveAppSettings(path, defaults));
@@ -7878,7 +7987,7 @@ int main() {
 
     string downloadError;
     assert(!downloadReleaseAsset(string("https://example.invalid/") + kTestApplicationArchive,
-                                 filesystem::temp_directory_path() / "inventatory-update-url-test.zip", {}, downloadError));
+                                 testTempRoot() / "inventatory-update-url-test.zip", {}, downloadError));
     assert(downloadError == "The update asset URL is not an approved GitHub download");
 
     const string archiveHash(64U, 'a');
@@ -7894,7 +8003,7 @@ int main() {
     assert(!parseSha256Checksum(string(archiveHash + "  ") + kTestApplicationArchive + "\n" + archiveHash + "  " +
                                 kTestApplicationArchive + "\n", kTestApplicationArchive, parsedHash));
 
-    const auto hashPath = filesystem::temp_directory_path() / "inventatory-update-hash-test.txt";
+    const auto hashPath = testTempRoot() / "inventatory-update-hash-test.txt";
     ofstream hashFile(hashPath, ios::binary | ios::trunc);
     hashFile << "abc";
     hashFile.close();
@@ -8002,7 +8111,7 @@ int main() {
     assert(!isValidUtf8("\xC3"));
 
     // The file loaders use the same conversion.
-    const auto encodingRoot = filesystem::temp_directory_path() / "inventatory-csv-encoding-test";
+    const auto encodingRoot = testTempRoot() / "inventatory-csv-encoding-test";
     error_code encodingCleanup;
     filesystem::remove_all(encodingRoot, encodingCleanup);
     filesystem::create_directories(encodingRoot);
@@ -8314,7 +8423,7 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-bom-projects-test.db";
+    const auto path = testTempRoot() / "inventatory-bom-projects-test.db";
     error_code cleanupError;
     filesystem::remove(path, cleanupError);
 
@@ -8423,14 +8532,14 @@ int main() {
   }
 
   {
-    const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
-    const auto bundle = filesystem::temp_directory_path() / "inventatory-transfer-bundle";
-    const auto restoreTarget = filesystem::temp_directory_path() / "inventatory-transfer-restore-target";
-    const auto invalidOptionalBundle = filesystem::temp_directory_path() / "inventatory-transfer-invalid-optional-bundle";
-    const auto invalidBomBundle = filesystem::temp_directory_path() / "inventatory-transfer-invalid-bom-bundle";
-    const auto settingsPath = filesystem::temp_directory_path() / "inventatory-transfer-settings.conf";
-    const auto targetSettingsPath = filesystem::temp_directory_path() / "inventatory-transfer-target-settings.conf";
-    const auto csv = filesystem::temp_directory_path() / "inventatory-transfer-export.csv";
+    const auto source = testTempRoot() / "inventatory-transfer-source";
+    const auto bundle = testTempRoot() / "inventatory-transfer-bundle";
+    const auto restoreTarget = testTempRoot() / "inventatory-transfer-restore-target";
+    const auto invalidOptionalBundle = testTempRoot() / "inventatory-transfer-invalid-optional-bundle";
+    const auto invalidBomBundle = testTempRoot() / "inventatory-transfer-invalid-bom-bundle";
+    const auto settingsPath = testTempRoot() / "inventatory-transfer-settings.conf";
+    const auto targetSettingsPath = testTempRoot() / "inventatory-transfer-target-settings.conf";
+    const auto csv = testTempRoot() / "inventatory-transfer-export.csv";
     error_code cleanupError;
     filesystem::remove_all(source, cleanupError);
     filesystem::remove_all(bundle, cleanupError);
@@ -8754,7 +8863,7 @@ int main() {
       // the chosen data folder is user data and must survive every outcome:
       // success, refusal before activation, a failed move, and a crash at any
       // step followed by startup recovery.
-      const auto tempRoot = filesystem::temp_directory_path();
+      const auto tempRoot = testTempRoot();
       const auto keepTarget = tempRoot / "inventatory-transfer-preserve-target";
       const auto keepSettings = tempRoot / "inventatory-transfer-preserve-settings.conf";
       const auto keepJournal = tempRoot / "inventatory-transfer-preserve-settings.conf.restore-journal";
@@ -9090,8 +9199,8 @@ int main() {
 
     // If the protected old directory disappears before rollback, the active
     // destination must remain intact rather than being deleted blindly.
-    const auto missingOldTarget = filesystem::temp_directory_path() / "inventatory-transfer-missing-old-target";
-    const auto missingOldSettings = filesystem::temp_directory_path() / "inventatory-transfer-missing-old-settings.conf";
+    const auto missingOldTarget = testTempRoot() / "inventatory-transfer-missing-old-target";
+    const auto missingOldSettings = testTempRoot() / "inventatory-transfer-missing-old-settings.conf";
     filesystem::remove_all(missingOldTarget, cleanupError);
     filesystem::remove(missingOldSettings, cleanupError);
     filesystem::create_directories(missingOldTarget);
@@ -9128,8 +9237,8 @@ int main() {
                            filesystem::u8path(missingOldSettings.filename().u8string() + ".restore-journal"),
                        cleanupError);
 
-    const auto preparedTarget = filesystem::temp_directory_path() / "inventatory-transfer-prepared-target";
-    const auto preparedSettings = filesystem::temp_directory_path() / "inventatory-transfer-prepared-settings.conf";
+    const auto preparedTarget = testTempRoot() / "inventatory-transfer-prepared-target";
+    const auto preparedSettings = testTempRoot() / "inventatory-transfer-prepared-settings.conf";
     filesystem::remove_all(preparedTarget, cleanupError);
     filesystem::remove(preparedSettings, cleanupError);
     filesystem::create_directories(preparedTarget);
@@ -9170,7 +9279,7 @@ int main() {
 
     // Online backup must capture the last committed WAL state without waiting
     // for or including a writer's uncommitted transaction.
-    const auto liveBundle = filesystem::temp_directory_path() / "inventatory-transfer-live-bundle";
+    const auto liveBundle = testTempRoot() / "inventatory-transfer-live-bundle";
     filesystem::remove_all(liveBundle, cleanupError);
     SqliteConnection liveConnection;
     assert(openDatabase(source / "inventory.db", liveConnection));
@@ -9193,7 +9302,7 @@ int main() {
   }
 
   {
-    const auto root = filesystem::temp_directory_path();
+    const auto root = testTempRoot();
     const auto emptySource = root / "inventatory-transfer-empty-source";
     const auto emptyBundle = root / "inventatory-transfer-empty-bundle";
     const auto noSchemaSource = root / "inventatory-transfer-no-schema-source";
@@ -9372,7 +9481,7 @@ int main() {
   }
 
   {
-    const auto path = filesystem::temp_directory_path() / "inventatory-device-event-recovery-test.db";
+    const auto path = testTempRoot() / "inventatory-device-event-recovery-test.db";
     error_code cleanupError;
     filesystem::remove(path, cleanupError);
     InventoryStore store;
@@ -9425,7 +9534,7 @@ int main() {
 
   {
     error_code cleanupError;
-    const auto tempDir = filesystem::temp_directory_path() / ("inventatory-test-createdir-" + to_string(time(nullptr)));
+    const auto tempDir = testTempRoot() / ("inventatory-test-createdir-" + to_string(time(nullptr)));
     filesystem::remove_all(tempDir, cleanupError);
     const auto dbPath = tempDir / "nested" / "subfolder" / "inventory.db";
     assert(!filesystem::exists(dbPath.parent_path()));
@@ -9452,12 +9561,10 @@ int main() {
 #ifndef _WIN32
   {
     // Private runtime directory: a UI or service the developer has open must not hold these locks.
-    const auto runtimeRoot = filesystem::temp_directory_path() / ("inventatory-signal-test-" + to_string(getpid()));
+    const auto runtimeRoot = testTempRoot() / ("inventatory-signal-test-" + to_string(getpid()));
     filesystem::create_directories(runtimeRoot);
     filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
-    const char* previousRuntime = getenv("XDG_RUNTIME_DIR");
-    const string previousRuntimeCopy = previousRuntime != nullptr ? previousRuntime : "";
-    setenv("XDG_RUNTIME_DIR", runtimeRoot.c_str(), 1);
+    const ScopedEnvironment runtimeDirectory("XDG_RUNTIME_DIR", runtimeRoot.string());
     BackgroundController controller;
     assert(controller.acquireSingleInstance(false));
     bool opened = false;
@@ -9466,20 +9573,16 @@ int main() {
     this_thread::sleep_for(chrono::milliseconds(100));
     assert(opened);
     controller.stop();
-    if (previousRuntime != nullptr) setenv("XDG_RUNTIME_DIR", previousRuntimeCopy.c_str(), 1);
-    else unsetenv("XDG_RUNTIME_DIR");
     error_code signalCleanupError;
     filesystem::remove_all(runtimeRoot, signalCleanupError);
   }
 
   {
     // Background-service takeover, in a private runtime directory so no real service is touched.
-    const auto runtimeRoot = filesystem::temp_directory_path() / ("inventatory-takeover-test-" + to_string(getpid()));
+    const auto runtimeRoot = testTempRoot() / ("inventatory-takeover-test-" + to_string(getpid()));
     filesystem::create_directories(runtimeRoot);
     filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
-    const char* previousRuntime = getenv("XDG_RUNTIME_DIR");
-    const string previousRuntimeCopy = previousRuntime != nullptr ? previousRuntime : "";
-    setenv("XDG_RUNTIME_DIR", runtimeRoot.c_str(), 1);
+    const ScopedEnvironment runtimeDirectory("XDG_RUNTIME_DIR", runtimeRoot.string());
 
     {
       BackgroundController none;
@@ -9659,8 +9762,6 @@ int main() {
       next.stop();
     }
 
-    if (previousRuntime != nullptr) setenv("XDG_RUNTIME_DIR", previousRuntimeCopy.c_str(), 1);
-    else unsetenv("XDG_RUNTIME_DIR");
     error_code runtimeCleanupError;
     filesystem::remove_all(runtimeRoot, runtimeCleanupError);
   }
@@ -9668,7 +9769,7 @@ int main() {
   {
     // The per-user unit is rewritten and reloaded only when it changes, and keeps pointing at the
     // executable it was registered with.
-    const auto root = filesystem::temp_directory_path() / ("inventatory-unit-test-" + to_string(getpid()));
+    const auto root = testTempRoot() / ("inventatory-unit-test-" + to_string(getpid()));
     filesystem::create_directories(root / "bin");
     filesystem::create_directories(root / "config");
     const auto log = root / "systemctl.log";
@@ -9677,11 +9778,8 @@ int main() {
       shim << "#!/bin/sh\necho \"$*\" >> '" << log.string() << "'\nexit 0\n";
     }
     filesystem::permissions(root / "bin" / "systemctl", filesystem::perms::owner_all, filesystem::perm_options::replace);
-    const string previousPath = getenv("PATH") != nullptr ? getenv("PATH") : "";
-    const char* previousConfig = getenv("XDG_CONFIG_HOME");
-    const string previousConfigCopy = previousConfig != nullptr ? previousConfig : "";
-    setenv("PATH", ((root / "bin").string() + ":" + previousPath).c_str(), 1);
-    setenv("XDG_CONFIG_HOME", (root / "config").c_str(), 1);
+    const ScopedEnvironment shimmedPath("PATH", (root / "bin").string() + ":" + (getenv("PATH") != nullptr ? getenv("PATH") : ""));
+    const ScopedEnvironment configHome("XDG_CONFIG_HOME", (root / "config").string());
 
     const auto countLines = [&log](const string& needle) {
       ifstream stream(log);
@@ -9727,9 +9825,6 @@ int main() {
     assert(startBackgroundServiceUnit(unitError));
     assert(countLines("start inventatory-background.service") == 1);
 
-    if (previousConfig != nullptr) setenv("XDG_CONFIG_HOME", previousConfigCopy.c_str(), 1);
-    else unsetenv("XDG_CONFIG_HOME");
-    setenv("PATH", previousPath.c_str(), 1);
     error_code unitCleanupError;
     filesystem::remove_all(root, unitCleanupError);
   }
