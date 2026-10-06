@@ -256,14 +256,8 @@ bool App::saveSettingsDraft() {
   applyUiAppearance(settings_.appearance);
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
-  bool bridgeRestarted = true;
-  if (portChanged) {
-    restartDeviceService();
-    bridgeRestarted = server_.running();
-  } else if (dataChanged) {
-    restartDeviceService();
-    bridgeRestarted = server_.running();
-  }
+  auto bridgeRestart = DeviceServiceRestart::Restarted;
+  if (portChanged || dataChanged) bridgeRestart = restartDeviceService();
   if (backgroundChanged) {
     if (settings_.backgroundServiceEnabled) {
       const bool backgroundStarted = backgroundController_.start(true, false, [this] {
@@ -314,9 +308,8 @@ bool App::saveSettingsDraft() {
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   if (portChanged || dataChanged) {
-    setMessage(bridgeRestarted ? "Settings saved; device bridge restarted"
-                               : "Settings saved, but the device bridge could not restart",
-               4, bridgeRestarted ? UiMessageSeverity::Success : UiMessageSeverity::Warning);
+    const auto notice = settingsBridgeNotice(bridgeRestart);
+    setMessage(notice.text, 4, notice.severity);
   } else {
     setMessage("Settings saved", 4, UiMessageSeverity::Success);
   }

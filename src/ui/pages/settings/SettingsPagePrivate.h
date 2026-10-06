@@ -62,6 +62,25 @@ void appendSettingsSection(ftxui::Elements& panel, const std::string& title, ftx
                            ftxui::Element meta = nullptr);
 ftxui::Element appearanceColorLine(AppearanceColorRole role, int width, bool selected);
 
+// Final status line after a settings save that restarted the device service.
+struct SettingsBridgeNotice {
+  const char* text = "";
+  UiMessageSeverity severity = UiMessageSeverity::Info;
+};
+
+inline SettingsBridgeNotice settingsBridgeNotice(DeviceServiceRestart restart) {
+  switch (restart) {
+    case DeviceServiceRestart::Restarted:
+      return {"Settings saved; device bridge restarted", UiMessageSeverity::Success};
+    case DeviceServiceRestart::DisabledUntilPaired:
+      return {"Settings saved; the Scan R1 service stays disabled until this workspace is paired",
+              UiMessageSeverity::Info};
+    case DeviceServiceRestart::Failed:
+      break;
+  }
+  return {"Settings saved, but the device bridge could not restart", UiMessageSeverity::Warning};
+}
+
 inline constexpr const char* kDigiKeySecretName = "digikey-client-secret";
 inline constexpr int kAppearancePickerHueSteps = 12;
 inline constexpr int kAppearancePickerValueSteps = 6;
