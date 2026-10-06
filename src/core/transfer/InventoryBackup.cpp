@@ -11,25 +11,20 @@
 #include "label_printer/core/LabelPrinter.h"
 
 #include <algorithm>
-#include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cctype>
 #include <exception>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <set>
 #include <sstream>
-#include <thread>
 #include <system_error>
 #include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
-#include <bcrypt.h>
 #else
 #include <unistd.h>
 #endif
