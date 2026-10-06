@@ -253,7 +253,6 @@ bool matchesMachineCode(const string& machineCode, const string& code) {
 
 void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
   unordered_map<string, size_t> nextSequenceByPrefix;
-  unordered_map<string, size_t> machineCodeCounts;
   unordered_set<string> reservedMachineCodes;
   unordered_set<string> usedIds;
   unordered_set<string> keptIds;
@@ -273,7 +272,6 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
 
     const auto normalizedMachineCode = normalizeMachineCode(item.machineCode);
     if (!normalizedMachineCode.empty()) {
-      ++machineCodeCounts[normalizedMachineCode];
       reservedMachineCodes.insert(normalizedMachineCode);
     }
   }
@@ -306,8 +304,9 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
     }
 
     auto normalizedMachineCode = normalizeMachineCode(item.machineCode);
-    if (!normalizedMachineCode.empty() && machineCodeCounts[normalizedMachineCode] == 1 &&
-        usedMachineCodes.count(normalizedMachineCode) == 0) {
+    // Like Inventatory IDs, a machine code stays with the first part that carries it, so the printed
+    // label of that part keeps resolving; only the later duplicate is given a new code.
+    if (!normalizedMachineCode.empty() && usedMachineCodes.count(normalizedMachineCode) == 0) {
       item.machineCode = move(normalizedMachineCode);
       usedMachineCodes.insert(item.machineCode);
       continue;

@@ -4446,9 +4446,13 @@ int main() {
     items.push_back(second);
 
     ensureInventoryIdentifiers(items);
-    assert(items[0].machineCode != items[1].machineCode);
-    assert(items[0].machineCode != "0002");
-    assert(items[1].machineCode != "0002");
+    // The first holder keeps its code (its printed label stays valid); only the later duplicate changes.
+    assert(items[0].machineCode == "0002");
+    assert(items[1].machineCode != "0002" && !items[1].machineCode.empty());
+    const auto settled = items;
+    ensureInventoryIdentifiers(items);
+    assert(items[0].machineCode == settled[0].machineCode);
+    assert(items[1].machineCode == settled[1].machineCode);
   }
 
 #ifndef _WIN32
