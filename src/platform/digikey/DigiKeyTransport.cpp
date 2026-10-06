@@ -25,6 +25,10 @@
 
 #pragma comment(lib, "winhttp.lib")
 
+#ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
+#define WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY 4
+#endif
+
 namespace inventatory {
 using namespace std;
 namespace digikey_detail {
@@ -163,8 +167,14 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     path.append(components.lpszExtraInfo, components.dwExtraInfoLength);
   }
 
-  HINTERNET session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                                  WINHTTP_NO_PROXY_BYPASS, 0);
+  // Automatic proxy resolution follows the user's proxy configuration (WPAD/PAC); fall back to the
+  // machine-wide WinHTTP proxy where it is not available.
+  HINTERNET session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  if (session == nullptr) {
+    session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  }
   if (session == nullptr) {
     if (error != nullptr) {
       *error = httpErrorMessage("Unable to open WinHTTP session");

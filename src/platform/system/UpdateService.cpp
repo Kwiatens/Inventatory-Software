@@ -339,10 +339,25 @@ bool jsonContainsStringValue(const std::string& json, const std::string& key, co
 }
 
 #ifdef _WIN32
+#ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
+#define WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY 4
+#endif
+
+// Automatic proxy resolution follows the user's proxy configuration (WPAD/PAC); fall back to the
+// machine-wide WinHTTP proxy where it is not available.
+HINTERNET openUpdaterWinHttpSession() {
+  HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  if (session == nullptr) {
+    session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  }
+  return session;
+}
+
 std::string fetchLatestReleaseJson(const std::string& repository) {
   if (!validRepository(repository)) return {};
-  HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  HINTERNET session = openUpdaterWinHttpSession();
   if (session == nullptr) return {};
   WinHttpSetTimeouts(session, 5000, 5000, 5000, 8000);
   HINTERNET connection = WinHttpConnect(session, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
@@ -676,8 +691,7 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
     error = "Could not create the update download folder";
     return false;
   }
-  HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  HINTERNET session = openUpdaterWinHttpSession();
   if (session == nullptr) { error = "Could not start the update download"; return false; }
   WinHttpSetTimeouts(session, 5000, 5000, 5000, 15000);
   HINTERNET connection = WinHttpConnect(session, wideHost.c_str(), components.nPort, 0);
