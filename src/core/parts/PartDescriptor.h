@@ -27,6 +27,5 @@ struct PartDescriptor {
 
 PartDescriptor describePart(const InventoryItem& item);
 string partShortDescription(const InventoryItem& item);
-string partPurposeLabel(const InventoryItem& item);
 
 }  // namespace inventatory

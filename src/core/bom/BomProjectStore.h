@@ -74,8 +74,4 @@ struct BomShortageExport {
 };
 BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<string, string>& enrichment);
 
-// Shared with the tests: escaped round trip for the two string maps.
-string serializeBomMap(const map<string, string>& values);
-map<string, string> deserializeBomMap(const string& value);
-
 }  // namespace inventatory

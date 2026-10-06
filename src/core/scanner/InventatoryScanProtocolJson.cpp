@@ -126,20 +126,6 @@ optional<int> jsonInt(const string& body, const string& key) {
   }
 }
 
-optional<bool> jsonBool(const string& body, const string& key) {
-  const auto valuePosition = jsonMemberValuePosition(body, key);
-  if (!valuePosition) return nullopt;
-  auto position = *valuePosition;
-  while (position < body.size() && isspace(static_cast<unsigned char>(body[position]))) ++position;
-  const auto validTerminator = [&](size_t end) {
-    return end == body.size() || body[end] == ',' || body[end] == '}' || body[end] == ']' ||
-           isspace(static_cast<unsigned char>(body[end])) != 0;
-  };
-  if (body.compare(position, 4, "true") == 0 && validTerminator(position + 4U)) return true;
-  if (body.compare(position, 5, "false") == 0 && validTerminator(position + 5U)) return false;
-  return nullopt;
-}
-
 optional<string> jsonArrayBody(const string& body, const string& key) {
   const auto valuePosition = jsonMemberValuePosition(body, key);
   if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != '[') return nullopt;

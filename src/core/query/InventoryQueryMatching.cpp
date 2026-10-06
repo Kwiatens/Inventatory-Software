@@ -24,36 +24,6 @@ optional<PhysicalValueComparison> bestPhysicalComparison(const optional<Physical
 
 namespace {
 
-
-vector<string> splitTokensRespectingQuotes(const string& query) {
-  vector<string> tokens;
-  string current;
-  bool inQuotes = false;
-
-  for (char ch : query) {
-    if (ch == '"') {
-      inQuotes = !inQuotes;
-      continue;
-    }
-
-    if (!inQuotes && isspace(static_cast<unsigned char>(ch))) {
-      if (!current.empty()) {
-        tokens.push_back(current);
-        current.clear();
-      }
-      continue;
-    }
-
-    current.push_back(ch);
-  }
-
-  if (!current.empty()) {
-    tokens.push_back(current);
-  }
-
-  return tokens;
-}
-
 struct TokenMatchResult {
   bool matched = false;
   optional<PhysicalValueComparison> physical;

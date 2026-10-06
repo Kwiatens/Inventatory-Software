@@ -98,8 +98,6 @@ bool deserializeBomMapChecked(const string& value, map<string, string>& values) 
   return true;
 }
 
-}  // namespace
-
 string serializeBomMap(const map<string, string>& values) {
   // Reuses the parameter encoding so escaping rules stay in one place.
   vector<Parameter> parameters;
@@ -109,14 +107,6 @@ string serializeBomMap(const map<string, string>& values) {
   }
   return serializeParametersForStorage(parameters);
 }
-
-map<string, string> deserializeBomMap(const string& value) {
-  map<string, string> values;
-  if (!deserializeBomMapChecked(value, values)) values.clear();
-  return values;
-}
-
-namespace {
 
 bool insertProject(SqliteConnection& connection, const BomProject& project) {
   SqliteStatement statement;
