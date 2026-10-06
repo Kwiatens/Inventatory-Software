@@ -1242,6 +1242,13 @@ void testPhysicalValueMatching() {
   // 1MHz should match 1000kHz
   assert(comparePhysicalValues("1MHz", "1000kHz")->band == PhysicalValueMatchBand::Exact);
 
+  // Free-text helpers shared by the DigiKey importer and the label printer
+  assert(value_text::extractInductance("FIXED IND 4R7 uH 3.7A").value_or("") == "4.7uH");
+  assert(value_text::extractInductance("10 MH choke").value_or("") == "10mH");
+  assert(!value_text::extractInductance("no value here").has_value());
+  assert(value_text::looksLikeInductanceValue("4.7 uH") && !value_text::looksLikeInductanceValue("100 kHz"));
+  assert(value_text::looksLikeFrequencyValue("100 kHz") && !value_text::looksLikeFrequencyValue("4.7uH"));
+
   // Different types should not match
   assert(!comparePhysicalValues("100nF", "100 Ohm").has_value());
 

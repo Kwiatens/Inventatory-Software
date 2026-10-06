@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <limits>
 #include <locale>
+#include <regex>
 #include <sstream>
 #include <string>
 
@@ -401,5 +402,58 @@ PhysicalValueType parameterNameToType(const std::string& name) {
   }
   return PhysicalValueType::Unknown;
 }
+
+namespace value_text {
+
+namespace {
+
+string lowercaseAlphanumerics(const string& value) {
+  string normalized;
+  normalized.reserve(value.size());
+  for (const unsigned char ch : value) {
+    if (isalnum(ch)) normalized.push_back(static_cast<char>(tolower(ch)));
+  }
+  return normalized;
+}
+
+string canonicalInductanceUnit(string unit) {
+  std::transform(unit.begin(), unit.end(), unit.begin(), [](unsigned char ch) {
+    return static_cast<char>(tolower(ch));
+  });
+  if (unit == "uh") return "uH";
+  if (unit == "nh") return "nH";
+  if (unit == "mh") return "mH";
+  if (unit == "ph") return "pH";
+  return "H";
+}
+
+}  // namespace
+
+bool looksLikeFrequencyValue(const string& value) {
+  return lowercaseAlphanumerics(value).find("hz") != string::npos;
+}
+
+bool looksLikeInductanceValue(const string& value) {
+  const auto normalized = lowercaseAlphanumerics(value);
+  if (normalized.empty() || normalized.find("hz") != string::npos) return false;
+  if (normalized.find("uh") != string::npos || normalized.find("nh") != string::npos ||
+      normalized.find("ph") != string::npos || normalized.find("henry") != string::npos) {
+    return true;
+  }
+  return normalized.find_first_of("0123456789") != string::npos && normalized.back() == 'h';
+}
+
+std::optional<string> extractInductance(const string& text) {
+  static const std::regex valuePattern(R"(\b(\d+(?:\.\d+)?|\d+[rR]\d+)\s*([munp]?h)\b)",
+                                       std::regex_constants::icase);
+  std::smatch match;
+  if (!std::regex_search(text, match, valuePattern) || match.size() <= 2) return std::nullopt;
+  auto number = match[1].str();
+  std::replace(number.begin(), number.end(), 'R', '.');
+  std::replace(number.begin(), number.end(), 'r', '.');
+  return number + canonicalInductanceUnit(match[2].str());
+}
+
+}  // namespace value_text
 
 }  // namespace inventatory

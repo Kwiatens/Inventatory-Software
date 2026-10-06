@@ -22,35 +22,38 @@ optional<string> extractComponentPackageFromText(const string& text) {
     return nullopt;
   }
 
-  static const pair<const char*, const char*> kPatterns[] = {
-      {R"(\b(AXIAL|RADIAL|THROUGH HOLE|SURFACE MOUNT|SMD|SMT|MODULE)\b)", "$1"},
-      {R"(\b(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)\b)", "$1"},
-      {R"(\b(SOT-?23(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(SOT-?223(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(SOIC-?\d+)\b)", "$1"},
-      {R"(\b(TSSOP-?\d+)\b)", "$1"},
-      {R"(\b(SSOP-?\d+)\b)", "$1"},
-      {R"(\b(MSOP-?\d+)\b)", "$1"},
-      {R"(\b(QFN-?\d+)\b)", "$1"},
-      {R"(\b(DFN-?\d+)\b)", "$1"},
-      {R"(\b(QFP-?\d+)\b)", "$1"},
-      {R"(\b(TQFP-?\d+)\b)", "$1"},
-      {R"(\b(LQFP-?\d+)\b)", "$1"},
-      {R"(\b(DIP-?\d+)\b)", "$1"},
-      {R"(\b(BGA-?\d+)\b)", "$1"},
-      {R"(\b(LGA-?\d+)\b)", "$1"},
-      {R"(\b(TO-?92(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(TO-?220(?:-?\d+)?)\b)", "$1"},
-      {R"(\b(TO-?263(?:-?\d+)?)\b)", "$1"},
-  };
-
-  for (const auto& [pattern, replacement] : kPatterns) {
-    regex re(pattern, regex_constants::icase);
-    smatch match;
-    if (regex_search(text, match, re) && match.size() > 1) {
-      auto package = match[1].str();
-      return package;
+  // Compiled once: building a std::regex is far costlier than matching it.
+  static const vector<regex> kPatterns = [] {
+    vector<regex> patterns;
+    for (const char* pattern : {
+             R"(\b(AXIAL|RADIAL|THROUGH HOLE|SURFACE MOUNT|SMD|SMT|MODULE)\b)",
+             R"(\b(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512)\b)",
+             R"(\b(SOT-?23(?:-?\d+)?)\b)",
+             R"(\b(SOT-?223(?:-?\d+)?)\b)",
+             R"(\b(SOIC-?\d+)\b)",
+             R"(\b(TSSOP-?\d+)\b)",
+             R"(\b(SSOP-?\d+)\b)",
+             R"(\b(MSOP-?\d+)\b)",
+             R"(\b(QFN-?\d+)\b)",
+             R"(\b(DFN-?\d+)\b)",
+             R"(\b(QFP-?\d+)\b)",
+             R"(\b(TQFP-?\d+)\b)",
+             R"(\b(LQFP-?\d+)\b)",
+             R"(\b(DIP-?\d+)\b)",
+             R"(\b(BGA-?\d+)\b)",
+             R"(\b(LGA-?\d+)\b)",
+             R"(\b(TO-?92(?:-?\d+)?)\b)",
+             R"(\b(TO-?220(?:-?\d+)?)\b)",
+             R"(\b(TO-?263(?:-?\d+)?)\b)",
+         }) {
+      patterns.emplace_back(pattern, regex_constants::icase);
     }
+    return patterns;
+  }();
+
+  for (const auto& re : kPatterns) {
+    smatch match;
+    if (regex_search(text, match, re) && match.size() > 1) return match[1].str();
   }
 
   return nullopt;
@@ -62,40 +65,11 @@ bool looksLikeInductorText(const string& text) {
          normalized.find("choke") != string::npos || normalized.find("coil") != string::npos;
 }
 
-string canonicalInductanceUnit(string unit) {
-  transform(unit.begin(), unit.end(), unit.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
-  if (unit == "uh") {
-    return "uH";
-  }
-  if (unit == "nh") {
-    return "nH";
-  }
-  if (unit == "mh") {
-    return "mH";
-  }
-  if (unit == "ph") {
-    return "pH";
-  }
-  return "H";
-}
-
 optional<string> extractInductanceFromText(const string& text) {
   if (!looksLikeInductorText(text)) {
     return nullopt;
   }
-
-  regex valuePattern(R"(\b(\d+(?:\.\d+)?|\d+[rR]\d+)\s*([munp]?h)\b)", regex_constants::icase);
-  smatch match;
-  if (regex_search(text, match, valuePattern) && match.size() > 2) {
-    auto number = match[1].str();
-    replace(number.begin(), number.end(), 'R', '.');
-    replace(number.begin(), number.end(), 'r', '.');
-    return number + canonicalInductanceUnit(match[2].str());
-  }
-
-  return nullopt;
+  return value_text::extractInductance(text);
 }
 
 optional<string> extractComponentPackage(const JsonPtr& product) {

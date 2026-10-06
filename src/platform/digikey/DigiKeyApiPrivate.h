@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "core/parts/PhysicalValue.h"
 #include "platform/digikey/DigiKeyApi.h"
 
 #include <cstddef>
@@ -90,7 +91,8 @@ optional<string> readFirstMember(const JsonPtr& root, initializer_list<const cha
 vector<string> extractCategoryPath(const JsonPtr& product);
 
 string normalizeParameterKey(const string& value);
-bool looksLikeInductanceValue(const string& value);
+using value_text::looksLikeFrequencyValue;
+using value_text::looksLikeInductanceValue;
 optional<string> readParameterText(const JsonPtr& entry, const string& label);
 bool looksLikePackagingType(const string& value);
 // Looks a product parameter up by label: an exact label match wins over a loose (substring) one, and
