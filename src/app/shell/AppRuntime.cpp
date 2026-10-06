@@ -331,15 +331,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   if (!allFinished) {
     workAbandoned_ = true;
   } else {
-    digiKeyRefreshFuture_ = {};
-    digiKeyRefreshClient_.reset();
-    digiKeyRefreshTotal_ = 0;
-    digiKeyRefreshCompleted_ = 0;
-    digiKeyRefreshSucceeded_ = 0;
-    digiKeyRefreshFailed_ = 0;
-    digiKeyRefreshChanged_ = false;
-    digiKeyRefreshGeneration_ = 0;
-    digiKeyRefreshLastError_.clear();
+    stopDigiKeyRefresh();  // the worker has finished, so this only resets its state
 
     importSyncFuture_ = {};
     importSyncCancelFlag_.reset();

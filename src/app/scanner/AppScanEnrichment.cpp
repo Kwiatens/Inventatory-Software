@@ -107,13 +107,7 @@ void App::beginDigiKeyRefresh() {
     return;
   }
 
-  digiKeyRefreshQueue_.clear();
-  digiKeyRefreshTotal_ = 0;
-  digiKeyRefreshCompleted_ = 0;
-  digiKeyRefreshSucceeded_ = 0;
-  digiKeyRefreshFailed_ = 0;
-  digiKeyRefreshChanged_ = false;
-  digiKeyRefreshLastError_.clear();
+  stopDigiKeyRefresh();  // no refresh is running here, so this only resets the previous run's state
   digiKeyRefreshClient_ = move(api.client);
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
