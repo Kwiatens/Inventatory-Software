@@ -74,19 +74,58 @@ bool writeFileIfChanged(const filesystem::path& path, std::string_view contents,
   return true;
 }
 
+// Desktop Entry Exec quoting: the argument is enclosed in double quotes, and a double quote, backtick,
+// dollar sign or backslash inside it gets one more backslash. The key-file string layer then doubles
+// every backslash, so a literal backslash is written as four. '%' is the field-code introducer.
 std::string desktopQuoted(const std::string& value) {
   std::string encoded = "\"";
   for (const char ch : value) {
     const auto byte = static_cast<unsigned char>(ch);
     if (byte < 0x20U || byte == 0x7fU) return {};
     if (ch == '%') encoded += "%%";
-    else {
-      if (ch == '\\' || ch == '"') encoded.push_back('\\');
-      encoded.push_back(ch);
-    }
+    else if (ch == '"' || ch == '`' || ch == '$') encoded += "\\\\";
+    else if (ch == '\\') encoded += "\\\\\\";  // three more, then the character itself: four in all
+    if (ch != '%') encoded.push_back(ch);
   }
   encoded.push_back('"');
   return encoded;
+}
+
+// Inverse of desktopQuoted for the Exec value this file writes; empty when it does not parse.
+std::string desktopUnquote(const std::string& quoted) {
+  std::string text;
+  for (size_t index = 0; index < quoted.size(); ++index) {
+    if (quoted[index] == '\\' && index + 1U < quoted.size() && quoted[index + 1U] == '\\') ++index;
+    text.push_back(quoted[index]);
+  }
+  if (text.size() < 2U || text.front() != '"') return {};
+  std::string decoded;
+  for (size_t index = 1; index < text.size(); ++index) {
+    const char ch = text[index];
+    if (ch == '"') return decoded;
+    if (ch == '\\' && index + 1U < text.size()) decoded.push_back(text[++index]);
+    else if (ch == '%' && index + 1U < text.size() && text[index + 1U] == '%') {
+      decoded.push_back('%');
+      ++index;
+    } else decoded.push_back(ch);
+  }
+  return {};
+}
+
+// The executable an already created launcher points at, when it still exists.
+filesystem::path registeredLauncherExecutable(const filesystem::path& launcher) {
+  std::ifstream stream(launcher);
+  std::string line;
+  while (std::getline(stream, line)) {
+    if (line.rfind("Exec=", 0) != 0) continue;
+    const auto path = filesystem::path(desktopUnquote(line.substr(5)));
+    std::error_code ec;
+    if (!path.empty() && path.is_absolute() && filesystem::is_regular_file(path, ec) && access(path.c_str(), X_OK) == 0) {
+      return path;
+    }
+    return {};
+  }
+  return {};
 }
 
 std::string systemdQuoted(const std::string& value) {
@@ -276,19 +315,24 @@ filesystem::path userDesktopDirectory() {
 bool createDesktopShortcut(std::string& error) {
   if (!installDesktopIcons(error)) return false;
 
-  const auto executable = currentExecutablePath();
+  const auto launcherDirectory = dataHome() / "applications";
+  const auto launcher = launcherDirectory / "inventatory.desktop";
+  // An existing launcher keeps the executable it was created for while that file still exists, so
+  // starting a development build or a second install does not retarget the user's launcher.
+  std::error_code existsError;
+  const bool launcherExisted = filesystem::exists(launcher, existsError);
+  auto executable = registeredLauncherExecutable(launcher);
+  if (executable.empty()) executable = currentExecutablePath();
   if (executable.empty()) {
     error = "Unable to find the Inventatory executable";
     return false;
   }
-  const auto launcherDirectory = dataHome() / "applications";
   std::error_code filesystemError;
   filesystem::create_directories(launcherDirectory, filesystemError);
   if (filesystemError) {
     error = "Unable to create the Inventatory application launcher: " + filesystemError.message();
     return false;
   }
-  const auto launcher = launcherDirectory / "inventatory.desktop";
   const auto executableUtf8 = executable.u8string();
   const auto quotedExecutable = desktopQuoted(executableUtf8);
   if (quotedExecutable.empty()) {
@@ -312,12 +356,16 @@ bool createDesktopShortcut(std::string& error) {
     }
   }
 
+  // The desktop copy is offered once, together with the first launcher. A user who deleted it does not
+  // get it back at every start; an existing copy is still kept current.
   const auto desktop = userDesktopDirectory();
   if (!desktop.empty()) {
     const auto desktopLauncher = desktop / "inventatory.desktop";
     std::string desktopError;
     bool desktopWritten = false;
-    if (writeFileIfChanged(desktopLauncher, contents, &desktopError, &desktopWritten) && desktopWritten) {
+    std::error_code desktopExistsError;
+    if ((!launcherExisted || filesystem::exists(desktopLauncher, desktopExistsError)) &&
+        writeFileIfChanged(desktopLauncher, contents, &desktopError, &desktopWritten) && desktopWritten) {
       filesystem::permissions(desktopLauncher, filesystem::perms::owner_read | filesystem::perms::owner_write |
                                                     filesystem::perms::owner_exec | filesystem::perms::group_read |
                                                     filesystem::perms::group_exec | filesystem::perms::others_read |
