@@ -331,6 +331,7 @@ target_include_directories(inventatory_tests PRIVATE src)
 target_compile_definitions(inventatory_tests PRIVATE
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
   Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"
+  Inventatory_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 if(WIN32)
   target_link_libraries(inventatory_tests PRIVATE ws2_32 shell32 ole32 propsys winspool winhttp bcrypt advapi32)

@@ -88,7 +88,6 @@
 #include <sys/wait.h>
 #include <sys/file.h>
 #include <fcntl.h>
-#include <atomic>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -921,6 +920,44 @@ string sendLocalHttpRequest(uint16_t port, const string& request, int receiveTim
   }
   closeSocket(client);
   return response;
+}
+
+// A TCP port that is free right now on the address the scanner service binds, so the tests never depend
+// on a fixed port being unused (parallel test runs, a developer's own service). Another process could
+// still claim it before start(); the server then falls forward to the next ports and every test reads
+// the real port back from port(). Ports handed out earlier in this run, and the ones just above them
+// that a fall-forward could take, are never returned twice.
+uint16_t freeScannerTestPort() {
+  static set<uint16_t> handedOut;
+#ifdef _WIN32
+  WSADATA winsock{};
+  assert(WSAStartup(MAKEWORD(2, 2), &winsock) == 0);
+#endif
+  uint16_t chosen = 0;
+  for (int attempt = 0; attempt < 100 && chosen == 0; ++attempt) {
+    NativeSocket probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    assert(probe != kInvalidSocket);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    assert(setScannerTestAddress(address));
+    address.sin_port = 0;  // The operating system picks an unused port.
+    assert(::bind(probe, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
+    socklen_t addressSize = sizeof(address);
+    assert(getsockname(probe, reinterpret_cast<sockaddr*>(&address), &addressSize) == 0);
+    closeSocket(probe);
+    const uint16_t port = ntohs(address.sin_port);
+    bool clear = port <= 65535 - 40;
+    for (const uint16_t used : handedOut) {
+      if (port + 20 > used && port < used + 20) clear = false;
+    }
+    if (clear) chosen = port;
+  }
+#ifdef _WIN32
+  WSACleanup();
+#endif
+  assert(chosen != 0);
+  handedOut.insert(chosen);
+  return chosen;
 }
 
 NativeSocket connectSlowLocalClient(uint16_t port) {
@@ -3147,7 +3184,7 @@ void testScannerHttpNegativeCases() {
   };
   LocalHttpServer server;
   server.setDeviceCredentials(deviceId, token, stateDirectory / "replay.state");
-  assert(server.start(19510, onSync));
+  assert(server.start(freeScannerTestPort(), onSync));
   const auto port = server.port();
 
   const auto expectRejected = [&](const string& request, const char* statusLine) {
@@ -3291,7 +3328,7 @@ void testScannerServerSurvivesSignals() {
   const auto tasksBefore = currentTaskIds();
   LocalHttpServer server;
   server.setDeviceCredentials(deviceId, token, stateDirectory / "replay.state");
-  assert(server.start(19483, onSync));
+  assert(server.start(freeScannerTestPort(), onSync));
   vector<long> serverTasks;
   for (const long id : currentTaskIds()) {
     if (find(tasksBefore.begin(), tasksBefore.end(), id) == tasksBefore.end()) serverTasks.push_back(id);
@@ -6709,7 +6746,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   };
   LocalHttpServer workspaceServerA;
   workspaceServerA.setDeviceCredentials(deviceId, token, replayA);
-  assert(workspaceServerA.start(19420, isolatedOnSync));
+  assert(workspaceServerA.start(freeScannerTestPort(), isolatedOnSync));
   const auto workspaceAResponse = sendLocalHttpRequest(
       workspaceServerA.port(), signedSyncRequest(token, deviceId, 7, body));
   assert(workspaceAResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
@@ -6718,7 +6755,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
 
   LocalHttpServer workspaceServerB;
   workspaceServerB.setDeviceCredentials(deviceId, workspaceBToken, replayB);
-  assert(workspaceServerB.start(19421, isolatedOnSync));
+  assert(workspaceServerB.start(freeScannerTestPort(), isolatedOnSync));
   const auto oldWorkspaceRequest = sendLocalHttpRequest(
       workspaceServerB.port(), signedSyncRequest(token, deviceId, 8, body));
   assert(oldWorkspaceRequest.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
@@ -6735,8 +6772,8 @@ void testHttpWorkspaceIsolationAndPortSelection() {
     firstListener.setDeviceCredentials(deviceId, token, stateDirectory / "listener-first.state");
     LocalHttpServer secondListener;
     secondListener.setDeviceCredentials(deviceId, token, stateDirectory / "listener-second.state");
-    assert(firstListener.start(19425, isolatedOnSync));
-    assert(secondListener.start(19425, isolatedOnSync));
+    assert(firstListener.start(freeScannerTestPort(), isolatedOnSync));
+    assert(secondListener.start(freeScannerTestPort(), isolatedOnSync));
     assert(secondListener.port() != firstListener.port());
     secondListener.stop();
     firstListener.stop();
@@ -6744,7 +6781,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
 
   LocalHttpServer server;
   server.setDeviceCredentials(deviceId, token, replayState);
-  assert(server.start(19430, onSync));
+  assert(server.start(freeScannerTestPort(), onSync));
   const auto boundAddresses = server.addresses();
   const auto privateAddresses = privateLocalAddresses();
   assert(boundAddresses.size() == 1);
@@ -6799,7 +6836,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
 
   LocalHttpServer restarted;
   restarted.setDeviceCredentials(deviceId, rotatedToken, replayState);
-  assert(restarted.start(19450, onSync));
+  assert(restarted.start(freeScannerTestPort(), onSync));
   const auto persistedReplay = sendLocalHttpRequest(restarted.port(), signedSyncRequest(rotatedToken, deviceId, 44, body));
   assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
   assert(syncCalls == 3);
@@ -6826,16 +6863,24 @@ void testHttpWorkspaceIsolationAndPortSelection() {
       return allCloexec;
     };
 
+    // One free port serves all three servers below: the child and the rebinding server must reuse it.
+    const uint16_t reusedPort = freeScannerTestPort();
     LocalHttpServer inheritServer;
     inheritServer.setDeviceCredentials(deviceId, rotatedToken, replayState);
-    assert(inheritServer.start(19490, onSync));
+    assert(inheritServer.start(reusedPort, onSync));
     const uint16_t inheritPort = inheritServer.port();
-    assert(inheritPort == 19490);
+    assert(inheritPort == reusedPort);
     const NativeSocket inheritClient = connectSlowLocalClient(inheritPort);
-    this_thread::sleep_for(chrono::milliseconds(100));
+    // Wait until the server has accepted the connection: the listener plus the accepted socket are both
+    // bound to the port, and both must be close-on-exec.
     size_t socketsOnPort = 0;
-    assert(cloexecSocketsOnPort(inheritPort, socketsOnPort));
-    assert(socketsOnPort >= 1);
+    bool allCloexec = false;
+    for (int tick = 0; tick < 500 && socketsOnPort < 2; ++tick) {
+      allCloexec = cloexecSocketsOnPort(inheritPort, socketsOnPort);
+      if (socketsOnPort < 2) this_thread::sleep_for(chrono::milliseconds(10));
+    }
+    assert(socketsOnPort == 2);
+    assert(allCloexec);
 
     inheritServer.stop();
     closeSocket(inheritClient);
@@ -6851,7 +6896,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
     if (previousInstance == 0) {
       LocalHttpServer previous;
       previous.setDeviceCredentials(deviceId, rotatedToken, replayState);
-      if (!previous.start(19490, onSync)) _exit(2);
+      if (!previous.start(reusedPort, onSync)) _exit(2);
       const pid_t helper = fork();
       if (helper < 0) _exit(3);
       if (helper == 0) {
@@ -6878,13 +6923,13 @@ void testHttpWorkspaceIsolationAndPortSelection() {
 
     LocalHttpServer rebound;
     rebound.setDeviceCredentials(deviceId, rotatedToken, replayState);
-    const bool reboundStarted = rebound.start(19490, onSync);
+    const bool reboundStarted = rebound.start(reusedPort, onSync);
     const uint16_t reboundPort = reboundStarted ? rebound.port() : 0;
     rebound.stop();
     kill(helperPid, SIGKILL);
     waitpid(helperPid, nullptr, 0);
     assert(reboundStarted);
-    assert(reboundPort == 19490);
+    assert(reboundPort == reusedPort);
   }
 #endif
 
@@ -6904,7 +6949,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   };
   LocalHttpServer concurrentServer;
   concurrentServer.setDeviceCredentials(deviceId, token, concurrentReplayState);
-  assert(concurrentServer.start(19460, concurrentOnSync));
+  assert(concurrentServer.start(freeScannerTestPort(), concurrentOnSync));
   concurrentPort = concurrentServer.port();
   const auto concurrentAccepted =
       sendLocalHttpRequest(concurrentServer.port(), signedSyncRequest(token, deviceId, 100, body));
@@ -6926,7 +6971,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   };
   LocalHttpServer rotationServer;
   rotationServer.setDeviceCredentials(deviceId, token, rotationReplayState);
-  assert(rotationServer.start(19461, rotationOnSync));
+  assert(rotationServer.start(freeScannerTestPort(), rotationOnSync));
   const auto rotationRequest = signedSyncRequest(token, deviceId, 200, body);
   thread rotationRequestThread([&] { rotationResponse = sendLocalHttpRequest(rotationServer.port(), rotationRequest); });
   for (int attempt = 0; attempt < 100 && !rotationCallbackEntered.load(); ++attempt) {
@@ -6962,7 +7007,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   };
   LocalHttpServer retryServer;
   retryServer.setDeviceCredentials(deviceId, token, retryReplayState);
-  assert(retryServer.start(19480, retryOnSync));
+  assert(retryServer.start(freeScannerTestPort(), retryOnSync));
   const auto failedSync =
       sendLocalHttpRequest(retryServer.port(), signedSyncRequest(token, deviceId, 101, body));
   assert(failedSync.rfind("HTTP/1.1 503 Service Unavailable", 0) == 0);
@@ -6983,7 +7028,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   };
   LocalHttpServer overflowServer;
   overflowServer.setDeviceCredentials(deviceId, token, overflowReplayState);
-  assert(overflowServer.start(19482, overflowOnSync));
+  assert(overflowServer.start(freeScannerTestPort(), overflowOnSync));
   const auto oversizedResponse =
       sendLocalHttpRequest(overflowServer.port(), signedSyncRequest(token, deviceId, 300, body));
   assert(oversizedResponse.rfind("HTTP/1.1 500 Internal Server Error", 0) == 0);
@@ -7010,7 +7055,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   };
   LocalHttpServer replayFailureServer;
   replayFailureServer.setDeviceCredentials(deviceId, token, replayFailureParent / "replay.state");
-  assert(replayFailureServer.start(19481, replayFailureOnSync));
+  assert(replayFailureServer.start(freeScannerTestPort(), replayFailureOnSync));
   const auto markerFailure = sendLocalHttpRequest(
       replayFailureServer.port(), signedSyncRequest(token, deviceId, 201, body));
   assert(markerFailure.rfind("HTTP/1.1 409 Conflict", 0) == 0);
@@ -7029,7 +7074,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   }
   LocalHttpServer corruptStateServer;
   corruptStateServer.setDeviceCredentials(deviceId, rotatedToken, corruptReplayState);
-  assert(corruptStateServer.start(19470, onSync));
+  assert(corruptStateServer.start(freeScannerTestPort(), onSync));
   const auto rejectedWithCorruptState =
       sendLocalHttpRequest(corruptStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(rejectedWithCorruptState.rfind("HTTP/1.1 409 Conflict", 0) == 0);
@@ -7044,7 +7089,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   }
   LocalHttpServer malformedFingerprintServer;
   malformedFingerprintServer.setDeviceCredentials(deviceId, rotatedToken, malformedFingerprintState);
-  assert(malformedFingerprintServer.start(19471, onSync));
+  assert(malformedFingerprintServer.start(freeScannerTestPort(), onSync));
   const auto rejectedWithMalformedFingerprint = sendLocalHttpRequest(
       malformedFingerprintServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(rejectedWithMalformedFingerprint.rfind("HTTP/1.1 409 Conflict", 0) == 0);
@@ -7061,7 +7106,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   }
   LocalHttpServer foreignStateServer;
   foreignStateServer.setDeviceCredentials(deviceId, rotatedToken, foreignReplayState);
-  assert(foreignStateServer.start(19473, onSync));
+  assert(foreignStateServer.start(freeScannerTestPort(), onSync));
   const auto acceptedWithForeignState =
       sendLocalHttpRequest(foreignStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(acceptedWithForeignState.rfind("HTTP/1.1 200 OK", 0) == 0);
@@ -7081,7 +7126,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
 
   LocalHttpServer queuedStopServer;
   queuedStopServer.setDeviceCredentials(deviceId, rotatedToken, stateDirectory / "queued-stop.state");
-  assert(queuedStopServer.start(19472, onSync));
+  assert(queuedStopServer.start(freeScannerTestPort(), onSync));
   vector<NativeSocket> queuedSlowClients;
   for (int index = 0; index < 20; ++index) queuedSlowClients.push_back(connectSlowLocalClient(queuedStopServer.port()));
   this_thread::sleep_for(chrono::milliseconds(100));
@@ -7867,8 +7912,16 @@ void testLinuxDesktopShortcuts() {
 
 #endif
 void testApplicationIconAsset() {
+  // Resolved from the source tree the build was configured from, not from the working directory, which
+  // CTest sets to the build directory.
+#ifdef Inventatory_TEST_SOURCE_DIR
+  const auto icoPath = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "branding" / "icons" / "inventatory.ico";
+#else
   const auto icoPath = filesystem::path("branding") / "icons" / "inventatory.ico";
-  if (filesystem::is_regular_file(icoPath)) {
+#endif
+  if (!filesystem::is_regular_file(icoPath)) {
+    cout << "SKIPPED application icon check: " << icoPath.string() << " is not readable from here\n";
+  } else {
     ifstream icoStream(icoPath, ios::binary);
     uint16_t reserved = 0, type = 0, count = 0;
     icoStream.read(reinterpret_cast<char*>(&reserved), 2);
@@ -9833,11 +9886,11 @@ void testSignalExistingInstanceOpensWindow() {
   const ScopedEnvironment runtimeDirectory("XDG_RUNTIME_DIR", runtimeRoot.string());
   BackgroundController controller;
   assert(controller.acquireSingleInstance(false));
-  bool opened = false;
-  assert(controller.start(false, false, [] {}, [&opened] { opened = true; }));
+  atomic<bool> opened{false};  // Set by the controller's own thread.
+  assert(controller.start(false, false, [] {}, [&opened] { opened.store(true); }));
   assert(controller.signalExistingInstance());
-  this_thread::sleep_for(chrono::milliseconds(100));
-  assert(opened);
+  for (int tick = 0; tick < 500 && !opened.load(); ++tick) this_thread::sleep_for(chrono::milliseconds(10));
+  assert(opened.load());
   controller.stop();
   error_code signalCleanupError;
   filesystem::remove_all(runtimeRoot, signalCleanupError);
@@ -10341,6 +10394,24 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (reverseOrder) std::reverse(selected.begin(), selected.end());
+
+#ifndef _WIN32
+  // No test may read or write the developer's real home, configuration, data or cache directories:
+  // point them at the private temp root, which is removed when the program ends. (Windows tests set
+  // LOCALAPPDATA themselves where they need it.)
+  const auto isolatedHome = testTempRoot() / "home";
+  const struct {
+    const char* name;
+    filesystem::path value;
+  } isolatedEnvironment[] = {{"HOME", isolatedHome},
+                             {"XDG_CONFIG_HOME", isolatedHome / ".config"},
+                             {"XDG_DATA_HOME", isolatedHome / ".local" / "share"},
+                             {"XDG_CACHE_HOME", isolatedHome / ".cache"}};
+  for (const auto& variable : isolatedEnvironment) {
+    filesystem::create_directories(variable.value);
+    assert(setenv(variable.name, variable.value.c_str(), 1) == 0);
+  }
+#endif
 
   // The labels must outlive the loop: a failing assert reads the current one from any thread.
   vector<string> labels;
