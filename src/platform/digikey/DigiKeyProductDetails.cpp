@@ -100,10 +100,9 @@ optional<string> extractInductanceFromText(const string& text) {
 
 optional<string> extractComponentPackage(const JsonPtr& product) {
   const auto fromParameter = [&](initializer_list<const char*> names) -> optional<string> {
-    if (const auto value = readParameterValue(product, names); value.has_value() && !looksLikePackagingType(*value)) {
-      return value;
-    }
-    return nullopt;
+    // Packaging ("Tape & Reel") is a different parameter that can share the "Package" label; skip it and
+    // keep looking for the real case.
+    return readParameterValue(product, names, [](const string& value) { return !looksLikePackagingType(value); });
   };
 
   if (const auto package = fromParameter({"Package / Case", "Package Case", "Case / Package", "Case Package",

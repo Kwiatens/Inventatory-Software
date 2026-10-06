@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -92,7 +93,10 @@ string normalizeParameterKey(const string& value);
 bool looksLikeInductanceValue(const string& value);
 optional<string> readParameterText(const JsonPtr& entry, const string& label);
 bool looksLikePackagingType(const string& value);
-optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names);
+// Looks a product parameter up by label: an exact label match wins over a loose (substring) one, and
+// entries whose value `accept` rejects are skipped so a later, better entry is still found.
+optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names,
+                                    const std::function<bool(const string&)>& accept = {});
 optional<string> extractInductanceFromText(const string& text);
 
 optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& query);
