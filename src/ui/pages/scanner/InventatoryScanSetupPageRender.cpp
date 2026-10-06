@@ -11,12 +11,6 @@ namespace inventatory {
 
 using namespace std;
 
-namespace {
-
-constexpr size_t kDebugWindowLines = 14;
-
-}  // namespace
-
 ftxui::Element App::renderInventatoryScanSetupContent() const {
   ftxui::Elements rows;
   switch (scanSetupStep_) {
@@ -101,31 +95,5 @@ ftxui::Element App::renderInventatoryScanSetupUi() const {
   body = body | ftxui::bgcolor(setupBackground) | ftxui::flex;
   return ftxui::window(ftxui::text(""), body) | ftxui::bgcolor(uiCanvasBg());
 }
-
-ftxui::Element App::renderDeviceDebugConsoleUi() const {
-  ftxui::Elements lines;
-  const auto total = deviceDebugLog_.size();
-  const auto visible = min(kDebugWindowLines, total == 0 ? size_t(1) : total);
-  const auto maxScroll = total > visible ? total - visible : 0;
-  const auto start = min(deviceDebugScroll_, maxScroll);
-  const auto end = min(start + visible, total);
-
-  lines.push_back(fullLine("Wi-Fi debug console", uiAccentColor(), uiPanelLeftBg()));
-  lines.push_back(fullLine("Up/Down scroll  PageUp/PageDown faster  Home/End jump  focus stays on pairing page",
-                           uiMutedColor(), uiPanelLeftBg()));
-  if (total == 0) {
-    lines.push_back(fullLine("[waiting for device log messages]", uiMutedColor(), uiPanelLeftBg()));
-  } else {
-    for (size_t index = start; index < end; ++index) {
-      const auto& line = deviceDebugLog_[index];
-      lines.push_back(fullLine(line, uiTitleColor(), index % 2 == 0 ? uiRowDarkBg() : uiRowLightBg()));
-    }
-  }
-
-  return ftxui::window(styledText(" Wi-Fi terminal ", uiAccentColor()),
-                       ftxui::vbox(move(lines)) | ftxui::yframe | ftxui::vscroll_indicator) |
-         ftxui::bgcolor(uiPanelLeftBg());
-}
-
 
 }  // namespace inventatory

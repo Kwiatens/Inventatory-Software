@@ -320,7 +320,6 @@ bool finishWorker(Future& future, const optional<chrono::steady_clock::time_poin
 void App::cancelPendingDeviceRequests() {
   lock_guard<mutex> lock(deviceQueueMutex_);
   deviceStatusQueue_.clear();
-  deviceDebugQueue_.clear();
 }
 
 void App::stopWorkspaceBoundWork() { stopWorkspaceBoundWorkUntil(nullopt); }

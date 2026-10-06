@@ -34,14 +34,6 @@ void App::enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGenerat
   deviceStatusQueue_.push_back({report, workspaceGeneration});
 }
 
-void App::enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration) {
-  lock_guard<mutex> lock(deviceQueueMutex_);
-  if (deviceDebugQueue_.size() >= kDeviceDebugQueueLimit) {
-    deviceDebugQueue_.erase(deviceDebugQueue_.begin());
-  }
-  deviceDebugQueue_.push_back({report, workspaceGeneration});
-}
-
 bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
@@ -52,8 +44,6 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
   status.rssi = request.rssi;
-  status.debug = "protocol=v" + to_string(request.protocolVersion) + " mode=" + request.mode +
-                 " queue=" + to_string(request.queueDepth);
   status.protocolVersion = request.protocolVersion;
   status.mode = request.mode;
   status.pendingEventCount = request.queueDepth;
@@ -265,31 +255,11 @@ void App::processDeviceSyncEvents() {
   dirty_ = true;
 }
 
-void App::adjustDeviceDebugScroll(int delta) {
-  const auto total = deviceDebugLog_.size();
-  if (total == 0) {
-    deviceDebugScroll_ = 0;
-    deviceDebugFollow_ = true;
-    return;
-  }
-  const size_t step = static_cast<size_t>(delta < 0 ? -delta : delta);
-  const auto maxScroll = total > kDeviceDebugWindowLines ? total - kDeviceDebugWindowLines : 0;
-  if (delta < 0) {
-    deviceDebugFollow_ = false;
-    deviceDebugScroll_ = min(deviceDebugScroll_ + step, maxScroll);
-  } else if (delta > 0) {
-    deviceDebugFollow_ = false;
-    deviceDebugScroll_ = deviceDebugScroll_ > step ? deviceDebugScroll_ - step : 0;
-  }
-}
-
 void App::processDeviceRequests() {
   vector<QueuedDeviceStatus> statuses;
-  vector<QueuedDeviceDebug> debugReports;
   {
     lock_guard<mutex> lock(deviceQueueMutex_);
     statuses.swap(deviceStatusQueue_);
-    debugReports.swap(deviceDebugQueue_);
   }
 
   for (const auto& queuedStatus : statuses) {
@@ -298,7 +268,6 @@ void App::processDeviceRequests() {
     deviceLastSeen_ = time(nullptr);
     deviceFirmwareVersion_ = status.firmwareVersion;
     deviceRssi_ = status.rssi;
-    deviceDebug_ = status.debug;
     if (status.protocolVersion > 0) {
       deviceProtocolVersion_ = status.protocolVersion;
       deviceMode_ = status.mode;
@@ -312,25 +281,6 @@ void App::processDeviceRequests() {
       saveScannerConfigChecked(true);
       server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                    inventatoryScanReplayStatePath(dataPath_));
-    }
-    dirty_ = true;
-  }
-
-  for (const auto& queuedDebug : debugReports) {
-    if (!workspaceIsCurrent(queuedDebug.workspaceGeneration)) continue;
-    const auto& debug = queuedDebug.report;
-    const auto now = time(nullptr);
-    const auto level = trim(debug.level).empty() ? string("info") : trim(debug.level);
-    ostringstream out;
-    out << nowTimestampString(now) << " [" << level << "] " << debug.message;
-    deviceDebugLog_.push_back(out.str());
-    if (deviceDebugLog_.size() > 400U) {
-      deviceDebugLog_.erase(deviceDebugLog_.begin(), deviceDebugLog_.begin() + 100);
-    }
-    if (deviceDebugFollow_) {
-      deviceDebugScroll_ = deviceDebugLog_.size() > kDeviceDebugWindowLines
-                               ? deviceDebugLog_.size() - kDeviceDebugWindowLines
-                               : 0;
     }
     dirty_ = true;
   }
