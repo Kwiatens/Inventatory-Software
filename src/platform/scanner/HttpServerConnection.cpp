@@ -113,16 +113,22 @@ bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestT
       lock_guard<mutex> lock(callbackMutex_);
       callback = onSync_;
     }
-    unique_lock<mutex> callbackLock(callbackSerialMutex_);
-    credentialLock.unlock();
-    try {
-      syncSucceeded = callback && callback(request, syncResponse, error);
-    } catch (...) {
-      // A malformed or unavailable application callback must become a
-      // retryable transport failure; a worker exception must never terminate
-      // the service process while a replay reservation is held.
-      syncSucceeded = false;
-      error = "Device sync service failed";
+    {
+      // Callback serialization covers the callback only. Replay commit, response serialization and the
+      // socket send run without it (the reservation still admits one request at a time and the epoch
+      // check guards rotation), so a slow client cannot keep rotation, which waits for the credential
+      // lock held by the next request queued here, blocked for the length of a send.
+      unique_lock<mutex> callbackLock(callbackSerialMutex_);
+      credentialLock.unlock();
+      try {
+        syncSucceeded = callback && callback(request, syncResponse, error);
+      } catch (...) {
+        // A malformed or unavailable application callback must become a
+        // retryable transport failure; a worker exception must never terminate
+        // the service process while a replay reservation is held.
+        syncSucceeded = false;
+        error = "Device sync service failed";
+      }
     }
     if (!syncSucceeded) {
       releaseReplayCounter(*counter, credentialEpoch);
