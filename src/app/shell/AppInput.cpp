@@ -158,26 +158,8 @@ void App::handleKey(const KeyEvent& key) {
 
   if (key.type == KeyType::Character) {
     if (const auto* entry = app_navigation::primaryNavigationEntryForShortcut(key.ch)) {
-      switch (entry->page) {
-        case app_navigation::PrimaryPage::Stock:
-          changePage(Page::Stock);
-          return;
-        case app_navigation::PrimaryPage::Racks:
-          changePage(Page::Racks);
-          return;
-        case app_navigation::PrimaryPage::Import:
-          changePage(Page::Import);
-          return;
-        case app_navigation::PrimaryPage::Projects:
-          changePage(Page::Projects);
-          return;
-        case app_navigation::PrimaryPage::History:
-          changePage(Page::History);
-          return;
-        case app_navigation::PrimaryPage::Settings:
-          changePage(Page::Settings);
-          return;
-      }
+      changePage(pageFor(entry->page));
+      return;
     }
   }
 
@@ -222,6 +204,18 @@ void App::handleKey(const KeyEvent& key) {
   }
 }
 
+App::Page App::pageFor(app_navigation::PrimaryPage page) {
+  switch (page) {
+    case app_navigation::PrimaryPage::Stock: return Page::Stock;
+    case app_navigation::PrimaryPage::Racks: return Page::Racks;
+    case app_navigation::PrimaryPage::Import: return Page::Import;
+    case app_navigation::PrimaryPage::Projects: return Page::Projects;
+    case app_navigation::PrimaryPage::History: return Page::History;
+    case app_navigation::PrimaryPage::Settings: return Page::Settings;
+  }
+  return Page::Stock;
+}
+
 ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
                            function<void()> activate, bool enabled, bool focusable) const {
   const bool hovered = enabled && hoveredTargetId_ == id;
@@ -253,11 +247,6 @@ ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
         break;
       case UiTargetKind::Row:
       case UiTargetKind::Cell:
-        if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
-        if (focused) {
-          element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiSelectionBg()) | ftxui::bold;
-        }
-        break;
       case UiTargetKind::Navigation:
       case UiTargetKind::Action:
       case UiTargetKind::Category:
