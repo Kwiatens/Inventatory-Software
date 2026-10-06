@@ -224,6 +224,7 @@ void App::saveWorkingCopy() {
     captureUndoSnapshot();
     *live = mergeEditedItem(workingCopy_.original, workingCopy_.item, *live, QuantityMerge::PreferEdited,
                             &mergeNotices);
+    releaseConflictingRackPlacement(store_, *live, &mergeNotices);
     reconcileRackAssignment(store_, *live);
   } else {
     inputMode_ = InputMode::None;
