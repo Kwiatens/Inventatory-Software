@@ -153,16 +153,13 @@ bool App::copyInventatoryScanToken() {
 }
 
 void App::beginScanFirmwareCheck() {
-  if (scanFirmwareFuture_.valid()) {
-    setMessage("Already checking for Scan R1 firmware updates", 3);
-    return;
-  }
+  // Started together with the software update check; the Settings > Updates row reports progress.
+  if (scanFirmwareFuture_.valid()) return;
   scanFirmwareChecked_ = false;
   scanFirmwareCheckFailed_ = false;
   scanFirmwareFuture_ = async(launch::async, [installed = deviceFirmwareVersion_] {
     return checkLatestScanFirmwareRelease(installed);
   });
-  setMessage("Checking for Scan R1 firmware updates", 4);
   dirty_ = true;
 }
 
@@ -176,31 +173,8 @@ void App::processScanFirmwareCheck() {
     setMessage("Could not reach the firmware release channel", 4);
   } else if (result.updateAvailable) {
     setMessage("Scan R1 firmware " + result.latestVersion + " is available", 6);
-  } else if (deviceFirmwareVersion_.empty()) {
-    setMessage("Firmware channel checked; connect a scanner to compare versions", 5);
-  } else {
-    setMessage("Scan R1 firmware is up to date", 4);
   }
   dirty_ = true;
-}
-
-// One short line for the Scan settings panel: the device's own version first,
-// then the result of the last release check, so the row reads as a value.
-string App::scanFirmwareStatus() const {
-  const bool installedKnown = !deviceFirmwareVersion_.empty();
-  const auto installed = installedKnown ? deviceFirmwareVersion_ : string("Not reported");
-  if (scanFirmwareFuture_.valid()) return installed + "  \xC2\xB7  checking " + uiLoadingSpinner();
-  if (!installedKnown) {
-    if (scanFirmwareCheckFailed_) return installed + "  \xC2\xB7  check failed";
-    return "Pair a scanner to compare firmware";
-  }
-  if (!scanFirmwareChecked_ || scanFirmwareLatestVersion_.empty()) {
-    return scanFirmwareCheckFailed_ ? installed + "  \xC2\xB7  check failed" : installed;
-  }
-  if (isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_)) {
-    return installed + "  \xC2\xB7  " + scanFirmwareLatestVersion_ + " available";
-  }
-  return installed + "  \xC2\xB7  up to date";
 }
 
 void App::openInventatoryScanSetup() {

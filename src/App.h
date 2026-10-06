@@ -622,7 +622,6 @@ class App {
   bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
-  std::string scanFirmwareStatus() const;
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
