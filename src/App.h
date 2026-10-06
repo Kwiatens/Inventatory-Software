@@ -622,6 +622,7 @@ class App {
   bool hasPendingPersistence() const;
   void markDirty();
   void refreshPrinterState();
+  void publishConfiguredPrinter();
   bool enqueuePrinterProbe(const std::string& printerName);
   bool enqueuePrinterWork(PrinterWork work);
   void refreshInventoryMovements();
@@ -1056,7 +1057,12 @@ class App {
   bool hasStoredDigiKeySecret_ = false;
   std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
+  // quickLabelMutex_ guards the quick-label presets in settings_, the print-result cache above and
+  // configuredPrinterSnapshot_, the only printer state the device-service worker threads may read.
+  // The UI thread refreshes the snapshot through publishConfiguredPrinter() after every change to
+  // printerService_, which itself stays UI-owned.
   mutable std::mutex quickLabelMutex_;
+  std::string configuredPrinterSnapshot_;
   std::string settingsConfirmAction_;
   std::filesystem::path pendingRestoreBackupPath_;
   std::optional<Page> pendingPageAfterSettings_;

@@ -132,6 +132,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     }
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
+    publishConfiguredPrinter();
     // Queue the potentially slow Windows spooler probe.  Startup must remain
     // responsive even when a disconnected queue takes seconds to answer.
     refreshPrinterState();

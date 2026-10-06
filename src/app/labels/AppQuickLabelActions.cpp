@@ -53,6 +53,12 @@ bool App::printWireLabel(const string& text) {
   return true;
 }
 
+void App::publishConfiguredPrinter() {
+  const string name = printerService_.configuredPrinter();
+  lock_guard<mutex> lock(quickLabelMutex_);
+  configuredPrinterSnapshot_ = name;
+}
+
 void App::storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result,
                                      const QuickLabelPrintCacheIdentity& identity) {
   if (result.requestId.empty() || identity.workspaceGeneration == 0 ||
@@ -95,6 +101,7 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
                                 DeviceQuickLabelPrintResult& result) {
   result.requestId = request.requestId;
   string text;
+  string printerName;
   QuickLabelPrintCacheIdentity identity;
   identity.request = request;
   identity.deviceId = deviceId;
@@ -121,6 +128,10 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
     } else {
       text = settings_.quickLabelPresets[static_cast<size_t>(request.presetIndex - 1)];
     }
+    // printer.conf belongs to the active workspace. The app-settings copy can still describe the
+    // previously selected workspace during a switch. This runs on a worker thread, so it reads the
+    // snapshot the UI thread publishes rather than the UI-owned printer service.
+    printerName = configuredPrinterSnapshot_;
   }
 
   if (!result.status.empty()) {
@@ -128,9 +139,6 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
     return false;
   }
 
-  // printer.conf belongs to the active workspace. The app-settings copy can
-  // still describe the previously selected workspace during a switch.
-  string printerName = printerService_.configuredPrinter();
   if (trim(printerName).empty()) {
     result = {request.requestId, "failed", "printer_unconfigured", "No printer configured"};
   } else {
