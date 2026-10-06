@@ -8902,13 +8902,16 @@ int main() {
     // that cannot be written reports an error and leaves the destination as it was.
     {
       error_code ignoredExportError;
+      exported.close();  // Windows cannot replace a file that is still open
       {
         ofstream previousExport(csv, ios::binary | ios::trunc);
         previousExport << string("previous export that is longer than the new one ").append(4096, 'x');
       }
       assert(exportInventoryCsv(store, csv, error));
-      ifstream replacedExport(csv, ios::binary);
-      assert(string((istreambuf_iterator<char>(replacedExport)), istreambuf_iterator<char>()) == exportedText);
+      {
+        ifstream replacedExport(csv, ios::binary);
+        assert(string((istreambuf_iterator<char>(replacedExport)), istreambuf_iterator<char>()) == exportedText);
+      }
       size_t siblings = 0;
       for (const auto& entry : filesystem::directory_iterator(csv.parent_path())) {
         if (entry.path().filename().string().find(csv.filename().string()) == 0) ++siblings;
