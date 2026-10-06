@@ -43,6 +43,7 @@ void App::changePage(Page page) {
     return;
   }
   if (page != page_ && page_ == Page::Import && importStageActive_) {
+    if (!confirmImportDiscard()) return;
     cancelImportSession();
   }
   if (page != page_ && page_ == Page::Settings && settingsDirty_) {
