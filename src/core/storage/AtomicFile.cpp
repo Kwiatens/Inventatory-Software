@@ -106,6 +106,28 @@ filesystem::path uniqueTemporaryPath(const filesystem::path& destination, uint64
   return destination.parent_path() / filesystem::path(name);
 }
 
+bool fsyncDescriptor(int descriptor) {
+  while (fsync(descriptor) != 0) {
+    if (errno != EINTR) return false;
+  }
+  return true;
+}
+
+// A symbolic link at the destination is followed to the file it names, so replacing the content does
+// not replace the link. Returns the destination itself when it is not a link or the chain is cyclic.
+filesystem::path resolveLinkedDestination(const filesystem::path& destination) {
+  filesystem::path current = destination;
+  for (int depth = 0; depth < 16; ++depth) {
+    error_code ignored;
+    const auto status = filesystem::symlink_status(current, ignored);
+    if (ignored || status.type() != filesystem::file_type::symlink) return current;
+    const auto target = filesystem::read_symlink(current, ignored);
+    if (ignored || target.empty()) return destination;
+    current = target.is_absolute() ? target : current.parent_path() / target;
+  }
+  return destination;
+}
+
 bool writePosixFile(const filesystem::path& temporary, string_view contents, string* error, bool& collision,
                     bool& owned) {
   owned = false;
@@ -124,14 +146,17 @@ bool writePosixFile(const filesystem::path& temporary, string_view contents, str
   size_t offset = 0;
   while (offset < contents.size()) {
     const ssize_t written = write(descriptor, contents.data() + offset, contents.size() - offset);
+    // A signal (the background service uses several) can interrupt a write; that is not a failure.
+    if (written < 0 && errno == EINTR) continue;
     if (written <= 0) {
-      setError(error, systemErrorText("Unable to write temporary file", error_code(errno, generic_category())));
+      setError(error, systemErrorText("Unable to write temporary file",
+                                      error_code(written < 0 ? errno : ENOSPC, generic_category())));
       success = false;
       break;
     }
     offset += static_cast<size_t>(written);
   }
-  if (success && fsync(descriptor) != 0) {
+  if (success && !fsyncDescriptor(descriptor)) {
     setError(error, systemErrorText("Unable to flush temporary file", error_code(errno, generic_category())));
     success = false;
   }
@@ -159,6 +184,11 @@ bool writeFileAtomically(const filesystem::path& destination, string_view conten
       setError(error, "Unable to write file: destination has no filename");
       return false;
     }
+#ifndef _WIN32
+    if (const auto resolved = resolveLinkedDestination(destination); resolved != destination) {
+      return writeFileAtomically(resolved, contents, error);
+    }
+#endif
 
     auto parent = destination.parent_path();
     if (parent.empty()) parent = filesystem::current_path();
@@ -209,6 +239,12 @@ bool writeFileAtomically(const filesystem::path& destination, string_view conten
       removeOwnedTemporary(temporary);
       return false;
     }
+    // The rename itself is only durable once the directory entry has reached the disk.
+    string syncError;
+    if (!syncDirectory(parent, &syncError)) {
+      setError(error, syncError);
+      return false;
+    }
 #endif
     return true;
   } catch (const filesystem::filesystem_error& exception) {
@@ -218,6 +254,70 @@ bool writeFileAtomically(const filesystem::path& destination, string_view conten
     setError(error, string("Unable to write file: ") + exception.what());
     return false;
   }
+}
+
+bool syncFile(const filesystem::path& file, string* error) {
+  setError(error, {});
+#ifdef _WIN32
+  HANDLE handle = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (handle == INVALID_HANDLE_VALUE) {
+    setError(error, win32ErrorText("Unable to open file for flushing", GetLastError()));
+    return false;
+  }
+  const bool flushed = FlushFileBuffers(handle) != 0;
+  const DWORD flushError = flushed ? 0 : GetLastError();
+  CloseHandle(handle);
+  if (!flushed) {
+    setError(error, win32ErrorText("Unable to flush file", flushError));
+    return false;
+  }
+  return true;
+#else
+  int descriptor;
+  do {
+    descriptor = open(file.c_str(), O_RDONLY | O_CLOEXEC);
+  } while (descriptor < 0 && errno == EINTR);
+  if (descriptor < 0) {
+    setError(error, systemErrorText("Unable to open file for flushing", error_code(errno, generic_category())));
+    return false;
+  }
+  const bool flushed = fsyncDescriptor(descriptor);
+  const int flushError = errno;
+  close(descriptor);
+  if (!flushed) {
+    setError(error, systemErrorText("Unable to flush file", error_code(flushError, generic_category())));
+    return false;
+  }
+  return true;
+#endif
+}
+
+bool syncDirectory(const filesystem::path& directory, string* error) {
+  setError(error, {});
+#ifdef _WIN32
+  (void)directory;
+  return true;
+#else
+  const auto target = directory.empty() ? filesystem::path(".") : directory;
+  int descriptor;
+  do {
+    descriptor = open(target.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  } while (descriptor < 0 && errno == EINTR);
+  if (descriptor < 0) {
+    setError(error, systemErrorText("Unable to open directory for flushing", error_code(errno, generic_category())));
+    return false;
+  }
+  const bool flushed = fsyncDescriptor(descriptor);
+  const int flushError = errno;
+  close(descriptor);
+  // Some filesystems cannot flush a directory at all; there is nothing more to do for them.
+  if (!flushed && flushError != EINVAL && flushError != ENOTSUP && flushError != EROFS) {
+    setError(error, systemErrorText("Unable to flush directory", error_code(flushError, generic_category())));
+    return false;
+  }
+  return true;
+#endif
 }
 
 }  // namespace inventatory

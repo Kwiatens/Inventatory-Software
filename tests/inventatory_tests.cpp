@@ -11,6 +11,7 @@
 #include "platform/digikey/DigiKeyApi.h"
 #include "core/inventory/InventoryInternals.h"
 #include "core/inventory/InventoryMerge.h"
+#include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/InventoryTransfer.h"
 #include "core/transfer/CsvExport.h"
@@ -125,6 +126,55 @@ string currentPlatformReleaseFixture(string fixture) {
   return fixture;
 }
 
+#ifndef _WIN32
+class ScopedEnvironment final {
+ public:
+  ScopedEnvironment(const char* name, const optional<string>& value) : name_(name) {
+    const char* previous = getenv(name);
+    if (previous != nullptr) previous_ = string(previous);
+    if (value.has_value()) setenv(name, value->c_str(), 1);
+    else unsetenv(name);
+  }
+  ~ScopedEnvironment() {
+    if (previous_.has_value()) setenv(name_.c_str(), previous_->c_str(), 1);
+    else unsetenv(name_.c_str());
+  }
+  ScopedEnvironment(const ScopedEnvironment&) = delete;
+  ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
+
+ private:
+  string name_;
+  optional<string> previous_;
+};
+
+string readTextFile(const filesystem::path& path) {
+  ifstream stream(path, ios::binary);
+  return string((istreambuf_iterator<char>(stream)), istreambuf_iterator<char>());
+}
+
+void writeTextFile(const filesystem::path& path, const string& text, bool executable = false) {
+  filesystem::create_directories(path.parent_path());
+  {
+    ofstream stream(path, ios::binary | ios::trunc);
+    stream << text;
+  }
+  filesystem::permissions(path,
+                          executable ? filesystem::perms::owner_all
+                                     : (filesystem::perms::owner_read | filesystem::perms::owner_write),
+                          filesystem::perm_options::replace);
+}
+
+bool processIsGone(pid_t process) {
+  if (kill(process, 0) != 0) return errno == ESRCH;
+  // An orphan that nobody reaps stays visible as a zombie; it is dead all the same.
+  ifstream stat("/proc/" + to_string(process) + "/stat");
+  string line;
+  getline(stat, line);
+  const auto paren = line.rfind(')');
+  return paren != string::npos && paren + 2U < line.size() && line[paren + 2U] == 'Z';
+}
+#endif
+
 time_t localTime(int year, int month, int day, int hour = 12, int minute = 0) {
   tm value{};
   value.tm_year = year - 1900;
@@ -234,6 +284,62 @@ void testHistoryPagePresentationData() {
   assert(providerDiffs.front().previous == "7");
   assert(providerDiffs.front().next == "12");
 }
+
+#ifndef _WIN32
+void testAtomicFileLinks() {
+  const auto root = filesystem::temp_directory_path() / ("inventatory-atomic-file-test-" + to_string(getpid()));
+  error_code ignored;
+  filesystem::remove_all(root, ignored);
+  filesystem::create_directories(root / "real");
+  filesystem::create_directories(root / "config");
+  string error;
+
+  // Plain replacement leaves exactly one file behind.
+  assert(writeFileAtomically(root / "config" / "plain.conf", "first", &error));
+  assert(writeFileAtomically(root / "config" / "plain.conf", "second", &error));
+  assert(readTextFile(root / "config" / "plain.conf") == "second");
+  size_t entries = 0;
+  for (const auto& entry : filesystem::directory_iterator(root / "config")) {
+    (void)entry;
+    ++entries;
+  }
+  assert(entries == 1);
+  assert(writeFileAtomically(root / "config" / "nested" / "deeper.conf", "created", &error));
+
+  // A symbolic link (a dotfile-managed settings file) keeps being a link; its target gets the content.
+  writeTextFile(root / "real" / "settings.conf", "old");
+  filesystem::create_symlink("../real/settings.conf", root / "config" / "settings.conf");
+  assert(writeFileAtomically(root / "config" / "settings.conf", "new", &error));
+  assert(filesystem::is_symlink(root / "config" / "settings.conf"));
+  assert(filesystem::read_symlink(root / "config" / "settings.conf") == filesystem::path("../real/settings.conf"));
+  assert(readTextFile(root / "real" / "settings.conf") == "new");
+  entries = 0;
+  for (const auto& entry : filesystem::directory_iterator(root / "real")) {
+    (void)entry;
+    ++entries;
+  }
+  assert(entries == 1);
+
+  // A link whose target does not exist yet creates the target.
+  filesystem::create_symlink((root / "real" / "later.conf").string(), root / "config" / "later.conf");
+  assert(writeFileAtomically(root / "config" / "later.conf", "created through link", &error));
+  assert(filesystem::is_symlink(root / "config" / "later.conf"));
+  assert(readTextFile(root / "real" / "later.conf") == "created through link");
+
+  // A cyclic chain cannot be followed; the write still succeeds and replaces the link itself.
+  filesystem::create_symlink("loop-b.conf", root / "config" / "loop-a.conf");
+  filesystem::create_symlink("loop-a.conf", root / "config" / "loop-b.conf");
+  assert(writeFileAtomically(root / "config" / "loop-a.conf", "loop", &error));
+  assert(readTextFile(root / "config" / "loop-a.conf") == "loop");
+
+  // Flushing helpers succeed for what exists and report what does not.
+  assert(syncFile(root / "real" / "settings.conf", &error));
+  assert(syncDirectory(root / "real", &error));
+  assert(!syncFile(root / "real" / "missing.conf", &error) && !error.empty());
+  assert(!syncDirectory(root / "real" / "missing-directory", &error) && !error.empty());
+  filesystem::remove_all(root, ignored);
+}
+#endif
 
 void testHistoryPageLayoutData() {
   const auto wide = history_page_detail::historyPaneWidths(179);
@@ -2381,6 +2487,9 @@ void testInventoryMerge() {
 
 int main() {
   testHistoryPagePresentationData();
+#ifndef _WIN32
+  testAtomicFileLinks();
+#endif
   testHistoryPageLayoutData();
   testPrimaryNavigationContract();
 #ifndef _WIN32
