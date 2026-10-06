@@ -397,7 +397,14 @@ CsvImportResult loadDigiKeyCsvFile(const filesystem::path& path, const vector<In
     result.error = "Unable to read CSV file";
     return result;
   }
-  return parseDigiKeyCsvText(buffer.str(), existingItems);
+  string decoded;
+  string encodingError;
+  if (!decodeCsvBytes(buffer.str(), decoded, encodingError)) {
+    CsvImportResult result;
+    result.error = encodingError;
+    return result;
+  }
+  return parseDigiKeyCsvText(decoded, existingItems);
 }
 
 void mergeImportedMetadata(InventoryItem& target, const InventoryItem& source) {

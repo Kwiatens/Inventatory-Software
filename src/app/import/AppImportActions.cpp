@@ -6,6 +6,7 @@
 
 #include "core/inventory/InventoryMerge.h"
 #include "import/csv/CsvFormat.h"
+#include "import/csv/CsvReader.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
@@ -48,7 +49,12 @@ void App::beginCsvImport() {
   }
   ostringstream buffer;
   buffer << input.rdbuf();
-  const auto text = buffer.str();
+  string text;
+  string encodingError;
+  if (!decodeCsvBytes(buffer.str(), text, encodingError)) {
+    setMessage("CSV import failed: " + encodingError, 7);
+    return;
+  }
 
   // The file picker is the only way in, so detection replaces asking the user
   // which dialect they just chose.
