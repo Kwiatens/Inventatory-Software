@@ -106,9 +106,18 @@ class LabelPrinterService {
   string summaryText() const;
 
  private:
+  // What printer.conf held when this service last loaded or wrote it, so saveConfig can leave an
+  // unchanged file alone and never replace one it could not read (a transient open failure must not turn
+  // the user's printer choice into an empty configuration).
+  enum class ConfigFileState { Unknown, Missing, InSync, Unreadable };
+
   unique_ptr<PrinterBackend> backend_;
   filesystem::path configPath_;
   string configuredPrinter_;
+  mutable filesystem::path persistedPath_;
+  mutable ConfigFileState configFileState_ = ConfigFileState::Unknown;
+  mutable string persistedPrinter_;
+  mutable bool printerChosenSinceLoad_ = false;
 };
 
 string sanitizeLabelText(const string& value);

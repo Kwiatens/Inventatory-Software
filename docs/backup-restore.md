@@ -78,9 +78,10 @@ The optional filesystem-operation hooks in the transfer API are test-only
 fault-injection seams. Production code passes no hooks; manifest, database,
 and settings validation always runs in the transfer implementation itself.
 
-Malformed sidecar files remain recoverable. In particular, an invalid
-`printer.conf` is rejected by the printer loader and an empty configuration is
-not accepted by `saveConfig`, so startup does not overwrite the original file.
+Malformed sidecar files remain recoverable. In particular, an invalid or
+unreadable `printer.conf` is rejected by the printer loader and is then never
+overwritten by a later save until a printer is chosen again, so startup does not
+replace the original file with an empty one.
 Quick Labels are read into a temporary candidate and activated only after the
 whole file validates; a malformed `quick_labels.conf` therefore leaves the
 previous in-memory presets and source file unchanged.
