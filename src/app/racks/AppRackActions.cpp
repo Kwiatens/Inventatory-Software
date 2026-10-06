@@ -207,11 +207,13 @@ void App::changeSelectedRackType(const string& value) {
   }
   captureUndoSnapshot();
   const auto previous = rack->componentType;
+  // saveState() may reconcile parts and add racks, which invalidates `rack`; keep what is still needed.
+  const auto code = rack->code;
   rack->componentType = type;
-  logActivity("rack", rack->code + " type " + previous + " -> " + type);
+  logActivity("rack", code + " type " + previous + " -> " + type);
   saveState();
   syncRackSelection();
-  setMessage(rack->code + " type updated", 2);
+  setMessage(code + " type updated", 2);
 }
 
 void App::createRackWithType(const string& value) {
