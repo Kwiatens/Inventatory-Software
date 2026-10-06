@@ -258,6 +258,7 @@ void App::handleBomRestockKey(const KeyEvent& key) {
 void App::handleExitConfirmationKey(const KeyEvent& key) {
   if (key.type == KeyType::Escape) {
     pendingPageAfterSettings_.reset();
+    exitSavePending_ = false;
     inputMode_ = InputMode::None;
     setMessage("Stayed on the current screen", 2);
     return;

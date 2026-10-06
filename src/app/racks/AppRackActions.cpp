@@ -48,6 +48,7 @@ void App::changePage(Page page) {
   }
   if (page != page_ && page_ == Page::Settings && settingsDirty_) {
     pendingPageAfterSettings_ = page;
+    exitSavePending_ = false;
     inputMode_ = InputMode::ExitConfirmation;
     setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
     return;
