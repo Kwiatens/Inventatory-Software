@@ -27,6 +27,13 @@ namespace inventatory {
 namespace filesystem = std::filesystem;
 namespace {
 
+bool readFileContents(const filesystem::path& path, std::string& contents) {
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream.is_open()) return false;
+  contents.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+  return !stream.bad();
+}
+
 // Replacing a launcher or icon that already holds the same bytes still gives it a new inode and
 // mtime. Plasma then drops its link between the running window and the launcher it was started
 // from, and the taskbar falls back to the terminal emulator's own icon. Only touch the file when
@@ -34,17 +41,18 @@ namespace {
 bool fileHoldsContents(const filesystem::path& path, std::string_view contents) {
   std::error_code ec;
   if (!filesystem::is_regular_file(path, ec) || filesystem::file_size(path, ec) != contents.size() || ec) return false;
-  std::ifstream stream(path, std::ios::binary);
-  if (!stream.is_open()) return false;
-  const std::string existing((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-  return existing == contents;
+  std::string existing;
+  return readFileContents(path, existing) && existing == contents;
 }
 
-bool readFileContents(const filesystem::path& path, std::string& contents) {
-  std::ifstream stream(path, std::ios::binary);
-  if (!stream.is_open()) return false;
-  contents.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
-  return !stream.bad();
+constexpr filesystem::perms kExecutableFileMode =
+    filesystem::perms::owner_read | filesystem::perms::owner_write | filesystem::perms::owner_exec |
+    filesystem::perms::group_read | filesystem::perms::group_exec | filesystem::perms::others_read |
+    filesystem::perms::others_exec;
+constexpr filesystem::perms kPrivateFileMode = filesystem::perms::owner_read | filesystem::perms::owner_write;
+
+void setFileMode(const filesystem::path& path, filesystem::perms mode, std::error_code& ec) {
+  filesystem::permissions(path, mode, filesystem::perm_options::replace, ec);
 }
 
 bool writeFileIfChanged(const filesystem::path& path, std::string_view contents, std::string* error,
@@ -327,11 +335,7 @@ bool createDesktopShortcut(std::string& error) {
   bool launcherWritten = false;
   if (!writeFileIfChanged(launcher, contents, &error, &launcherWritten)) return false;
   if (launcherWritten) {
-    filesystem::permissions(launcher, filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                          filesystem::perms::owner_exec | filesystem::perms::group_read |
-                                          filesystem::perms::group_exec | filesystem::perms::others_read |
-                                          filesystem::perms::others_exec,
-                            filesystem::perm_options::replace, filesystemError);
+    setFileMode(launcher, kExecutableFileMode, filesystemError);
     if (filesystemError) {
       error = "Unable to make the Inventatory application launcher executable: " + filesystemError.message();
       return false;
@@ -348,11 +352,7 @@ bool createDesktopShortcut(std::string& error) {
     std::error_code desktopExistsError;
     if ((!launcherExisted || filesystem::exists(desktopLauncher, desktopExistsError)) &&
         writeFileIfChanged(desktopLauncher, contents, &desktopError, &desktopWritten) && desktopWritten) {
-      filesystem::permissions(desktopLauncher, filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                                    filesystem::perms::owner_exec | filesystem::perms::group_read |
-                                                    filesystem::perms::group_exec | filesystem::perms::others_read |
-                                                    filesystem::perms::others_exec,
-                              filesystem::perm_options::replace, filesystemError);
+      setFileMode(desktopLauncher, kExecutableFileMode, filesystemError);
     }
   }
 
@@ -399,8 +399,7 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
   const bool havePrevious = existed && changed && readFileContents(unit, previousContents);
   if (changed) {
     if (!writeFileAtomically(unit, contents, &error)) return false;
-    filesystem::permissions(unit, filesystem::perms::owner_read | filesystem::perms::owner_write,
-                            filesystem::perm_options::replace, filesystemError);
+    setFileMode(unit, kPrivateFileMode, filesystemError);
     if (filesystemError) {
       error = "Unable to protect the Inventatory background service file: " + filesystemError.message();
       return false;
@@ -419,8 +418,7 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
       runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
     } else if (havePrevious) {
       if (writeFileAtomically(unit, previousContents, nullptr)) {
-        filesystem::permissions(unit, filesystem::perms::owner_read | filesystem::perms::owner_write,
-                                filesystem::perm_options::replace, ignoredFilesystemError);
+        setFileMode(unit, kPrivateFileMode, ignoredFilesystemError);
         runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
       }
     }
