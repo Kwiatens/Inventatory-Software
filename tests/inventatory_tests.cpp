@@ -2721,6 +2721,18 @@ void testCupsBackendRunsBoundedHelpers() {
   assert(printers.size() == 1 && printers.front().name == "Zebra");
   assert(printers.front().isDefault && printers.front().isReady);
 
+  // A failing query reports one trimmed line, not the raw multi-line stderr.
+  assert(firstOutputLine("\n  lpstat: Invalid destination name  \r\nsecond line\n") == "lpstat: Invalid destination name");
+  assert(firstOutputLine("\n \n").empty());
+  writeTextFile(root / "bin" / "lpstat",
+                "#!/bin/sh\n"
+                "echo 'lpstat: Invalid destination name in list \"Gone\".' >&2\n"
+                "echo 'scheduler is not running' >&2\n"
+                "exit 1\n",
+                true);
+  const auto probe = backend->probePrinter("Gone");
+  assert(!probe.ok && probe.message == "lpstat: Invalid destination name in list \"Gone\".");
+
   // The job is streamed to lp's standard input, also when it is larger than a pipe buffer.
   string zpl = "^XA^FDtest^FS^XZ";
   zpl.append(1U << 20U, 'x');

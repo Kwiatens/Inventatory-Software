@@ -80,7 +80,8 @@ class CupsPrinterBackend final : public PrinterBackend {
     if (!validQueueName(printerName)) return {false, "No printer configured"};
     std::string output;
     if (!runCommand({"env", "LC_ALL=C", "lpstat", "-p", printerName}, output)) {
-      return {false, output.empty() ? "Unable to query the CUPS printer queue" : output};
+      const auto reason = firstOutputLine(output);
+      return {false, reason.empty() ? "Unable to query the CUPS printer queue" : reason};
     }
     size_t begin = 0;
     while (begin < output.size()) {
