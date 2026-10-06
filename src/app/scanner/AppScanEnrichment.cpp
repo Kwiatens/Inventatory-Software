@@ -116,7 +116,6 @@ void App::beginDigiKeyRefresh() {
   digiKeyRefreshSucceeded_ = 0;
   digiKeyRefreshFailed_ = 0;
   digiKeyRefreshChanged_ = false;
-  digiKeyRefreshActiveKey_.clear();
   digiKeyRefreshLastError_.clear();
   digiKeyRefreshClient_ = move(api.client);
   const auto context = currentWorkspaceContext();
@@ -153,10 +152,8 @@ void App::processDigiKeyRefresh() {
     if (!workspaceIsCurrent(result.workspaceGeneration)) {
       digiKeyRefreshQueue_.clear();
       digiKeyRefreshClient_.reset();
-      digiKeyRefreshActiveKey_.clear();
       return;
     }
-    digiKeyRefreshActiveKey_.clear();
     ++digiKeyRefreshCompleted_;
 
     if (result.details) {
@@ -193,7 +190,6 @@ void App::processDigiKeyRefresh() {
 
   const auto [itemId, lookup] = digiKeyRefreshQueue_.front();
   digiKeyRefreshQueue_.pop_front();
-  digiKeyRefreshActiveKey_ = lookup;
   auto* client = digiKeyRefreshClient_.get();
   digiKeyRefreshFuture_ = async(launch::async, [client, itemId, lookup, generation = digiKeyRefreshGeneration_] {
     DigiKeyRefreshResult result;
@@ -209,7 +205,6 @@ void App::processDigiKeyRefresh() {
 
 void App::stopDigiKeyRefresh() {
   digiKeyRefreshQueue_.clear();
-  digiKeyRefreshActiveKey_.clear();
   if (digiKeyRefreshFuture_.valid()) {
     digiKeyRefreshFuture_.wait();
     digiKeyRefreshFuture_ = {};

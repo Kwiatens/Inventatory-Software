@@ -230,7 +230,6 @@ bool App::reloadInventoryState() {
   store_ = move(loadedStore);
   persistedStore_ = store_;
   persistedStoreValid_ = true;
-  inventoryHistory_ = move(loadedHistory);
   inventoryMovements_ = loadedMovements;
   inventoryCommits_ = move(loadedCommits);
   historySelection_ = loadedSelection;

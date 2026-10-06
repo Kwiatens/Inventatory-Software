@@ -57,11 +57,6 @@ bool App::regenerateInventatoryScanToken() {
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
-  deviceLastResult_.clear();
-  deviceProtocolVersion_ = 0;
-  deviceMode_.clear();
-  devicePendingEventCount_ = 0;
-  deviceLastSync_ = 0;
   clearQuickLabelPrintCache();
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
@@ -114,11 +109,6 @@ bool App::clearInventatoryScanPairing() {
   deviceLastSeen_ = 0;
   deviceFirmwareVersion_.clear();
   deviceRssi_ = 0;
-  deviceLastResult_.clear();
-  deviceProtocolVersion_ = 0;
-  deviceMode_.clear();
-  devicePendingEventCount_ = 0;
-  deviceLastSync_ = 0;
   clearQuickLabelPrintCache();
   error_code replayError;
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);

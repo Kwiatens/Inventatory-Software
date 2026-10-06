@@ -38,7 +38,6 @@ using namespace std;
 App::App(bool startInBackground, BackgroundController& backgroundController)
     : backgroundController_(backgroundController),
       startInBackground_(startInBackground),
-      root_(filesystem::current_path()),
       settingsPath_(appSettingsPath()),
       updateMarkerPath_(appSettingsDirectory() / "update-status.conf"),
       updateNotesPath_(appSettingsDirectory() / "update-notes.md"),
@@ -145,7 +144,6 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   removeStaleUpdateDownloadDirectories();
   if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion) &&
       !inventoryRecoveryRequired_) {
-    onboardingActive_ = true;
     page_ = Page::Onboarding;
   } else if (updateCompletionPending_ && !startInBackground_ && !inventoryRecoveryRequired_) {
     page_ = Page::Update;

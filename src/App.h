@@ -825,7 +825,6 @@ class App {
   bool startInBackground_ = false;
   BleProvisioningService bleProvisioning_;
   MdnsService mdnsService_;
-  std::filesystem::path root_;
   std::filesystem::path dataPath_;
   std::filesystem::path inventoryPath_;
   std::filesystem::path printerPath_;
@@ -834,7 +833,6 @@ class App {
   std::filesystem::path quickLabelsPath_;
   Page page_ = Page::Stock;
   OnboardingStep onboardingStep_ = OnboardingStep::Welcome;
-  bool onboardingActive_ = false;
   bool returnToOnboardingAfterScan_ = false;
   WizardTransition wizardTransition_;
   std::optional<KeyEvent> bufferedWizardKey_;
@@ -875,8 +873,6 @@ class App {
   size_t selectedPosition_ = 0;
   size_t closestSelectedPosition_ = 0;
   bool closestSearchActive_ = false;
-  size_t stockScroll_ = 0;
-  size_t detailScroll_ = 0;
   size_t rackSelection_ = 0;
   mutable ftxui::Box rackListPanelBounds_;
   int rackRow_ = 0;
@@ -890,7 +886,6 @@ class App {
   bool importStageActive_ = false;
   std::time_t importDiscardArmedUntil_ = 0;
   bool importCommitPending_ = false;
-  std::vector<InventoryHistoryPoint> inventoryHistory_;
   std::vector<InventoryMovement> inventoryMovements_;
   std::vector<InventoryCommit> inventoryCommits_;
   std::string historySearchQuery_;
@@ -912,11 +907,6 @@ class App {
   time_t deviceLastSeen_ = 0;
   std::string deviceFirmwareVersion_;
   int deviceRssi_ = 0;
-  std::string deviceLastResult_;
-  int deviceProtocolVersion_ = 0;
-  std::string deviceMode_;
-  int devicePendingEventCount_ = 0;
-  time_t deviceLastSync_ = 0;
   std::atomic<bool> running_{true};
   std::atomic<bool> backgroundQuitRequested_{false};
   std::atomic<bool> foregroundRequested_{false};
@@ -990,7 +980,6 @@ class App {
   size_t digiKeyRefreshFailed_ = 0;
   bool digiKeyRefreshChanged_ = false;
   WorkspaceGeneration digiKeyRefreshGeneration_ = 0;
-  std::string digiKeyRefreshActiveKey_;
   std::string digiKeyRefreshLastError_;
   std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
   std::future<DigiKeyRefreshResult> digiKeyRefreshFuture_;
@@ -1016,8 +1005,6 @@ class App {
   ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
   DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
-  time_t scannerFlashUntil_ = 0;
-  time_t printerFlashUntil_ = 0;
   bool autoPrintScannedLabels_ = true;
   std::filesystem::path settingsPath_;
   AppSettings settings_;
@@ -1049,7 +1036,6 @@ class App {
   std::future<UpdateCheckResult> scanFirmwareFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
-  bool updateCheckChecked_ = false;
   bool updateCheckFailed_ = false;
   UpdateWizardStep updateStep_ = UpdateWizardStep::Preparing;
   std::future<UpdateOperationResult> updateOperationFuture_;

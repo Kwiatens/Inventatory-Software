@@ -310,12 +310,6 @@ void App::setSelectedQuantityFromInput(const string& value) {
 
 void App::logActivity(const string& kind, const string& message) {
   appendActivity(activities_, makeActivity(kind, message));
-  const auto now = time(nullptr);
-  if (kind == "scan") {
-    scannerFlashUntil_ = now + 3;
-  } else if (kind == "print") {
-    printerFlashUntil_ = now + 3;
-  }
   saveActivitiesChecked();
   dirty_ = true;
 }
