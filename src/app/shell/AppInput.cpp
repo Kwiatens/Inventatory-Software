@@ -301,7 +301,13 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
   if (mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown) {
     const int delta = mouse.button == ftxui::Mouse::WheelUp ? -1 : 1;
     focusedTargetId_.clear();
-    if (page_ == Page::Stock) moveSelection(delta);
+    if (inputMode_ == InputMode::ActionSheet) {
+      // The open sheet is the topmost surface: the wheel scrolls it, not the page behind it.
+      const int count = static_cast<int>(sheetActions_.size());
+      sheetIndex_ = max(0, min(count - 1, sheetIndex_ + delta));
+      dirty_ = true;
+    }
+    else if (page_ == Page::Stock) moveSelection(delta);
     else if (page_ == Page::Import) moveImportSelection(delta);
     else if (page_ == Page::History) {
       if (uiBoxContains(historyDetailPanelBounds_, mouse.x, mouse.y)) {
@@ -337,9 +343,17 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
   }
 
   if (mouse.button == ftxui::Mouse::Left && mouse.motion == ftxui::Mouse::Pressed) {
+    const bool sheetOpen = inputMode_ == InputMode::ActionSheet;
     for (size_t reverse = uiTargets_.size(); reverse > 0; --reverse) {
       auto& hit = uiTargets_[reverse - 1];
       if (hit.enabled && contains(hit)) {
+        // While the action sheet is open only the sheet and its header control
+        // take clicks; a click on the page behind it just closes the sheet.
+        if (sheetOpen && hit.id != "header.actions" && hit.id.rfind("action.", 0) != 0) {
+          inputMode_ = InputMode::None;
+          dirty_ = true;
+          return true;
+        }
         // A click selects/activates what is under the pointer without taking
         // keyboard focus, so a later Enter still reaches the page's own action.
         focusedTargetId_.clear();
