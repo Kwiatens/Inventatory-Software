@@ -5245,6 +5245,32 @@ int main() {
     assert(request.hasQuickLabelPrint);
     assert(request.quickLabelPrint.presetIndex == 2);
     assert(request.quickLabelPrint.revision == 3);
+
+    // One decoder serves event fields and result acknowledgements: escapes become UTF-8, and the same
+    // identifier decodes to the same string in both places.
+    const auto syncWith = [](const string& eventId, const string& code, const string& ack) {
+      return R"({"protocolVersion":1,"requestId":"sync-json","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":")" +
+             eventId + R"(","type":"inventory.adjust","code":")" + code +
+             R"(","value":1}],"resultAcks":[")" + ack + R"("]})";
+    };
+    assert(parseDeviceSyncRequestJson(syncWith(R"(a\nb\tc\b\f\"\\\/)", R"(µF)", R"(a\nb\tc\b\f\"\\\/)"),
+                                      request, error));
+    assert(request.events.front().eventId == "a\nb\tc\b\f\"\\/");
+    assert(request.resultAcks.front() == request.events.front().eventId);
+    assert(request.events.front().code == "\xC2\xB5" "F");
+    assert(parseDeviceSyncRequestJson(syncWith("e1", R"(€😀)", "e1-result"), request, error));
+    assert(request.events.front().code == "\xE2\x82\xAC\xF0\x9F\x98\x80");
+    assert(parseDeviceSyncRequestJson(syncWith("e1", "\xC2\xB5" "F", "e1-result"), request, error));
+    assert(request.events.front().code == "\xC2\xB5" "F");
+    assert(parseDeviceSyncRequestJson(syncWith(R"(idé)", "0002", R"(idé)"), request, error));
+    assert(request.events.front().eventId == "id\xC3\xA9" && request.resultAcks.front() == "id\xC3\xA9");
+    // A NUL escape, unpaired surrogates and raw control characters are refused, not altered.
+    assert(!parseDeviceSyncRequestJson(syncWith("e1", R"(ab\u0000c)", "e1-result"), request, error));
+    assert(!parseDeviceSyncRequestJson(syncWith("e1", "0002", R"(ack\u0000)"), request, error));
+    assert(!parseDeviceSyncRequestJson(syncWith("e1", R"(\ud83d)", "e1-result"), request, error));
+    assert(!parseDeviceSyncRequestJson(syncWith("e1", R"(\ud83dx)", "e1-result"), request, error));
+    assert(!parseDeviceSyncRequestJson(syncWith("e1", R"(\ude00)", "e1-result"), request, error));
+    assert(!parseDeviceSyncRequestJson(syncWith("e1", "0002", string("a") + '\x01' + "b"), request, error));
     // An unresolvable lookup code is dropped so the events it travels with are
     // still delivered; only a structurally broken lookup rejects the envelope.
     assert(parseDeviceSyncRequestJson(

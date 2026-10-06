@@ -18,6 +18,7 @@ int hexDigit(char ch);
 std::optional<std::size_t> jsonMemberValuePosition(const std::string& body, const std::string& key);
 std::string jsonEscape(const std::string& value);
 bool jsonObjectIsComplete(const std::string& body);
+std::optional<std::string> decodeJsonStringLiteral(const std::string& text, std::size_t& position);
 std::optional<std::string> jsonString(const std::string& body, const std::string& key);
 std::optional<int> jsonInt(const std::string& body, const std::string& key);
 std::optional<bool> jsonBool(const std::string& body, const std::string& key);
