@@ -115,6 +115,12 @@ workspace path, preserve the existing SQLite schema and history, and exclude
 credentials and scanner pairing state. Restore validates the bundle and creates
 a pre-restore backup before activation.
 
+Settings, `printer.conf`, quick labels and the update marker are written
+through a temporary file that is flushed to disk, then renamed over the
+original, and the directory is flushed afterwards. A settings file that is a
+symbolic link (for example one managed by a dotfile tool) stays a link; the
+file it points to is updated.
+
 Paths with spaces and UTF-8 names are supported. Linux filesystems are treated
 as case-sensitive. The database, inventory records, backups, CSV data, and
 scanner protocol remain compatible with Windows. Secrets are stored in each
