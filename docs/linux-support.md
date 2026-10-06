@@ -91,7 +91,9 @@ saved and the systemd unit is started again so the service stays supervised
 (`systemctl --user status inventatory-background.service`); a detached process
 is used only if systemd refuses. The unit is written only when its content
 changes and keeps the executable it was registered with while that file still
-exists. Linux does not provide a notification area icon. The current Windows
+exists. A binary that was replaced on disk while it runs (an update or
+reinstall) is never registered as `... (deleted)`. Linux does not provide a
+notification area icon. The current Windows
 release retains its notification-area process and Windows startup integration.
 
 ## Data and configuration

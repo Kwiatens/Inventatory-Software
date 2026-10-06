@@ -130,13 +130,8 @@ pid_t lockedProcessId(bool backgroundMode) {
 }
 
 std::string executableName(std::string target) {
-  constexpr char kDeleted[] = " (deleted)";
-  const auto suffix = std::string(kDeleted);
-  // A binary replaced on disk (an update) is reported with this suffix while it keeps running.
-  if (target.size() > suffix.size() && target.compare(target.size() - suffix.size(), suffix.size(), suffix) == 0) {
-    target.resize(target.size() - suffix.size());
-  }
-  return filesystem::path(target).filename().string();
+  // A binary replaced on disk (an update) is reported with a " (deleted)" suffix while it keeps running.
+  return filesystem::path(stripDeletedExecutableSuffix(std::move(target))).filename().string();
 }
 
 std::string readExecutableLink(const std::string& path) {
@@ -171,17 +166,6 @@ bool sendProcessSignal(pid_t process, int signalNumber) {
   if (errno != ENOSYS && errno != EINVAL) return false;
 #endif
   return processLooksLikeInventatory(process) && kill(process, signalNumber) == 0;
-}
-
-filesystem::path executablePath() {
-  std::vector<char> buffer(4096U);
-  for (;;) {
-    const auto count = readlink("/proc/self/exe", buffer.data(), buffer.size());
-    if (count < 0) return {};
-    if (static_cast<size_t>(count) < buffer.size()) return filesystem::path(std::string(buffer.data(), count));
-    if (buffer.size() >= 1024U * 1024U) return {};
-    buffer.resize(buffer.size() * 2U);
-  }
 }
 
 bool installSignalHandlers() {
@@ -299,7 +283,7 @@ BackgroundStopResult BackgroundController::stopBackgroundService(int gracefulTim
 
 bool BackgroundController::restartAsBackgroundService() {
   if (backgroundMode_) return false;
-  const auto executable = executablePath();
+  const auto executable = currentExecutablePath();
   if (executable.empty()) return false;
   if (instanceLockFd_ >= 0) {
     flock(instanceLockFd_, LOCK_UN);
