@@ -44,6 +44,20 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
                              string& error, const InventoryTransferTestHooks* testHooks) {
   error.clear();
   error_code filesystemError;
+#ifndef _WIN32
+  // A data folder that is a symbolic link (a dotfile manager, a folder moved to another disk) is only
+  // read here, so it is followed to the folder it names.
+  if (filesystem::is_symlink(dataDirectory, filesystemError) && !filesystemError) {
+    const auto resolved = filesystem::canonical(dataDirectory, filesystemError);
+    if (filesystemError || !filesystem::is_directory(resolved, filesystemError) || filesystemError) {
+      error = "Inventatory data folder is a link that does not lead to a folder: " + dataDirectory.string();
+      return false;
+    }
+    return createInventatoryBackup(resolved, appSettingsPath, destinationDirectory, applicationVersion, error,
+                                   testHooks);
+  }
+  filesystemError.clear();
+#endif
   if (!filesystem::is_directory(dataDirectory, filesystemError) || filesystemError) {
     error = "Inventatory data folder does not exist: " + dataDirectory.string();
     return false;

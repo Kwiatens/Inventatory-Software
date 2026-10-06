@@ -45,6 +45,22 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   try {
   error.clear();
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
+#ifndef _WIN32
+  {
+    // Activation renames the data folder itself, which for a symbolic link would move the link instead
+    // of the data. Work on the folder the link names; the link keeps pointing at the restored workspace.
+    error_code linkError;
+    if (filesystem::is_symlink(destinationDirectory, linkError) && !linkError) {
+      const auto resolved = filesystem::canonical(destinationDirectory, linkError);
+      if (linkError || !filesystem::is_directory(resolved, linkError) || linkError) {
+        error = "Restore destination is a link that does not lead to a folder";
+        return false;
+      }
+      return restoreInventatoryBackup(backupDirectory, resolved, appSettingsPath, error, testHooks,
+                                      replacementWorkspaceActiveOnFailure);
+    }
+  }
+#endif
   const TransferOps ops{testHooks};
   bool overlap = false;
   if (!pathsOverlap(backupDirectory, destinationDirectory, overlap, error)) return false;
@@ -82,18 +98,20 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
-  if (destinationExists && (isLinkedOrReparseArtifact(destinationDirectory, filesystemError) ||
-                            !filesystem::is_directory(destinationDirectory, filesystemError))) {
-    error = "Restore destination is not a directory";
+  if (destinationExists && isLinkedOrReparseArtifact(destinationDirectory, filesystemError)) {
+    error = "Restore destination must not be a link or reparse point";
     return false;
   }
   if (filesystemError) {
     error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
-  if (destinationExists &&
-      (isLinkedOrReparseArtifact(destinationDirectory, filesystemError) || filesystemError)) {
-    error = "Restore destination must not be a link or reparse point";
+  if (destinationExists && !filesystem::is_directory(destinationDirectory, filesystemError)) {
+    error = "Restore destination is not a directory";
+    return false;
+  }
+  if (filesystemError) {
+    error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
   // Restore replaces only Inventatory's managed files. Refuse up front, before
