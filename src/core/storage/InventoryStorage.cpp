@@ -55,7 +55,7 @@ bool InventoryStore::load(const filesystem::path& path, bool* normalized) {
     return false;
   }
 
-  if (!ensureInventatoryTableSchema(connection)) {
+  if (!ensureInventatoryTableSchema(connection) || !validateInventoryDataValues(connection)) {
     return false;
   }
   if (!validateInventoryCommitHistory(connection, nullptr)) {
