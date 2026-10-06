@@ -1,0 +1,23 @@
+You are editing a C++17 repository (the workspace root is a git worktree). Do not run git and do not build. Edit only tests/inventatory_tests.cpp and make exactly the change below.
+
+BACKGROUND: two locale regression tests, testPhysicalValueCommaDecimalLocale() and testDecimalParsingCommaLocale(), silently skip (exit code 0) when no comma-decimal locale (pl_PL, de_DE, fr_FR) is installed, so CI never runs them. We add an opt-in strict mode: if the environment variable INVENTATORY_REQUIRE_LOCALE_TESTS is set to "1", a missing locale must fail the test run. Default behaviour (variable unset) stays unchanged.
+
+STEPS
+1. Near the top of tests/inventatory_tests.cpp, just before the comment line `// The application calls setlocale(LC_ALL, ""), so value parsing and search must`, add this helper (inside the same scope as those test functions, i.e. at namespace/file level like them):
+
+// Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing comma-decimal locale a failure
+// instead of a silent skip, so the locale regression tests cannot quietly stop running.
+void skipOrFailMissingLocale(const char* testName) {
+  const char* require = getenv("INVENTATORY_REQUIRE_LOCALE_TESTS");
+  if (require != nullptr && string(require) == "1") {
+    cerr << "No comma-decimal locale installed but INVENTATORY_REQUIRE_LOCALE_TESTS=1: " << testName << '\n';
+    std::exit(1);
+  }
+}
+
+2. In testPhysicalValueCommaDecimalLocale(), inside the `if (!commaLocale) {` block, after the `setlocale(LC_ALL, previous.c_str());` line and before the `cout << "No comma-decimal locale installed; skipping locale regression test\n";` line, add:
+    skipOrFailMissingLocale("testPhysicalValueCommaDecimalLocale");
+3. In testDecimalParsingCommaLocale(), after the final `setlocale(LC_ALL, previous.c_str());` that comes right before `cout << "No comma-decimal locale installed; skipping decimal locale regression test\n";` add on a new line before that cout:
+  skipOrFailMissingLocale("testDecimalParsingCommaLocale");
+4. Check that <cstdlib> is available: the file already uses std::exit in its assert macro, so no new include is needed; `getenv` is used unqualified, which is fine because the file already has `using namespace std;`. If `getenv` is already used elsewhere in the file with a different spelling (e.g. `std::getenv`), use that spelling.
+5. Do not change anything else. Reply with the before/after of the edits.

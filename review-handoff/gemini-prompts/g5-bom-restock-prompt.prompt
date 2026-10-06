@@ -1,0 +1,9 @@
+You are editing a C++17 repository (the workspace root is a git worktree). Do not run git and do not build. Make exactly the two changes below and nothing else.
+
+BACKGROUND (a UI bug): on the Projects page, pressing `r` on a missing BOM line starts the "BomRestock" input mode (App::beginBomRestock in src/app/bom/AppBomProjectActions.cpp) with the input buffer pre-filled with the shortage quantity, but this mode is not listed in the places that render a prompt, so the user cannot see the number being typed (typing "10" onto the hidden default "5" receives 510). We make the prompt and buffer visible, like the neighbouring StocktakeCount mode.
+
+STEPS
+1. In src/app/shell/AppShellRender.cpp, function App::renderSearchBarUi(), the boolean `showsPrompt` is built from a list of `inputMode_ == InputMode::...` terms joined by `||`. Add `inputMode_ == InputMode::BomRestock ||` to that list: put it on the same line as `inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||` by inserting it right after `InputMode::StocktakeCount ||` (so the line reads `... inputMode_ == InputMode::StocktakeCount || inputMode_ == InputMode::BomRestock ||`; if that makes the line longer than about 120 characters, put `inputMode_ == InputMode::BomRestock ||` on its own new line directly below instead). Keep the existing parentheses balanced.
+2. In src/app/bom/AppBomActions.cpp, function App::activePrompt(), add this line directly after the line `if (inputMode_ == InputMode::StocktakeCount) return "Physical count: ";`:
+  if (inputMode_ == InputMode::BomRestock) return "Received quantity: ";
+3. Re-read both edited regions; confirm the parentheses/braces are balanced and that InputMode::BomRestock (declared in src/App.h) is spelled exactly like that. Do not change any other mode or file. Reply with the before/after of the two edits.

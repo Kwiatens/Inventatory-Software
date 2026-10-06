@@ -1,0 +1,15 @@
+You are editing a C++17 repository (cwd is the repository root, a git worktree). You CANNOT run shell commands; use only your file read and file edit tools. Do not run git. Make exactly the change below and nothing else.
+
+BACKGROUND: src/platform/system/UpdateService.cpp downloads an update asset (up to 512 MiB) with libcurl. It sets a 15 second TOTAL transfer timeout (CURLOPT_TIMEOUT_MS 15000L), so any slow connection fails the download. We want: no short total deadline, abort only when the transfer stalls, plus a generous hard cap.
+
+STEPS
+1. Read src/platform/system/UpdateService.cpp around line 825-870 (the function that sets up the asset download; it contains `curl_easy_setopt(request, CURLOPT_USERAGENT, "Inventatory updater");` followed by CURLOPT_CONNECTTIMEOUT_MS 5000L and CURLOPT_TIMEOUT_MS 15000L). There are TWO places that set CURLOPT_TIMEOUT_MS in the file: one with 8000L (a small metadata/API request, DO NOT touch it) and one with 15000L (the asset download, the one to change). Confirm which is which by reading the surrounding code before editing.
+2. In the asset-download function ONLY, replace the single line
+  curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 15000L);
+with exactly these lines:
+  // A large asset on a slow link must not hit a short total deadline; abort when the
+  // transfer stalls (under 1 KiB/s for 30 s), with a generous hard cap of two hours.
+  curl_easy_setopt(request, CURLOPT_LOW_SPEED_LIMIT, 1024L);
+  curl_easy_setopt(request, CURLOPT_LOW_SPEED_TIME, 30L);
+  curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 7200000L);
+3. Re-read the edited region and confirm the 8000L line is unchanged and nothing else changed. Reply with a 3-line summary.

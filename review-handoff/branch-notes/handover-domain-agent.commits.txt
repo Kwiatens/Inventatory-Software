@@ -1,0 +1,24 @@
+a50bce4 fix(bom): ignore package codes and unitless designations as values
+9fb8395 fix(racks): keep scan placeholders pending until enrichment can place them
+cdc90f6 fix(bom): never cache or export failed DigiKey lookups
+ac34122 fix(inventory): refuse reload while changes are waiting to be saved
+4a4537a perf(storage): skip the startup rewrite of a database that loaded unchanged
+2a55ddb perf(racks): index occupied slots instead of rescanning every part
+0a59f74 perf(storage): scan table values only on load, restore and backup
+a0af971 fix(storage): close the SQLite handle when opening a database fails
+8c1059e fix(workspace): report folders that cannot be inspected instead of throwing
+f593f39 fix(scan): match scanned URLs only against complete stored URLs
+8101868 fix(inventory): saturate quantity and rack number arithmetic and parse qty strictly
+40f276c fix(racks): read the rack code before saving a type change
+6cd1ca7 fix(inventory): repair duplicate Inventatory IDs instead of refusing to save
+4b19ca6 fix(storage): keep activity records within the line limit the loader enforces
+6cc1353 fix(parts): reject overflowed numbers and accept the ohm sign in value parsing
+685a20a perf(history): validate commits while streaming and skip the full pass after a save
+2b219a4 fix(import): treat a quote inside an unquoted CSV field as a literal
+8f3e330 fix(import): classify DigiKey CSV rows by whole words instead of substrings
+bd05172 fix(import): convert UTF-16 CSV files and refuse invalid UTF-8
+8725b52 fix(digikey): read credentials on the worker thread, not the UI thread
+4f1a701 fix(digikey): find the real Package / Case parameter among look-alike labels
+abce637 fix(digikey): keep products with odd optional fields and refresh a rejected token
+f1206ca fix(bom): write the shortage export atomically and report write failures
+2fc2f78 docs(project): describe CSV encodings, reload guard and pending rack placement

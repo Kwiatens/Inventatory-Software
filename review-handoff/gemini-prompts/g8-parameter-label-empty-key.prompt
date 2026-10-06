@@ -1,0 +1,23 @@
+You are editing a C++17 repository (the workspace root is a git worktree). Do not run git and do not build. Make exactly the changes below and nothing else.
+
+BACKGROUND (UTF-8 sibling bug): src/ui/shared/AppUiItemDetails.cpp has normalizeKey(), which keeps only ASCII letters and digits. A parameter name or category that has no ASCII letters/digits at all (for example the localised DigiKey name "电容" or "Ω") normalises to the empty string, and `x.find("")` is always found, so parameterLabelMatches() returns true for EVERY lookup and categoryContains() returns true for every needle. Result: the detail panel and Racks show that foreign parameter as "Capacitance", "Package", and so on. Fix: an empty normalised key never matches.
+
+STEPS
+1. In src/ui/shared/AppUiItemDetails.cpp, function `bool parameterLabelMatches(const string& lhs, const string& rhs)`: after the two lines that compute `normalizedLhs` and `normalizedRhs`, and before the `return`, insert:
+  if (normalizedLhs.empty() || normalizedRhs.empty()) return false;
+2. In the same file, function `bool categoryContains(const InventoryItem& item, initializer_list<const char*> needles)`: after the line `const auto category = normalizeKey(displayCategory(item.category));` insert:
+  if (category.empty()) return false;
+   and inside the `for` loop, after the line `const auto normalizedNeedle = normalizeKey(needle);` insert:
+    if (normalizedNeedle.empty()) continue;
+3. Add a regression test to tests/inventatory_tests.cpp (it already includes "ui/shared/AppUiShared.h", where parameterLabelMatches is declared, and the file has `using namespace inventatory;`). Find the block that begins with the line `    assert(isVersionNewer("v0.1.1", "0.1.0"));` (it sits inside a `{` block). Insert the following new block immediately BEFORE the `{` line that opens that block, as its own sibling block, with a blank line separating it from its neighbours:
+
+  {
+    // A parameter name without ASCII letters/digits must not match every lookup.
+    assert(!parameterLabelMatches("\xE7\x94\xB5\xE5\xAE\xB9", "Package"));  // CJK name
+    assert(!parameterLabelMatches("Package", "\xE7\x94\xB5\xE5\xAE\xB9"));
+    assert(!parameterLabelMatches("", "Package"));
+    assert(parameterLabelMatches("Package / Case", "Package"));
+    assert(parameterLabelMatches("Capacitance", "capacitance"));
+  }
+
+4. Do not change anything else. Re-read the three edited places. Reply with the before/after of the edits.

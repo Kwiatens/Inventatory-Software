@@ -1,0 +1,11 @@
+You are editing a C++17 repository (the workspace root is a git worktree). Do not run git and do not build. Make exactly the change below and nothing else.
+
+BACKGROUND: App::target() in src/app/shell/AppInput.cpp pushes a UiTarget into the vector `uiTargets_` and then passes a reference to the new element's `bounds` member to ftxui::reflect(). FTXUI keeps that reference until the frame is laid out. renderUi() only reserves 512 elements, so a frame with more than 512 targets reallocates the vector and leaves dangling references (heap corruption). std::deque never moves existing elements on push_back/emplace_back, so replacing the vector with a deque fixes it.
+
+STEPS
+1. In src/App.h, line containing `mutable std::vector<UiTarget> uiTargets_;` change it to
+  mutable std::deque<UiTarget> uiTargets_;  // deque: element addresses must stay stable, ftxui::reflect() keeps references into it
+   (<deque> is already included in App.h; do not add an include.)
+2. In src/app/shell/AppShellRender.cpp, in App::renderUi(), delete the single line `uiTargets_.reserve(512);` (deque has no reserve). Keep `uiTargets_.clear();`.
+3. Search the whole src/ and tests/ folders for every other use of `uiTargets_` and check each compiles with a deque: allowed members are size(), empty(), clear(), push_back(), back(), begin()/end(), rbegin()/rend(), operator[], and std::distance/std::find_if over iterators. If you find any use of .data(), .reserve(), .capacity() or .shrink_to_fit() on uiTargets_, STOP, change nothing further and tell me which line.
+4. Do not change anything else (no refactors, no formatting). Reply with: the lines you changed (file:line, before/after) and the list of other uses you checked.

@@ -1,0 +1,11 @@
+You are editing a repository (the workspace root is a git worktree). Do not run git and do not build. Edit only AGENTS.md and make exactly this one change.
+
+BACKGROUND: the Windows build command in AGENTS.md omits the target `inventatory_input_tests`, so the `ctest` command that follows reports `inventatory_input` as "Not Run" and the documented sequence ends red. CI (.github/workflows/release.yml) and docs/public-beta.md build all four targets.
+
+STEPS
+1. In AGENTS.md, in the first fenced PowerShell code block of the "Build and test" section, change the line
+cmake --build build --config Release --target inventatory inventatory_background inventatory_tests -- /m:1
+to
+cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
+2. Check .github/workflows/release.yml and docs/public-beta.md only by reading: confirm they list inventatory_input_tests. Do not edit them. If README.md or any file under docs/ contains the same three-target command without inventatory_input_tests, tell me the file and line in your reply but do NOT edit it.
+3. Change nothing else. Reply with the before/after line.

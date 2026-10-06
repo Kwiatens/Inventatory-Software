@@ -1,0 +1,24 @@
+You are editing a C++17 repository (cwd is the repository root, a git worktree). You CANNOT run shell commands; use only your file read and file edit tools. Do not run git. Edit only the file named below. Make exactly the change described, nothing else (no reformatting, no other files).
+
+TASK: tests/terminal_input_parser_tests.cpp uses the standard assert() from <cassert>. In Release builds NDEBUG is defined, so every assert() compiles to nothing and the test passes without checking anything. Replace it with an always-on check.
+
+STEPS
+1. Read tests/terminal_input_parser_tests.cpp.
+2. Replace the line `#include <cassert>` with these two lines (keep the include block otherwise unchanged and keep the existing include order sensible):
+#include <cstdio>
+#include <cstdlib>
+3. Immediately after the last #include line at the top of the file (and before `int main() {`), insert exactly this block, followed by one blank line:
+
+// assert() compiles to nothing under NDEBUG (Release), so the checks below
+// would never run in CI. Use an always-on check instead.
+#undef assert
+#define assert(expr)                                                                          \
+  do {                                                                                        \
+    if (!(expr)) {                                                                            \
+      std::fprintf(stderr, "Assertion failed: %s at %s:%d\n", #expr, __FILE__, __LINE__);     \
+      std::exit(1);                                                                           \
+    }                                                                                         \
+  } while (false)
+
+4. Do not change any test body. Re-read the file and confirm: no `#include <cassert>` remains, the macro appears once, and the number of `assert(` uses is unchanged (7 before; the macro definition adds one more textual `assert(expr)`).
+5. Reply with a 3-line summary of what you changed.

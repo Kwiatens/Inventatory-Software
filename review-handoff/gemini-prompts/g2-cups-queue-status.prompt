@@ -1,0 +1,113 @@
+You are editing a C++17 repository (cwd is the repository root, a git worktree). You CANNOT run shell commands; use only your file read and file edit tools. Do not run git. Follow the steps exactly. Do not change anything not listed. Keep the existing 2-space indentation and brace style.
+
+BACKGROUND (two bugs in the Linux CUPS label-printer backend, src/label_printer/platform/LabelPrinterLinux.cpp):
+(a) probePrinter() looks for " is " in `lpstat -p NAME` output; CUPS prints a disabled queue as `printer NAME disabled since ... -`, so a disabled queue is reported as available.
+(b) lpstat output is localised by the user's LANG, but the code parses English only. Fix: run lpstat under LC_ALL=C by prefixing the command with `env LC_ALL=C`.
+We fix both by moving the line parsing into one small header-only function that is shared and unit-tested.
+
+STEP 1: create the new file src/label_printer/platform/CupsStatus.h with exactly this content:
+
+// Inventatory - Parsing of CUPS "lpstat -p" queue lines. Header-only so it is
+// unit-testable on every platform.
+
+#pragma once
+
+#include <optional>
+#include <string>
+
+namespace inventatory {
+
+struct CupsQueueLine {
+  std::string name;
+  std::string status;  // text after the queue name, without a leading "is "
+  bool ready = true;
+};
+
+// Parses one line of `lpstat -p` output produced under LC_ALL=C, for example
+//   printer Zebra is idle.  enabled since Tue 05 Oct 2026 10:00:00
+//   printer Zebra now printing Zebra-12.  enabled since Tue 05 Oct 2026 10:00:00
+//   printer Zebra disabled since Tue 05 Oct 2026 10:00:00 -
+// Returns nullopt for any other line (reason lines, the default destination, empty lines).
+inline std::optional<CupsQueueLine> parseCupsQueueLine(const std::string& line) {
+  const std::string prefix = "printer ";
+  if (line.compare(0, prefix.size(), prefix) != 0) return std::nullopt;
+  const auto nameEnd = line.find(' ', prefix.size());
+  if (nameEnd == std::string::npos || nameEnd == prefix.size()) return std::nullopt;
+  CupsQueueLine parsed;
+  parsed.name = line.substr(prefix.size(), nameEnd - prefix.size());
+  parsed.status = line.substr(nameEnd + 1U);
+  if (parsed.status.compare(0, 3, "is ") == 0) parsed.status.erase(0, 3);
+  while (!parsed.status.empty() && (parsed.status.back() == '\r' || parsed.status.back() == '\n')) {
+    parsed.status.pop_back();
+  }
+  std::string lowered = parsed.status;
+  for (auto& character : lowered) {
+    if (character >= 'A' && character <= 'Z') character = static_cast<char>(character - 'A' + 'a');
+  }
+  parsed.ready = lowered.find("disabled") == std::string::npos && lowered.find("stopped") == std::string::npos;
+  return parsed;
+}
+
+}  // namespace inventatory
+
+STEP 2: in src/label_printer/platform/LabelPrinterLinux.cpp
+2a. After the line `#include "label_printer/core/LabelPrinterPrivate.h"` add the line:
+#include "label_printer/platform/CupsStatus.h"
+2b. In enumeratePrinters(): change `runCommand({"lpstat", "-p", "-d"}, output)` to `runCommand({"env", "LC_ALL=C", "lpstat", "-p", "-d"}, output)`.
+2c. In enumeratePrinters(): the branch that starts with `} else if (line.rfind("printer ", 0) == 0) {` and ends at its closing brace (it declares nameBegin, nameEnd, PrinterQueueInfo printer, state, status and pushes the printer) must be replaced by exactly:
+      } else if (const auto queue = parseCupsQueueLine(line)) {
+        PrinterQueueInfo printer;
+        printer.name = queue->name;
+        printer.driverName = "CUPS";
+        printer.statusText = queue->status;
+        printer.isReady = queue->ready;
+        printers.push_back(std::move(printer));
+      }
+   Keep the preceding `if (line.rfind("system default destination: ", 0) == 0) { ... }` branch and the code after the branches (the `if (end == std::string::npos) break;` and `begin = end + 1U;`) unchanged. Make sure braces still balance.
+2d. In probePrinter(): change `runCommand({"lpstat", "-p", printerName}, output)` to `runCommand({"env", "LC_ALL=C", "lpstat", "-p", printerName}, output)`.
+2e. In probePrinter(): delete everything from the line `const auto statusBegin = output.find(" is ");` down to and including the final `return {ready, ...};` line of that function, and put this in its place (the function's closing brace stays):
+    size_t begin = 0;
+    while (begin < output.size()) {
+      const auto end = output.find('\n', begin);
+      const auto line = output.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+      if (const auto queue = parseCupsQueueLine(line)) {
+        const std::string fallback = queue->ready ? "Printer queue is available" : "Printer queue is stopped";
+        return {queue->ready, queue->status.empty() ? fallback : queue->status};
+      }
+      if (end == std::string::npos) break;
+      begin = end + 1U;
+    }
+    return {true, "Printer queue is available"};
+2f. If a local helper named `lower` becomes unused after this edit, leave it alone (do not delete anything else).
+
+STEP 3: add a unit test to tests/inventatory_tests.cpp.
+3a. Near the other #include lines at the top, after the line `#include "label_printer/core/LabelPrinterPrivate.h"` add:
+#include "label_printer/platform/CupsStatus.h"
+3b. Find the block that begins with the line `    assert(isVersionNewer("v0.1.1", "0.1.0"));` (it is inside a `{` block). Insert the following new block immediately BEFORE the `{` line that opens that block (i.e. as its own sibling block, with a blank line separating it from the neighbours):
+
+  {
+    // CUPS lpstat -p lines (parsed under LC_ALL=C): a disabled queue must not be ready.
+    const auto idle = parseCupsQueueLine("printer Zebra is idle.  enabled since Tue 05 Oct 2026 10:00:00");
+    assert(idle.has_value());
+    assert(idle->name == "Zebra");
+    assert(idle->ready);
+    assert(idle->status.rfind("idle.", 0) == 0);
+
+    const auto printing = parseCupsQueueLine("printer Zebra now printing Zebra-12.  enabled since Tue 05 Oct 2026 10:00:00");
+    assert(printing.has_value());
+    assert(printing->name == "Zebra");
+    assert(printing->ready);
+
+    const auto disabled = parseCupsQueueLine("printer Zebra disabled since Tue 05 Oct 2026 10:00:00 -");
+    assert(disabled.has_value());
+    assert(disabled->name == "Zebra");
+    assert(!disabled->ready);
+
+    assert(!parseCupsQueueLine("system default destination: Zebra").has_value());
+    assert(!parseCupsQueueLine("\treason unknown").has_value());
+    assert(!parseCupsQueueLine("").has_value());
+    assert(!parseCupsQueueLine("printer ").has_value());
+    assert(!parseCupsQueueLine("printer Zebra").has_value());
+  }
+
+STEP 4: re-read all three edited/created files and check: braces balance, no leftover reference to the removed variables (statusBegin, nameBegin, state), the include lines are present once. Reply with a short summary and list anything you were unsure about. Do not attempt to build.

@@ -1,0 +1,71 @@
+You are editing a repository (the workspace root is a git worktree). Do not run git and do not build. Create exactly one new file: .github/workflows/ci.yml with the content below. Do not edit .github/workflows/release.yml or any other file.
+
+BACKGROUND: the repository only has .github/workflows/release.yml, which runs on a version tag. Nothing builds or tests pull requests or pushes to main. This workflow runs the same build and ctest steps as release.yml's Linux and Windows jobs, without publishing anything. The action pins below are copied from release.yml (keep the same SHA pins and version comments).
+
+STEP 1: before writing, read .github/workflows/release.yml and verify that (a) the actions/checkout pin in your file is character-for-character the same as the one in release.yml, (b) the Linux dependency list and build/test commands below match the `build-linux` job there, and the Windows commands match the `build` job there. If you find a difference, copy release.yml's version and mention it in your reply.
+
+STEP 2: create .github/workflows/ci.yml with exactly this content:
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Linux build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential cmake pkg-config \
+            libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev \
+            dbus-x11 gnome-keyring locales
+          sudo locale-gen pl_PL.UTF-8 de_DE.UTF-8
+      - name: Build Linux debug and release configurations
+        run: |
+          cmake -S . -B build-linux-debug -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-linux-debug --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+          cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+      - name: Test Linux debug and release configurations
+        env:
+          INVENTATORY_REQUIRE_LOCALE_TESTS: "1"
+        run: |
+          printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
+            eval "$(gnome-keyring-daemon --unlock --components=secrets)"
+            ctest --test-dir build-linux-debug --output-on-failure
+            ctest --test-dir build-linux-release --output-on-failure
+          '
+      - name: Test Linux release installer
+        run: bash installer/Test-InventatoryLinuxInstall.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and test x64 release
+        shell: pwsh
+        run: |
+          cmake -S . -B build
+          cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
+          ctest --test-dir build -C Release --output-on-failure
+
+STEP 3: validate the YAML by reading it: two-space indentation, no tabs, every `run: |` block is indented consistently, the strings in `printf`/`bash -c` are copied exactly. Reply with a short summary, the differences you found against release.yml (if any), and any doubt. Reminder for the maintainer in your reply: the INVENTATORY_REQUIRE_LOCALE_TESTS variable only has an effect once the test change that reads it is on main, and the Windows job takes the version/repository CMake definitions from defaults here, unlike the release job.

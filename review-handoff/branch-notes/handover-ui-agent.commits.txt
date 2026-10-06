@@ -1,0 +1,13 @@
+8d9f917 fix(ui): keep Enter on the page action after a mouse click
+bcd24fc fix(ui): add a clickable Actions control to the header
+700c375 fix(ui): scroll the action sheet so every action stays reachable
+1c67297 fix(ui): wire Ctrl+Z on Projects so a finished build can be undone
+990faf0 fix(ui): replace the prefilled quantity with the first typed digit
+9df6af5 fix(ui): answer the unsaved-changes prompt before navigating away
+5e7ac57 fix(ui): clear wizard secrets and Bluetooth scanning on every page exit
+5584cd9 fix(ui): let R retry saving pairing data from the scan setup wizard
+9f22934 fix(ui): state the quick-label limit in bytes
+a51da14 fix(ui): ask before discarding a reviewed CSV import
+9334245 fix(ui): require y to subtract stock after Find in racks
+fa29b42 fix(ui): ignore input while the resize notice is shown
+e3a10a4 chore(ui): save unfinished UI work for handover
