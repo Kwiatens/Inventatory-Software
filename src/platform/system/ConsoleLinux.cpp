@@ -99,37 +99,6 @@ bool spawnDetached(const string& executable, const string& argument) {
   return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-class SigpipeBlock final {
- public:
-  SigpipeBlock() {
-    sigemptyset(&blocked_);
-    sigaddset(&blocked_, SIGPIPE);
-    valid_ = pthread_sigmask(SIG_BLOCK, &blocked_, &previous_) == 0;
-    if (valid_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0) hadPending_ = sigismember(&pending, SIGPIPE) == 1;
-    }
-  }
-
-  ~SigpipeBlock() {
-    if (!valid_) return;
-    if (!hadPending_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
-        timespec noWait{};
-        sigtimedwait(&blocked_, nullptr, &noWait);
-      }
-    }
-    pthread_sigmask(SIG_SETMASK, &previous_, nullptr);
-  }
-
- private:
-  sigset_t blocked_{};
-  sigset_t previous_{};
-  bool valid_ = false;
-  bool hadPending_ = false;
-};
-
 bool runClipboard(const char* executable, const vector<string>& arguments, const string& text) {
   int descriptors[2]{};
   // Close-on-exec: the child only needs its dup2()ed copy, and a concurrently forked helper must
@@ -160,7 +129,7 @@ bool runClipboard(const char* executable, const vector<string>& arguments, const
     _exit(127);
   }
   close(descriptors[0]);
-  SigpipeBlock sigpipe;
+  SigpipeGuard sigpipe;
   size_t offset = 0;
   while (offset < text.size()) {
     const auto count = write(descriptors[1], text.data() + offset, text.size() - offset);

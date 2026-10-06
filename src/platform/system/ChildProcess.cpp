@@ -9,7 +9,6 @@
 
 #include <fcntl.h>
 #include <poll.h>
-#include <pthread.h>
 #include <signal.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -18,42 +17,6 @@
 
 namespace inventatory {
 namespace {
-
-// Writing to a helper that already exited must fail with EPIPE instead of raising SIGPIPE in the
-// application. A SIGPIPE this guard provoked is consumed again; one that was already pending stays.
-class SigpipeGuard final {
- public:
-  SigpipeGuard() {
-    sigemptyset(&blocked_);
-    sigaddset(&blocked_, SIGPIPE);
-    valid_ = pthread_sigmask(SIG_BLOCK, &blocked_, &previous_) == 0;
-    if (valid_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0) hadPending_ = sigismember(&pending, SIGPIPE) == 1;
-    }
-  }
-
-  ~SigpipeGuard() {
-    if (!valid_) return;
-    if (!hadPending_) {
-      sigset_t pending{};
-      if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
-        timespec noWait{};
-        sigtimedwait(&blocked_, nullptr, &noWait);
-      }
-    }
-    pthread_sigmask(SIG_SETMASK, &previous_, nullptr);
-  }
-
-  SigpipeGuard(const SigpipeGuard&) = delete;
-  SigpipeGuard& operator=(const SigpipeGuard&) = delete;
-
- private:
-  sigset_t blocked_{};
-  sigset_t previous_{};
-  bool valid_ = false;
-  bool hadPending_ = false;
-};
 
 void closeDescriptor(int& descriptor) {
   if (descriptor >= 0) close(descriptor);
