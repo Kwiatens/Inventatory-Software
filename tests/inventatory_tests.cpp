@@ -6118,6 +6118,19 @@ int main() {
     assert(filesystem::exists(replayB));
     assert(isolatedSyncCalls == 2);
 
+    {
+      // A port that already has a listener is never shared: the second server moves to the next one.
+      LocalHttpServer firstListener;
+      firstListener.setDeviceCredentials(deviceId, token, stateDirectory / "listener-first.state");
+      LocalHttpServer secondListener;
+      secondListener.setDeviceCredentials(deviceId, token, stateDirectory / "listener-second.state");
+      assert(firstListener.start(19425, isolatedOnSync));
+      assert(secondListener.start(19425, isolatedOnSync));
+      assert(secondListener.port() != firstListener.port());
+      secondListener.stop();
+      firstListener.stop();
+    }
+
     LocalHttpServer server;
     server.setDeviceCredentials(deviceId, token, replayState);
     assert(server.start(19430, onSync));
