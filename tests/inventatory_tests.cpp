@@ -1817,6 +1817,41 @@ void testSqliteSchemaValidation() {
 #endif
 }
 
+#ifndef _WIN32
+void testUpdateDownloadFolderAndInstallDirectory() {
+  const auto root = filesystem::temp_directory_path() / ("inventatory-update-helper-test-" + to_string(getpid()));
+  error_code ignored;
+  filesystem::remove_all(root, ignored);
+  filesystem::create_directories(root);
+
+  // The download folder is new and private every time, never a predictable name another user could
+  // have prepared.
+  const auto first = createUpdateDownloadDirectory(root);
+  const auto second = createUpdateDownloadDirectory(root);
+  assert(!first.empty() && !second.empty() && first != second);
+  assert(first.parent_path() == root && first.filename().string().rfind("Inventatory-update-", 0) == 0);
+  struct stat status{};
+  assert(stat(first.c_str(), &status) == 0 && S_ISDIR(status.st_mode));
+  assert((status.st_mode & 0777) == 0700 && status.st_uid == geteuid());
+  assert(filesystem::is_empty(first, ignored));
+  assert(createUpdateDownloadDirectory(root / "missing-parent").empty());
+
+  // An update needs to replace the executable in place: the folder must exist and be writable.
+  assert(isInstallDirectoryWritable(root / "inventatory"));
+  assert(!isInstallDirectoryWritable(root / "missing-parent" / "inventatory"));
+  assert(isInstallDirectoryWritable(filesystem::path()));
+  if (geteuid() != 0) {  // root can write to a read-only folder
+    const auto readOnly = root / "read-only";
+    filesystem::create_directories(readOnly);
+    filesystem::permissions(readOnly, filesystem::perms::owner_read | filesystem::perms::owner_exec,
+                            filesystem::perm_options::replace);
+    assert(!isInstallDirectoryWritable(readOnly / "inventatory"));
+    filesystem::permissions(readOnly, filesystem::perms::owner_all, filesystem::perm_options::replace);
+  }
+  filesystem::remove_all(root, ignored);
+}
+#endif
+
 void testPackageGHardening() {
   {
     DigiKeyConfig baseline;
@@ -3680,6 +3715,10 @@ int main() {
     assert(loaded.items().front().vendorMetadata.parameters.size() == 1);
     filesystem::remove(tempPath);
   }
+
+#ifndef _WIN32
+  testUpdateDownloadFolderAndInstallDirectory();
+#endif
 
   {
     InventoryStore before;
