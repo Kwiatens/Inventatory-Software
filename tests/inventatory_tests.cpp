@@ -2608,6 +2608,19 @@ int main() {
     assert(created.matched);
     assert(created.created);
     assert(store.findById(created.itemId) != nullptr);
+
+    // Short or generic codes never match as a substring of a product/datasheet URL.
+    store.items()[0].productUrl = "https://www.digikey.com/en/products/detail/te-connectivity/12345";
+    store.items()[0].datasheetUrl = "https://example.com/datasheet/smd-part.pdf";
+    for (const char* generic : {"te", "SMD", "datasheet", "products"}) {
+      const auto genericResolution = resolveScanCode(store, generic);
+      assert(genericResolution.created);
+      assert(genericResolution.itemId != store.items()[0].id);
+    }
+    // A complete URL still identifies the part (case and trailing slash do not matter).
+    const auto urlResolution = resolveScanCode(store, "HTTPS://www.digikey.com/en/products/detail/te-connectivity/12345/");
+    assert(urlResolution.matched && !urlResolution.created);
+    assert(urlResolution.itemId == store.items()[0].id);
   }
 
   {

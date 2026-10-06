@@ -7,6 +7,7 @@
 #include "core/history/InventoryVersionInternal.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <fstream>
 #include <limits>
@@ -291,23 +292,50 @@ const InventoryItem* InventoryStore::findById(const string& id) const {
   return it == items_.end() ? nullptr : &(*it);
 }
 
+namespace {
+
+bool equalsInsensitiveAscii(const string& value, const string& loweredNeedle) {
+  if (value.size() != loweredNeedle.size()) return false;
+  for (size_t index = 0; index < value.size(); ++index) {
+    if (tolower(static_cast<unsigned char>(value[index])) != static_cast<unsigned char>(loweredNeedle[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+string withoutTrailingSlashes(string value) {
+  while (!value.empty() && value.back() == '/') value.pop_back();
+  return value;
+}
+
+// A scanned URL identifies a part only when it is the whole stored URL. A short or generic code
+// must never match as a substring of some product or datasheet link.
+bool urlMatchesScannedCode(const string& url, const string& loweredNeedle) {
+  if (loweredNeedle.rfind("http://", 0) != 0 && loweredNeedle.rfind("https://", 0) != 0) return false;
+  return !url.empty() && withoutTrailingSlashes(toLower(url)) == withoutTrailingSlashes(loweredNeedle);
+}
+
+bool itemMatchesScannedCode(const InventoryItem& item, const string& needle) {
+  return equalsInsensitiveAscii(item.id, needle) || equalsInsensitiveAscii(item.inventatoryId, needle) ||
+         equalsInsensitiveAscii(item.sku, needle) || equalsInsensitiveAscii(item.machineCode, needle) ||
+         equalsInsensitiveAscii(item.digikeyPartNumber, needle) || urlMatchesScannedCode(item.productUrl, needle) ||
+         urlMatchesScannedCode(item.datasheetUrl, needle);
+}
+
+}  // namespace
+
 InventoryItem* InventoryStore::findByCode(const string& code) {
   const auto needle = toLower(trim(code));
-  const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
-           toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
-           containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
-  });
+  const auto it = find_if(items_.begin(), items_.end(),
+                          [&](const InventoryItem& item) { return itemMatchesScannedCode(item, needle); });
   return it == items_.end() ? nullptr : &(*it);
 }
 
 const InventoryItem* InventoryStore::findByCode(const string& code) const {
   const auto needle = toLower(trim(code));
-  const auto it = find_if(items_.begin(), items_.end(), [&](const InventoryItem& item) {
-    return toLower(item.id) == needle || toLower(item.inventatoryId) == needle || toLower(item.sku) == needle ||
-           toLower(item.machineCode) == needle || toLower(item.digikeyPartNumber) == needle ||
-           containsInsensitive(item.productUrl, needle) || containsInsensitive(item.datasheetUrl, needle);
-  });
+  const auto it = find_if(items_.begin(), items_.end(),
+                          [&](const InventoryItem& item) { return itemMatchesScannedCode(item, needle); });
   return it == items_.end() ? nullptr : &(*it);
 }
 
