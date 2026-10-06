@@ -1702,6 +1702,142 @@ void testDesktopLauncherExecQuoting() {
   assert(readTextFile(applications) == text);
 }
 #endif
+// The history is validated commit by commit as it streams past, and a caller that has just appended a
+// commit itself may skip the full pass. Every inconsistency the old all-at-once validation rejected must
+// still be rejected, and an untouched history must still load.
+void testInventoryHistoryValidation() {
+#ifdef INVENTATORY_SQLITE_STORAGE
+  const auto path = filesystem::temp_directory_path() / "inventatory-history-validation-test.db";
+  const auto pristine = filesystem::temp_directory_path() / "inventatory-history-validation-pristine.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  filesystem::remove(pristine, cleanupError);
+
+  InventoryStore store;
+  for (int index = 0; index < 3; ++index) {
+    InventoryItem item;
+    item.id = "hv-item-" + to_string(index);
+    item.partName = "History part " + to_string(index);
+    item.category = "Resistors";
+    item.quantity = 10 + index;
+    item.lastUpdated = 1710000000;
+    store.items().push_back(item);
+  }
+  ensureInventoryIdentifiers(store.items());
+  assert(store.save(path));
+  assert(ensureInventoryCommitHistory(path, store));
+
+  vector<string> commitIds;
+  const auto commitChange = [&](int itemIndex, int quantity, bool corrective) {
+    InventoryStore next = store;
+    next.items()[static_cast<size_t>(itemIndex)].quantity = quantity;
+    InventoryCommitDraft draft;
+    draft.source = corrective ? "revert" : "manual";
+    draft.message = "Change " + to_string(quantity);
+    if (corrective) {
+      draft.corrective = true;
+      draft.revertedCommitId = commitIds.front();
+    }
+    InventoryCommit committed;
+    assert(next.saveWithCommit(path, store, draft, {}, nullptr, &committed));
+    assert(!committed.id.empty());
+    commitIds.push_back(committed.id);
+    store = next;
+  };
+  {
+    vector<InventoryCommit> initial;
+    assert(loadInventoryCommits(path, initial) && initial.size() == 1);
+    commitIds.push_back(initial.front().id);
+  }
+  commitChange(0, 20, false);
+  commitChange(1, 30, false);
+  commitChange(2, 40, true);
+  commitChange(0, 50, false);
+  assert(commitIds.size() == 5);
+
+  vector<InventoryCommit> commits;
+  assert(loadInventoryCommits(path, commits) && commits.size() == 5);
+  vector<InventoryCommit> unchecked;
+  assert(loadInventoryCommits(path, unchecked, false) && unchecked.size() == 5);
+  assert(unchecked.front().id == commits.front().id && unchecked.back().id == commits.back().id);
+  InventoryStore reloaded;
+  assert(reloaded.load(path));
+  filesystem::copy_file(path, pristine, filesystem::copy_options::overwrite_existing);
+
+  const auto tampered = [&](const string& sql, bool expectedValid) {
+    filesystem::copy_file(pristine, path, filesystem::copy_options::overwrite_existing);
+    {
+      SqliteConnection connection;
+      assert(openDatabase(path, connection));
+      if (!sql.empty()) assert(execSql(connection, sql));
+    }
+    vector<InventoryCommit> loaded;
+    const bool valid = loadInventoryCommits(path, loaded);
+    InventoryStore workspace;
+    assert(valid == expectedValid);
+    assert(workspace.load(path) == expectedValid);
+    SqliteConnection connection;
+    assert(openDatabase(path, connection));
+    assert(validateInventoryDatabase(connection, nullptr) == expectedValid);
+    return loaded;
+  };
+  const auto commitIdAt = [&](size_t index) { return "'" + commitIds[index] + "'"; };
+
+  tampered("", true);
+  // Change counts that do not match the snapshots.
+  tampered("UPDATE inventatory_inventory_commits SET changed_item_count = changed_item_count + 1 WHERE commit_id=" +
+               commitIdAt(2),
+           false);
+  // A gap in the sequence, and a parent that is not the previous commit.
+  tampered("UPDATE inventatory_inventory_commits SET sequence = 9 WHERE commit_id=" + commitIdAt(4), false);
+  tampered("UPDATE inventatory_inventory_commits SET parent_id=" + commitIdAt(0) + " WHERE commit_id=" + commitIdAt(3),
+           false);
+  // The first commit must not claim a parent or changes.
+  tampered("UPDATE inventatory_inventory_commits SET changed_item_count = 1 WHERE commit_id=" + commitIdAt(0), false);
+  // A snapshot that lost a row no longer matches its recorded counts.
+  tampered("DELETE FROM inventatory_inventory_commit_items WHERE commit_id=" + commitIdAt(2) +
+               " AND item_id='hv-item-2'",
+           false);
+  // An orphaned snapshot row.
+  tampered("INSERT INTO inventatory_inventory_commit_items (commit_id, item_id, item_data) "
+           "SELECT 'orphan-commit', item_id, item_data FROM inventatory_inventory_commit_items "
+           "WHERE commit_id=" + commitIdAt(0),
+           false);
+  // Corrective flags must agree with the reverted commit, which must exist.
+  tampered("UPDATE inventatory_inventory_commits SET reverted_commit_id='missing-commit' WHERE commit_id=" +
+               commitIdAt(3),
+           false);
+  tampered("UPDATE inventatory_inventory_commits SET corrective=0 WHERE commit_id=" + commitIdAt(3), false);
+  tampered("UPDATE inventatory_inventory_commits SET reverted_commit_id=" + commitIdAt(0) + " WHERE commit_id=" +
+               commitIdAt(2),
+           false);
+  // Counts that claim a commit changed nothing although its snapshot differs from its parent.
+  tampered("UPDATE inventatory_inventory_commits SET changed_item_count = 0 WHERE commit_id=" + commitIdAt(1), false);
+
+  // Skipping the full pass trusts the older commits (it is only used right after our own append), but
+  // still reads the commit list.
+  {
+    filesystem::copy_file(pristine, path, filesystem::copy_options::overwrite_existing);
+    {
+      SqliteConnection connection;
+      assert(openDatabase(path, connection));
+      assert(execSql(connection, "UPDATE inventatory_inventory_commits SET changed_item_count = 7 WHERE commit_id=" +
+                                     commitIdAt(1)));
+    }
+    vector<InventoryCommit> loaded;
+    assert(!loadInventoryCommits(path, loaded));
+    assert(loadInventoryCommits(path, loaded, false));
+    assert(loaded.size() == 5);
+    // The newest commit is still checked on its own, as the application does after saving.
+    InventoryCommitDetail newest;
+    assert(loadInventoryCommit(path, loaded.front().id, newest));
+  }
+
+  filesystem::remove(path, cleanupError);
+  filesystem::remove(pristine, cleanupError);
+#endif
+}
+
 
 void testSqliteSchemaValidation() {
 #ifdef INVENTATORY_SQLITE_STORAGE
@@ -3370,6 +3506,7 @@ int main() {
   testDecimalParsingCommaLocale();
   testStockFilterState();
   testInventoryCommitHistory();
+  testInventoryHistoryValidation();
   testSqliteSchemaValidation();
   testPackageGHardening();
   testScannerCommitIgnoresUnsavedMemoryEdits();
@@ -4128,6 +4265,7 @@ int main() {
     assert(candidate.item.reorderThreshold == 0);
     assert(candidate.item.parameters.size() == 4);
   }
+
 
   {
     const string csv =
@@ -7335,6 +7473,8 @@ int main() {
     assert(sniffDelimiter("\"a;b\";\"2,62800\";\"c\"\n") == ';');
     assert(stripByteOrderMark("\xEF\xBB\xBFId") == "Id");
   }
+
+
 
   {
     assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);
