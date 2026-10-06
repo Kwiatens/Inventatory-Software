@@ -197,6 +197,17 @@ jobs:
             ctest --test-dir build-linux-debug --output-on-failure
             ctest --test-dir build-linux-release --output-on-failure
           '
+      - name: Smoke test the Linux release binary
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          # --version is answered before any terminal setup, so this runs headless. It catches a missing
+          # shared library or a startup crash, and that the tag-derived version reached the binary.
+          test "$(build-linux-release/inventatory --version)" = "${RELEASE_TAG#v}"
+          if ldd build-linux-release/inventatory | grep -q 'not found'; then
+            ldd build-linux-release/inventatory
+            exit 1
+          fi
       - name: Test Linux release installer
         run: bash installer/Test-InventatoryLinuxInstall.sh
       - name: Package Linux release assets
