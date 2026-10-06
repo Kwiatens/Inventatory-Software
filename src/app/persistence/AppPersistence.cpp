@@ -156,6 +156,15 @@ void App::loadState() {
 }
 
 bool App::reloadInventoryState() {
+  // Reloading replaces the in-memory inventory with the database. Unsaved changes (for instance
+  // after a failed save, which keeps them in memory so they can be retried) must not be dropped by
+  // a stray keystroke; History and Undo refuse the same way.
+  if (pendingCommitDraftValid_ ||
+      (persistedStoreValid_ && !inventoryCommitDiff(persistedStore_, store_).empty())) {
+    setMessage("Unsaved inventory changes; press R to retry saving before reloading", 5,
+               UiMessageSeverity::Warning);
+    return false;
+  }
   InventoryStore loadedStore;
   if (!loadedStore.load(inventoryPath_)) {
     persistenceError_ = "Unable to reload the inventory database; the in-memory data was kept.";
