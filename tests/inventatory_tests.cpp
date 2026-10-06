@@ -1728,6 +1728,35 @@ void testSqliteSchemaValidation() {
     assert(readBytes(unsupportedPath) == beforeBytes);
   }
 
+  {
+    // Entry points only run the structural schema check; the table-scanning value checks belong to
+    // load, restore and backup validation, which must still reject a bad row.
+    const auto valuesPath = filesystem::temp_directory_path() / "inventatory-data-values-test.db";
+    filesystem::remove(valuesPath, cleanupError);
+    {
+      InventoryStore store;
+      InventoryItem item;
+      item.id = "values-item";
+      item.partName = "Values part";
+      item.quantity = 3;
+      store.items().push_back(item);
+      assert(store.save(valuesPath));
+    }
+    {
+      SqliteConnection connection;
+      assert(openDatabase(valuesPath, connection));
+      assert(ensureInventoryDatabaseSchema(connection));
+      assert(validateInventoryDataValues(connection));
+      assert(execSql(connection, "UPDATE inventatory_items SET quantity='not-a-number'"));
+      string error;
+      assert(ensureInventoryDatabaseSchema(connection, &error));  // structure only, no table scans
+      assert(!validateInventoryDataValues(connection, &error));
+      assert(!validateInventoryDatabase(connection, &error));
+    }
+    InventoryStore reloaded;
+    assert(!reloaded.load(valuesPath));
+    filesystem::remove(valuesPath, cleanupError);
+  }
 
   {
     // load() reports whether it had to repair stored rows, so the startup rewrite can be skipped

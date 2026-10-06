@@ -309,7 +309,7 @@ bool validateCurrentSchema(SqliteConnection& connection, string* error) {
       return false;
     }
   }
-  return validateDataValues(connection, error);
+  return true;
 }
 }  // namespace
 
@@ -358,6 +358,14 @@ bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error) 
   return true;
 }
 
+bool validateInventoryDataValues(SqliteConnection& connection, string* error) {
+  if (connection.db == nullptr) {
+    if (error != nullptr) *error = "SQLite connection is not open";
+    return false;
+  }
+  return validateDataValues(connection, error);
+}
+
 bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
   if (connection.db == nullptr) {
     if (error != nullptr) *error = "SQLite connection is not open";
@@ -368,7 +376,10 @@ bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
     setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
     return false;
   }
-  if (!validateCurrentSchema(connection, error) || !readIntegrityOk(connection, error)) return false;
+  if (!validateCurrentSchema(connection, error) || !validateDataValues(connection, error) ||
+      !readIntegrityOk(connection, error)) {
+    return false;
+  }
   return validateInventoryCommitHistory(connection, error);
 }
 
