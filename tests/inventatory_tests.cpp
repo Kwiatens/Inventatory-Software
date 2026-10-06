@@ -3602,6 +3602,34 @@ int main() {
     assert(!environmentValue("INVENTATORY_TEST_ENVIRONMENT").has_value());
   }
 
+#ifdef _WIN32
+  {
+    // Characters outside the ANSI code page must survive the environment lookup (UTF-8 out).
+    assert(_wputenv_s(L"INVENTATORY_TEST_ENVIRONMENT_WIDE", L"\u0141\u00f3d\u017a") == 0);
+    const auto wide = environmentValue("INVENTATORY_TEST_ENVIRONMENT_WIDE");
+    assert(wide.has_value());
+    assert(*wide == "\xC5\x81" "\xC3\xB3" "d" "\xC5\xBA");
+    assert(_wputenv_s(L"INVENTATORY_TEST_ENVIRONMENT_WIDE", L"") == 0);
+    assert(!environmentValue("INVENTATORY_TEST_ENVIRONMENT_WIDE").has_value());
+
+    // A value longer than the initial lookup buffer is returned whole.
+    const std::wstring longValue(700U, L'x');
+    assert(_wputenv_s(L"INVENTATORY_TEST_ENVIRONMENT_LONG", longValue.c_str()) == 0);
+    const auto longResult = environmentValue("INVENTATORY_TEST_ENVIRONMENT_LONG");
+    assert(longResult.has_value() && *longResult == std::string(700U, 'x'));
+    assert(_wputenv_s(L"INVENTATORY_TEST_ENVIRONMENT_LONG", L"") == 0);
+
+    wchar_t* previous = nullptr;
+    size_t previousLength = 0;
+    assert(_wdupenv_s(&previous, &previousLength, L"LOCALAPPDATA") == 0);
+    assert(_wputenv_s(L"LOCALAPPDATA", L"C:\\Users\\\u0141\u00f3d\u017a") == 0);
+    const auto settingsDirectory = appSettingsDirectory();
+    assert(_wputenv_s(L"LOCALAPPDATA", previous != nullptr ? previous : L"") == 0);
+    std::free(previous);
+    assert(settingsDirectory.wstring() == L"C:\\Users\\\u0141\u00f3d\u017a\\Inventatory");
+  }
+#endif
+
   {
     auto items = makeSampleInventory();
     assert(!items.empty());

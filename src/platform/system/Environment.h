@@ -10,7 +10,8 @@
 namespace inventatory {
 
 // Returns a value when the named environment variable is present. On Windows
-// this owns a copy, so callers never retain a pointer into the CRT environment.
+// the name and the value are UTF-8 (read through the wide API), so a caller that
+// builds a path from the value must use std::filesystem::u8path.
 std::optional<std::string> environmentValue(const char* name);
 
 #ifndef _WIN32
