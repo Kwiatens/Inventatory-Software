@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 
 #ifdef _WIN32
@@ -126,6 +127,20 @@ PrinterQueueInfo makePrinterInfo(const wstring& name, const wstring& driver, con
     }
     if (status & PRINTER_STATUS_DOOR_OPEN) {
       statusParts.push_back("Door open");
+    }
+    // Flags that only say the printer is working do not make it unready. Any other flag that is set and
+    // not named above (paper jam, user intervention, out of memory, ...) means it needs attention, and
+    // is shown with its value instead of being reported as ready.
+    const DWORD named = PRINTER_STATUS_PAUSED | PRINTER_STATUS_OFFLINE | PRINTER_STATUS_ERROR |
+                        PRINTER_STATUS_PAPER_OUT | PRINTER_STATUS_NOT_AVAILABLE | PRINTER_STATUS_NO_TONER |
+                        PRINTER_STATUS_DOOR_OPEN;
+    const DWORD working = PRINTER_STATUS_PRINTING | PRINTER_STATUS_BUSY | PRINTER_STATUS_WARMING_UP |
+                          PRINTER_STATUS_PROCESSING | PRINTER_STATUS_POWER_SAVE | PRINTER_STATUS_WAITING |
+                          PRINTER_STATUS_INITIALIZING | PRINTER_STATUS_IO_ACTIVE;
+    if (const DWORD unknown = status & ~(named | working)) {
+      char hex[32];
+      snprintf(hex, sizeof(hex), "Needs attention (0x%lX)", static_cast<unsigned long>(unknown));
+      statusParts.push_back(hex);
     }
     info.isReady = statusParts.empty();
   }
