@@ -141,7 +141,6 @@ bool App::chooseInventatoryFolder() {
 
   printerQueues_.clear();
   printerCheck_ = {};
-  inventoryHistory_.clear();
   inventoryMovements_.clear();
   deviceEventRecords_.clear();
   importCandidates_.clear();

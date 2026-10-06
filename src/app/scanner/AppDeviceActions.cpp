@@ -44,9 +44,6 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
   status.deviceId = request.deviceId;
   status.firmwareVersion = request.firmwareVersion;
   status.rssi = request.rssi;
-  status.protocolVersion = request.protocolVersion;
-  status.mode = request.mode;
-  status.pendingEventCount = request.queueDepth;
   enqueueDeviceStatus(status, context->generation);
   const bool accepted = acceptDeviceSyncEvents(context->paths.inventory, request, response, error);
   deviceSyncEventsHint_.store(true);
@@ -71,10 +68,6 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
 
 void App::refreshDeviceEventRecords() {
   deviceEventRecords_ = loadDeviceSyncEventRecords(inventoryPath_);
-  devicePendingEventCount_ = static_cast<int>(count_if(
-      deviceEventRecords_.begin(), deviceEventRecords_.end(), [](const DeviceSyncEventRecord& record) {
-        return record.state == "received";
-      }));
   dirty_ = true;
 }
 
@@ -220,7 +213,6 @@ void App::processDeviceSyncEvents() {
     ++deviceSyncCommitFailures_;
     deviceSyncRetryAfter_ = now + app_actions::deviceSyncRetryDelay(deviceSyncCommitFailures_);
     deviceSyncRetryGeneration_ = context->generation;
-    deviceLastResult_ = "ERROR scanner event not saved; retrying";
     setMessage("Inventatory Scan event could not be committed; it stays queued and will be retried", 5,
                UiMessageSeverity::Warning);
     dirty_ = true;
@@ -237,17 +229,12 @@ void App::processDeviceSyncEvents() {
   // The commit was just appended through the same transaction as a normal save; validating the whole
   // history again for every scanned event would grow with each scan.
   refreshInventoryCommits(true);
-  deviceLastResult_ = result.status == "failed"
-                          ? "ERROR " + result.message
-                          : (result.existing ? "EXISTING " : "NEW ") + result.itemName + " QTY " +
-                                to_string(result.quantity);
   if (result.status == "failed") {
     logActivity("device error", result.message);
   } else {
     logActivity(created ? "scan receive" : "stock receive",
                 result.itemName + " changed by " + to_string(result.appliedDelta) + " to " +
                     to_string(result.quantity));
-    scannerFlashUntil_ = time(nullptr) + 3;
     if (created) autoPrintScannedLabel(affectedItemId);
   }
   saveActivitiesChecked();
@@ -268,12 +255,6 @@ void App::processDeviceRequests() {
     deviceLastSeen_ = time(nullptr);
     deviceFirmwareVersion_ = status.firmwareVersion;
     deviceRssi_ = status.rssi;
-    if (status.protocolVersion > 0) {
-      deviceProtocolVersion_ = status.protocolVersion;
-      deviceMode_ = status.mode;
-      devicePendingEventCount_ = status.pendingEventCount;
-      deviceLastSync_ = time(nullptr);
-    }
     if (trim(inventatoryScanConfig_.deviceId).empty() && !trim(status.deviceId).empty()) {
       inventatoryScanConfig_.deviceId = trim(status.deviceId);
       inventatoryScanConfig_.setupComplete = true;

@@ -263,13 +263,11 @@ void App::finishOnboarding() {
 #ifdef _WIN32
   // The installer owns the Windows shortcuts and only creates the desktop one when asked to, so the
   // wizard must not add it back after the installer user declined it.
-  onboardingActive_ = false;
   changePage(Page::Stock);
   setMessage("Setup complete.", 5);
 #else
   string shortcutError;
   const bool shortcutCreated = createDesktopShortcut(shortcutError);
-  onboardingActive_ = false;
   changePage(Page::Stock);
   setMessage(shortcutCreated ? "Setup complete."
                              : "Setup complete; application launcher could not be created: " + shortcutError,
@@ -455,7 +453,6 @@ void App::beginUpdateCheckIfDue() {
       !isUpdateCheckDue(settings_.updateChecksEnabled, settings_.lastUpdateCheckUnixSeconds, now)) {
     return;
   }
-  updateCheckChecked_ = false;
   updateCheckFailed_ = false;
   updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
   beginScanFirmwareCheck();
@@ -467,7 +464,6 @@ void App::beginUpdateChecks() {
     // A manual check is always allowed, even when the daily background check
     // preference is disabled.
     settings_.lastUpdateCheckUnixSeconds = 0;
-    updateCheckChecked_ = false;
     updateCheckFailed_ = false;
     updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
     started = true;
@@ -480,7 +476,6 @@ void App::beginUpdateChecks() {
 void App::processUpdateCheck() {
   if (!updateCheckFuture_.valid() || updateCheckFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
   const auto result = updateCheckFuture_.get();
-  updateCheckChecked_ = true;
   updateCheckFailed_ = !result.completed;
   if (result.completed) {
     settings_.lastUpdateCheckUnixSeconds = static_cast<int64_t>(time(nullptr));

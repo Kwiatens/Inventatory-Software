@@ -146,7 +146,6 @@ void App::processPrinterWork() {
           break;
         case PrinterWorkKind::PrintItem:
           if (result.success) {
-            printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", result.work.item.partName + " label printed");
             const bool saved = saveState();
             setMessage(saved ? result.work.successPrefix + result.work.item.partName
@@ -162,7 +161,6 @@ void App::processPrinterWork() {
           break;
         case PrinterWorkKind::PrintWire:
           if (result.success) {
-            printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", "wire label printed");
             const bool saved = saveActivitiesChecked(false);
             if (result.work.quickLabelIdentity.has_value()) {
@@ -191,7 +189,6 @@ void App::processPrinterWork() {
           break;
         case PrinterWorkKind::PrintRack:
           if (result.success) {
-            printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", result.work.rack.code + " rack label printed");
             const bool saved = saveState();
             const auto message = result.work.rack.code + " rack label sent";
@@ -327,7 +324,6 @@ void App::stopWorkspaceBoundWork() { stopWorkspaceBoundWorkUntil(nullopt); }
 bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point> deadline) {
   stopPrinterWork();
   digiKeyRefreshQueue_.clear();
-  digiKeyRefreshActiveKey_.clear();
   scanDigiKeyEnrichmentQueue_.clear();
   bomEnrichmentQueue_.clear();
   if (importSyncCancelFlag_ != nullptr) {
