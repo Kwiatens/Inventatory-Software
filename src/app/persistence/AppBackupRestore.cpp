@@ -48,7 +48,10 @@ bool App::backupData() {
   replace(stamp.begin(), stamp.end(), ':', '-');
   replace(stamp.begin(), stamp.end(), ' ', '_');
   auto destination = parent / ("Inventatory Backup " + stamp);
-  for (int suffix = 2; filesystem::exists(destination); ++suffix) {
+  for (int suffix = 2;; ++suffix) {
+    // An uninspectable name ends the search; creating the bundle then reports the real problem.
+    error_code existsError;
+    if (!filesystem::exists(destination, existsError) || existsError) break;
     destination = parent / ("Inventatory Backup " + stamp + "-" + to_string(suffix));
   }
 
@@ -106,7 +109,9 @@ bool App::restoreData() {
   replace(stamp.begin(), stamp.end(), ':', '-');
   replace(stamp.begin(), stamp.end(), ' ', '_');
   auto preRestore = dataPath_.parent_path() / ("Inventatory Pre-Restore " + stamp);
-  for (int suffix = 2; filesystem::exists(preRestore); ++suffix) {
+  for (int suffix = 2;; ++suffix) {
+    error_code existsError;
+    if (!filesystem::exists(preRestore, existsError) || existsError) break;
     preRestore = dataPath_.parent_path() / ("Inventatory Pre-Restore " + stamp + "-" + to_string(suffix));
   }
   string error;

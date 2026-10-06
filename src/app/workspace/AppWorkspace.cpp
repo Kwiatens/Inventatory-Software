@@ -39,7 +39,15 @@ bool App::chooseInventatoryFolder() {
     setMessage("No folder selected", 2);
     return false;
   }
-  if (filesystem::exists(selectedPath / "manifest.tsv")) {
+  // The throwing exists() overloads would terminate the UI on a folder whose children cannot be
+  // inspected (permissions, stale network mounts), so every check reports instead.
+  error_code manifestError;
+  const bool selectedIsBackupBundle = filesystem::exists(selectedPath / "manifest.tsv", manifestError);
+  if (manifestError) {
+    setMessage("Unable to inspect the selected folder", 6);
+    return false;
+  }
+  if (selectedIsBackupBundle) {
     setMessage("That folder is a backup bundle; use Settings > Restore backup", 6);
     return false;
   }
@@ -85,7 +93,13 @@ bool App::chooseInventatoryFolder() {
   const auto oldSettings = settings_;
   const auto oldContext = currentWorkspaceContext();
   InventoryStore candidate;
-  if (filesystem::exists(selectedInventoryPath)) {
+  error_code selectedInventoryError;
+  const bool selectedInventoryExists = filesystem::exists(selectedInventoryPath, selectedInventoryError);
+  if (selectedInventoryError) {
+    setMessage("Unable to inspect the selected inventory database", 6);
+    return false;
+  }
+  if (selectedInventoryExists) {
     SqliteConnection candidateConnection;
     string candidateValidationError;
     if (!openDatabaseReadOnly(selectedInventoryPath, candidateConnection)) {
