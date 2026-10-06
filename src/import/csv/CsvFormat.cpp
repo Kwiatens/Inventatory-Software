@@ -51,16 +51,4 @@ CsvFormat detectCsvFormat(const string& text) {
   return CsvFormat::Unknown;
 }
 
-string csvFormatName(CsvFormat format) {
-  switch (format) {
-    case CsvFormat::DigiKeyOrder:
-      return "DigiKey order";
-    case CsvFormat::KicadBom:
-      return "KiCad BOM";
-    case CsvFormat::Unknown:
-      break;
-  }
-  return "Unknown";
-}
-
 }  // namespace inventatory

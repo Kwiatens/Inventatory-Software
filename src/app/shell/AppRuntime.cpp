@@ -15,18 +15,9 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cctype>
 #include <cstdlib>
 #include <ctime>
-#include <initializer_list>
-#include <iomanip>
-#include <iostream>
-#include <limits>
 #include <optional>
-#include <regex>
-#include <sstream>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <thread>
 #include <future>
@@ -59,19 +50,40 @@ void App::activateWorkspaceContext(const InventatoryDataPaths& paths) {
     inventatoryScanConfigPath_ = paths.scanConfig;
     quickLabelsPath_ = paths.dataDirectory / "quick_labels.conf";
   }
-  // Cached idempotency results belong to the old context even if their
-  // request id happens to be reused in the newly selected workspace.
-  {
-    lock_guard<mutex> lock(deviceQueueMutex_);
-    deviceRequestCache_.clear();
-    deviceRequestOrder_.clear();
-  }
   clearQuickLabelPrintCache();
 }
 
 bool App::workspaceIsCurrent(WorkspaceGeneration generation) const {
   lock_guard<mutex> lock(workspaceMutex_);
   return workspaceContext_ != nullptr && workspaceGenerationMatches(workspaceContext_->generation, generation);
+}
+
+// Starts a user-requested print job for the configured printer; the caller has checked that one exists.
+// Reports why no job can start right now.
+optional<App::PrinterWork> App::beginPrinterJob(PrinterWorkKind kind) {
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("Printer unavailable while the workspace is changing", 4);
+    return nullopt;
+  }
+  if (printerWorkCompletion_ != nullptr) {
+    setMessage("A printer job is already running; try again shortly", 3);
+    return nullopt;
+  }
+  PrinterWork work;
+  work.kind = kind;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerService_.configuredPrinter();
+  return work;
+}
+
+bool App::queuePrinterJob(PrinterWork work) {
+  if (!enqueuePrinterWork(move(work))) {
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return false;
+  }
+  setMessage("Printer job queued", 3);
+  return true;
 }
 
 bool App::enqueuePrinterWork(PrinterWork work) {
@@ -153,7 +165,6 @@ void App::processPrinterWork() {
           break;
         case PrinterWorkKind::PrintItem:
           if (result.success) {
-            printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", result.work.item.partName + " label printed");
             const bool saved = saveState();
             setMessage(saved ? result.work.successPrefix + result.work.item.partName
@@ -169,7 +180,6 @@ void App::processPrinterWork() {
           break;
         case PrinterWorkKind::PrintWire:
           if (result.success) {
-            printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", "wire label printed");
             const bool saved = saveActivitiesChecked(false);
             if (result.work.quickLabelIdentity.has_value()) {
@@ -198,7 +208,6 @@ void App::processPrinterWork() {
           break;
         case PrinterWorkKind::PrintRack:
           if (result.success) {
-            printerFlashUntil_ = time(nullptr) + 3;
             logActivity("print", result.work.rack.code + " rack label printed");
             const bool saved = saveState();
             const auto message = result.work.rack.code + " rack label sent";
@@ -324,21 +333,9 @@ bool finishWorker(Future& future, const optional<chrono::steady_clock::time_poin
 
 }  // namespace
 
-void App::cancelPendingDeviceRequests(const char* reason, bool closeForShutdown) {
+void App::cancelPendingDeviceRequests() {
   lock_guard<mutex> lock(deviceQueueMutex_);
-  if (closeForShutdown) deviceRequestsClosed_ = true;
-  for (const auto& pending : deviceQuantityQueue_) {
-    lock_guard<mutex> pendingLock(pending->mutex);
-    pending->cancelled = true;
-    pending->result = {};
-    pending->result.httpStatus = 503;
-    pending->result.error = reason;
-    pending->complete = true;
-    pending->ready.notify_one();
-  }
-  deviceQuantityQueue_.clear();
   deviceStatusQueue_.clear();
-  deviceDebugQueue_.clear();
 }
 
 void App::stopWorkspaceBoundWork() { stopWorkspaceBoundWorkUntil(nullopt); }
@@ -346,7 +343,6 @@ void App::stopWorkspaceBoundWork() { stopWorkspaceBoundWorkUntil(nullopt); }
 bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point> deadline) {
   stopPrinterWork();
   digiKeyRefreshQueue_.clear();
-  digiKeyRefreshActiveKey_.clear();
   scanDigiKeyEnrichmentQueue_.clear();
   bomEnrichmentQueue_.clear();
   if (importSyncCancelFlag_ != nullptr) {
@@ -363,15 +359,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   if (!allFinished) {
     workAbandoned_ = true;
   } else {
-    digiKeyRefreshFuture_ = {};
-    digiKeyRefreshClient_.reset();
-    digiKeyRefreshTotal_ = 0;
-    digiKeyRefreshCompleted_ = 0;
-    digiKeyRefreshSucceeded_ = 0;
-    digiKeyRefreshFailed_ = 0;
-    digiKeyRefreshChanged_ = false;
-    digiKeyRefreshGeneration_ = 0;
-    digiKeyRefreshLastError_.clear();
+    stopDigiKeyRefresh();  // the worker has finished, so this only resets its state
 
     importSyncFuture_ = {};
     importSyncCancelFlag_.reset();
@@ -390,12 +378,24 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
     bomEnrichmentClient_.reset();
   }
 
-  {
-    lock_guard<mutex> lock(scanMutex_);
-    scanQueue_.clear();
-  }
-  cancelPendingDeviceRequests("Inventatory workspace is changing", false);
+  cancelPendingDeviceRequests();
   return allFinished;
+}
+
+bool App::stopUpdateWorkUntil(chrono::steady_clock::time_point deadline) {
+  // Once the installer owns the update there is nothing left to cancel or clean up here.
+  if (updateInstallerLaunched_) return true;
+  if (updateDownloadState_ != nullptr) updateDownloadState_->cancelRequested.store(true);
+  bool finished = true;
+  finished = finishWorker(updateOperationFuture_, deadline) && finished;
+  finished = finishWorker(updateCheckFuture_, deadline) && finished;
+  finished = finishWorker(scanFirmwareFuture_, deadline) && finished;
+  if (!finished) {
+    workAbandoned_ = true;
+    return false;
+  }
+  discardUpdateDownload();
+  return true;
 }
 
 void App::requestUserExit() {
@@ -430,7 +430,7 @@ void App::requestUserExit() {
   }
 }
 
-void App::restartDeviceService() {
+DeviceServiceRestart App::restartDeviceService() {
   mdnsService_.stop();
   server_.stop();
   if (!inventatoryScanConfig_.setupComplete || inventatoryScanConfig_.token.empty() || scannerCredentialSavePending_) {
@@ -438,7 +438,7 @@ void App::restartDeviceService() {
                    ? "Scan R1 service is disabled until this workspace is paired"
                    : "Scan R1 service is disabled until its pairing token is stored securely",
                6);
-    return;
+    return DeviceServiceRestart::DisabledUntilPaired;
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
@@ -447,7 +447,7 @@ void App::restartDeviceService() {
                        return handleDeviceSync(request, response, error);
                      })) {
     setMessage("Inventatory Scan R1 service failed to restart; terminal still works", 6);
-    return;
+    return DeviceServiceRestart::Failed;
   }
   const auto boundAddresses = server_.addresses();
   if (!boundAddresses.empty() && mdnsService_.start(server_.port(), boundAddresses.front())) {
@@ -456,6 +456,7 @@ void App::restartDeviceService() {
     setMessage("Inventatory Scan R1 bridge restarted; network discovery unavailable", 5);
   }
   dirty_ = true;
+  return DeviceServiceRestart::Restarted;
 }
 
 void App::completeSettingsExit(bool saveChanges) {

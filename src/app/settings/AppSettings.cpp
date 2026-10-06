@@ -8,7 +8,6 @@
 #include "platform/system/Environment.h"
 
 #include <algorithm>
-#include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -167,20 +166,14 @@ const set<string>& persistedSettingsKeys() {
 filesystem::path appSettingsDirectory() {
 #ifdef _WIN32
   if (const auto value = environmentValue("LOCALAPPDATA"); value.has_value() && !value->empty()) {
-    return filesystem::path(*value) / "Inventatory";
+    return filesystem::u8path(*value) / "Inventatory";
   }
   if (const auto value = environmentValue("USERPROFILE"); value.has_value() && !value->empty()) {
-    return filesystem::path(*value) / "AppData" / "Local" / "Inventatory";
+    return filesystem::u8path(*value) / "AppData" / "Local" / "Inventatory";
   }
   return filesystem::current_path() / ".inventatory";
 #else
-  const auto home = environmentValue("HOME");
-  const auto configHome = environmentValue("XDG_CONFIG_HOME");
-  if (configHome.has_value() && !configHome->empty() && filesystem::path(*configHome).is_absolute()) {
-    return filesystem::path(*configHome) / "Inventatory";
-  }
-  if (home.has_value() && !home->empty()) return filesystem::path(*home) / ".config" / "Inventatory";
-  return filesystem::current_path() / ".config" / "Inventatory";
+  return xdgConfigHome() / "Inventatory";
 #endif
 }
 

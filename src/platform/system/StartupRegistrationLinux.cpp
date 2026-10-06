@@ -4,13 +4,14 @@
 
 #include "core/storage/AtomicFile.h"
 #include "platform/system/AppIconsLinux.h"
+#include "platform/system/ChildProcess.h"
 #include "platform/system/Environment.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -26,32 +27,11 @@ namespace inventatory {
 namespace filesystem = std::filesystem;
 namespace {
 
-filesystem::path homeDirectory() {
-  if (const auto home = environmentValue("HOME"); home.has_value() && !home->empty()) return filesystem::path(*home);
-  return filesystem::current_path();
-}
-
-filesystem::path configHome() {
-  if (const auto xdg = environmentValue("XDG_CONFIG_HOME"); xdg.has_value() && !xdg->empty() &&
-      filesystem::path(*xdg).is_absolute()) return filesystem::path(*xdg);
-  return homeDirectory() / ".config";
-}
-
-filesystem::path dataHome() {
-  if (const auto xdg = environmentValue("XDG_DATA_HOME"); xdg.has_value() && !xdg->empty() &&
-      filesystem::path(*xdg).is_absolute()) return filesystem::path(*xdg);
-  return homeDirectory() / ".local" / "share";
-}
-
-filesystem::path currentExecutablePath() {
-  std::vector<char> buffer(4096U);
-  for (;;) {
-    const auto count = readlink("/proc/self/exe", buffer.data(), buffer.size());
-    if (count < 0) return {};
-    if (static_cast<size_t>(count) < buffer.size()) return filesystem::u8path(std::string(buffer.data(), count));
-    if (buffer.size() >= 1024U * 1024U) return {};
-    buffer.resize(buffer.size() * 2U);
-  }
+bool readFileContents(const filesystem::path& path, std::string& contents) {
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream.is_open()) return false;
+  contents.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+  return !stream.bad();
 }
 
 // Replacing a launcher or icon that already holds the same bytes still gives it a new inode and
@@ -61,10 +41,18 @@ filesystem::path currentExecutablePath() {
 bool fileHoldsContents(const filesystem::path& path, std::string_view contents) {
   std::error_code ec;
   if (!filesystem::is_regular_file(path, ec) || filesystem::file_size(path, ec) != contents.size() || ec) return false;
-  std::ifstream stream(path, std::ios::binary);
-  if (!stream.is_open()) return false;
-  const std::string existing((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-  return existing == contents;
+  std::string existing;
+  return readFileContents(path, existing) && existing == contents;
+}
+
+constexpr filesystem::perms kExecutableFileMode =
+    filesystem::perms::owner_read | filesystem::perms::owner_write | filesystem::perms::owner_exec |
+    filesystem::perms::group_read | filesystem::perms::group_exec | filesystem::perms::others_read |
+    filesystem::perms::others_exec;
+constexpr filesystem::perms kPrivateFileMode = filesystem::perms::owner_read | filesystem::perms::owner_write;
+
+void setFileMode(const filesystem::path& path, filesystem::perms mode, std::error_code& ec) {
+  filesystem::permissions(path, mode, filesystem::perm_options::replace, ec);
 }
 
 bool writeFileIfChanged(const filesystem::path& path, std::string_view contents, std::string* error,
@@ -76,19 +64,58 @@ bool writeFileIfChanged(const filesystem::path& path, std::string_view contents,
   return true;
 }
 
+// Desktop Entry Exec quoting: the argument is enclosed in double quotes, and a double quote, backtick,
+// dollar sign or backslash inside it gets one more backslash. The key-file string layer then doubles
+// every backslash, so a literal backslash is written as four. '%' is the field-code introducer.
 std::string desktopQuoted(const std::string& value) {
   std::string encoded = "\"";
   for (const char ch : value) {
     const auto byte = static_cast<unsigned char>(ch);
     if (byte < 0x20U || byte == 0x7fU) return {};
     if (ch == '%') encoded += "%%";
-    else {
-      if (ch == '\\' || ch == '"') encoded.push_back('\\');
-      encoded.push_back(ch);
-    }
+    else if (ch == '"' || ch == '`' || ch == '$') encoded += "\\\\";
+    else if (ch == '\\') encoded += "\\\\\\";  // three more, then the character itself: four in all
+    if (ch != '%') encoded.push_back(ch);
   }
   encoded.push_back('"');
   return encoded;
+}
+
+// Inverse of desktopQuoted for the Exec value this file writes; empty when it does not parse.
+std::string desktopUnquote(const std::string& quoted) {
+  std::string text;
+  for (size_t index = 0; index < quoted.size(); ++index) {
+    if (quoted[index] == '\\' && index + 1U < quoted.size() && quoted[index + 1U] == '\\') ++index;
+    text.push_back(quoted[index]);
+  }
+  if (text.size() < 2U || text.front() != '"') return {};
+  std::string decoded;
+  for (size_t index = 1; index < text.size(); ++index) {
+    const char ch = text[index];
+    if (ch == '"') return decoded;
+    if (ch == '\\' && index + 1U < text.size()) decoded.push_back(text[++index]);
+    else if (ch == '%' && index + 1U < text.size() && text[index + 1U] == '%') {
+      decoded.push_back('%');
+      ++index;
+    } else decoded.push_back(ch);
+  }
+  return {};
+}
+
+// The executable an already created launcher points at, when it still exists.
+filesystem::path registeredLauncherExecutable(const filesystem::path& launcher) {
+  std::ifstream stream(launcher);
+  std::string line;
+  while (std::getline(stream, line)) {
+    if (line.rfind("Exec=", 0) != 0) continue;
+    const auto path = filesystem::path(desktopUnquote(line.substr(5)));
+    std::error_code ec;
+    if (!path.empty() && path.is_absolute() && filesystem::is_regular_file(path, ec) && access(path.c_str(), X_OK) == 0) {
+      return path;
+    }
+    return {};
+  }
+  return {};
 }
 
 std::string systemdQuoted(const std::string& value) {
@@ -145,51 +172,27 @@ std::string systemdUnquote(const std::string& quoted) {
   return {};
 }
 
-bool runSystemctl(const std::vector<std::string>& arguments, std::string& error) {
-  int outputPipe[2]{};
-  if (pipe2(outputPipe, O_CLOEXEC) != 0) {
-    error = "Unable to create a system service request";
-    return false;
-  }
-  const auto child = fork();
-  if (child < 0) {
-    close(outputPipe[0]);
-    close(outputPipe[1]);
+// systemctl talks to the user manager over D-Bus and can wait for a unit's stop timeout, so it runs with
+// a deadline instead of blocking the interface indefinitely. Its output is captured, never printed.
+bool runSystemctl(const std::vector<std::string>& arguments, std::string& error,
+                  std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+  std::vector<std::string> command{"systemctl"};
+  command.insert(command.end(), arguments.begin(), arguments.end());
+  ChildProcessOptions options;
+  options.timeout = timeout;
+  options.maxOutputBytes = 4096U;
+  options.mergeStderr = true;
+  const auto result = runChildProcess(command, options);
+  if (result.succeeded()) return true;
+  if (!result.started) {
     error = "Unable to start systemctl";
     return false;
   }
-  if (child == 0) {
-    close(outputPipe[0]);
-    dup2(outputPipe[1], STDOUT_FILENO);
-    dup2(outputPipe[1], STDERR_FILENO);
-    close(outputPipe[1]);
-    std::vector<char*> argv;
-    argv.reserve(arguments.size() + 2U);
-    argv.push_back(const_cast<char*>("systemctl"));
-    for (const auto& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
-    argv.push_back(nullptr);
-    execvp("systemctl", argv.data());
-    _exit(127);
+  if (result.timedOut) {
+    error = "systemctl --user did not respond in time";
+    return false;
   }
-  close(outputPipe[1]);
-  std::string output;
-  char buffer[1024];
-  for (;;) {
-    const auto count = read(outputPipe[0], buffer, sizeof(buffer));
-    if (count == 0) break;
-    if (count < 0) {
-      if (errno == EINTR) continue;
-      close(outputPipe[0]);
-      waitpid(child, nullptr, 0);
-      error = "Unable to read systemctl's response";
-      return false;
-    }
-    if (output.size() < 4096U) output.append(buffer, std::min<size_t>(static_cast<size_t>(count), 4096U - output.size()));
-  }
-  close(outputPipe[0]);
-  int status = 0;
-  while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return true;
+  auto output = result.output;
   while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
   error = output.empty() ? "systemctl --user is unavailable" : output;
   return false;
@@ -197,7 +200,7 @@ bool runSystemctl(const std::vector<std::string>& arguments, std::string& error)
 
 constexpr const char* kServiceName = "inventatory-background.service";
 
-filesystem::path servicePath() { return configHome() / "systemd" / "user" / kServiceName; }
+filesystem::path servicePath() { return xdgConfigHome() / "systemd" / "user" / kServiceName; }
 
 // The executable an already registered unit points at, when it still exists. Launching a different
 // build (a development tree, a second install) must not silently retarget the login service.
@@ -241,7 +244,7 @@ std::wstring buildDesktopShortcutPath(const std::wstring& desktopDirectory) {
 }
 
 bool installDesktopIcons(std::string& error) {
-  const auto iconsRoot = dataHome() / "icons" / "hicolor";
+  const auto iconsRoot = xdgDataHome() / "icons" / "hicolor";
   std::error_code ec;
   for (const auto& asset : kEmbeddedIconAssets) {
     const auto dir = iconsRoot / (std::to_string(asset.size) + "x" + std::to_string(asset.size)) / "apps";
@@ -254,7 +257,7 @@ bool installDesktopIcons(std::string& error) {
     const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
     if (!writeFileIfChanged(iconFile, iconBytes, &error)) return false;
   }
-  const auto pixmapsDir = dataHome() / "pixmaps";
+  const auto pixmapsDir = xdgDataHome() / "pixmaps";
   filesystem::create_directories(pixmapsDir, ec);
   if (!ec) {
     for (const auto& asset : kEmbeddedIconAssets) {
@@ -273,7 +276,7 @@ filesystem::path userDesktopDirectory() {
     std::error_code ec;
     if (filesystem::is_directory(*env, ec)) return filesystem::path(*env);
   }
-  const auto userDirsFile = configHome() / "user-dirs.dirs";
+  const auto userDirsFile = xdgConfigHome() / "user-dirs.dirs";
   if (std::ifstream stream(userDirsFile); stream.is_open()) {
     std::string line;
     while (std::getline(stream, line)) {
@@ -302,19 +305,24 @@ filesystem::path userDesktopDirectory() {
 bool createDesktopShortcut(std::string& error) {
   if (!installDesktopIcons(error)) return false;
 
-  const auto executable = currentExecutablePath();
+  const auto launcherDirectory = xdgDataHome() / "applications";
+  const auto launcher = launcherDirectory / "inventatory.desktop";
+  // An existing launcher keeps the executable it was created for while that file still exists, so
+  // starting a development build or a second install does not retarget the user's launcher.
+  std::error_code existsError;
+  const bool launcherExisted = filesystem::exists(launcher, existsError);
+  auto executable = registeredLauncherExecutable(launcher);
+  if (executable.empty()) executable = currentExecutablePath();
   if (executable.empty()) {
     error = "Unable to find the Inventatory executable";
     return false;
   }
-  const auto launcherDirectory = dataHome() / "applications";
   std::error_code filesystemError;
   filesystem::create_directories(launcherDirectory, filesystemError);
   if (filesystemError) {
     error = "Unable to create the Inventatory application launcher: " + filesystemError.message();
     return false;
   }
-  const auto launcher = launcherDirectory / "inventatory.desktop";
   const auto executableUtf8 = executable.u8string();
   const auto quotedExecutable = desktopQuoted(executableUtf8);
   if (quotedExecutable.empty()) {
@@ -327,28 +335,24 @@ bool createDesktopShortcut(std::string& error) {
   bool launcherWritten = false;
   if (!writeFileIfChanged(launcher, contents, &error, &launcherWritten)) return false;
   if (launcherWritten) {
-    filesystem::permissions(launcher, filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                          filesystem::perms::owner_exec | filesystem::perms::group_read |
-                                          filesystem::perms::group_exec | filesystem::perms::others_read |
-                                          filesystem::perms::others_exec,
-                            filesystem::perm_options::replace, filesystemError);
+    setFileMode(launcher, kExecutableFileMode, filesystemError);
     if (filesystemError) {
       error = "Unable to make the Inventatory application launcher executable: " + filesystemError.message();
       return false;
     }
   }
 
+  // The desktop copy is offered once, together with the first launcher. A user who deleted it does not
+  // get it back at every start; an existing copy is still kept current.
   const auto desktop = userDesktopDirectory();
   if (!desktop.empty()) {
     const auto desktopLauncher = desktop / "inventatory.desktop";
     std::string desktopError;
     bool desktopWritten = false;
-    if (writeFileIfChanged(desktopLauncher, contents, &desktopError, &desktopWritten) && desktopWritten) {
-      filesystem::permissions(desktopLauncher, filesystem::perms::owner_read | filesystem::perms::owner_write |
-                                                    filesystem::perms::owner_exec | filesystem::perms::group_read |
-                                                    filesystem::perms::group_exec | filesystem::perms::others_read |
-                                                    filesystem::perms::others_exec,
-                              filesystem::perm_options::replace, filesystemError);
+    std::error_code desktopExistsError;
+    if ((!launcherExisted || filesystem::exists(desktopLauncher, desktopExistsError)) &&
+        writeFileIfChanged(desktopLauncher, contents, &desktopError, &desktopWritten) && desktopWritten) {
+      setFileMode(desktopLauncher, kExecutableFileMode, filesystemError);
     }
   }
 
@@ -366,7 +370,7 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
       return false;
     }
     if (!exists) return true;
-    if (!runSystemctl({"--user", "disable", "--now", kServiceName}, error)) return false;
+    if (!runSystemctl({"--user", "disable", "--now", kServiceName}, error, std::chrono::seconds(25))) return false;
     filesystem::remove(unit, filesystemError);
     if (filesystemError) {
       error = "Unable to remove the Inventatory background service file: " + filesystemError.message();
@@ -391,10 +395,11 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
   const auto contents = backgroundUnitContents(executable);
   const bool existed = filesystem::exists(unit, filesystemError);
   const bool changed = !fileHoldsContents(unit, contents);
+  std::string previousContents;
+  const bool havePrevious = existed && changed && readFileContents(unit, previousContents);
   if (changed) {
     if (!writeFileAtomically(unit, contents, &error)) return false;
-    filesystem::permissions(unit, filesystem::perms::owner_read | filesystem::perms::owner_write,
-                            filesystem::perm_options::replace, filesystemError);
+    setFileMode(unit, kPrivateFileMode, filesystemError);
     if (filesystemError) {
       error = "Unable to protect the Inventatory background service file: " + filesystemError.message();
       return false;
@@ -405,11 +410,17 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
   if (alreadyEnabled) return true;
   if (!runSystemctl({"--user", "daemon-reload"}, error) ||
       !runSystemctl({"--user", "enable", kServiceName}, error)) {
+    // Leave the previous registration as it was instead of a half-applied one.
+    std::error_code ignoredFilesystemError;
+    std::string ignoredServiceError;
     if (!existed) {
-      std::error_code ignoredFilesystemError;
-      std::string ignoredServiceError;
       filesystem::remove(unit, ignoredFilesystemError);
       runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
+    } else if (havePrevious) {
+      if (writeFileAtomically(unit, previousContents, nullptr)) {
+        setFileMode(unit, kPrivateFileMode, ignoredFilesystemError);
+        runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
+      }
     }
     return false;
   }

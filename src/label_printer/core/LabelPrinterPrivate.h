@@ -17,25 +17,15 @@ inline constexpr int kLabelTileWidth = 78;
 // The smallest size a tile value is printed at; longer values are left off.
 inline constexpr int kLabelTileMinSize = 13;
 
-string uppercaseAscii(string value);
-string lowerAscii(string value);
 string shortCode(const string& value, size_t maxLength = 14);
 string fieldOrBlank(const string& value, size_t maxLength);
 string sanitiseZplFragment(const string& value);
 string shortParameterLabel(const string& label);
-string shortValueLine(const string& label, optional<string> value, size_t maxLength = 24);
 string compactDescriptor(const string& value, size_t maxLength = 10);
-string dateOnly(time_t value);
-string compactJoin(const vector<string>& parts, const string& separator);
 string normalizeResistanceValue(string value);
 string fitSingleLineLabel(const string& value, size_t maxLength);
 
 struct CableFlagFont {
-  int height;
-  int width;
-};
-
-struct SingleLineFont {
   int height;
   int width;
 };
@@ -51,40 +41,17 @@ struct FittedLabelText {
 int estimateFont0Width(const string& text, int height, int width);
 FittedLabelText fitFont0Text(const string& text, int maxWidth, initializer_list<int> sizes);
 
-bool isCompactManufacturerPartNumber(const string& value);
 CableFlagFont cableFlagFont(const string& text);
-vector<string> wrapLabelLines(const string& value, size_t maxWidth, size_t maxLines);
-string collectLineFromValues(initializer_list<string> values, const string& separator, size_t maxLength);
-bool looksLikeFrequencyValue(const string& value);
-bool looksLikeInductanceValue(const string& value);
-string canonicalInductanceUnit(string unit);
-optional<string> extractInductanceFromText(const string& text);
 optional<string> parameterValueMatching(const InventoryItem& item,
                                         initializer_list<const char*> names,
                                         bool (*predicate)(const string&));
 optional<string> firstParameter(const InventoryItem& item, initializer_list<const char*> names);
 optional<string> firstInductanceParameter(const InventoryItem& item);
 bool itemTextContains(const InventoryItem& item, initializer_list<const char*> needles);
-vector<string> itemTextTokens(const InventoryItem& item);
-bool itemTextHasToken(const InventoryItem& item, initializer_list<const char*> tokens);
 bool hasParameter(const InventoryItem& item, initializer_list<const char*> names);
 
-string sensorContextHeader(const InventoryItem& item);
-string diodeContextHeader(const InventoryItem& item);
-bool startsWithInsensitive(const string& value, const string& prefix);
 string diodeMainLabelValue(const InventoryItem& item);
 bool isIcLikeItem(const InventoryItem& item);
-string powerIcContextHeader(const InventoryItem& item);
-string analogIcContextHeader(const InventoryItem& item);
-string sensorIcContextHeader(const InventoryItem& item);
-string dataConverterContextHeader(const InventoryItem& item);
-string timingIcContextHeader(const InventoryItem& item);
-string driverIcContextHeader(const InventoryItem& item);
-string logicIcContextHeader(const InventoryItem& item);
-string memoryIcContextHeader(const InventoryItem& item);
-string integratedCircuitContextHeader(const InventoryItem& item);
-string transistorContextHeader(const InventoryItem& item);
-string fallbackContextHeader(const InventoryItem& item);
 
 bool isMeasuredValueItem(const InventoryItem& item);
 string mainLabelValue(const InventoryItem& item);

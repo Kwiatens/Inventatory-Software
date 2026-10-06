@@ -14,17 +14,11 @@ using namespace std;
 filesystem::path documentsInventatoryPath() {
 #ifdef _WIN32
   if (const auto profile = environmentValue("USERPROFILE"); profile.has_value() && !profile->empty()) {
-    return filesystem::path(*profile) / "Documents" / "Inventatory";
+    return filesystem::u8path(*profile) / "Documents" / "Inventatory";
   }
   return filesystem::current_path() / "Documents" / "Inventatory";
 #else
-  const auto home = environmentValue("HOME");
-  const auto dataHome = environmentValue("XDG_DATA_HOME");
-  if (dataHome.has_value() && !dataHome->empty() && filesystem::path(*dataHome).is_absolute()) {
-    return filesystem::path(*dataHome) / "Inventatory";
-  }
-  if (home.has_value() && !home->empty()) return filesystem::path(*home) / ".local" / "share" / "Inventatory";
-  return filesystem::current_path() / ".local" / "share" / "Inventatory";
+  return xdgDataHome() / "Inventatory";
 #endif
 }
 
@@ -35,7 +29,7 @@ filesystem::path discoverInventatoryDataPath() {
 #ifdef _WIN32
   const auto addCandidate = [&](const char* envName) {
     if (const auto value = environmentValue(envName); value.has_value() && !value->empty()) {
-      candidates.push_back(filesystem::path(*value) / "Documents" / "Inventatory");
+      candidates.push_back(filesystem::u8path(*value) / "Documents" / "Inventatory");
     }
   };
   addCandidate("OneDrive");
