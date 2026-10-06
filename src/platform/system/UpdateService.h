@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -38,6 +40,12 @@ bool verifyReleaseFileSha256(const std::filesystem::path& path, const std::strin
 // system temporary folder when `parent` is empty). Never reuses an existing folder; empty on failure.
 // On Linux its mode is 0700. The installer removes it once the update has been applied or has failed.
 std::filesystem::path createUpdateDownloadDirectory(const std::filesystem::path& parent = {});
+// Removes "Inventatory-update-*" folders under `parent` (the system temporary folder when empty) that were
+// last modified more than `minimumAge` ago: leftovers of an update that was abandoned, crashed or whose
+// installer never ran. Only real folders owned by the current user are touched, and a fresh folder that an
+// update in progress still uses is never old enough to match. Returns how many folders were removed.
+std::size_t removeStaleUpdateDownloadDirectories(const std::filesystem::path& parent = {},
+                                                 std::chrono::seconds minimumAge = std::chrono::hours(24));
 // Whether the folder holding `executable` can be written, so an update can replace it. Always true
 // on Windows, whose installer reports its own failures; true when the path is unknown.
 bool isInstallDirectoryWritable(const std::filesystem::path& executable);

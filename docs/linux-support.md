@@ -82,7 +82,10 @@ The updater verifies the archive and installer checksums before replacing a
 user-writable executable. It checks up front that the folder holding the
 executable is writable, downloads into a new private (mode 0700) folder, and the
 installer removes that folder when the update has been applied or has failed;
-quitting while a download or release check is running cancels it.
+quitting while a download or release check is running cancels it. At startup the
+application also removes `Inventatory-update-*` folders of the current user in
+the temporary directory that are more than a day old, which an abandoned or
+crashed update leaves behind.
 
 ## Runtime integrations
 
