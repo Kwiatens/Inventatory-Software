@@ -683,7 +683,6 @@ class App {
   bool copyInventatoryScanToken();
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
-  DeviceQuantityResult enqueueDeviceQuantity(const DeviceQuantityRequest& request);
   void enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration);
   void processDeviceRequests();
   void enqueueDeviceDebug(const DeviceDebugReport& report, WorkspaceGeneration workspaceGeneration);
