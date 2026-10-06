@@ -432,7 +432,7 @@ void splitRackLocation(const string& location, string& rackCode, string& rackCel
     return;
   }
   rackCode = trim(cleaned.substr(0, dash));
-  rackCell = uppercaseAscii(trim(cleaned.substr(dash + 1)));
+  rackCell = toUpper(trim(cleaned.substr(dash + 1)));
 }
 
 vector<LabelParameterTile> fallbackParameterTiles(const InventoryItem& item, size_t maxTiles) {
@@ -446,7 +446,7 @@ vector<LabelParameterTile> fallbackParameterTiles(const InventoryItem& item, siz
     if (containsInsensitive(field.label, "package")) {
       continue;
     }
-    auto caption = uppercaseAscii(shortParameterLabel(field.label));
+    auto caption = toUpper(shortParameterLabel(field.label));
     while (!caption.empty() && (caption.back() == ':' || caption.back() == ' ')) caption.pop_back();
     if (caption.empty()) continue;
     tiles.push_back({caption, value});

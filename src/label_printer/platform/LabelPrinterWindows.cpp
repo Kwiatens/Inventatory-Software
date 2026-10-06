@@ -182,7 +182,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
       if (lhs.isDefault != rhs.isDefault) {
         return lhs.isDefault > rhs.isDefault;
       }
-      return lowerAscii(lhs.name) < lowerAscii(rhs.name);
+      return toLower(lhs.name) < toLower(rhs.name);
     });
     return printers;
   }
