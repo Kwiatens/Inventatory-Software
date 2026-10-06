@@ -109,6 +109,7 @@ void App::loadState() {
   }
   // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
 
+  bool scannerCredentialStoreUnavailable = false;
   if (trim(inventatoryScanConfig_.token).empty()) {
     const auto resolution = resolveWorkspaceScannerCredential(dataPath_, inventatoryScanConfig_);
     switch (resolution.status) {
@@ -122,7 +123,16 @@ void App::loadState() {
         inventatoryScanConfig_.token.clear();
         inventatoryScanConfig_.deviceId.clear();
         inventatoryScanConfig_.setupComplete = false;
-        setMessage("This workspace does not carry its Scan R1 credential; pair the scanner again", 7);
+        if (resolution.credentialStoreUnavailable) {
+          // The pairing on disk is untouched (it is not rewritten below), so it works again once
+          // the keyring is unlocked and Inventatory is restarted.
+          scannerCredentialStoreUnavailable = true;
+          setMessage("The system keyring is locked or unavailable, so the Scan R1 pairing cannot be read; "
+                     "unlock it and restart Inventatory",
+                     8, UiMessageSeverity::Warning);
+        } else {
+          setMessage("This workspace does not carry its Scan R1 credential; pair the scanner again", 7);
+        }
         break;
     }
   }
@@ -135,7 +145,9 @@ void App::loadState() {
     if (!inventorySaved) saveFailures.push_back("inventory");
   }
   if (!printerService_.saveConfig(printerPath_)) saveFailures.push_back("printer settings");
-  if (!saveScannerConfigChecked(false)) saveFailures.push_back("scanner settings");
+  if (!scannerCredentialStoreUnavailable && !saveScannerConfigChecked(false)) {
+    saveFailures.push_back("scanner settings");
+  }
   if (scannerCredentialSavePending_ && !saveScannerCredentialChecked(false)) {
     saveFailures.push_back("scanner pairing token");
   }

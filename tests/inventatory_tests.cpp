@@ -1788,6 +1788,42 @@ void testScannerCredentialResolution() {
   assert(!validScannerToken(string(63, '0') + 'g'));
   assert(!validScannerToken(string(63, '0') + ' '));
 
+  // Every branch of the pure resolution, including a credential store that cannot answer.
+  {
+    struct Row {
+      CredentialReadStatus lookup;
+      optional<string> secret;
+      bool setupComplete;
+      string deviceId;
+      WorkspaceScannerCredentialStatus expected;
+      bool expectUnavailable;
+    };
+    const vector<Row> table = {
+        {CredentialReadStatus::Found, validLower, false, "", WorkspaceScannerCredentialStatus::Loaded, false},
+        {CredentialReadStatus::Found, validLower, true, "r1", WorkspaceScannerCredentialStatus::Loaded, false},
+        {CredentialReadStatus::Found, "short", false, "", WorkspaceScannerCredentialStatus::RequiresPairing, false},
+        {CredentialReadStatus::Found, nullopt, false, "", WorkspaceScannerCredentialStatus::RequiresPairing, false},
+        {CredentialReadStatus::NotFound, nullopt, false, "", WorkspaceScannerCredentialStatus::FreshCredential, false},
+        {CredentialReadStatus::NotFound, nullopt, false, "  ", WorkspaceScannerCredentialStatus::FreshCredential, false},
+        {CredentialReadStatus::NotFound, nullopt, true, "", WorkspaceScannerCredentialStatus::RequiresPairing, false},
+        {CredentialReadStatus::NotFound, nullopt, false, "r1", WorkspaceScannerCredentialStatus::RequiresPairing, false},
+        // An unreadable store never yields a fresh credential (it would replace the real token) and is
+        // reported as unavailable, whether or not a pairing is recorded.
+        {CredentialReadStatus::Unavailable, nullopt, false, "", WorkspaceScannerCredentialStatus::RequiresPairing, true},
+        {CredentialReadStatus::Unavailable, nullopt, true, "r1", WorkspaceScannerCredentialStatus::RequiresPairing, true},
+        {CredentialReadStatus::Unavailable, validLower, false, "", WorkspaceScannerCredentialStatus::RequiresPairing, true},
+    };
+    for (const auto& row : table) {
+      InventatoryScanConfig rowConfig;
+      rowConfig.setupComplete = row.setupComplete;
+      rowConfig.deviceId = row.deviceId;
+      const auto outcome = resolveScannerCredential(CredentialLookup{row.lookup, row.secret}, rowConfig);
+      assert(outcome.status == row.expected);
+      assert(outcome.credentialStoreUnavailable == row.expectUnavailable);
+      assert(outcome.token.has_value() == (row.expected == WorkspaceScannerCredentialStatus::Loaded));
+    }
+  }
+
   const auto testBase = filesystem::temp_directory_path() / "inventatory-credential-resolution-test";
   const auto workspace = testBase / ("workspace-" + to_string(static_cast<unsigned long long>(
                                                         chrono::steady_clock::now().time_since_epoch().count())));

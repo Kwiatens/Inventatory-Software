@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include <openssl/evp.h>
 #include <libsecret/secret.h>
@@ -44,16 +45,25 @@ std::optional<std::string> workspaceDigest(const filesystem::path& workspaceDire
 
 }  // namespace
 
-std::optional<std::string> CredentialStore::read(const std::string& key) {
-  if (key.empty()) return std::nullopt;
+CredentialLookup CredentialStore::lookup(const std::string& key) {
+  if (key.empty()) return {};
   GError* error = nullptr;
   gchar* secret = secret_password_lookup_sync(&kCredentialSchema, nullptr, &error,
                                               "key", credentialAttribute(key).c_str(), nullptr);
+  // libsecret reports "no matching item" as a null result without an error; a locked, dismissed or
+  // absent Secret Service sets the error.
+  const bool failed = error != nullptr;
   if (error != nullptr) g_error_free(error);
-  if (secret == nullptr) return std::nullopt;
+  if (secret == nullptr) {
+    return {failed ? CredentialReadStatus::Unavailable : CredentialReadStatus::NotFound, std::nullopt};
+  }
   std::string value(secret);
   secret_password_free(secret);
-  return value;
+  return {CredentialReadStatus::Found, std::move(value)};
+}
+
+std::optional<std::string> CredentialStore::read(const std::string& key) {
+  return lookup(key).secret;
 }
 
 bool CredentialStore::write(const std::string& key, const std::string& secret) {
@@ -86,6 +96,12 @@ std::string CredentialStore::workspaceScopedKey(const filesystem::path& workspac
   if (key.empty()) return {};
   const auto digest = workspaceDigest(workspaceDirectory);
   return digest.has_value() ? key + "@" + *digest : std::string();
+}
+
+CredentialLookup CredentialStore::lookupForWorkspace(const filesystem::path& workspaceDirectory,
+                                                     const std::string& key) {
+  const auto scopedKey = workspaceScopedKey(workspaceDirectory, key);
+  return scopedKey.empty() ? CredentialLookup{} : lookup(scopedKey);
 }
 
 std::optional<std::string> CredentialStore::readForWorkspace(const filesystem::path& workspaceDirectory,
