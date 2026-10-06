@@ -42,7 +42,7 @@ void App::beginStocktake() {
   stocktakeCommitPending_ = false;
   selectedPosition_ = 0;
   inputMode_ = InputMode::None;
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   syncSelectionToFilter();
   setMessage("Stocktake started · count every part, then press S to finish", 5);
   dirty_ = true;

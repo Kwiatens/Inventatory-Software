@@ -1115,7 +1115,9 @@ class App {
   bool scanFirmwareCheckFailed_ = false;
   mutable std::deque<UiTarget> uiTargets_;  // deque: element addresses must stay stable, ftxui::reflect() keeps references into it
   mutable std::string hoveredTargetId_;
-  int focusedTarget_ = -1;
+  // Keyboard focus by target id (see ui/shared/UiFocus.h): set only by Tab, cleared by any other
+  // key or mouse click and whenever the page changes.
+  std::string focusedTargetId_;
 };
 
 }  // namespace inventatory

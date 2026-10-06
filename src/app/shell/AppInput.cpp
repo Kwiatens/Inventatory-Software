@@ -3,6 +3,7 @@
 #include "App.h"
 
 #include "app/shell/AppNavigation.h"
+#include "ui/shared/UiFocus.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/StartupRegistration.h"
@@ -46,6 +47,14 @@ void App::handleKey(const KeyEvent& key) {
   if (wizardTransition_.phase != WizardTransitionPhase::None) {
     if (!bufferedWizardKey_.has_value()) bufferedWizardKey_ = key;
     return;
+  }
+  // A Tab-set focus only survives Tab, Shift+Tab and Enter. Any other key (arrows,
+  // j/k, shortcuts, typing) or an open prompt drops it, so Enter cannot re-run a
+  // control the user is no longer looking at.
+  const bool focusKey = key.type == KeyType::Tab || key.type == KeyType::TabReverse || key.type == KeyType::Enter;
+  if ((!focusKey || inputMode_ != InputMode::None) && !focusedTargetId_.empty()) {
+    focusedTargetId_.clear();
+    dirty_ = true;
   }
   if (page_ == Page::Update) {
     handleUpdateKey(key);
@@ -226,9 +235,8 @@ void App::handleKey(const KeyEvent& key) {
 
 ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
                            function<void()> activate, bool enabled, bool focusable) const {
-  const auto index = uiTargets_.size();
   const bool hovered = enabled && hoveredTargetId_ == id;
-  const bool focused = enabled && focusable && static_cast<int>(index) == focusedTarget_;
+  const bool focused = enabled && focusable && !focusedTargetId_.empty() && id == focusedTargetId_;
 
   if (!enabled) {
     // Disabled controls remain visible, but never inherit a hover/focus role
@@ -292,6 +300,7 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
 
   if (mouse.button == ftxui::Mouse::WheelUp || mouse.button == ftxui::Mouse::WheelDown) {
     const int delta = mouse.button == ftxui::Mouse::WheelUp ? -1 : 1;
+    focusedTargetId_.clear();
     if (page_ == Page::Stock) moveSelection(delta);
     else if (page_ == Page::Import) moveImportSelection(delta);
     else if (page_ == Page::History) {
@@ -331,7 +340,9 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
     for (size_t reverse = uiTargets_.size(); reverse > 0; --reverse) {
       auto& hit = uiTargets_[reverse - 1];
       if (hit.enabled && contains(hit)) {
-        focusedTarget_ = static_cast<int>(reverse - 1);
+        // A click selects/activates what is under the pointer without taking
+        // keyboard focus, so a later Enter still reaches the page's own action.
+        focusedTargetId_.clear();
         hit.activate();
         dirty_ = true;
         return true;
@@ -343,34 +354,32 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
 
 void App::moveUiFocus(int delta) {
   if (uiTargets_.empty()) return;
-  if (focusedTarget_ < 0 && page_ == Page::Import) {
-    const auto primary = find_if(uiTargets_.begin(), uiTargets_.end(), [](const UiTarget& target) {
-      return target.enabled && target.focusable && target.id == "import.choose";
-    });
-    if (primary != uiTargets_.end()) {
-      focusedTarget_ = static_cast<int>(distance(uiTargets_.begin(), primary));
-      dirty_ = true;
-      return;
-    }
+  vector<ui_focus::Candidate> candidates;
+  candidates.reserve(uiTargets_.size());
+  for (const auto& target : uiTargets_) candidates.push_back({target.id, target.enabled, target.focusable});
+  string next;
+  if (focusedTargetId_.empty() && page_ == Page::Import && ui_focus::isActivatable(candidates, "import.choose")) {
+    next = "import.choose";
+  } else {
+    next = ui_focus::next(candidates, focusedTargetId_, delta);
   }
-  int next = focusedTarget_;
-  for (size_t count = 0; count < uiTargets_.size(); ++count) {
-    next = (next + delta + static_cast<int>(uiTargets_.size())) % static_cast<int>(uiTargets_.size());
-    if (uiTargets_[static_cast<size_t>(next)].enabled && uiTargets_[static_cast<size_t>(next)].focusable) {
-      focusedTarget_ = next;
-      dirty_ = true;
-      return;
-    }
-  }
+  if (next.empty() || next == focusedTargetId_) return;
+  focusedTargetId_ = next;
+  dirty_ = true;
 }
 
 bool App::activateFocusedTarget() {
-  if (focusedTarget_ < 0 || focusedTarget_ >= static_cast<int>(uiTargets_.size())) return false;
-  auto& selected = uiTargets_[static_cast<size_t>(focusedTarget_)];
-  if (!selected.enabled || !selected.focusable || !selected.activate) return false;
-  selected.activate();
-  dirty_ = true;
-  return true;
+  if (focusedTargetId_.empty()) return false;
+  for (auto it = uiTargets_.rbegin(); it != uiTargets_.rend(); ++it) {
+    if (it->id != focusedTargetId_) continue;
+    if (!it->enabled || !it->focusable || !it->activate) return false;
+    // The callback may rebuild the target list on the next frame; run a copy.
+    const auto activate = it->activate;
+    activate();
+    dirty_ = true;
+    return true;
+  }
+  return false;
 }
 
 }  // namespace inventatory
