@@ -76,6 +76,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/syscall.h>
 #include <stdlib.h>
 #else
 #include <ws2tcpip.h>
@@ -1684,6 +1685,95 @@ void testScannerHttpNegativeCases() {
   server.stop();
   filesystem::remove_all(stateDirectory, cleanupError);
 }
+
+#ifndef _WIN32
+void ignoreTestSignal(int) {}
+
+vector<long> currentTaskIds() {
+  vector<long> ids;
+  error_code ec;
+  for (const auto& entry : filesystem::directory_iterator("/proc/self/task", ec)) {
+    ids.push_back(strtol(entry.path().filename().string().c_str(), nullptr, 10));
+  }
+  return ids;
+}
+
+// A signal delivered to the reader or a worker thread (terminal resize, a second launch asking this
+// instance to come forward) interrupts select()/recv()/send() with EINTR. That must not drop the
+// pending device request or lose the response.
+void testScannerServerSurvivesSignals() {
+  const auto stateDirectory = filesystem::temp_directory_path() / "inventatory-http-signal-test";
+  error_code cleanupError;
+  filesystem::remove_all(stateDirectory, cleanupError);
+  const string token = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+  const string deviceId = "r1-secure";
+  const string body =
+      R"({"protocolVersion":1,"requestId":"signal-sync","deviceId":"r1-secure","firmwareVersion":"0.1.0","mode":"ready","rssi":-40,"queueDepth":0,"events":[],"resultAcks":[]})";
+  atomic<int> syncCalls{0};
+  auto onSync = [&syncCalls](const DeviceSyncRequest& request, DeviceSyncResponse& response, string&) {
+    ++syncCalls;
+    response.requestId = request.requestId;
+    return true;
+  };
+
+  struct sigaction handler{};
+  handler.sa_handler = ignoreTestSignal;
+  sigemptyset(&handler.sa_mask);
+  handler.sa_flags = 0;  // deliberately no SA_RESTART
+  struct sigaction previous{};
+  assert(sigaction(SIGUSR1, &handler, &previous) == 0);
+
+  const auto tasksBefore = currentTaskIds();
+  LocalHttpServer server;
+  server.setDeviceCredentials(deviceId, token, stateDirectory / "replay.state");
+  assert(server.start(19483, onSync));
+  vector<long> serverTasks;
+  for (const long id : currentTaskIds()) {
+    if (find(tasksBefore.begin(), tasksBefore.end(), id) == tasksBefore.end()) serverTasks.push_back(id);
+  }
+  assert(!serverTasks.empty());
+
+  atomic<bool> signalling{true};
+  thread signaller([&] {
+    while (signalling.load()) {
+      for (const long id : serverTasks) syscall(SYS_tgkill, getpid(), id, SIGUSR1);
+      this_thread::sleep_for(chrono::milliseconds(2));
+    }
+  });
+
+  const string request = signedSyncRequest(token, deviceId, 1, body);
+  NativeSocket client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  assert(client != kInvalidSocket);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  assert(setScannerTestAddress(address));
+  address.sin_port = htons(server.port());
+  assert(connect(client, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
+  const size_t half = request.size() / 2;
+  assert(send(client, request.data(), half, 0) == static_cast<ssize_t>(half));
+  this_thread::sleep_for(chrono::milliseconds(300));  // many signals hit the reader meanwhile
+  assert(send(client, request.data() + half, request.size() - half, 0) ==
+         static_cast<ssize_t>(request.size() - half));
+  timeval timeout{};
+  timeout.tv_sec = 3;
+  setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  string response;
+  array<char, 1024> buffer{};
+  ssize_t received = 0;
+  while ((received = recv(client, buffer.data(), buffer.size(), 0)) > 0) {
+    response.append(buffer.data(), static_cast<size_t>(received));
+  }
+  closeSocket(client);
+  signalling.store(false);
+  signaller.join();
+  assert(response.rfind("HTTP/1.1 200 OK", 0) == 0);
+  assert(syncCalls == 1);
+
+  server.stop();
+  assert(sigaction(SIGUSR1, &previous, nullptr) == 0);
+  filesystem::remove_all(stateDirectory, cleanupError);
+}
+#endif
 
 void testScannerCredentialResolution() {
   using namespace app_actions;
@@ -7676,6 +7766,9 @@ int main() {
 #endif
 
   testScannerHttpNegativeCases();
+#ifndef _WIN32
+  testScannerServerSurvivesSignals();
+#endif
 
   testDeviceSyncRetryBackoff();
   testScannerCredentialResolution();
