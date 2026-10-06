@@ -398,6 +398,22 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   return allFinished;
 }
 
+bool App::stopUpdateWorkUntil(chrono::steady_clock::time_point deadline) {
+  // Once the installer owns the update there is nothing left to cancel or clean up here.
+  if (updateInstallerLaunched_) return true;
+  if (updateDownloadState_ != nullptr) updateDownloadState_->cancelRequested.store(true);
+  bool finished = true;
+  finished = finishWorker(updateOperationFuture_, deadline) && finished;
+  finished = finishWorker(updateCheckFuture_, deadline) && finished;
+  finished = finishWorker(scanFirmwareFuture_, deadline) && finished;
+  if (!finished) {
+    workAbandoned_ = true;
+    return false;
+  }
+  discardUpdateDownload();
+  return true;
+}
+
 void App::requestUserExit() {
   if (importSyncRunning_) {
     setMessage("DigiKey sync is still running; cancel it or wait for completion", 4);

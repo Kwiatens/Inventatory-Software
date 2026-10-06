@@ -10,6 +10,7 @@ marker_path=''
 release_version=''
 target=''
 stage=''
+download_dir=''
 
 write_marker() {
   [ -n "$marker_path" ] || return 0
@@ -29,6 +30,13 @@ write_marker() {
 
 cleanup() {
   if [ -n "$stage" ] && [ -d "$stage" ]; then rm -rf -- "$stage"; fi
+  # The application downloads an update into its own private Inventatory-update-* folder and leaves it
+  # for this script to remove, whether the update was applied or not.
+  if [ -n "$download_dir" ] && [ -d "$download_dir" ] && [ ! -L "$download_dir" ] && [ -O "$download_dir" ]; then
+    case "$(basename -- "$download_dir")" in
+      Inventatory-update-?*) rm -rf -- "$download_dir" ;;
+    esac
+  fi
 }
 
 fail() {
@@ -91,10 +99,11 @@ if [ "${1-}" = '--update' ]; then
   case "$parent_pid" in
     ''|*[!0-9]*) fail 'The Inventatory process identity is invalid' ;;
   esac
+  download_dir=$(dirname -- "$archive_path")
+  trap cleanup EXIT HUP INT TERM
   target=$(readlink -f -- "/proc/$parent_pid/exe" 2>/dev/null) || fail 'Could not locate the running Inventatory executable'
   [ "$(basename -- "$target")" = 'inventatory' ] || fail 'The running executable path is not an Inventatory Linux installation'
   [ -f "$target" ] && [ ! -L "$target" ] || fail 'The running executable could not be safely replaced'
-  trap cleanup EXIT HUP INT TERM
   stage=$(mktemp -d "$(dirname -- "$target")/.inventatory-update.XXXXXX") || fail 'The installation folder is not writable'
   verify_asset "$archive_path" "$archive_name"
   verify_asset "$0" "$installer_name"

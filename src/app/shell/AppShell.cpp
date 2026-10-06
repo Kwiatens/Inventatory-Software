@@ -174,7 +174,10 @@ int App::run() {
   cancelPendingDeviceRequests("Inventatory is shutting down", true);
   mdnsService_.stop();
   server_.stop();
-  stopWorkspaceBoundWorkUntil(chrono::steady_clock::now() + chrono::seconds(3));
+  // An update download or release check is cancelled rather than waited for, within the same deadline.
+  const auto shutdownDeadline = chrono::steady_clock::now() + chrono::seconds(3);
+  stopUpdateWorkUntil(shutdownDeadline);
+  stopWorkspaceBoundWorkUntil(shutdownDeadline);
   const bool finalSaveSucceeded = saveState();
   if (!finalSaveSucceeded) {
     // There is no interactive frame left to display this error.  Keep the
