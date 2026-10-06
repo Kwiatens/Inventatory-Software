@@ -4,6 +4,7 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "label_printer/core/LabelPrinter.h"
 
@@ -35,12 +36,37 @@ namespace inventatory {
 using namespace std;
 namespace inventory_transfer_detail {
 
+namespace {
+
+// The restore journal and the directory renames are the crash-recovery protocol, so a rename must be on
+// disk before the next step is recorded. A move between directories changes both of them.
+bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& destination, string& error) {
+  const auto parentOf = [](const filesystem::path& path) {
+    return path.parent_path().empty() ? filesystem::path(".") : path.parent_path();
+  };
+  string syncError;
+  if (!syncDirectory(parentOf(destination), &syncError) ||
+      (parentOf(source) != parentOf(destination) && !syncDirectory(parentOf(source), &syncError))) {
+    error = "Unable to flush " + destination.string() + ": " + syncError;
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
   bool TransferOps::copy(const filesystem::path& source, const filesystem::path& destination, string& error) const {
     if (hooks != nullptr && hooks->copyFile) return hooks->copyFile(source, destination, error);
     error_code filesystemError;
     filesystem::copy_file(source, destination, filesystem::copy_options::overwrite_existing, filesystemError);
     if (filesystemError) {
       error = "Unable to copy " + source.filename().string() + ": " + filesystemError.message();
+      return false;
+    }
+    // A staged copy is published by a later rename, so its content must already be on disk.
+    string syncError;
+    if (!syncFile(destination, &syncError)) {
+      error = "Unable to flush " + destination.filename().string() + ": " + syncError;
       return false;
     }
     return true;
@@ -54,7 +80,7 @@ namespace inventory_transfer_detail {
       error = "Unable to rename " + source.string() + ": " + filesystemError.message();
       return false;
     }
-    return true;
+    return syncRenamedEntry(source, destination, error);
   }
 
   bool TransferOps::removeAll(const filesystem::path& path, string& error) const {
@@ -83,7 +109,7 @@ namespace inventory_transfer_detail {
       error = "Unable to atomically replace " + destination.string() + ": " + filesystemError.message();
       return false;
     }
-    return true;
+    return syncRenamedEntry(source, destination, error);
 #endif
   }
 
@@ -261,6 +287,14 @@ bool atomicWriteText(const filesystem::path& target, const string& text, const T
   output.close();
   if (!output) {
     error = "Unable to finish writing " + target.string();
+    filesystem::remove(temporary, filesystemError);
+    return false;
+  }
+  // The content must be on disk before the rename can make it the journal; otherwise a crash can leave
+  // a journal that is empty or older than the layout it describes.
+  string syncError;
+  if (!syncFile(temporary, &syncError)) {
+    error = "Unable to flush " + target.string() + ": " + syncError;
     filesystem::remove(temporary, filesystemError);
     return false;
   }

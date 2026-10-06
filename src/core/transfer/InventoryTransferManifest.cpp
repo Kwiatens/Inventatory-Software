@@ -4,6 +4,7 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "label_printer/core/LabelPrinter.h"
 
@@ -290,6 +291,11 @@ bool writeManifest(const filesystem::path& destination, const string& applicatio
   output.close();
   if (!output) {
     error = "Unable to finish backup manifest";
+    return false;
+  }
+  string syncError;
+  if (!syncFile(destination / "manifest.tsv", &syncError)) {
+    error = "Unable to flush backup manifest: " + syncError;
     return false;
   }
   return true;
