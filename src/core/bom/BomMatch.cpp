@@ -97,20 +97,26 @@ optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
 
   const auto lowered = toLower(compact);
   ValueKind detected = ValueKind::Resistance;
+  NumberNotation notation = NumberNotation::Unitless;
   string body = compact;
 
   if (endsWith(lowered, "hz")) {
     detected = ValueKind::Frequency;
+    notation = NumberNotation::Reactive;
     body = compact.substr(0, compact.size() - 2);
   } else if (endsWith(lowered, "ohms")) {
+    notation = NumberNotation::Resistance;
     body = compact.substr(0, compact.size() - 4);
   } else if (endsWith(lowered, "ohm")) {
+    notation = NumberNotation::Resistance;
     body = compact.substr(0, compact.size() - 3);
   } else if (endsWith(lowered, "f")) {
     detected = ValueKind::Capacitance;
+    notation = NumberNotation::Reactive;
     body = compact.substr(0, compact.size() - 1);
   } else if (endsWith(lowered, "h")) {
     detected = ValueKind::Inductance;
+    notation = NumberNotation::Reactive;
     body = compact.substr(0, compact.size() - 1);
   }
 
@@ -120,7 +126,17 @@ optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
     return nullopt;
   }
 
-  const auto value = parseNumberWithMultiplier(body, detected == ValueKind::Resistance);
+  // Imperial chip codes ("0603", "1206") are bare numbers too, but they name a
+  // package, not an ohm value.
+  if (notation == NumberNotation::Unitless) {
+    for (const auto* code : kChipCodes) {
+      if (body == code) {
+        return nullopt;
+      }
+    }
+  }
+
+  const auto value = parseNumberWithMultiplier(body, notation);
   if (!value) {
     return nullopt;
   }
