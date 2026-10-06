@@ -54,8 +54,8 @@ void App::queueBomEnrichment() {
       continue;
     }
     const auto key = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
-    if (project->enrichment.count(key) != 0) {
-      continue;  // cached with the pinned project
+    if (bomEnrichmentCached(project->enrichment, key)) {
+      continue;  // answered earlier and cached with the pinned project
     }
     if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), key) == bomEnrichmentQueue_.end()) {
       bomEnrichmentQueue_.push_back(key);
@@ -87,7 +87,13 @@ void App::processBomEnrichment() {
         return candidate.id == result.projectId;
       });
       if (targetProject != bomProjects_.end() && !result.key.empty()) {
-        targetProject->enrichment[result.key] = result.suggestion;
+        // A failed lookup stores nothing so the line is retried the next time the project opens.
+        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion)) {
+          targetProject->enrichment[result.key] = *entry;
+        } else {
+          // Drop a stale "-" left behind by earlier versions rather than keep showing it.
+          targetProject->enrichment.erase(result.key);
+        }
         dirty_ = true;
       }
     }
@@ -159,13 +165,15 @@ void App::processBomEnrichment() {
   const auto requestSequence = bomEnrichmentSequence_;
   bomEnrichmentFuture_ = async(launch::async, [client, key, keywords, projectId, generation, requestSequence] {
     string error;
-    if (const auto details = client->fetchProductDetails(keywords, &error)) {
-      const auto suggestion =
-          details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
-      return BomEnrichmentResult{key, suggestion.empty() ? string("-") : suggestion, projectId, generation,
-                                 requestSequence};
+    DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
+    BomEnrichmentResult result{key, {}, BomLookupOutcome::Failed, projectId, generation, requestSequence};
+    if (const auto details = client->lookupProductDetails(keywords, lookup, &error)) {
+      result.suggestion = details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
+      result.outcome = BomLookupOutcome::Found;
+    } else if (lookup == DigiKeyLookupOutcome::NoMatch) {
+      result.outcome = BomLookupOutcome::NoMatch;
     }
-    return BomEnrichmentResult{key, string("-"), projectId, generation, requestSequence};
+    return result;
   });
   dirty_ = true;
 }

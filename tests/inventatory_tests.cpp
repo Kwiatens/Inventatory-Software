@@ -7441,6 +7441,31 @@ int main() {
     filesystem::remove(path, cleanupError);
   }
 
+  {
+    // A failed DigiKey lookup must never be cached (it would stop the line from being retried);
+    // only an authoritative answer is. The shortage export never shows the markers.
+    assert(!bomEnrichmentEntry(BomLookupOutcome::Failed, "ignored").has_value());
+    assert(!bomEnrichmentEntry(BomLookupOutcome::Failed, "").has_value());
+    assert(bomEnrichmentEntry(BomLookupOutcome::Found, " 493-13399-ND ") == string("493-13399-ND"));
+    assert(bomEnrichmentEntry(BomLookupOutcome::Found, "") == string(kBomEnrichmentNoMatch));
+    assert(bomEnrichmentEntry(BomLookupOutcome::Found, "-") == string(kBomEnrichmentNoMatch));
+    assert(bomEnrichmentEntry(BomLookupOutcome::NoMatch, "") == string(kBomEnrichmentNoMatch));
+
+    map<string, string> enrichment = {{"kept", "493-13399-ND"},
+                                      {"nomatch", kBomEnrichmentNoMatch},
+                                      {"legacy", "-"},
+                                      {"blank", ""}};
+    assert(bomEnrichmentCached(enrichment, "kept"));
+    assert(bomEnrichmentCached(enrichment, "nomatch"));
+    assert(!bomEnrichmentCached(enrichment, "legacy"));  // stored by earlier versions for any failure
+    assert(!bomEnrichmentCached(enrichment, "blank"));
+    assert(!bomEnrichmentCached(enrichment, "absent"));
+
+    assert(bomEnrichmentExportText("493-13399-ND") == "493-13399-ND");
+    assert(bomEnrichmentExportText("-").empty());
+    assert(bomEnrichmentExportText(kBomEnrichmentNoMatch).empty());
+    assert(bomEnrichmentExportText("").empty());
+  }
 
   {
     const auto source = filesystem::temp_directory_path() / "inventatory-transfer-source";
