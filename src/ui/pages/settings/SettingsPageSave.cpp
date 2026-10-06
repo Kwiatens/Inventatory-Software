@@ -228,8 +228,13 @@ bool App::saveSettingsDraft() {
   if (quickLabelsChanged && !dataChanged &&
       !saveQuickLabels(quickLabelsPath_, settingsDraft_.quickLabelPresets, settingsDraft_.quickLabelRevision)) {
     const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
-    settings_ = oldSettings;
-    settingsDraft_ = oldSettings;
+    {
+      // The bridge is still serving here: its workers read the quick-label presets under this lock.
+      lock_guard<mutex> lock(quickLabelMutex_);
+      settings_ = oldSettings;
+    }
+    // The draft keeps every staged edit so the user can retry after fixing the write problem.
+    settingsDirty_ = true;
     if (startupChanged) {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
