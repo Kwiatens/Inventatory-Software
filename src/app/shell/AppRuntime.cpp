@@ -58,6 +58,34 @@ bool App::workspaceIsCurrent(WorkspaceGeneration generation) const {
   return workspaceContext_ != nullptr && workspaceGenerationMatches(workspaceContext_->generation, generation);
 }
 
+// Starts a user-requested print job for the configured printer; the caller has checked that one exists.
+// Reports why no job can start right now.
+optional<App::PrinterWork> App::beginPrinterJob(PrinterWorkKind kind) {
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("Printer unavailable while the workspace is changing", 4);
+    return nullopt;
+  }
+  if (printerWorkCompletion_ != nullptr) {
+    setMessage("A printer job is already running; try again shortly", 3);
+    return nullopt;
+  }
+  PrinterWork work;
+  work.kind = kind;
+  work.workspaceGeneration = context->generation;
+  work.printerName = printerService_.configuredPrinter();
+  return work;
+}
+
+bool App::queuePrinterJob(PrinterWork work) {
+  if (!enqueuePrinterWork(move(work))) {
+    setMessage("Printer request queue is full; try again shortly", 4);
+    return false;
+  }
+  setMessage("Printer job queued", 3);
+  return true;
+}
+
 bool App::enqueuePrinterWork(PrinterWork work) {
   if (work.workspaceGeneration == 0 || !workspaceIsCurrent(work.workspaceGeneration)) {
     return false;

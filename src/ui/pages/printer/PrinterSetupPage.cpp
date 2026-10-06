@@ -92,29 +92,12 @@ bool App::printLabelForItem(const InventoryItem& item, const string& successPref
     return false;
   }
 
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    setMessage("Printer unavailable while the workspace is changing", 4);
-    return false;
-  }
-  if (printerWorkCompletion_ != nullptr) {
-    setMessage("A printer job is already running; try again shortly", 3);
-    return false;
-  }
-
-  PrinterWork work;
-  work.kind = PrinterWorkKind::PrintItem;
-  work.workspaceGeneration = context->generation;
-  work.printerName = printerService_.configuredPrinter();
-  work.item = item;
-  work.rackLocation = rackLocation(item, store_.racks());
-  work.successPrefix = successPrefix;
-  if (!enqueuePrinterWork(move(work))) {
-    setMessage("Printer request queue is full; try again shortly", 4);
-    return false;
-  }
-  setMessage("Printer job queued", 3);
-  return true;
+  auto work = beginPrinterJob(PrinterWorkKind::PrintItem);
+  if (!work) return false;
+  work->item = item;
+  work->rackLocation = rackLocation(item, store_.racks());
+  work->successPrefix = successPrefix;
+  return queuePrinterJob(move(*work));
 }
 
 }  // namespace inventatory
