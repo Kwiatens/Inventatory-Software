@@ -187,7 +187,12 @@ InventoryStore mergeInventoryChanges(const InventoryStore& base, const Inventory
     }
   }
 
-  // Items that existed when the work started.
+  // Items that existed when the work started. `merged` still lists the live items in their original
+  // order here; the first item with an id is the one an edit applies to.
+  unordered_map<string, size_t> mergedPosition;
+  for (size_t index = 0; index < merged.items().size(); ++index) {
+    mergedPosition.emplace(merged.items()[index].id, index);
+  }
   unordered_set<string> removedIds;
   for (const auto& baseItem : base.items()) {
     const auto stagedFound = stagedItems.find(baseItem.id);
@@ -208,11 +213,10 @@ InventoryStore mergeInventoryChanges(const InventoryStore& base, const Inventory
       addNotice(notices, displayName(baseItem) + ": changes were not applied because the part was removed in the meantime");
       continue;
     }
-    for (auto& item : merged.items()) {
-      if (item.id != baseItem.id) continue;
+    if (const auto position = mergedPosition.find(baseItem.id); position != mergedPosition.end()) {
+      auto& item = merged.items()[position->second];
       item = mergeEditedItem(baseItem, *stagedItem, *liveItem, quantity, notices);
       touchedItemIds.insert(item.id);
-      break;
     }
   }
   if (!removedIds.empty()) {
