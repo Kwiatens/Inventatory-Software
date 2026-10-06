@@ -295,6 +295,7 @@ bool App::saveSettingsDraft() {
     if (!printerService_.saveConfig(printerPath_)) {
       persistenceError_ = "Could not save printer settings; changes remain in memory.";
       setMessage(persistenceError_ + " Press R to retry.", 6, UiMessageSeverity::Error);
+    publishConfiguredPrinter();
       settingsDirty_ = true;
       return false;
     }
