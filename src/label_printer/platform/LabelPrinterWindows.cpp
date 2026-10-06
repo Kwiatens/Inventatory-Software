@@ -26,6 +26,8 @@ using namespace label_printer_detail;
 
 namespace {
 
+string narrowFromWide(const wstring& value);
+
 string windowsErrorText(unsigned long code) {
 #ifdef _WIN32
   if (code == 0) {
@@ -41,19 +43,15 @@ string windowsErrorText(unsigned long code) {
 
   wstring wide(buffer, length);
   LocalFree(buffer);
-  string result;
-  result.reserve(wide.size());
-  for (wchar_t ch : wide) {
+  // The system text ends with "\r\n" and may wrap lines; keep it on one line and convert it as UTF-16
+  // so localized messages are not reduced to '?'.
+  for (wchar_t& ch : wide) {
     if (ch == L'\r' || ch == L'\n') {
-      continue;
-    }
-    if (ch <= 0x7f) {
-      result.push_back(static_cast<char>(ch));
-    } else {
-      result.push_back('?');
+      ch = L' ';
     }
   }
-  return trim(result);
+  const string result = trim(narrowFromWide(wide));
+  return result.empty() ? "Windows error " + to_string(code) : result;
 #else
   (void)code;
   return "Windows error";
