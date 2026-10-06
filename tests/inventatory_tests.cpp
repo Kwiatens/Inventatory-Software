@@ -8,6 +8,9 @@
 #include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
 #include "platform/system/Environment.h"
+#ifndef _WIN32
+#include "platform/system/ChildProcess.h"
+#endif
 #include "platform/digikey/DigiKeyApi.h"
 #include "core/inventory/InventoryInternals.h"
 #include "core/inventory/InventoryMerge.h"
@@ -1030,6 +1033,159 @@ void testDecimalParsingCommaLocale() {
   skipOrFailMissingLocale("testDecimalParsingCommaLocale");
   cout << "No comma-decimal locale installed; skipping decimal locale regression test\n";
 }
+
+#ifndef _WIN32
+void testLinuxChildProcessIsBounded() {
+  using namespace std::chrono;
+  {
+    const auto result = runChildProcess({"sh", "-c", "printf out; printf err >&2; exit 0"});
+    assert(result.succeeded() && result.output == "out");  // stderr never reaches the output
+  }
+  {
+    ChildProcessOptions options;
+    options.mergeStderr = true;
+    const auto result = runChildProcess({"sh", "-c", "printf out; printf err >&2; exit 3"}, options);
+    assert(result.started && !result.succeeded() && result.exitCode == 3);
+    assert(result.output.find("out") != string::npos && result.output.find("err") != string::npos);
+  }
+  {
+    const auto result = runChildProcess({"inventatory-no-such-helper"});
+    assert(!result.succeeded() && result.exitCode == 127);
+  }
+  {
+    ChildProcessOptions options;
+    options.hasInput = true;
+    options.input = "label data";
+    const auto result = runChildProcess({"cat"}, options);
+    assert(result.succeeded() && result.output == "label data");
+  }
+  {
+    // Input larger than the pipe is streamed while the helper's output is read, without deadlock.
+    ChildProcessOptions options;
+    options.hasInput = true;
+    options.input.assign(1U << 20U, 'x');
+    options.maxOutputBytes = 2U << 20U;
+    options.timeout = seconds(20);
+    const auto result = runChildProcess({"cat"}, options);
+    assert(result.succeeded() && result.output.size() == options.input.size());
+  }
+  {
+    // A helper that quits without reading its input is reported, not killed by SIGPIPE.
+    ChildProcessOptions options;
+    options.hasInput = true;
+    options.input.assign(1U << 20U, 'x');
+    const auto result = runChildProcess({"true"}, options);
+    assert(result.started && result.inputFailed && !result.succeeded());
+  }
+  {
+    ChildProcessOptions options;
+    options.maxOutputBytes = 1000;
+    options.timeout = seconds(20);
+    const auto begin = steady_clock::now();
+    const auto result = runChildProcess({"yes"}, options);
+    assert(result.outputTooLarge && !result.succeeded() && result.output.size() == 1000U);
+    assert(steady_clock::now() - begin < seconds(10));
+  }
+  {
+    // A helper that never answers is stopped at the deadline, together with what it started.
+    const auto root = filesystem::temp_directory_path() / ("inventatory-child-test-" + to_string(getpid()));
+    error_code ignored;
+    filesystem::remove_all(root, ignored);
+    filesystem::create_directories(root);
+    const auto pidFile = root / "grandchild.pid";
+    ChildProcessOptions options;
+    options.timeout = milliseconds(400);
+    const auto begin = steady_clock::now();
+    const auto result = runChildProcess({"sh", "-c", "sleep 30 & echo $! > \"$1\"; wait", "sh", pidFile.string()}, options);
+    assert(result.timedOut && !result.succeeded());
+    assert(steady_clock::now() - begin < seconds(10));
+    pid_t grandchild = 0;
+    {
+      ifstream stream(pidFile);
+      long long value = 0;
+      stream >> value;
+      grandchild = static_cast<pid_t>(value);
+    }
+    assert(grandchild > 1);
+    bool gone = false;
+    for (int attempt = 0; attempt < 100 && !gone; ++attempt) {
+      gone = processIsGone(grandchild);
+      if (!gone) this_thread::sleep_for(milliseconds(20));
+    }
+    assert(gone);
+    filesystem::remove_all(root, ignored);
+  }
+  {
+    // A helper that closes its output but keeps running is bounded too.
+    ChildProcessOptions options;
+    options.timeout = milliseconds(300);
+    const auto begin = steady_clock::now();
+    const auto result = runChildProcess({"sh", "-c", "exec >&- 2>&-; sleep 30"}, options);
+    assert(result.timedOut && steady_clock::now() - begin < seconds(10));
+  }
+}
+
+// Isolated environment for the startup registration tests: a fake systemctl that logs its calls and writes
+// a warning to stderr on every call, and private XDG folders.
+struct StartupTestEnvironment {
+  explicit StartupTestEnvironment(const string& name)
+      : root(filesystem::temp_directory_path() / ("inventatory-" + name + "-test-" + to_string(getpid()))),
+        failEnable(root / "fail-enable"),
+        path("PATH", (root / "bin").string() + ":" + (getenv("PATH") != nullptr ? getenv("PATH") : "")),
+        config("XDG_CONFIG_HOME", (root / "config").string()),
+        data("XDG_DATA_HOME", (root / "data").string()),
+        desktop("XDG_DESKTOP_DIR", (root / "desktop").string()) {
+    error_code ignored;
+    filesystem::remove_all(root, ignored);
+    filesystem::create_directories(root / "desktop");
+    writeTextFile(root / "bin" / "systemctl",
+                  "#!/bin/sh\necho \"$*\" >> '" + (root / "systemctl.log").string() + "'\n"
+                  "echo 'systemctl: noisy warning' >&2\n"
+                  "if [ -e '" + failEnable.string() + "' ]; then\n"
+                  "  case \"$*\" in *\" enable \"*) echo 'Failed to enable unit: bus unavailable' >&2; exit 1;; esac\n"
+                  "fi\nexit 0\n",
+                  true);
+  }
+  ~StartupTestEnvironment() {
+    error_code ignored;
+    filesystem::remove_all(root, ignored);
+  }
+  StartupTestEnvironment(const StartupTestEnvironment&) = delete;
+  StartupTestEnvironment& operator=(const StartupTestEnvironment&) = delete;
+
+  filesystem::path unit() const { return root / "config" / "systemd" / "user" / "inventatory-background.service"; }
+  filesystem::path launcher() const { return root / "data" / "applications" / "inventatory.desktop"; }
+  filesystem::path desktopCopy() const { return root / "desktop" / "inventatory.desktop"; }
+
+  filesystem::path root;
+  filesystem::path failEnable;
+  ScopedEnvironment path;
+  ScopedEnvironment config;
+  ScopedEnvironment data;
+  ScopedEnvironment desktop;
+};
+
+void testSystemctlOutputStaysOffTheTerminal() {
+  StartupTestEnvironment environment("systemctl-stderr");
+  // The helper's stderr must not reach the terminal interface. The fake systemctl writes a warning on
+  // every call; fd 2 is pointed at a file for the duration and must stay empty.
+  const auto stderrFile = environment.root / "stderr.txt";
+  fflush(stderr);
+  const int savedError = dup(STDERR_FILENO);
+  const int capture = open(stderrFile.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  assert(savedError >= 0 && capture >= 0);
+  dup2(capture, STDERR_FILENO);
+  close(capture);
+  string unitError;
+  const bool enabled = setBackgroundStartupEnabled(true, unitError);
+  fflush(stderr);
+  dup2(savedError, STDERR_FILENO);
+  close(savedError);
+  assert(enabled);
+  assert(readTextFile(stderrFile).empty());
+  assert(filesystem::is_regular_file(environment.unit()));
+}
+#endif
 
 void testPhysicalValueSearchIntegration() {
   vector<InventoryItem> items;
@@ -2959,6 +3115,13 @@ int main() {
     assert(tagFiltered.size() == 1);
     assert(items[tagFiltered[0]].id == "esp32-s3-module");
   }
+
+#ifndef _WIN32
+  testLinuxChildProcessIsBounded();
+#endif
+#ifndef _WIN32
+  testSystemctlOutputStaysOffTheTerminal();
+#endif
 
   {
     InventoryItem outOfStock;

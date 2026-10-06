@@ -64,7 +64,9 @@ workflows:
   the app reports that network discovery is unavailable. The advertisement ends
   when the application stops or exits.
 - `cups-client` and a configured CUPS queue for printer discovery and raw ZPL
-  label output. Configure the queue for a ZPL-compatible printer.
+  label output. Configure the queue for a ZPL-compatible printer. `lpstat` and
+  `lp` run with a deadline (10 s for queue queries, 30 s for a label job), so an
+  unreachable CUPS server cannot leave printing stuck.
 - `zenity` for native file and folder chooser dialogs.
 - `xdg-utils` for opening HTTPS links; `wl-clipboard` on Wayland, or `xclip` or
   `xsel` on X11, for clipboard output.
@@ -92,10 +94,12 @@ saved and the systemd unit is started again so the service stays supervised
 is used only if systemd refuses. The unit is written only when its content
 changes and keeps the executable it was registered with while that file still
 exists. A binary that was replaced on disk while it runs (an update or
-reinstall) is never registered as `... (deleted)`. The single-instance locks
-live in `$XDG_RUNTIME_DIR/inventatory`, or in `/run/user/<uid>/inventatory`
-when the variable is not set (for example from cron or `su`), so every launch
-context shares them. Linux does not provide a notification area icon. The current Windows
+reinstall) is never registered as `... (deleted)`. `systemctl` runs with a
+deadline and its messages are reported by Inventatory instead of being printed
+over the interface. The single-instance locks live in
+`$XDG_RUNTIME_DIR/inventatory`, or in `/run/user/<uid>/inventatory` when the
+variable is not set (for example from cron or `su`), so every launch context
+shares them. Linux does not provide a notification area icon. The current Windows
 release retains its notification-area process and Windows startup integration.
 
 ## Data and configuration

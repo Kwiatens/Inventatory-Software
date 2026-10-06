@@ -2,10 +2,12 @@
 
 #include "platform/system/Console.h"
 
+#include "platform/system/ChildProcess.h"
 #include "platform/system/Environment.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -48,53 +50,19 @@ bool executableAvailable(const char* name) {
   return false;
 }
 
+// Runs a desktop helper (the zenity dialogs) and captures its standard output. The helper's own
+// warnings (GTK, dconf, a missing display) are discarded instead of being printed over the terminal
+// interface. A dialog waits for the user, so the deadline is only a backstop for a helper that never
+// returns.
 bool runCaptured(const string& executable, const vector<string>& arguments, string& output) {
-  int descriptors[2]{};
-  // Close-on-exec: the child only needs its dup2()ed copy, and a concurrently forked helper must
-  // not keep a write end open (it would stop the reader from seeing EOF).
-  if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
-  const pid_t child = fork();
-  if (child < 0) {
-    close(descriptors[0]);
-    close(descriptors[1]);
-    return false;
-  }
-  if (child == 0) {
-    close(descriptors[0]);
-    if (dup2(descriptors[1], STDOUT_FILENO) < 0) _exit(127);
-    close(descriptors[1]);
-    vector<char*> argv;
-    argv.reserve(arguments.size() + 2U);
-    argv.push_back(const_cast<char*>(executable.c_str()));
-    for (const auto& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
-    argv.push_back(nullptr);
-    execvp(executable.c_str(), argv.data());
-    _exit(127);
-  }
-  close(descriptors[1]);
-  output.clear();
-  char buffer[4096];
-  for (;;) {
-    const auto count = read(descriptors[0], buffer, sizeof(buffer));
-    if (count == 0) break;
-    if (count < 0) {
-      if (errno == EINTR) continue;
-      close(descriptors[0]);
-      waitpid(child, nullptr, 0);
-      return false;
-    }
-    output.append(buffer, static_cast<size_t>(count));
-    if (output.size() > 32768U) {
-      close(descriptors[0]);
-      waitpid(child, nullptr, 0);
-      output.clear();
-      return false;
-    }
-  }
-  close(descriptors[0]);
-  int status = 0;
-  while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
-  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  vector<string> command{executable};
+  command.insert(command.end(), arguments.begin(), arguments.end());
+  ChildProcessOptions options;
+  options.timeout = std::chrono::hours(24);
+  options.maxOutputBytes = 32768U;
+  auto result = runChildProcess(command, options);
+  output = result.succeeded() ? std::move(result.output) : string();
+  return result.succeeded();
 }
 
 // Closes every inherited descriptor above stderr in a forked child just before exec.  Only raw

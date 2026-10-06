@@ -49,6 +49,7 @@ if(WIN32)
   set(INVENTATORY_CREDENTIAL_SOURCE src/platform/security/CredentialStore.cpp)
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningService.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
+  set(INVENTATORY_CHILD_PROCESS_SOURCE)
 else()
   find_package(PkgConfig REQUIRED)
   find_package(OpenSSL REQUIRED)
@@ -63,6 +64,7 @@ else()
   set(INVENTATORY_CREDENTIAL_SOURCE src/platform/security/CredentialStoreLinux.cpp)
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningServiceLinux.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
+  set(INVENTATORY_CHILD_PROCESS_SOURCE src/platform/system/ChildProcess.cpp)
 endif()
 
 # SQLite is compiled into the executable so the release never depends on an
@@ -185,6 +187,7 @@ add_executable(inventatory
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
+  ${INVENTATORY_CHILD_PROCESS_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   ${INVENTATORY_BLE_SOURCE}
@@ -254,6 +257,7 @@ add_executable(inventatory_tests
   src/platform/scanner/HttpServerLifecycle.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
+  ${INVENTATORY_CHILD_PROCESS_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   src/platform/digikey/DigiKeyApi.cpp
