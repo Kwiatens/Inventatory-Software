@@ -84,7 +84,11 @@ void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path r
     replayStateValid_ = true;
     lastAcceptedCounter_ = 0;
   } else {
-    replayStateValid_ = loadReplayState(replayStatePath_, replayStateFingerprint_, lastAcceptedCounter_);
+    // A state file left by a previous pairing secret (a rotation or clear that crashed before the file
+    // was removed) is for a different key; a request MAC'd with this key cannot replay under it, so
+    // the sequence simply restarts. Only unreadable or malformed state locks the service.
+    const auto loaded = loadReplayState(replayStatePath_, replayStateFingerprint_, lastAcceptedCounter_);
+    replayStateValid_ = loaded != ReplayStateLoad::Invalid;
     if (!replayStateValid_) lastAcceptedCounter_ = 0;
   }
 }

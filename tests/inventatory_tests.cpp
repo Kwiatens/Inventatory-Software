@@ -5111,6 +5111,34 @@ int main() {
     assert(syncCalls == 3);
     malformedFingerprintServer.stop();
 
+    // State left behind by a previous pairing secret (a rotation that crashed before the file was
+    // removed) is for a different key: the new key starts a fresh sequence instead of being locked out,
+    // and the first accepted request rewrites the file for the current key.
+    const auto foreignReplayState = stateDirectory / "foreign-replay.state";
+    {
+      ofstream foreign(foreignReplayState, ios::trunc);
+      foreign << "fingerprint=" << deviceTransportStateFingerprint(token) << '\n' << "counter=50\n";
+    }
+    LocalHttpServer foreignStateServer;
+    foreignStateServer.setDeviceCredentials(deviceId, rotatedToken, foreignReplayState);
+    assert(foreignStateServer.start(19473, onSync));
+    const auto acceptedWithForeignState =
+        sendLocalHttpRequest(foreignStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
+    assert(acceptedWithForeignState.rfind("HTTP/1.1 200 OK", 0) == 0);
+    assert(syncCalls == 4);
+    {
+      ifstream rewritten(foreignReplayState);
+      stringstream rewrittenText;
+      rewrittenText << rewritten.rdbuf();
+      assert(rewrittenText.str() ==
+             "fingerprint=" + deviceTransportStateFingerprint(rotatedToken) + "\ncounter=1\n");
+    }
+    const auto replayedAfterForeignState =
+        sendLocalHttpRequest(foreignStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
+    assert(replayedAfterForeignState.rfind("HTTP/1.1 409 Conflict", 0) == 0);
+    assert(syncCalls == 4);
+    foreignStateServer.stop();
+
     LocalHttpServer queuedStopServer;
     queuedStopServer.setDeviceCredentials(deviceId, rotatedToken, stateDirectory / "queued-stop.state");
     assert(queuedStopServer.start(19472, onSync));
