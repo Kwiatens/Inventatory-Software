@@ -283,7 +283,6 @@ void App::beginImportSync(bool retryFailed) {
     return;
   }
 
-  const auto api = createDigiKeyApi();
   importSyncTotal_ = itemIds.size();
   importSyncCompleted_ = 0;
   importSyncFailedCount_ = 0;
@@ -308,14 +307,6 @@ void App::beginImportSync(bool retryFailed) {
     requests.emplace_back(itemId, lookup);
   }
 
-  if (api.client == nullptr) {
-    importSyncCompleted_ = importSyncTotal_;
-    importSyncHasRun_ = true;
-    importSyncPrompt_ = true;
-    setMessage("DigiKey sync unavailable: " + api.error + "; press R to retry after configuring it", 6);
-    return;
-  }
-
   if (requests.empty()) {
     importSyncCompleted_ = importSyncTotal_;
     importSyncHasRun_ = true;
@@ -324,7 +315,6 @@ void App::beginImportSync(bool retryFailed) {
     return;
   }
 
-  const auto config = loadDigiKeyConfig();
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
     setMessage("DigiKey sync unavailable while the workspace is changing", 5);
@@ -334,9 +324,16 @@ void App::beginImportSync(bool retryFailed) {
   importSyncCancelFlag_ = make_shared<atomic<bool>>(false);
   const auto cancelFlag = importSyncCancelFlag_;
   const auto generation = importSyncGeneration_;
-  importSyncFuture_ = async(launch::async, [requests = move(requests), config, cancelFlag, generation] {
+  importSyncFuture_ = async(launch::async, [requests = move(requests), cancelFlag, generation] {
     ImportSyncBatchResult batch;
     batch.workspaceGeneration = generation;
+    // Reading the credentials can block on a locked keyring, so it happens here and not on the UI thread.
+    const auto config = loadDigiKeyConfig();
+    if (!config.valid()) {
+      batch.unavailableReason = "DigiKey API credentials are not configured";
+      for (const auto& request : requests) batch.failedItemIds.push_back(request.first);
+      return batch;
+    }
     DigiKeyApiClient client(config);
     for (size_t index = 0; index < requests.size(); ++index) {
       if (cancelFlag->load()) {
@@ -402,6 +399,9 @@ void App::processImportSync() {
   importSyncCancelFlag_.reset();
   if (!cancelled && !batch.results.empty() && !saveState("digikey", "import sync", "DigiKey enrichment batch")) {
     setMessage("DigiKey metadata is in memory; press R to retry saving", 6, UiMessageSeverity::Error);
+  } else if (!batch.unavailableReason.empty()) {
+    setMessage("DigiKey sync unavailable: " + batch.unavailableReason + "; press R to retry after configuring it", 6,
+               UiMessageSeverity::Warning);
   } else {
     const auto message = cancelled ? "DigiKey sync cancelled; press R to retry failed rows"
                                    : "DigiKey sync finished; press R to retry failed rows or Enter to finish";

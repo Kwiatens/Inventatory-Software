@@ -429,6 +429,13 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
+  // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
+  // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
+  // it, and only while no lookup is running.
+  struct BomEnrichmentSession {
+    std::unique_ptr<DigiKeyApiClient> client;
+  };
+
   struct BomEnrichmentResult {
     std::string key;
     std::string suggestion;
@@ -436,6 +443,7 @@ class App {
     std::string projectId;
     WorkspaceGeneration workspaceGeneration = 0;
     std::uint64_t requestSequence = 0;
+    bool credentialsMissing = false;
   };
 
   // Printer work is always executed against a value snapshot.  The worker
@@ -485,6 +493,7 @@ class App {
     std::vector<std::pair<std::string, std::optional<DigiKeyProductDetails>>> results;
     std::vector<std::string> failedItemIds;
     WorkspaceGeneration workspaceGeneration = 0;
+    std::string unavailableReason;  // set when the worker could not start (no DigiKey credentials)
   };
 
   void loadState();
@@ -1008,7 +1017,7 @@ class App {
   // seconds and would otherwise freeze the terminal for the whole shortage run.
   // The client is declared first on purpose: members are destroyed in reverse,
   // so the future (which joins its task) must outlive the client it borrows.
-  std::unique_ptr<DigiKeyApiClient> bomEnrichmentClient_;
+  std::shared_ptr<BomEnrichmentSession> bomEnrichmentClient_;
   std::future<BomEnrichmentResult> bomEnrichmentFuture_;
   std::string bomEnrichmentProjectId_;
   std::string bomEnrichmentActiveProjectId_;

@@ -39,11 +39,8 @@ void App::queueBomEnrichment() {
   // allowed to finish against its captured client, then its project/sequence
   // pair is checked before anything is applied or saved.
   ++bomEnrichmentSequence_;
-  // Silently skipped without credentials, so an offline user never sees an
-  // error they cannot act on.
-  if (!loadDigiKeyConfig().valid()) {
-    return;
-  }
+  // Credentials are looked up by the worker (the credential store can block on a locked keyring) and a
+  // missing configuration ends the run quietly, so an offline user never sees an error they cannot act on.
   if (const auto context = currentWorkspaceContext(); context != nullptr) {
     bomEnrichmentGeneration_ = context->generation;
   } else {
@@ -97,6 +94,14 @@ void App::processBomEnrichment() {
         dirty_ = true;
       }
     }
+    if (result.credentialsMissing) {
+      bomEnrichmentQueue_.clear();
+      bomEnrichmentTotal_ = 0;
+      bomEnrichmentActiveKey_.clear();
+      bomEnrichmentActiveProjectId_.clear();
+      bomEnrichmentClient_.reset();
+      return;
+    }
     if (result.projectId == bomEnrichmentActiveProjectId_) {
       bomEnrichmentActiveKey_.clear();
       bomEnrichmentActiveProjectId_.clear();
@@ -135,14 +140,7 @@ void App::processBomEnrichment() {
   }
 
   if (bomEnrichmentClient_ == nullptr) {
-    const auto config = loadDigiKeyConfig();
-    if (!config.valid()) {
-      bomEnrichmentQueue_.clear();
-      bomEnrichmentTotal_ = 0;
-      bomEnrichmentActiveKey_.clear();
-      return;
-    }
-    bomEnrichmentClient_ = make_unique<DigiKeyApiClient>(config);
+    bomEnrichmentClient_ = make_shared<BomEnrichmentSession>();
   }
 
   const auto key = bomEnrichmentQueue_.front();
@@ -159,15 +157,23 @@ void App::processBomEnrichment() {
   // fetchProductDetails falls back to a keyword search, so a free-form value
   // such as "470uF Radial 8.0mm" resolves as well as a real part number.
   const auto keywords = trim(line->designation + " " + packageFromFootprint(line->footprint));
-  auto* client = bomEnrichmentClient_.get();
+  const auto session = bomEnrichmentClient_;
   const auto generation = bomEnrichmentGeneration_;
   const auto projectId = project->id;
   const auto requestSequence = bomEnrichmentSequence_;
-  bomEnrichmentFuture_ = async(launch::async, [client, key, keywords, projectId, generation, requestSequence] {
+  bomEnrichmentFuture_ = async(launch::async, [session, key, keywords, projectId, generation, requestSequence] {
     string error;
     DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
     BomEnrichmentResult result{key, {}, BomLookupOutcome::Failed, projectId, generation, requestSequence};
-    if (const auto details = client->lookupProductDetails(keywords, lookup, &error)) {
+    if (session->client == nullptr) {
+      const auto config = loadDigiKeyConfig();
+      if (!config.valid()) {
+        result.credentialsMissing = true;
+        return result;
+      }
+      session->client = make_unique<DigiKeyApiClient>(config);
+    }
+    if (const auto details = session->client->lookupProductDetails(keywords, lookup, &error)) {
       result.suggestion = details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
       result.outcome = BomLookupOutcome::Found;
     } else if (lookup == DigiKeyLookupOutcome::NoMatch) {
