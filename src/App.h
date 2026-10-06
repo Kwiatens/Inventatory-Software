@@ -1088,6 +1088,8 @@ class App {
   // Keyboard focus by target id (see ui/shared/UiFocus.h): set only by Tab, cleared by any other
   // key or mouse click and whenever the page changes.
   std::string focusedTargetId_;
+  // True while a pre-filled numeric prompt still holds its default: the first digit replaces it.
+  bool inputReplaceOnType_ = false;
 };
 
 }  // namespace inventatory

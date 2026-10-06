@@ -113,6 +113,7 @@ vector<App::Action> App::currentActions() const {
       if (hasItem) add("remove one", "Edit", "-", chr('-'), [self] { self->adjustQuantity(-1); });
       if (hasItem) add("set quantity", "Edit", "a", chr('a'), [self] {
         self->inputBuffer_ = to_string(self->selectedItem()->quantity);
+        self->inputReplaceOnType_ = true;
         self->inputMode_ = App::InputMode::QuantityAdjust;
         self->setMessage("Enter the total quantity on hand", 3);
       });
@@ -343,7 +344,6 @@ vector<App::Action> App::currentActions() const {
       if (bomProjectsDirty_) {
         add("retry project save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
       }
-      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       if (!bomDeductPrompt_ && bomView_ != BomView::Build) {
         // A finished build is an ordinary inventory commit, so the shared undo reverts its
         // stock deduction. Re-run the BOM comparison against the restored stock.
@@ -352,6 +352,7 @@ vector<App::Action> App::currentActions() const {
           if (self->bomAnalysisValid_) self->refreshBomAnalysis();
         });
       }
+      add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
   }
 

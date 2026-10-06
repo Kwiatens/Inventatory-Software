@@ -377,6 +377,7 @@ void App::beginBomRestock() {
   }
   bomRestockItemId_ = itemId;
   inputBuffer_ = to_string(max(1, match.needed - match.available));
+  inputReplaceOnType_ = true;
   inputMode_ = InputMode::BomRestock;
   setMessage("Enter received quantity; default is the shortage", 4);
   dirty_ = true;
