@@ -281,6 +281,9 @@ struct InventoryCommitDetail {
 };
 
 vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, const InventoryStore& after);
+// Counts the distinct items and racks that `changes` touch. Returns false when a change names any
+// other entity type; the counts still cover the item and rack changes.
+bool countChangedEntities(const vector<InventoryFieldChange>& changes, size_t& itemCount, size_t& rackCount);
 // True when `after` differs from `before` in any item or rack field the commit history tracks.
 bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& after);
 bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const InventoryStore& current,

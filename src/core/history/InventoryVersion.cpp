@@ -8,7 +8,6 @@
 #include <limits>
 #include <sstream>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 namespace inventatory {
@@ -56,18 +55,12 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
     // parent snapshot is authoritative for validation, so derive the counts from it.
     InventoryStore parentSnapshot;
     if (!readInventoryCommitSnapshot(connection, parentId, parentSnapshot)) return false;
-    unordered_set<string> changedItems;
-    unordered_set<string> changedRacks;
-    for (const auto& change : inventoryCommitDiff(parentSnapshot, snapshot)) {
-      if (change.entityType == "item") changedItems.insert(change.entityId);
-      if (change.entityType == "rack") changedRacks.insert(change.entityId);
-    }
-    if (changedItems.empty() && changedRacks.empty() && !draft.checkpoint) {
+    countChangedEntities(inventoryCommitDiff(parentSnapshot, snapshot), counted.changedItemCount,
+                         counted.changedRackCount);
+    if (counted.changedItemCount == 0 && counted.changedRackCount == 0 && !draft.checkpoint) {
       committed = {};
       return true;
     }
-    counted.changedItemCount = changedItems.size();
-    counted.changedRackCount = changedRacks.size();
   }
 
   InventoryCommit next;

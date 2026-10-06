@@ -10,7 +10,6 @@
 #include <cctype>
 #include <cstddef>
 #include <limits>
-#include <unordered_set>
 #include <utility>
 
 namespace inventatory {
@@ -122,16 +121,7 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
   if (!validateInventoryIdentifiers(normalizedPrevious.items(), normalizedPrevious.racks())) return false;
   const auto changes = inventoryCommitDiff(normalizedPrevious, normalized);
   InventoryCommitDraft enriched = draft;
-  enriched.changedItemCount = 0;
-  enriched.changedRackCount = 0;
-  unordered_set<string> changedItems;
-  unordered_set<string> changedRacks;
-  for (const auto& change : changes) {
-    if (change.entityType == "item") changedItems.insert(change.entityId);
-    if (change.entityType == "rack") changedRacks.insert(change.entityId);
-  }
-  enriched.changedItemCount = changedItems.size();
-  enriched.changedRackCount = changedRacks.size();
+  countChangedEntities(changes, enriched.changedItemCount, enriched.changedRackCount);
   if (trim(enriched.message).empty()) {
     string operation = "Updated inventory";
     if (enriched.source == "import") operation = "Imported inventory";
