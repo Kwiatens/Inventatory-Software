@@ -30,11 +30,6 @@ struct CableFlagFont {
   int width;
 };
 
-struct SingleLineFont {
-  int height;
-  int width;
-};
-
 // Font 0 text fitted to a box: the largest candidate size whose estimated
 // width fits, or the smallest size with an ellipsized string.
 struct FittedLabelText {
