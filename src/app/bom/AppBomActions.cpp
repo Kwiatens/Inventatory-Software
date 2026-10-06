@@ -155,30 +155,6 @@ string App::softwareVersion() const {
 #endif
 }
 
-string App::itemDetailText(const InventoryItem& item, int width) const {
-  ostringstream out;
-  const auto fields = stockPreviewFields(item, rackLocation(item, store_.racks()));
-  for (const auto& field : fields) {
-    const auto line = field.label + field.value;
-    for (const auto& wrapped : wrapText(line, width)) {
-      out << wrapped << '\n';
-    }
-  }
-
-  return out.str();
-}
-
-string App::summaryLine() const {
-  const auto summary = summarize(store_.items(), settings_.lowStockThreshold);
-  ostringstream out;
-  out << summary.itemCount << " items"
-      << " | " << summary.totalUnits << " units"
-      << " | " << summary.lowStockCount << " low"
-      << " | " << summary.missingMetadataCount << " missing metadata"
-      << " | " << summary.unsyncedCount << " unsynced";
-  return out.str();
-}
-
 string App::activePrompt() const {
   if (inputMode_ == InputMode::EditValue && fieldMenuIndex_ >= 0 && fieldMenuIndex_ < static_cast<int>(menuOptions_.size())) {
     return fieldLabel(menuOptions_[fieldMenuIndex_].field) + ": ";

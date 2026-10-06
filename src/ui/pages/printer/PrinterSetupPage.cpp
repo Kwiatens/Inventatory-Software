@@ -119,20 +119,4 @@ bool App::printLabelForItem(const InventoryItem& item, const string& successPref
   return true;
 }
 
-string App::printerSummary() const {
-  if (!printerService_.hasConfiguredPrinter()) {
-    return "Printer: not configured";
-  }
-
-  if (printerCheck_.ok) {
-    return "Printer ready";
-  }
-
-  if (!printerCheck_.message.empty()) {
-    return "Printer needs attention: " + printerCheck_.message;
-  }
-
-  return "Printer connected";
-}
-
 }  // namespace inventatory

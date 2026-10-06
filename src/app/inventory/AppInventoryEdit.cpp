@@ -117,12 +117,6 @@ void App::beginEditImportCandidate() {
   setMessage("Editing import row: \xE2\x86\x91\xE2\x86\x93 field, \xE2\x8F\x8E edit, s save, esc cancel", 4);
 }
 
-void App::openFieldMenu() {
-  menuOptions_ = fieldOptions();
-  fieldMenuIndex_ = 0;
-  inputMode_ = InputMode::EditFieldMenu;
-}
-
 void App::commitEditField(EditField field, const string& value) {
   const auto trimmed = trim(value);
   bool valid = true;
