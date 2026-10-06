@@ -171,75 +171,46 @@ bool findGattCharacteristics(GVariant* objects, const std::string& devicePath,
                               std::string& statusPath, std::string& requestPath) {
   statusPath.clear();
   requestPath.clear();
-  GVariantIter objectIterator;
-  g_variant_iter_init(&objectIterator, objects);
+  // First the setup service objects that belong to the scanner being provisioned, then only the
+  // characteristics owned by one of those services. Another resolved device that exposes the same
+  // service (a second scanner in range, a stale cached entry) is never mistaken for this one, whatever
+  // order BlueZ enumerates the objects in.
+  std::vector<std::string> servicePaths;
+  GVariantIter serviceIterator;
+  g_variant_iter_init(&serviceIterator, objects);
   const gchar* objectPath = nullptr;
   GVariant* interfaces = nullptr;
-  while (g_variant_iter_next(&objectIterator, "{&o@a{sa{sv}}}", &objectPath, &interfaces)) {
+  while (g_variant_iter_next(&serviceIterator, "{&o@a{sa{sv}}}", &objectPath, &interfaces)) {
     auto* service = g_variant_lookup_value(interfaces, "org.bluez.GattService1", G_VARIANT_TYPE("a{sv}"));
     if (service != nullptr) {
-      const auto uuid = lowercase(stringProperty(service, "UUID"));
-      const auto device = objectPathProperty(service, "Device");
-      if (uuid == kSetupServiceUuid && device == devicePath) {
-        const std::string servicePath(objectPath);
-        g_variant_unref(service);
-        auto* characteristic = g_variant_lookup_value(interfaces, "org.bluez.GattCharacteristic1",
-                                                      G_VARIANT_TYPE("a{sv}"));
-        if (characteristic != nullptr) {
-          const auto characteristicUuid = lowercase(stringProperty(characteristic, "UUID"));
-          const auto parentService = objectPathProperty(characteristic, "Service");
-          if (parentService == servicePath) {
-            if (characteristicUuid == kStatusCharacteristicUuid) statusPath = objectPath;
-            else if (characteristicUuid == kRequestCharacteristicUuid) requestPath = objectPath;
-          }
-          g_variant_unref(characteristic);
-        }
-      } else {
-        g_variant_unref(service);
+      if (lowercase(stringProperty(service, "UUID")) == kSetupServiceUuid &&
+          objectPathProperty(service, "Device") == devicePath) {
+        servicePaths.emplace_back(objectPath);
       }
-    } else {
-      auto* characteristic = g_variant_lookup_value(interfaces, "org.bluez.GattCharacteristic1",
-                                                    G_VARIANT_TYPE("a{sv}"));
-      if (characteristic != nullptr) {
-        const auto characteristicUuid = lowercase(stringProperty(characteristic, "UUID"));
-        const auto parentService = objectPathProperty(characteristic, "Service");
-        if (characteristicUuid == kStatusCharacteristicUuid) {
-          // The parent service is checked again below after its object appears.
-          statusPath = objectPath;
-          (void)parentService;
-        } else if (characteristicUuid == kRequestCharacteristicUuid) {
-          requestPath = objectPath;
-        }
-        g_variant_unref(characteristic);
-      }
+      g_variant_unref(service);
     }
     g_variant_unref(interfaces);
   }
-  if (statusPath.empty() || requestPath.empty()) return false;
-  const auto parentServicePath = [](const std::string& path) {
-    const auto separator = path.rfind("/char");
-    return separator == std::string::npos ? std::string() : path.substr(0, separator);
-  };
-  if (parentServicePath(statusPath) != parentServicePath(requestPath)) return false;
-  const auto servicePath = parentServicePath(statusPath);
-  GVariant* serviceProperties = nullptr;
-  GVariantIter verifyIterator;
-  g_variant_iter_init(&verifyIterator, objects);
-  const gchar* verifyPath = nullptr;
-  GVariant* verifyInterfaces = nullptr;
-  while (g_variant_iter_next(&verifyIterator, "{&o@a{sa{sv}}}", &verifyPath, &verifyInterfaces)) {
-    if (servicePath == verifyPath) {
-      serviceProperties = g_variant_lookup_value(verifyInterfaces, "org.bluez.GattService1", G_VARIANT_TYPE("a{sv}"));
-      g_variant_unref(verifyInterfaces);
-      break;
+  if (servicePaths.empty()) return false;
+
+  GVariantIter characteristicIterator;
+  g_variant_iter_init(&characteristicIterator, objects);
+  while (g_variant_iter_next(&characteristicIterator, "{&o@a{sa{sv}}}", &objectPath, &interfaces)) {
+    auto* characteristic = g_variant_lookup_value(interfaces, "org.bluez.GattCharacteristic1",
+                                                  G_VARIANT_TYPE("a{sv}"));
+    if (characteristic != nullptr) {
+      const auto characteristicUuid = lowercase(stringProperty(characteristic, "UUID"));
+      const auto parentService = objectPathProperty(characteristic, "Service");
+      const bool owned = std::find(servicePaths.begin(), servicePaths.end(), parentService) != servicePaths.end();
+      if (owned) {
+        if (characteristicUuid == kStatusCharacteristicUuid) statusPath = objectPath;
+        else if (characteristicUuid == kRequestCharacteristicUuid) requestPath = objectPath;
+      }
+      g_variant_unref(characteristic);
     }
-    g_variant_unref(verifyInterfaces);
+    g_variant_unref(interfaces);
   }
-  if (serviceProperties == nullptr) return false;
-  const bool correctService = lowercase(stringProperty(serviceProperties, "UUID")) == kSetupServiceUuid &&
-                              objectPathProperty(serviceProperties, "Device") == devicePath;
-  g_variant_unref(serviceProperties);
-  return correctService;
+  return !statusPath.empty() && !requestPath.empty();
 }
 
 struct NotificationState {
