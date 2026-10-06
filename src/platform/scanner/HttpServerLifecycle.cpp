@@ -146,13 +146,7 @@ bool LocalHttpServer::bindSocket(uint16_t port, const string& ipv4Address) {
     return false;
   }
 
-#ifdef _WIN32
-  BOOL reuse = TRUE;
-  setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-#else
-  int reuse = 1;
-  setsockopt(socketHandle, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-#endif
+  setListenerAddressPolicy(socketHandle);
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
