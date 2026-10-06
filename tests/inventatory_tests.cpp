@@ -1880,6 +1880,48 @@ void testUpdateDownloadFolderAndInstallDirectory() {
 }
 #endif
 
+#ifndef _WIN32
+void testCupsBackendRunsBoundedHelpers() {
+  const auto root = filesystem::temp_directory_path() / ("inventatory-cups-test-" + to_string(getpid()));
+  error_code ignored;
+  filesystem::remove_all(root, ignored);
+  filesystem::create_directories(root / "bin");
+  writeTextFile(root / "bin" / "lpstat",
+                "#!/bin/sh\n"
+                "echo \"printer Zebra is idle.  enabled since Tue 05 Oct 2026 10:00:00\"\n"
+                "echo \"system default destination: Zebra\"\n"
+                "echo 'cups warning' >&2\n",
+                true);
+  const auto lpScript = [&](const string& body) {
+    writeTextFile(root / "bin" / "lp",
+                  "#!/bin/sh\necho \"$*\" > '" + (root / "lp.args").string() + "'\n" + body, true);
+  };
+  ScopedEnvironment path("PATH", (root / "bin").string() + ":" + (getenv("PATH") != nullptr ? getenv("PATH") : ""));
+  const auto backend = createPlatformPrinterBackend();
+
+  const auto printers = backend->enumeratePrinters();
+  assert(printers.size() == 1 && printers.front().name == "Zebra");
+  assert(printers.front().isDefault && printers.front().isReady);
+
+  // The job is streamed to lp's standard input, also when it is larger than a pipe buffer.
+  string zpl = "^XA^FDtest^FS^XZ";
+  zpl.append(1U << 20U, 'x');
+  lpScript("cat > '" + (root / "lp.input").string() + "'\nexit 0\n");
+  string error;
+  assert(backend->sendRawJob("Zebra", "Label 1", zpl, &error));
+  assert(readTextFile(root / "lp.input") == zpl);
+  assert(readTextFile(root / "lp.args").find("-d Zebra -o raw -t Label 1") != string::npos);
+
+  // A queue that rejects the job, or stops reading it, is reported instead of waiting forever.
+  lpScript("cat > /dev/null\nexit 1\n");
+  assert(!backend->sendRawJob("Zebra", "Label 2", "^XA^XZ", &error) && !error.empty());
+  lpScript("exit 0\n");
+  error.clear();
+  assert(!backend->sendRawJob("Zebra", "Label 3", zpl, &error) && !error.empty());
+  filesystem::remove_all(root, ignored);
+}
+#endif
+
 void testPackageGHardening() {
   {
     DigiKeyConfig baseline;
@@ -3750,6 +3792,9 @@ int main() {
 
 #ifndef _WIN32
   testUpdateDownloadFolderAndInstallDirectory();
+#endif
+#ifndef _WIN32
+  testCupsBackendRunsBoundedHelpers();
 #endif
 
   {
