@@ -48,7 +48,7 @@ void App::openSettings(SettingsCategory category) {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
-  hasStoredDigiKeySecret_ = CredentialStore::read(kDigiKeySecretName).has_value();
+  hasStoredDigiKeySecret_ = credentialPresence(CredentialStore::lookup(kDigiKeySecretName), hasStoredDigiKeySecret_);
   inputBuffer_.clear();
   applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
@@ -118,8 +118,14 @@ bool App::testStagedDigiKey() {
   config.currency = settingsDraft_.digiKeyCurrency;
   if (stagedDigiKeySecretChanged_) {
     config.clientSecret = stagedDigiKeySecret_;
-  } else if (const auto secret = CredentialStore::read(kDigiKeySecretName); secret.has_value()) {
-    config.clientSecret = *secret;
+  } else {
+    const auto stored = CredentialStore::lookup(kDigiKeySecretName);
+    if (stored.status == CredentialReadStatus::Found && stored.secret.has_value()) {
+      config.clientSecret = *stored.secret;
+    } else if (stored.status == CredentialReadStatus::Unavailable) {
+      setMessage("Secure credential storage is unavailable; the saved DigiKey secret cannot be read", 5);
+      return false;
+    }
   }
   if (!config.valid()) {
     setMessage("Client ID and client secret are required", 4);

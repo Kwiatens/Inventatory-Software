@@ -108,7 +108,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   }
   settingsDraft_ = settings_;
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
-  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
+  hasStoredDigiKeySecret_ =
+      credentialPresence(CredentialStore::lookup("digikey-client-secret"), hasStoredDigiKeySecret_);
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   if (!inventoryRecoveryRequired_) {
     loadState();
