@@ -55,11 +55,6 @@ void App::openSettings(SettingsCategory category) {
   if (category == SettingsCategory::Printer) refreshPrinterState();
 }
 
-void App::beginSettingsEdit() {
-  settingsDraft_ = settings_;
-  settingsDirty_ = false;
-}
-
 bool App::settingsDraftHasChanges() const {
   return settingsDraft_.dataDirectory != settings_.dataDirectory ||
          settingsDraft_.printerQueue != settings_.printerQueue ||

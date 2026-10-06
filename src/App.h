@@ -483,7 +483,6 @@ class App {
   void refreshHistoryDetail();
   void moveHistorySelection(int delta);
   void moveHistoryRecordSelection(int delta);
-  void openSelectedHistoryCommit();
   void beginHistoryCheckpoint();
   void beginHistoryRestore(InventoryRevertMode mode);
   void startHistorySearch();
@@ -620,7 +619,6 @@ class App {
   bool saveScannerConfigChecked(bool notify = false);
   bool savePendingAppSettings();
   bool hasPendingPersistence() const;
-  void markDirty();
   void refreshPrinterState();
   void publishConfiguredPrinter();
   bool enqueuePrinterProbe(const std::string& printerName);
@@ -644,7 +642,6 @@ class App {
   bool printLabelForItem(const InventoryItem& item, const std::string& successPrefix, bool openSetupOnMissingPrinter);
   void toggleAutoPrintScannedLabels();
   bool autoPrintScannedLabel(const std::string& itemId);
-  std::string printerSummary() const;
   void stageSelectedPrinterQueue();
   void toggleSymbolStandard();
   void openInventatoryScanSetup();
@@ -668,7 +665,6 @@ class App {
   void refreshDeviceEventRecords();
   void retryFailedDeviceEvents();
   void discardFailedDeviceEvents();
-  std::string inventatoryScanDeviceSummary() const;
 
   std::vector<size_t> filteredIndices() const;
   std::vector<InventorySearchMatch> stockSearchMatches() const;
@@ -682,7 +678,6 @@ class App {
   void changePage(Page page);
   bool chooseInventatoryFolder();
   void openSettings(SettingsCategory category = SettingsCategory::General);
-  void beginSettingsEdit();
   bool settingsDraftHasChanges() const;
   bool saveSettingsDraft();
   void cancelSettingsDraft();
@@ -745,7 +740,6 @@ class App {
   void cancelInput();
   void beginEditCurrentItem(bool createNew);
   void beginEditImportCandidate();
-  void openFieldMenu();
   void commitEditField(EditField field, const std::string& value);
   void saveWorkingCopy();
   void adjustQuantity(int delta);
@@ -778,7 +772,6 @@ class App {
 
   // KiCad BOM workflow. Analysis always runs against live stock, so a pinned
   // project stays accurate as inventory changes.
-  void openBomProjects();
   void beginBomProject(const std::string& bomText, const std::string& name,
                        const std::filesystem::path& sourcePath);
   void refreshBomAnalysis();
@@ -811,8 +804,6 @@ class App {
   std::string currentFieldValue(EditField field) const;
   std::vector<FieldOption> fieldOptions() const;
   std::string softwareVersion() const;
-  std::string itemDetailText(const InventoryItem& item, int width) const;
-  std::string summaryLine() const;
   std::string activePrompt() const;
 
   InventoryStore store_;

@@ -86,17 +86,6 @@ void App::refreshHistoryDetail() {
   historyDetailValid_ = true;
 }
 
-void App::openSelectedHistoryCommit() {
-  if (inventoryCommits_.empty()) {
-    setMessage("No inventory commits yet", 3);
-    return;
-  }
-  historyRecordSelection_ = 0;
-  historyRecordOpen_ = false;
-  refreshHistoryDetail();
-  changePage(Page::History);
-}
-
 void App::beginHistoryCheckpoint() {
   inputBuffer_.clear();
   inputMode_ = InputMode::HistoryCheckpoint;

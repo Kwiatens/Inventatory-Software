@@ -132,13 +132,6 @@ bool App::saveBomProjects() {
   return saved;
 }
 
-void App::openBomProjects() {
-  bomView_ = BomView::List;
-  bomDeductPrompt_ = false;
-  bomProjectSelection_ = bomProjects_.empty() ? 0 : min(bomProjectSelection_, bomProjects_.size() - 1);
-  changePage(Page::Projects);
-}
-
 void App::beginBomProject(const string& bomText, const string& name, const filesystem::path& sourcePath) {
   bomFile_ = parseKicadBomText(bomText, name);
   if (!bomFile_.ok) {

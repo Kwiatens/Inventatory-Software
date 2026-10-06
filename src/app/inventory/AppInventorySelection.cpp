@@ -86,10 +86,6 @@ void App::clearMessageIfExpired() {
   }
 }
 
-void App::markDirty() {
-  dirty_ = true;
-}
-
 string App::stockDateFilterName(StockDateFilter filter) const {
   switch (filter) {
     case StockDateFilter::All:

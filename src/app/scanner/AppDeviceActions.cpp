@@ -286,12 +286,4 @@ void App::processDeviceRequests() {
   }
 }
 
-string App::inventatoryScanDeviceSummary() const {
-  if (trim(inventatoryScanConfig_.token).empty()) return "R1 UNPAIRED";
-  if (trim(inventatoryScanConfig_.deviceId).empty()) return "R1 WAITING FOR DEVICE";
-  if (deviceLastSeen_ == 0 || time(nullptr) - deviceLastSeen_ > 15) return "R1 OFFLINE";
-  if (!deviceLastResult_.empty()) return "R1 ONLINE  " + deviceLastResult_;
-  return "R1 ONLINE  RSSI " + to_string(deviceRssi_);
-}
-
 }  // namespace inventatory
