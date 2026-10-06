@@ -193,7 +193,7 @@ void App::openInventatoryScanSetup() {
   } else {
     changePage(Page::ScanSetup);
   }
-  setMessage("Scan R1 setup wizard started", 3);
+  if (inputMode_ != InputMode::ExitConfirmation) setMessage("Scan R1 setup wizard started", 3);
 }
 
 void App::refreshBleSetupDiscovery() {
