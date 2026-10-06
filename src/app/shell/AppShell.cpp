@@ -29,56 +29,28 @@ namespace {
 
 
 KeyEvent translateEvent(const ftxui::Event& event) {
-  if (event == ftxui::Event::Return) {
-    return {KeyType::Enter, '\0'};
-  }
-  if (event == ftxui::Event::Escape) {
-    return {KeyType::Escape, '\0'};
-  }
-  if (event == ftxui::Event::CtrlH) {
-    return {KeyType::CtrlBackspace, '\0'};
-  }
-  if (event == ftxui::Event::CtrlZ) {
-    return {KeyType::CtrlZ, '\0'};
+  static const std::pair<ftxui::Event, KeyType> kKeys[] = {
+      {ftxui::Event::Return, KeyType::Enter},
+      {ftxui::Event::Escape, KeyType::Escape},
+      {ftxui::Event::CtrlH, KeyType::CtrlBackspace},
+      {ftxui::Event::CtrlZ, KeyType::CtrlZ},
+      {ftxui::Event::Tab, KeyType::Tab},
+      {ftxui::Event::TabReverse, KeyType::TabReverse},
+      {ftxui::Event::ArrowUp, KeyType::Up},
+      {ftxui::Event::ArrowDown, KeyType::Down},
+      {ftxui::Event::ArrowLeft, KeyType::Left},
+      {ftxui::Event::ArrowRight, KeyType::Right},
+      {ftxui::Event::Home, KeyType::Home},
+      {ftxui::Event::End, KeyType::End},
+      {ftxui::Event::PageUp, KeyType::PageUp},
+      {ftxui::Event::PageDown, KeyType::PageDown},
+      {ftxui::Event::Delete, KeyType::Delete},
+  };
+  for (const auto& [key, type] : kKeys) {
+    if (event == key) return {type, '\0'};
   }
   if (event == ftxui::Event::Backspace) {
-    if (controlModifierPressed()) {
-      return {KeyType::CtrlBackspace, '\0'};
-    }
-    return {KeyType::Backspace, '\0'};
-  }
-  if (event == ftxui::Event::Tab) {
-    return {KeyType::Tab, '\0'};
-  }
-  if (event == ftxui::Event::TabReverse) {
-    return {KeyType::TabReverse, '\0'};
-  }
-  if (event == ftxui::Event::ArrowUp) {
-    return {KeyType::Up, '\0'};
-  }
-  if (event == ftxui::Event::ArrowDown) {
-    return {KeyType::Down, '\0'};
-  }
-  if (event == ftxui::Event::ArrowLeft) {
-    return {KeyType::Left, '\0'};
-  }
-  if (event == ftxui::Event::ArrowRight) {
-    return {KeyType::Right, '\0'};
-  }
-  if (event == ftxui::Event::Home) {
-    return {KeyType::Home, '\0'};
-  }
-  if (event == ftxui::Event::End) {
-    return {KeyType::End, '\0'};
-  }
-  if (event == ftxui::Event::PageUp) {
-    return {KeyType::PageUp, '\0'};
-  }
-  if (event == ftxui::Event::PageDown) {
-    return {KeyType::PageDown, '\0'};
-  }
-  if (event == ftxui::Event::Delete) {
-    return {KeyType::Delete, '\0'};
+    return {controlModifierPressed() ? KeyType::CtrlBackspace : KeyType::Backspace, '\0'};
   }
   if (event.is_character() && !event.character().empty()) {
     const auto& text = event.character();
