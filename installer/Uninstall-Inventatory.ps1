@@ -47,6 +47,30 @@ function Remove-InventatoryStartupRegistration {
   }
 }
 
+# The installer leaves staging, backup and failed-rollback copies next to the install folder.
+function Remove-InventatoryInstallLeftovers {
+  $installParent = Split-Path -Parent $installRoot
+  if (-not (Test-Path -LiteralPath $installParent)) { return }
+  Get-ChildItem -LiteralPath $installParent -Directory -Filter 'Inventatory.*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^Inventatory\.(staging|backup\..+|failed\..+)$' } |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+# Credential Manager holds the DigiKey secret and the Scan R1 pairing token under 'Inventatory/<name>'
+# targets. They belong to the data that the user chose to delete, so they are removed with it.
+function Remove-InventatoryStoredSecrets {
+  try {
+    $listing = @(& cmdkey.exe /list 2>$null)
+    foreach ($line in $listing) {
+      if ([string]$line -match '(Inventatory/\S+)') {
+        & cmdkey.exe "/delete:$($Matches[1])" 2>$null | Out-Null
+      }
+    }
+  } catch {
+    Write-Warning 'Stored Inventatory credentials could not be removed. Delete the Inventatory entries in Windows Credential Manager manually.'
+  }
+}
+
 Assert-InventatoryProcessesStopped
 Remove-InventatoryStartupRegistration
 # Removing the startup entry can race with Windows launching the background
@@ -59,8 +83,11 @@ if (Test-Path -LiteralPath $installRoot) {
 Remove-Item -LiteralPath (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Inventatory.lnk') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Inventatory.lnk') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $bootstrapDownloadRoot -Recurse -Force -ErrorAction SilentlyContinue
+Remove-InventatoryInstallLeftovers
 if ((Read-Host 'Also delete Documents\Inventatory and local settings? [y/N]') -match '^[Yy]') {
-  Remove-Item -LiteralPath (Join-Path $env:USERPROFILE 'Documents\Inventatory') -Recurse -Force -ErrorAction SilentlyContinue
+  # MyDocuments follows a redirected Documents folder (for example OneDrive known-folder backup).
+  Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Inventatory') -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'Inventatory') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-InventatoryStoredSecrets
 }
 Write-Host 'Inventatory was removed.'
