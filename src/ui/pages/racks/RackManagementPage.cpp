@@ -108,13 +108,9 @@ ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, i
   return indicator;
 }
 
-vector<string> rackTitleLines(const string& value, int width) {
-  return wrapText(value, max(1, width));
-}
-
 ftxui::Element centeredRackText(const string& value, int width, ftxui::Color color, int maxLines = 0) {
   const int lineWidth = max(1, width - 2);
-  auto lines = rackTitleLines(value, lineWidth);
+  auto lines = wrapText(value, max(1, lineWidth));
   if (maxLines > 0 && static_cast<int>(lines.size()) > maxLines) {
     lines.resize(maxLines);
     lines.back() = ellipsize(lines.back() + "...", static_cast<size_t>(lineWidth));
