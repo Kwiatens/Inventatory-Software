@@ -47,7 +47,7 @@ using namespace inventory_transfer_detail;
 bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& path, string& error) {
   ofstream output(path, ios::binary | ios::trunc);
   if (!output) {
-    error = "Unable to create " + path.string();
+    error = "Unable to create " + path.u8string();
     return false;
   }
 
@@ -66,7 +66,7 @@ bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& pat
 
   output.close();
   if (!output) {
-    error = "Unable to finish writing " + path.string();
+    error = "Unable to finish writing " + path.u8string();
     return false;
   }
   return true;

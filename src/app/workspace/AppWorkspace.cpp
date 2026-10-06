@@ -231,7 +231,7 @@ bool App::chooseInventatoryFolder() {
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
   if (serviceWasRunning) restartDeviceService();
-  setMessage("Loaded Inventatory folder: " + dataPath_.string(), 4);
+  setMessage("Loaded Inventatory folder: " + dataPath_.u8string(), 4);
   return true;
 }
 

@@ -247,7 +247,7 @@ ftxui::Element App::renderSettingsUi() const {
 
   if (settingsCategory_ == SettingsCategory::General) {
     appendSettingsSection(rows, "Data storage", {
-        settingLine("Inventatory folder", settingsDraft_.dataDirectory.string(), contentWidth),
+        settingLine("Inventatory folder", settingsDraft_.dataDirectory.u8string(), contentWidth),
         settingsActionRow({
             target(uiSecondaryButton("Change folder"), "settings.data.browse", UiTargetKind::Button,
                    [self] { self->stageInventatoryFolder(); }),
@@ -276,7 +276,7 @@ ftxui::Element App::renderSettingsUi() const {
                            contentWidth, thresholdEditing),
                "settings.general.low_stock_threshold", UiTargetKind::Field,
                [self] { self->beginSettingsFieldEdit(0); }),
-        settingStatusLine("Settings file", settingsPath_.string(), uiMutedText(), contentWidth),
+        settingStatusLine("Settings file", settingsPath_.u8string(), uiMutedText(), contentWidth),
     });
   } else if (settingsCategory_ == SettingsCategory::Updates) {
     const bool softwareChecking = updateCheckFuture_.valid();

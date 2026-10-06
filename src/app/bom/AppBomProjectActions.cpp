@@ -151,7 +151,7 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   BomProject project;
   project.id = "bom-" + makeId().substr(0, 12);
   project.name = name;
-  project.sourcePath = sourcePath.string();
+  project.sourcePath = sourcePath.u8string();
   project.boards = 1;
   project.createdAt = time(nullptr);
   project.lastOpened = project.createdAt;

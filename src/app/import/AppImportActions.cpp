@@ -39,7 +39,7 @@ void App::beginCsvImport() {
 
   ifstream input(selectedPath, ios::binary);
   if (!input) {
-    setMessage("Unable to open " + selectedPath.filename().string(), 6);
+    setMessage("Unable to open " + selectedPath.filename().u8string(), 6);
     return;
   }
   error_code fileError;
@@ -139,7 +139,7 @@ bool App::commitImportStage() {
     importOriginalStore_ = move(store_);  // what cancelImportSession restores if the save keeps failing
     store_ = move(merged);
   }
-  if (!saveState("import", importSourcePath_.filename().string())) {
+  if (!saveState("import", importSourcePath_.filename().u8string())) {
     importCommitPending_ = true;
     setMessage("Import is staged but not saved. Press R to retry or Q to cancel.", 7, UiMessageSeverity::Error);
     dirty_ = true;

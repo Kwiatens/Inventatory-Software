@@ -179,7 +179,7 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
   ifstream input(path, ios::binary);
   if (!input) {
     cleanup();
-    error = "Unable to read " + path.string();
+    error = "Unable to read " + path.u8string();
     return false;
   }
   array<unsigned char, 64 * 1024> buffer{};
@@ -188,13 +188,13 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
     const auto count = input.gcount();
     if (count > 0 && BCryptHashData(hashHandle, buffer.data(), static_cast<ULONG>(count), 0) != 0) {
       cleanup();
-      error = "Unable to hash " + path.string();
+      error = "Unable to hash " + path.u8string();
       return false;
     }
   }
   if (!input.eof() || BCryptFinishHash(hashHandle, digest.data(), hashLength, 0) != 0) {
     cleanup();
-    error = "Unable to finish hash for " + path.string();
+    error = "Unable to finish hash for " + path.u8string();
     return false;
   }
   hash = hexBytes(digest.data(), digest.size());
@@ -203,7 +203,7 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
 #else
   ifstream input(path, ios::binary);
   if (!input) {
-    error = "Unable to read " + path.string();
+    error = "Unable to read " + path.u8string();
     return false;
   }
   Sha256 digest;
@@ -214,7 +214,7 @@ bool sha256File(const filesystem::path& path, string& hash, string& error) {
     if (count > 0) digest.update(buffer.data(), static_cast<size_t>(count));
     if (input.eof()) break;
     if (!input) {
-      error = "Unable to read " + path.string();
+      error = "Unable to read " + path.u8string();
       return false;
     }
   }

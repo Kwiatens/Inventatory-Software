@@ -25,7 +25,7 @@ void App::refreshInventoryCommits(bool afterOwnSave) {
   vector<InventoryCommit> loadedCommits;
   if (!loadInventoryCommits(inventoryPath_, loadedCommits, !afterOwnSave)) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
     return;
   }
@@ -47,7 +47,7 @@ void App::refreshInventoryCommits(bool afterOwnSave) {
     loadedSelection = min(historySelection_, loadedCommits.size() - 1);
     if (!loadInventoryCommit(inventoryPath_, loadedCommits[loadedSelection].id, loadedDetail)) {
       inventoryRecoveryRequired_ = true;
-      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.string();
+      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.u8string();
       persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
       return;
     }
@@ -78,7 +78,7 @@ void App::refreshHistoryDetail() {
   InventoryCommitDetail loadedDetail;
   if (!loadInventoryCommit(inventoryPath_, inventoryCommits_[historySelection_].id, loadedDetail)) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
     return;
   }

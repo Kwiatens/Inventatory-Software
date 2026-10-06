@@ -286,7 +286,7 @@ ftxui::Element App::renderOnboardingContent() const {
       break;
     case OnboardingStep::DataFolder:
       rows.push_back(uiHeaderText("Inventory data folder", uiTitleColor()));
-      rows.push_back(styledText("Current folder: " + dataPath_.string(), uiSecondaryText()));
+      rows.push_back(styledText("Current folder: " + dataPath_.u8string(), uiSecondaryText()));
       rows.push_back(onboardingPrompt("[ Enter ] Use this folder   [ B ] Choose another"));
       break;
     case OnboardingStep::BackgroundService:
