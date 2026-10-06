@@ -577,6 +577,7 @@ class App {
   void clearMessageIfExpired();
   void requestUserExit();
   void completeSettingsExit(bool saveChanges);
+  void releasePageState(Page leaving);
   void restartDeviceService();
   void processBackgroundWork();
   void processPrinterWork();
