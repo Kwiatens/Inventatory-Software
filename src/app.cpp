@@ -140,6 +140,8 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     refreshPrinterState();
   }
   loadUpdateCompletionMarker();
+  // Update folders abandoned by an earlier run (closed mid-download, crash, installer never started).
+  removeStaleUpdateDownloadDirectories();
   if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion) &&
       !inventoryRecoveryRequired_) {
     onboardingActive_ = true;

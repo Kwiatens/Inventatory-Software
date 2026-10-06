@@ -2556,6 +2556,43 @@ void testUpdateDownloadFolderAndInstallDirectory() {
     assert(!isInstallDirectoryWritable(readOnly / "inventatory"));
     filesystem::permissions(readOnly, filesystem::perms::owner_all, filesystem::perm_options::replace);
   }
+
+  // Folders left behind by an abandoned update are swept once they are a day old; fresh ones (an update in
+  // progress), other names, plain files and symbolic links are never touched.
+  {
+    const auto sweepRoot = root / "sweep";
+    filesystem::create_directories(sweepRoot);
+    const auto makeFolder = [&](const string& name, chrono::hours age) {
+      const auto folder = sweepRoot / name;
+      filesystem::create_directories(folder / "nested");
+      writeTextFile(folder / "nested" / "Inventatory-linux-x64.tar.gz", "archive");
+      filesystem::last_write_time(folder, filesystem::file_time_type::clock::now() - age);
+      return folder;
+    };
+    const auto stale = makeFolder("Inventatory-update-stale1", chrono::hours(48));
+    const auto fresh = makeFolder("Inventatory-update-fresh1", chrono::hours(1));
+    const auto otherName = makeFolder("Other-update-stale1", chrono::hours(48));
+    const auto bareName = makeFolder("Inventatory-update-", chrono::hours(48));
+    const auto staleFile = sweepRoot / "Inventatory-update-file";
+    writeTextFile(staleFile, "not a folder");
+    filesystem::last_write_time(staleFile, filesystem::file_time_type::clock::now() - chrono::hours(48));
+    const auto outside = root / "sweep-outside";
+    filesystem::create_directories(outside);
+    writeTextFile(outside / "keep.txt", "keep");
+    const auto linked = sweepRoot / "Inventatory-update-link";
+    filesystem::create_directory_symlink(outside, linked);
+
+    assert(removeStaleUpdateDownloadDirectories(sweepRoot) == 1);
+    assert(!filesystem::exists(stale));
+    assert(filesystem::is_directory(fresh) && filesystem::is_directory(otherName) && filesystem::is_directory(bareName));
+    assert(filesystem::is_regular_file(staleFile));
+    assert(filesystem::is_symlink(linked) && filesystem::is_regular_file(outside / "keep.txt"));
+    // The age threshold is the caller's: a short one sweeps the fresh folder too, and nothing else new.
+    assert(removeStaleUpdateDownloadDirectories(sweepRoot, chrono::seconds(60)) == 1);
+    assert(!filesystem::exists(fresh));
+    assert(removeStaleUpdateDownloadDirectories(sweepRoot) == 0);
+    assert(removeStaleUpdateDownloadDirectories(root / "missing-parent") == 0);
+  }
   filesystem::remove_all(root, ignored);
 }
 #endif
