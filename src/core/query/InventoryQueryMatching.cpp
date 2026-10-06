@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cstddef>
+#include <limits>
 #include <sstream>
+#include <system_error>
 #include <unordered_set>
 
 namespace inventatory::query_detail {
@@ -147,27 +150,38 @@ optional<PhysicalValueComparison> tokenMatchesParameterPhysically(const Inventor
   return bestPhysicalComparison(fromParameters, fromName);
 }
 
+// Reads the whole operand as a decimal integer. Trailing text ("5abc", "1e3") or blanks make the
+// token meaningless rather than silently truncating it; a value beyond long long saturates.
+optional<long long> parseQuantityOperand(const string& text) {
+  if (text.empty()) return nullopt;
+  long long value = 0;
+  const auto* first = text.data();
+  const auto* last = text.data() + text.size();
+  const auto result = from_chars(first, last, value);
+  if (result.ec == errc::result_out_of_range && result.ptr == last) {
+    return text.front() == '-' ? numeric_limits<long long>::min() : numeric_limits<long long>::max();
+  }
+  if (result.ec != errc{} || result.ptr != last) return nullopt;
+  return value;
+}
+
 bool tokenMatchesQuantity(const InventoryItem& item, const string& token) {
-  try {
-    if (token.rfind("qty>=", 0) == 0) {
-      return item.quantity >= stoi(token.substr(5));
-    }
-    if (token.rfind("qty<=", 0) == 0) {
-      return item.quantity <= stoi(token.substr(5));
-    }
-    if (token.rfind("qty>", 0) == 0) {
-      return item.quantity > stoi(token.substr(4));
-    }
-    if (token.rfind("qty<", 0) == 0) {
-      return item.quantity < stoi(token.substr(4));
-    }
-    if (token.rfind("qty=", 0) == 0) {
-      return item.quantity == stoi(token.substr(4));
-    }
-  } catch (const invalid_argument&) {
-    return false;
-  } catch (const out_of_range&) {
-    return false;
+  struct Comparison {
+    const char* prefix;
+    bool (*matches)(long long quantity, long long operand);
+  };
+  static const Comparison kComparisons[] = {
+      {"qty>=", [](long long quantity, long long operand) { return quantity >= operand; }},
+      {"qty<=", [](long long quantity, long long operand) { return quantity <= operand; }},
+      {"qty>", [](long long quantity, long long operand) { return quantity > operand; }},
+      {"qty<", [](long long quantity, long long operand) { return quantity < operand; }},
+      {"qty=", [](long long quantity, long long operand) { return quantity == operand; }},
+  };
+  for (const auto& comparison : kComparisons) {
+    const string prefix = comparison.prefix;
+    if (token.rfind(prefix, 0) != 0) continue;
+    const auto operand = parseQuantityOperand(token.substr(prefix.size()));
+    return operand.has_value() && comparison.matches(item.quantity, *operand);
   }
   return false;
 }
