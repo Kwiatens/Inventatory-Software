@@ -105,6 +105,12 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
 bool isSafeHeaderValue(const string& value);
 bool appendHeader(std::ostringstream& headers, const char* name, const string& value, string* error);
 bool appendAuthorizationHeader(std::ostringstream& headers, const string& token, string* error);
+// Blanks the display-only numeric fields (stock, lead time, price) that are not valid numbers, so one odd
+// value does not discard an otherwise usable product. Returns true when something was cleared.
+bool clearInvalidOptionalFields(DigiKeyProductDetails& details);
+// Seconds an access token may be reused: the server's expires_in minus a safety margin, or a default
+// when the field is missing or unusable.
+int tokenLifetimeSeconds(const string& expiresIn);
 bool isUnsignedDecimal(const string& value, unsigned long long maximum);
 bool isFiniteDecimal(const string& value, double maximum);
 
