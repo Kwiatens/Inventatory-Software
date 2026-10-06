@@ -7474,6 +7474,26 @@ int main() {
     assert(stripByteOrderMark("\xEF\xBB\xBFId") == "Id");
   }
 
+  {
+    // A quote in the middle of an unquoted field is an inch mark, not the start of a quoted section.
+    string csvError;
+    const string inchText = "Ref;Value\nR1;2.13\" ePaper\nR2;10k\n";
+    assert(sniffDelimiter(inchText) == ';');
+    const auto rows = parseCsv(inchText, ';', csvError);
+    assert(csvError.empty());
+    assert(rows.size() == 3);
+    assert(rows[1][0] == "R1" && rows[1][1] == "2.13\" ePaper");
+    assert(rows[2][0] == "R2" && rows[2][1] == "10k");
+    // Several marks and delimiters after the quote stay in their own fields.
+    const auto multi = parseCsv("a,5\" x 7\",c\nd,e,f\n", ',', csvError);
+    assert(csvError.empty() && multi.size() == 2);
+    assert(multi[0].size() == 3 && multi[0][1] == "5\" x 7\"" && multi[0][2] == "c");
+    // Quoting at the start of a field (also after a blank) still works, including embedded delimiters.
+    const auto quoted = parseCsv("x; \"a;b\";\"c\"\"d\"\n", ';', csvError);
+    assert(csvError.empty() && quoted.size() == 1);
+    assert(quoted[0].size() == 3 && quoted[0][1] == "a;b" && quoted[0][2] == "c\"d");
+    assert(sniffDelimiter("\"a,b\";\"c,d\";e\n") == ';');
+  }
 
 
   {
