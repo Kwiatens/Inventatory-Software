@@ -62,22 +62,24 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   }
   applyUiAppearance(settings_.appearance);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
-#ifndef _WIN32
+    // A relative folder would resolve against whatever directory the process was started from, so the
+    // interactive app and the background service could open different workspaces.
     if (!settings_.dataDirectory.is_absolute()) {
       inventoryRecoveryRequired_ = true;
+#ifdef _WIN32
+      inventoryRecoveryDetail_ = "The configured inventory folder is not an absolute path";
+#else
       inventoryRecoveryDetail_ = "The configured Linux inventory folder is not an absolute path";
+#endif
       persistenceError_ = inventoryRecoveryDetail_ + ". Choose the folder containing your inventory.";
     } else {
-#endif
     dataPath_ = settings_.dataDirectory;
     inventoryPath_ = dataPath_ / "inventory.db";
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
     inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
     quickLabelsPath_ = dataPath_ / "quick_labels.conf";
-#ifndef _WIN32
     }
-#endif
   } else {
     if (loadedSettings) {
       inventoryRecoveryRequired_ = true;
