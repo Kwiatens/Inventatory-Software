@@ -576,6 +576,42 @@ void testPhysicalValueParsing() {
   assert(!parsePhysicalValue("").has_value());
   assert(!parsePhysicalValue("abc").has_value());
   assert(!parsePhysicalValue("123").has_value());
+
+  // A number that overflows has no value; it must not read as an exact 0.
+  assert(!parsePhysicalValue("1e999 k").has_value());
+  assert(!parsePhysicalValue("1e999k").has_value());
+  assert(!parsePhysicalValue("1e999 Ohm").has_value());
+  assert(!parsePhysicalValue("1e308 G").has_value());
+  assert(!parsePhysicalValue("99999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+                             "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+                             "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+                             "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+                             "9999999999999999999999999999999999999999999999999999999999999999999999R9")
+               .has_value());
+
+  // Both omega code points are accepted, with trailing tolerance text.
+  const auto greekOmega = string("\xCE\xA9");
+  const auto ohmSign = string("\xE2\x84\xA6");
+  for (const auto& text : {"10" + greekOmega, "10" + ohmSign, "10 " + ohmSign, "10 " + greekOmega + " 1%",
+                           "10 " + ohmSign + " 1%"}) {
+    const auto parsed = parsePhysicalValue(text);
+    assert(parsed.has_value());
+    assert(parsed->type == PhysicalValueType::Resistance);
+    assert(std::abs(parsed->value - 10.0) < 1e-9);
+  }
+  assert(std::abs(parsePhysicalValue("4.7 k" + ohmSign)->value - 4700.0) < 1e-9);
+  assert(std::abs(parsePhysicalValue("2.2 M" + greekOmega)->value - 2.2e6) < 1e-3);
+
+  // The unit must be a whole word, so unrelated words are not component values.
+  for (const char* text : {"10 hours", "5 ft", "2 rad", "10 hrs", "3 henna", "1 farmers", "4 ohmage"}) {
+    assert(!parsePhysicalValue(text).has_value());
+  }
+  assert(parsePhysicalValue("10 hz")->type == PhysicalValueType::Frequency);
+  assert(parsePhysicalValue("10 Ohms")->type == PhysicalValueType::Resistance);
+  assert(parsePhysicalValue("10 kOhms 1%")->type == PhysicalValueType::Resistance);
+  assert(parsePhysicalValue("2.2 Farads")->type == PhysicalValueType::Capacitance);
+  assert(parsePhysicalValue("4.7 uH 20%")->type == PhysicalValueType::Inductance);
+  assert(parsePhysicalValue("100 nF")->type == PhysicalValueType::Capacitance);
 }
 
 void testPhysicalValueMatching() {
