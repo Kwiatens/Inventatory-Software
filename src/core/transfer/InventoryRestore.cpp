@@ -38,10 +38,14 @@ using namespace std;
 
 using namespace inventory_transfer_detail;
 
-bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
-                              const filesystem::path& appSettingsPath, string& error,
-                              const InventoryTransferTestHooks* testHooks,
-                              bool* replacementWorkspaceActiveOnFailure) {
+namespace {
+
+// `recordedDirectory` is the data directory as the user named it; it is what the restored settings
+// record, even when the work is done on the folder a symbolic link resolves to.
+bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
+                                  const filesystem::path& recordedDirectory, const filesystem::path& appSettingsPath,
+                                  string& error, const InventoryTransferTestHooks* testHooks,
+                                  bool* replacementWorkspaceActiveOnFailure) {
   try {
   error.clear();
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
@@ -56,8 +60,8 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
         error = "Restore destination is a link that does not lead to a folder";
         return false;
       }
-      return restoreInventatoryBackup(backupDirectory, resolved, appSettingsPath, error, testHooks,
-                                      replacementWorkspaceActiveOnFailure);
+      return restoreInventatoryBackupImpl(backupDirectory, resolved, recordedDirectory, appSettingsPath, error,
+                                          testHooks, replacementWorkspaceActiveOnFailure);
     }
   }
 #endif
@@ -227,7 +231,7 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
   if (!loadAppSettings(destinationDirectory / "settings.conf", restoredSettings)) {
     primaryError = "Restored settings are invalid";
   } else {
-    restoredSettings.dataDirectory = destinationDirectory;
+    restoredSettings.dataDirectory = recordedDirectory;
     // Whether the background service is registered, which port the paired scanner uses and whether the
     // user answered the background prompt describe this computer, not the workspace. They stay as they
     // are here (or at their defaults on a computer without settings) so the next launch does not register
@@ -305,6 +309,16 @@ bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const fil
     error = string("Restore error: ") + exception.what();
     return false;
   }
+}
+
+}  // namespace
+
+bool restoreInventatoryBackup(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
+                              const filesystem::path& appSettingsPath, string& error,
+                              const InventoryTransferTestHooks* testHooks,
+                              bool* replacementWorkspaceActiveOnFailure) {
+  return restoreInventatoryBackupImpl(backupDirectory, destinationDirectory, destinationDirectory, appSettingsPath,
+                                      error, testHooks, replacementWorkspaceActiveOnFailure);
 }
 
 }  // namespace inventatory

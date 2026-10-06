@@ -538,6 +538,12 @@ void testBackupAndRestoreThroughDataFolderLinks() {
   assert(restored.load(linkedTarget / "inventory.db"));
   assert(restored.items().size() == 1 && restored.items().front().id == "link-item");
   assert(readTextFile(realTarget / "notes.txt") == "user file");
+  // The settings keep naming the link, so retargeting it later is still honoured.
+  {
+    AppSettings afterRestore;
+    assert(loadAppSettings(root / "target-settings.conf", afterRestore));
+    assert(afterRestore.dataDirectory == linkedTarget);
+  }
 
   // A link that leads nowhere is refused with a message that names the link.
   assert(!restoreInventatoryBackup(root / "bundle", root / "dangling", root / "target-settings.conf", error));
