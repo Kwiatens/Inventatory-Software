@@ -75,9 +75,7 @@ bool looksLikeInductanceValue(const string& value) {
 }
 
 string canonicalInductanceUnit(string unit) {
-  transform(unit.begin(), unit.end(), unit.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
+  unit = toLower(move(unit));
   if (unit == "uh") {
     return "uH";
   }
