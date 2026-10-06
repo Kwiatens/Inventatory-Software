@@ -11,8 +11,8 @@ Prompt and paste this single command:
 
 The installer verifies the downloaded release archive against its SHA-256
 manifest before activation, then launches Inventatory.
-The first-run setup wizard creates the desktop shortcut after setup is
-completed.
+The installer asks whether to create a desktop shortcut; the first-run setup
+wizard does not create one.
 Use Settings > Updates for later updates so the existing verified update and
 rollback path is used.
 After installation, Settings > Updates can check GitHub and open the same

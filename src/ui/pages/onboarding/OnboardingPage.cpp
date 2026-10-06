@@ -260,15 +260,17 @@ void App::finishOnboarding() {
     setMessage("Unable to save setup completion; setup will open again next time", 5);
     return;
   }
+#ifdef _WIN32
+  // The installer owns the Windows shortcuts and only creates the desktop one when asked to, so the
+  // wizard must not add it back after the installer user declined it.
+  onboardingActive_ = false;
+  changePage(Page::Stock);
+  setMessage("Setup complete.", 5);
+#else
   string shortcutError;
   const bool shortcutCreated = createDesktopShortcut(shortcutError);
   onboardingActive_ = false;
   changePage(Page::Stock);
-#ifdef _WIN32
-  setMessage(shortcutCreated ? "Setup complete."
-                             : "Setup complete; desktop shortcut could not be created: " + shortcutError,
-             shortcutCreated ? 5 : 7);
-#else
   setMessage(shortcutCreated ? "Setup complete."
                              : "Setup complete; application launcher could not be created: " + shortcutError,
              shortcutCreated ? 5 : 7);
