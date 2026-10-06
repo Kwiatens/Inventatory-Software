@@ -788,6 +788,8 @@ class App {
   void processScans();
   void beginCsvImport();
   void cancelImportSession();
+  bool confirmImportDiscard();
+  void requestImportDiscard();
   bool commitImportStage();
   void moveImportSelection(int delta);
   void acceptImportCandidate();
@@ -923,6 +925,7 @@ class App {
   std::vector<std::string> importAcceptedItemIds_;
   std::filesystem::path importSourcePath_;
   bool importStageActive_ = false;
+  std::time_t importDiscardArmedUntil_ = 0;
   bool importCommitPending_ = false;
   std::vector<InventoryHistoryPoint> inventoryHistory_;
   std::vector<InventoryMovement> inventoryMovements_;
