@@ -81,8 +81,7 @@ class DigiKeyApiClient {
 
  private:
   bool ensureAccessToken(string* error);
-  bool sendAuthorized(const std::function<optional<string>(const string&, string*)>& buildHeaders,
-                      const std::wstring& method, const std::wstring& url, const string& body,
+  bool sendAuthorized(const std::wstring& method, const std::wstring& url, const string& body, bool jsonBody,
                       std::uint32_t& statusCode, string& responseBody, string* error);
   optional<string> requestToken(string* error);
   optional<string> requestProductDetails(const string& productNumber, string* error,
