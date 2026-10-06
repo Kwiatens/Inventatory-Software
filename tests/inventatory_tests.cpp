@@ -1255,6 +1255,49 @@ void testInventoryHistoryValidation() {
 #endif
 }
 
+// DigiKey response parsing must not lose a usable product to an odd display-only value, must find the
+// real package among look-alike parameters, and must size the token lifetime from the server's answer.
+void testDigiKeyParsingRobustness() {
+  using namespace digikey_detail;
+  const auto parse = [](const string& json) {
+    string error;
+    const auto root = parseJson(json, &error);
+    assert(root.has_value());
+    return *root;
+  };
+
+  {
+    // "Package" (the packaging) comes before "Package / Case" in the parameter list.
+    const auto product = parse(R"json({"Product":{"Description":{"ProductDescription":"CAP CER 100NF 50V X7R 0603"},
+      "Parameters":[
+        {"ParameterText":"Package","ValueText":"Tape & Reel (TR)"},
+        {"ParameterText":"Package / Case","ValueText":"0603 (1608 Metric)"},
+        {"ParameterText":"Capacitance","ValueText":"0.1 uF"}]}})json");
+    const auto details = parseProductDetails("311-1000-ND", product);
+    assert(details.packageName == "0603 (1608 Metric)");
+
+    // A label that normalises to nothing must not match every needle.
+    const auto dashed = parse(R"json({"Product":{"Parameters":[
+        {"ParameterText":"-","ValueText":"misleading"},
+        {"ParameterText":"Supplier Device Package","ValueText":"SOT-23-3"}]}})json");
+    const auto package = readParameterValue(*findMember(dashed, "Product"), {"Package / Case", "Supplier Device Package"});
+    assert(package.has_value() && *package == "SOT-23-3");
+
+    // An exact label beats a loose one that appears first.
+    const auto ordering = parse(R"json({"Product":{"Parameters":[
+        {"ParameterText":"Package / Case Notes","ValueText":"loose"},
+        {"ParameterText":"Package / Case","ValueText":"exact"}]}})json");
+    const auto exact = readParameterValue(*findMember(ordering, "Product"), {"Package / Case"});
+    assert(exact.has_value() && *exact == "exact");
+
+    // The predicate skips a rejected value and keeps looking.
+    const auto skipped = readParameterValue(
+        *findMember(product, "Product"), {"Package"}, [](const string& value) { return value.find("Reel") == string::npos; });
+    assert(skipped.has_value() && *skipped == "0603 (1608 Metric)");
+  }
+
+
+}
 
 void testSqliteSchemaValidation() {
 #ifdef INVENTATORY_SQLITE_STORAGE
@@ -2674,6 +2717,7 @@ int main() {
   testStockFilterState();
   testInventoryCommitHistory();
   testInventoryHistoryValidation();
+  testDigiKeyParsingRobustness();
   testSqliteSchemaValidation();
   testPackageGHardening();
   testScannerCommitIgnoresUnsavedMemoryEdits();
