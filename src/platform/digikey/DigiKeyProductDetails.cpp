@@ -256,5 +256,29 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
   return details;
 }
 
+bool clearInvalidOptionalFields(DigiKeyProductDetails& details) {
+  bool cleared = false;
+  const auto dropIfInvalid = [&](string& value, bool valid) {
+    if (!value.empty() && !valid) {
+      value.clear();
+      cleared = true;
+    }
+  };
+  dropIfInvalid(details.quantityAvailable, isUnsignedDecimal(details.quantityAvailable, 1000000000000ULL));
+  dropIfInvalid(details.manufacturerLeadWeeks, isUnsignedDecimal(details.manufacturerLeadWeeks, 1000000ULL));
+  dropIfInvalid(details.unitPrice, isFiniteDecimal(details.unitPrice, 1000000000000.0));
+  return cleared;
+}
+
+int tokenLifetimeSeconds(const string& expiresIn) {
+  constexpr int kDefaultSeconds = 540;
+  constexpr int kMarginSeconds = 60;
+  constexpr int kMinimumSeconds = 30;
+  constexpr int kMaximumSeconds = 3600;
+  if (!isUnsignedDecimal(expiresIn, 86400ULL)) return kDefaultSeconds;
+  const auto granted = static_cast<int>(stoull(trimCopy(expiresIn)));
+  return clamp(granted - kMarginSeconds, kMinimumSeconds, kMaximumSeconds);
+}
+
 }  // namespace digikey_detail
 }  // namespace inventatory
