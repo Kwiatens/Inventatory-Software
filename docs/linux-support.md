@@ -93,13 +93,14 @@ saved and the systemd unit is started again so the service stays supervised
 (`systemctl --user status inventatory-background.service`); a detached process
 is used only if systemd refuses. The unit is written only when its content
 changes and keeps the executable it was registered with while that file still
-exists. A binary that was replaced on disk while it runs (an update or
-reinstall) is never registered as `... (deleted)`. `systemctl` runs with a
-deadline and its messages are reported by Inventatory instead of being printed
-over the interface. The single-instance locks live in
-`$XDG_RUNTIME_DIR/inventatory`, or in `/run/user/<uid>/inventatory` when the
-variable is not set (for example from cron or `su`), so every launch context
-shares them. Linux does not provide a notification area icon. The current Windows
+exists. If registering it fails, the previous unit is put back. A binary that
+was replaced on disk while it runs (an update or reinstall) is never registered
+as `... (deleted)`. `systemctl` runs with a deadline and its messages are
+reported by Inventatory instead of being printed over the interface. The
+single-instance locks live in `$XDG_RUNTIME_DIR/inventatory`, or in
+`/run/user/<uid>/inventatory` when the variable is not set (for example from
+cron or `su`), so every launch context shares them. Linux does not provide a
+notification area icon. The current Windows
 release retains its notification-area process and Windows startup integration.
 
 ## Data and configuration

@@ -58,6 +58,13 @@ bool fileHoldsContents(const filesystem::path& path, std::string_view contents) 
   return existing == contents;
 }
 
+bool readFileContents(const filesystem::path& path, std::string& contents) {
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream.is_open()) return false;
+  contents.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+  return !stream.bad();
+}
+
 bool writeFileIfChanged(const filesystem::path& path, std::string_view contents, std::string* error,
                         bool* written = nullptr) {
   if (written != nullptr) *written = false;
@@ -358,6 +365,8 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
   const auto contents = backgroundUnitContents(executable);
   const bool existed = filesystem::exists(unit, filesystemError);
   const bool changed = !fileHoldsContents(unit, contents);
+  std::string previousContents;
+  const bool havePrevious = existed && changed && readFileContents(unit, previousContents);
   if (changed) {
     if (!writeFileAtomically(unit, contents, &error)) return false;
     filesystem::permissions(unit, filesystem::perms::owner_read | filesystem::perms::owner_write,
@@ -372,11 +381,18 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
   if (alreadyEnabled) return true;
   if (!runSystemctl({"--user", "daemon-reload"}, error) ||
       !runSystemctl({"--user", "enable", kServiceName}, error)) {
+    // Leave the previous registration as it was instead of a half-applied one.
+    std::error_code ignoredFilesystemError;
+    std::string ignoredServiceError;
     if (!existed) {
-      std::error_code ignoredFilesystemError;
-      std::string ignoredServiceError;
       filesystem::remove(unit, ignoredFilesystemError);
       runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
+    } else if (havePrevious) {
+      if (writeFileAtomically(unit, previousContents, nullptr)) {
+        filesystem::permissions(unit, filesystem::perms::owner_read | filesystem::perms::owner_write,
+                                filesystem::perm_options::replace, ignoredFilesystemError);
+        runSystemctl({"--user", "daemon-reload"}, ignoredServiceError);
+      }
     }
     return false;
   }
