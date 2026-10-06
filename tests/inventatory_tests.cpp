@@ -2313,6 +2313,47 @@ void testInventoryCommitSnapshotsStayValid() {
 #endif
 }
 
+// Values that render alike once joined for display must still count as different edits.
+void testInventoryCommitDiffSeparatesAmbiguousValues() {
+  InventoryStore before;
+  InventoryItem item;
+  item.id = "ambiguous-item";
+  item.partName = "Ambiguous";
+  item.tags = {"a,b"};
+  item.parameters = {{"a", "b=c"}};
+  item.vendorMetadata.categoryPath = {"x;y"};
+  before.items().push_back(item);
+
+  InventoryStore after = before;
+  after.items().front().tags = {"a", "b"};
+  auto changes = inventoryCommitDiff(before, after);
+  assert(changes.size() == 1 && changes.front().field == "tags");
+
+  after = before;
+  after.items().front().parameters = {{"a=b", "c"}};
+  changes = inventoryCommitDiff(before, after);
+  assert(changes.size() == 1 && changes.front().field == "parameters");
+
+  after = before;
+  after.items().front().vendorMetadata.categoryPath = {"x", "y"};
+  changes = inventoryCommitDiff(before, after);
+  assert(changes.size() == 1 && changes.front().field == "vendor category path");
+
+  // Identical values, and ordinary values, are unchanged and render as before.
+  assert(inventoryCommitDiff(before, before).empty());
+  after = before;
+  after.items().front().tags = {"smd", "production"};
+  after.items().front().parameters = {{"Resistance", "10k"}};
+  changes = inventoryCommitDiff(before, after);
+  const auto tagChange = find_if(changes.begin(), changes.end(),
+                                 [](const InventoryFieldChange& change) { return change.field == "tags"; });
+  assert(tagChange != changes.end() && tagChange->after == "smd,production");
+  const auto parameterChange = find_if(changes.begin(), changes.end(), [](const InventoryFieldChange& change) {
+    return change.field == "parameters";
+  });
+  assert(parameterChange != changes.end() && parameterChange->after == "Resistance=10k");
+}
+
 // DigiKey response parsing must not lose a usable product to an odd display-only value, must find the
 // real package among look-alike parameters, and must size the token lifetime from the server's answer.
 void testDigiKeyParsingRobustness() {
@@ -4201,6 +4242,7 @@ int main() {
   testInventoryCommitHistory();
   testInventoryHistoryValidation();
   testInventoryCommitSnapshotsStayValid();
+  testInventoryCommitDiffSeparatesAmbiguousValues();
   testDigiKeyParsingRobustness();
   testSqliteSchemaValidation();
   testPackageGHardening();
