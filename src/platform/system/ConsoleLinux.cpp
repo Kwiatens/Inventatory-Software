@@ -2,6 +2,8 @@
 
 #include "platform/system/Console.h"
 
+#include "platform/system/Environment.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -350,17 +352,7 @@ bool ensureTerminalAttached(int argc, char* argv[]) {
     return true;
   }
 
-  std::vector<char> buffer(4096U);
-  string executable;
-  for (;;) {
-    const auto count = readlink("/proc/self/exe", buffer.data(), buffer.size());
-    if (count > 0 && static_cast<size_t>(count) < buffer.size()) {
-      executable.assign(buffer.data(), count);
-      break;
-    }
-    if (count <= 0 || buffer.size() >= 1024U * 1024U) break;
-    buffer.resize(buffer.size() * 2U);
-  }
+  string executable = currentExecutablePath().string();
   if (executable.empty() && argc > 0 && argv[0] != nullptr) {
     executable = argv[0];
   }

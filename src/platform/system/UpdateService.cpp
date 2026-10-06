@@ -5,6 +5,7 @@
 #include "platform/system/UpdateService.h"
 
 #include "core/transfer/InventoryTransferPrivate.h"
+#include "platform/system/Environment.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1025,9 +1026,8 @@ void relaunchAfterUpdate(const std::filesystem::path& markerPath) {
 #ifdef _WIN32
   (void)markerPath;
 #else
-  std::error_code filesystemError;
-  const auto executable = std::filesystem::read_symlink("/proc/self/exe", filesystemError);
-  if (filesystemError || executable.empty()) return;
+  const auto executable = currentExecutablePath();
+  if (executable.empty()) return;
   const auto exe = executable.u8string();
   const auto marker = markerPath.u8string();
   // The installer waits while /proc/<pid>/exe still names the Inventatory
