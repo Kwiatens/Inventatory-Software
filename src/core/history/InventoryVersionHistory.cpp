@@ -164,6 +164,33 @@ bool readCommitSnapshot(SqliteConnection& connection, const string& id, Inventor
   return validateSnapshotSemantics(snapshot, nullptr);
 }
 
+// Why `commit` disagrees with the changes from its parent snapshot (`changes`, empty for an initial
+// commit), or nullptr when it is consistent.
+const char* commitInconsistency(const InventoryCommit& commit, bool hasParent,
+                                const vector<InventoryFieldChange>& changes) {
+  if (!hasParent) {
+    if (!commit.parentId.empty() || commit.changedItemCount != 0 || commit.changedRackCount != 0) {
+      return "Initial inventory commit has an invalid parent or change count";
+    }
+  } else {
+    size_t changedItems = 0;
+    size_t changedRacks = 0;
+    if (!countChangedEntities(changes, changedItems, changedRacks)) {
+      return "Inventory commit contains an unknown change entity";
+    }
+    if (commit.changedItemCount != changedItems || commit.changedRackCount != changedRacks) {
+      return "Inventory commit change counts do not match its snapshots";
+    }
+    if (changes.empty() && !commit.checkpoint) return "Inventory commit without changes is not a checkpoint";
+  }
+  if (commit.corrective && commit.revertedCommitId.empty()) {
+    return "Corrective inventory commit is missing its reverted commit";
+  }
+  if (!commit.corrective && !commit.revertedCommitId.empty()) {
+    return "Non-corrective inventory commit references a reverted commit";
+  }
+  return nullptr;
+}
 
 }  // namespace
 
@@ -231,30 +258,12 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
     }
 
     if (commit.sequence != commitCount + 1) return fail("Inventory commit sequence is not contiguous");
-    if (commitCount == 0) {
-      if (!commit.parentId.empty() || commit.changedItemCount != 0 || commit.changedRackCount != 0) {
-        return fail("Initial inventory commit has an invalid parent or change count");
-      }
-    } else {
-      if (commit.parentId != previousCommit.id) return fail("Inventory commit parent does not match sequence");
-      const auto changes = inventoryCommitDiff(previousSnapshot, snapshot);
-      unordered_set<string> changedItems;
-      unordered_set<string> changedRacks;
-      for (const auto& change : changes) {
-        if (change.entityType == "item") changedItems.insert(change.entityId);
-        else if (change.entityType == "rack") changedRacks.insert(change.entityId);
-        else return fail("Inventory commit contains an unknown change entity");
-      }
-      if (commit.changedItemCount != changedItems.size() || commit.changedRackCount != changedRacks.size()) {
-        return fail("Inventory commit change counts do not match its snapshots");
-      }
-      if (changes.empty() && !commit.checkpoint) return fail("Inventory commit without changes is not a checkpoint");
+    if (commitCount != 0 && commit.parentId != previousCommit.id) {
+      return fail("Inventory commit parent does not match sequence");
     }
-    if (commit.corrective && commit.revertedCommitId.empty()) {
-      return fail("Corrective inventory commit is missing its reverted commit");
-    }
-    if (!commit.corrective && !commit.revertedCommitId.empty()) {
-      return fail("Non-corrective inventory commit references a reverted commit");
+    const auto changes = commitCount == 0 ? vector<InventoryFieldChange>{} : inventoryCommitDiff(previousSnapshot, snapshot);
+    if (const char* inconsistency = commitInconsistency(commit, commitCount != 0, changes)) {
+      return fail(inconsistency);
     }
     if (!commit.revertedCommitId.empty()) revertedCommitIds.push_back(commit.revertedCommitId);
 
@@ -363,24 +372,8 @@ bool loadInventoryCommit(const filesystem::path& path, const string& id, Invento
   }
   detail.changes = detail.hasParent ? inventoryCommitDiff(detail.parentSnapshot, detail.snapshot)
                                     : inventoryCommitDiff(InventoryStore{}, detail.snapshot);
-  bool countsValid = true;
-  if (detail.hasParent) {
-    unordered_set<string> items;
-    unordered_set<string> racks;
-    for (const auto& change : detail.changes) {
-      if (change.entityType == "item") items.insert(change.entityId);
-      else if (change.entityType == "rack") racks.insert(change.entityId);
-    }
-    countsValid = detail.commit.changedItemCount == items.size() && detail.commit.changedRackCount == racks.size();
-  }
-  if ((!detail.hasParent && (detail.commit.sequence != 1 || detail.commit.changedItemCount != 0 ||
-                             detail.commit.changedRackCount != 0)) ||
-      (detail.hasParent && detail.changes.empty() && !detail.commit.checkpoint) || !countsValid ||
-      (detail.commit.corrective && detail.commit.revertedCommitId.empty()) ||
-      (!detail.commit.corrective && !detail.commit.revertedCommitId.empty())) {
-    return false;
-  }
-  return true;
+  return (detail.hasParent || detail.commit.sequence == 1) &&
+         commitInconsistency(detail.commit, detail.hasParent, detail.changes) == nullptr;
 }
 
 }  // namespace inventatory

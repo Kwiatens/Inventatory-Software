@@ -183,6 +183,20 @@ vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, c
   return changes;
 }
 
+bool countChangedEntities(const vector<InventoryFieldChange>& changes, size_t& itemCount, size_t& rackCount) {
+  unordered_set<string> items;
+  unordered_set<string> racks;
+  bool known = true;
+  for (const auto& change : changes) {
+    if (change.entityType == "item") items.insert(change.entityId);
+    else if (change.entityType == "rack") racks.insert(change.entityId);
+    else known = false;
+  }
+  itemCount = items.size();
+  rackCount = racks.size();
+  return known;
+}
+
 bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& after) {
   return !inventoryCommitDiff(before, after).empty();
 }
