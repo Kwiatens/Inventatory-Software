@@ -1364,6 +1364,25 @@ void testPhysicalValueSearchIntegration() {
   assert(closest[0].band == PhysicalValueMatchBand::Workable);
 }
 
+#ifndef _WIN32
+void testFailedUnitRegistrationRestoresPreviousUnit() {
+  StartupTestEnvironment environment("unit-rollback");
+  const auto unit = environment.unit();
+  // A failed enable on an existing registration leaves the previous unit in place.
+  const string oldUnit = "[Service]\nExecStart=\"/nonexistent/inventatory-old\" --background\n";
+  writeTextFile(unit, oldUnit);
+  { ofstream touch(environment.failEnable); }
+  string unitError;
+  assert(!setBackgroundStartupEnabled(true, unitError));
+  assert(unitError.find("bus unavailable") != string::npos);  // the helper's message, not a hang
+  assert(readTextFile(unit) == oldUnit);
+  // A first-time registration that fails is removed again.
+  filesystem::remove(unit);
+  assert(!setBackgroundStartupEnabled(true, unitError));
+  assert(!filesystem::exists(unit));
+}
+#endif
+
 void testInventoryCommitHistory() {
 #ifdef INVENTATORY_SQLITE_STORAGE
   const auto path = filesystem::temp_directory_path() / "inventatory-inventory-commit-history-test.db";
@@ -3192,6 +3211,10 @@ int main() {
     assert(created.created);
     assert(store.findById(created.itemId) != nullptr);
   }
+
+#ifndef _WIN32
+  testFailedUnitRegistrationRestoresPreviousUnit();
+#endif
 
   {
     vector<InventoryItem> items;
