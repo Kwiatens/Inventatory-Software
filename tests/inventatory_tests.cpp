@@ -849,6 +849,41 @@ void testPhysicalValueMatching() {
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
 }
 
+#ifndef _WIN32
+void testBackgroundRuntimeDirectory() {
+  error_code ignored;
+  const auto root = filesystem::temp_directory_path() / ("inventatory-runtime-dir-test-" + to_string(getpid()));
+  filesystem::remove_all(root, ignored);
+  const auto xdg = root / "xdg";
+  const auto userRun = root / "run-user";
+  const auto fallbackRoot = root / "tmp";
+  const auto privateDirectory = [](const filesystem::path& path) {
+    filesystem::create_directories(path);
+    filesystem::permissions(path, filesystem::perms::owner_all, filesystem::perm_options::replace);
+  };
+  privateDirectory(xdg);
+  privateDirectory(userRun / to_string(geteuid()));
+  privateDirectory(fallbackRoot);
+
+  // The variable wins when it names a private absolute directory.
+  assert(backgroundRuntimeDirectory(xdg.string(), userRun, fallbackRoot) == xdg / "inventatory");
+  // Without the variable the per-user run directory is shared, so a launch from cron, su or ssh
+  // finds the same locks as the systemd unit.
+  const auto expectedUserRun = userRun / to_string(geteuid()) / "inventatory";
+  assert(backgroundRuntimeDirectory(nullopt, userRun, fallbackRoot) == expectedUserRun);
+  assert(backgroundRuntimeDirectory(string(), userRun, fallbackRoot) == expectedUserRun);
+  assert(backgroundRuntimeDirectory(string("relative/path"), userRun, fallbackRoot) == expectedUserRun);
+  // A run directory that other users can enter is not trusted.
+  filesystem::permissions(userRun / to_string(geteuid()), filesystem::perms::owner_all | filesystem::perms::group_read |
+                                                              filesystem::perms::group_exec,
+                          filesystem::perm_options::replace);
+  const auto fallback = backgroundRuntimeDirectory(nullopt, userRun, fallbackRoot);
+  assert(fallback == fallbackRoot / ("inventatory-" + to_string(geteuid())));
+  assert(filesystem::is_directory(fallback));
+  filesystem::remove_all(root, ignored);
+}
+#endif
+
 // Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing comma-decimal locale a failure
 // instead of a silent skip, so the locale regression tests cannot quietly stop running.
 void skipOrFailMissingLocale(const char* testName) {
@@ -912,6 +947,51 @@ void testPhysicalValueCommaDecimalLocale() {
 
   setlocale(LC_ALL, previous.c_str());
 }
+
+#ifndef _WIN32
+void testLinuxControllerLockProbesNeverBlockAcquisition() {
+  const auto root = filesystem::temp_directory_path() / ("inventatory-lock-probe-test-" + to_string(getpid()));
+  error_code ignored;
+  filesystem::remove_all(root, ignored);
+  filesystem::create_directories(root);
+  filesystem::permissions(root, filesystem::perms::owner_all, filesystem::perm_options::replace);
+  ScopedEnvironment runtime("XDG_RUNTIME_DIR", root.string());
+
+  // A process that only looks at the lock must never make a starting instance believe another one
+  // owns the workspace: probes run in 10-25 ms loops while the systemd unit starts.
+  atomic<bool> stopProbing{false};
+  atomic<int> probes{0};
+  thread prober([&] {
+    BackgroundController observer;
+    while (!stopProbing.load()) {
+      observer.backgroundServiceRunning();
+      observer.interactiveInstanceRunning();
+      probes.fetch_add(1);
+    }
+  });
+  int failures = 0;
+  for (int attempt = 0; attempt < 300; ++attempt) {
+    BackgroundController service;
+    if (!service.acquireSingleInstance(true)) ++failures;
+    service.stop();
+  }
+  stopProbing.store(true);
+  prober.join();
+  assert(probes.load() > 0);
+  assert(failures == 0);
+
+  // A genuinely held lock is still refused, and is reported by every probe.
+  BackgroundController owner;
+  assert(owner.acquireSingleInstance(true));
+  BackgroundController second;
+  assert(!second.acquireSingleInstance(true));
+  assert(second.backgroundServiceRunning());
+  assert(!second.interactiveInstanceRunning());
+  owner.stop();
+  assert(!second.backgroundServiceRunning());
+  filesystem::remove_all(root, ignored);
+}
+#endif
 
 // BOM value parsing and DigiKey numeric-field validation read dot-decimal text,
 // which must not depend on the user's locale.
@@ -2658,6 +2738,10 @@ int main() {
     assert(uiMessageRowHeight() == 1);
   }
 
+#ifndef _WIN32
+  testBackgroundRuntimeDirectory();
+#endif
+
   {
     assert(rack_page_detail::equalRackSlotHeight(39, 5) == 7);
     assert(rack_page_detail::equalRackSlotHeight(40, 5) == 8);
@@ -2703,6 +2787,10 @@ int main() {
     assert(categories[4].indent == 1);
     assert(categories[5].indent == 0);
   }
+
+#ifndef _WIN32
+  testLinuxControllerLockProbesNeverBlockAcquisition();
+#endif
 
   {
     const auto first = advanceWorkspaceGeneration(0);

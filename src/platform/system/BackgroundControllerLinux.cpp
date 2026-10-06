@@ -67,20 +67,7 @@ bool createWakePipe() {
 }
 
 filesystem::path runtimeDirectory() {
-  const auto validPrivateDirectory = [](const filesystem::path& path) {
-    struct stat status{};
-    return stat(path.c_str(), &status) == 0 && S_ISDIR(status.st_mode) && status.st_uid == geteuid() &&
-           (status.st_mode & 0077) == 0;
-  };
-  if (const auto xdg = environmentValue("XDG_RUNTIME_DIR"); xdg.has_value() && !xdg->empty() &&
-      filesystem::path(*xdg).is_absolute()) {
-    const auto directory = filesystem::path(*xdg) / "inventatory";
-    if (mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST) return {};
-    if (validPrivateDirectory(directory)) return directory;
-  }
-  const auto fallback = filesystem::path("/tmp") / ("inventatory-" + std::to_string(geteuid()));
-  if (mkdir(fallback.c_str(), 0700) != 0 && errno != EEXIST) return {};
-  return validPrivateDirectory(fallback) ? fallback : filesystem::path();
+  return backgroundRuntimeDirectory(environmentValue("XDG_RUNTIME_DIR"), "/run/user", "/tmp");
 }
 
 filesystem::path lockPath(bool backgroundMode) {
@@ -89,12 +76,33 @@ filesystem::path lockPath(bool backgroundMode) {
   return directory / (backgroundMode ? "background.lock" : "interactive.lock");
 }
 
+// True when another open file description holds the lock exclusively. The probe takes only a shared
+// lock, so concurrent probes never see each other as the owner, and it is released immediately.
+bool lockHeldElsewhere(int descriptor) {
+  if (flock(descriptor, LOCK_SH | LOCK_NB) == 0) {
+    flock(descriptor, LOCK_UN);
+    return false;
+  }
+  return errno == EWOULDBLOCK || errno == EAGAIN;
+}
+
+// A probe holds its shared lock for microseconds and would make a starting service think another
+// instance owns the workspace, so a refused exclusive lock is retried for a short moment.
+bool takeExclusiveLock(int descriptor) {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
+  for (;;) {
+    if (flock(descriptor, LOCK_EX | LOCK_NB) == 0) return true;
+    if ((errno != EWOULDBLOCK && errno != EAGAIN) || std::chrono::steady_clock::now() >= deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+}
+
 int acquireLock(bool backgroundMode) {
   const auto path = lockPath(backgroundMode);
   if (path.empty()) return -1;
   const int descriptor = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
   if (descriptor < 0) return -1;
-  if (fchmod(descriptor, 0600) != 0 || flock(descriptor, LOCK_EX | LOCK_NB) != 0) {
+  if (fchmod(descriptor, 0600) != 0 || !takeExclusiveLock(descriptor)) {
     close(descriptor);
     return -1;
   }
@@ -113,8 +121,7 @@ pid_t lockedProcessId(bool backgroundMode) {
   if (path.empty()) return -1;
   const int descriptor = open(path.c_str(), O_RDONLY | O_CLOEXEC);
   if (descriptor < 0) return -1;
-  if (flock(descriptor, LOCK_EX | LOCK_NB) == 0) {
-    flock(descriptor, LOCK_UN);
+  if (!lockHeldElsewhere(descriptor)) {
     close(descriptor);
     return -1;
   }
@@ -199,6 +206,33 @@ void restoreSignalHandlers() {
 
 }  // namespace
 
+std::filesystem::path backgroundRuntimeDirectory(const std::optional<std::string>& xdgRuntimeDir,
+                                                 const std::filesystem::path& userRunRoot,
+                                                 const std::filesystem::path& fallbackRoot) {
+  const auto validPrivateDirectory = [](const filesystem::path& path) {
+    struct stat status{};
+    return stat(path.c_str(), &status) == 0 && S_ISDIR(status.st_mode) && status.st_uid == geteuid() &&
+           (status.st_mode & 0077) == 0;
+  };
+  const auto privateSubdirectory = [&](const filesystem::path& parent) -> filesystem::path {
+    const auto directory = parent / "inventatory";
+    if (mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST) return {};
+    return validPrivateDirectory(directory) ? directory : filesystem::path();
+  };
+  if (xdgRuntimeDir.has_value() && !xdgRuntimeDir->empty() && filesystem::path(*xdgRuntimeDir).is_absolute()) {
+    if (auto directory = privateSubdirectory(*xdgRuntimeDir); !directory.empty()) return directory;
+  }
+  // The systemd user manager always provides this directory; use it when the variable is missing so a
+  // launch from cron, su or an ssh session without PAM shares the service's locks.
+  const auto userRunDirectory = userRunRoot / std::to_string(geteuid());
+  if (validPrivateDirectory(userRunDirectory)) {
+    if (auto directory = privateSubdirectory(userRunDirectory); !directory.empty()) return directory;
+  }
+  const auto fallback = fallbackRoot / ("inventatory-" + std::to_string(geteuid()));
+  if (mkdir(fallback.c_str(), 0700) != 0 && errno != EEXIST) return {};
+  return validPrivateDirectory(fallback) ? fallback : filesystem::path();
+}
+
 BackgroundController::~BackgroundController() { stop(); }
 
 bool BackgroundController::acquireSingleInstance(bool backgroundMode) {
@@ -220,8 +254,7 @@ bool BackgroundController::backgroundServiceRunning() const {
   if (path.empty()) return false;
   const int descriptor = open(path.c_str(), O_RDONLY | O_CLOEXEC);
   if (descriptor < 0) return false;
-  const bool running = flock(descriptor, LOCK_EX | LOCK_NB) != 0 && (errno == EWOULDBLOCK || errno == EAGAIN);
-  if (!running) flock(descriptor, LOCK_UN);
+  const bool running = lockHeldElsewhere(descriptor);
   close(descriptor);
   return running;
 }
@@ -231,8 +264,7 @@ bool BackgroundController::interactiveInstanceRunning() const {
   if (path.empty()) return false;
   const int descriptor = open(path.c_str(), O_RDONLY | O_CLOEXEC);
   if (descriptor < 0) return false;
-  const bool running = flock(descriptor, LOCK_EX | LOCK_NB) != 0 && (errno == EWOULDBLOCK || errno == EAGAIN);
-  if (!running) flock(descriptor, LOCK_UN);
+  const bool running = lockHeldElsewhere(descriptor);
   close(descriptor);
   return running;
 }

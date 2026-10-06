@@ -5,7 +5,10 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <filesystem>
 #include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
 
 #ifdef _WIN32
@@ -21,6 +24,16 @@ enum class BackgroundStopResult {
   Forced,      // it ignored the request and was terminated
   Failed,      // it is still running
 };
+
+#ifndef _WIN32
+// Directory that holds the single-instance locks. Prefers an absolute XDG_RUNTIME_DIR, then the
+// per-user <userRunRoot>/<uid> directory (so a launch without the variable, such as from cron or a
+// plain su, still shares the locks of the systemd unit), then <fallbackRoot>/inventatory-<uid>. Only a
+// directory owned by the user and closed to others is used; empty when none qualifies.
+std::filesystem::path backgroundRuntimeDirectory(const std::optional<std::string>& xdgRuntimeDir,
+                                                 const std::filesystem::path& userRunRoot,
+                                                 const std::filesystem::path& fallbackRoot);
+#endif
 
 class BackgroundController {
  public:
