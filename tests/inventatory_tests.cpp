@@ -3368,6 +3368,31 @@ int main() {
     // propagating std::stoi exceptions through the interactive search path.
     assert(filterItems(items, "qty>not-a-number").empty());
     assert(filterItems(items, "qty>=999999999999999999999").empty());
+    // Trailing text or exponent notation is not silently truncated to a number.
+    assert(filterItems(items, "qty>5abc").empty());
+    assert(filterItems(items, "qty<5abc").empty());
+    assert(filterItems(items, "qty=1e3").empty());
+    assert(filterItems(items, "qty>").empty());
+    // Out-of-range operands saturate, so the comparison direction stays right.
+    assert(filterItems(items, "qty<999999999999999999999").size() == items.size());
+    assert(filterItems(items, "qty>-999999999999999999999").size() == items.size());
+    assert(filterItems(items, "qty>=0").size() == items.size());
+    {
+      InventoryStore before;
+      InventoryStore after;
+      InventoryItem negative;
+      negative.id = "legacy-negative";
+      negative.partName = "Legacy";
+      negative.quantity = -5;
+      before.items().push_back(negative);
+      negative.quantity = numeric_limits<int>::max();
+      after.items().push_back(negative);
+      const auto movements = inventoryMovementDiff(before, after, "manual", "", 1);
+      assert(movements.size() == 1);
+      assert(movements.front().quantityBefore == -5);
+      assert(movements.front().quantityAfter == numeric_limits<int>::max());
+      assert(movements.front().delta == numeric_limits<int>::max());  // saturated, no signed overflow
+    }
 
     const auto tagFiltered = filterItems(items, "tag:module param:Flash=16MB");
     assert(tagFiltered.size() == 1);

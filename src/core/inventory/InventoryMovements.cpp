@@ -3,7 +3,9 @@
 
 #include "core/inventory/Inventory.h"
 
+#include <algorithm>
 #include <ctime>
+#include <limits>
 #include <unordered_map>
 
 namespace inventatory {
@@ -26,8 +28,11 @@ vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, co
   movements.reserve(before.items().size() + after.items().size());
 
   auto appendMovement = [&](const InventoryItem& item, int quantityBefore, int quantityAfter) {
-    const int delta = quantityAfter - quantityBefore;
-    if (delta == 0) return;
+    // Quantities may be negative in legacy data, so the difference can exceed int; saturate it.
+    const long long difference = static_cast<long long>(quantityAfter) - quantityBefore;
+    if (difference == 0) return;
+    const int delta = static_cast<int>(
+        max<long long>(numeric_limits<int>::min(), min<long long>(numeric_limits<int>::max(), difference)));
     InventoryMovement movement;
     movement.id = makeId();
     movement.itemId = item.id;
