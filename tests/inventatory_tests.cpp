@@ -8037,6 +8037,43 @@ int main() {
     assert(bomEnrichmentExportText("-").empty());
     assert(bomEnrichmentExportText(kBomEnrichmentNoMatch).empty());
     assert(bomEnrichmentExportText("").empty());
+
+    // The shortage export is built as text first: markers never reach it, cells stay formula-safe, and a
+    // line that is in stock is left out.
+    KicadBomFile shortageBom;
+    shortageBom.ok = true;
+    const auto addShortageLine = [&](const string& designation, const string& footprint, const string& designator,
+                                     int quantity) {
+      BomLine line;
+      line.designation = designation;
+      line.footprint = footprint;
+      line.designators = {designator};
+      line.quantityPerBoard = quantity;
+      shortageBom.lines.push_back(line);
+    };
+    addShortageLine("100uF", "CP_Radial_D5.0mm_P2.50mm", "C1", 2);
+    addShortageLine("10k", "R_0603_1608Metric", "R1", 1);
+    addShortageLine("=SUM(1)", "", "U1", 3);
+    addShortageLine("1k", "R_0603_1608Metric", "R2", 1);
+    InventoryItem stocked;
+    stocked.id = "stocked-1k";
+    stocked.partName = "RES 1K OHM 0603";
+    stocked.category = "Resistors";
+    stocked.quantity = 10;
+    stocked.parameters = {{"Resistance", "1 kOhms"}, {"Package / Case", "0603 (1608 Metric)"}};
+    const auto shortageAnalysis = analyzeBom(shortageBom, {stocked}, 1, {});
+    map<string, string> shortageEnrichment;
+    shortageEnrichment[bomLineKey(shortageBom.lines[0])] = "493-13399-ND";
+    shortageEnrichment[bomLineKey(shortageBom.lines[1])] = "-";
+    shortageEnrichment[bomLineKey(shortageBom.lines[2])] = kBomEnrichmentNoMatch;
+    const auto shortageCsv = buildBomShortageCsv(shortageAnalysis, shortageEnrichment);
+    assert(shortageCsv.rows == 3);
+    assert(shortageCsv.text ==
+           "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n"
+           "\"100uF\",\"CP_Radial_D5.0mm_P2.50mm\",\"Radial 5.0mm\",\"C1\",2,0,\"493-13399-ND\"\r\n"
+           "\"10k\",\"R_0603_1608Metric\",\"0603\",\"R1\",1,0,\"\"\r\n"
+           "\"\t=SUM(1)\",\"\",\"\",\"U1\",3,0,\"\"\r\n");
+    assert(shortageCsv.text.find("\"-\"") == string::npos);
   }
 
   {

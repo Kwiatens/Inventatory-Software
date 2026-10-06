@@ -4,6 +4,7 @@
 #include "core/bom/BomProjectStore.h"
 
 #include "core/storage/InventorySqlite.h"
+#include "core/transfer/CsvExport.h"
 
 #include <algorithm>
 
@@ -36,6 +37,25 @@ bool bomEnrichmentCached(const map<string, string>& enrichment, const string& ke
 string bomEnrichmentExportText(const string& stored) {
   const auto value = trim(stored);
   return value == "-" || value == kBomEnrichmentNoMatch ? string() : value;
+}
+
+BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<string, string>& enrichment) {
+  BomShortageExport result;
+  result.text = "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n";
+  for (const auto& match : analysis.matches) {
+    if (match.sufficient || match.lineIndex >= analysis.lines.size()) {
+      continue;
+    }
+    const auto& line = analysis.lines[match.lineIndex];
+    const auto suggestion = enrichment.find(bomLineKey(line));
+    result.text += csvTextCell(line.designation) + ',' + csvTextCell(line.footprint) + ',' +
+                   csvTextCell(packageFromFootprint(line.footprint)) + ',' + csvTextCell(join(line.designators, ' ')) +
+                   ',' + to_string(match.needed) + ',' + to_string(match.available) + ',' +
+                   csvTextCell(suggestion == enrichment.end() ? string() : bomEnrichmentExportText(suggestion->second)) +
+                   "\r\n";
+    ++result.rows;
+  }
+  return result;
 }
 
 namespace {
