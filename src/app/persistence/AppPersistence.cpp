@@ -101,6 +101,7 @@ void App::loadState() {
     return;
   }
   printerService_.loadConfig(printerPath_);
+  publishConfiguredPrinter();
   refreshPrinterState();
   if (activities_.empty()) {
     activities_.push_back(makeActivity("system", "Inventory loaded"));
