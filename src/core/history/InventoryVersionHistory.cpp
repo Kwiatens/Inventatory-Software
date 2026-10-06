@@ -204,9 +204,13 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
     return fail("Unable to read inventory commit history");
   }
 
-  vector<InventoryCommit> commits;
-  vector<InventoryStore> snapshots;
+  // Commits are checked as they stream by, holding only the previous commit and its snapshot next to
+  // the current one, so memory stays flat however long the history is.
   unordered_set<string> commitIds;
+  vector<string> revertedCommitIds;
+  InventoryCommit previousCommit;
+  InventoryStore previousSnapshot;
+  size_t commitCount = 0;
   int stepResult = SQLITE_OK;
   while ((stepResult = sqliteApi().step(statement.stmt)) == SQLITE_ROW) {
     if (sqliteApi().column_type(statement.stmt, 0) != SQLITE_TEXT) {
@@ -223,21 +227,15 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
     if (!readCommitSnapshot(connection, id, snapshot) || !validateSnapshotSemantics(snapshot, &snapshotError)) {
       return fail(snapshotError.empty() ? "Inventory commit snapshot is malformed" : snapshotError);
     }
-    commits.push_back(move(commit));
-    snapshots.push_back(move(snapshot));
-  }
-  if (stepResult != SQLITE_DONE) return fail("Unable to read inventory commit history");
 
-  for (size_t index = 0; index < commits.size(); ++index) {
-    const auto& commit = commits[index];
-    if (commit.sequence != index + 1) return fail("Inventory commit sequence is not contiguous");
-    if (index == 0) {
+    if (commit.sequence != commitCount + 1) return fail("Inventory commit sequence is not contiguous");
+    if (commitCount == 0) {
       if (!commit.parentId.empty() || commit.changedItemCount != 0 || commit.changedRackCount != 0) {
         return fail("Initial inventory commit has an invalid parent or change count");
       }
     } else {
-      if (commit.parentId != commits[index - 1].id) return fail("Inventory commit parent does not match sequence");
-      const auto changes = inventoryCommitDiff(snapshots[index - 1], snapshots[index]);
+      if (commit.parentId != previousCommit.id) return fail("Inventory commit parent does not match sequence");
+      const auto changes = inventoryCommitDiff(previousSnapshot, snapshot);
       unordered_set<string> changedItems;
       unordered_set<string> changedRacks;
       for (const auto& change : changes) {
@@ -256,9 +254,17 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
     if (!commit.corrective && !commit.revertedCommitId.empty()) {
       return fail("Non-corrective inventory commit references a reverted commit");
     }
-    if (!commit.revertedCommitId.empty() && commitIds.count(commit.revertedCommitId) == 0) {
-      return fail("Inventory commit references a missing reverted commit");
-    }
+    if (!commit.revertedCommitId.empty()) revertedCommitIds.push_back(commit.revertedCommitId);
+
+    ++commitCount;
+    previousCommit = move(commit);
+    previousSnapshot = move(snapshot);
+  }
+  if (stepResult != SQLITE_DONE) return fail("Unable to read inventory commit history");
+
+  // A corrective commit may only name a commit that exists anywhere in the history.
+  for (const auto& revertedId : revertedCommitIds) {
+    if (commitIds.count(revertedId) == 0) return fail("Inventory commit references a missing reverted commit");
   }
   return true;
 }
@@ -311,12 +317,12 @@ bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryS
 #endif
 }
 
-bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits) {
+bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits, bool validateHistory) {
   commits.clear();
 #ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection)) return false;
-  if (!validateInventoryCommitHistory(connection, nullptr)) return false;
+  if (validateHistory && !validateInventoryCommitHistory(connection, nullptr)) return false;
   SqliteStatement statement;
   const char* sql = R"SQL(
     SELECT commit_id, parent_id, sequence, committed_at, source, reference, message,
