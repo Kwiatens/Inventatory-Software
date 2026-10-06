@@ -13,6 +13,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <objbase.h>
 #include <commdlg.h>
 #include <shlobj.h>
 #include <shellapi.h>
@@ -42,6 +43,52 @@ bool privateIpv4(uint32_t hostOrder) {
   const auto second = (hostOrder >> 16U) & 0xffU;
   return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
          (first == 192U && second == 168U) || (first == 169U && second == 254U);
+}
+
+// UTF-8 to UTF-16. An empty result for a non-empty input means the text was not valid UTF-8.
+wstring widenUtf8(const string& value) {
+  if (value.empty()) return {};
+  const int count = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
+  if (count <= 0) return {};
+  wstring result(static_cast<size_t>(count), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), count) <= 0) {
+    return {};
+  }
+  return result;
+}
+
+// Dialogs such as SHBrowseForFolder need COM on the calling thread. A thread that already runs in a
+// different apartment keeps working (CoInitializeEx then fails and nothing is uninitialized).
+struct ComApartment {
+  ComApartment() : result(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)), shouldUninitialize(SUCCEEDED(result)) {}
+  ~ComApartment() {
+    if (shouldUninitialize) CoUninitialize();
+  }
+  ComApartment(const ComApartment&) = delete;
+  ComApartment& operator=(const ComApartment&) = delete;
+
+  HRESULT result;
+  bool shouldUninitialize;
+};
+
+// Places a DWORD on the open clipboard under a registered format name.
+bool setClipboardDword(const wchar_t* formatName, DWORD value) {
+  const UINT format = RegisterClipboardFormatW(formatName);
+  if (format == 0) return false;
+  HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+  if (handle == nullptr) return false;
+  auto* buffer = static_cast<DWORD*>(GlobalLock(handle));
+  if (buffer == nullptr) {
+    GlobalFree(handle);
+    return false;
+  }
+  *buffer = value;
+  GlobalUnlock(handle);
+  if (SetClipboardData(format, handle) == nullptr) {
+    GlobalFree(handle);
+    return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -75,6 +122,12 @@ bool openUrl(const string& url) {
 }
 
 bool copyToClipboard(const string& text) {
+  // The text is UTF-16 (CF_UNICODETEXT) so non-ASCII text is not mangled by the ANSI code page.
+  const wstring wideText = widenUtf8(text);
+  if (wideText.empty() && !text.empty()) {
+    return false;
+  }
+
   if (!OpenClipboard(nullptr)) {
     return false;
   }
@@ -89,87 +142,101 @@ bool copyToClipboard(const string& text) {
     return false;
   }
 
-  const size_t byteCount = (text.size() + 1) * sizeof(char);
+  const size_t byteCount = (wideText.size() + 1) * sizeof(wchar_t);
   HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, byteCount);
   if (handle == nullptr) {
     return false;
   }
 
-  auto* buffer = static_cast<char*>(GlobalLock(handle));
+  auto* buffer = static_cast<wchar_t*>(GlobalLock(handle));
   if (buffer == nullptr) {
     GlobalFree(handle);
     return false;
   }
 
-  memcpy(buffer, text.c_str(), byteCount);
+  memcpy(buffer, wideText.c_str(), byteCount);
   GlobalUnlock(handle);
 
-  if (SetClipboardData(CF_TEXT, handle) == nullptr) {
+  if (SetClipboardData(CF_UNICODETEXT, handle) == nullptr) {
     GlobalFree(handle);
     return false;
   }
+
+  // Best effort: the copied text can be a pairing secret, so keep it out of Windows clipboard
+  // history and cloud clipboard sync. A failure here does not fail the copy itself.
+  setClipboardDword(L"ExcludeClipboardContentFromMonitorProcessing", 1U);
+  setClipboardDword(L"CanIncludeInClipboardHistory", 0U);
+  setClipboardDword(L"CanUploadToCloudClipboard", 0U);
 
   return true;
 }
 
 bool openCsvFileDialog(filesystem::path& selectedPath) {
-  char fileName[MAX_PATH] = {};
-  OPENFILENAMEA dialog{};
+  const wchar_t filter[] = L"CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0";
+  wstring fileName(32768U, L'\0');
+  OPENFILENAMEW dialog{};
   dialog.lStructSize = sizeof(dialog);
   dialog.hwndOwner = nullptr;
-  dialog.lpstrFilter = "CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0";
-  dialog.lpstrFile = fileName;
-  dialog.nMaxFile = MAX_PATH;
-  dialog.lpstrTitle = "Select a DigiKey order CSV or KiCad BOM";
+  dialog.lpstrFilter = filter;
+  dialog.lpstrFile = fileName.data();
+  dialog.nMaxFile = static_cast<DWORD>(fileName.size());
+  dialog.lpstrTitle = L"Select a DigiKey order CSV or KiCad BOM";
   dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-  dialog.lpstrDefExt = "csv";
+  dialog.lpstrDefExt = L"csv";
 
-  if (GetOpenFileNameA(&dialog) == 0) {
+  if (GetOpenFileNameW(&dialog) == 0) {
     return false;
   }
 
-  selectedPath = filesystem::path(fileName);
+  selectedPath = filesystem::path(fileName.c_str());
   return true;
 }
 
 bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
                     const string& defaultExtension) {
-  char fileName[MAX_PATH] = {};
-  const auto initialPath = selectedPath.string();
-  if (!initialPath.empty() && initialPath.size() < sizeof(fileName)) {
-    copy(initialPath.begin(), initialPath.end(), fileName);
+  wstring fileName(32768U, L'\0');
+  const wstring& initialPath = selectedPath.native();
+  if (!initialPath.empty() && initialPath.size() < fileName.size()) {
+    copy(initialPath.begin(), initialPath.end(), fileName.begin());
   }
-  OPENFILENAMEA dialog{};
+  // The filter is a double-NUL-terminated list; the caller's string already ends with one NUL and
+  // wstring::c_str() supplies the second.
+  const wstring wideFilter = widenUtf8(filter);
+  const wstring wideTitle = widenUtf8(title);
+  const wstring wideExtension = widenUtf8(defaultExtension);
+  OPENFILENAMEW dialog{};
   dialog.lStructSize = sizeof(dialog);
   dialog.hwndOwner = nullptr;
-  dialog.lpstrFilter = filter.c_str();
-  dialog.lpstrFile = fileName;
-  dialog.nMaxFile = MAX_PATH;
-  dialog.lpstrTitle = title.c_str();
+  dialog.lpstrFilter = wideFilter.empty() ? nullptr : wideFilter.c_str();
+  dialog.lpstrFile = fileName.data();
+  dialog.nMaxFile = static_cast<DWORD>(fileName.size());
+  dialog.lpstrTitle = wideTitle.c_str();
   dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-  dialog.lpstrDefExt = defaultExtension.c_str();
+  dialog.lpstrDefExt = wideExtension.c_str();
 
-  if (GetSaveFileNameA(&dialog) == 0) {
+  if (GetSaveFileNameW(&dialog) == 0) {
     return false;
   }
 
-  selectedPath = filesystem::path(fileName);
+  selectedPath = filesystem::path(fileName.c_str());
   return true;
 }
 
 bool openFolderDialog(filesystem::path& selectedPath, const string& title) {
-  BROWSEINFOA browse{};
+  const ComApartment apartment;
+  const wstring wideTitle = widenUtf8(title);
+  BROWSEINFOW browse{};
   browse.hwndOwner = nullptr;
-  browse.lpszTitle = title.c_str();
+  browse.lpszTitle = wideTitle.c_str();
   browse.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_USENEWUI;
 
-  LPITEMIDLIST itemIdList = SHBrowseForFolderA(&browse);
+  LPITEMIDLIST itemIdList = SHBrowseForFolderW(&browse);
   if (itemIdList == nullptr) {
     return false;
   }
 
-  char pathBuffer[MAX_PATH] = {};
-  const bool ok = SHGetPathFromIDListA(itemIdList, pathBuffer) != 0;
+  wchar_t pathBuffer[MAX_PATH] = {};
+  const bool ok = SHGetPathFromIDListW(itemIdList, pathBuffer) != 0;
   CoTaskMemFree(itemIdList);
   if (!ok) {
     return false;
@@ -177,47 +244,6 @@ bool openFolderDialog(filesystem::path& selectedPath, const string& title) {
 
   selectedPath = filesystem::path(pathBuffer);
   return true;
-}
-
-vector<string> localAddresses() {
-  vector<string> addresses;
-
-  WSADATA data{};
-  if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
-    return addresses;
-  }
-
-  char hostName[256] = {};
-  if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR) {
-    WSACleanup();
-    return addresses;
-  }
-
-  addrinfo hints{};
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_STREAM;
-  hints.ai_protocol = IPPROTO_TCP;
-
-  addrinfo* result = nullptr;
-  if (getaddrinfo(hostName, nullptr, &hints, &result) == 0) {
-    for (addrinfo* current = result; current != nullptr; current = current->ai_next) {
-      const auto* address = reinterpret_cast<sockaddr_in*>(current->ai_addr);
-      const auto ip = ipv4ToString(*address);
-      if (!ip.empty() && ip != "127.0.0.1" &&
-          find(addresses.begin(), addresses.end(), ip) == addresses.end()) {
-        addresses.push_back(ip);
-      }
-    }
-    freeaddrinfo(result);
-  }
-
-  WSACleanup();
-
-  if (addresses.empty()) {
-    addresses.push_back("127.0.0.1");
-  }
-
-  return addresses;
 }
 
 vector<string> privateLocalAddresses() {

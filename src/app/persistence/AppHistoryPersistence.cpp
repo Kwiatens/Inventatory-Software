@@ -21,13 +21,25 @@ void App::refreshInventoryMovements() {
   inventoryMovements_ = loadInventoryMovements(inventoryPath_);
 }
 
-void App::refreshInventoryCommits() {
+void App::refreshInventoryCommits(bool afterOwnSave) {
   vector<InventoryCommit> loadedCommits;
-  if (!loadInventoryCommits(inventoryPath_, loadedCommits)) {
+  if (!loadInventoryCommits(inventoryPath_, loadedCommits, !afterOwnSave)) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
     return;
+  }
+  if (afterOwnSave && !loadedCommits.empty()) {
+    // The history was validated when the workspace loaded and every commit since was derived from its
+    // stored parent in the same transaction, so checking the newest commit (its summary, snapshot and
+    // relation to its parent) is what a full pass would add.
+    InventoryCommitDetail newest;
+    if (!loadInventoryCommit(inventoryPath_, loadedCommits.front().id, newest)) {
+      inventoryRecoveryRequired_ = true;
+      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history: " + inventoryPath_.u8string();
+      persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
+      return;
+    }
   }
   InventoryCommitDetail loadedDetail;
   size_t loadedSelection = 0;
@@ -35,7 +47,7 @@ void App::refreshInventoryCommits() {
     loadedSelection = min(historySelection_, loadedCommits.size() - 1);
     if (!loadInventoryCommit(inventoryPath_, loadedCommits[loadedSelection].id, loadedDetail)) {
       inventoryRecoveryRequired_ = true;
-      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.string();
+      inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.u8string();
       persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
       return;
     }
@@ -66,23 +78,12 @@ void App::refreshHistoryDetail() {
   InventoryCommitDetail loadedDetail;
   if (!loadInventoryCommit(inventoryPath_, inventoryCommits_[historySelection_].id, loadedDetail)) {
     inventoryRecoveryRequired_ = true;
-    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.string();
+    inventoryRecoveryDetail_ = "Inventatory could not reload inventory history details: " + inventoryPath_.u8string();
     persistenceError_ = inventoryRecoveryDetail_ + ". The previous history was preserved.";
     return;
   }
   historyDetail_ = move(loadedDetail);
   historyDetailValid_ = true;
-}
-
-void App::openSelectedHistoryCommit() {
-  if (inventoryCommits_.empty()) {
-    setMessage("No inventory commits yet", 3);
-    return;
-  }
-  historyRecordSelection_ = 0;
-  historyRecordOpen_ = false;
-  refreshHistoryDetail();
-  changePage(Page::History);
 }
 
 void App::beginHistoryCheckpoint() {

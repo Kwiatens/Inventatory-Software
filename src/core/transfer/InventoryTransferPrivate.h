@@ -55,7 +55,6 @@ bool containsLineBreakOrTab(const string& value);
 vector<string> splitManifestRow(string line);
 bool supportedBackupName(const string& name);
 bool isSha256Digest(const string& value);
-string lowercaseAscii(string value);
 bool parseManifestSize(const string& text, uintmax_t& value);
 bool writeManifest(const std::filesystem::path& destination, const string& applicationVersion,
                    const vector<BackupEntry>& entries, string& error);

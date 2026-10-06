@@ -75,9 +75,7 @@ bool looksLikeInductanceValue(const string& value) {
 }
 
 string canonicalInductanceUnit(string unit) {
-  transform(unit.begin(), unit.end(), unit.begin(), [](unsigned char ch) {
-    return static_cast<char>(tolower(ch));
-  });
+  unit = toLower(move(unit));
   if (unit == "uh") {
     return "uH";
   }
@@ -422,7 +420,7 @@ vector<DetailField> detailCoreFields(const InventoryItem& item, string rack) {
 }
 
 ftxui::Element detailFieldLine(const DetailField& field, int width) {
-  const int valueWidth = max(0, width - static_cast<int>(field.label.size()) - 1);
+  const int valueWidth = max(0, width - static_cast<int>(displayWidth(field.label)) - 1);
   return ftxui::hbox({
              styledText(field.label, field.labelColor),
              styledText(ellipsize(field.value, static_cast<size_t>(valueWidth)), field.valueColor),

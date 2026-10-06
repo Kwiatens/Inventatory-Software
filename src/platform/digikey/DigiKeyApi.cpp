@@ -16,8 +16,19 @@ namespace inventatory {
 using namespace std;
 using namespace digikey_detail;
 
+namespace {
+
+// True for a 2xx status; otherwise reports `what` as failed with the HTTP status.
+bool isSuccessStatus(std::uint32_t statusCode, const char* what, string* error) {
+  if (statusCode >= 200 && statusCode < 300) return true;
+  if (error != nullptr) *error = string("DigiKey ") + what + " failed with HTTP " + to_string(statusCode);
+  return false;
+}
+
+}  // namespace
+
 bool DigiKeyConfig::valid() const {
-  return !trimCopy(clientId).empty() && !trimCopy(clientSecret).empty() &&
+  return !trim(clientId).empty() && !trim(clientSecret).empty() &&
          clientId.size() <= kMaximumDigiKeyFieldBytes && clientSecret.size() <= kMaximumDigiKeyFieldBytes &&
          accountId.size() <= kMaximumDigiKeyFieldBytes && site.size() <= kMaximumDigiKeyFieldBytes &&
          language.size() <= kMaximumDigiKeyFieldBytes && currency.size() <= kMaximumDigiKeyFieldBytes &&
@@ -86,12 +97,7 @@ optional<string> DigiKeyApiClient::requestToken(string* error) {
   if (!requestHttp(L"POST", url, L"Content-Type: application/x-www-form-urlencoded\r\n", body.str(), response, error)) {
     return nullopt;
   }
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    if (error != nullptr) {
-      ostringstream out;
-      out << "DigiKey token request failed with HTTP " << response.statusCode;
-      *error = out.str();
-    }
+  if (!isSuccessStatus(response.statusCode, "token request", error)) {
     return nullopt;
   }
 
@@ -112,7 +118,7 @@ optional<string> DigiKeyApiClient::requestToken(string* error) {
     return nullopt;
   }
 
-  tokenExpiresAt_ = time(nullptr) + 540;
+  tokenExpiresAt_ = time(nullptr) + tokenLifetimeSeconds(readPath(*root, {"expires_in"}).value_or(""));
   return token;
 }
 
@@ -130,99 +136,96 @@ bool DigiKeyApiClient::ensureAccessToken(string* error) {
   return true;
 }
 
+// Sends one request with the cached token. A 401 means the token was revoked or shortened server side
+// before our own expiry estimate, so the token is dropped and the request is repeated once with a new one.
+bool DigiKeyApiClient::sendAuthorized(const wstring& method, const wstring& url, const string& body,
+                                      bool jsonBody, std::uint32_t& statusCode, string& responseBody,
+                                      string* error) {
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (!ensureAccessToken(error)) {
+      return false;
+    }
+    ostringstream headers;
+    if (!appendAuthorizationHeader(headers, accessToken_, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, error) ||
+        !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, error)) {
+      return false;
+    }
+    if (!config_.accountId.empty() && !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, error)) {
+      return false;
+    }
+    if (jsonBody) headers << "Content-Type: application/json\r\n";
+    HttpResponse response;
+    if (!requestHttp(method, url, widen(headers.str()), body, response, error)) {
+      return false;
+    }
+    statusCode = response.statusCode;
+    responseBody = move(response.body);
+    if (statusCode != 401 || attempt > 0) {
+      return true;
+    }
+    accessToken_.clear();
+    tokenExpiresAt_ = 0;
+  }
+  return true;
+}
+
 optional<string> DigiKeyApiClient::requestProductDetails(const string& productNumber,
                                                                     string* error,
                                                                     const string& manufacturerId) {
-  if (trimCopy(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes ||
+  if (trim(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes ||
       manufacturerId.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey product identifier is empty or too large";
     return nullopt;
   }
-  if (!ensureAccessToken(error)) {
-    return nullopt;
-  }
-
   ostringstream url;
   url << "https://api.digikey.com/products/v4/search/" << encodePathSegment(productNumber) << "/productdetails";
-  if (!trimCopy(manufacturerId).empty()) {
+  if (!trim(manufacturerId).empty()) {
     url << "?manufacturerId=" << encodeComponent(manufacturerId, false);
   }
 
-  ostringstream headers;
-  if (!appendAuthorizationHeader(headers, accessToken_, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, error)) {
-    return nullopt;
-  }
-  if (!config_.accountId.empty() && !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, error)) {
+  std::uint32_t statusCode = 0;
+  string responseBody;
+  if (!sendAuthorized(L"GET", widen(url.str()), "", false, statusCode, responseBody, error) ||
+      !isSuccessStatus(statusCode, "details request", error)) {
     return nullopt;
   }
 
-  HttpResponse response;
-  if (!requestHttp(L"GET", widen(url.str()), widen(headers.str()), "", response, error)) {
-    return nullopt;
-  }
-
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    if (error != nullptr) {
-      ostringstream out;
-      out << "DigiKey details request failed with HTTP " << response.statusCode;
-      *error = out.str();
-    }
-    return nullopt;
-  }
-
-  return response.body;
+  return responseBody;
 }
 
 optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, string* error) {
-  if (trimCopy(keywords).empty() || keywords.size() > kMaximumDigiKeyFieldBytes) {
+  if (trim(keywords).empty() || keywords.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey search keywords are empty or too large";
     return nullopt;
   }
-  if (!ensureAccessToken(error)) {
-    return nullopt;
-  }
-
   ostringstream body;
   body << "{\"Keywords\":\"" << escapeJsonString(keywords) << "\",\"Limit\":10,\"Offset\":0}";
 
-  ostringstream headers;
-  if (!appendAuthorizationHeader(headers, accessToken_, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Client-Id", config_.clientId, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Locale-Language", config_.language, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Locale-Currency", config_.currency, error) ||
-      !appendHeader(headers, "X-DIGIKEY-Locale-Site", config_.site, error)) {
-    return nullopt;
-  }
-  if (!config_.accountId.empty() && !appendHeader(headers, "X-DIGIKEY-Account-Id", config_.accountId, error)) {
-    return nullopt;
-  }
-  headers << "Content-Type: application/json\r\n";
-
-  HttpResponse response;
-  if (!requestHttp(L"POST", L"https://api.digikey.com/products/v4/search/keyword", widen(headers.str()), body.str(),
-                   response, error)) {
+  std::uint32_t statusCode = 0;
+  string responseBody;
+  if (!sendAuthorized(L"POST", L"https://api.digikey.com/products/v4/search/keyword", body.str(), true,
+                      statusCode, responseBody, error) ||
+      !isSuccessStatus(statusCode, "keyword search", error)) {
     return nullopt;
   }
 
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    if (error != nullptr) {
-      ostringstream out;
-      out << "DigiKey keyword search failed with HTTP " << response.statusCode;
-      *error = out.str();
-    }
-    return nullopt;
-  }
-
-  return response.body;
+  return responseBody;
 }
 
 optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const string& productNumber,
                                                                            string* error) {
-  if (trimCopy(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes) {
+  DigiKeyLookupOutcome outcome = DigiKeyLookupOutcome::Failed;
+  return lookupProductDetails(productNumber, outcome, error);
+}
+
+optional<DigiKeyProductDetails> DigiKeyApiClient::lookupProductDetails(const string& productNumber,
+                                                                            DigiKeyLookupOutcome& outcome,
+                                                                            string* error) {
+  outcome = DigiKeyLookupOutcome::Failed;
+  if (trim(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey product identifier is empty or too large";
     return nullopt;
   }
@@ -255,13 +258,9 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
       return optional<DigiKeyProductDetails>{};
     }
 
-    if ((!details.quantityAvailable.empty() && !isUnsignedDecimal(details.quantityAvailable, 1000000000000ULL)) ||
-        (!details.manufacturerLeadWeeks.empty() &&
-         !isUnsignedDecimal(details.manufacturerLeadWeeks, 1000000ULL)) ||
-        (!details.unitPrice.empty() && !isFiniteDecimal(details.unitPrice, 1000000000000.0))) {
-      if (parseError != nullptr) *parseError = "DigiKey details response contains an invalid numeric field";
-      return optional<DigiKeyProductDetails>{};
-    }
+    // Stock, lead time and price are display-only; an odd value in one of them must not discard the
+    // description, parameters and datasheet that did parse.
+    clearInvalidOptionalFields(details);
 
     return optional<DigiKeyProductDetails>{move(details)};
   };
@@ -270,6 +269,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
   if (const auto body = requestProductDetails(productNumber, &directError); body.has_value()) {
     string parseError;
     if (const auto details = parseDetails(productNumber, *body, &parseError); details.has_value()) {
+      outcome = DigiKeyLookupOutcome::Found;
       return details;
     }
     directError = move(parseError);
@@ -295,6 +295,8 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
 
   const auto match = resolveSearchResult(*searchRoot, productNumber);
   if (!match.has_value()) {
+    // The keyword search itself succeeded and returned nothing usable.
+    outcome = DigiKeyLookupOutcome::NoMatch;
     if (error != nullptr) {
       *error = directError.empty() ? "DigiKey keyword search did not return a usable match"
                                    : directError + " | DigiKey keyword search did not return a usable match";
@@ -307,6 +309,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
       resolvedBody.has_value()) {
     string parseError;
     if (const auto details = parseDetails(match->productNumber, *resolvedBody, &parseError); details.has_value()) {
+      outcome = DigiKeyLookupOutcome::Found;
       return details;
     }
     resolvedError = move(parseError);

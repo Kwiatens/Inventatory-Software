@@ -11,17 +11,9 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
-#include <chrono>
 #include <ctime>
-#include <fstream>
-#include <future>
-#include <limits>
 #include <memory>
-#include <mutex>
-#include <sstream>
 #include <system_error>
-#include <unordered_set>
 
 namespace inventatory {
 
@@ -56,28 +48,11 @@ bool App::printSelectedRackLabel() {
     return false;
   }
 
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    setMessage("Printer unavailable while the workspace is changing", 4);
-    return false;
-  }
-  if (printerWorkCompletion_ != nullptr) {
-    setMessage("A printer job is already running; try again shortly", 3);
-    return false;
-  }
-
-  PrinterWork work;
-  work.kind = PrinterWorkKind::PrintRack;
-  work.workspaceGeneration = context->generation;
-  work.printerName = printerService_.configuredPrinter();
-  work.rack = *rack;
-  work.symbolStandard = settings_.symbolStandard;
-  if (!enqueuePrinterWork(move(work))) {
-    setMessage("Printer request queue is full; try again shortly", 4);
-    return false;
-  }
-  setMessage("Printer job queued", 3);
-  return true;
+  auto work = beginPrinterJob(PrinterWorkKind::PrintRack);
+  if (!work) return false;
+  work->rack = *rack;
+  work->symbolStandard = settings_.symbolStandard;
+  return queuePrinterJob(move(*work));
 }
 
 }  // namespace inventatory

@@ -9,7 +9,6 @@
 #include <array>
 #include <chrono>
 #include <cctype>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <ctime>
@@ -260,15 +259,15 @@ void App::finishOnboarding() {
     setMessage("Unable to save setup completion; setup will open again next time", 5);
     return;
   }
+#ifdef _WIN32
+  // The installer owns the Windows shortcuts and only creates the desktop one when asked to, so the
+  // wizard must not add it back after the installer user declined it.
+  changePage(Page::Stock);
+  setMessage("Setup complete.", 5);
+#else
   string shortcutError;
   const bool shortcutCreated = createDesktopShortcut(shortcutError);
-  onboardingActive_ = false;
   changePage(Page::Stock);
-#ifdef _WIN32
-  setMessage(shortcutCreated ? "Setup complete."
-                             : "Setup complete; desktop shortcut could not be created: " + shortcutError,
-             shortcutCreated ? 5 : 7);
-#else
   setMessage(shortcutCreated ? "Setup complete."
                              : "Setup complete; application launcher could not be created: " + shortcutError,
              shortcutCreated ? 5 : 7);
@@ -286,7 +285,7 @@ ftxui::Element App::renderOnboardingContent() const {
       break;
     case OnboardingStep::DataFolder:
       rows.push_back(uiHeaderText("Inventory data folder", uiTitleColor()));
-      rows.push_back(styledText("Current folder: " + dataPath_.string(), uiSecondaryText()));
+      rows.push_back(styledText("Current folder: " + dataPath_.u8string(), uiSecondaryText()));
       rows.push_back(onboardingPrompt("[ Enter ] Use this folder   [ B ] Choose another"));
       break;
     case OnboardingStep::BackgroundService:
@@ -360,7 +359,7 @@ void App::applyWizardTransitionTarget() {
   returnToOnboardingAfterScan_ = wizardTransition_.targetReturnToOnboardingAfterScan;
   inputMode_ = InputMode::None;
   inputBuffer_.clear();
-  focusedTarget_ = -1;
+  focusedTargetId_.clear();
   if (previousPage == Page::ScanSetup && page_ == Page::Onboarding) {
     bleWifiSsid_.clear();
     bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
@@ -453,9 +452,9 @@ void App::beginUpdateCheckIfDue() {
       !isUpdateCheckDue(settings_.updateChecksEnabled, settings_.lastUpdateCheckUnixSeconds, now)) {
     return;
   }
-  updateCheckChecked_ = false;
   updateCheckFailed_ = false;
   updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
+  beginScanFirmwareCheck();
 }
 
 void App::beginUpdateChecks() {
@@ -464,11 +463,11 @@ void App::beginUpdateChecks() {
     // A manual check is always allowed, even when the daily background check
     // preference is disabled.
     settings_.lastUpdateCheckUnixSeconds = 0;
-    updateCheckChecked_ = false;
     updateCheckFailed_ = false;
     updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
     started = true;
   }
+  beginScanFirmwareCheck();
   setMessage(started ? "Checking for software updates" : "Already checking for software updates", 4);
   dirty_ = true;
 }
@@ -476,7 +475,6 @@ void App::beginUpdateChecks() {
 void App::processUpdateCheck() {
   if (!updateCheckFuture_.valid() || updateCheckFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
   const auto result = updateCheckFuture_.get();
-  updateCheckChecked_ = true;
   updateCheckFailed_ = !result.completed;
   if (result.completed) {
     settings_.lastUpdateCheckUnixSeconds = static_cast<int64_t>(time(nullptr));

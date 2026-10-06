@@ -7,19 +7,10 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cctype>
-#include <cstdint>
 #include <cstring>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <limits>
-#include <memory>
 #include <regex>
 #include <sstream>
-#include <system_error>
 
 namespace inventatory {
 
@@ -47,10 +38,6 @@ string measuredMainValue(const InventoryItem& item) {
     return compactValue(firstInductanceParameter(item).value_or(string{}));
   }
   return {};
-}
-
-bool endsWith(const string& value, const string& suffix) {
-  return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 void replaceAll(string& value, const string& from, const string& to) {
@@ -128,18 +115,18 @@ optional<string> exactParameter(const InventoryItem& item, initializer_list<cons
 enum class Unit { Any, Volt, Amp, Watt, Ohm, Hertz, Celsius, Millimetre };
 
 bool hasUnit(const string& value, Unit unit) {
-  const char* pattern = nullptr;
-  switch (unit) {
-    case Unit::Any: return true;
-    case Unit::Volt: pattern = u8R"(\d\s*(?:[pnumkKMG]|µ)?V(?:DC|AC|dc|ac)?(?![A-Za-z]))"; break;
-    case Unit::Amp: pattern = u8R"(\d\s*(?:[pnumkKMG]|µ)?A(?![A-Za-z]))"; break;
-    case Unit::Watt: pattern = u8R"(\d\s*(?:[pnumkKMG]|µ)?W(?![A-Za-z]))"; break;
-    case Unit::Ohm: pattern = u8R"(\d\s*(?:[pnumkKMG]|µ)?(?:Ω|Ohm))"; break;
-    case Unit::Hertz: pattern = u8R"(\d\s*[kKMG]?Hz)"; break;
-    case Unit::Celsius: pattern = u8R"(\d\s*(?:°\s*C|C(?![A-Za-z])))"; break;
-    case Unit::Millimetre: pattern = u8R"(\d\s*mm(?![A-Za-z]))"; break;
-  }
-  return regex_search(value, regex(pattern));
+  if (unit == Unit::Any) return true;
+  // Compiled once, in Unit order after Any: building a std::regex is far costlier than matching it.
+  static const regex kUnitPatterns[] = {
+      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?V(?:DC|AC|dc|ac)?(?![A-Za-z]))"),
+      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?A(?![A-Za-z]))"),
+      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?W(?![A-Za-z]))"),
+      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?(?:Ω|Ohm))"),
+      regex(u8R"(\d\s*[kKMG]?Hz)"),
+      regex(u8R"(\d\s*(?:°\s*C|C(?![A-Za-z])))"),
+      regex(u8R"(\d\s*mm(?![A-Za-z]))"),
+  };
+  return regex_search(value, kUnitPatterns[static_cast<size_t>(unit) - 1]);
 }
 
 // "Through Hole" and "Surface Mount" describe how a part is fitted, never an
@@ -432,7 +419,7 @@ void splitRackLocation(const string& location, string& rackCode, string& rackCel
     return;
   }
   rackCode = trim(cleaned.substr(0, dash));
-  rackCell = uppercaseAscii(trim(cleaned.substr(dash + 1)));
+  rackCell = toUpper(trim(cleaned.substr(dash + 1)));
 }
 
 vector<LabelParameterTile> fallbackParameterTiles(const InventoryItem& item, size_t maxTiles) {
@@ -446,7 +433,7 @@ vector<LabelParameterTile> fallbackParameterTiles(const InventoryItem& item, siz
     if (containsInsensitive(field.label, "package")) {
       continue;
     }
-    auto caption = uppercaseAscii(shortParameterLabel(field.label));
+    auto caption = toUpper(shortParameterLabel(field.label));
     while (!caption.empty() && (caption.back() == ':' || caption.back() == ' ')) caption.pop_back();
     if (caption.empty()) continue;
     tiles.push_back({caption, value});

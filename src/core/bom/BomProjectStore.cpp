@@ -4,12 +4,59 @@
 #include "core/bom/BomProjectStore.h"
 
 #include "core/storage/InventorySqlite.h"
+#include "core/transfer/CsvExport.h"
 
 #include <algorithm>
 
 namespace inventatory {
 
 using namespace std;
+
+optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion) {
+  switch (outcome) {
+    case BomLookupOutcome::Found: {
+      const auto trimmed = trim(suggestion);
+      // A part without a usable number gives the user nothing to act on.
+      return trimmed.empty() || trimmed == "-" ? string(kBomEnrichmentNoMatch) : trimmed;
+    }
+    case BomLookupOutcome::NoMatch:
+      return string(kBomEnrichmentNoMatch);
+    case BomLookupOutcome::Failed:
+      break;
+  }
+  return nullopt;
+}
+
+bool bomEnrichmentCached(const map<string, string>& enrichment, const string& key) {
+  const auto found = enrichment.find(key);
+  if (found == enrichment.end()) return false;
+  const auto value = trim(found->second);
+  return !value.empty() && value != "-";
+}
+
+string bomEnrichmentExportText(const string& stored) {
+  const auto value = trim(stored);
+  return value == "-" || value == kBomEnrichmentNoMatch ? string() : value;
+}
+
+BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<string, string>& enrichment) {
+  BomShortageExport result;
+  result.text = "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n";
+  for (const auto& match : analysis.matches) {
+    if (match.sufficient || match.lineIndex >= analysis.lines.size()) {
+      continue;
+    }
+    const auto& line = analysis.lines[match.lineIndex];
+    const auto suggestion = enrichment.find(bomLineKey(line));
+    result.text += csvTextCell(line.designation) + ',' + csvTextCell(line.footprint) + ',' +
+                   csvTextCell(packageFromFootprint(line.footprint)) + ',' + csvTextCell(join(line.designators, ' ')) +
+                   ',' + to_string(match.needed) + ',' + to_string(match.available) + ',' +
+                   csvTextCell(suggestion == enrichment.end() ? string() : bomEnrichmentExportText(suggestion->second)) +
+                   "\r\n";
+    ++result.rows;
+  }
+  return result;
+}
 
 namespace {
 
@@ -51,8 +98,6 @@ bool deserializeBomMapChecked(const string& value, map<string, string>& values) 
   return true;
 }
 
-}  // namespace
-
 string serializeBomMap(const map<string, string>& values) {
   // Reuses the parameter encoding so escaping rules stay in one place.
   vector<Parameter> parameters;
@@ -61,19 +106,6 @@ string serializeBomMap(const map<string, string>& values) {
     parameters.push_back({entry.first, entry.second});
   }
   return serializeParametersForStorage(parameters);
-}
-
-map<string, string> deserializeBomMap(const string& value) {
-  map<string, string> values;
-  if (!deserializeBomMapChecked(value, values)) values.clear();
-  return values;
-}
-
-#ifdef INVENTATORY_SQLITE_STORAGE
-namespace {
-
-bool ensureBomProjectSchema(SqliteConnection& connection) {
-  return ensureInventoryDatabaseSchema(connection);
 }
 
 bool insertProject(SqliteConnection& connection, const BomProject& project) {
@@ -103,13 +135,11 @@ bool insertProject(SqliteConnection& connection, const BomProject& project) {
 }
 
 }  // namespace
-#endif
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects) {
   vector<BomProject> loadedProjects;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection)) {
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection)) {
     return false;
   }
 
@@ -139,13 +169,8 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
   if (stepResult != SQLITE_DONE) return false;
   projects = move(loadedProjects);
   return true;
-#else
-  (void)databasePath;
-  return false;
-#endif
 }
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 bool validateBomProjects(SqliteConnection& connection, string* error) {
   if (connection.db == nullptr) {
     if (error != nullptr) *error = "SQLite connection is not open";
@@ -184,12 +209,10 @@ bool validateBomProjects(SqliteConnection& connection, string* error) {
   }
   return true;
 }
-#endif
 
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects) {
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection) ||
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     return false;
   }
@@ -209,11 +232,6 @@ bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProje
     return false;
   }
   return true;
-#else
-  (void)databasePath;
-  (void)projects;
-  return false;
-#endif
 }
 
 }  // namespace inventatory

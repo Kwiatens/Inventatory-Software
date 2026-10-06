@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -19,14 +18,6 @@ namespace inventatory {
 using namespace std;
 
 namespace {
-
-ftxui::Element rackFixedCell(const string& text, int width, ftxui::Color color, bool rightAlign = false) {
-  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
-  auto content = rightAlign
-                     ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
-                     : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
-  return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
-}
 
 ftxui::Element rackCenteredCell(const string& text, int width, ftxui::Color color) {
   return ftxui::paragraphAlignCenter(ellipsize(text, static_cast<size_t>(max(1, width - 1)))) |
@@ -109,48 +100,9 @@ ftxui::Element rackQuantityIndicator(const InventoryItem& item, bool selected, i
   return indicator;
 }
 
-vector<string> rackTitleLines(const string& value, int width) {
-  const int lineWidth = max(1, width);
-  vector<string> lines;
-  istringstream words(value);
-  string word;
-  string line;
-
-  const auto flushLine = [&] {
-    if (!line.empty()) {
-      lines.push_back(move(line));
-      line.clear();
-    }
-  };
-
-  while (words >> word) {
-    if (static_cast<int>(word.size()) > lineWidth) {
-      flushLine();
-      for (size_t offset = 0; offset < word.size(); offset += static_cast<size_t>(lineWidth)) {
-        lines.push_back(word.substr(offset, static_cast<size_t>(lineWidth)));
-      }
-      continue;
-    }
-
-    if (!line.empty() && static_cast<int>(line.size() + word.size() + 1) > lineWidth) {
-      flushLine();
-    }
-    if (!line.empty()) {
-      line.push_back(' ');
-    }
-    line += word;
-  }
-
-  flushLine();
-  if (lines.empty()) {
-    lines.push_back({});
-  }
-  return lines;
-}
-
 ftxui::Element centeredRackText(const string& value, int width, ftxui::Color color, int maxLines = 0) {
   const int lineWidth = max(1, width - 2);
-  auto lines = rackTitleLines(value, lineWidth);
+  auto lines = wrapText(value, max(1, lineWidth));
   if (maxLines > 0 && static_cast<int>(lines.size()) > maxLines) {
     lines.resize(maxLines);
     lines.back() = ellipsize(lines.back() + "...", static_cast<size_t>(lineWidth));
@@ -218,9 +170,9 @@ ftxui::Element App::renderRackManagementUi() const {
       const auto occupied = rackOccupiedSlotCount(store_, candidate);
       const auto capacity = rackCapacity(candidate);
       auto rackRow = ftxui::hbox({
-          rackFixedCell(" " + candidate.code, rackCodeWidth, fg),
-          rackFixedCell(shortComponentType(toTitleCase(candidate.componentType)), rackTypeWidth,
-                        selected ? uiTitleColor() : uiLabelColor()),
+          fixedCell(" " + candidate.code, rackCodeWidth, fg),
+          fixedCell(shortComponentType(toTitleCase(candidate.componentType)), rackTypeWidth,
+                    selected ? uiTitleColor() : uiLabelColor()),
           rackOccupancyIndicator(occupied, capacity, rackUsedWidth,
                                  occupied >= capacity && capacity != 0 ? uiWarnColor() : uiPrimaryText()),
           ftxui::text(" "),
@@ -422,9 +374,9 @@ ftxui::Element App::renderRackManagementUi() const {
   auto rackHeader = ftxui::vbox({
       fullLine("Racks", uiSecondaryText(), uiSurfaceBg()),
       ftxui::hbox({
-          rackFixedCell("Rack", rackCodeWidth, uiMutedColor()),
-          rackFixedCell("Type", rackTypeWidth, uiMutedColor()),
-          rackFixedCell("Usage", rackUsedWidth, uiMutedColor(), true),
+          fixedCell("Rack", rackCodeWidth, uiMutedColor()),
+          fixedCell("Type", rackTypeWidth, uiMutedColor()),
+          fixedCell("Usage", rackUsedWidth, uiMutedColor(), true),
           ftxui::text("  "),
       }) | ftxui::bgcolor(uiPanelLeftBg()),
   });

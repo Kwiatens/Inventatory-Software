@@ -8,14 +8,11 @@
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/string.hpp>
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
-#include <chrono>
-#include <cctype>
 #include <ctime>
-#include <limits>
-#include <optional>
 #include <string>
 #include <utility>
 
@@ -90,8 +87,8 @@ ftxui::Element App::renderUi() const {
   if (page_ == Page::Onboarding || (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
     return renderWizardUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
-  const auto* active = ftxui::ScreenInteractive::Active();
-  if (active != nullptr && (active->dimx() < 100 || active->dimy() < 30)) {
+  if (workspaceBlockedByTerminalSize()) {
+    const auto* active = ftxui::ScreenInteractive::Active();
     return ftxui::vbox({
                ftxui::filler(),
                ftxui::hbox({ftxui::filler(),
@@ -122,6 +119,17 @@ ftxui::Element App::renderUi() const {
   return ftxui::vbox(move(body)) | ftxui::xflex | ftxui::bgcolor(uiCanvasBg());
 }
 
+// True while the normal workspace is replaced by the resize notice. Recovery, the update wizard
+// and the first-run wizard have their own full-window layouts and are exempt (see renderUi).
+bool App::workspaceBlockedByTerminalSize() const {
+  if (inventoryRecoveryRequired_ || page_ == Page::Update || page_ == Page::Onboarding ||
+      (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
+    return false;
+  }
+  const auto* active = ftxui::ScreenInteractive::Active();
+  return active != nullptr && app_navigation::terminalTooSmall(active->dimx(), active->dimy());
+}
+
 // Human-readable name of the active screen, used in the header breadcrumb.
 std::string App::pageName() const {
   switch (page_) {
@@ -149,8 +157,8 @@ std::string App::pageName() const {
   return "";
 }
 
-// Header region: navigation only. The action sheet remains keyboard-accessible
-// through Space without taking permanent space from the workspace.
+// Header region: brand, navigation, the Actions control and (width permitting)
+// the clock. The sheet opens from the Actions control or from Space.
 ftxui::Element App::renderHeaderUi() const {
   auto self = const_cast<App*>(this);
   const auto nav = [&](Page page, const string& id, const string& label) {
@@ -161,38 +169,47 @@ ftxui::Element App::renderHeaderUi() const {
     return target(item, id, UiTargetKind::Navigation, [self, page] { self->changePage(page); });
   };
 
-  const auto pageForNavigation = [](app_navigation::PrimaryPage page) {
-    switch (page) {
-      case app_navigation::PrimaryPage::Stock:
-        return Page::Stock;
-      case app_navigation::PrimaryPage::Racks:
-        return Page::Racks;
-      case app_navigation::PrimaryPage::Import:
-        return Page::Import;
-      case app_navigation::PrimaryPage::Projects:
-        return Page::Projects;
-      case app_navigation::PrimaryPage::History:
-        return Page::History;
-      case app_navigation::PrimaryPage::Settings:
-        return Page::Settings;
-    }
-    return Page::Stock;
-  };
-
   ftxui::Elements navigation;
   // The prompt of the ›i mark in the accent before the name.
   navigation.push_back(uiHeaderText(u8" \u203A", uiInteractiveColor()));
   navigation.push_back(uiHeaderText("Inventatory ", uiPrimaryText()));
   for (const auto& entry : app_navigation::primaryNavigationEntries()) {
-    const auto page = pageForNavigation(entry.page);
+    const auto page = pageFor(entry.page);
     navigation.push_back(nav(page, "nav." + string(entry.id),
                              string(1, entry.shortcut) + " " + entry.label));
+  }
+
+  // The always-visible, clickable route to the action sheet. Space remains the
+  // keyboard route; both go through openActionSheet().
+  const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::DigiKeySetup;
+  const string actionsLabel = " Actions \xC2\xB7 Space ";
+  auto actions = uiBodyText(actionsLabel, inputMode_ == InputMode::ActionSheet ? uiFocusColor() : uiInteractiveColor(),
+                            inputMode_ == InputMode::ActionSheet ? uiSelectionBg() : uiSurfaceBg());
+
+  const auto* active = ftxui::ScreenInteractive::Active();
+  const int screenWidth = active != nullptr ? active->dimx() : 120;
+  const auto stringWidth = [](const string& text) { return static_cast<int>(ftxui::string_width(text)); };
+  // Brand plus the six destinations ("  1 Stock " and so on) plus the Actions control.
+  int fixedColumns = stringWidth(u8" ›") + stringWidth("Inventatory ") + stringWidth(actionsLabel);
+  for (const auto& entry : app_navigation::primaryNavigationEntries()) {
+    fixedColumns += stringWidth(" " + string(1, entry.shortcut) + " " + entry.label + " ");
   }
 
   ftxui::Elements header;
   header.push_back(ftxui::hbox(move(navigation)));
   header.push_back(ftxui::filler());
-  header.push_back(uiBodyText(" " + currentDateTimeText() + " ", uiSecondaryText()));
+  header.push_back(target(actions, "header.actions", UiTargetKind::Action, [self] { self->activateActionsControl(); },
+                          actionsAvailable));
+  switch (app_navigation::headerClockFor(screenWidth, fixedColumns)) {
+    case app_navigation::HeaderClock::Full:
+      header.push_back(uiBodyText(" " + currentDateTimeText() + " ", uiSecondaryText()));
+      break;
+    case app_navigation::HeaderClock::Compact:
+      header.push_back(uiBodyText(" " + currentDateTimeText().substr(11, 5) + " ", uiSecondaryText()));
+      break;
+    case app_navigation::HeaderClock::Hidden:
+      break;
+  }
 
   return ftxui::hbox(move(header)) | ftxui::xflex | ftxui::bgcolor(uiSurfaceBg());
 }
@@ -337,6 +354,31 @@ ftxui::Element App::renderSearchBarUi() const {
 
   ftxui::Elements rows;
   auto context = footerField(contextTitle, contextText, uiSecondaryText(), bodyColor, activeBg);
+  if (inputMode_ == InputMode::ExitConfirmation) {
+    // The prompt has a mouse route as well as S / D / Esc, so a mouse-only user can answer it.
+    auto self = const_cast<App*>(this);
+    const auto answer = [self](KeyType type, char ch) {
+      return [self, type, ch] {
+        KeyEvent event;
+        event.type = type;
+        event.ch = ch;
+        self->handleExitConfirmationKey(event);
+      };
+    };
+    context = ftxui::hbox({
+                  uiHeaderText(" " + contextTitle + ": ", uiSecondaryText(), activeBg),
+                  target(uiSecondaryButton(exitSavePending_ ? "S Retry save" : "S Save"), "exit.save",
+                         UiTargetKind::Button, answer(KeyType::Character, 's')),
+                  uiBodyText(" ", bodyColor, activeBg),
+                  target(uiSecondaryButton(exitSavePending_ ? "D Exit anyway" : "D Discard", uiDangerColor()),
+                         "exit.discard", UiTargetKind::Button, answer(KeyType::Character, 'd')),
+                  uiBodyText(" ", bodyColor, activeBg),
+                  target(uiSecondaryButton("Esc Stay"), "exit.stay", UiTargetKind::Button,
+                         answer(KeyType::Escape, '\0')),
+                  ftxui::filler(),
+              }) |
+              ftxui::bgcolor(activeBg);
+  }
   if (page_ == Page::Stock && inputMode_ == InputMode::None) {
     auto self = const_cast<App*>(this);
     context = target(context, closestSearchActive_ ? "stock.closest.search" : "stock.search", UiTargetKind::Field,
