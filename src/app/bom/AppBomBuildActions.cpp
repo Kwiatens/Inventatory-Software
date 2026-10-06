@@ -233,7 +233,7 @@ bool App::exportBomShortages() {
     output << csvTextCell(line.designation) << ',' << csvTextCell(line.footprint) << ','
            << csvTextCell(packageFromFootprint(line.footprint)) << ',' << csvTextCell(join(line.designators, ' ')) << ','
            << match.needed << ',' << match.available << ','
-           << csvTextCell(suggestion == project->enrichment.end() ? string() : suggestion->second) << "\r\n";
+           << csvTextCell(suggestion == project->enrichment.end() ? string() : bomEnrichmentExportText(suggestion->second)) << "\r\n";
     ++rows;
   }
 

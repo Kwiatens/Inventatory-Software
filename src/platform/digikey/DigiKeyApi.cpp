@@ -222,6 +222,14 @@ optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, 
 
 optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const string& productNumber,
                                                                            string* error) {
+  DigiKeyLookupOutcome outcome = DigiKeyLookupOutcome::Failed;
+  return lookupProductDetails(productNumber, outcome, error);
+}
+
+optional<DigiKeyProductDetails> DigiKeyApiClient::lookupProductDetails(const string& productNumber,
+                                                                            DigiKeyLookupOutcome& outcome,
+                                                                            string* error) {
+  outcome = DigiKeyLookupOutcome::Failed;
   if (trimCopy(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey product identifier is empty or too large";
     return nullopt;
@@ -270,6 +278,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
   if (const auto body = requestProductDetails(productNumber, &directError); body.has_value()) {
     string parseError;
     if (const auto details = parseDetails(productNumber, *body, &parseError); details.has_value()) {
+      outcome = DigiKeyLookupOutcome::Found;
       return details;
     }
     directError = move(parseError);
@@ -295,6 +304,8 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
 
   const auto match = resolveSearchResult(*searchRoot, productNumber);
   if (!match.has_value()) {
+    // The keyword search itself succeeded and returned nothing usable.
+    outcome = DigiKeyLookupOutcome::NoMatch;
     if (error != nullptr) {
       *error = directError.empty() ? "DigiKey keyword search did not return a usable match"
                                    : directError + " | DigiKey keyword search did not return a usable match";
@@ -307,6 +318,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::fetchProductDetails(const stri
       resolvedBody.has_value()) {
     string parseError;
     if (const auto details = parseDetails(match->productNumber, *resolvedBody, &parseError); details.has_value()) {
+      outcome = DigiKeyLookupOutcome::Found;
       return details;
     }
     resolvedError = move(parseError);

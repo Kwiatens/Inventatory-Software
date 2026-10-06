@@ -428,6 +428,7 @@ class App {
   struct BomEnrichmentResult {
     std::string key;
     std::string suggestion;
+    BomLookupOutcome outcome = BomLookupOutcome::Failed;
     std::string projectId;
     WorkspaceGeneration workspaceGeneration = 0;
     std::uint64_t requestSequence = 0;

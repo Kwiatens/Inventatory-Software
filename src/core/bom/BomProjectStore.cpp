@@ -11,6 +11,33 @@ namespace inventatory {
 
 using namespace std;
 
+optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion) {
+  switch (outcome) {
+    case BomLookupOutcome::Found: {
+      const auto trimmed = trim(suggestion);
+      // A part without a usable number gives the user nothing to act on.
+      return trimmed.empty() || trimmed == "-" ? string(kBomEnrichmentNoMatch) : trimmed;
+    }
+    case BomLookupOutcome::NoMatch:
+      return string(kBomEnrichmentNoMatch);
+    case BomLookupOutcome::Failed:
+      break;
+  }
+  return nullopt;
+}
+
+bool bomEnrichmentCached(const map<string, string>& enrichment, const string& key) {
+  const auto found = enrichment.find(key);
+  if (found == enrichment.end()) return false;
+  const auto value = trim(found->second);
+  return !value.empty() && value != "-";
+}
+
+string bomEnrichmentExportText(const string& stored) {
+  const auto value = trim(stored);
+  return value == "-" || value == kBomEnrichmentNoMatch ? string() : value;
+}
+
 namespace {
 
 bool parseLegacyBomMap(const string& value, map<string, string>& values) {

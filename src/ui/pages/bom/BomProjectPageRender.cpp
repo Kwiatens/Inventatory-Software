@@ -657,7 +657,7 @@ ftxui::Element App::renderBomProjectUi() const {
     } else if (project != nullptr) {
       const auto lineKey = bomLineKey(line);
       const auto found = project->enrichment.find(lineKey);
-      if (found != project->enrichment.end()) detail = found->second;
+      if (bomEnrichmentCached(project->enrichment, lineKey)) detail = found->second;
       else if (bomEnrichmentFuture_.valid() && lineKey == bomEnrichmentActiveKey_) detail = "Looking up";
       else if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), lineKey) !=
                bomEnrichmentQueue_.end()) detail = "In lookup queue";
