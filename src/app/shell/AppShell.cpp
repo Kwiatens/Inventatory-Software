@@ -15,21 +15,11 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cctype>
 #include <cstdlib>
 #include <ctime>
-#include <initializer_list>
-#include <iomanip>
 #include <iostream>
-#include <limits>
-#include <optional>
-#include <regex>
-#include <sstream>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <thread>
-#include <future>
 
 namespace inventatory {
 

@@ -8,12 +8,8 @@
 #include <ftxui/screen/string.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
-#include <initializer_list>
-#include <limits>
 #include <optional>
-#include <regex>
 #include <sstream>
 
 namespace inventatory {

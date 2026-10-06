@@ -7,12 +7,7 @@
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
 #include <ctime>
-#include <iomanip>
-#include <limits>
-#include <sstream>
 #include <string>
 #include <vector>
 
