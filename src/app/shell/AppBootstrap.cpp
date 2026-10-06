@@ -14,7 +14,7 @@ using namespace std;
 filesystem::path documentsInventatoryPath() {
 #ifdef _WIN32
   if (const auto profile = environmentValue("USERPROFILE"); profile.has_value() && !profile->empty()) {
-    return filesystem::path(*profile) / "Documents" / "Inventatory";
+    return filesystem::u8path(*profile) / "Documents" / "Inventatory";
   }
   return filesystem::current_path() / "Documents" / "Inventatory";
 #else
@@ -35,7 +35,7 @@ filesystem::path discoverInventatoryDataPath() {
 #ifdef _WIN32
   const auto addCandidate = [&](const char* envName) {
     if (const auto value = environmentValue(envName); value.has_value() && !value->empty()) {
-      candidates.push_back(filesystem::path(*value) / "Documents" / "Inventatory");
+      candidates.push_back(filesystem::u8path(*value) / "Documents" / "Inventatory");
     }
   };
   addCandidate("OneDrive");

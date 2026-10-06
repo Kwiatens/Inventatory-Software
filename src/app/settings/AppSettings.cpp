@@ -167,10 +167,10 @@ const set<string>& persistedSettingsKeys() {
 filesystem::path appSettingsDirectory() {
 #ifdef _WIN32
   if (const auto value = environmentValue("LOCALAPPDATA"); value.has_value() && !value->empty()) {
-    return filesystem::path(*value) / "Inventatory";
+    return filesystem::u8path(*value) / "Inventatory";
   }
   if (const auto value = environmentValue("USERPROFILE"); value.has_value() && !value->empty()) {
-    return filesystem::path(*value) / "AppData" / "Local" / "Inventatory";
+    return filesystem::u8path(*value) / "AppData" / "Local" / "Inventatory";
   }
   return filesystem::current_path() / ".inventatory";
 #else

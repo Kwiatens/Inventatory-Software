@@ -4,9 +4,18 @@
 #include "platform/system/Environment.h"
 
 #include <cstdlib>
+#include <string>
 #include <vector>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -17,11 +26,39 @@ std::optional<std::string> environmentValue(const char* name) {
   if (name == nullptr || *name == '\0') return std::nullopt;
 
 #ifdef _WIN32
-  char* raw = nullptr;
-  std::size_t length = 0;
-  if (_dupenv_s(&raw, &length, name) != 0 || raw == nullptr) return std::nullopt;
-  std::string value(raw);
-  std::free(raw);
+  // Names and values are UTF-8 here; the CRT's narrow environment is ANSI and lossy for profile
+  // paths with characters outside the active code page.
+  const int wideNameLength = MultiByteToWideChar(CP_UTF8, 0, name, -1, nullptr, 0);
+  if (wideNameLength <= 0) return std::nullopt;
+  std::wstring wideName(static_cast<std::size_t>(wideNameLength), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, 0, name, -1, wideName.data(), wideNameLength) <= 0) return std::nullopt;
+
+  std::wstring wideValue(256U, L'\0');
+  for (;;) {
+    SetLastError(ERROR_SUCCESS);
+    const DWORD length =
+        GetEnvironmentVariableW(wideName.c_str(), wideValue.data(), static_cast<DWORD>(wideValue.size()));
+    if (length == 0) {
+      if (GetLastError() == ERROR_SUCCESS) return std::string();
+      return std::nullopt;
+    }
+    if (static_cast<std::size_t>(length) >= wideValue.size()) {
+      // The buffer was too small; length is the required size including the terminator.
+      wideValue.assign(static_cast<std::size_t>(length), L'\0');
+      continue;
+    }
+    wideValue.resize(static_cast<std::size_t>(length));
+    break;
+  }
+
+  const int valueLength = WideCharToMultiByte(CP_UTF8, 0, wideValue.data(), static_cast<int>(wideValue.size()),
+                                              nullptr, 0, nullptr, nullptr);
+  if (valueLength <= 0) return std::nullopt;
+  std::string value(static_cast<std::size_t>(valueLength), '\0');
+  if (WideCharToMultiByte(CP_UTF8, 0, wideValue.data(), static_cast<int>(wideValue.size()), value.data(),
+                          valueLength, nullptr, nullptr) <= 0) {
+    return std::nullopt;
+  }
   return value;
 #else
   const char* raw = std::getenv(name);
