@@ -7,8 +7,6 @@
 
 namespace inventatory {
 
-#ifdef INVENTATORY_SQLITE_STORAGE
-
 bool ensureInventatoryTableSchema(SqliteConnection& connection);
 bool loadRacks(SqliteConnection& connection, std::vector<InventatoryRack>& racks);
 bool loadItemsFromInventatoryTable(SqliteConnection& connection, std::vector<InventoryItem>& items);
@@ -20,7 +18,5 @@ bool writeItemsToInventatoryTable(
     const InventoryCommitDraft* commitDraft = nullptr, InventoryCommit* committed = nullptr,
     bool ensureInitialHistory = false, const std::vector<InventoryItem>* initialItems = nullptr,
     const std::vector<InventatoryRack>* initialRacks = nullptr);
-
-#endif
 
 }  // namespace inventatory

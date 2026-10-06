@@ -1824,7 +1824,6 @@ void testFailedUnitRegistrationRestoresPreviousUnit() {
 #endif
 
 void testInventoryCommitHistory() {
-#ifdef INVENTATORY_SQLITE_STORAGE
   const auto path = testTempRoot() / "inventatory-inventory-commit-history-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -2013,7 +2012,6 @@ void testInventoryCommitHistory() {
 
   filesystem::remove(path, cleanupError);
   assert(!cleanupError);
-#endif
 }
 
 #ifndef _WIN32
@@ -2081,7 +2079,6 @@ void testDesktopLauncherExecQuoting() {
 // commit itself may skip the full pass. Every inconsistency the old all-at-once validation rejected must
 // still be rejected, and an untouched history must still load.
 void testInventoryHistoryValidation() {
-#ifdef INVENTATORY_SQLITE_STORAGE
   const auto path = testTempRoot() / "inventatory-history-validation-test.db";
   const auto pristine = testTempRoot() / "inventatory-history-validation-pristine.db";
   error_code cleanupError;
@@ -2210,13 +2207,11 @@ void testInventoryHistoryValidation() {
 
   filesystem::remove(path, cleanupError);
   filesystem::remove(pristine, cleanupError);
-#endif
 }
 
 // A reversal must never produce, and the commit writer must never store, a snapshot that history
 // validation would later reject: that would make the whole database unloadable.
 void testInventoryCommitSnapshotsStayValid() {
-#ifdef INVENTATORY_SQLITE_STORAGE
   const auto path = testTempRoot() / "inventatory-commit-snapshot-validity-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -2310,7 +2305,6 @@ void testInventoryCommitSnapshotsStayValid() {
   assert(inventoryCommitDiff(reloaded, store).empty());
 
   filesystem::remove(path, cleanupError);
-#endif
 }
 
 // Values that render alike once joined for display must still count as different edits.
@@ -2428,7 +2422,6 @@ void testDigiKeyParsingRobustness() {
 }
 
 void testSqliteSchemaValidation() {
-#ifdef INVENTATORY_SQLITE_STORAGE
   const auto unsupportedPath = testTempRoot() / "inventatory-unsupported-schema-test.db";
   const auto invalidPath = testTempRoot() / "inventatory-invalid-schema-test.db";
   error_code cleanupError;
@@ -2670,7 +2663,6 @@ void testSqliteSchemaValidation() {
 
   filesystem::remove(unsupportedPath, cleanupError);
   filesystem::remove(invalidPath, cleanupError);
-#endif
 }
 
 #ifndef _WIN32
@@ -3493,7 +3485,6 @@ bool anyNoticeContains(const vector<string>& notices, const string& needle) {
 }  // namespace
 
 void testScannerCommitIgnoresUnsavedMemoryEdits() {
-#ifdef INVENTATORY_SQLITE_STORAGE
   // A failed save keeps the edited store in memory for retry. A scanner event processed in that
   // window must not use the unsaved store as its diff baseline: the commit would count only the
   // scanner change while its snapshot also carried the edit, which fails history validation on
@@ -3581,11 +3572,9 @@ void testScannerCommitIgnoresUnsavedMemoryEdits() {
   assert(commits.size() == 3);
 
   filesystem::remove(path, cleanupError);
-#endif
 }
 
 void testPendingDeviceEventsKeepArrivalOrder() {
-#ifdef INVENTATORY_SQLITE_STORAGE
   const auto path = testTempRoot() / "inventatory-pending-event-order-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -3613,7 +3602,6 @@ void testPendingDeviceEventsKeepArrivalOrder() {
   assert(pending[1].eventId == "ev-10");
   assert(pending[2].eventId == "ev-1");
   filesystem::remove(path, cleanupError);
-#endif
 }
 
 void testInventoryMerge() {
@@ -3912,7 +3900,6 @@ void testInventoryMerge() {
   // End to end: the scanner commits during the staged work, then the merged store is saved the
   // way the import commit does it. History stays valid and keeps both changes.
   {
-#ifdef INVENTATORY_SQLITE_STORAGE
     const auto path = testTempRoot() / "inventatory-merge-scanner-import-test.db";
     error_code cleanupError;
     filesystem::remove(path, cleanupError);
@@ -3984,7 +3971,6 @@ void testInventoryMerge() {
     assert(reloaded.findById("e2e-y") != nullptr);
     assert(reloaded.items().size() == 4);
     filesystem::remove(path, cleanupError);
-#endif
   }
 }
 
@@ -4223,12 +4209,10 @@ int main() {
     assert(!cleanupError);
   }
 
-#ifdef INVENTATORY_SQLITE_STORAGE
   // The persistence tests below must exercise the statically linked, pinned
   // SQLite amalgamation rather than an ambient sqlite3.dll.
   assert(sqliteApi().load());
   assert(sqlite3_libversion_number() == 3053004);
-#endif
 
   // Keep the unit-aware search tests on the executable path. These used to be
   // declared and defined but never called, which allowed parser regressions
@@ -4919,7 +4903,6 @@ int main() {
     assert(restored.vendorMetadata.parameters.front().value == "1uF");
   }
 
-#ifdef INVENTATORY_SQLITE_STORAGE
   {
     // A failed rack read must not replace an existing in-memory store or make
     // the successfully read item subset eligible for a later write-back.
@@ -4955,7 +4938,6 @@ int main() {
     filesystem::remove(databasePath, removeError);
     assert(!removeError);
   }
-#endif
 
   {
     const auto tempPath = testTempRoot() / "inventatory-machine-code-roundtrip.db";
@@ -5054,7 +5036,6 @@ int main() {
     metadataOnly.items().front().notes = "metadata changed";
     assert(inventoryMovementDiff(after, metadataOnly, "manual").empty());
 
-#ifdef INVENTATORY_SQLITE_STORAGE
     const auto databasePath = testTempRoot() / "inventatory-stock-movements-test.db";
     error_code cleanupError;
     filesystem::remove(databasePath, cleanupError);
@@ -5065,7 +5046,6 @@ int main() {
     assert(loadedMovements.front().occurredAt == 1710000200);
     assert(loadInventoryMovements(databasePath, 2).size() == 2);
     filesystem::remove(databasePath, cleanupError);
-#endif
   }
 
   {

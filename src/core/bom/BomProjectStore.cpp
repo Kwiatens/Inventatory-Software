@@ -116,12 +116,7 @@ map<string, string> deserializeBomMap(const string& value) {
   return values;
 }
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 namespace {
-
-bool ensureBomProjectSchema(SqliteConnection& connection) {
-  return ensureInventoryDatabaseSchema(connection);
-}
 
 bool insertProject(SqliteConnection& connection, const BomProject& project) {
   SqliteStatement statement;
@@ -150,13 +145,11 @@ bool insertProject(SqliteConnection& connection, const BomProject& project) {
 }
 
 }  // namespace
-#endif
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects) {
   vector<BomProject> loadedProjects;
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection)) {
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection)) {
     return false;
   }
 
@@ -186,13 +179,8 @@ bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& p
   if (stepResult != SQLITE_DONE) return false;
   projects = move(loadedProjects);
   return true;
-#else
-  (void)databasePath;
-  return false;
-#endif
 }
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 bool validateBomProjects(SqliteConnection& connection, string* error) {
   if (connection.db == nullptr) {
     if (error != nullptr) *error = "SQLite connection is not open";
@@ -231,12 +219,10 @@ bool validateBomProjects(SqliteConnection& connection, string* error) {
   }
   return true;
 }
-#endif
 
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects) {
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
-  if (!openDatabase(databasePath, connection) || !ensureBomProjectSchema(connection) ||
+  if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection) ||
       !execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
     return false;
   }
@@ -256,11 +242,6 @@ bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProje
     return false;
   }
   return true;
-#else
-  (void)databasePath;
-  (void)projects;
-  return false;
-#endif
 }
 
 }  // namespace inventatory

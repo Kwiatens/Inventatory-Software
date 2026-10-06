@@ -8,7 +8,6 @@
 
 namespace inventatory {
 
-#ifdef INVENTATORY_SQLITE_STORAGE
 struct SqliteApi {
   decltype(&::sqlite3_initialize) initialize = &::sqlite3_initialize;
   decltype(&::sqlite3_open_v2) open_v2 = &::sqlite3_open_v2;
@@ -83,7 +82,5 @@ bool sqliteInt32(sqlite3_stmt* statement, int column, int& value);
 bool sqliteUInt64(sqlite3_stmt* statement, int column, std::uint64_t& value);
 bool sqliteSize(sqlite3_stmt* statement, int column, size_t& value);
 bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value);
-
-#endif
 
 }  // namespace inventatory

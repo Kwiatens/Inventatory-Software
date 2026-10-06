@@ -3,8 +3,6 @@
 
 #include "core/storage/InventorySqlite.h"
 
-#include <fstream>
-#include <sstream>
 #include <utility>
 
 namespace inventatory {
@@ -12,34 +10,6 @@ namespace inventatory {
 using namespace std;
 
 namespace {
-
-filesystem::path historyFilePath(const filesystem::path& path) {
-  auto filename = path.filename();
-  filename.replace_extension(".history.tsv");
-  return path.parent_path() / filename;
-}
-
-string serializeHistoryPoint(const InventoryHistoryPoint& point) {
-  ostringstream out;
-  out << point.timestamp << '\t' << point.itemCount << '\t' << point.totalUnits << '\t' << point.lowStockCount << '\t'
-      << point.outOfStockCount << '\t' << point.dataErrorCount;
-  return out.str();
-}
-
-bool deserializeHistoryPoint(const string& line, InventoryHistoryPoint& point) {
-  istringstream input(line);
-  if (!(input >> point.timestamp >> point.itemCount >> point.totalUnits >> point.lowStockCount >>
-        point.outOfStockCount >> point.dataErrorCount)) {
-    return false;
-  }
-  return true;
-}
-
-#ifdef INVENTATORY_SQLITE_STORAGE
-
-bool createHistoryTable(SqliteConnection& connection) {
-  return ensureInventoryDatabaseSchema(connection);
-}
 
 bool loadHistoryFromInventatoryTable(SqliteConnection& connection, vector<InventoryHistoryPoint>& history) {
   if (!tableExists(connection, "inventatory_inventory_history")) {
@@ -72,7 +42,7 @@ bool loadHistoryFromInventatoryTable(SqliteConnection& connection, vector<Invent
 }
 
 bool writeHistoryToInventatoryTable(SqliteConnection& connection, const vector<InventoryHistoryPoint>& history) {
-  if (!createHistoryTable(connection)) {
+  if (!ensureInventoryDatabaseSchema(connection)) {
     return false;
   }
 
@@ -121,64 +91,25 @@ bool writeHistoryToInventatoryTable(SqliteConnection& connection, const vector<I
   return true;
 }
 
-#endif
-
 }  // namespace
 
 bool loadInventoryHistory(const filesystem::path& path, vector<InventoryHistoryPoint>& history) {
   history.clear();
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
     return false;
   }
 
   return loadHistoryFromInventatoryTable(connection, history);
-#else
-  ifstream file(historyFilePath(path));
-  if (!file) {
-    return false;
-  }
-
-  string line;
-  while (getline(file, line)) {
-    line = trim(line);
-    if (line.empty() || line.front() == '#') {
-      continue;
-    }
-
-    InventoryHistoryPoint point;
-    if (deserializeHistoryPoint(line, point)) {
-      history.push_back(move(point));
-    }
-  }
-
-  return !history.empty();
-#endif
 }
 
 bool saveInventoryHistory(const filesystem::path& path, const vector<InventoryHistoryPoint>& history) {
-#ifdef INVENTATORY_SQLITE_STORAGE
   SqliteConnection connection;
   if (!openDatabase(path, connection)) {
     return false;
   }
 
   return writeHistoryToInventatoryTable(connection, history);
-#else
-  filesystem::create_directories(path.parent_path());
-
-  ofstream file(historyFilePath(path), ios::trunc);
-  if (!file) {
-    return false;
-  }
-
-  file << "# Inventatory inventory history\n";
-  for (const auto& point : history) {
-    file << serializeHistoryPoint(point) << '\n';
-  }
-  return true;
-#endif
 }
 
 }  // namespace inventatory

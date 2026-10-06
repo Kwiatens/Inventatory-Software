@@ -15,8 +15,6 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
-
 namespace {
 
 string sqlitePath(const filesystem::path& path) {
@@ -246,7 +244,5 @@ bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value) {
   value = static_cast<time_t>(raw);
   return true;
 }
-
-#endif
 
 }  // namespace inventatory

@@ -256,8 +256,6 @@ class InventoryStore {
   bool load(const filesystem::path& path, bool* normalized = nullptr);
   bool save(const filesystem::path& path) const;
   bool saveWithMovements(const filesystem::path& path, const vector<InventoryMovement>& movements) const;
-  bool saveWithDeviceEvent(const filesystem::path& path, const DeviceEventCommit& event,
-                           const vector<InventoryMovement>& movements = {}) const;
   bool saveWithCommit(const filesystem::path& path, const InventoryStore& previous,
                       const InventoryCommitDraft& draft, const vector<InventoryMovement>& movements = {},
                       const DeviceEventCommit* deviceEvent = nullptr, InventoryCommit* committed = nullptr) const;

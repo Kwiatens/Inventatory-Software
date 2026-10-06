@@ -15,8 +15,6 @@ namespace inventatory {
 
 using namespace std;
 
-#ifdef INVENTATORY_SQLITE_STORAGE
-
 bool ensureInventoryCommitSchema(SqliteConnection& connection) {
   return ensureInventoryDatabaseSchema(connection);
 }
@@ -145,7 +143,5 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
   committed = move(next);
   return true;
 }
-
-#endif
 
 }  // namespace inventatory
