@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "core/bom/BomMatch.h"
 #include "core/inventory/Inventory.h"
 
 #include <ctime>
@@ -68,6 +69,14 @@ bool bomEnrichmentCached(const map<string, string>& enrichment, const string& ke
 
 // The text a shortage export may show for a stored entry: the suggested part, never a marker.
 string bomEnrichmentExportText(const string& stored);
+
+// The shortage list of an analysis as spreadsheet-ready CSV text (CRLF rows, formula-safe cells). The
+// suggested DigiKey part comes from `enrichment`; markers and failures are exported as an empty cell.
+struct BomShortageExport {
+  string text;
+  size_t rows = 0;
+};
+BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<string, string>& enrichment);
 
 // Shared with the tests: escaped round trip for the two string maps.
 string serializeBomMap(const map<string, string>& values);
