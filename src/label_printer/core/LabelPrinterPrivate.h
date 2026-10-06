@@ -49,10 +49,6 @@ int estimateFont0Width(const string& text, int height, int width);
 FittedLabelText fitFont0Text(const string& text, int maxWidth, initializer_list<int> sizes);
 
 CableFlagFont cableFlagFont(const string& text);
-bool looksLikeFrequencyValue(const string& value);
-bool looksLikeInductanceValue(const string& value);
-string canonicalInductanceUnit(string unit);
-optional<string> extractInductanceFromText(const string& text);
 optional<string> parameterValueMatching(const InventoryItem& item,
                                         initializer_list<const char*> names,
                                         bool (*predicate)(const string&));

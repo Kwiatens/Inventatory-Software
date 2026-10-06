@@ -9,7 +9,6 @@
 #include <cctype>
 #include <cmath>
 #include <limits>
-#include <regex>
 #include <sstream>
 #include <utility>
 
@@ -26,25 +25,6 @@ string normalizeParameterKey(const string& value) {
     }
   }
   return normalized;
-}
-
-bool looksLikeFrequencyValue(const string& value) {
-  const auto normalized = normalizeParameterKey(value);
-  return normalized.find("hz") != string::npos;
-}
-
-bool looksLikeInductanceValue(const string& value) {
-  const auto normalized = normalizeParameterKey(value);
-  if (normalized.empty() || normalized.find("hz") != string::npos) {
-    return false;
-  }
-
-  if (normalized.find("uh") != string::npos || normalized.find("nh") != string::npos ||
-      normalized.find("ph") != string::npos || normalized.find("henry") != string::npos) {
-    return true;
-  }
-
-  return normalized.find_first_of("0123456789") != string::npos && !normalized.empty() && normalized.back() == 'h';
 }
 
 optional<string> readParameterText(const JsonPtr& entry, const string& label) {

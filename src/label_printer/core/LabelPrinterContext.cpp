@@ -16,7 +16,6 @@
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <regex>
 #include <sstream>
 #include <system_error>
 
