@@ -106,8 +106,9 @@ matching part when one line has several candidates, and that choice is remembere
 It focuses on one rack at a time, pulsing the slots holding parts this project
 needs and listing only the current picks. Enter advances and Backspace goes back.
 Parts that live outside a rack come last, grouped by location. At the end, answer
-whether to subtract the picked parts from stock; Ctrl+Z undoes it. Select a missing
-line and press Enter to open its restock flow.
+whether to subtract the picked parts from stock. A finished build is an ordinary inventory
+commit, so `Ctrl+Z` on the Projects page (also listed in Actions) reverts the deduction and
+re-runs the comparison. Select a missing line and press `r` to open its restock flow.
 
 Projects persist in the inventory database, so reopening the app restores the
 analysis against current stock with no re-upload. `d` forgets one.
