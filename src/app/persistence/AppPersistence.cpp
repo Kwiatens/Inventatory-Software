@@ -285,7 +285,7 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
     persistedStore_ = store_;
     persistedStoreValid_ = true;
     refreshInventoryMovements();
-    refreshInventoryCommits();
+    refreshInventoryCommits(needsCommit);
     // Scanner events are held back while unsaved inventory changes exist; look again now.
     deviceSyncEventsHint_.store(true);
     pendingCommitDraft_ = {};

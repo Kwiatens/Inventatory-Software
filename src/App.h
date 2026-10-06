@@ -626,7 +626,9 @@ class App {
   bool enqueuePrinterProbe(const std::string& printerName);
   bool enqueuePrinterWork(PrinterWork work);
   void refreshInventoryMovements();
-  void refreshInventoryCommits();
+  // `afterOwnSave` skips re-validating the entire history after this process appended a commit; only the
+  // newest commit (the one just written) is checked.
+  void refreshInventoryCommits(bool afterOwnSave = false);
   void openPrinterSetup();
   bool printSelectedLabel();
   bool printWireLabel(const std::string& text);

@@ -288,7 +288,11 @@ bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& aft
 bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const InventoryStore& current,
                                    InventoryStore& reversed, string& conflict);
 bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryStore& current);
-bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits);
+// Lists the commits newest first. The whole history is validated first unless `validateHistory` is
+// false, which is only for a caller that has just appended a commit through this API and checks that
+// commit itself; load, restore and backup validation always use the default.
+bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits,
+                          bool validateHistory = true);
 bool loadInventoryCommit(const filesystem::path& path, const string& id, InventoryCommitDetail& detail);
 
 vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, const InventoryStore& after,
