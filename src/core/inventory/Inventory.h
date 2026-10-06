@@ -217,6 +217,8 @@ vector<string> split(const string& value, char delimiter);
 vector<string> tokenizeQuery(const string& query);
 
 bool containsInsensitive(string_view haystack, string_view needle);
+bool startsWithInsensitive(string_view value, string_view prefix);
+bool endsWith(string_view value, string_view suffix);
 int effectiveReorderThreshold(const InventoryItem& item, int globalThreshold);
 bool isLowStock(const InventoryItem& item, int threshold);
 bool matchesQuery(const InventoryItem& item, const string& query, int lowStockThreshold);

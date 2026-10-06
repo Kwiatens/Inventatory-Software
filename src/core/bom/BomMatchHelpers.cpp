@@ -34,10 +34,6 @@ vector<string> splitOnUnderscore(const string& value) {
   return tokens;
 }
 
-bool startsWithInsensitive(const string& value, const string& prefix) {
-  return value.size() >= prefix.size() && toLower(value.substr(0, prefix.size())) == toLower(prefix);
-}
-
 // Pulls "5.0" out of a "D5.0mm" diameter token.
 string diameterToken(const vector<string>& tokens) {
   for (const auto& token : tokens) {
@@ -178,10 +174,6 @@ optional<double> parseNumberWithMultiplier(const string& body, NumberNotation no
   const double result = number * multiplier;
   if (!isfinite(result) || result < 0.0) return nullopt;
   return result;
-}
-
-bool endsWith(const string& value, const string& suffix) {
-  return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 string compactKey(const string& value) {
