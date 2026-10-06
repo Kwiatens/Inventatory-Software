@@ -85,6 +85,9 @@ ftxui::Element uiSectionHeader(const string& text, optional<ftxui::Color> fg = n
                                optional<ftxui::Color> bg = nullopt);
 ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg = nullopt,
                         optional<ftxui::Color> bg = nullopt);
+// A table cell exactly `width` columns wide: text clipped with an ellipsis, left or right aligned.
+ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool rightAlign = false);
+ftxui::Element centered(ftxui::Element element);
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor = nullopt,
                      optional<ftxui::Color> borderColor = nullopt);
 ftxui::Element footerField(const string& title, const string& body, ftxui::Color titleColor, ftxui::Color bodyColor,
