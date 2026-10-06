@@ -18,13 +18,7 @@ filesystem::path documentsInventatoryPath() {
   }
   return filesystem::current_path() / "Documents" / "Inventatory";
 #else
-  const auto home = environmentValue("HOME");
-  const auto dataHome = environmentValue("XDG_DATA_HOME");
-  if (dataHome.has_value() && !dataHome->empty() && filesystem::path(*dataHome).is_absolute()) {
-    return filesystem::path(*dataHome) / "Inventatory";
-  }
-  if (home.has_value() && !home->empty()) return filesystem::path(*home) / ".local" / "share" / "Inventatory";
-  return filesystem::current_path() / ".local" / "share" / "Inventatory";
+  return xdgDataHome() / "Inventatory";
 #endif
 }
 

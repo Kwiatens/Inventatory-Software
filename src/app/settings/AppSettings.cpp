@@ -173,13 +173,7 @@ filesystem::path appSettingsDirectory() {
   }
   return filesystem::current_path() / ".inventatory";
 #else
-  const auto home = environmentValue("HOME");
-  const auto configHome = environmentValue("XDG_CONFIG_HOME");
-  if (configHome.has_value() && !configHome->empty() && filesystem::path(*configHome).is_absolute()) {
-    return filesystem::path(*configHome) / "Inventatory";
-  }
-  if (home.has_value() && !home->empty()) return filesystem::path(*home) / ".config" / "Inventatory";
-  return filesystem::current_path() / ".config" / "Inventatory";
+  return xdgConfigHome() / "Inventatory";
 #endif
 }
 

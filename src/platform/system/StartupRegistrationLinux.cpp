@@ -27,23 +27,6 @@ namespace inventatory {
 namespace filesystem = std::filesystem;
 namespace {
 
-filesystem::path homeDirectory() {
-  if (const auto home = environmentValue("HOME"); home.has_value() && !home->empty()) return filesystem::path(*home);
-  return filesystem::current_path();
-}
-
-filesystem::path configHome() {
-  if (const auto xdg = environmentValue("XDG_CONFIG_HOME"); xdg.has_value() && !xdg->empty() &&
-      filesystem::path(*xdg).is_absolute()) return filesystem::path(*xdg);
-  return homeDirectory() / ".config";
-}
-
-filesystem::path dataHome() {
-  if (const auto xdg = environmentValue("XDG_DATA_HOME"); xdg.has_value() && !xdg->empty() &&
-      filesystem::path(*xdg).is_absolute()) return filesystem::path(*xdg);
-  return homeDirectory() / ".local" / "share";
-}
-
 // Replacing a launcher or icon that already holds the same bytes still gives it a new inode and
 // mtime. Plasma then drops its link between the running window and the launcher it was started
 // from, and the taskbar falls back to the terminal emulator's own icon. Only touch the file when
@@ -209,7 +192,7 @@ bool runSystemctl(const std::vector<std::string>& arguments, std::string& error,
 
 constexpr const char* kServiceName = "inventatory-background.service";
 
-filesystem::path servicePath() { return configHome() / "systemd" / "user" / kServiceName; }
+filesystem::path servicePath() { return xdgConfigHome() / "systemd" / "user" / kServiceName; }
 
 // The executable an already registered unit points at, when it still exists. Launching a different
 // build (a development tree, a second install) must not silently retarget the login service.
@@ -253,7 +236,7 @@ std::wstring buildDesktopShortcutPath(const std::wstring& desktopDirectory) {
 }
 
 bool installDesktopIcons(std::string& error) {
-  const auto iconsRoot = dataHome() / "icons" / "hicolor";
+  const auto iconsRoot = xdgDataHome() / "icons" / "hicolor";
   std::error_code ec;
   for (const auto& asset : kEmbeddedIconAssets) {
     const auto dir = iconsRoot / (std::to_string(asset.size) + "x" + std::to_string(asset.size)) / "apps";
@@ -266,7 +249,7 @@ bool installDesktopIcons(std::string& error) {
     const std::string iconBytes(reinterpret_cast<const char*>(asset.data), asset.length);
     if (!writeFileIfChanged(iconFile, iconBytes, &error)) return false;
   }
-  const auto pixmapsDir = dataHome() / "pixmaps";
+  const auto pixmapsDir = xdgDataHome() / "pixmaps";
   filesystem::create_directories(pixmapsDir, ec);
   if (!ec) {
     for (const auto& asset : kEmbeddedIconAssets) {
@@ -285,7 +268,7 @@ filesystem::path userDesktopDirectory() {
     std::error_code ec;
     if (filesystem::is_directory(*env, ec)) return filesystem::path(*env);
   }
-  const auto userDirsFile = configHome() / "user-dirs.dirs";
+  const auto userDirsFile = xdgConfigHome() / "user-dirs.dirs";
   if (std::ifstream stream(userDirsFile); stream.is_open()) {
     std::string line;
     while (std::getline(stream, line)) {
@@ -314,7 +297,7 @@ filesystem::path userDesktopDirectory() {
 bool createDesktopShortcut(std::string& error) {
   if (!installDesktopIcons(error)) return false;
 
-  const auto launcherDirectory = dataHome() / "applications";
+  const auto launcherDirectory = xdgDataHome() / "applications";
   const auto launcher = launcherDirectory / "inventatory.desktop";
   // An existing launcher keeps the executable it was created for while that file still exists, so
   // starting a development build or a second install does not retarget the user's launcher.
