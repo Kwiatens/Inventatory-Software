@@ -119,7 +119,8 @@ Settings, `printer.conf`, quick labels and the update marker are written
 through a temporary file that is flushed to disk, then renamed over the
 original, and the directory is flushed afterwards. A settings file that is a
 symbolic link (for example one managed by a dotfile tool) stays a link; the
-file it points to is updated.
+file it points to is updated. An unchanged `printer.conf` is not rewritten, and
+one that exists but cannot be read is never replaced by an empty configuration.
 
 Paths with spaces and UTF-8 names are supported. Linux filesystems are treated
 as case-sensitive. The database, inventory records, backups, CSV data, and
