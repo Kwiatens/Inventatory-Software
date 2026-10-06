@@ -27,6 +27,13 @@ using namespace std;
 using namespace app_actions;
 
 void App::changePage(Page page) {
+  // The unsaved-settings / unsaved-data prompt is modal. Leaving through a header click would
+  // skip it and strand the staged draft, so it must be answered (S / D / Esc or its buttons)
+  // first. completeSettingsExit() closes the prompt before it navigates.
+  if (inputMode_ == InputMode::ExitConfirmation) {
+    setMessage("Answer the unsaved-changes prompt first: Save, Discard, or Stay", 4, UiMessageSeverity::Warning);
+    return;
+  }
   if (page != page_ && page_ == Page::Stock && stocktakeActive_) {
     setMessage("Finish or cancel the stocktake before leaving Stock", 5);
     return;
@@ -38,7 +45,7 @@ void App::changePage(Page page) {
   if (page != page_ && page_ == Page::Import && importStageActive_) {
     cancelImportSession();
   }
-  if (page != page_ && page_ == Page::Settings && settingsDirty_ && inputMode_ != InputMode::ExitConfirmation) {
+  if (page != page_ && page_ == Page::Settings && settingsDirty_) {
     pendingPageAfterSettings_ = page;
     inputMode_ = InputMode::ExitConfirmation;
     setMessage("Unsaved settings: press S to save, D to discard, or Esc to stay", 5);
