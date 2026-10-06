@@ -220,9 +220,14 @@ void App::createRackWithType(const string& value) {
     setMessage("Rack type cannot be empty", 3);
     return;
   }
-  int nextNumber = 1;
+  // A rack renamed to R2147483647 leaves no representable next code.
+  long long nextNumber = 1;
   for (const auto& rack : store_.racks()) {
-    nextNumber = max(nextNumber, rackNumberFromCode(rack.code) + 1);
+    nextNumber = max(nextNumber, static_cast<long long>(rackNumberFromCode(rack.code)) + 1);
+  }
+  if (nextNumber > numeric_limits<int>::max()) {
+    setMessage("No further rack codes are available", 4, UiMessageSeverity::Warning);
+    return;
   }
   InventatoryRack rack;
   rack.id = makeId();
@@ -359,7 +364,9 @@ void App::adjustSelectedRackItemQuantity(int delta) {
   }
 
   captureUndoSnapshot();
-  item->quantity = max(0, item->quantity + delta);
+  // Widen before adding: INT_MAX plus a positive delta must clamp, not overflow.
+  item->quantity = static_cast<int>(
+      clamp<long long>(static_cast<long long>(item->quantity) + delta, 0, numeric_limits<int>::max()));
   item->lastUpdated = time(nullptr);
   logActivity(delta > 0 ? "stock" : "usage", item->partName + " quantity changed to " + to_string(item->quantity));
   saveState();
