@@ -3897,6 +3897,17 @@ int main() {
     changedLabelWorkspace.workspaceGeneration = second;
     assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelWorkspace));
   }
+  {
+    // A credential store that cannot answer must not turn a stored secret into "not configured".
+    const CredentialLookup found{CredentialReadStatus::Found, string("secret")};
+    const CredentialLookup missing{CredentialReadStatus::NotFound, nullopt};
+    const CredentialLookup unavailable{CredentialReadStatus::Unavailable, nullopt};
+    for (const bool previous : {false, true}) {
+      assert(credentialPresence(found, previous));
+      assert(!credentialPresence(missing, previous));
+      assert(credentialPresence(unavailable, previous) == previous);
+    }
+  }
   assert(onboardingRequired(false, false, 0));
   assert(onboardingRequired(false, true, 0));
   assert(!onboardingRequired(false, true, 1));

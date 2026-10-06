@@ -18,6 +18,17 @@ struct CredentialLookup {
   std::optional<std::string> secret;
 };
 
+// Whether a secret is stored, for display. A store that could not answer says nothing about the secret, so
+// `previous` (the last known answer) is kept instead of reporting "not configured" for a stored secret.
+inline bool credentialPresence(const CredentialLookup& lookup, bool previous) {
+  switch (lookup.status) {
+    case CredentialReadStatus::Found: return lookup.secret.has_value();
+    case CredentialReadStatus::NotFound: return false;
+    case CredentialReadStatus::Unavailable: break;
+  }
+  return previous;
+}
+
 class CredentialStore {
  public:
   // Distinguishes a missing secret from an unreadable store; read() reports both as nullopt.

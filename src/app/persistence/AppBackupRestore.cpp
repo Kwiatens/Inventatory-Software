@@ -194,7 +194,8 @@ bool App::restoreData() {
                7);
     return false;
   }
-  hasStoredDigiKeySecret_ = CredentialStore::read("digikey-client-secret").has_value();
+  hasStoredDigiKeySecret_ =
+      credentialPresence(CredentialStore::lookup("digikey-client-secret"), hasStoredDigiKeySecret_);
   applyUiAppearance(settings_.appearance);
   settingsDirty_ = false;
   restartDeviceService();
