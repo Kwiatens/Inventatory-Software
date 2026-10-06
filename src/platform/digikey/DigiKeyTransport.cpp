@@ -33,10 +33,6 @@ namespace inventatory {
 using namespace std;
 namespace digikey_detail {
 
-string trimCopy(string value) {
-  return trim(value);
-}
-
 string encodeComponent(const string& value, bool formEncoding) {
   ostringstream out;
   for (unsigned char ch : value) {
@@ -395,7 +391,7 @@ bool appendAuthorizationHeader(ostringstream& headers, const string& token, stri
 }
 
 bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   unsigned long long parsed = 0;
   for (const unsigned char character : trimmed) {
@@ -409,7 +405,7 @@ bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
 }
 
 bool isFiniteDecimal(const string& value, double maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   double parsed = 0.0;
   return parseClassicDecimal(trimmed, parsed) && isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;

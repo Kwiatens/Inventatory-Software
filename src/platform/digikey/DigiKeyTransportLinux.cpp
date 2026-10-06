@@ -59,7 +59,7 @@ size_t receiveHeader(char* data, size_t size, size_t count, void* context) {
     return static_cast<char>(std::tolower(ch));
   });
   if (name != "retry-after") return bytes;
-  std::string value = trimCopy(line.substr(colon + 1U));
+  std::string value = trim(line.substr(colon + 1U));
   if (value.empty() || !std::all_of(value.begin(), value.end(), [](unsigned char ch) { return ch >= '0' && ch <= '9'; })) {
     return bytes;
   }
@@ -148,8 +148,6 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
 }
 
 }  // namespace
-
-string trimCopy(string value) { return trim(std::move(value)); }
 
 string encodeComponent(const string& value, bool formEncoding) {
   std::ostringstream out;
@@ -260,7 +258,7 @@ bool appendAuthorizationHeader(std::ostringstream& headers, const string& token,
 }
 
 bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   unsigned long long parsed = 0;
   for (const unsigned char character : trimmed) {
@@ -274,7 +272,7 @@ bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
 }
 
 bool isFiniteDecimal(const string& value, double maximum) {
-  const auto trimmed = trimCopy(value);
+  const auto trimmed = trim(value);
   if (trimmed.empty()) return false;
   double parsed = 0.0;
   return parseClassicDecimal(trimmed, parsed) && std::isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;

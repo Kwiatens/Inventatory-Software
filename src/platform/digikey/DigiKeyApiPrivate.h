@@ -69,7 +69,6 @@ struct SearchMatch {
   string detailedDescription;
 };
 
-string trimCopy(string value);
 string encodeFormValue(const string& value);
 string encodePathSegment(const string& value);
 string encodeComponent(const string& value, bool formEncoding);

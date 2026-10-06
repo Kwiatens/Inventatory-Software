@@ -28,7 +28,7 @@ bool isSuccessStatus(std::uint32_t statusCode, const char* what, string* error) 
 }  // namespace
 
 bool DigiKeyConfig::valid() const {
-  return !trimCopy(clientId).empty() && !trimCopy(clientSecret).empty() &&
+  return !trim(clientId).empty() && !trim(clientSecret).empty() &&
          clientId.size() <= kMaximumDigiKeyFieldBytes && clientSecret.size() <= kMaximumDigiKeyFieldBytes &&
          accountId.size() <= kMaximumDigiKeyFieldBytes && site.size() <= kMaximumDigiKeyFieldBytes &&
          language.size() <= kMaximumDigiKeyFieldBytes && currency.size() <= kMaximumDigiKeyFieldBytes &&
@@ -175,14 +175,14 @@ bool DigiKeyApiClient::sendAuthorized(const wstring& method, const wstring& url,
 optional<string> DigiKeyApiClient::requestProductDetails(const string& productNumber,
                                                                     string* error,
                                                                     const string& manufacturerId) {
-  if (trimCopy(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes ||
+  if (trim(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes ||
       manufacturerId.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey product identifier is empty or too large";
     return nullopt;
   }
   ostringstream url;
   url << "https://api.digikey.com/products/v4/search/" << encodePathSegment(productNumber) << "/productdetails";
-  if (!trimCopy(manufacturerId).empty()) {
+  if (!trim(manufacturerId).empty()) {
     url << "?manufacturerId=" << encodeComponent(manufacturerId, false);
   }
 
@@ -197,7 +197,7 @@ optional<string> DigiKeyApiClient::requestProductDetails(const string& productNu
 }
 
 optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, string* error) {
-  if (trimCopy(keywords).empty() || keywords.size() > kMaximumDigiKeyFieldBytes) {
+  if (trim(keywords).empty() || keywords.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey search keywords are empty or too large";
     return nullopt;
   }
@@ -225,7 +225,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::lookupProductDetails(const str
                                                                             DigiKeyLookupOutcome& outcome,
                                                                             string* error) {
   outcome = DigiKeyLookupOutcome::Failed;
-  if (trimCopy(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes) {
+  if (trim(productNumber).empty() || productNumber.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey product identifier is empty or too large";
     return nullopt;
   }
