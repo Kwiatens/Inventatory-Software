@@ -20,6 +20,14 @@ namespace inventatory {
 using namespace std;
 using namespace app_actions;
 
+void App::clearBomEnrichmentRun() {
+  bomEnrichmentQueue_.clear();
+  bomEnrichmentTotal_ = 0;
+  bomEnrichmentActiveKey_.clear();
+  bomEnrichmentActiveProjectId_.clear();
+  bomEnrichmentClient_.reset();
+}
+
 void App::queueBomEnrichment() {
   bomEnrichmentQueue_.clear();
   bomEnrichmentTotal_ = 0;
@@ -28,9 +36,7 @@ void App::queueBomEnrichment() {
     bomEnrichmentProjectId_.clear();
     ++bomEnrichmentSequence_;
     if (!bomEnrichmentFuture_.valid()) {
-      bomEnrichmentActiveKey_.clear();
-      bomEnrichmentActiveProjectId_.clear();
-      bomEnrichmentClient_.reset();
+      clearBomEnrichmentRun();
     }
     return;
   }
@@ -95,11 +101,7 @@ void App::processBomEnrichment() {
       }
     }
     if (result.credentialsMissing) {
-      bomEnrichmentQueue_.clear();
-      bomEnrichmentTotal_ = 0;
-      bomEnrichmentActiveKey_.clear();
-      bomEnrichmentActiveProjectId_.clear();
-      bomEnrichmentClient_.reset();
+      clearBomEnrichmentRun();
       return;
     }
     if (result.projectId == bomEnrichmentActiveProjectId_) {
@@ -107,11 +109,7 @@ void App::processBomEnrichment() {
       bomEnrichmentActiveProjectId_.clear();
     }
     if (context == nullptr || !workspaceGenerationMatches(context->generation, result.workspaceGeneration)) {
-      bomEnrichmentQueue_.clear();
-      bomEnrichmentTotal_ = 0;
-      bomEnrichmentActiveKey_.clear();
-      bomEnrichmentActiveProjectId_.clear();
-      bomEnrichmentClient_.reset();
+      clearBomEnrichmentRun();
       return;
     }
     if (bomEnrichmentQueue_.empty() && result.requestSequence == bomEnrichmentSequence_) {
@@ -126,11 +124,7 @@ void App::processBomEnrichment() {
   auto* project = activeBomProject();
   if (project == nullptr || !bomAnalysisValid_ || project->id != bomEnrichmentProjectId_) {
     if (!bomEnrichmentFuture_.valid()) {
-      bomEnrichmentQueue_.clear();
-      bomEnrichmentTotal_ = 0;
-      bomEnrichmentActiveKey_.clear();
-      bomEnrichmentActiveProjectId_.clear();
-      bomEnrichmentClient_.reset();
+      clearBomEnrichmentRun();
     }
     return;
   }

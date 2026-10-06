@@ -791,6 +791,7 @@ class App {
   void finishBomBuild(bool subtractFromStock);
   bool exportBomShortages();
   void queueBomEnrichment();
+  void clearBomEnrichmentRun();
   void processBomEnrichment();
   bool saveBomProjects();
   bool exportInventory();
