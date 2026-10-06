@@ -45,6 +45,28 @@ with a `SKIPPED (no usable credential store)` notice and `ctest` reports the
 suite as skipped (exit code 77) after every other test has run. Set
 `INVENTATORY_REQUIRE_KEYRING_TESTS=1`, as CI does, to make that a failure.
 
+### Running the tests
+
+- `ctest --test-dir <build-dir> --output-on-failure` runs `inventatory_core`
+  (the single assert-based program in `tests/inventatory_tests.cpp`, which exits
+  at the first failed assertion) and `inventatory_input`. Run the program
+  directly (`<build-dir>/inventatory_tests`) to see all of its output.
+- Every run creates its own private, randomly named folder
+  (`inventatory-tests-<random>`) under the system temporary directory, keeps all
+  fixtures inside it and removes it on exit, also after a failed assertion, so
+  Debug and Release runs can overlap. Set `INVENTATORY_KEEP_TEST_TEMP=1` to keep
+  the folder and print its path while investigating a failure.
+- The locale regression tests need a comma-decimal UTF-8 locale and skip with a
+  notice otherwise. Install one with
+  `sudo apt install locales && sudo locale-gen pl_PL.UTF-8 de_DE.UTF-8`, and set
+  `INVENTATORY_REQUIRE_LOCALE_TESTS=1` (as CI does) to make a skip a failure.
+- `bash installer/Test-InventatoryLinuxInstall.sh` exercises the Linux installer
+  and the in-app update hand-off with a fixture archive.
+- To check memory and undefined-behavior errors, configure a separate build
+  directory with
+  `-DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"`
+  and run `ctest` as above; CI has a job that does this.
+
 The project builds SQLite and FTXUI from pinned source revisions. Its Linux
 executable links to OpenSSL, libcurl, libsecret, and GIO. Install locally and
 run it from a terminal with:
