@@ -23,18 +23,6 @@ using namespace std;
 
 namespace {
 
-ftxui::Element bomCell(const string& text, int width, ftxui::Color color, bool rightAlign = false) {
-  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
-  auto content = rightAlign
-                     ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
-                     : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
-  return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
-}
-
-ftxui::Element centered(ftxui::Element element) {
-  return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
-}
-
 struct BomRackGlyph {
   char value;
   int width;
@@ -193,11 +181,11 @@ ftxui::Element App::renderBomProjectUi() const {
     const int nameWidth = clamp(screenWidth / 3, 24, 44);
     ftxui::Elements rows;
     rows.push_back(ftxui::hbox({
-        bomCell(" Project", nameWidth, uiMutedColor()),
-        bomCell("Lines", 8, uiMutedColor(), true),
-        bomCell("Boards", 8, uiMutedColor(), true),
+        fixedCell(" Project", nameWidth, uiMutedColor()),
+        fixedCell("Lines", 8, uiMutedColor(), true),
+        fixedCell("Boards", 8, uiMutedColor(), true),
         styledText("   ", uiDimColor()),
-        bomCell("Built", 10, uiMutedColor()),
+        fixedCell("Built", 10, uiMutedColor()),
     }) | ftxui::bgcolor(uiPanelLeftBg()));
 
     for (size_t index = 0; index < bomProjects_.size(); ++index) {
@@ -210,11 +198,11 @@ ftxui::Element App::renderBomProjectUi() const {
       // rather than a full re-parse of the stored BOM.
       const auto lineCount = count(project.bomText.begin(), project.bomText.end(), '\n');
       auto row = ftxui::hbox({
-          bomCell(" " + project.name, nameWidth, fg),
-          bomCell(to_string(max<long long>(0, lineCount - 1)), 8, uiSecondaryText(), true),
-          bomCell(to_string(project.boards), 8, uiAccentColor(), true),
+          fixedCell(" " + project.name, nameWidth, fg),
+          fixedCell(to_string(max<long long>(0, lineCount - 1)), 8, uiSecondaryText(), true),
+          fixedCell(to_string(project.boards), 8, uiAccentColor(), true),
           styledText("   ", uiDimColor()),
-          bomCell(project.lastBuilt > 0 ? "yes" : "-", 10, project.lastBuilt > 0 ? uiSuccessColor() : uiDimColor()),
+          fixedCell(project.lastBuilt > 0 ? "yes" : "-", 10, project.lastBuilt > 0 ? uiSuccessColor() : uiDimColor()),
       }) | ftxui::bgcolor(bg);
       if (selected) {
         row = row | ftxui::select;
@@ -323,21 +311,21 @@ ftxui::Element App::renderBomProjectUi() const {
     const int detailColumn = loose ? clamp(sideWidth / 5, 10, 14) : clamp(sideWidth / 5, 8, 12);
     const int labelColumn = max(8, sideContentWidth - slotColumn - quantityColumn - detailColumn - 1);
     auto sideListHeader = ftxui::hbox({
-        bomCell(" " + string(loose ? "Location" : "Slot"), slotColumn, uiMutedColor()),
-        bomCell("Part", labelColumn, uiMutedColor()),
-        bomCell("Package", detailColumn, uiMutedColor()),
+        fixedCell(" " + string(loose ? "Location" : "Slot"), slotColumn, uiMutedColor()),
+        fixedCell("Part", labelColumn, uiMutedColor()),
+        fixedCell("Package", detailColumn, uiMutedColor()),
         ftxui::filler(),
-        bomCell("Need", quantityColumn, uiMutedColor(), true),
+        fixedCell("Need", quantityColumn, uiMutedColor(), true),
     }) | ftxui::bgcolor(uiPanelLeftBg());
 
     ftxui::Elements sideRows;
     for (const auto& pick : step.picks) {
       sideRows.push_back(ftxui::hbox({
-          bomCell(" " + pick.slot, slotColumn, uiAccentColor()),
-          bomCell(pick.label, labelColumn, uiPrimaryText()),
-          bomCell(pick.detail, detailColumn, uiMutedColor()),
+          fixedCell(" " + pick.slot, slotColumn, uiAccentColor()),
+          fixedCell(pick.label, labelColumn, uiPrimaryText()),
+          fixedCell(pick.detail, detailColumn, uiMutedColor()),
           ftxui::filler(),
-          bomCell("x" + to_string(pick.quantity), quantityColumn, uiFocusColor(), true),
+          fixedCell("x" + to_string(pick.quantity), quantityColumn, uiFocusColor(), true),
       }));
     }
 
@@ -368,16 +356,16 @@ ftxui::Element App::renderBomProjectUi() const {
       const int mainContentWidth = max(30, screenWidth - sideWidth - 3);
       const int mainLabelColumn = max(12, mainContentWidth - 18 - quantityColumn);
       mainRows.push_back(ftxui::hbox({
-          bomCell(" Location", 18, uiMutedColor()),
-          bomCell("Part", mainLabelColumn, uiMutedColor()),
-          bomCell("Need", quantityColumn, uiMutedColor(), true),
+          fixedCell(" Location", 18, uiMutedColor()),
+          fixedCell("Part", mainLabelColumn, uiMutedColor()),
+          fixedCell("Need", quantityColumn, uiMutedColor(), true),
       }) | ftxui::bgcolor(uiPanelLeftBg()));
       for (const auto& pick : step.picks) {
         mainRows.push_back(ftxui::hbox({
-            bomCell(" " + pick.slot, 18, uiMutedColor()),
-            bomCell(pick.label, mainLabelColumn, uiPrimaryText()),
-            bomCell("x" + to_string(pick.quantity), quantityColumn,
-                    blink ? uiFocusColor() : uiInteractiveColor(), true),
+            fixedCell(" " + pick.slot, 18, uiMutedColor()),
+            fixedCell(pick.label, mainLabelColumn, uiPrimaryText()),
+            fixedCell("x" + to_string(pick.quantity), quantityColumn,
+                      blink ? uiFocusColor() : uiInteractiveColor(), true),
         }));
       }
     } else {
@@ -506,12 +494,12 @@ ftxui::Element App::renderBomProjectUi() const {
   }
   ftxui::Elements tableRows;
   tableRows.push_back(ftxui::hbox({
-      bomCell("", treeWidth, uiMutedColor()),
-      bomCell("Part", partNameWidth, uiMutedColor()),
-      bomCell("Package", packageWidth, uiMutedColor()),
-      bomCell("Where / suggested match", detailWidth, uiMutedColor()),
-      bomCell("Need / Have", needHaveWidth, uiMutedColor(), true),
-      bomCell("Status", statusWidth, uiMutedColor(), true),
+      fixedCell("", treeWidth, uiMutedColor()),
+      fixedCell("Part", partNameWidth, uiMutedColor()),
+      fixedCell("Package", packageWidth, uiMutedColor()),
+      fixedCell("Where / suggested match", detailWidth, uiMutedColor()),
+      fixedCell("Need / Have", needHaveWidth, uiMutedColor(), true),
+      fixedCell("Status", statusWidth, uiMutedColor(), true),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
   const auto groupRow = [&](const string& label, ftxui::Color color, bool nested,
@@ -529,14 +517,14 @@ ftxui::Element App::renderBomProjectUi() const {
               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryNameWidth),
       });
     } else {
-      partColumn = bomCell(" " + label, partWidth, color);
+      partColumn = fixedCell(" " + label, partWidth, color);
     }
     return ftxui::hbox({
                partColumn,
-               bomCell("", packageWidth, uiMutedColor()),
-               bomCell("", detailWidth, uiMutedColor()),
-               bomCell("", needHaveWidth, uiMutedColor(), true),
-               bomCell("", statusWidth, uiMutedColor(), true),
+               fixedCell("", packageWidth, uiMutedColor()),
+               fixedCell("", detailWidth, uiMutedColor()),
+               fixedCell("", needHaveWidth, uiMutedColor(), true),
+               fixedCell("", statusWidth, uiMutedColor(), true),
            }) |
            ftxui::bgcolor(uiRaisedSurfaceBg());
   };
@@ -638,12 +626,12 @@ ftxui::Element App::renderBomProjectUi() const {
             styledText(partLast ? "└──" : "├──", uiDividerColor()),
             ftxui::filler(),
         }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partTreeWidth),
-        bomCell(line.designation, partNameWidth, fg),
-        bomCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
-        bomCell(detail, detailWidth, match.sufficient ? uiAccentColor() : uiLinkColor()),
+        fixedCell(line.designation, partNameWidth, fg),
+        fixedCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
+        fixedCell(detail, detailWidth, match.sufficient ? uiAccentColor() : uiLinkColor()),
         needHaveCell(match),
-        bomCell(match.sufficient ? "READY" : "MISSING", statusWidth,
-                match.sufficient ? uiSuccessColor() : uiDangerColor(), true),
+        fixedCell(match.sufficient ? "READY" : "MISSING", statusWidth,
+                  match.sufficient ? uiSuccessColor() : uiDangerColor(), true),
     }) | ftxui::bgcolor(bg);
     if (selected) row = row | ftxui::select;
     row = target(row, "bom.line." + to_string(index), UiTargetKind::Row, [self, index] {

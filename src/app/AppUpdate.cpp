@@ -47,10 +47,6 @@ constexpr const char* kUpdateChecksumsAsset = "SHA256SUMS-linux.txt";
 constexpr const char* kUpdateInstallerAsset = "Install-Inventatory.sh";
 #endif
 
-ftxui::Element centered(ftxui::Element element) {
-  return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
-}
-
 bool readBoundedFile(const filesystem::path& path, size_t maximum, string& contents) {
   contents.clear();
   ifstream input(path, ios::binary);

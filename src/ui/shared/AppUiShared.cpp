@@ -199,6 +199,17 @@ ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg,
   return element;
 }
 
+ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool rightAlign) {
+  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
+  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
+                            : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
+  return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+}
+
+ftxui::Element centered(ftxui::Element element) {
+  return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
+}
+
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor,
                      optional<ftxui::Color> borderColor) {
   (void)borderColor;

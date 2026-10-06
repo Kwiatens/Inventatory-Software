@@ -20,13 +20,6 @@ using namespace std;
 
 namespace {
 
-ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool rightAlign = false) {
-  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
-  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), styledText(clipped, color), ftxui::text(" ")})
-                            : ftxui::hbox({styledText(clipped, color), ftxui::filler()});
-  return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
-}
-
 string importStatusLabel(const CsvImportCandidate& candidate) {
   return candidate.hasConflict ? "MATCH" : "NEW";
 }
@@ -53,7 +46,7 @@ ftxui::Element App::renderImportCsvUi() const {
     rows.push_back(fullLine("Press C to cancel after the current request finishes.", uiWarnColor(), uiPanelRightBg()));
     auto panel = ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelRightBg()) |
                  ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, max(64, min(screenWidth - 8, 96)));
-    return ftxui::vbox({ftxui::filler(), ftxui::hbox({ftxui::filler(), panel, ftxui::filler()}), ftxui::filler()});
+    return ftxui::vbox({ftxui::filler(), centered(panel), ftxui::filler()});
   }
 
   if (importSyncPrompt_) {
@@ -102,7 +95,7 @@ ftxui::Element App::renderImportCsvUi() const {
                   ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, max(64, min(screenWidth - 8, 96)));
     return ftxui::vbox({
         ftxui::filler(),
-        ftxui::hbox({ftxui::filler(), prompt, ftxui::filler()}),
+        centered(prompt),
         ftxui::filler(),
     });
   }
@@ -128,7 +121,7 @@ ftxui::Element App::renderImportCsvUi() const {
     }));
     auto panel = ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelRightBg()) |
                  ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, max(64, min(screenWidth - 8, 96)));
-    return ftxui::vbox({ftxui::filler(), ftxui::hbox({ftxui::filler(), panel, ftxui::filler()}), ftxui::filler()});
+    return ftxui::vbox({ftxui::filler(), centered(panel), ftxui::filler()});
   }
 
   if (importCandidates_.empty()) {
@@ -137,15 +130,12 @@ ftxui::Element App::renderImportCsvUi() const {
                          "import.choose", UiTargetKind::Button, [self] { self->beginCsvImport(); });
     return ftxui::vbox({
         ftxui::filler(),
-        ftxui::hbox({ftxui::filler(), uiHeaderText("Import components", uiPrimaryText()),
-                     ftxui::filler()}),
-        ftxui::hbox({ftxui::filler(), styledText("DigiKey order CSV  ·  KiCad BOM", uiInfoColor()),
-                     ftxui::filler()}),
+        centered(uiHeaderText("Import components", uiPrimaryText())),
+        centered(styledText("DigiKey order CSV  ·  KiCad BOM", uiInfoColor())),
         ftxui::text(""),
-        ftxui::hbox({ftxui::filler(), choose, ftxui::filler()}),
+        centered(choose),
         ftxui::text(""),
-        ftxui::hbox({ftxui::filler(), styledText("The format is detected automatically", uiMutedText()),
-                     ftxui::filler()}),
+        centered(styledText("The format is detected automatically", uiMutedText())),
         ftxui::filler(),
     });
   }
