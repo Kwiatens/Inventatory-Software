@@ -3409,6 +3409,44 @@ int main() {
     assert(candidate.item.parameters.size() == 4);
   }
 
+  {
+    // Categories come from whole words, so "uf", "nf", "led" and "ic" inside other words are ignored.
+    const struct {
+      const char* description;
+      const char* category;
+    } cases[] = {
+        {"IC BUF NON-INVERT 5.5V SC70-5", "Integrated Circuits"},
+        {"IC FLASH 64MBIT SPI 133MHZ 24UFBGA", "Integrated Circuits"},
+        {"SENSOR INFRARED 940NM SMD", "Unsorted"},
+        {"CABLE SHIELDED 4 CONDUCTOR", "Unsorted"},
+        {"OSC TEMPERATURE CONTROLLED 10MHZ", "Unsorted"},
+        {"FERRITE BEAD 600 OHM @ 100MHZ 0603", "Inductors"},
+        {"RES SMD 10K OHM 1% 1/10W 0603", "Resistors"},
+        {"RES 4.7 OHM 5% 1/4W", "Resistors"},
+        {"CAP CER 100NF 50V X7R 0603", "Capacitors"},
+        {"1UF 16V X7R 0603", "Capacitors"},
+        {"LED GREEN CLEAR 0603 SMD", "Indicators"},
+        {"CONN HEADER VERT 10POS 2.54MM", "Connectors"},
+        {"CONN IC DIP SOCKET 8POS", "Connectors"},
+        {"FIXED IND 4.7UH 3.7A", "Inductors"},
+        {"FUSE BOARD MOUNT 1A 32VDC", "Fuses"},
+        {"DIODE SCHOTTKY 40V 1A SOD123", "Diodes"},
+        {"SWITCH TACTILE SPST-NO 0.05A", "Switches"},
+    };
+    string csv = "Index,Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n";
+    int rowNumber = 0;
+    for (const auto& entry : cases) {
+      ++rowNumber;
+      csv += to_string(rowNumber) + ",100-" + to_string(rowNumber) + "-ND,MPN-" + to_string(rowNumber) + ",Acme,\"" +
+             entry.description + "\",1\n";
+    }
+    const auto categorized = parseDigiKeyCsvText(csv, {});
+    assert(categorized.ok);
+    assert(categorized.candidates.size() == sizeof(cases) / sizeof(cases[0]));
+    for (size_t index = 0; index < categorized.candidates.size(); ++index) {
+      assert(categorized.candidates[index].item.category == cases[index].category);
+    }
+  }
 
   {
     const string csv =
