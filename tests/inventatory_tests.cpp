@@ -1369,7 +1369,17 @@ void testPhysicalValueCommaDecimalLocale() {
     assert(matches.size() == 2);
     assert(items[matches[0]].id != "locale-other" && items[matches[1]].id != "locale-other");
   }
-  assert(findClosestPhysicalValues(items, "100nF").size() >= 2);
+  // Every item with a comparable value is ranked: both real 100 nF items first (exact), then the 1 uF item as
+  // the far, out-of-band match.
+  const auto closest = findClosestPhysicalValues(items, "100nF");
+  assert(closest.size() == 3);
+  for (size_t rank = 0; rank < 2; ++rank) {
+    assert(items[closest[rank].itemIndex].id == "locale-parameter" || items[closest[rank].itemIndex].id == "locale-name");
+    assert(closest[rank].band == PhysicalValueMatchBand::Exact);
+  }
+  assert(items[closest[0].itemIndex].id != items[closest[1].itemIndex].id);
+  assert(items[closest[2].itemIndex].id == "locale-other");
+  assert(closest[2].band == PhysicalValueMatchBand::None);
 
   setlocale(LC_ALL, previous.c_str());
 }
@@ -6036,8 +6046,11 @@ int main() {
     assert(shortened.width <= 60);
     assert(shortened.text.size() > 3 && shortened.text.compare(shortened.text.size() - 3, 3, "...") == 0);
     const auto utf8 = fitFont0Text(u8"\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9", 20, {12});
-    assert(utf8.width <= 20);
-    assert(utf8.text.find(u8"\u03A9") == 0 || utf8.text == "...");
+    // At size 12 an omega advances 7.44 dots and each dot 3.36, so exactly one omega plus the ellipsis (18
+    // dots) fits in 20; a cut in the middle of the two-byte omega, or dropping every character, must fail.
+    assert(utf8.size == 12);
+    assert(utf8.width == 18);
+    assert(utf8.text == u8"\u03A9...");
     assert(fitFont0Text("", 100, {12}).text.empty());
   }
 
