@@ -22,7 +22,6 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <spawn.h>
-#include <sys/ioctl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -189,30 +188,6 @@ bool runFileChooser(const vector<string>& arguments, filesystem::path& selectedP
 }
 
 }  // namespace
-
-ConsoleSession::ConsoleSession() : active_(true) {}
-ConsoleSession::~ConsoleSession() { restore(); }
-
-void ConsoleSession::restore() {
-  if (!active_) return;
-  showCursor();
-  if (alternateScreen_) fputs("\033[?1049l", stdout);
-  fflush(stdout);
-  active_ = false;
-  alternateScreen_ = false;
-}
-
-ConsoleSize consoleSize() {
-  winsize size{};
-  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0 && size.ws_row > 0) {
-    return {size.ws_col, size.ws_row};
-  }
-  return {};
-}
-
-void clearConsole() { fputs("\033[2J\033[H", stdout); fflush(stdout); }
-void hideCursor() { fputs("\033[?25l", stdout); fflush(stdout); }
-void showCursor() { fputs("\033[?25h", stdout); fflush(stdout); }
 
 void setConsoleTitle(const string& title) {
   string safeTitle;
@@ -423,24 +398,6 @@ bool openFolderDialog(filesystem::path& selectedPath, const string& title) {
   return runFileChooser({"--file-selection", "--directory", "--title=" + title}, selectedPath);
 }
 
-vector<string> localAddresses() {
-  vector<string> addresses;
-  ifaddrs* interfaces = nullptr;
-  if (getifaddrs(&interfaces) != 0) return addresses;
-  for (auto* entry = interfaces; entry != nullptr; entry = entry->ifa_next) {
-    if (entry->ifa_addr == nullptr || (entry->ifa_flags & IFF_UP) == 0 || (entry->ifa_flags & IFF_LOOPBACK) != 0 ||
-        entry->ifa_addr->sa_family != AF_INET) continue;
-    const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
-    char buffer[INET_ADDRSTRLEN]{};
-    if (inet_ntop(AF_INET, &ipv4->sin_addr, buffer, sizeof(buffer)) == nullptr) continue;
-    const string address(buffer);
-    if (find(addresses.begin(), addresses.end(), address) == addresses.end()) addresses.push_back(address);
-  }
-  freeifaddrs(interfaces);
-  if (addresses.empty()) addresses.push_back("127.0.0.1");
-  return addresses;
-}
-
 vector<string> privateLocalAddresses() {
   vector<string> addresses;
   ifaddrs* interfaces = nullptr;
@@ -465,6 +422,5 @@ vector<string> privateLocalAddresses() {
 }
 
 bool controlModifierPressed() { return false; }
-vector<KeyEvent> pollKeys() { return {}; }
 
 }  // namespace inventatory
