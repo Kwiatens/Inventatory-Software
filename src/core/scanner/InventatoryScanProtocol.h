@@ -190,10 +190,6 @@ std::string deviceResponseMac(const std::string& token, std::uint64_t counter, i
                               const std::string& body);
 std::string deviceTransportStateFingerprint(const std::string& token);
 
-bool parseQuantityRequestJson(const std::string& body, DeviceQuantityRequest& request, std::string& error);
-bool parseScanRequestJson(const std::string& body, DeviceScanRequest& request, std::string& error);
-bool parseDebugReportJson(const std::string& body, DeviceDebugReport& report, std::string& error);
-bool parseStatusReportJson(const std::string& body, DeviceStatusReport& report, std::string& error);
 bool parseDeviceSyncRequestJson(const std::string& body, DeviceSyncRequest& request, std::string& error);
 std::string deviceSyncResponseJson(const DeviceSyncResponse& response);
 bool acceptDeviceSyncEvents(const std::filesystem::path& databasePath, const DeviceSyncRequest& request,
@@ -206,7 +202,6 @@ bool retryFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std:
 bool discardFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std::size_t& discardedCount);
 bool completeDeviceSyncEvent(InventoryStore& store, const std::filesystem::path& databasePath,
                               const DeviceSyncResult& result, const InventoryStore* previousStore = nullptr);
-DeviceLookupResult lookupDeviceItem(const InventoryStore& store, const DeviceLookupRequest& request);
 DeviceLookupResult lookupDeviceItem(const std::filesystem::path& databasePath,
                                     const DeviceLookupRequest& request);
 DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuantityRequest& request);
@@ -215,9 +210,6 @@ DeviceQuantityResult applyDeviceQuantityCached(
     std::uint64_t workspaceGeneration,
     std::unordered_map<std::string, DeviceQuantityCacheEntry>& cache, std::deque<std::string>& order,
     std::size_t maxEntries = 64);
-std::string debugResultJson(bool ok, const std::string& error = {});
-std::string scanResultJson(bool ok, const std::string& error = {});
-std::string quantityResultJson(const DeviceQuantityResult& result);
 std::string statusResultJson(bool ok, const std::string& error = {});
 
 }  // namespace inventatory
