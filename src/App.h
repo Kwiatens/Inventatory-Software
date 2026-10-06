@@ -563,6 +563,7 @@ class App {
   bool triggerMatches(const KeyEvent& trigger, const KeyEvent& key) const;
   bool dispatchAction(const KeyEvent& key);
   void openActionSheet();
+  void activateActionsControl();
   void handleActionSheetKey(const KeyEvent& key);
   ftxui::Element target(ftxui::Element element, std::string id, UiTargetKind kind,
                         std::function<void()> activate, bool enabled = true, bool focusable = true) const;

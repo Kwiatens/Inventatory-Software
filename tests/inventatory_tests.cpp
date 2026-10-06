@@ -300,6 +300,32 @@ void testUiFocusTracking() {
   assert(!uf::isActivatable({{"off", false, true}}, "off"));
 }
 
+// The header keeps the Actions control on screen at every supported width by
+// dropping the clock first.
+void testHeaderClockYieldsToActionsControl() {
+  using inventatory::app_navigation::HeaderClock;
+  using inventatory::app_navigation::headerClockFor;
+  // Brand (14) + six destinations (63) + " Actions . Space " (17) = 94 fixed columns.
+  constexpr int kFixed = 94;
+  assert(headerClockFor(100, kFixed) == HeaderClock::Hidden);
+  assert(headerClockFor(100, kFixed) != HeaderClock::Full);
+  assert(headerClockFor(101, kFixed) == HeaderClock::Compact);
+  assert(headerClockFor(114, kFixed) == HeaderClock::Compact);
+  assert(headerClockFor(115, kFixed) == HeaderClock::Full);
+  assert(headerClockFor(120, kFixed) == HeaderClock::Full);
+  assert(headerClockFor(240, kFixed) == HeaderClock::Full);
+  // Whatever clock is chosen, brand + destinations + Actions + clock never exceeds the row.
+  for (int width = 100; width <= 240; ++width) {
+    int used = kFixed;
+    switch (headerClockFor(width, kFixed)) {
+      case HeaderClock::Full: used += inventatory::app_navigation::kHeaderClockFullColumns; break;
+      case HeaderClock::Compact: used += inventatory::app_navigation::kHeaderClockCompactColumns; break;
+      case HeaderClock::Hidden: break;
+    }
+    assert(used <= width);
+  }
+}
+
 #ifndef _WIN32
 // The Linux publisher talks to avahi-daemon over D-Bus, but only for an address
 // that belongs to an up, non-loopback private-LAN interface.  Anything else must
@@ -2270,6 +2296,7 @@ int main() {
   testHistoryPageLayoutData();
   testPrimaryNavigationContract();
   testUiFocusTracking();
+  testHeaderClockYieldsToActionsControl();
 #ifndef _WIN32
   testLinuxMdnsRefusesNonPrivateInterfaces();
 #endif

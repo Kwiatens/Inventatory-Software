@@ -36,6 +36,22 @@ inline constexpr const std::array<PrimaryNavigationEntry, 6>& primaryNavigationE
   return kPrimaryNavigationEntries;
 }
 
+// The header row holds the brand, the six destinations, the always-visible
+// "Actions - Space" control and, only when there is room left over, the clock.
+// At the 100-column minimum the clock would push the Actions control off the
+// row, so it yields first: full date and time, then HH:MM, then nothing.
+enum class HeaderClock : std::uint8_t { Full, Compact, Hidden };
+
+inline constexpr int kHeaderClockFullColumns = 21;     // " 2026-10-06 12:00:00 "
+inline constexpr int kHeaderClockCompactColumns = 7;   // " 12:00 "
+
+inline constexpr HeaderClock headerClockFor(int screenWidth, int fixedColumns) {
+  const int spare = screenWidth - fixedColumns;
+  if (spare >= kHeaderClockFullColumns) return HeaderClock::Full;
+  if (spare >= kHeaderClockCompactColumns) return HeaderClock::Compact;
+  return HeaderClock::Hidden;
+}
+
 inline constexpr const PrimaryNavigationEntry* primaryNavigationEntryForShortcut(char shortcut) {
   for (const auto& entry : kPrimaryNavigationEntries) {
     if (entry.shortcut == shortcut) return &entry;
