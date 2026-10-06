@@ -477,7 +477,9 @@ UpdateCheckResult latestRelease(const std::string& repository, const std::string
 }  // namespace
 
 bool isUpdateCheckDue(bool enabled, std::int64_t lastCheckUnixSeconds, std::int64_t nowUnixSeconds) {
-  return enabled && (lastCheckUnixSeconds <= 0 || nowUnixSeconds - lastCheckUnixSeconds >= kUpdateCheckIntervalSeconds);
+  // A stored time in the future (the clock was once ahead) cannot be trusted, so the check is due.
+  return enabled && (lastCheckUnixSeconds <= 0 || lastCheckUnixSeconds > nowUnixSeconds ||
+                     nowUnixSeconds - lastCheckUnixSeconds >= kUpdateCheckIntervalSeconds);
 }
 
 bool isVersionNewer(const std::string& candidate, const std::string& installed) {
