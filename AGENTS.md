@@ -170,6 +170,11 @@ replace a pinned revision with a moving branch or tag.
   Enter activation, action-sheet discoverability, and mouse parity.
 - Interactive overlays are rendered and hit-tested in reverse visual order so
   the visually topmost control receives the event.
+- Settings panels carry settings and state only. Do not add explainer notes, hint
+  lines, or descriptive copy under a setting or section; they add clutter. Status
+  and empty-state values that report real state (for example "No printer queues
+  detected") are not explainers. Setup guidance belongs in the setup wizard and
+  longer explanations belong in `docs/`.
 - Keep the terminal UI usable at the supported minimum of 100x30 cells. Test
   fresh maximized-terminal captures at 100x30, 120x30, and a wider size when a
   layout changes. Smaller terminals must show the existing resize notice

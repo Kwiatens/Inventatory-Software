@@ -377,8 +377,6 @@ ftxui::Element App::renderSettingsUi() const {
         target(settingLine("Schematic symbols", symbolStandardLabel(settingsDraft_.symbolStandard), contentWidth),
                "settings.printer.symbols", UiTargetKind::Field,
                [self] { self->toggleSymbolStandard(); }),
-        settingNoteLine("Used on rack labels. Resistor and fuse differ; other symbols are the same.", uiMutedText(),
-                        contentWidth),
     });
     ftxui::Elements queueRows;
     if (printerQueues_.empty()) {
