@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -131,29 +132,12 @@ ftxui::Color bomLitSlotBg() {
   return uiActiveBg();
 }
 
-ftxui::Element centeredBomRackText(const string& value, int width, ftxui::Color color) {
-  const auto lines = wrapText(value, max(1, width - 2));
-  string wrapped;
-  for (size_t index = 0; index < lines.size(); ++index) {
-    if (index > 0) wrapped.push_back('\n');
-    wrapped += lines[index];
-  }
-  return (ftxui::paragraphAlignCenter(wrapped) | ftxui::color(color)) |
-         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
-}
-
-ftxui::Element bomRackQuantityIndicator(const InventoryItem& item, bool active, int lowStockThreshold) {
-  const auto foreground = item.quantity <= 0 ? uiDangerColor()
-                        : isLowStock(item, lowStockThreshold) ? uiWarnColor()
-                                                              : uiPrimaryText();
-  const auto background = active ? uiSelectionBg() : uiRaisedSurfaceBg();
-  auto indicator = styledText(" Quantity:[" + to_string(item.quantity) + "] ", foreground, background);
-  if (active) indicator = indicator | ftxui::bold;
-  return indicator;
-}
-
-ftxui::Element bomRackSlotLabel(const string& value, ftxui::Color color) {
-  return ftxui::hbox({uiHeaderText(value, color), ftxui::text(" ")});
+// fixedCell with a bold value, for the figures a row is read by.
+ftxui::Element boldCell(const string& text, int width, ftxui::Color color, bool rightAlign = false) {
+  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, rightAlign ? width - 1 : width)));
+  auto content = rightAlign ? ftxui::hbox({ftxui::filler(), uiHeaderText(clipped, color), ftxui::text(" ")})
+                            : ftxui::hbox({uiHeaderText(clipped, color), ftxui::filler()});
+  return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
 }  // namespace
@@ -198,11 +182,12 @@ ftxui::Element App::renderBomProjectUi() const {
       // rather than a full re-parse of the stored BOM.
       const auto lineCount = count(project.bomText.begin(), project.bomText.end(), '\n');
       auto row = ftxui::hbox({
-          fixedCell(" " + project.name, nameWidth, fg),
+          boldCell(" " + project.name, nameWidth, fg),
           fixedCell(to_string(max<long long>(0, lineCount - 1)), 8, uiSecondaryText(), true),
-          fixedCell(to_string(project.boards), 8, uiAccentColor(), true),
+          boldCell(to_string(project.boards), 8, uiAccentColor(), true),
           styledText("   ", uiDimColor()),
-          fixedCell(project.lastBuilt > 0 ? "yes" : "-", 10, project.lastBuilt > 0 ? uiSuccessColor() : uiDimColor()),
+          boldCell(project.lastBuilt > 0 ? "Built" : "Not yet", 10,
+                   project.lastBuilt > 0 ? uiSuccessColor() : uiDimColor()),
       }) | ftxui::bgcolor(bg);
       if (selected) {
         row = row | ftxui::select;
@@ -250,17 +235,18 @@ ftxui::Element App::renderBomProjectUi() const {
     header.push_back(ftxui::hbox({
         uiHeaderText(" " + projectName + " ", uiPrimaryText()),
         ftxui::filler(),
-        styledText(bomDeductPrompt_ ? "Complete" : "Stop " + to_string(stepIndex + 1) + " of " +
-                                                     to_string(steps.size()),
-                   uiSecondaryText()),
-        styledText("  ·  " + to_string(pickedPieces) + " / " + to_string(totalPieces) + " pieces ",
-                   uiMutedColor()),
+        uiHeaderText(bomDeductPrompt_ ? "Complete" : "Stop " + to_string(stepIndex + 1) + " of " +
+                                                       to_string(steps.size()),
+                     uiSecondaryText()),
+        styledText("   ", uiMutedColor()),
+        uiHeaderText(to_string(pickedPieces) + " / " + to_string(totalPieces), uiPrimaryText()),
+        styledText(" pieces ", uiMutedColor()),
     }) | ftxui::bgcolor(uiSurfaceBg()));
     header.push_back(uiDivider());
 
     if (bomDeductPrompt_) {
       ftxui::Elements promptRows;
-      promptRows.push_back(fullLine("Build complete.  " + to_string(totalPieces) + " pieces · " +
+      promptRows.push_back(fullLine("Build complete.  " + to_string(totalPieces) + " pieces  " +
                                         to_string(steps.size()) + " stops",
                                     uiTitleColor(), uiPanelRightBg()));
       promptRows.push_back(uiDivider());
@@ -321,11 +307,11 @@ ftxui::Element App::renderBomProjectUi() const {
     ftxui::Elements sideRows;
     for (const auto& pick : step.picks) {
       sideRows.push_back(ftxui::hbox({
-          fixedCell(" " + pick.slot, slotColumn, uiAccentColor()),
-          fixedCell(pick.label, labelColumn, uiPrimaryText()),
+          boldCell(" " + pick.slot, slotColumn, uiAccentColor()),
+          boldCell(ellipsize(pick.label, static_cast<size_t>(max(1, labelColumn - 1))), labelColumn, uiPrimaryText()),
           fixedCell(pick.detail, detailColumn, uiMutedColor()),
           ftxui::filler(),
-          fixedCell("x" + to_string(pick.quantity), quantityColumn, uiFocusColor(), true),
+          boldCell("x" + to_string(pick.quantity), quantityColumn, uiFocusColor(), true),
       }));
     }
 
@@ -335,7 +321,7 @@ ftxui::Element App::renderBomProjectUi() const {
     ftxui::Elements sideFooter;
     sideFooter.push_back(uiDivider());
     if (stepIndex + 1 < steps.size()) {
-      sideFooter.push_back(fullLine("Next: " + steps[stepIndex + 1].title + " · " +
+      sideFooter.push_back(fullLine("Next: " + steps[stepIndex + 1].title + "  " +
                                         to_string(steps[stepIndex + 1].picks.size()) + " slots",
                                     uiMutedColor(), uiSurfaceBg()));
     } else {
@@ -351,6 +337,8 @@ ftxui::Element App::renderBomProjectUi() const {
     }));
 
     ftxui::Elements mainRows;
+    // Exact width of the slot grid; the side rail takes whatever the floor division leaves over.
+    int gridExactWidth = 0;
 
     if (loose) {
       const int mainContentWidth = max(30, screenWidth - sideWidth - 3);
@@ -362,31 +350,49 @@ ftxui::Element App::renderBomProjectUi() const {
       }) | ftxui::bgcolor(uiPanelLeftBg()));
       for (const auto& pick : step.picks) {
         mainRows.push_back(ftxui::hbox({
-            fixedCell(" " + pick.slot, 18, uiMutedColor()),
-            fixedCell(pick.label, mainLabelColumn, uiPrimaryText()),
-            fixedCell("x" + to_string(pick.quantity), quantityColumn,
-                      blink ? uiFocusColor() : uiInteractiveColor(), true),
+            boldCell(" " + pick.slot, 18, uiAccentColor()),
+            boldCell(pick.label, mainLabelColumn, uiPrimaryText()),
+            boldCell("x" + to_string(pick.quantity), quantityColumn,
+                     blink ? uiFocusColor() : uiInteractiveColor(), true),
         }));
       }
     } else {
-      // Keep the walkthrough grid identical to the Racks page: five columns,
-      // five rows, centered part names, and the quantity/slot strip at the
-      // bottom of every cell.
+      // The walkthrough grid is the Racks grid: lettered columns, numbered rows, identical slots, and the
+      // same slot body, with a footer band taking the rows that floor division cannot hand out evenly.
       const int rows = 5;
       const int columns = 5;
+      constexpr int designatorWidth = 3;
       const int gridWidth = max(30, screenWidth - sideWidth - 3);
-      const int slotSpace = gridWidth - (columns - 1);
+      const int slotSpace = gridWidth - designatorWidth - 1 - (columns - 1);
       const int slotWidth = rack_page_detail::equalRackSlotWidth(slotSpace, columns);
-      // The page frame reserves five rows for the shared shell and this view's
-      // project header. The rack title/divider and four row dividers consume
-      // four more rows, leaving the same slot-space calculation as Racks.
-      // Truncating to a multiple keeps every slot exactly the same height.
-      const int availableSlotRows = max(15, screenHeight - 13);
-      const int slotHeight = rack_page_detail::equalRackSlotHeight(availableSlotRows, rows);
-      const int rowHeight = slotHeight;
+      // Shell and project header take seven rows; the letter header and its divider, four row dividers and the
+      // footer divider take eight more with a one-row band.
+      const int slotRowsSpace = max(rows * 3, screenHeight - 14);
+      const int slotHeight = rack_page_detail::equalRackSlotHeight(slotRowsSpace, rows);
+      gridExactWidth = designatorWidth + 1 + (columns - 1) + columns * slotWidth;
+      const int footerBandRows = 1 + rack_page_detail::rackSlotRemainderRows(slotRowsSpace, rows, slotHeight);
+      const auto centeredCell = [](const string& text, int width, ftxui::Color color) {
+        return ftxui::hbox({ftxui::filler(), uiHeaderText(text, color), ftxui::filler()}) |
+               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+      };
+
+      ftxui::Elements columnHeaders;
+      columnHeaders.push_back(centeredCell("", designatorWidth, uiDimColor()));
+      columnHeaders.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+      for (int column = 0; column < columns; ++column) {
+        columnHeaders.push_back(centeredCell(string(1, static_cast<char>('A' + column)), slotWidth, uiAccentColor()));
+        if (column + 1 < columns) columnHeaders.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+      }
+      mainRows.push_back(ftxui::hbox(move(columnHeaders)) | ftxui::bgcolor(uiPanelRightBg()));
+      mainRows.push_back(uiDivider());
 
       for (int row = 0; row < rows; ++row) {
         ftxui::Elements rowCells;
+        rowCells.push_back(ftxui::vbox({ftxui::filler(), centeredCell(to_string(row + 1), designatorWidth, uiAccentColor()),
+                                        ftxui::filler()}) |
+                           ftxui::size(ftxui::WIDTH, ftxui::EQUAL, designatorWidth) |
+                           ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, slotHeight));
+        rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
         for (int column = 0; column < columns; ++column) {
           const auto slot = rackSlotLabel(column, row);
           const auto* item = itemAtRackSlot(store_, step.rackId, slot);
@@ -394,42 +400,38 @@ ftxui::Element App::renderBomProjectUi() const {
           // A lit slot pulses between a filled highlight and the resting
           // surface, so the eye lands on exactly what to open.
           const auto bg = lit ? (blink ? bomLitSlotBg() : uiSurfaceBg()) : uiCanvasBg();
-          const auto titleColor = lit ? (blink ? uiPrimaryText() : uiSuccessColor())
-                                     : (item == nullptr ? uiMutedColor() : uiAccentColor());
-          const auto nameColor = item == nullptr ? uiDimColor() : uiPrimaryText();
-          const int cellWidth = slotWidth;
-
-          auto nameArea = ftxui::vbox({
-                                ftxui::filler(),
-                                centeredBomRackText(item == nullptr ? string("[ empty ]") : item->partName,
-                                                    cellWidth, nameColor),
-                                ftxui::filler(),
-                            }) |
-                          ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, max(1, rowHeight - 1));
-          auto quantity = item == nullptr
-                              ? styledText(" available ", uiDimColor())
-                              : bomRackQuantityIndicator(*item, lit && blink, settings_.lowStockThreshold);
-          auto bottom = ftxui::hbox({
-              move(quantity),
-              ftxui::filler(),
-              bomRackSlotLabel(slot, titleColor),
-          }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth);
-          rowCells.push_back(ftxui::vbox({move(nameArea), move(bottom)}) | ftxui::bgcolor(bg) |
-                             ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
-                             ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rowHeight));
-          if (column + 1 < columns) {
-            rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
+          ftxui::Elements cellRows;
+          if (item == nullptr) {
+            cellRows.push_back(ftxui::filler());
+            cellRows.push_back(ftxui::hbox({ftxui::filler(), styledText("empty", uiDimColor()), ftxui::filler()}) |
+                               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth));
+            cellRows.push_back(ftxui::filler());
+          } else {
+            cellRows.push_back(rack_page_detail::rackCellBody(*item, lit && blink, settings_.lowStockThreshold,
+                                                              slotWidth, slotHeight));
           }
+          rowCells.push_back(ftxui::vbox(move(cellRows)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth) |
+                             ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, slotHeight) | ftxui::bgcolor(bg));
+          if (column + 1 < columns) rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
         }
         mainRows.push_back(ftxui::hbox(move(rowCells)));
-        if (row + 1 < rows) {
-          mainRows.push_back(uiDivider());
-        }
+        if (row + 1 < rows) mainRows.push_back(uiDivider());
       }
+      mainRows.push_back(uiDivider());
+      mainRows.push_back(ftxui::vbox({ftxui::filler(),
+                                      ftxui::hbox({styledText(" " + step.title + "  ", uiMutedColor()),
+                                                   uiHeaderText(to_string(litSlots.size()) +
+                                                                    (litSlots.size() == 1 ? " slot to open" : " slots to open"),
+                                                                uiAccentColor()),
+                                                   ftxui::filler()}),
+                                      ftxui::filler()}) |
+                         ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, footerBandRows) | ftxui::bgcolor(uiPanelRightBg()));
     }
 
     auto mainPanel = ftxui::vbox(move(mainRows)) | ftxui::yframe | ftxui::vscroll_indicator |
-                     ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
+                     ftxui::bgcolor(uiSurfaceBg());
+    mainPanel = gridExactWidth > 0 ? move(mainPanel) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, gridExactWidth)
+                                   : move(mainPanel) | ftxui::flex;
     auto sidePanel = ftxui::vbox({
                          bomStepBanner(step.title, sideWidth),
                          uiDivider(),
@@ -437,8 +439,9 @@ ftxui::Element App::renderBomProjectUi() const {
                          move(sideList),
                          move(ftxui::vbox(move(sideFooter))),
                      }) |
-                     ftxui::bgcolor(uiSurfaceBg()) |
-                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, sideWidth);
+                     ftxui::bgcolor(uiSurfaceBg());
+    sidePanel = gridExactWidth > 0 ? move(sidePanel) | ftxui::flex
+                                   : move(sidePanel) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, sideWidth);
 
     return ftxui::vbox({
         ftxui::vbox(move(header)),
@@ -454,19 +457,20 @@ ftxui::Element App::renderBomProjectUi() const {
   // The open-project screen has one job: make the stock comparison readable
   // and put the rack workflow at the point where the user needs it.
   const int tableWidth = screenWidth;
-  const int categoryTreeWidth = 4;
-  const int partTreeWidth = 4;
-  const int treeWidth = categoryTreeWidth + partTreeWidth;
+  const int indentWidth = 3;
   const int partWidth = clamp(tableWidth / 4, 24, 34);
-  const int categoryNameWidth = max(1, partWidth - categoryTreeWidth);
-  const int partNameWidth = max(1, partWidth - treeWidth);
-  const int packageWidth = clamp(tableWidth / 8, 12, 16);
-  const int needHaveWidth = 14;
-  const int statusWidth = 10;
-  const int detailWidth = max(18, tableWidth - partWidth - packageWidth -
-                                      needHaveWidth - statusWidth);
+  const int packageWidth = clamp(tableWidth / 8, 14, 20);
+  const int needWidth = 7;
+  const int haveWidth = 7;
+  const int statusWidth = 11;
+  const int detailWidth = max(18, tableWidth - partWidth - packageWidth - needWidth - haveWidth - statusWidth);
 
   ftxui::Elements headerRows;
+  ftxui::Elements headerCounts;
+  headerCounts.push_back(uiHeaderText(to_string(bomAnalysis_.readyCount) + " ready", uiSuccessColor()));
+  headerCounts.push_back(ftxui::text("   "));
+  headerCounts.push_back(uiHeaderText(to_string(bomAnalysis_.shortCount) + " missing ",
+                                      bomAnalysis_.shortCount == 0 ? uiSuccessColor() : uiDangerColor()));
   headerRows.push_back(ftxui::hbox({
       uiHeaderText(" " + projectName + " ", uiPrimaryText()),
       styledText("  ", uiMutedColor()),
@@ -482,10 +486,7 @@ ftxui::Element App::renderBomProjectUi() const {
       target(styledText(" Find in racks  f ", uiCanvasBg(), uiInteractiveColor()),
              "bom.find-in-racks", UiTargetKind::Button, [self] { self->beginBomBuild(); }),
       ftxui::filler(),
-      styledText(to_string(bomAnalysis_.readyCount) + " ready", uiSuccessColor()),
-      styledText("  ·  ", uiDimColor()),
-      styledText(to_string(bomAnalysis_.shortCount) + " missing ",
-                 bomAnalysis_.shortCount == 0 ? uiSuccessColor() : uiWarnColor()),
+      ftxui::hbox(move(headerCounts)),
   }) | ftxui::bgcolor(uiSurfaceBg()));
   headerRows.push_back(uiDivider());
   if (bomProjectsDirty_) {
@@ -494,90 +495,35 @@ ftxui::Element App::renderBomProjectUi() const {
   }
   ftxui::Elements tableRows;
   tableRows.push_back(ftxui::hbox({
-      fixedCell("", treeWidth, uiMutedColor()),
-      fixedCell("Part", partNameWidth, uiMutedColor()),
+      fixedCell(" Part", partWidth, uiMutedColor()),
       fixedCell("Package", packageWidth, uiMutedColor()),
       fixedCell("Where / suggested match", detailWidth, uiMutedColor()),
-      fixedCell("Need / Have", needHaveWidth, uiMutedColor(), true),
+      fixedCell("Need", needWidth, uiMutedColor(), true),
+      fixedCell("Have", haveWidth, uiMutedColor(), true),
       fixedCell("Status", statusWidth, uiMutedColor(), true),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
-  const auto groupRow = [&](const string& label, ftxui::Color color, bool nested,
-                            bool branchLast) {
-    ftxui::Element partColumn;
-    if (nested) {
-      const auto branch = ftxui::hbox({
-          styledText(branchLast ? "└──" : "├──", uiDividerColor()),
-          ftxui::filler(),
-      }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryTreeWidth);
-      const auto title = uiHeaderText(label, color);
-      partColumn = ftxui::hbox({
-          branch,
-          ftxui::hbox({title, ftxui::filler()}) |
-              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryNameWidth),
-      });
-    } else {
-      partColumn = fixedCell(" " + label, partWidth, color);
-    }
+  // Group headers carry how many lines they hold, so the totals read without counting rows.
+  map<string, int> groupCounts;
+  for (const auto& match : bomAnalysis_.matches) {
+    const auto& line = bomAnalysis_.lines[match.lineIndex];
+    const auto category = toLower(bomComparisonCategory(line, match, store_.items()));
+    ++groupCounts[(match.sufficient ? "s|" : "m|") + category];
+    ++groupCounts[match.sufficient ? "s" : "m"];
+  }
+
+  const auto groupRow = [&](const string& label, int count, ftxui::Color color, bool nested) {
     return ftxui::hbox({
-               partColumn,
-               fixedCell("", packageWidth, uiMutedColor()),
-               fixedCell("", detailWidth, uiMutedColor()),
-               fixedCell("", needHaveWidth, uiMutedColor(), true),
-               fixedCell("", statusWidth, uiMutedColor(), true),
+               ftxui::text(nested ? "  " : " "),
+               uiHeaderText(label, color),
+               styledText("  " + to_string(count), uiDimColor()),
+               ftxui::filler(),
            }) |
            ftxui::bgcolor(uiRaisedSurfaceBg());
   };
 
-  const auto categoryIsLast = [&](size_t index, const string& category, bool sufficient) {
-    for (size_t next = index + 1; next < bomAnalysis_.matches.size(); ++next) {
-      const auto& nextMatch = bomAnalysis_.matches[next];
-      if (nextMatch.sufficient != sufficient) return true;
-      const auto& nextLine = bomAnalysis_.lines[nextMatch.lineIndex];
-      const auto nextCategory = bomComparisonCategory(nextLine, nextMatch, store_.items());
-      if (toLower(nextCategory) != toLower(category)) return false;
-    }
-    return true;
-  };
-
-  const auto partIsLast = [&](size_t index, const string& category, bool sufficient) {
-    if (index + 1 >= bomAnalysis_.matches.size()) return true;
-    const auto& nextMatch = bomAnalysis_.matches[index + 1];
-    if (nextMatch.sufficient != sufficient) return true;
-    const auto& nextLine = bomAnalysis_.lines[nextMatch.lineIndex];
-    const auto nextCategory = bomComparisonCategory(nextLine, nextMatch, store_.items());
-    return toLower(nextCategory) != toLower(category);
-  };
-
   string previousAvailability;
   string previousCategory;
-  const auto needHaveCell = [&](const BomMatch& match) {
-    const int countFieldWidth = match.needed > 99 || match.available > 99 ? 3 : 2;
-    const auto padCount = [countFieldWidth](const string& value) {
-      const auto width = static_cast<size_t>(countFieldWidth);
-      return value.size() < width ? string(width - value.size(), '0') + value : value;
-    };
-    const auto needText = padCount(to_string(match.needed));
-    const auto haveText = padCount(to_string(match.available));
-    const auto need = ftxui::hbox({
-        ftxui::filler(),
-        styledText(needText, uiMutedColor()),
-    }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countFieldWidth);
-    const auto have = ftxui::hbox({
-        styledText(haveText,
-                   match.sufficient ? uiSuccessColor() : uiDangerColor()),
-        ftxui::filler(),
-    }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, countFieldWidth);
-    return ftxui::hbox({
-               ftxui::filler(),
-               need,
-               styledText("/", uiDimColor()),
-               have,
-               ftxui::text(" "),
-           }) |
-           ftxui::size(ftxui::WIDTH, ftxui::EQUAL, needHaveWidth);
-  };
-
   for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
     const auto& match = bomAnalysis_.matches[index];
     const auto& line = bomAnalysis_.lines[match.lineIndex];
@@ -588,20 +534,19 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto* item = store_.findById(match.chosenItemId());
     const auto availability = match.sufficient ? string("In Stock") : string("Missing");
     const auto category = bomComparisonCategory(line, match, store_.items());
-    const auto categoryLast = categoryIsLast(index, category, match.sufficient);
-    const auto partLast = partIsLast(index, category, match.sufficient);
+    const string groupKey = match.sufficient ? "s" : "m";
     if (availability != previousAvailability) {
       if (!previousAvailability.empty()) {
         tableRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1) |
                             ftxui::bgcolor(uiSurfaceBg()));
       }
-      tableRows.push_back(groupRow(availability, match.sufficient ? uiSuccessColor() : uiDangerColor(), false,
-                                   false));
+      tableRows.push_back(groupRow(availability, groupCounts[groupKey],
+                                   match.sufficient ? uiSuccessColor() : uiDangerColor(), false));
       previousAvailability = availability;
       previousCategory.clear();
     }
     if (toLower(category) != toLower(previousCategory)) {
-      tableRows.push_back(groupRow(category, uiSecondaryText(), true, categoryLast));
+      tableRows.push_back(groupRow(category, groupCounts[groupKey + "|" + toLower(category)], uiSecondaryText(), true));
       previousCategory = category;
     }
     string detail = "-";
@@ -617,21 +562,26 @@ ftxui::Element App::renderBomProjectUi() const {
                bomEnrichmentQueue_.end()) detail = "In lookup queue";
     }
 
+    // Have is the number that matters: red when nothing is in stock, amber when some but not enough.
+    const auto haveColor = match.sufficient ? uiPrimaryText()
+                           : match.available <= 0 ? uiDangerColor()
+                                                  : uiWarnColor();
+    const int shortBy = max(0, match.needed - match.available);
+    const bool noMatch = detail == "(no match)" || detail == "-";
+    const auto detailColor = match.sufficient ? uiAccentColor() : noMatch ? uiDimColor() : uiLinkColor();
+
     auto row = ftxui::hbox({
-        ftxui::hbox({
-            styledText(categoryLast ? "    " : "│   ", uiDividerColor()),
-            ftxui::filler(),
-        }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryTreeWidth),
-        ftxui::hbox({
-            styledText(partLast ? "└──" : "├──", uiDividerColor()),
-            ftxui::filler(),
-        }) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partTreeWidth),
-        fixedCell(line.designation, partNameWidth, fg),
-        fixedCell(package, packageWidth, selected ? uiTitleColor() : uiSecondaryText()),
-        fixedCell(detail, detailWidth, match.sufficient ? uiAccentColor() : uiLinkColor()),
-        needHaveCell(match),
-        fixedCell(match.sufficient ? "READY" : "MISSING", statusWidth,
-                  match.sufficient ? uiSuccessColor() : uiDangerColor(), true),
+        ftxui::text(string(static_cast<size_t>(indentWidth), ' ')),
+        ftxui::hbox({uiHeaderText(ellipsize(line.designation, static_cast<size_t>(max(1, partWidth - indentWidth - 1))), fg),
+                     ftxui::filler()}) |
+            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth - indentWidth),
+        fixedCell(ellipsize(package, static_cast<size_t>(max(1, packageWidth - 2))), packageWidth,
+                  selected ? uiTitleColor() : uiSecondaryText()),
+        fixedCell(detail, detailWidth, detailColor),
+        fixedCell(to_string(match.needed), needWidth, uiMutedColor(), true),
+        boldCell(to_string(match.available), haveWidth, haveColor, true),
+        boldCell(match.sufficient ? "Ready" : "Short " + to_string(shortBy), statusWidth,
+                 match.sufficient ? uiSuccessColor() : haveColor, true),
     }) | ftxui::bgcolor(bg);
     if (selected) row = row | ftxui::select;
     row = target(row, "bom.line." + to_string(index), UiTargetKind::Row, [self, index] {

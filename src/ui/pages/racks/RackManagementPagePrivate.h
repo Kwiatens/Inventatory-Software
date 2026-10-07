@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <string>
 
+#include <ftxui/dom/elements.hpp>
+
+#include "core/inventory/Inventory.h"
+
 namespace inventatory {
 namespace rack_page_detail {
 
@@ -38,6 +42,11 @@ inline int equalRackSlotWidth(int slotColumnsSpace, int rackGridColumns) {
   if (rackGridColumns <= 0) return 0;
   return std::max(7, slotColumnsSpace / rackGridColumns);
 }
+
+// One slot's contents: part name split into dim type, bold value and dim specification, with a bold quantity pinned to
+// the bottom edge. Shared by the Racks page and the Projects build walkthrough so both grids read the same.
+ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowStockThreshold, int cellWidth,
+                            int rowHeight);
 
 }  // namespace rack_page_detail
 }  // namespace inventatory

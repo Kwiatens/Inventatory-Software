@@ -167,6 +167,15 @@ rack. The rack summary (slots used, low, out) lives in the footer band under the
 grid. `d` opens the selected part's datasheet, as on Stock. The remaining
 administrative operations remain in Actions.
 
+### Projects
+
+The project list shows bold project names, line and board counts, and a Built state. An open project compares the BOM
+with stock in two groups, In Stock and Missing, each with per-category counts. Rows carry the part in bold, its package,
+the rack slot or suggested match, Need in muted text, and Have in bold: primary when covered, apricot when partly
+covered, rose when nothing is in stock. Status reads Ready or Short N. Find in racks reuses the Racks grid: lettered
+columns, numbered rows, identical slots with the same slot body, and a footer band that takes the rows floor division
+cannot hand out. Slots to open pulse; the side rail lists them with bold slot and part.
+
 ### Import
 
 The empty state starts file selection. Imported rows are reviewed beside their
