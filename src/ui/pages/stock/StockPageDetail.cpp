@@ -81,18 +81,18 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     const auto electricalFields = electricalFieldsForItem(*item);
     const bool passive = categoryContains(*item, {"resistor", "capacitor", "inductor", "diode", "fuse",
                                                    "thermistor", "varistor", "crystal", "resonator"});
-    const auto manufacturer = trim(item->manufacturer).empty() ? string("UNKNOWN MANUFACTURER") : item->manufacturer;
-    detailRows.push_back(uiBodyText(manufacturer, uiPrimaryText()));
-    if (!passive) {
-      detailRows.push_back(styledText(item->partName, uiSecondaryText()));
-    } else {
-      const auto primary = electricalFields.empty() ? item->partName : electricalFields.front().value;
-      ftxui::Elements summary = {uiBodyText(primary, uiPrimaryText())};
-      for (size_t index = 1; index < electricalFields.size() && index < 3; ++index) {
+    const auto manufacturer = trim(item->manufacturer).empty() ? string("Unknown manufacturer") : item->manufacturer;
+    // The part is the subject of this panel: its full name leads in bold, then who makes it.
+    detailRows.push_back(ftxui::paragraphAlignLeft(item->partName) | ftxui::bold | ftxui::color(uiPrimaryText()));
+    detailRows.push_back(styledText(manufacturer, uiMutedColor()));
+    if (passive) {
+      ftxui::Elements summary;
+      for (size_t index = 0; index < electricalFields.size() && index < 3; ++index) {
         if (trim(electricalFields[index].value).empty()) continue;
-        summary.push_back(styledText("  " + electricalFields[index].value, uiSecondaryText()));
+        summary.push_back(styledText(summary.empty() ? string() : "  ", uiSecondaryText()));
+        summary.push_back(styledText(electricalFields[index].value, uiSecondaryText()));
       }
-      detailRows.push_back(ftxui::hbox(move(summary)));
+      if (!summary.empty()) detailRows.push_back(ftxui::hbox(move(summary)));
     }
     if (!trim(partShortDescription(*item)).empty() && partShortDescription(*item) != item->partName) {
       detailRows.push_back(styledText(partShortDescription(*item), uiMutedColor()));
@@ -101,17 +101,22 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     // Essentials: the two facts the footer buttons act on, kept directly under
     // the summary instead of at the bottom of a details list.
     const auto rack = rackLocation(*item, store_.racks());
-    const auto quantityColor = item->quantity <= 0 ? uiDangerColor()
-                               : isLowStock(*item, settings_.lowStockThreshold) ? uiWarnColor()
-                                                  : uiPrimaryText();
+    const auto quantityColor = uiQuantityColor(*item, settings_.lowStockThreshold);
+    const bool outOfStock = item->quantity <= 0;
+    const bool lowStock = !outOfStock && isLowStock(*item, settings_.lowStockThreshold);
     detailRows.push_back(uiDivider());
-    detailRows.push_back(ftxui::hbox({
-        styledText(" Qty ", uiSecondaryText()),
-        uiBodyText(to_string(item->quantity), quantityColor),
-        styledText("     Rack ", uiSecondaryText()),
-        uiBodyText(rack.empty() ? "NOT ASSIGNED" : rack, rack.empty() ? uiWarnColor() : uiFocusColor()),
-        ftxui::filler(),
-    }));
+    ftxui::Elements essentials = {
+        styledText(" Qty ", uiMutedColor(), uiRaisedSurfaceBg()),
+        uiHeaderText(to_string(item->quantity), quantityColor, uiRaisedSurfaceBg()),
+    };
+    if (outOfStock || lowStock) {
+      essentials.push_back(uiHeaderText(outOfStock ? "  OUT" : "  LOW", quantityColor, uiRaisedSurfaceBg()));
+    }
+    essentials.push_back(styledText("     Rack ", uiMutedColor(), uiRaisedSurfaceBg()));
+    essentials.push_back(uiHeaderText(rack.empty() ? "NOT ASSIGNED" : rack, rack.empty() ? uiWarnColor() : uiFocusColor(),
+                                      uiRaisedSurfaceBg()));
+    essentials.push_back(ftxui::filler());
+    detailRows.push_back(ftxui::hbox(move(essentials)) | ftxui::bgcolor(uiRaisedSurfaceBg()));
 
     if (selectedMatch != nullptr) {
       const auto targetText = closestSearchActive_ ? closestSearchQuery_ : searchQuery_;

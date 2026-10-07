@@ -25,6 +25,13 @@ inline int equalRackSlotHeight(int slotRowsSpace, int rackGridRows) {
   return std::max(3, slotRowsSpace / rackGridRows);
 }
 
+// Rows left over after every slot row receives `slotHeight`. Never negative: when the space is too small for the
+// minimum slot height there is nothing to hand out.
+inline int rackSlotRemainderRows(int slotRowsSpace, int rackGridRows, int slotHeight) {
+  if (rackGridRows <= 0) return 0;
+  return std::max(0, slotRowsSpace - slotHeight * rackGridRows);
+}
+
 // Floor division ensures that every slot column receives the exact same width
 // and that all columns together do not exceed the available horizontal grid space.
 inline int equalRackSlotWidth(int slotColumnsSpace, int rackGridColumns) {
