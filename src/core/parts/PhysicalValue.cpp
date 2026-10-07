@@ -26,10 +26,10 @@ struct PhysicalValueBandLimits {
 };
 
 constexpr std::array<PhysicalValueBandLimits, 5> kPhysicalValueBandLimits = {{
-    {0.10, 0.25},  // Resistance
-    {0.10, 0.25},  // Capacitance
-    {0.10, 0.25},  // Inductance
-    {0.10, 0.25},  // Frequency
+    {0.10, 0.33},  // Resistance
+    {0.10, 0.33},  // Capacitance
+    {0.10, 0.33},  // Inductance
+    {0.10, 0.33},  // Frequency
     {0.0, 0.0},    // Unknown
 }};
 
