@@ -15,7 +15,7 @@ Every workspace uses the same four regions:
 4. One transient message line
 
 The navigation is `1 Stock`, `2 Racks`, `3 Import`, `4 Projects`, `5 History`, `6 Settings`.
-`Actions · Space` is always visible and opens the contextual action sheet.
+`Actions` is always visible and opens the contextual action sheet; the sheet's title notes that Space opens it too.
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
 
@@ -59,16 +59,18 @@ Release notes are displayed as text only and are never interpreted as commands.
 | Focus | `185,231,221` / `#B9E7DD` | Active focus |
 | Link | `143,203,197` / `#8FCBC5` | External links and progress |
 | Success | `165,201,165` / `#A5C9A5` | Ready/completed |
-| Warning | `216,181,107` / `#D8B56B` | Attention/low stock |
-| Warning surface | `58,51,39` / `#3A3327` | Low-stock highlights |
-| Danger | `224,140,131` / `#E08C83` | Error/destructive/out |
-| Danger surface | `62,42,41` / `#3E2A29` | Out-of-stock highlights |
+| Warning | `229,167,124` / `#E5A77C` | Attention/low stock (apricot) |
+| Warning surface | `59,47,40` / `#3B2F28` | Low-stock highlights |
+| Danger | `228,112,124` / `#E4707C` | Error/destructive/out (rose) |
+| Danger surface | `67,38,43` / `#43262B` | Out-of-stock highlights |
 | Active surface | `49,90,85` / `#315A55` | Scanner movement/build focus |
 
 Petrol-cyan means interactive, active, focused, linked, or progressing. Ordinary
 headings use warm ivory; graphite surfaces provide structure without making the
-whole interface blue. Green, amber, and red are reserved for real state and are
-always accompanied by a word or glyph. Normal rows share one surface; hover and
+whole interface blue. Sage green, apricot, and rose are reserved for real state. Apricot and rose are
+one warm family set against the cool teal, so attention reads as a different
+kind of signal from interaction. Out of stock always says so in words; low stock
+is the quantity itself in apricot. Normal rows share one surface; hover and
 selection provide the only background changes.
 
 Truecolor is the reference rendering. Terminals without truecolor may use their
@@ -122,6 +124,13 @@ fields are hidden. Fields with no value are omitted, including vendor
 placeholders such as a lone dash or "N/A"; the package value appears once in the
 passive summary line rather than again in the parameter list.
 
+List rows split distributor-style names the same way (`splitPartName`): the leading
+words are dim, the first electrical value is bold, and the specification is dim, so a run of
+near-identical names can be scanned by value. A name with no recognizable value stays whole.
+Quantities are bold and colored by state, and each category header carries its part count and
+low-stock count. The detail panel leads with the full part name in bold, then the manufacturer,
+then a raised quantity strip showing the quantity (with LOW or OUT) and the rack.
+
 Name sorting orders by category then part name, so the list renders one
 contiguous run per category behind a single group header on a raised grey band,
 and the part column takes the width a repeated category column would waste. Every
@@ -135,12 +144,28 @@ pads a category cell out to absorb slack.
 ### Racks
 
 Rack list, 5x5 grid, and slot detail share one surface with subtle dividers.
-Every occupied slot wraps its part name and shows a color-coded quantity
-highlight. Lettered column headers and numbered row headers identify each
-slot without adding labels inside the slot cells. Rows and cells are
-clickable. Place/Move is the primary control; slot controls are anchored at
-the bottom of the detail panel, with Delete rack beside them for empty racks.
-The remaining administrative operations remain in Actions.
+Every occupied slot splits its part name into a dim type, a bold value, and a dim
+specification, with a bold quantity pinned to the bottom of the cell that is apricot
+when low and rose (with the word OUT) when empty. In narrow cells the type is
+dropped, because the rack's own type already implies it, and padding is removed so
+the value stays whole. Lettered column headers and numbered row headers identify
+each slot without adding labels inside the slot cells. Rows and cells are clickable.
+
+Every slot has the identical width and height, and the grid fills the available
+space exactly. The letter header (one row) and the row-number column never change
+size. Rows left over by the floor division go to a summary band under the matrix
+(one to five rows) and columns left over go to the detail panel, so no gap appears
+at the bottom or right edge on any terminal size.
+
+The slot detail panel leads with `Slot: A1` and the rack type, capitalized. An
+occupied slot then shows the full part name in bold, the manufacturer, a raised
+quantity strip (quantity, with LOW or OUT when it applies), the key specifications
+the Stock page leads with, and the package. Controls are anchored at the bottom in
+one row when the panel is at least 40 columns wide (Move, quantity buttons,
+Datasheet, Remove), and in two rows when it is narrower; empty racks offer Delete
+rack. The rack summary (slots used, low, out) lives in the footer band under the
+grid. `d` opens the selected part's datasheet, as on Stock. The remaining
+administrative operations remain in Actions.
 
 ### Import
 
@@ -181,6 +206,9 @@ shown as zeros.
 - Use a divider only between major functional regions.
 - Controls are compact text labels on a raised surface, not decorative cards.
 - Tables use fixed columns and right-aligned numbers.
+- Hierarchy comes from weight and tone, not decoration: the thing to scan for is bold, its
+  qualifiers are muted, and labels are quieter than their values. Do not add glyph ornaments
+  such as dots or corner brackets.
 - Selection combines a dark blue-gray background, focus-colored text, and a marker.
 - Messages never stack; the newest message replaces the previous one.
 - Confirmations use a raised surface, explicit danger text, and an unlock step

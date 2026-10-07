@@ -99,5 +99,26 @@ bool parseAppearanceColorHex(const string& text, uint32_t& rgb) {
   return true;
 }
 
+bool upgradeLegacyAppearanceDefaults(AppearanceSettings& appearance) {
+  struct Upgrade {
+    AppearanceColorRole role;
+    uint32_t legacy;
+  };
+  // The amber/salmon defaults that shipped before the apricot/rose palette.
+  static const Upgrade kUpgrades[] = {
+      {AppearanceColorRole::WarningText, 0xD8B56B}, {AppearanceColorRole::DangerText, 0xE08C83},
+      {AppearanceColorRole::WarningBg, 0x3A3327},   {AppearanceColorRole::DangerBg, 0x3E2A29},
+      {AppearanceColorRole::DangerFlashBg, 0x70403B},
+  };
+  const AppearanceSettings defaults;
+  bool changed = false;
+  for (const auto& upgrade : kUpgrades) {
+    const auto index = static_cast<size_t>(upgrade.role);
+    if (appearance.colors[index] != upgrade.legacy) continue;
+    appearance.colors[index] = defaults.colors[index];
+    changed = true;
+  }
+  return changed;
+}
 
 }  // namespace inventatory

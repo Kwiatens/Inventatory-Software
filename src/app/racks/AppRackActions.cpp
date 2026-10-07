@@ -413,6 +413,15 @@ void App::adjustSelectedRackItemQuantity(int delta) {
   dirty_ = true;
 }
 
+void App::openSelectedRackDatasheet() {
+  const auto* item = selectedRackItem();
+  if (item == nullptr) {
+    setMessage("No part in this slot", 2);
+    return;
+  }
+  openCurrentUrl(item->datasheetUrl, "datasheet");
+}
+
 void App::openSelectedRackItemDetail() {
   const auto* item = selectedRackItem();
   if (item == nullptr) {

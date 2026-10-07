@@ -188,7 +188,7 @@ ftxui::Element App::renderStockUi() const {
     });
   } else {
     const bool hasItem = selectedItem() != nullptr;
-    detailFooter = ftxui::hbox({
+    ftxui::Elements editRow = {
         target(uiSecondaryButton("New"), "stock.new", UiTargetKind::Button,
                [self] { self->beginEditCurrentItem(true); }),
         ftxui::text(" "),
@@ -209,7 +209,8 @@ ftxui::Element App::renderStockUi() const {
                    self->setMessage("Enter the total quantity on hand", 3);
                  }
                }, hasItem),
-        ftxui::text(" "),
+    };
+    ftxui::Elements outputRow = {
         // Peer actions share the ordinary raised-button role rather than
         // competing for a single primary; Delete alone carries the danger
         // role because it removes database records.
@@ -220,7 +221,18 @@ ftxui::Element App::renderStockUi() const {
         target(uiSecondaryButton("Delete", uiDangerColor(), hasItem), "stock.delete", UiTargetKind::Button,
                [self] { self->armDeleteConfirmation(); }, hasItem),
         ftxui::filler(),
-    });
+    };
+    // The full button strip needs 46 columns. Narrower panels (the 100x30 and 120x30 terminals) wrap it onto two
+    // rows rather than clipping the Delete button.
+    const bool wrap = detailOuterWidth < 47;
+    if (wrap) {
+      editRow.push_back(ftxui::filler());
+      detailFooter = ftxui::vbox({ftxui::hbox(move(editRow)), ftxui::hbox(move(outputRow))});
+    } else {
+      editRow.push_back(ftxui::text(" "));
+      for (auto& element : outputRow) editRow.push_back(move(element));
+      detailFooter = ftxui::hbox(move(editRow));
+    }
   }
   auto detailPanel = ftxui::vbox({
                          fullLine(editing ? "Edit item" : "Item detail", uiSecondaryText(), uiSurfaceBg()),

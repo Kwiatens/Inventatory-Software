@@ -28,7 +28,7 @@ route, and every accelerator must remain discoverable on screen or in Actions.
 
 Use semantic neutral-graphite / petrol-cyan helpers rather than literal RGB
 values. Petrol-cyan is for interaction, focus, links, progress, and active
-navigation; sage, amber, and coral are reserved for real state. Use one surface
+navigation; sage, apricot, and rose are reserved for real state. Use one surface
 for normal rows and reserve hover/selection backgrounds for interaction. Prefer
 alignment and a single dim divider over windows nested inside windows.
 

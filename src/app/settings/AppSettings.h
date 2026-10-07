@@ -56,13 +56,13 @@ struct AppearanceSettings {
       0x58B9B0,  // Interactive
       0xA5C9A5,  // Success
       0x8FCBC5,  // Link
-      0xD8B56B,  // WarningText
-      0xE08C83,  // DangerText
+      0xE5A77C,  // WarningText (apricot)
+      0xE4707C,  // DangerText (rose)
       0x315A55,  // ActiveBg
       0x243A37,  // ActiveSoftBg
-      0x3A3327,  // WarningBg
-      0x3E2A29,  // DangerBg
-      0x70403B,  // DangerFlashBg
+      0x3B2F28,  // WarningBg
+      0x43262B,  // DangerBg
+      0x74404B,  // DangerFlashBg
   };
 };
 
@@ -70,6 +70,9 @@ const char* appearanceColorKey(AppearanceColorRole role);
 const char* appearanceColorLabel(AppearanceColorRole role);
 std::string appearanceColorHex(std::uint32_t rgb);
 bool parseAppearanceColorHex(const std::string& text, std::uint32_t& rgb);
+// Moves warning/danger colors that still hold the pre-apricot/rose defaults to the current defaults. Colors the
+// user customized are left untouched. Returns true when any color changed.
+bool upgradeLegacyAppearanceDefaults(AppearanceSettings& appearance);
 
 struct AppSettings {
   int schemaVersion = 1;

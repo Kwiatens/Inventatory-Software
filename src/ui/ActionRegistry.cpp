@@ -157,6 +157,7 @@ vector<App::Action> App::currentActions() const {
       add("part minus one", "Slot", "-", chr('-'), [self] { self->adjustSelectedRackItemQuantity(-1); });
       add("part plus one", "Slot", "+", chr('+'), [self] { self->adjustSelectedRackItemQuantity(1); });
       add("part details", "Slot", "Enter", special(KeyType::Enter), [self] { self->openSelectedRackItemDetail(); });
+      if (selectedRackItem() != nullptr) add("datasheet", "Links", "d", chr('d'), [self] { self->openSelectedRackDatasheet(); });
       add("unassign", "Slot", "u", chr('u'), [self] { self->unassignSelectedRackItem(); });
       add("auto-assign", "Slot", "a", chr('a'), [self] { self->autoAssignSelectedRackItem(); });
       add("prev rack", "Racks", "[", chr('['), [self] { self->moveRackPage(-1); });
@@ -448,7 +449,7 @@ ftxui::Element App::renderActionSheetUi() const {
   const bool moreAbove = window.first > 0;
   const bool moreBelow = window.first + window.count < allRows.size();
 
-  string title = "  Inventatory actions \xE2\x80\x94 \xE2\x86\x91\xE2\x86\x93 move  \xE2\x8F\x8E run  esc close";
+  string title = "  Inventatory actions \xE2\x80\x94 \xE2\x86\x91\xE2\x86\x93 move  \xE2\x8F\x8E run  esc close  space opens this";
   if (moreAbove || moreBelow) {
     title += "   " + to_string(min(static_cast<size_t>(max(0, sheetIndex_)) + 1, sheetActions_.size())) + "/" +
              to_string(sheetActions_.size()) + (moreAbove ? " \xE2\x96\xB2" : "") +

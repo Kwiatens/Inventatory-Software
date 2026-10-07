@@ -578,6 +578,50 @@ void testPrimaryNavigationContract() {
 
 // Keyboard focus is tracked by target id, so a changing target list cannot make
 // Enter land on a different control, and only Tab can create a focus.
+void testSplitPartNameSeparatesTypeValueAndSpec() {
+  const auto expectSplit = [](const string& name, const string& type, const string& value, const string& spec) {
+    const auto parts = splitPartName(name);
+    assert(parts.type == type);
+    assert(parts.value == value);
+    assert(parts.spec == spec);
+  };
+  expectSplit("CAP CER 0.1UF 16V X7R 0603", "CAP CER", "0.1UF", "16V X7R 0603");
+  expectSplit("RES 470 OHM 1% 1/4W 1206", "RES", "470 OHM", "1% 1/4W 1206");
+  expectSplit("IC REG BUCK 3.3V 2A TSOT23-6", "IC REG BUCK", "3.3V", "2A TSOT23-6");
+  expectSplit("DIODE SCHOTTKY 40V 1A DO41", "DIODE SCHOTTKY", "40V", "1A DO41");
+  // A package code is specification when a real value follows it.
+  expectSplit("CAP CER 0603 10NF 16V X7R 10%", "CAP CER 0603", "10NF", "16V X7R 10%");
+  expectSplit("CAP CER 0603", "CAP CER", "0603", "");
+  // No recognizable value: the whole name is the value, so nothing is dropped.
+  expectSplit("STM32F103C8T6", "", "STM32F103C8T6", "");
+  expectSplit("", "", "", "");
+  // Runs of whitespace collapse, and a name that starts with its value has no type.
+  expectSplit("  CAP   CER  1UF ", "CAP CER", "1UF", "");
+  expectSplit("10K RESISTOR", "", "10K", "RESISTOR");
+  // Re-joining the pieces yields the original words.
+  const string original = "FIXED IND 1.5UH 6A 25 MOHM SMD";
+  const auto parts = splitPartName(original);
+  assert(parts.type + " " + parts.value + " " + parts.spec == original);
+}
+
+void testQuantityColorSeparatesOutLowAndHealthyStock() {
+  applyUiAppearance(AppearanceSettings{});
+  InventoryItem item;
+  item.reorderThreshold = 5;
+  item.quantity = 0;
+  assert(uiQuantityColor(item, 5) == uiDangerColor());
+  item.quantity = 3;
+  assert(uiQuantityColor(item, 5) == uiWarnColor());
+  item.quantity = 5;
+  assert(uiQuantityColor(item, 5) == uiWarnColor());
+  item.quantity = 6;
+  assert(uiQuantityColor(item, 5) == uiPrimaryText());
+  // Low and out are distinct hues so state never rests on brightness alone.
+  assert(!(uiWarnColor() == uiDangerColor()));
+  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] == 0xE5A77C);
+  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::DangerText)] == 0xE4707C);
+}
+
 void testUiFocusTracking() {
   using inventatory::ui_focus::Candidate;
   namespace uf = inventatory::ui_focus;
@@ -618,13 +662,13 @@ void testUiFocusTracking() {
 void testHeaderClockYieldsToActionsControl() {
   using inventatory::app_navigation::HeaderClock;
   using inventatory::app_navigation::headerClockFor;
-  // Brand (14) + six destinations (63) + " Actions . Space " (17) = 94 fixed columns.
-  constexpr int kFixed = 94;
-  assert(headerClockFor(100, kFixed) == HeaderClock::Hidden);
-  assert(headerClockFor(100, kFixed) != HeaderClock::Full);
-  assert(headerClockFor(101, kFixed) == HeaderClock::Compact);
-  assert(headerClockFor(114, kFixed) == HeaderClock::Compact);
-  assert(headerClockFor(115, kFixed) == HeaderClock::Full);
+  // Brand (13) + six destinations (63) + " Actions " (9) = 85 fixed columns.
+  constexpr int kFixed = 85;
+  assert(headerClockFor(91, kFixed) == HeaderClock::Hidden);
+  assert(headerClockFor(92, kFixed) == HeaderClock::Compact);
+  assert(headerClockFor(100, kFixed) != HeaderClock::Hidden);
+  assert(headerClockFor(105, kFixed) == HeaderClock::Compact);
+  assert(headerClockFor(106, kFixed) == HeaderClock::Full);
   assert(headerClockFor(120, kFixed) == HeaderClock::Full);
   assert(headerClockFor(240, kFixed) == HeaderClock::Full);
   // Whatever clock is chosen, brand + destinations + Actions + clock never exceeds the row.
@@ -4073,7 +4117,14 @@ void testRackPageSlotGeometry() {
     const int height = rack_page_detail::equalRackSlotHeight(availableRows, 5);
     assert(height >= 3);
     assert(height * 5 <= availableRows);
+    // Every row is accounted for: identical slots plus a remainder (under one row per slot) for the header band.
+    const int remainder = rack_page_detail::rackSlotRemainderRows(availableRows, 5, height);
+    assert(height * 5 + remainder == availableRows);
+    assert(remainder < 5);
   }
+  assert(rack_page_detail::rackSlotRemainderRows(46, 5, 9) == 1);
+  assert(rack_page_detail::rackSlotRemainderRows(45, 5, 9) == 0);
+  assert(rack_page_detail::rackSlotRemainderRows(10, 5, 3) == 0);
   // Floor division ensures rack slot widths never exceed available space across terminal widths
   for (int availableCols = 35; availableCols <= 250; ++availableCols) {
     const int width = rack_page_detail::equalRackSlotWidth(availableCols, 5);
@@ -8029,7 +8080,41 @@ void testLegacySettingsAppearanceFallback() {
   AppSettings loaded;
   assert(loadAppSettings(path, loaded));
   assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] == 0x0D1010);
-  assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)] == 0x70403B);
+  assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)] ==
+         AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)]);
+  error_code removeError;
+  filesystem::remove(path, removeError);
+  assert(!removeError);
+}
+
+void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
+  AppearanceSettings appearance;
+  const auto at = [&](AppearanceColorRole role) -> uint32_t& { return appearance.colors[static_cast<size_t>(role)]; };
+  const AppearanceSettings defaults;
+  const auto current = [&](AppearanceColorRole role) { return defaults.colors[static_cast<size_t>(role)]; };
+  // Pre-apricot/rose installs persisted the old defaults; one color was customized by the user.
+  at(AppearanceColorRole::WarningText) = 0xD8B56B;
+  at(AppearanceColorRole::DangerText) = 0xE08C83;
+  at(AppearanceColorRole::WarningBg) = 0x3A3327;
+  at(AppearanceColorRole::DangerBg) = 0x112233;
+  at(AppearanceColorRole::DangerFlashBg) = 0x70403B;
+  assert(upgradeLegacyAppearanceDefaults(appearance));
+  assert(at(AppearanceColorRole::WarningText) == current(AppearanceColorRole::WarningText));
+  assert(at(AppearanceColorRole::DangerText) == current(AppearanceColorRole::DangerText));
+  assert(at(AppearanceColorRole::WarningBg) == current(AppearanceColorRole::WarningBg));
+  assert(at(AppearanceColorRole::DangerFlashBg) == current(AppearanceColorRole::DangerFlashBg));
+  assert(at(AppearanceColorRole::DangerBg) == 0x112233);
+  assert(!upgradeLegacyAppearanceDefaults(appearance));
+
+  const auto path = testTempRoot() / "inventatory-legacy-palette-settings-test.conf";
+  AppSettings settings;
+  settings.dataDirectory = "legacy-palette";
+  settings.appearance.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] = 0xD8B56B;
+  assert(saveAppSettings(path, settings));
+  AppSettings loaded;
+  assert(loadAppSettings(path, loaded));
+  assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] ==
+         current(AppearanceColorRole::WarningText));
   error_code removeError;
   filesystem::remove(path, removeError);
   assert(!removeError);
@@ -10316,6 +10401,8 @@ const vector<TestCase>& registeredTests() {
 #endif
     {"ui", "PrimaryNavigationContract", testPrimaryNavigationContract},
     {"ui", "UiFocusTracking", testUiFocusTracking},
+    {"ui", "SplitPartNameSeparatesTypeValueAndSpec", testSplitPartNameSeparatesTypeValueAndSpec},
+    {"ui", "QuantityColorSeparatesOutLowAndHealthyStock", testQuantityColorSeparatesOutLowAndHealthyStock},
     {"ui", "HeaderClockYieldsToActionsControl", testHeaderClockYieldsToActionsControl},
     {"ui", "ActionSheetLayout", testActionSheetLayout},
     {"ui", "NumericPromptReplacesDefault", testNumericPromptReplacesDefault},
@@ -10439,6 +10526,7 @@ const vector<TestCase>& registeredTests() {
     {"platform", "ApplicationIconAsset", testApplicationIconAsset},
     {"settings", "UnsupportedSettingsSchemaIsRejected", testUnsupportedSettingsSchemaIsRejected},
     {"settings", "LegacySettingsAppearanceFallback", testLegacySettingsAppearanceFallback},
+    {"settings", "LegacyWarningDangerColorsUpgrade", testLegacyWarningDangerColorsUpgradeToCurrentDefaults},
     {"settings", "InvalidLowStockThresholdIsRejected", testInvalidLowStockThresholdIsRejected},
     {"settings", "SymbolStandardPersistence", testSymbolStandardPersistence},
     {"update", "UpdatePreviewPresentation", testUpdatePreviewPresentation},
