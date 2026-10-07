@@ -25,6 +25,13 @@ std::optional<PhysicalValueComparison> bestPhysicalComparison(
 std::optional<PhysicalValueComparison> partNamePhysicalComparison(const InventoryItem& item,
                                                                   const std::string& target);
 
+// Best comparison of an item against a physical value. Only value-typed parameters and name words
+// count, and an item whose category or name declares a different component family never matches.
+// Comparisons outside the match bands are dropped unless allowOutsideBands is set.
+std::optional<PhysicalValueComparison> itemPhysicalComparison(const InventoryItem& item,
+                                                              const std::string& target,
+                                                              bool allowOutsideBands = false);
+
 QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const std::string& query,
                                        const std::string& itemRackLocation, int lowStockThreshold);
 
