@@ -86,17 +86,7 @@ vector<InventorySearchMatch> findClosestPhysicalValues(const vector<InventoryIte
   vector<InventorySearchMatch> matches;
   matches.reserve(items.size());
   for (size_t index = 0; index < items.size(); ++index) {
-    optional<PhysicalValueComparison> best;
-    const auto consider = [&](const vector<Parameter>& parameters) {
-      for (const auto& parameter : parameters) {
-        const auto parameterType = parameterNameToType(parameter.name);
-        if (parameterType != PhysicalValueType::Unknown && parameterType != parsedTarget->type) continue;
-        best = bestPhysicalComparison(best, comparePhysicalValues(parameter.value, target));
-      }
-    };
-    consider(items[index].parameters);
-    consider(items[index].vendorMetadata.parameters);
-    best = bestPhysicalComparison(best, partNamePhysicalComparison(items[index], target));
+    const auto best = itemPhysicalComparison(items[index], target);
     if (!best.has_value()) continue;
 
     matches.push_back({index, best->band, best->relativeDifference, best->signedRelativeDifference, true});

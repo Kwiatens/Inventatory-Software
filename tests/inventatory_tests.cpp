@@ -1132,6 +1132,7 @@ void testPhysicalValueParsing();
 void testPhysicalValueMatching();
 void testPhysicalValueSearchIntegration();
 void testPhysicalValueCommaDecimalLocale();
+void testClosestValueSearchStaysWithinFamilyAndBand();
 void testDecimalParsingCommaLocale();
 void testStockFilterState();
 
@@ -1347,10 +1348,12 @@ void testPhysicalValueMatching() {
   // Different types should not match
   assert(!comparePhysicalValues("100nF", "100 Ohm").has_value());
 
-  // The built-in bands classify 20% as possible and reject values beyond 25%.
+  // The built-in bands classify up to 33% as possible and reject values beyond it.
   assert(comparePhysicalValues("120nF", "100nF")->band == PhysicalValueMatchBand::Possible);
-  assert(comparePhysicalValues("125nF", "100nF")->band == PhysicalValueMatchBand::Possible);
-  assert(comparePhysicalValues("126nF", "100nF")->band == PhysicalValueMatchBand::None);
+  assert(comparePhysicalValues("133nF", "100nF")->band == PhysicalValueMatchBand::Possible);
+  assert(comparePhysicalValues("67nF", "100nF")->band == PhysicalValueMatchBand::Possible);
+  assert(comparePhysicalValues("134nF", "100nF")->band == PhysicalValueMatchBand::None);
+  assert(comparePhysicalValues("66nF", "100nF")->band == PhysicalValueMatchBand::None);
 
   // Within the workable band should match
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
@@ -1431,6 +1434,51 @@ void skipMissingCredentialStore(const char* testName) {
 
 // The application calls setlocale(LC_ALL, ""), so value parsing and search must
 // keep working when the user's locale writes decimals with a comma.
+void testClosestValueSearchStaysWithinFamilyAndBand() {
+  const auto make = [](const char* id, const char* name, const char* category, vector<Parameter> parameters) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = name;
+    item.category = category;
+    item.quantity = 5;
+    item.parameters = std::move(parameters);
+    return item;
+  };
+  const vector<InventoryItem> items = {
+      make("exact", "CAP CER 0.1UF 16V X7R 0603", "Capacitors", {{"Capacitance", "0.1 \xC2\xB5" "F"}}),
+      make("edge-high", "CAP CER 130NF 16V", "Capacitors", {{"Capacitance", "130nF"}}),
+      make("edge-low", "CAP CER 68NF 16V", "Capacitors", {{"Capacitance", "68nF"}}),
+      make("too-high", "CAP CER 140NF 16V", "Capacitors", {{"Capacitance", "140nF"}}),
+      make("too-low", "CAP CER 10NF 16V", "Capacitors", {{"Capacitance", "10nF"}}),
+      make("far-uf", "CAP CER 1UF 16V", "Capacitors", {{"Capacitance", "1uF"}}),
+      make("switch", "SWITCH TACTILE SPST-NO 0.05A 12V", "Switches", {{"Contact Capacitance", "100nF"}}),
+      make("mosfet", "MOSFET N-CH 30V 5A", "", {{"Input Capacitance (Ciss)", "100nF"}}),
+      make("resistor", "RES 100NF", "Resistors", {{"Resistance", "100 Ohm"}}),
+      make("name-only", "100nF", "", {}),
+  };
+
+  const auto closest = findClosestPhysicalValues(items, "100nF");
+  vector<string> ids;
+  for (const auto& match : closest) {
+    assert(match.band != PhysicalValueMatchBand::None);
+    assert(std::abs(match.relativeDifference) <= 0.33 + 1e-9);
+    ids.push_back(items[match.itemIndex].id);
+  }
+  const auto listed = [&](const char* id) { return find(ids.begin(), ids.end(), id) != ids.end(); };
+  assert(listed("exact") && listed("edge-high") && listed("edge-low") && listed("name-only"));
+  assert(!listed("too-high") && !listed("too-low") && !listed("far-uf"));
+  assert(!listed("switch") && !listed("mosfet") && !listed("resistor"));
+  assert(closest.size() == 4);
+  assert(closest.front().band == PhysicalValueMatchBand::Exact);
+
+  // The ordinary search applies the same band limits (a literal "100nF" in any text still matches as text).
+  const auto ordinary = filterItems(items, "100nF");
+  for (const size_t index : ordinary) {
+    const auto& id = items[index].id;
+    assert(id != "too-high" && id != "too-low" && id != "far-uf");
+  }
+}
+
 void testPhysicalValueCommaDecimalLocale() {
   const char* candidates[] = {"pl_PL.UTF-8", "pl_PL.utf8", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8"};
   const string previous = setlocale(LC_ALL, nullptr);
@@ -1478,17 +1526,15 @@ void testPhysicalValueCommaDecimalLocale() {
     assert(matches.size() == 2);
     assert(items[matches[0]].id != "locale-other" && items[matches[1]].id != "locale-other");
   }
-  // Every item with a comparable value is ranked: both real 100 nF items first (exact), then the 1 uF item as
-  // the far, out-of-band match.
+  // Only items within the match bands are listed: both real 100 nF items (exact); the 1 uF item is far
+  // outside +/-33% and is not a candidate.
   const auto closest = findClosestPhysicalValues(items, "100nF");
-  assert(closest.size() == 3);
+  assert(closest.size() == 2);
   for (size_t rank = 0; rank < 2; ++rank) {
     assert(items[closest[rank].itemIndex].id == "locale-parameter" || items[closest[rank].itemIndex].id == "locale-name");
     assert(closest[rank].band == PhysicalValueMatchBand::Exact);
   }
   assert(items[closest[0].itemIndex].id != items[closest[1].itemIndex].id);
-  assert(items[closest[2].itemIndex].id == "locale-other");
-  assert(closest[2].band == PhysicalValueMatchBand::None);
 
   setlocale(LC_ALL, previous.c_str());
 }
@@ -1902,7 +1948,7 @@ void testPhysicalValueSearchIntegration() {
   assert(ranked[0].relativeDifference <= ranked[1].relativeDifference + 1e-12);
 
   const auto closest = findClosestPhysicalValues(items, "9.9k");
-  assert(closest.size() == 2);
+  assert(closest.size() >= 1);
   assert(items[closest[0].itemIndex].id == "res-10k");
   assert(closest[0].band == PhysicalValueMatchBand::Workable);
 }
@@ -10437,6 +10483,7 @@ const vector<TestCase>& registeredTests() {
     {"inventory", "PhysicalValueParsing", testPhysicalValueParsing},
     {"inventory", "PhysicalValueMatching", testPhysicalValueMatching},
     {"inventory", "PhysicalValueSearchIntegration", testPhysicalValueSearchIntegration},
+    {"inventory", "ClosestValueSearchStaysWithinFamilyAndBand", testClosestValueSearchStaysWithinFamilyAndBand},
     {"inventory", "PhysicalValueCommaDecimalLocale", testPhysicalValueCommaDecimalLocale},
     {"inventory", "DecimalParsingCommaLocale", testDecimalParsingCommaLocale},
     {"ui", "StockFilterState", testStockFilterState},

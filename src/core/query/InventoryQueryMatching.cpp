@@ -79,43 +79,59 @@ TokenMatchResult tokenMatchesParameter(const InventoryItem& item, const string& 
   return {primary.matched || vendor.matched, bestPhysicalComparison(primary.physical, vendor.physical)};
 }
 
+// Reads the component family an item declares through its category or the leading word of its name
+// ("CAP CER ...", "Resistor", "Crystal"). Returns nullopt for items that declare nothing, and for
+// families without a physical value type (switches, MOSFETs, connectors).
+optional<PhysicalValueType> declaredValueType(const InventoryItem& item) {
+  const auto classify = [](const string& text) -> optional<PhysicalValueType> {
+    const auto has = [&](const char* needle) { return text.find(needle) != string::npos; };
+    if (has("capacitor") || has("supercap")) return PhysicalValueType::Capacitance;
+    if (has("resistor") || has("thermistor") || has("potentiometer") || has("trimmer")) {
+      return PhysicalValueType::Resistance;
+    }
+    if (has("inductor") || has("choke") || has("ferrite")) return PhysicalValueType::Inductance;
+    if (has("crystal") || has("oscillator") || has("resonator")) return PhysicalValueType::Frequency;
+    return nullopt;
+  };
+  if (const auto fromCategory = classify(toLower(item.category)); fromCategory.has_value()) return fromCategory;
+
+  string word;
+  for (const char character : item.partName) {
+    if (!isalpha(static_cast<unsigned char>(character))) {
+      if (!word.empty()) break;
+      continue;
+    }
+    word.push_back(static_cast<char>(tolower(static_cast<unsigned char>(character))));
+  }
+  if (word == "cap") return PhysicalValueType::Capacitance;
+  if (word == "res") return PhysicalValueType::Resistance;
+  if (word == "ind") return PhysicalValueType::Inductance;
+  if (word == "xtal" || word == "osc") return PhysicalValueType::Frequency;
+  return classify(word);
+}
+
 optional<PhysicalValueComparison> tokenMatchesParameterPhysicallyList(const vector<Parameter>& parameters,
                                                                       const string& token,
-                                                                      bool allowOutsideBands = false) {
+                                                                      bool declaredMatch,
+                                                                      bool allowOutsideBands) {
   const auto parsed = parsePhysicalValue(token);
   if (!parsed.has_value() || parsed->type == PhysicalValueType::Unknown) {
     return nullopt;
   }
 
   optional<PhysicalValueComparison> best;
-
   for (const auto& parameter : parameters) {
-    auto paramType = parameterNameToType(parameter.name);
-    // Only match if the parameter type matches the parsed needle type
-    if (paramType != PhysicalValueType::Unknown && paramType != parsed->type) {
-      continue;
-    }
+    // A parameter counts when it is named for this value type. Parameters of unknown meaning
+    // ("Input Capacitance (Ciss)", "Contact Rating") are trusted only on an item that declares
+    // itself a component of this type.
+    const auto paramType = parameterNameToType(parameter.name);
+    if (paramType == PhysicalValueType::Unknown ? !declaredMatch : paramType != parsed->type) continue;
     const auto comparison = comparePhysicalValues(parameter.value, token);
-    if (comparison.has_value() &&
-        (allowOutsideBands || comparison->band != PhysicalValueMatchBand::None)) {
+    if (comparison.has_value() && (allowOutsideBands || comparison->band != PhysicalValueMatchBand::None)) {
       best = bestPhysicalComparison(best, comparison);
     }
   }
-
   return best;
-}
-
-optional<PhysicalValueComparison> tokenMatchesParameterPhysically(const InventoryItem& item, const string& token,
-                                                                  bool allowOutsideBands = false) {
-  const auto fromParameters =
-      bestPhysicalComparison(tokenMatchesParameterPhysicallyList(item.parameters, token, allowOutsideBands),
-                             tokenMatchesParameterPhysicallyList(item.vendorMetadata.parameters, token,
-                                                                 allowOutsideBands));
-  const auto fromName = partNamePhysicalComparison(item, token);
-  if (fromName.has_value() && !allowOutsideBands && fromName->band == PhysicalValueMatchBand::None) {
-    return fromParameters;
-  }
-  return bestPhysicalComparison(fromParameters, fromName);
 }
 
 // Reads the whole operand as a decimal integer. Trailing text ("5abc", "1e3") or blanks make the
@@ -211,6 +227,28 @@ optional<PhysicalValueComparison> partNamePhysicalComparison(const InventoryItem
   return best;
 }
 
+optional<PhysicalValueComparison> itemPhysicalComparison(const InventoryItem& item, const string& target,
+                                                         bool allowOutsideBands) {
+  const auto parsed = parsePhysicalValue(target);
+  if (!parsed.has_value() || parsed->type == PhysicalValueType::Unknown) return nullopt;
+
+  // An item that says it is a different kind of component never matches, whatever numbers its
+  // parameters or name happen to contain.
+  const auto declared = declaredValueType(item);
+  if (declared.has_value() && *declared != parsed->type) return nullopt;
+  const bool declaredMatch = declared.has_value();
+
+  auto best = bestPhysicalComparison(
+      tokenMatchesParameterPhysicallyList(item.parameters, target, declaredMatch, allowOutsideBands),
+      tokenMatchesParameterPhysicallyList(item.vendorMetadata.parameters, target, declaredMatch,
+                                          allowOutsideBands));
+  const auto fromName = partNamePhysicalComparison(item, target);
+  if (fromName.has_value() && (allowOutsideBands || fromName->band != PhysicalValueMatchBand::None)) {
+    best = bestPhysicalComparison(best, fromName);
+  }
+  return best;
+}
+
 QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& query, const string& itemRackLocation,
                                        int lowStockThreshold) {
   const auto tokens = tokenizeQuery(query);
@@ -284,7 +322,7 @@ QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& 
 
     // Prefer physical comparison for parseable values so normalized matches
     // receive a rank even when the raw spelling also appears in the item text.
-    const auto physicalMatch = tokenMatchesParameterPhysically(item, rawToken);
+    const auto physicalMatch = itemPhysicalComparison(item, rawToken);
     if (physicalMatch.has_value()) {
       bestPhysical = bestPhysicalComparison(bestPhysical, physicalMatch);
       continue;

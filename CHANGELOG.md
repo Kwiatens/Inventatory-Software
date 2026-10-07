@@ -4,6 +4,13 @@ All notable changes to the Inventatory software are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Value search ("Closest to" and plain values such as `100nF`) no longer lists parts that are not the
+  same kind of component (switches, MOSFETs, resistors) or whose value is more than 33% away from the
+  target; only Exact, Workable (within 10%) and Possible (within 33%) matches are shown.
+
 ## [v0.1.3] - 2026-10-06
 
 ### Security
