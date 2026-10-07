@@ -732,6 +732,7 @@ class App {
   bool printSelectedRackLabel();
   void adjustSelectedRackItemQuantity(int delta);
   void openSelectedRackItemDetail();
+  void openSelectedRackDatasheet();
   void openStockFilterPanel();
   void openStockDateFilterSubmenu();
   void applyStockDateFilter(StockDateFilter filter);
