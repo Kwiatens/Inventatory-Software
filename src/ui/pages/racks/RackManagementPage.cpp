@@ -81,6 +81,10 @@ string shortComponentType(const string& componentType) {
   return rack_page_detail::shortComponentType(componentType);
 }
 
+}  // namespace
+
+namespace rack_page_detail {
+
 // One slot's contents: the part name split into dim type, bold value and dim specification (as many lines as the
 // cell height allows), and a bold quantity line colored by stock state. Out of stock also says so in words.
 ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowStockThreshold, int cellWidth,
@@ -151,7 +155,7 @@ ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowSto
   return ftxui::vbox(move(area)) | ftxui::yflex_grow;
 }
 
-}  // namespace
+}  // namespace rack_page_detail
 
 ftxui::Element App::renderRackManagementUi() const {
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
@@ -309,7 +313,7 @@ ftxui::Element App::renderRackManagementUi() const {
                                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth));
             cellRows.push_back(ftxui::filler());
           } else {
-            cellRows.push_back(rackCellBody(*item, selected, settings_.lowStockThreshold, cellWidth, rowHeight));
+            cellRows.push_back(rack_page_detail::rackCellBody(*item, selected, settings_.lowStockThreshold, cellWidth, rowHeight));
           }
           // Apply the fill after the fixed geometry so every slot, including
           // the selected one, paints its complete equal-sized rectangle.

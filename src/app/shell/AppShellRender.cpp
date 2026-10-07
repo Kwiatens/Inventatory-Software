@@ -309,10 +309,10 @@ ftxui::Element App::renderSearchBarUi() const {
                             : to_string(bomProjects_.size()) +
                                   (bomProjects_.size() == 1 ? " project" : " projects");
         } else if (bomView_ == BomView::Build) {
-          contextText = "find in racks · " + to_string(bomBuildStep_ + 1) + " / " +
+          contextText = "find in racks  " + to_string(bomBuildStep_ + 1) + " / " +
                         to_string(bomBuildSteps().size()) + " stops";
         } else {
-          contextText = to_string(bomAnalysis_.lines.size()) + " lines · " +
+          contextText = to_string(bomAnalysis_.lines.size()) + " lines  " +
                         to_string(bomAnalysis_.boards) +
                         (bomAnalysis_.boards == 1 ? " board" : " boards");
         }
