@@ -170,9 +170,7 @@ ftxui::Element App::renderHeaderUi() const {
   };
 
   ftxui::Elements navigation;
-  // The prompt of the ›i mark in the accent before the name.
-  navigation.push_back(uiHeaderText(u8" \u203A", uiInteractiveColor()));
-  navigation.push_back(uiHeaderText("Inventatory ", uiPrimaryText()));
+  navigation.push_back(uiHeaderText(" Inventatory ", uiPrimaryText()));
   for (const auto& entry : app_navigation::primaryNavigationEntries()) {
     const auto page = pageFor(entry.page);
     navigation.push_back(nav(page, "nav." + string(entry.id),
@@ -182,7 +180,7 @@ ftxui::Element App::renderHeaderUi() const {
   // The always-visible, clickable route to the action sheet. Space remains the
   // keyboard route; both go through openActionSheet().
   const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::DigiKeySetup;
-  const string actionsLabel = " Actions \xC2\xB7 Space ";
+  const string actionsLabel = " Actions ";
   auto actions = uiBodyText(actionsLabel, inputMode_ == InputMode::ActionSheet ? uiFocusColor() : uiInteractiveColor(),
                             inputMode_ == InputMode::ActionSheet ? uiSelectionBg() : uiSurfaceBg());
 
@@ -190,7 +188,7 @@ ftxui::Element App::renderHeaderUi() const {
   const int screenWidth = active != nullptr ? active->dimx() : 120;
   const auto stringWidth = [](const string& text) { return static_cast<int>(ftxui::string_width(text)); };
   // Brand plus the six destinations ("  1 Stock " and so on) plus the Actions control.
-  int fixedColumns = stringWidth(u8" ›") + stringWidth("Inventatory ") + stringWidth(actionsLabel);
+  int fixedColumns = stringWidth(" Inventatory ") + stringWidth(actionsLabel);
   for (const auto& entry : app_navigation::primaryNavigationEntries()) {
     fixedColumns += stringWidth(" " + string(1, entry.shortcut) + " " + entry.label + " ");
   }

@@ -22,4 +22,4 @@ GIFs have a solid background because GIF only supports on/off transparency — t
 </p>
 ```
 
-Palette (from `src/app/settings/AppSettings.h`): Interactive `#58B9B0` → FocusText `#B9E7DD`, WarningText `#D8B56B`, PrimaryText `#F1EEE5`, CanvasBg `#0D1010`.
+Palette (from `src/app/settings/AppSettings.h`): Interactive `#58B9B0` → FocusText `#B9E7DD`, WarningText `#E5A77C`, PrimaryText `#F1EEE5`, CanvasBg `#0D1010`.

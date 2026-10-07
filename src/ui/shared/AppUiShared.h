@@ -124,6 +124,24 @@ string takeCells(const string& value, size_t cells);
 // Both helpers measure and cut in cells, so multi-byte text is never split
 // inside a UTF-8 sequence. `maxLength` / `width` are columns.
 string ellipsize(const string& value, size_t maxLength);
+
+// A distributor-style part name ("CAP CER 0.1UF 16V X7R 0603") split for emphasis: the leading words name the kind
+// of part, the first electrical value is the thing to scan for, and the rest is specification. The three pieces
+// always concatenate (with single spaces) back to the original words, so nothing is invented or dropped. A name
+// with no recognizable value ("STM32F103C8T6") keeps the whole name in `value`.
+struct PartNameParts {
+  string type;
+  string value;
+  string spec;
+};
+PartNameParts splitPartName(const string& name);
+
+// Quantity color shared by lists, rack cells, and detail: danger when out, warning when low, otherwise primary.
+ftxui::Color uiQuantityColor(const InventoryItem& item, int lowStockThreshold);
+
+// Renders a split part name as dim type, bold value, dim spec. `maxWidth` > 0 truncates the end with an ellipsis
+// while keeping the value visible for as long as possible.
+ftxui::Element uiPartName(const string& name, int maxWidth = 0, bool selected = false);
 // Word-wraps on spaces; a word wider than the line is split on glyph boundaries.
 vector<string> wrapText(const string& text, int width);
 

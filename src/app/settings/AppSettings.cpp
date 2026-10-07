@@ -333,6 +333,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   if (loaded.schemaVersion == 2) legacyFormat = true;
   if (!legacyFormat && seenRequiredKeys != persistedSettingsKeys()) return false;
   if (loaded.schemaVersion == 2) loaded.schemaVersion = 1;
+  upgradeLegacyAppearanceDefaults(loaded.appearance);
   settings = move(loaded);
   return true;
 }
