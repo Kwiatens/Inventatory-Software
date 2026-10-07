@@ -357,6 +357,112 @@ string takeCells(const string& value, size_t cells) {
   return result;
 }
 
+namespace {
+
+bool startsWithDigit(const string& token) {
+  return !token.empty() && token.front() >= '0' && token.front() <= '9';
+}
+
+bool isImperialPackageCode(const string& token) {
+  static const char* const kCodes[] = {"0201", "0402", "0603", "0805", "1206", "1210", "1812", "2010", "2512"};
+  for (const auto* code : kCodes) {
+    if (token == code) return true;
+  }
+  return false;
+}
+
+bool isBareNumber(const string& token) {
+  if (token.empty()) return false;
+  for (const char character : token) {
+    if (!((character >= '0' && character <= '9') || character == '.' || character == ',')) return false;
+  }
+  return true;
+}
+
+bool isUnitWord(const string& token) {
+  static const char* const kUnits[] = {"OHM",  "OHMS", "MOHM", "MOHMS", "KOHM", "KOHMS", "UF",  "NF",
+                                       "PF",   "MF",   "UH",   "NH",    "MH",   "V",     "A",   "MA",
+                                       "W",    "HZ",   "KHZ",  "MHZ",   "GHZ"};
+  for (const auto* unit : kUnits) {
+    if (token == unit) return true;
+  }
+  return false;
+}
+
+string joinTokens(const vector<string>& tokens, size_t begin, size_t end) {
+  string joined;
+  for (size_t index = begin; index < end && index < tokens.size(); ++index) {
+    if (!joined.empty()) joined.push_back(' ');
+    joined += tokens[index];
+  }
+  return joined;
+}
+
+}  // namespace
+
+PartNameParts splitPartName(const string& name) {
+  vector<string> tokens;
+  istringstream stream(name);
+  for (string token; stream >> token;) tokens.push_back(token);
+
+  size_t valueIndex = tokens.size();
+  for (size_t index = 0; index < tokens.size(); ++index) {
+    if (!startsWithDigit(tokens[index])) continue;
+    if (isImperialPackageCode(tokens[index])) {
+      // A package code is specification, not the value, when a real value follows it.
+      bool laterValue = false;
+      for (size_t later = index + 1; later < tokens.size(); ++later) laterValue = laterValue || startsWithDigit(tokens[later]);
+      if (laterValue) continue;
+    }
+    valueIndex = index;
+    break;
+  }
+
+  PartNameParts parts;
+  if (valueIndex == tokens.size()) {
+    parts.value = joinTokens(tokens, 0, tokens.size());
+    return parts;
+  }
+  size_t valueEnd = valueIndex + 1;
+  if (isBareNumber(tokens[valueIndex]) && valueEnd < tokens.size() && isUnitWord(tokens[valueEnd])) ++valueEnd;
+  parts.type = joinTokens(tokens, 0, valueIndex);
+  parts.value = joinTokens(tokens, valueIndex, valueEnd);
+  parts.spec = joinTokens(tokens, valueEnd, tokens.size());
+  return parts;
+}
+
+ftxui::Color uiQuantityColor(const InventoryItem& item, int lowStockThreshold) {
+  if (item.quantity <= 0) return uiDangerColor();
+  if (isLowStock(item, lowStockThreshold)) return uiWarnColor();
+  return uiPrimaryText();
+}
+
+ftxui::Element uiPartName(const string& name, int maxWidth, bool selected) {
+  const auto parts = splitPartName(name);
+  const auto typeColor = selected ? uiLinkColor() : uiMutedText();
+  const auto valueColor = selected ? uiFocusColor() : uiPrimaryText();
+  string type = parts.type.empty() ? string() : parts.type + " ";
+  string spec = parts.spec.empty() ? string() : " " + parts.spec;
+  if (maxWidth > 0) {
+    // Trim the specification first, then the type, so the value stays readable on narrow panes.
+    int room = maxWidth - static_cast<int>(ftxui::string_width(parts.value));
+    if (room < 0) {
+      return uiHeaderText(ellipsize(parts.value, static_cast<size_t>(maxWidth)), valueColor);
+    }
+    const int typeWidth = static_cast<int>(ftxui::string_width(type));
+    if (typeWidth > room) type = room > 0 ? ellipsize(type, static_cast<size_t>(room)) : string();
+    room -= static_cast<int>(ftxui::string_width(type));
+    if (static_cast<int>(ftxui::string_width(spec)) > room) {
+      spec = room > 0 ? ellipsize(spec, static_cast<size_t>(room)) : string();
+    }
+  }
+  ftxui::Elements pieces;
+  if (!type.empty()) pieces.push_back(styledText(type, typeColor));
+  pieces.push_back(uiHeaderText(parts.value, valueColor));
+  if (!spec.empty()) pieces.push_back(styledText(spec, typeColor));
+  return ftxui::hbox(move(pieces));
+}
+
 string ellipsize(const string& value, size_t maxLength) {
   if (maxLength == 0 || displayWidth(value) <= maxLength) {
     return value;
