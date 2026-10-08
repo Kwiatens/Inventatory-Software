@@ -19,23 +19,28 @@ using namespace std;
 void App::handleBomProjectKey(const KeyEvent& key) {
   if (bomDeductPrompt_) {
     if (key.type == KeyType::Enter) {
-      // Enter is the key that walks the stops, so a key repeat on the last stop lands here.
-      // Subtracting stock needs the explicit `y`; Enter must never answer the question.
-      setMessage(bomBuildReady(bomAnalysis_) ? "Press y to subtract these parts from stock, or n to keep stock"
-                                             : "Shortages remain; press Esc to return",
-                 4);
+      // Enter is the key that walks the racks, so a key repeat on the last rack lands here.
+      // Changing stock needs the explicit `y`; Enter must never answer the question.
+      setMessage("Press y to take these parts out of stock, or n to leave stock as it is", 4);
       return;
     }
-    if (key.type == KeyType::Escape) {
-      if (bomBuildReady(bomAnalysis_)) {
-        finishBomBuild(false);
-      } else {
-        bomDeductPrompt_ = false;
-        bomView_ = BomView::Split;
-        dirty_ = true;
-      }
+    if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
+      if (bomFinishSelection_ > 0) --bomFinishSelection_;
+      dirty_ = true;
+    } else if (key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j')) {
+      size_t picks = 0;
+      for (const auto& stop : bomPickPlan().stops) picks += stop.picks.size();
+      if (bomFinishSelection_ + 1 < picks) ++bomFinishSelection_;
+      dirty_ = true;
+    } else if (key.type == KeyType::Escape) {
+      // Leaving the finish screen changes nothing; the project stays open.
+      bomDeductPrompt_ = false;
+      bomBuildStep_ = 0;
+      bomPickTaken_.clear();
+      bomView_ = BomView::Split;
+      dirty_ = true;
     }
-    return;  // y / n are registered actions and dispatch ahead of this handler
+    return;  // y / n / + / - / Backspace are registered actions and dispatch ahead of this handler
   }
 
   if (bomView_ == BomView::Build) {
