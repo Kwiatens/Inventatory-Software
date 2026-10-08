@@ -107,48 +107,8 @@ VoiceLine bomPickStopTitle(const BomPickStop& stop) {
   const auto slots = voiceCount(static_cast<int>(stop.picks.size()), stop.rackId.empty() ? "place" : "slot",
                                 stop.rackId.empty() ? "places" : "slots");
   if (stop.rackId.empty()) return {{"Collect "}, {parts, VoiceTone::Strong}, {" kept outside racks"}};
-  return {{"Open "}, {stop.title, VoiceTone::Slot}, {" and take "}, {parts, VoiceTone::Strong}, {" from "},
+  return {{stop.title, VoiceTone::Slot}, {": take "}, {parts, VoiceTone::Strong}, {" from "},
           {slots, VoiceTone::Strong}};
-}
-
-VoiceLine bomPickStopGuide(const BomPickStop& stop) {
-  if (stop.picks.empty()) return {};
-  if (stop.picks.size() == 1) {
-    const auto& pick = stop.picks.front();
-    return {{"Take "},
-            {to_string(pick.quantity) + " of " + pick.designation, VoiceTone::Strong},
-            {" from "},
-            {pick.slot, VoiceTone::Slot},
-            {"."}};
-  }
-
-  vector<const BomPick*> ranked;
-  for (const auto& pick : stop.picks) ranked.push_back(&pick);
-  stable_sort(ranked.begin(), ranked.end(),
-              [](const BomPick* lhs, const BomPick* rhs) { return lhs->quantity > rhs->quantity; });
-
-  if (ranked.front()->quantity == 1) return {{"One part from each "}, {stop.rackId.empty() ? "place." : "slot."}};
-
-  VoiceLine line{{"Start with "}};
-  size_t mentioned = 0;
-  for (const auto* pick : ranked) {
-    if (mentioned == 2 || pick->quantity < 2) break;
-    if (mentioned == 1) line.push_back({" and "});
-    line.push_back({to_string(pick->quantity) + " of " + pick->designation, VoiceTone::Strong});
-    line.push_back({" from "});
-    line.push_back({pick->slot, VoiceTone::Slot});
-    ++mentioned;
-  }
-  line.push_back({"."});
-
-  const auto rest = ranked.size() - mentioned;
-  if (rest == 0) return line;
-  int largestRest = 0;
-  for (size_t index = mentioned; index < ranked.size(); ++index) largestRest = max(largestRest, ranked[index]->quantity);
-  if (largestRest == 1) line.push_back({rest == 1 ? " The last one is a single part." : " The rest are one each."});
-  else if (largestRest == 2) line.push_back({" The rest are one or two each."});
-  else line.push_back({" Then " + voiceCount(static_cast<int>(rest), "more slot.", "more slots.")});
-  return line;
 }
 
 VoiceLine bomPickNextStop(const BomPickPlan& plan, size_t stopIndex) {
