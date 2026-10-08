@@ -18,7 +18,7 @@ struct SettingsCategoryEntry {
 };
 
 inline constexpr std::array<SettingsCategoryEntry, 7> settingsCategoryEntries() {
-  return {{{0, 0},  // General / Data
+  return {{{0, 0},  // General
            {1, 0},  // Appearance
            {2, 0},  // Updates
            {3, 0},  // Printer
@@ -26,41 +26,6 @@ inline constexpr std::array<SettingsCategoryEntry, 7> settingsCategoryEntries() 
            {5, 0},  // Inventatory Scan
            {6, 0}}}; // DigiKey
 }
-
-// Standard Settings panel anatomy. Every category panel is a vertical list of
-// sections separated by one blank line:
-//
-//   Section title                                   optional meta
-//    >  Label                      Value
-//       Label                      Value
-//       [Action]  [Action]
-//
-// Rows share one three-column marker gutter (" > " when selected), one label
-// column, and one value column, so fields, toggles, status rows, and list rows
-// line up across every category. Section actions always come last in their
-// section and align with the labels.
-inline constexpr int kSettingsGutterWidth = 3;
-
-int settingsLabelWidth(int width);
-// Editable or read-only value row. `editing` shows the value as primary text.
-ftxui::Element settingLine(const std::string& label, const std::string& value, int width, bool selected = false);
-// On/Off setting row; the value is colored so state is scannable.
-ftxui::Element settingToggleLine(const std::string& label, bool enabled, int width, bool selected = false);
-// Read-only state row with a semantic value color (Online, Not configured, ...).
-ftxui::Element settingStatusLine(const std::string& label, const std::string& value, ftxui::Color valueColor,
-                                 int width);
-// Selectable list row: name in the label/value area, status right-aligned.
-ftxui::Element settingListLine(const std::string& name, const std::string& status, ftxui::Color statusColor,
-                               int width, bool selected);
-// Muted, gutter-aligned line for an empty list or a status note.
-ftxui::Element settingNoteLine(const std::string& text, ftxui::Color color, int width);
-ftxui::Element settingsSectionHeader(const std::string& title, ftxui::Element meta = nullptr);
-// Buttons laid out with the standard spacing, aligned under the labels.
-ftxui::Element settingsActionRow(ftxui::Elements buttons);
-// Appends one section (header + rows) with the standard blank-line separation.
-void appendSettingsSection(ftxui::Elements& panel, const std::string& title, ftxui::Elements rows,
-                           ftxui::Element meta = nullptr);
-ftxui::Element appearanceColorLine(AppearanceColorRole role, int width, bool selected);
 
 // Final status line after a settings save that restarted the device service.
 struct SettingsBridgeNotice {
