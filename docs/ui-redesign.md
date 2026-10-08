@@ -19,8 +19,8 @@ The navigation is `1 Stock`, `2 Racks`, `3 Import`, `4 Projects`, `5 History`, `
 There is no persistent action wall and no separate Detail, Printer Setup, or
 Inventatory Scan Setup page.
 
-Header status dots use cyan for active, ready, or enabled and gray for inactive,
-offline, unconfigured, or unknown states.
+Header status is shown as words. `docs/ui-style-guide.md` defines glyphs, alignment, controls,
+colour, and status presentation for every workspace.
 
 The retired phone/web scanner is not part of the Inventatory interface. The physical
 Inventatory Scan R1 remains supported through the desktop application's authenticated
