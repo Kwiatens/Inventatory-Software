@@ -78,15 +78,15 @@ inline constexpr UiMessageSeverity kLegacyMessageSeverity = UiMessageSeverity::I
 inline constexpr UiMessagePresentation uiMessagePresentation(UiMessageSeverity severity) {
   switch (severity) {
     case UiMessageSeverity::Success:
-      return {"[ok] ", UiMessageColorRole::Success};
+      return {"", UiMessageColorRole::Success};
     case UiMessageSeverity::Warning:
-      return {"[!] ", UiMessageColorRole::Warning};
+      return {"Warning: ", UiMessageColorRole::Warning};
     case UiMessageSeverity::Error:
-      return {"[x] ", UiMessageColorRole::Error};
+      return {"Error: ", UiMessageColorRole::Error};
     case UiMessageSeverity::Info:
-      return {"[i] ", UiMessageColorRole::Info};
+      return {"", UiMessageColorRole::Info};
   }
-  return {"[i] ", UiMessageColorRole::Info};
+  return {"", UiMessageColorRole::Info};
 }
 
 inline constexpr bool uiMessageAcknowledgementPulseActive(long long startedAt, long long now) {

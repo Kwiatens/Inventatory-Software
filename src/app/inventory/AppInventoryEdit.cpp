@@ -107,7 +107,7 @@ void App::beginEditImportCandidate() {
   fieldMenuIndex_ = 0;
   inputMode_ = InputMode::EditFieldMenu;
   page_ = Page::Import;
-  setMessage("Editing import row: \xE2\x86\x91\xE2\x86\x93 field, \xE2\x8F\x8E edit, s save, esc cancel", 4);
+  setMessage("Editing import row: Up/Down field, Enter edit, s save, Esc cancel", 4);
 }
 
 void App::commitEditField(EditField field, const string& value) {

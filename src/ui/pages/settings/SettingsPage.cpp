@@ -500,7 +500,7 @@ ftxui::Element App::renderSettingsUi() const {
       const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
       const vector<pair<string, string>> fields = {
           {"Client ID", settingsDraft_.digiKeyClientId},
-          {"Client secret", hasSecret ? "••••••••" : "Not configured"},
+          {"Client secret", hasSecret ? "Hidden" : "Not configured"},
           {"Account ID", settingsDraft_.digiKeyAccountId},
           {"Site", settingsDraft_.digiKeySite},
           {"Language", settingsDraft_.digiKeyLanguage},

@@ -172,10 +172,10 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   const bool projectSaved = saveBomProjects();
   changePage(Page::Projects);
 
-  string summary = to_string(bomAnalysis_.readyCount) + " ready · " + to_string(bomAnalysis_.shortCount) + " short";
-  if (!projectSaved) summary += " · project changes unsaved; press R to retry";
+  string summary = to_string(bomAnalysis_.readyCount) + " ready, " + to_string(bomAnalysis_.shortCount) + " short";
+  if (!projectSaved) summary += ", project changes unsaved; press R to retry";
   if (!bomFile_.warnings.empty()) {
-    summary += " · " + to_string(bomFile_.warnings.size()) + " rows not orderable";
+    summary += ", " + to_string(bomFile_.warnings.size()) + " rows not orderable";
   }
   setMessage(summary, 6);
 }

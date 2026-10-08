@@ -176,7 +176,7 @@ string historyCommitImpactSummary(const InventoryCommit& commit) {
   };
   if (parts == 0) return countLabel(racks, "rack", "racks") + " changed";
   if (racks == 0) return countLabel(parts, "part", "parts") + " changed";
-  return countLabel(parts, "part", "parts") + " · " + countLabel(racks, "rack", "racks") + " changed";
+  return countLabel(parts, "part", "parts") + ", " + countLabel(racks, "rack", "racks") + " changed";
 }
 
 vector<size_t> filteredHistoryIndices(const vector<InventoryCommit>& commits, const string& query,

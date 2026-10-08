@@ -276,7 +276,7 @@ ftxui::Element App::renderSearchBarUi() const {
   } else if (page_ == Page::Stock && closestSearchActive_) {
     contextTitle = "Find closest to";
     contextText = closestSearchQuery_.empty() ? "> type a physical value" : ">" + closestSearchQuery_ +
-                  "  · F edit target · Esc close";
+                  "   F edit target   Esc close";
   } else if (inputMode_ == InputMode::ExitConfirmation) {
     contextTitle = "Unsaved settings";
     contextText = activePrompt();
@@ -288,7 +288,7 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Search";
         contextText = searchQuery_.empty() ? "/ type to filter" : "/" + searchQuery_;
         if (stockDateFilter_ != StockDateFilter::All) {
-          contextText += " · " + stockDateFilterName(stockDateFilter_);
+          contextText += ", " + stockDateFilterName(stockDateFilter_);
         }
         break;
       case Page::Racks:
@@ -343,7 +343,7 @@ ftxui::Element App::renderSearchBarUi() const {
       case Page::Settings:
         contextTitle = "Settings";
         contextText = settingsCategoryName(settingsCategory_) +
-                      (settingsDirty_ ? " · unsaved changes" : " · saved");
+                      (settingsDirty_ ? ", unsaved changes" : ", saved");
         break;
       case Page::Update:
         contextTitle = "Update wizard";
@@ -388,7 +388,7 @@ ftxui::Element App::renderSearchBarUi() const {
       (inputMode_ == InputMode::None || inputMode_ == InputMode::HistoryConfirm)) {
     const auto hints = inputMode_ == InputMode::HistoryConfirm
                            ? "Enter Confirm  Esc Cancel"
-                           : "↑↓ Select  Enter View  v Revert  s Restore  / Search  f Filter  Esc Back  q Quit";
+                           : "Up/Down select   Enter view   v revert   s restore   / search   f filter   Esc back";
     rows.push_back(ftxui::hbox({uiHeaderText(" History: ", uiSecondaryText(), uiPanelLeftBg()),
                                 uiBodyText(contextText, uiInfoColor(), uiPanelLeftBg()), ftxui::filler(),
                                 styledText(hints, uiMutedColor(), uiPanelLeftBg())}) |
@@ -409,7 +409,7 @@ ftxui::Element App::renderSearchBarUi() const {
   // item editing shows the same information inline in the Detail panel.
   if (inputMode_ == InputMode::EditFieldMenu && !stockEditing) {
     ftxui::Elements options;
-    options.push_back(footerField("Edit fields", "\xE2\x86\x91\xE2\x86\x93 field  \xE2\x8F\x8E edit  s save  esc cancel",
+    options.push_back(footerField("Edit fields", "Up/Down field   Enter edit   s save   Esc cancel",
                                   uiAccentColor(), uiMutedColor(), uiPanelLeftBg()));
     for (size_t index = 0; index < menuOptions_.size(); ++index) {
       const auto bg = static_cast<int>(index) == fieldMenuIndex_ ? uiRowSelectedBg() : uiSurfaceBg();
@@ -432,27 +432,19 @@ ftxui::Element App::renderMessageUi() const {
   if (refreshingDigiKey) {
     const auto completed = min(digiKeyRefreshCompleted_, digiKeyRefreshTotal_);
     return fixedMessageRow(ftxui::hbox({
-                               styledText(" " + uiLoadingSpinner() + " DigiKey enrichment", uiLinkColor()),
-                               styledText("   ", uiLinkColor()),
-                               uiProgressBar(static_cast<double>(completed) / static_cast<double>(digiKeyRefreshTotal_),
-                                             28, uiLinkColor()),
-                               styledText(" " + to_string(completed) + "/" + to_string(digiKeyRefreshTotal_) +
-                                              " items",
-                                          uiMutedColor()),
+                               styledText(" Refreshing DigiKey data: ", uiLinkColor()),
+                               uiHeaderText(to_string(completed) + " of " + to_string(digiKeyRefreshTotal_), uiPrimaryText()),
+                               styledText(" parts done", uiMutedColor()),
                                ftxui::filler(),
                            }) |
                            ftxui::bgcolor(uiPanelLeftBg()));
   }
   if (importSyncRunning_) {
-    const auto total = max<size_t>(1, importSyncTotal_);
     const auto completed = min(importSyncCompleted_, importSyncTotal_);
     return fixedMessageRow(ftxui::hbox({
-                               styledText(" " + uiLoadingSpinner() + " DigiKey import sync", uiLinkColor()),
-                               styledText("   ", uiLinkColor()),
-                               uiProgressBar(static_cast<double>(completed) / static_cast<double>(total), 28,
-                                             uiLinkColor()),
-                               styledText(" " + to_string(completed) + "/" + to_string(importSyncTotal_) + " rows",
-                                          uiMutedColor()),
+                               styledText(" Syncing the import with DigiKey: ", uiLinkColor()),
+                               uiHeaderText(to_string(completed) + " of " + to_string(importSyncTotal_), uiPrimaryText()),
+                               styledText(" rows done", uiMutedColor()),
                                ftxui::filler(),
                            }) |
                            ftxui::bgcolor(uiPanelLeftBg()));
@@ -462,13 +454,9 @@ ftxui::Element App::renderMessageUi() const {
   if (enrichingBom) {
     const auto dispatched = bomEnrichmentTotal_ - bomEnrichmentQueue_.size();
     return fixedMessageRow(ftxui::hbox({
-                               styledText(" " + uiLoadingSpinner() + " DigiKey lookup", uiLinkColor()),
-                               uiProgressBar(static_cast<double>(dispatched) /
-                                                 static_cast<double>(bomEnrichmentTotal_),
-                                             28, uiLinkColor()),
-                               styledText(" " + to_string(dispatched) + "/" + to_string(bomEnrichmentTotal_) +
-                                              " suggestions",
-                                          uiMutedColor()),
+                               styledText(" Looking up missing parts on DigiKey: ", uiLinkColor()),
+                               uiHeaderText(to_string(dispatched) + " of " + to_string(bomEnrichmentTotal_), uiPrimaryText()),
+                               styledText(" done", uiMutedColor()),
                                ftxui::filler(),
                            }) |
                            ftxui::bgcolor(uiPanelLeftBg()));

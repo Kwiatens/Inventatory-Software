@@ -93,7 +93,7 @@ void App::beginCsvImport() {
 
   string summary = "Loaded " + to_string(importCandidates_.size()) + " CSV rows for review";
   if (!result.warnings.empty()) {
-    summary += " · " + to_string(result.warnings.size()) + " rows skipped";
+    summary += ", " + to_string(result.warnings.size()) + " rows skipped";
   }
   setMessage(summary, 4);
 }
