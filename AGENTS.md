@@ -302,6 +302,11 @@ and status for unrelated files or generated output.
 
 - `CHANGELOG.md` in the repository root tracks version history following the
   Keep a Changelog convention (`## [vX.Y.Z] - YYYY-MM-DD`).
+- Changelog entries describe only what a user of the application sees or can do:
+  features, behaviour changes, fixes, and removals that affect them. Do not record
+  internal work such as refactors, helper or file renames, test changes, documentation
+  edits, agent guidance, build or CI tweaks, or the names of internal functions and
+  classes. Write each entry in plain user terms, not as a list of code changes.
 - When bumping the application version or cutting a release, add or update the
   corresponding version section in `CHANGELOG.md` using standard subsections
   (`### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`,
