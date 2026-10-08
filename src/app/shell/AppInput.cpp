@@ -305,11 +305,9 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
     else if (page_ == Page::Racks) {
       if (uiBoxContains(rackListPanelBounds_, mouse.x, mouse.y)) moveRackPage(delta);
     }
-    else if (page_ == Page::Settings && settingsCategory_ == SettingsCategory::Printer) {
-      const auto previousSelection = printerSelection_;
-      if (delta < 0 && printerSelection_ > 0) --printerSelection_;
-      if (delta > 0 && printerSelection_ + 1 < printerQueues_.size()) ++printerSelection_;
-      if (printerSelection_ != previousSelection) stageSelectedPrinterQueue();
+    else if (page_ == Page::Settings && !settingsEditingField_ && !appearancePickerOpen_) {
+      // The wheel moves the row cursor; it never changes a setting.
+      moveSettingsRow(delta);
     }
     else if (page_ == Page::Update) {
       if (uiBoxContains(updateNotesBounds_, mouse.x, mouse.y)) {

@@ -35,6 +35,85 @@ void App::toggleSymbolStandard() {
   dirty_ = true;
 }
 
+void App::selectSettingsCategory(SettingsCategory category) {
+  if (settingsEditingField_) {
+    settingsEditingField_ = false;
+    inputBuffer_.clear();
+  }
+  if (appearancePickerOpen_) closeAppearancePicker(false);
+  settingsCategory_ = category;
+  settingsRow_ = 0;
+  settingsField_ = 0;
+  if (category == SettingsCategory::Printer) refreshPrinterState();
+  if (category == SettingsCategory::InventatoryScan) refreshDeviceEventRecords();
+  // Land on the first row that can be acted on, and select what it stands for.
+  moveSettingsRow(0);
+  dirty_ = true;
+}
+
+void App::moveSettingsRow(int delta) {
+  const auto model = settingsPageModel();
+  if (model.rows.empty()) return;
+  vector<size_t> focusable;
+  for (size_t index = 0; index < model.rows.size(); ++index) {
+    if (model.rows[index].focusable()) focusable.push_back(index);
+  }
+  if (focusable.empty()) return;
+  auto current = find(focusable.begin(), focusable.end(), settingsRow_);
+  long position = current == focusable.end() ? 0 : static_cast<long>(current - focusable.begin());
+  position = clamp<long>(position + delta, 0, static_cast<long>(focusable.size()) - 1);
+  settingsRow_ = focusable[static_cast<size_t>(position)];
+  const auto& row = model.rows[settingsRow_];
+  if (row.field >= 0) settingsField_ = row.field;
+  dirty_ = true;
+}
+
+void App::activateSettingsRow() {
+  const auto model = settingsPageModel();
+  if (settingsRow_ >= model.rows.size()) return;
+  const auto& row = model.rows[settingsRow_];
+  if (row.field >= 0) settingsField_ = row.field;
+  if (row.activate) {
+    row.activate();
+  } else {
+    // A row without its own action runs its first available button.
+    for (const auto& button : row.buttons) {
+      if (button.enabled && button.run) {
+        button.run();
+        break;
+      }
+    }
+  }
+  dirty_ = true;
+}
+
+void App::requestSettingsDiscard() {
+  if (!settingsDirty_) return;
+  const auto now = time(nullptr);
+  if (settingsConfirmAction_ != "discard-settings" || now > settingsConfirmUntil_) {
+    settingsConfirmAction_ = "discard-settings";
+    settingsConfirmUntil_ = now + 5;
+    setMessage("Press Esc again to discard your unsaved settings changes", 5, UiMessageSeverity::Warning);
+    return;
+  }
+  settingsConfirmAction_.clear();
+  settingsConfirmUntil_ = 0;
+  cancelSettingsDraft();
+}
+
+void App::cycleStagedPrinterQueue() {
+  if (printerQueues_.empty()) {
+    setMessage("No printers were found. Refresh after connecting one.", 4, UiMessageSeverity::Warning);
+    return;
+  }
+  size_t next = 0;
+  for (size_t index = 0; index < printerQueues_.size(); ++index) {
+    if (printerQueues_[index].name == settingsDraft_.printerQueue) next = (index + 1) % printerQueues_.size();
+  }
+  printerSelection_ = next;
+  stageSelectedPrinterQueue();
+}
+
 void App::handleSettingsKey(const KeyEvent& key) {
   if (appearancePickerOpen_) {
     if (key.type == KeyType::Left) {
@@ -72,68 +151,26 @@ void App::handleSettingsKey(const KeyEvent& key) {
     return;
   }
 
-  if (key.type == KeyType::Character) {
-    const auto ch = static_cast<char>(tolower(static_cast<unsigned char>(key.ch)));
-    if (ch == 's' && settingsDirty_) saveSettingsDraft();
-    else if (ch == 'b' && settingsCategory_ == SettingsCategory::General) stageInventatoryFolder();
-    else if (ch == 't' && settingsCategory_ == SettingsCategory::Printer) testStagedPrinter();
-    else if (ch == 'a' && settingsCategory_ == SettingsCategory::QuickLabels) addQuickLabelPreset();
-    else if (ch == 'x' && settingsCategory_ == SettingsCategory::QuickLabels) deleteQuickLabelPreset();
-    else if (ch == '[' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(-1);
-    else if (ch == ']' && settingsCategory_ == SettingsCategory::QuickLabels) moveQuickLabelPreset(1);
-    else if (ch == 't' && settingsCategory_ == SettingsCategory::QuickLabels) testQuickLabelPreset();
-    else if (ch == 't' && settingsCategory_ == SettingsCategory::DigiKey) testStagedDigiKey();
-    else if (ch == 'p' && settingsCategory_ == SettingsCategory::Appearance) openAppearancePicker();
-    else if (ch == 'r' && settingsCategory_ == SettingsCategory::Appearance) resetSelectedAppearanceColor();
-    else if (ch == 'd' && settingsCategory_ == SettingsCategory::Appearance) resetAppearanceColors();
-    else if (ch == 'e' && (settingsCategory_ == SettingsCategory::General || settingsCategory_ == SettingsCategory::Appearance ||
-                           settingsCategory_ == SettingsCategory::QuickLabels ||
-                           settingsCategory_ == SettingsCategory::InventatoryScan ||
-                           settingsCategory_ == SettingsCategory::DigiKey)) beginSettingsFieldEdit(settingsField_);
-    if (ch != 'j' && ch != 'k') return;
-    if (settingsCategory_ == SettingsCategory::Appearance) {
-      if (ch == 'j' && settingsField_ + 1 < static_cast<int>(kAppearanceColorCount)) ++settingsField_;
-      if (ch == 'k' && settingsField_ > 0) --settingsField_;
-      dirty_ = true;
-    } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
-      const int customLabelField = static_cast<int>(settingsDraft_.quickLabelPresets.size());
-      if (ch == 'j' && settingsField_ < customLabelField) ++settingsField_;
-      if (ch == 'k' && settingsField_ > 0) --settingsField_;
-      dirty_ = true;
-    } else if (settingsCategory_ == SettingsCategory::Printer) {
-      const auto previousSelection = printerSelection_;
-      if (ch == 'j' && printerSelection_ + 1 < printerQueues_.size()) ++printerSelection_;
-      if (ch == 'k' && printerSelection_ > 0) --printerSelection_;
-      if (printerSelection_ != previousSelection) stageSelectedPrinterQueue();
-    }
-    return;
-  }
-
-  if (key.type == KeyType::Left) {
-    settingsCategory_ = static_cast<SettingsCategory>(max(0, static_cast<int>(settingsCategory_) - 1));
-    settingsField_ = 0;
-    appearancePickerOpen_ = false;
-    dirty_ = true;
+  // Every accelerator is registered in currentActions(); only navigation lives here. Up/Down move the
+  // row cursor, Left/Right move between categories, and Enter acts on the row. Moving never changes a
+  // setting.
+  const auto categoryCount = static_cast<int>(settingsCategoryEntries().size());
+  if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
+    moveSettingsRow(-1);
+  } else if (key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j')) {
+    moveSettingsRow(1);
+  } else if (key.type == KeyType::PageUp || key.type == KeyType::Home) {
+    moveSettingsRow(-1000);
+  } else if (key.type == KeyType::PageDown || key.type == KeyType::End) {
+    moveSettingsRow(1000);
+  } else if (key.type == KeyType::Left) {
+    selectSettingsCategory(static_cast<SettingsCategory>(max(0, static_cast<int>(settingsCategory_) - 1)));
   } else if (key.type == KeyType::Right) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
-    settingsField_ = 0;
-    appearancePickerOpen_ = false;
-    if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
-    dirty_ = true;
-  } else if (key.type == KeyType::Up) {
-    settingsCategory_ = static_cast<SettingsCategory>(max(0, static_cast<int>(settingsCategory_) - 1));
-    settingsField_ = 0;
-    appearancePickerOpen_ = false;
-    if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
-    dirty_ = true;
-  } else if (key.type == KeyType::Down) {
-    settingsCategory_ = static_cast<SettingsCategory>(min(6, static_cast<int>(settingsCategory_) + 1));
-    settingsField_ = 0;
-    appearancePickerOpen_ = false;
-    if (settingsCategory_ == SettingsCategory::Printer) refreshPrinterState();
-    dirty_ = true;
+    selectSettingsCategory(static_cast<SettingsCategory>(min(categoryCount - 1, static_cast<int>(settingsCategory_) + 1)));
+  } else if (key.type == KeyType::Enter) {
+    activateSettingsRow();
   } else if (key.type == KeyType::Escape) {
-    if (settingsDirty_) cancelSettingsDraft();
+    if (settingsDirty_) requestSettingsDiscard();
     else changePage(Page::Stock);
   }
 }

@@ -190,30 +190,28 @@ offered after review with an explicit completion choice.
 
 ### Settings
 
-General/Data, Appearance, and Updates live under System. Devices contains Printer, with Quick Labels nested beneath
+General, Appearance, and Updates live under System. Devices contains Printer, with Quick Labels nested beneath
 it, and Inventatory Scan. DigiKey remains under Integrations. Ordinary edits are staged and use Save/Cancel.
 Refresh, Test, Copy, Regenerate, Clear, Check for software updates, and Update are operational actions. DigiKey secrets are stored by the operating-system credential service, never in `settings.conf`.
 
 The Quick Labels panel owns the optional custom wire label as well as the saved presets. The Printer panel contains
 printer discovery, queue testing, and the EU/US schematic symbol standard used on rack labels (`y` switches it).
 
-Every panel follows one layout. A header row names the category and shows
-Saved/Unsaved changes, followed by a divider. The body is a list of titled
-sections separated by one blank line; a section title may carry right-aligned
-meta such as a count or the last update check. Rows inside a section share a
-three-column marker gutter (`>` when selected), a fixed label column, and a
-value column, whether the row is an editable field, an On/Off toggle, a colored
-status value, or a selectable list entry. A section's buttons come last in that
-section, aligned under its labels. Save and Cancel stay in the shared footer.
+Every panel follows the shared skeleton from `docs/ui-style-guide.md`. The two-line header names the
+category, says its state in one sentence, and holds Save and Discard while changes are unsaved. The
+body is one list of rows built from a single row model per category: a muted group name in the
+gutter on the first row of a group (on its own line on narrow terminals), a label column, a value
+column, and an action column whose buttons start at the same column on every row. Values that can be
+changed are bold primary text; read-only facts are secondary or muted; a staged change is shown in
+the warning colour with its saved value beside it. The row cursor (`>` and the selection surface)
+always shows where Enter will act. The selected navigation item shares the content surface.
 
 Each panel carries only settings and state: no explanatory hint copy, and no
 navigation button that duplicates a category already in the sidebar. An
-unconfigured integration or device shows a single Setup section with its status
-and a filled cyan `Begin Setup` button; setup guidance lives in its wizard. Once setup is accepted, the panel
-restores its settings and state rows. Every other control is an ordinary raised
-text button. Panels do not restate diagnostics that the device reports
-elsewhere, and values derived from an absent device are omitted rather than
-shown as zeros.
+unconfigured integration or device shows a single Status row with a primary
+`Begin setup` button; setup guidance lives in its wizard. Panels do not restate
+diagnostics that the device reports elsewhere, and values derived from an absent
+device are omitted rather than shown as zeros.
 
 ## Reusable UI rules
 

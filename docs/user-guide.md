@@ -137,9 +137,22 @@ analysis against current stock with no re-upload. `d` forgets one.
 ## Settings workflow
 
 Settings has seven destinations arranged under System, Devices, and Integrations. Devices contains
-Printer, with Quick Labels nested below it, and Inventatory Scan. Changes to data location, printer,
-Quick Labels, the Inventatory Scan R1 service port, auto-label behavior, the label symbol standard, and DigiKey configuration are
-staged until Save. Cancel restores the saved values. Printer and DigiKey tests use the staged values.
+Printer, with Quick Labels nested below it, and Inventatory Scan. The navigation shows a short word
+beside a destination only when it needs attention: `Unsaved`, `New` (an update), `Error`, or `Off`.
+
+Every destination reads the same way. The header names it and says where things stand in one
+sentence, for example "Zebra_TLP2824Plus is idle." or "The R1 is online, but 2 scans could not be
+saved." Below it, each row has a label, its value, and the buttons that act on it, with each
+button's key shown on the button. Up/Down move between rows, Left/Right move between destinations,
+and Enter changes the row: it flips an On/Off value, steps to the next choice (such as the next
+printer or symbol standard), opens a value for typing, or runs the row's first button. Moving the
+cursor or the mouse wheel never changes a setting.
+
+Changes to data location, printer, Quick Labels, the Inventatory Scan R1 service port, auto-label
+behavior, the label symbol standard, and DigiKey configuration are staged until Save. A changed value
+is shown in the warning colour with its saved value beside it (`was EU (IEC 60617)`), and the header
+offers Save (`s`) and Discard (`Esc`). Esc asks once more before it discards anything. Printer and
+DigiKey tests use the staged values.
 
 The Quick Labels panel owns up to twelve shared cable-flag texts and the optional custom wire label. Add, edit, remove,
 reorder, test-print, then Save for presets; edit and print the custom label directly from the same panel.
@@ -162,7 +175,7 @@ right end of the header bar on part and rack labels alike. A full type name is p
 line; otherwise a short form is used (ICs, LEDs, Crystals), and a custom type that fits neither is split over two
 lines or stepped down in size, never cut. Built-in types draw the symbol for resistors, capacitors, inductors,
 diodes, LEDs, transistors, ICs, crystals, fuses and connectors; a custom rack type draws a 5 × 5 grid. In
-Settings > Printer, **Schematic symbols** (or `y`) switches between EU (IEC 60617) and US (ANSI/IEEE 315). Only the
+Settings > Printer, **Rack symbols** (or `y`) switches between EU (IEC 60617) and US (ANSI/IEEE 315). Only the
 resistor and the fuse differ between the two; the default is EU. The symbols come from open-licensed artwork,
 rendered once by `tools/rack_symbols/generate.py`; see `tools/rack_symbols/README.md` for sources and licences.
 
@@ -181,7 +194,7 @@ after the new location is validated. An R1 service-port change takes effect on t
 next launch. DigiKey secrets use the operating system credential service:
 Windows Credential Manager on Windows and Secret Service on Linux.
 
-In **Settings -> General / Data**, **Background & startup** controls whether Inventatory remains available for Scan R1 after
+In **Settings -> General**, **Keep running when closed** controls whether Inventatory remains available for Scan R1 after
 the terminal is closed. It defaults to Off. On Windows, Inventatory starts for
 the signed-in user, hides in the notification area after close, and continues
 the R1 service. Use the Inventatory tray icon to Open Inventatory or Quit
@@ -192,20 +205,22 @@ wait if it does not respond) and opens the terminal UI; closing the UI or its
 terminal window returns the workspace to the background scanner service. Linux does not provide a notification-area icon. On both
 platforms, disabling the setting removes the startup integration.
 
-An unconfigured **Settings -> Devices -> Inventatory Scan** section shows only **Begin Setup**, which opens
-the existing setup wizard. After provisioning is accepted, the section restores
-**Pair new device**, the R1 status line (online/offline, device id, signal, and
-last contact once it has reported in), the service port, and **Restart bridge**.
-Before the first report, the status reads **Waiting for device**.
+An unconfigured **Settings -> Devices -> Inventatory Scan** section shows only a Status row with
+**Begin setup**, which opens the existing setup wizard. After provisioning is accepted, the section
+shows the R1 status (Online, Offline, or Waiting before its first report, with signal strength once
+it has reported in), the device with **Pair new**, the firmware it reports, scans waiting to save and
+scans that failed to save (with **Retry** and **Discard**), the service port with **Restart**, and the
+access token with **Copy** and **Regenerate**. **Forget** removes the pairing. Regenerate, Forget,
+and Discard ask for a second press before they act.
 
-An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
+An unconfigured DigiKey section also shows only a Status row with **Begin setup**. Its wizard
 collects the Client ID and Client secret, stores the secret in the operating
 system credential service, and restores the account and regional settings after
 the credentials are saved. A live credential test remains available afterward.
 
 ### Updates
 
-The section lists Inventatory software, Inventascan firmware, and hardware versions in a table with a status column (checking / update available / check failed, plus "Up to date" for the software) and the time of the last completed check. Checking for software updates, manually or in the daily background check, also checks the Inventascan firmware release channel, which needs a paired scanner that has reported its firmware version. **Auto-check for updates** toggles the daily background check; like other setting changes it is staged and applied with Save.
+The header says whether Inventatory is up to date, an update is available, or the last check failed. The Software rows show the installed version with its state beside it (Up to date, a newer version available, or Check failed), **Check** (`c`), and **Update** (`u`) when a newer release exists; **Check every day** toggles the daily background check, and **Last check** shows when the last check completed. The Scanner rows show the Inventascan firmware the paired R1 has reported, with a newer release beside it when one exists, and the hardware revision. Checking for software updates, manually or in the daily background check, also checks the Inventascan firmware release channel, which needs a paired scanner that has reported its firmware version. Like other setting changes, the daily-check setting is staged and applied with Save.
 
 Open **Settings → Updates** and choose **Check for software updates**. When a newer
 Inventatory release, including a published GitHub prerelease, is available, the

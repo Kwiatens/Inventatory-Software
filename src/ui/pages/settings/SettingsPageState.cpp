@@ -23,7 +23,7 @@ using namespace settings_page_detail;
 
 string App::settingsCategoryName(SettingsCategory category) const {
   switch (category) {
-    case SettingsCategory::General: return "General / Data";
+    case SettingsCategory::General: return "General";
     case SettingsCategory::Updates: return "Updates";
     case SettingsCategory::Appearance: return "Appearance";
     case SettingsCategory::Printer: return "Printer";
@@ -49,7 +49,7 @@ void App::openSettings(SettingsCategory category) {
   inputBuffer_.clear();
   applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
-  if (category == SettingsCategory::Printer) refreshPrinterState();
+  selectSettingsCategory(category);
 }
 
 bool App::settingsDraftHasChanges() const {
