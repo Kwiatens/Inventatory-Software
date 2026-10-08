@@ -102,7 +102,7 @@ string previewNotes(const string& notes) {
   // multi-byte character is either kept whole or removed whole (never left as a dangling lead byte).
   size_t cut = kPreviewCharacters;
   while (cut > 0 && (static_cast<unsigned char>(notes[cut]) & 0xC0U) == 0x80U) --cut;
-  return notes.substr(0, cut) + "\n\n… release notes continue after the update";
+  return notes.substr(0, cut) + "\n\n... release notes continue after the update";
 }
 
 
@@ -585,7 +585,7 @@ ftxui::Element App::renderUpdateContent() const {
         case UpdateNoteLineKind::BulletStart:
           visible.push_back(
               ftxui::hbox({ftxui::text("  "),
-                           ftxui::text("• ") | ftxui::color(uiLinkColor()),
+                           ftxui::text("- ") | ftxui::color(uiLinkColor()),
                            ftxui::text(line.text) | ftxui::color(uiPrimaryText()),
                            ftxui::filler()}) |
               ftxui::bgcolor(uiSurfaceBg()));
@@ -618,7 +618,7 @@ ftxui::Element App::renderUpdateContent() const {
   switch (updateStep_) {
     case UpdateWizardStep::Preparing:
       rows.push_back(uiHeaderText("Preparing your update", uiTitleColor()));
-      rows.push_back(styledText(uiLoadingSpinner() + " Checking the latest GitHub release…", uiLinkColor()));
+      rows.push_back(styledText("Checking the latest GitHub release...", uiLinkColor()));
       rows.push_back(styledText("The current Inventatory installation remains available until verification finishes.",
                                 uiSecondaryText()));
       break;
@@ -633,7 +633,7 @@ ftxui::Element App::renderUpdateContent() const {
                                   ftxui::text("  "),
                                   target(uiSecondaryButton("Cancel"), "update.cancel", UiTargetKind::Button,
                                          [self] { self->cancelSoftwareUpdate(); })}));
-      rows.push_back(styledText("[ S ] Save and update   [ Esc ] Cancel", uiMutedText()));
+      rows.push_back(styledText("S save and update   Esc cancel", uiMutedText()));
       break;
     case UpdateWizardStep::Preview:
       if (updatePackage_.has_value()) {
@@ -671,29 +671,28 @@ ftxui::Element App::renderUpdateContent() const {
       rows.push_back(uiHeaderText("Downloading Inventatory " +
                                       (updatePackage_.has_value() ? updatePackage_->release.latestVersion : "update"),
                                   uiTitleColor()));
-      rows.push_back(styledText(uiLoadingSpinner() + " " + asset, uiLinkColor()));
+      rows.push_back(styledText(asset, uiLinkColor()));
       const double fraction = total == 0 ? 0.0 : min(1.0, static_cast<double>(downloaded) / static_cast<double>(total));
-      rows.push_back(uiProgressBar(fraction, max(30, min(60, width - 12)), uiLinkColor()));
       rows.push_back(styledText(formatBytes(downloaded) +
                                     (total == 0 ? " downloaded" : " of " + formatBytes(total) + "  " +
                                                                    to_string(static_cast<int>(fraction * 100.0)) + "%"),
                                 uiSecondaryText()));
-      if (speed > 0.0) rows.push_back(styledText(formatBytes(static_cast<uint64_t>(speed)) + "/s · " +
+      if (speed > 0.0) rows.push_back(styledText(formatBytes(static_cast<uint64_t>(speed)) + "/s, " +
                                                     formatEta(updateEtaSeconds(downloaded, total, speed)),
                                                 uiMutedText()));
       rows.push_back(target(uiSecondaryButton("Cancel"), "update.cancel", UiTargetKind::Button,
                             [self] { self->cancelSoftwareUpdate(); }));
-      rows.push_back(styledText("[ Esc ] Cancel until installation handoff", uiMutedText()));
+      rows.push_back(styledText("Esc cancel until installation handoff", uiMutedText()));
       break;
     }
     case UpdateWizardStep::Verifying:
       rows.push_back(uiHeaderText("Checking the update", uiTitleColor()));
-      rows.push_back(styledText(uiLoadingSpinner() + " Verifying SHA-256 checksums", uiLinkColor()));
+      rows.push_back(styledText("Verifying SHA-256 checksums...", uiLinkColor()));
       rows.push_back(styledText("The package and installer must match the published release hashes.", uiSecondaryText()));
       break;
     case UpdateWizardStep::HandingOff:
       rows.push_back(uiHeaderText("Finishing the update", uiTitleColor()));
-      rows.push_back(styledText(uiLoadingSpinner() + " Handing the verified package to the installer…", uiLinkColor()));
+      rows.push_back(styledText("Handing the verified package to the installer...", uiLinkColor()));
       rows.push_back(styledText("Inventatory will close briefly and restart with the new version.", uiSecondaryText()));
       break;
     case UpdateWizardStep::Complete:
@@ -704,7 +703,7 @@ ftxui::Element App::renderUpdateContent() const {
       rows.push_back(notesPanel(updateCompletionNotes_));
       rows.push_back(target(uiPrimaryButton("Continue"), "update.continue", UiTargetKind::Button,
                             [self] { self->dismissUpdateResult(); }));
-      rows.push_back(styledText("[ Enter ] Continue   [ ↑↓ ] Read notes", uiMutedText()));
+      rows.push_back(styledText("Enter continue   Up/Down read notes", uiMutedText()));
       break;
     case UpdateWizardStep::Failed:
       rows.push_back(uiHeaderText("Update could not be completed", uiDangerColor()));
@@ -716,7 +715,7 @@ ftxui::Element App::renderUpdateContent() const {
                                   ftxui::text("  "),
                                   target(uiSecondaryButton("Return"), "update.return", UiTargetKind::Button,
                                          [self] { self->dismissUpdateResult(); })}));
-      rows.push_back(styledText("[ R ] Retry   [ Enter / Esc ] Return", uiMutedText()));
+      rows.push_back(styledText("R retry   Enter / Esc return", uiMutedText()));
       break;
   }
   return ftxui::vbox(move(rows)) | ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, width);
