@@ -6,7 +6,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.4] - 2026-10-08
+
+### Added
+- Projects: Pick parts walks the BOM one rack at a time. Each rack's grid lights the slots to open with
+  the value and the amount to take, the pick list gives the board references for each slot, and the
+  route line shows the racks still to visit and Finish.
+- Projects: parts kept outside racks are collected in one final stop, grouped by location.
+- Projects: the finish screen lists every part taken, where it came from and the stock it leaves, with
+  Deduct from stock and Keep stock. Low and out-of-stock results are marked in words.
+- Settings: Quick Labels is listed under Printer, and every category uses the same row layout. Setting
+  names say what they do ("Keep running when closed", "Label after each scan", "Rack symbols").
+- The terminal UI style guide (`docs/ui-style-guide.md`) sets the rules for glyphs, alignment, controls,
+  colour, status, and plain-sentence page headers. `AGENTS.md` links to it.
+
+### Changed
+- Projects: Find in racks is called Pick parts. A BOM comparison splits into In stock and Missing, with
+  Need, Have, and Status (Ready, Short N, or Missing) columns and a Shopping list action.
+- Projects: confirming a rack is one action. Slots no longer need to be confirmed one by one.
+- Projects: a partly stocked line picks what is available, and a build that is not fully covered can
+  still be deducted, so the stock on hand is reduced by exactly what was taken.
+- Settings: each category has a single row model with a row cursor, aligned labels, values and
+  buttons, and a header that states the category's state. Unsaved changes show their saved value
+  beside the new one, and Save and Discard appear in the header while changes are pending.
+- Colours: the status palette moves to the calmer Slate set (sea glass for ready, sand for warning,
+  muted rose for danger) so it matches the petrol-cyan base. Installs that kept the old default colours
+  move to the new defaults; customised colours are kept.
+- Text: decorative glyphs (dots, arrows, spinners, progress bars, bracketed key hints, and `[i]`/`[!]`
+  prefixes) are replaced with plain words and ASCII characters.
+
+### Removed
+- The per-slot confirmation of Find in racks and the unused spinner and progress-bar helpers.
+
 ### Fixed
+- Projects: parts with no stock are no longer listed as picks, counted in pick totals, or used to block
+  the walkthrough while other parts are short.
+- Settings: moving the cursor or the mouse wheel on the Printer page no longer changes the configured
+  printer, and Esc asks before discarding unsaved changes.
 - Value search ("Closest to" and plain values such as `100nF`) no longer lists parts that are not the
   same kind of component (switches, MOSFETs, resistors) or whose value is more than 33% away from the
   target; only Exact, Workable (within 10%) and Possible (within 33%) matches are shown.
