@@ -104,11 +104,17 @@ bool upgradeLegacyAppearanceDefaults(AppearanceSettings& appearance) {
     AppearanceColorRole role;
     uint32_t legacy;
   };
-  // The amber/salmon defaults that shipped before the apricot/rose palette.
+  // Earlier shipped defaults, oldest first: the amber/salmon palette, then the warm ivory text and
+  // apricot/rose status colours that preceded the Slate palette. A colour the user never changed
+  // moves to the current default; a customised one is kept.
   static const Upgrade kUpgrades[] = {
       {AppearanceColorRole::WarningText, 0xD8B56B}, {AppearanceColorRole::DangerText, 0xE08C83},
       {AppearanceColorRole::WarningBg, 0x3A3327},   {AppearanceColorRole::DangerBg, 0x3E2A29},
       {AppearanceColorRole::DangerFlashBg, 0x70403B},
+      {AppearanceColorRole::PrimaryText, 0xF1EEE5}, {AppearanceColorRole::SecondaryText, 0xCAD0CA},
+      {AppearanceColorRole::Success, 0xA5C9A5},     {AppearanceColorRole::WarningText, 0xE5A77C},
+      {AppearanceColorRole::DangerText, 0xE4707C},  {AppearanceColorRole::WarningBg, 0x3B2F28},
+      {AppearanceColorRole::DangerBg, 0x43262B},    {AppearanceColorRole::DangerFlashBg, 0x74404B},
   };
   const AppearanceSettings defaults;
   bool changed = false;
