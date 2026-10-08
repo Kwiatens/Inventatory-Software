@@ -14,6 +14,7 @@ namespace inventatory {
 
 enum class VoiceTone {
   Plain,    // ordinary words
+  Muted,    // qualifiers and facts that need no attention
   Strong,   // the counts and names the user acts on
   Slot,     // a rack slot or rack name to go to
   Success,
