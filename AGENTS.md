@@ -155,6 +155,12 @@ replace a pinned revision with a moving branch or tag.
 
 ## Terminal UI and interaction model
 
+- Read `docs/ui-style-guide.md` before changing anything that is rendered. It is binding for
+  glyphs, alignment, controls, colour, status, unsaved-change display, and guided workflows.
+  In short: ASCII text only (no dots, arrows, chevrons, ticks, or bracketed values), fixed
+  aligned columns, status as words, calm status colours that match the petrol-cyan base, and a
+  plain-sentence header voice built from tested templates.
+  Run its review checklist on every UI change.
 - Render pages and page-local input in `src/ui/pages/`.
 - Put reusable semantic visual roles and formatting in
   `src/ui/shared/AppUiShared.{h,cpp}`. Prefer helpers such as the existing
