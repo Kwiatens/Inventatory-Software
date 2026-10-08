@@ -19,7 +19,7 @@ ftxui::Element App::renderInventatoryScanSetupContent() const {
       rows.push_back(ftxui::text(""));
       rows.push_back(styledText("Power on the scanner, keep Bluetooth enabled, and have the Wi-Fi details ready.", uiSecondaryText()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("[ Enter ] Begin   [ Esc ] Cancel", uiInteractiveColor()));
+      rows.push_back(styledText("Enter begin   Esc cancel", uiInteractiveColor()));
       break;
     case ScanSetupStep::WifiName:
       rows.push_back(styledText("Wi-Fi network for the Scan R1", uiTitleColor()));
@@ -42,7 +42,7 @@ ftxui::Element App::renderInventatoryScanSetupContent() const {
       break;
     case ScanSetupStep::FindScanner: {
       const auto devices = bleProvisioning_.devices();
-      rows.push_back(styledText("Looking for nearby Scan R1 devices " + uiLoadingSpinner(),
+      rows.push_back(styledText("Looking for nearby Scan R1 devices...",
                                 uiTitleColor()));
       rows.push_back(ftxui::text(""));
       if (devices.empty()) {
@@ -67,7 +67,7 @@ ftxui::Element App::renderInventatoryScanSetupContent() const {
       rows.push_back(styledText("Wi-Fi password: " + string(bleWifiPassword_.empty() ? 0 : 12, '*'), uiTitleColor()));
       rows.push_back(styledText("Verification code: " + blePairingCode_, uiTitleColor()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("[ Enter ] Transfer configuration   [ Esc ] Cancel", uiInteractiveColor()));
+      rows.push_back(styledText("Enter transfer configuration   Esc cancel", uiInteractiveColor()));
       break;
     }
     case ScanSetupStep::Complete:
@@ -80,7 +80,7 @@ ftxui::Element App::renderInventatoryScanSetupContent() const {
         rows.push_back(styledText("The Scan R1 is joining Wi-Fi and will connect automatically.", uiTitleColor()));
       }
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("[ Enter ] Continue", uiLinkColor()));
+      rows.push_back(styledText("Enter continue", uiLinkColor()));
       break;
   }
 
