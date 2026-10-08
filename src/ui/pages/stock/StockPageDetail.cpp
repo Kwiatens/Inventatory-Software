@@ -159,7 +159,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       }));
       detailRows.push_back(fullLine(inputMode_ == InputMode::StocktakeCount
                                         ? "Enter the physical count, then press Enter"
-                                        : "Press Enter to count this part · s finish · q cancel",
+                                        : "Press Enter to count this part, s to finish, q to cancel",
                                     uiMutedColor(), uiSurfaceBg()));
       if (inputMode_ == InputMode::StocktakeCount) {
         detailRows.push_back(fullLine(" Count: " + inputBuffer_ + "_", uiLinkColor(), uiSelectionBg()));
@@ -178,10 +178,10 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       detailRows.push_back(fullLine("Recent movements", uiSecondaryText(), uiSurfaceBg()));
       for (const auto* movement : recentMovements) {
         const auto delta = movement->delta > 0 ? "+" + to_string(movement->delta) : to_string(movement->delta);
-        auto reference = movement->reference.empty() ? string() : " · " + movement->reference;
-        const auto summary = delta + " · " + movement->source + reference + " · " +
-                             to_string(movement->quantityBefore) + " → " + to_string(movement->quantityAfter) +
-                             " · " + nowTimestampString(movement->occurredAt);
+        auto reference = movement->reference.empty() ? string() : ", " + movement->reference;
+        const auto summary = delta + ", " + movement->source + reference + ", " +
+                             to_string(movement->quantityBefore) + " to " + to_string(movement->quantityAfter) +
+                             ", " + nowTimestampString(movement->occurredAt);
         detailRows.push_back(fullLine(ellipsize(summary, static_cast<size_t>(detailInnerWidth)),
                                       movement->delta < 0 ? uiWarnColor() : uiFocusColor(), uiSurfaceBg()));
       }
@@ -214,7 +214,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     // block never looks like missing data.
     detailRows.push_back(uiDivider());
     detailRows.push_back(target(ftxui::hbox({
-                                    styledText(stockDetailsExpanded_ ? " \xE2\x96\xBE Details" : " \xE2\x96\xB8 Details",
+                                    styledText(stockDetailsExpanded_ ? " - Details" : " + Details",
                                                uiSecondaryText()),
                                     ftxui::filler(),
                                     styledText(stockDetailsExpanded_

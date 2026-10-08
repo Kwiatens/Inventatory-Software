@@ -161,7 +161,7 @@ string App::activePrompt() const {
   if (inputMode_ == InputMode::StocktakeCount) return "Physical count: ";
   if (inputMode_ == InputMode::BomRestock) return "Received quantity: ";
   if (inputMode_ == InputMode::HistoryCheckpoint) return "Checkpoint name: ";
-  if (inputMode_ == InputMode::ExitConfirmation) return "S save  ·  D discard  ·  Esc cancel";
+  if (inputMode_ == InputMode::ExitConfirmation) return "S save   D discard   Esc cancel";
   return "";
 }
 

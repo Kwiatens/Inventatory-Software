@@ -102,7 +102,7 @@ ftxui::Element historyCommitRow(const InventoryCommit& commit, int width, bool s
   const auto metadata = selected ? uiInfoColor() : uiMutedColor();
   const auto rowBackground = selected ? uiSelectionBg() : uiSurfaceBg();
 
-  auto timeline = styledText("●", historyTypeColor(type), rowBackground) |
+  auto timeline = styledText(selected ? ">" : " ", uiFocusColor(), rowBackground) |
                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, timelineWidth);
   auto sequence = fixedText("#" + to_string(commit.sequence), sequenceWidth, foreground, rowBackground);
   auto badge = historyBadge(type, historyTypeColor(type), historyTypeBackground(type)) |
@@ -198,7 +198,7 @@ ftxui::Element historyRecordCard(const InventoryCommitDetail& detail, const Hist
   const int markerWidth = 1;
   const int numberWidth = 5;
   const int mainWidth = max(1, safeWidth - markerWidth - numberWidth - 1);
-  auto marker = styledText(selected ? "▌" : " ", selected ? uiInteractiveColor() : background, background) |
+  auto marker = styledText(selected ? ">" : " ", selected ? uiInteractiveColor() : background, background) |
                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, markerWidth);
   auto number = styledText(" " + to_string(index + 1) + " ", uiTitleColor(),
                           selected ? uiSelectionBg() : uiRaisedSurfaceBg()) |
@@ -240,7 +240,7 @@ ftxui::Element historyDiffTable(const vector<HistoryFieldDiff>& diffs, int width
   for (const auto& diff : diffs) {
     rows.push_back(ftxui::hbox({historyDiffCell(diff.field, fieldWidth, uiLabelColor(), uiSurfaceBg()),
                                 historyDiffCell(diff.previous, valueWidth, uiDangerColor(), uiDangerBg()),
-                                ftxui::hbox({ftxui::filler(), styledText("→", uiSecondaryText()), ftxui::filler()}) |
+                                ftxui::hbox({ftxui::filler(), styledText("to", uiSecondaryText()), ftxui::filler()}) |
                                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, arrowWidth) |
                                     ftxui::bgcolor(uiSurfaceBg()),
                                 historyDiffCell(diff.next, valueWidth, uiSuccessColor(), uiActiveSoftBg())}));
@@ -343,11 +343,11 @@ ftxui::Element App::renderHistoryUi() const {
   const bool revertEnabled = canReverse && (!confirmingHistory || confirmingReverse);
   const bool restoreEnabled = historyDetailValid_ && (!confirmingHistory || confirmingSnapshot);
   const auto revertLabel = confirmingReverse
-                               ? (compactDetail ? "↶ Confirm revert?" : "↶ Confirm revert? (Enter)")
-                               : (compactDetail ? "↶ Revert (v)" : "↶ Revert commit (v)");
+                               ? (compactDetail ? "Confirm revert  Enter" : "Confirm revert  Enter")
+                               : (compactDetail ? "Revert  v" : "Revert commit  v");
   const auto restoreLabel = confirmingSnapshot
-                                ? (compactDetail ? "◇ Confirm restore?" : "◇ Confirm restore? (Enter)")
-                                : (compactDetail ? "◇ Restore (s)" : "◇ Restore state at this point (s)");
+                                ? (compactDetail ? "Confirm restore  Enter" : "Confirm restore  Enter")
+                                : (compactDetail ? "Restore  s" : "Restore state at this point  s");
   auto revertAction = target(uiPrimaryButton(revertLabel, revertEnabled) |
                                  ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actionWidth),
                              "history.reverse", UiTargetKind::Button,

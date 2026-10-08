@@ -16,9 +16,9 @@ namespace inventatory {
 struct UpdatePreviewControlHints {
   const char* title = "Inventatory Update Available";
   const char* releaseNotesHeading = "Release notes";
-  const char* start = "[Enter]";
-  const char* cancel = "[Esc]";
-  const char* readNotes = "[↑↓] Read notes";
+  const char* start = "Enter";
+  const char* cancel = "Esc";
+  const char* readNotes = "Up/Down read notes";
 };
 
 inline UpdatePreviewControlHints updatePreviewControlHints() {

@@ -445,11 +445,11 @@ ftxui::Element App::renderActionSheetUi() const {
   const bool moreAbove = window.first > 0;
   const bool moreBelow = window.first + window.count < allRows.size();
 
-  string title = "  Inventatory actions \xE2\x80\x94 \xE2\x86\x91\xE2\x86\x93 move  \xE2\x8F\x8E run  esc close  space opens this";
+  string title = "  Actions   Up/Down move   Enter run   Esc close   Space opens this";
   if (moreAbove || moreBelow) {
     title += "   " + to_string(min(static_cast<size_t>(max(0, sheetIndex_)) + 1, sheetActions_.size())) + "/" +
-             to_string(sheetActions_.size()) + (moreAbove ? " \xE2\x96\xB2" : "") +
-             (moreBelow ? " \xE2\x96\xBC" : "");
+             to_string(sheetActions_.size()) + (moreAbove ? ", more above" : "") +
+             (moreBelow ? ", more below" : "");
   }
 
   ftxui::Elements rows;

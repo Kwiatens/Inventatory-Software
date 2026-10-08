@@ -32,8 +32,8 @@ ftxui::Element onboardingPrompt(const string& text) {
 ftxui::Element onboardingChoicePrompt(char selectedOption, const string& first, const string& second) {
   const auto firstColor = selectedOption == 'y' ? uiLinkColor() : uiMutedText();
   const auto secondColor = selectedOption == 'n' ? uiLinkColor() : uiMutedText();
-  return ftxui::hbox({styledText("[ Y ] " + first, firstColor), styledText("   ", uiMutedText()),
-                      styledText("[ N ] " + second, secondColor)});
+  return ftxui::hbox({styledText("Y " + first, firstColor), styledText("   ", uiMutedText()),
+                      styledText("N " + second, secondColor)});
 }
 
 // The ›i lockup, drawn on the website's pixel grid: one letter pixel is two
@@ -281,12 +281,12 @@ ftxui::Element App::renderOnboardingContent() const {
     case OnboardingStep::Welcome:
       rows.push_back(uiHeaderText("Welcome to Inventatory", uiTitleColor()));
       rows.push_back(styledText("Let's get your workspace ready.", uiSecondaryText()));
-      rows.push_back(onboardingPrompt("[ Enter ] Continue"));
+      rows.push_back(onboardingPrompt("Enter continue"));
       break;
     case OnboardingStep::DataFolder:
       rows.push_back(uiHeaderText("Inventory data folder", uiTitleColor()));
       rows.push_back(styledText("Current folder: " + dataPath_.u8string(), uiSecondaryText()));
-      rows.push_back(onboardingPrompt("[ Enter ] Use this folder   [ B ] Choose another"));
+      rows.push_back(onboardingPrompt("Enter use this folder   B choose another"));
       break;
     case OnboardingStep::BackgroundService:
       rows.push_back(uiHeaderText("Run Inventatory in the background?", uiTitleColor()));
@@ -298,7 +298,7 @@ ftxui::Element App::renderOnboardingContent() const {
       if (wizardTransition_.phase == WizardTransitionPhase::SelectionHold && wizardSelectedOption_.has_value()) {
         rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Enable", "Skip"));
       } else {
-        rows.push_back(onboardingPrompt("[ Y ] Enable   [ N ] Skip"));
+        rows.push_back(onboardingPrompt("Y enable   N skip"));
       }
       break;
     case OnboardingStep::ScanR1:
@@ -307,12 +307,12 @@ ftxui::Element App::renderOnboardingContent() const {
       if (wizardTransition_.phase == WizardTransitionPhase::SelectionHold && wizardSelectedOption_.has_value()) {
         rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Set up now", "Skip"));
       } else {
-        rows.push_back(onboardingPrompt("[ Y ] Set up now   [ N ] Skip"));
+        rows.push_back(onboardingPrompt("Y set up now   N skip"));
       }
       break;
     case OnboardingStep::Complete:
       rows.push_back(uiHeaderText("Your workspace is ready.", uiSuccessColor()));
-      rows.push_back(onboardingPrompt("[ Enter ] Open Inventatory"));
+      rows.push_back(onboardingPrompt("Enter open Inventatory"));
       break;
   }
 
