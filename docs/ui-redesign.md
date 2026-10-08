@@ -52,26 +52,24 @@ Release notes are displayed as text only and are never interpreted as commands.
 | Hover | `39,49,47` / `#27312F` | Mouse hover |
 | Selection | `44,68,64` / `#2C4440` | Current row/cell/field |
 | Divider | `56,69,67` / `#384543` | Necessary separators |
-| Primary text | `241,238,229` / `#F1EEE5` | Important content |
-| Secondary text | `202,208,202` / `#CAD0CA` | Labels |
+| Primary text | `229,237,236` / `#E5EDEC` | Important content |
+| Secondary text | `191,202,201` / `#BFCAC9` | Labels |
 | Muted text | `140,150,144` / `#8C9690` | Hints/inactive data |
 | Interactive | `88,185,176` / `#58B9B0` | Actions, active status cues, and brand cues |
 | Focus | `185,231,221` / `#B9E7DD` | Active focus |
 | Link | `143,203,197` / `#8FCBC5` | External links and progress |
-| Success | `165,201,165` / `#A5C9A5` | Ready/completed |
-| Warning | `229,167,124` / `#E5A77C` | Attention/low stock (apricot) |
-| Warning surface | `59,47,40` / `#3B2F28` | Low-stock highlights |
-| Danger | `228,112,124` / `#E4707C` | Error/destructive/out (rose) |
-| Danger surface | `67,38,43` / `#43262B` | Out-of-stock highlights |
+| Success | `160,208,192` / `#A0D0C0` | Ready/completed (sea glass) |
+| Warning | `219,205,169` / `#DBCDA9` | Attention/low stock (sand) |
+| Warning surface | `42,38,28` / `#2A261C` | Warning banners |
+| Danger | `204,139,164` / `#CC8BA4` | Error/destructive/out (muted rose) |
+| Danger surface | `50,32,39` / `#322027` | Error banners |
 | Active surface | `49,90,85` / `#315A55` | Scanner movement/build focus |
 
-Petrol-cyan means interactive, active, focused, linked, or progressing. Ordinary
-headings use warm ivory; graphite surfaces provide structure without making the
-whole interface blue. Sage green, apricot, and rose are reserved for real state. Apricot and rose are
-one warm family set against the cool teal, so attention reads as a different
-kind of signal from interaction. Out of stock always says so in words; low stock
-is the quantity itself in apricot. Normal rows share one surface; hover and
-selection provide the only background changes.
+Petrol-cyan means interactive, active, focused, linked, or progressing. Text is a cool off-white so
+nothing reads warm against the teal. Sea glass, sand, and muted rose are reserved for real state and
+stay as calm as the accent itself (see the colour rules in `docs/ui-style-guide.md`). Out of stock
+always says so in words; low stock is the quantity itself in the warning colour. Normal rows share
+one surface; hover and selection provide the only background changes.
 
 Truecolor is the reference rendering. Terminals without truecolor may use their
 nearest xterm-256 colors; text and glyphs keep all states understandable.

@@ -620,8 +620,8 @@ void testQuantityColorSeparatesOutLowAndHealthyStock() {
   assert(uiQuantityColor(item, 5) == uiPrimaryText());
   // Low and out are distinct hues so state never rests on brightness alone.
   assert(!(uiWarnColor() == uiDangerColor()));
-  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] == 0xE5A77C);
-  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::DangerText)] == 0xE4707C);
+  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] == 0xDBCDA9);
+  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::DangerText)] == 0xCC8BA4);
 }
 
 void testUiFocusTracking() {
@@ -8153,6 +8153,27 @@ void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
   assert(at(AppearanceColorRole::DangerFlashBg) == current(AppearanceColorRole::DangerFlashBg));
   assert(at(AppearanceColorRole::DangerBg) == 0x112233);
   assert(!upgradeLegacyAppearanceDefaults(appearance));
+
+  // The apricot/rose defaults and the warm ivory text that preceded the Slate palette upgrade too,
+  // and a colour the user customised is never touched.
+  AppearanceSettings apricot;
+  const auto role = [&](AppearanceColorRole r) -> uint32_t& { return apricot.colors[static_cast<size_t>(r)]; };
+  role(AppearanceColorRole::PrimaryText) = 0xF1EEE5;
+  role(AppearanceColorRole::SecondaryText) = 0xCAD0CA;
+  role(AppearanceColorRole::Success) = 0xA5C9A5;
+  role(AppearanceColorRole::WarningText) = 0xE5A77C;
+  role(AppearanceColorRole::DangerText) = 0xE4707C;
+  role(AppearanceColorRole::WarningBg) = 0x3B2F28;
+  role(AppearanceColorRole::DangerBg) = 0x43262B;
+  role(AppearanceColorRole::DangerFlashBg) = 0x123456;
+  assert(upgradeLegacyAppearanceDefaults(apricot));
+  for (const auto r : {AppearanceColorRole::PrimaryText, AppearanceColorRole::SecondaryText, AppearanceColorRole::Success,
+                       AppearanceColorRole::WarningText, AppearanceColorRole::DangerText, AppearanceColorRole::WarningBg,
+                       AppearanceColorRole::DangerBg}) {
+    assert(role(r) == current(r));
+  }
+  assert(role(AppearanceColorRole::DangerFlashBg) == 0x123456);
+  assert(!upgradeLegacyAppearanceDefaults(apricot));
 
   const auto path = testTempRoot() / "inventatory-legacy-palette-settings-test.conf";
   AppSettings settings;
