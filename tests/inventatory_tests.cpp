@@ -35,6 +35,7 @@
 #include "import/csv/CsvReader.h"
 #include "import/kicad/KicadBom.h"
 #include "core/bom/BomMatch.h"
+#include "core/bom/BomPickPlan.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
@@ -77,6 +78,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <cstring>
@@ -8823,6 +8825,139 @@ void testMatchingPrefersValueAndPackage() {
   assert(bomBuildReady(analysis) == (analysis.shortCount == 0 && !analysis.matches.empty()));
 }
 
+// Builds a hand-made analysis so the pick route is tested independently of the matcher.
+BomAnalysis pickPlanAnalysis(const vector<tuple<string, string, int, vector<string>>>& lines) {
+  BomAnalysis analysis;
+  for (const auto& [designation, itemId, needed, designators] : lines) {
+    BomLine line;
+    line.designation = designation;
+    line.footprint = "C_0603_1608Metric";
+    line.designators = designators;
+    line.quantityPerBoard = needed;
+    BomMatch match;
+    match.lineIndex = analysis.lines.size();
+    if (!itemId.empty()) match.candidates.push_back({itemId, 100});
+    match.needed = needed;
+    analysis.lines.push_back(line);
+    analysis.matches.push_back(match);
+  }
+  return analysis;
+}
+
+void testBomPickPlanRoute() {
+  InventoryStore store;
+  InventatoryRack rack1{"rack-1", "R1", "Capacitors", 5, 5, 0};
+  InventatoryRack rack4{"rack-4", "R4", "Resistors", 5, 5, 0};
+  store.racks() = {rack4, rack1};  // stored out of order on purpose
+  const auto addItem = [&](const string& id, int quantity, const string& rackId, const string& slot, const string& location) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = id;
+    item.quantity = quantity;
+    item.rackId = rackId;
+    item.rackSlot = slot;
+    item.location = location;
+    store.items().push_back(item);
+  };
+  addItem("cap-100n", 41, "rack-1", "E3", "");
+  addItem("cap-1u", 7, "rack-1", "C5", "");
+  addItem("cap-10n", 3, "rack-1", "E2", "");  // short: 4 needed, 3 on hand
+  addItem("res-1k", 84, "rack-4", "D4", "");
+  addItem("switch", 5, "", "", "Drawer 2");
+  addItem("empty", 0, "rack-1", "A1", "");    // matched but nothing on hand
+
+  auto analysis = pickPlanAnalysis({
+      {"100nF", "cap-100n", 10, {"C1", "C2"}},
+      {"1uF", "cap-1u", 6, {"C4"}},
+      {"10nF", "cap-10n", 4, {"C20"}},
+      {"1K", "res-1k", 6, {"R1"}},
+      {"RST", "switch", 2, {"SW1", "SW2"}},
+      {"ESP32", "", 1, {"U1"}},       // no stock at all
+      {"22uF", "empty", 3, {"C17"}},  // matched, but the shelf is empty
+  });
+  recomputeBomTotals(analysis, store.items());
+
+  const auto plan = planBomPicks(analysis, store);
+  // Racks in rack order, then the loose stop. Lines with nothing on hand never become picks.
+  assert(plan.stops.size() == 3);
+  assert(plan.stops[0].title == "Rack 1" && plan.stops[0].rackId == "rack-1");
+  assert(plan.stops[1].title == "Rack 4");
+  assert(plan.stops[2].rackId.empty() && plan.stops[2].title == "Outside racks");
+  assert(plan.stops[2].picks.front().slot == "Drawer 2");
+  assert(plan.pickLines == 5);
+  for (const auto& stop : plan.stops) {
+    for (const auto& pick : stop.picks) assert(pick.designation != "ESP32" && pick.designation != "22uF");
+  }
+
+  // Rack 1 is sorted by slot, and the short line takes what the shelf has.
+  const auto& rack = plan.stops[0];
+  assert(rack.picks.size() == 3);
+  assert(rack.picks[0].slot == "C5" && rack.picks[1].slot == "E2" && rack.picks[2].slot == "E3");
+  assert(rack.picks[1].needed == 4 && rack.picks[1].quantity == 3);
+  assert(rack.pieces() == 6 + 3 + 10);
+  assert(plan.pieces == 19 + 6 + 2);
+
+  // Every line that is not fully covered is on the shopping list, including the partly covered one.
+  assert(plan.shortMatches.size() == 3);
+
+  // The guiding sentences read as plain text.
+  assert(voiceText(bomPickStopTitle(rack)) == "Open Rack 1 and take 19 parts from 3 slots");
+  assert(voiceText(bomPickStopGuide(rack)) == "Start with 10 of 100nF from E3 and 6 of 1uF from C5. Then 1 more slot.");
+  assert(voiceText(bomPickStopGuide(plan.stops[1])) == "Take 6 of 1K from D4.");
+  assert(voiceText(bomPickStopTitle(plan.stops[2])) == "Collect 2 parts kept outside racks");
+  assert(voiceText(bomPickNextStop(plan, 0)) == "Then Rack 4: 6 parts from 1 slot.");
+  assert(voiceText(bomPickNextStop(plan, 1)) == "Then 2 parts kept outside racks.");
+  assert(voiceText(bomPickNextStop(plan, 2)) == "This is the last stop.");
+
+  // Small remainders are summarised instead of listed.
+  BomPickStop ones;
+  ones.rackId = "rack-2";
+  ones.title = "Rack 2";
+  for (const auto* slot : {"A2", "A3", "B4"}) {
+    BomPick pick;
+    pick.slot = slot;
+    pick.designation = "10k";
+    pick.quantity = 1;
+    ones.picks.push_back(pick);
+  }
+  assert(voiceText(bomPickStopGuide(ones)) == "One part from each slot.");
+  ones.picks[0].quantity = 4;
+  ones.picks[1].quantity = 2;
+  assert(voiceText(bomPickStopGuide(ones)) == "Start with 4 of 10k from A2 and 2 of 10k from A3. The last one is a single part.");
+  ones.picks[1].quantity = 1;
+  ones.picks[2].quantity = 2;
+  assert(voiceText(bomPickStopGuide(ones)) == "Start with 4 of 10k from A2 and 2 of 10k from B4. The last one is a single part.");
+
+  // Project summary and finish lines.
+  assert(voiceText(bomProjectSummary(analysis, 1)) ==
+         "You have 4 of 7 parts. The other 3 need ordering, 1 has a DigiKey match.");
+  BomAnalysis covered = analysis;
+  covered.shortCount = 0;
+  assert(voiceText(bomProjectSummary(covered, 0)) == "You have all 7 parts for 1 board.");
+  BomAnalysis none = analysis;
+  none.readyCount = 0;
+  assert(voiceText(bomProjectSummary(none, 0)) == "None of the 7 parts are in stock.");
+  assert(voiceText(bomPickFinishTitle(27, 27)) == "All 27 parts are picked");
+  assert(voiceText(bomPickFinishTitle(25, 27)) == "25 of 27 parts are picked");
+  assert(voiceText(bomPickFinishGuide({"1uF", "10nF"}, 3)) ==
+         "Deducting leaves 1uF and 10nF low. 3 lines are still on the shopping list.");
+  assert(voiceText(bomPickFinishGuide({}, 0)) == "Nothing runs low after deducting.");
+  assert(voiceText(bomPickFinishGuide({"a", "b", "c", "d"}, 1)) ==
+         "Deducting leaves 4 parts low. 1 line is still on the shopping list.");
+
+  // Two lines drawing on the same item share what is on the shelf.
+  auto shared = pickPlanAnalysis({{"100nF", "cap-100n", 30, {"C1"}}, {"0.1uF", "cap-100n", 30, {"C2"}}});
+  recomputeBomTotals(shared, store.items());
+  const auto sharedPlan = planBomPicks(shared, store);
+  assert(sharedPlan.pieces == 41);
+  assert(sharedPlan.stops.front().picks.size() == 2);
+
+  // An analysis with no stock at all has no route.
+  auto bare = pickPlanAnalysis({{"ESP32", "", 1, {"U1"}}});
+  recomputeBomTotals(bare, store.items());
+  assert(planBomPicks(bare, store).empty());
+}
+
 void testMatchingIgnoresPackageCodesAndPinCounts() {
   // Package codes and pin counts inside part names are not component values.
   vector<InventoryItem> items;
@@ -10592,6 +10727,7 @@ const vector<TestCase>& registeredTests() {
     {"bom", "PackageFromFootprint", testPackageFromFootprint},
     {"bom", "MatchingPrefersValueAndPackage", testMatchingPrefersValueAndPackage},
     {"bom", "MatchingIgnoresPackageCodesAndPinCounts", testMatchingIgnoresPackageCodesAndPinCounts},
+    {"bom", "PickPlanRoute", testBomPickPlanRoute},
     {"bom", "ProjectStorePersistence", testProjectStorePersistence},
     {"bom", "EnrichmentCacheRules", testEnrichmentCacheRules},
     {"transfer", "BackupExportAndRestoreWorkflow", testBackupExportAndRestoreWorkflow},

@@ -302,25 +302,21 @@ vector<App::Action> App::currentActions() const {
       // The Find in racks workflow owns the keyboard while it runs, so only the
       // split and list views expose project commands here.
       if (bomDeductPrompt_) {
-        if (bomBuildReady(bomAnalysis_)) {
-          add("subtract from stock", "Finish", "y", chr('y'), [self] { self->finishBomBuild(true); });
-          add("keep stock", "Finish", "n", chr('n'), [self] { self->finishBomBuild(false); });
-        } else {
-          add("return to shortages", "Finish", "Esc", special(KeyType::Escape), [self] {
-            self->bomDeductPrompt_ = false;
-            self->bomView_ = BomView::Split;
-            self->dirty_ = true;
-          });
-        }
+        add("deduct from stock", "Finish", "y", chr('y'), [self] { self->finishBomBuild(true); });
+        add("keep stock", "Finish", "n", chr('n'), [self] { self->finishBomBuild(false); });
+        add("took one more", "Amounts", "+", chr('+'), [self] { self->adjustBomPickTaken(1); });
+        add("took one less", "Amounts", "-", chr('-'), [self] { self->adjustBomPickTaken(-1); });
+        add("back to the last rack", "Build", "Bksp", special(KeyType::Backspace),
+            [self] { self->advanceBomBuild(-1); });
       } else if (bomView_ == BomView::Build) {
-        add("next rack", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
+        add("rack done", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
         add("previous rack", "Build", "Bksp", special(KeyType::Backspace), [self] { self->advanceBomBuild(-1); });
       } else if (bomView_ == BomView::Split && bomAnalysisValid_) {
-        add("find in racks", "Project", "f", chr('f'), [self] { self->beginBomBuild(); });
+        add("pick parts", "Project", "f", chr('f'), [self] { self->beginBomBuild(); });
         add("more boards", "Project", "+", chr('+'), [self] { self->adjustBomBoards(1); });
         add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
         add("alternate match", "Match", "a", chr('a'), [self] { self->cycleBomAlternate(); });
-        add("export shortages", "Order", "o", chr('o'), [self] { self->exportBomShortages(); });
+        add("shopping list", "Order", "o", chr('o'), [self] { self->exportBomShortages(); });
         if (!bomAnalysis_.matches.empty()) {
           const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
           if (!bomAnalysis_.matches[index].sufficient) {
