@@ -123,13 +123,6 @@ ftxui::Element uiPageHeader(ftxui::Element title, ftxui::Element sub, ftxui::Ele
 // time(nullptr) is too coarse to pulse against.
 long long uiAnimationTicks();
 bool uiBlinkOn(int periodMs = 900);
-string uiLoadingSpinner(int intervalMs = 180);
-
-// Block-character progress bars. uiSplitProgressBar draws two adjacent
-// segments, used for the ready-versus-short project gauge.
-ftxui::Element uiProgressBar(double fraction, int width, ftxui::Color fill);
-ftxui::Element uiSplitProgressBar(double first, double second, int width, ftxui::Color firstFill,
-                                  ftxui::Color secondFill);
 
 bool uiBoxContains(const ftxui::Box& box, int x, int y);
 
