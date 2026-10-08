@@ -169,12 +169,20 @@ administrative operations remain in Actions.
 
 ### Projects
 
-The project list shows bold project names, line and board counts, and a Built state. An open project compares the BOM
-with stock in two groups, In Stock and Missing, each with per-category counts. Rows carry the part in bold, its package,
-the rack slot or suggested match, Need in muted text, and Have in bold: primary when covered, apricot when partly
-covered, rose when nothing is in stock. Status reads Ready or Short N. Find in racks reuses the Racks grid: lettered
-columns, numbered rows, identical slots with the same slot body, and a footer band that takes the rows floor division
-cannot hand out. Slots to open pulse; the side rail lists them with bold slot and part.
+Every Projects view uses the shared page skeleton from `docs/ui-style-guide.md`: a two-line header
+whose second line is a plain sentence about the project, with the page's buttons at its right end.
+The project list shows bold project names, line and board counts, and whether the project has been
+built. An open project compares the BOM with stock in two groups, In stock and Missing, each with
+per-category counts. Rows carry the part in bold, its package, where it is (`Rack 1  E3`) or its
+DigiKey suggestion, Need, and Have in bold: primary when covered, warning when partly covered, danger
+when nothing is in stock. Status reads Ready, Short N, or Missing. Pick parts is the primary action.
+
+Picking shows one rack at a time: the rack grid on the left, where every slot to open is lit with
+the BOM value and `Take N` and every other slot is a quiet raised block, and the pick list on the
+right with slot, part, board references, and amount. Lit slots pulse between two lit states and
+never go dark. One key confirms the whole rack. The route (`Rack 1 > Rack 2 > Finish`) sits under
+the grid. Parts with no stock are never on the route. The finish screen is one table of what was
+taken and the stock it leaves, with Deduct from stock and Keep stock in the header.
 
 ### Import
 

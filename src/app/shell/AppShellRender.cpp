@@ -309,8 +309,10 @@ ftxui::Element App::renderSearchBarUi() const {
                             : to_string(bomProjects_.size()) +
                                   (bomProjects_.size() == 1 ? " project" : " projects");
         } else if (bomView_ == BomView::Build) {
-          contextText = "find in racks  " + to_string(bomBuildStep_ + 1) + " / " +
-                        to_string(bomBuildSteps().size()) + " stops";
+          const auto stops = bomPickPlan().stops.size();
+          contextTitle = "Picking";
+          contextText = bomDeductPrompt_ ? "finished"
+                                         : "stop " + to_string(min(bomBuildStep_ + 1, stops)) + " of " + to_string(stops);
         } else {
           contextText = to_string(bomAnalysis_.lines.size()) + " lines  " +
                         to_string(bomAnalysis_.boards) +
@@ -391,6 +393,14 @@ ftxui::Element App::renderSearchBarUi() const {
                                 uiBodyText(contextText, uiInfoColor(), uiPanelLeftBg()), ftxui::filler(),
                                 styledText(hints, uiMutedColor(), uiPanelLeftBg())}) |
                    ftxui::bgcolor(uiPanelLeftBg()));
+  } else if (page_ == Page::Projects && inputMode_ == InputMode::None) {
+    string hints;
+    if (bomView_ == BomView::Build && bomDeductPrompt_) hints = "Up/Down part   +/- amount taken   y deduct   n keep stock   Bksp back";
+    else if (bomView_ == BomView::Build) hints = "Enter rack done   Bksp back   Esc stop picking";
+    else if (bomView_ == BomView::Split && bomAnalysisValid_) hints = "f pick parts   o shopping list   +/- boards   Esc projects";
+    else hints = "Enter open   i import BOM   d forget";
+    rows.push_back(ftxui::hbox({std::move(context) | ftxui::flex, styledText(hints + " ", uiMutedColor(), activeBg)}) |
+                   ftxui::bgcolor(activeBg));
   } else {
     rows.push_back(context);
   }
@@ -465,11 +475,6 @@ ftxui::Element App::renderMessageUi() const {
   }
   if (!persistenceError_.empty()) {
     return semanticMessageRow(persistenceError_, UiMessageSeverity::Error, false);
-  }
-  if (page_ == Page::Projects && bomView_ == BomView::Build && bomAnalysisValid_ &&
-      !bomBuildReady(bomAnalysis_) && message_.empty()) {
-    return semanticMessageRow(to_string(bomAnalysis_.shortCount) + " shortages · stock will not be deducted",
-                              UiMessageSeverity::Warning, false);
   }
   if (message_.empty()) {
     // Keep the notification row in the layout even while it is quiet. A

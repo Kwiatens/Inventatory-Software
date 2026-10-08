@@ -5,6 +5,7 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/inventory/Inventory.h"
+#include "core/text/Voice.h"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/dom/elements.hpp>
@@ -99,6 +100,21 @@ ftxui::Element footerField(const string& title, const string& body, ftxui::Color
 // than as another line of text.
 ftxui::Element uiPrimaryButton(const string& label, bool enabled = true);
 ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg = nullopt, bool enabled = true);
+
+// Page skeleton (docs/ui-style-guide.md). A button is ` Label ` on the raised surface with its key in
+// muted text; the primary button uses the active surface, a destructive one only changes its text
+// colour. Groups of buttons are separated by one cell.
+enum class UiButtonKind { Normal, Primary, Danger };
+ftxui::Element uiButton(const string& label, const string& key = {}, UiButtonKind kind = UiButtonKind::Normal);
+
+// One plain-sentence voice line. Strong spans are bold primary text, slots are bold focus text, and
+// status tones use their status colour.
+ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg = nullopt);
+
+// The shared two-line page header: the title (bold) with `right` (pending state and the page's
+// button group) at the right end, the voice or context line under it, then one blank row. The
+// whole header sits on the workspace surface with a one-cell gutter.
+ftxui::Element uiPageHeader(ftxui::Element title, ftxui::Element sub, ftxui::Element right = nullptr);
 
 // Milliseconds since the app started. The 100 ms redraw ticker means render
 // code can derive sub-second animation phase from this without its own timer;

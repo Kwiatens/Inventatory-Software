@@ -99,28 +99,37 @@ import is saved and listed in Activity.
 ## Project workflow
 
 A KiCad BOM becomes a project on the Projects page. Open it to compare each line
-with stock in the same split list/detail rhythm as Stock. Rows are grouped first
-by availability (`In Stock` and `Missing`) and then by component category, such
-as `Capacitors` or `Resistors`. Each row keeps Part, Package, the rack location
-or suggested match, a merged Need / Have count, and Status together. The primary action is
-**Find in racks** (`f`), which walks the available parts rack by rack and
-highlights the slots to pick. Shortages are looked up on DigiKey in the
-background; a lookup that fails (network, rate limit, credentials) is not
-remembered and is retried the next time the project opens. `o` opens a save
-dialog for a CSV in the active Inventatory workspace by default; the file is
-written atomically, an error is reported, and lines without a DigiKey suggestion
-are left blank.
+with stock. The header says where the project stands in one sentence, for example
+"You have 15 of 43 parts. The other 28 need ordering, 21 have a DigiKey match."
+Rows are grouped first by availability (`In stock` and `Missing`) and then by
+component category, such as `Capacitors` or `Resistors`. Each row keeps Part,
+Package, where the part is (`Rack 1  E3`) or its DigiKey suggestion, Need, Have,
+and Status. Shortages are looked up on DigiKey in the background; a lookup that
+fails (network, rate limit, credentials) is not remembered and is retried the
+next time the project opens. **Shopping list** (`o`) opens a save dialog for a
+CSV in the active Inventatory workspace by default; the file is written
+atomically, an error is reported, and lines without a DigiKey suggestion are left
+blank.
 
 `+` and `-` change the board count and re-run the analysis. `a` cycles to the next
 matching part when one line has several candidates, and that choice is remembered.
 
-`f` starts Find in racks, or previews the available picks while shortages remain.
-It focuses on one rack at a time, pulsing the slots holding parts this project
-needs and listing only the current picks. Enter advances and Backspace goes back.
-Parts that live outside a rack come last, grouped by location. At the end, answer
-whether to subtract the picked parts from stock. A finished build is an ordinary inventory
-commit, so `Ctrl+Z` on the Projects page (also listed in Actions) reverts the deduction and
-re-runs the comparison. Select a missing line and press `r` to open its restock flow.
+**Pick parts** (`f`) walks the parts you have, one rack at a time. The header tells
+you what to do ("Open Rack 1 and take 26 parts from 7 slots", then the largest
+picks), every slot to open is lit and shows its value and `Take N`, and the list
+beside the grid adds the board references each pick is for. Take everything that
+is lit, then press Enter for the next rack; Backspace goes back. Parts kept outside
+racks come last, grouped by location. Parts with nothing in stock never appear on
+the route; a part with only some stock is picked as far as stock allows and stays
+on the shopping list.
+
+The finish screen lists every pick with the stock it leaves behind. Use Up/Down and
+`+`/`-` to correct an amount you could not take, then press `y` to take the parts
+out of stock or `n` to leave stock unchanged. Picking is allowed while parts are
+missing; only a project with every line covered is marked as built. Deducting is an
+ordinary inventory commit, so `Ctrl+Z` on the Projects page (also listed in
+Actions) puts the parts back and re-runs the comparison. Select a missing line and
+press `r` to open its restock flow.
 
 Projects persist in the inventory database, so reopening the app restores the
 analysis against current stock with no re-upload. `d` forgets one.

@@ -243,6 +243,60 @@ ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg,
                     uiRaisedSurfaceBg());
 }
 
+ftxui::Element uiButton(const string& label, const string& key, UiButtonKind kind) {
+  const auto bg = kind == UiButtonKind::Primary ? uiActiveBg() : uiRaisedSurfaceBg();
+  const auto fg = kind == UiButtonKind::Danger ? uiDangerColor() : uiPrimaryText();
+  ftxui::Elements parts;
+  parts.push_back(kind == UiButtonKind::Primary ? uiHeaderText(" " + label + " ", fg, bg)
+                                                : styledText(" " + label + " ", fg, bg));
+  if (!key.empty()) {
+    parts.push_back(styledText(key + " ", kind == UiButtonKind::Primary ? uiFocusColor() : uiMutedText(), bg));
+  }
+  return ftxui::hbox(move(parts));
+}
+
+ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg) {
+  ftxui::Elements spans;
+  for (const auto& span : line) {
+    switch (span.tone) {
+      case VoiceTone::Plain:
+        spans.push_back(styledText(span.text, uiSecondaryText(), bg));
+        break;
+      case VoiceTone::Strong:
+        spans.push_back(uiHeaderText(span.text, uiPrimaryText(), bg));
+        break;
+      case VoiceTone::Slot:
+        spans.push_back(uiHeaderText(span.text, uiFocusColor(), bg));
+        break;
+      case VoiceTone::Success:
+        spans.push_back(uiHeaderText(span.text, uiSuccessColor(), bg));
+        break;
+      case VoiceTone::Warning:
+        spans.push_back(uiHeaderText(span.text, uiWarnColor(), bg));
+        break;
+      case VoiceTone::Danger:
+        spans.push_back(uiHeaderText(span.text, uiDangerColor(), bg));
+        break;
+    }
+  }
+  return ftxui::hbox(move(spans));
+}
+
+ftxui::Element uiPageHeader(ftxui::Element title, ftxui::Element sub, ftxui::Element right) {
+  const auto bg = uiSurfaceBg();
+  ftxui::Elements first{ftxui::text(" "), move(title), ftxui::filler()};
+  if (right) {
+    first.push_back(move(right));
+    first.push_back(ftxui::text(" "));
+  }
+  return ftxui::vbox({
+             ftxui::hbox(move(first)),
+             ftxui::hbox({ftxui::text(" "), move(sub), ftxui::filler()}),
+             ftxui::text(""),
+         }) |
+         ftxui::bgcolor(bg);
+}
+
 bool uiBoxContains(const ftxui::Box& box, int x, int y) {
   return x >= box.x_min && x <= box.x_max && y >= box.y_min && y <= box.y_max;
 }
