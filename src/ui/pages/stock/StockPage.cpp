@@ -70,8 +70,8 @@ ftxui::Element App::renderStockUi() const {
                                      to_string(store_.items().size()) + " counted"
                                : closestSearchActive_
                                      ? "Closest to  " + (closestSearchQuery_.empty() ? string("...") : closestSearchQuery_) +
-                                           "  · " + to_string(filtered.size()) + " candidates"
-                                     : rankedView ? "Stock  " + to_string(filtered.size()) + " matches · ranked by value"
+                                           ", " + to_string(filtered.size()) + " candidates"
+                                     : rankedView ? "Stock  " + to_string(filtered.size()) + " matches, ranked by value"
                                                   : groupByCategory ? string("Component Category") : string();
   const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
   auto filterButton = target(styledText(" Sort / Filter ", filtersEnabled ? uiInteractiveColor() : uiMutedColor(),
@@ -167,11 +167,11 @@ ftxui::Element App::renderStockUi() const {
   // controls stay reachable no matter how long the selected part's detail is.
   ftxui::Element detailFooter;
   if (editing) {
-    detailFooter = styledText(" \xE2\x86\x91\xE2\x86\x93 field  \xE2\x8F\x8E edit  s save  esc cancel", uiMutedColor());
+    detailFooter = styledText(" Up/Down field   Enter edit   s save   Esc cancel", uiMutedColor());
   } else if (closestSearchActive_) {
     detailFooter = styledText(inputMode_ == InputMode::ClosestSearch
-                                  ? " type target  \xE2\x86\x91\xE2\x86\x93 select  enter keep  esc close"
-                                  : " \xE2\x86\x91\xE2\x86\x93 select  enter details  F edit target  esc close",
+                                  ? " type target   Up/Down select   Enter keep   Esc close"
+                                  : " Up/Down select   Enter details   F edit target   Esc close",
                               uiMutedColor());
   } else if (stocktakeActive_) {
     const bool ready = stocktakeCountedItems() == store_.items().size();
