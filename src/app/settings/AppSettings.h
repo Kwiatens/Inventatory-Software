@@ -49,20 +49,20 @@ struct AppearanceSettings {
       0x27312F,  // HoverBg
       0x2C4440,  // SelectionBg
       0x384543,  // Divider
-      0xF1EEE5,  // PrimaryText
-      0xCAD0CA,  // SecondaryText
+      0xE5EDEC,  // PrimaryText
+      0xBFCAC9,  // SecondaryText
       0x8C9690,  // MutedText
       0xB9E7DD,  // FocusText
       0x58B9B0,  // Interactive
-      0xA5C9A5,  // Success
+      0xA0D0C0,  // Success (sea glass)
       0x8FCBC5,  // Link
-      0xE5A77C,  // WarningText (apricot)
-      0xE4707C,  // DangerText (rose)
+      0xDBCDA9,  // WarningText (sand)
+      0xCC8BA4,  // DangerText (muted rose)
       0x315A55,  // ActiveBg
       0x243A37,  // ActiveSoftBg
-      0x3B2F28,  // WarningBg
-      0x43262B,  // DangerBg
-      0x74404B,  // DangerFlashBg
+      0x2A261C,  // WarningBg
+      0x322027,  // DangerBg
+      0x583744,  // DangerFlashBg
   };
 };
 
