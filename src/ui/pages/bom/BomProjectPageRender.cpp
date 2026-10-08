@@ -219,7 +219,7 @@ ftxui::Element App::renderBomProjectUi() const {
       });
       return ftxui::vbox({
                  uiPageHeader(voiceTitle(bomPickFinishTitle(taken, planned)),
-                              uiVoiceLine(bomPickFinishGuide(lowAfter, plan.shortMatches.size())), move(buttons)),
+                              uiVoiceLine(bomPickFinishGuide(lowAfter, plan.shortMatches.size()), nullopt, screenWidth - 3), move(buttons)),
                  ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::flex,
                  ftxui::text(""),
                  routeLine(plan, stopIndex, true),
@@ -233,7 +233,7 @@ ftxui::Element App::renderBomProjectUi() const {
                "bom.build.next", UiTargetKind::Button, [self] { self->advanceBomBuild(1); }),
         target(uiButton("Back", "Bksp"), "bom.build.back", UiTargetKind::Button, [self] { self->advanceBomBuild(-1); }),
     });
-    auto header = uiPageHeader(voiceTitle(bomPickStopTitle(stop)), uiVoiceLine(bomPickStopGuide(stop)), move(buttons));
+    auto header = uiPageHeader(voiceTitle(bomPickStopTitle(stop)), uiVoiceLine(bomPickStopGuide(stop), nullopt, screenWidth - 3), move(buttons));
 
     // The pick list: slot, part, the board references it is for, and how many to take.
     const bool loose = stop.rackId.empty();
@@ -461,7 +461,7 @@ ftxui::Element App::renderBomProjectUi() const {
   }
 
   return ftxui::vbox({
-             uiPageHeader(move(title), uiVoiceLine(bomProjectSummary(bomAnalysis_, suggested)), move(buttons)),
+             uiPageHeader(move(title), uiVoiceLine(bomProjectSummary(bomAnalysis_, suggested), nullopt, screenWidth - 3), move(buttons)),
              dirtyRow(),
              ftxui::vbox(move(tableRows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::flex |
                  ftxui::reflect(bomTableBounds_),

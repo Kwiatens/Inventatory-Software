@@ -8,6 +8,7 @@
 #include <ftxui/screen/string.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <chrono>
 #include <optional>
 #include <sstream>
@@ -255,12 +256,21 @@ ftxui::Element uiButton(const string& label, const string& key, UiButtonKind kin
   return ftxui::hbox(move(parts));
 }
 
-ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg) {
+ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg, int maxWidth) {
   ftxui::Elements spans;
-  for (const auto& span : line) {
+  int remaining = maxWidth > 0 ? maxWidth : (std::numeric_limits<int>::max)();
+  for (const auto& original : line) {
+    if (remaining <= 0) break;
+    VoiceSpan span = original;
+    const auto width = static_cast<int>(displayWidth(span.text));
+    if (width > remaining) span.text = ellipsize(span.text, static_cast<size_t>(remaining));
+    remaining -= min(width, remaining);
     switch (span.tone) {
       case VoiceTone::Plain:
         spans.push_back(styledText(span.text, uiSecondaryText(), bg));
+        break;
+      case VoiceTone::Muted:
+        spans.push_back(styledText(span.text, uiMutedText(), bg));
         break;
       case VoiceTone::Strong:
         spans.push_back(uiHeaderText(span.text, uiPrimaryText(), bg));

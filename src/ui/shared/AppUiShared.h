@@ -109,7 +109,9 @@ ftxui::Element uiButton(const string& label, const string& key = {}, UiButtonKin
 
 // One plain-sentence voice line. Strong spans are bold primary text, slots are bold focus text, and
 // status tones use their status colour.
-ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg = nullopt);
+// `maxWidth` > 0 cuts the sentence at that many cells, ending in "...", because a terminal row that
+// overflows would otherwise squeeze every word.
+ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg = nullopt, int maxWidth = 0);
 
 // The shared two-line page header: the title (bold) with `right` (pending state and the page's
 // button group) at the right end, the voice or context line under it, then one blank row. The

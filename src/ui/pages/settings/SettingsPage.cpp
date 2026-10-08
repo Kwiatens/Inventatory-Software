@@ -1,20 +1,18 @@
-// Inventatory - Settings page rendering and input support.
+// Inventatory - Settings page: one row model per category, rendered on the shared page skeleton.
 
 #include "App.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
 
-#include "platform/security/CredentialStore.h"
-#include "platform/digikey/DigiKeyApi.h"
-#include "platform/system/StartupRegistration.h"
 #include "core/storage/InventorySqlite.h"
+#include "label_printer/symbols/RackSymbols.h"
 #include "ui/shared/AppUiShared.h"
 
-#include <ftxui/component/component.hpp>
-#include <ftxui/dom/elements.hpp>
 #include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -23,550 +21,732 @@ namespace inventatory {
 using namespace std;
 using namespace settings_page_detail;
 
-namespace settings_page_detail {
-int settingsLabelWidth(int width) {
-  // 30 keeps the stock-alert setting label readable while still leaving
-  // visible air before its value on compact terminals.
-  return min(30, max(16, width / 3));
-}
-
 namespace {
-ftxui::Element settingsGutter(bool selected) {
-  return styledText(selected ? " > " : "   ", selected ? uiFocusColor() : uiSecondaryText()) |
-         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, kSettingsGutterWidth);
+
+// "~/Dokumenty/Inventatory" rather than the full home path.
+string homeRelative(const filesystem::path& path) {
+  auto text = path.u8string();
+  const char* home = getenv("HOME");
+  if (home != nullptr && *home != '\0') {
+    const string prefix(home);
+    if (text.compare(0, prefix.size(), prefix) == 0 && (text.size() == prefix.size() || text[prefix.size()] == '/')) {
+      text = "~" + text.substr(prefix.size());
+    }
+  }
+  return text;
 }
 
-ftxui::Element settingRow(const string& label, ftxui::Element value, int width, bool selected) {
-  const int labelWidth = settingsLabelWidth(width);
-  auto row = ftxui::hbox({
-                 settingsGutter(selected),
-                 // Reserve one column so a full-width label never abuts its value.
-                 styledText(ellipsize(label, static_cast<size_t>(max(2, labelWidth - 1))),
-                            selected ? uiFocusColor() : uiSecondaryText()) |
-                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
-                 move(value),
-                 ftxui::filler(),
-             }) |
-             ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
-  if (selected) row = row | ftxui::select;
-  return row;
+// Paths keep both ends: "~/Dokumenty/.../settings.conf".
+string middleEllipsize(const string& text, size_t width) {
+  if (text.size() <= width || width < 8) return ellipsize(text, width);
+  const size_t tail = (width - 3) / 2;
+  const size_t head = width - 3 - tail;
+  return text.substr(0, head) + "..." + text.substr(text.size() - tail);
 }
 
-size_t settingValueWidth(int width) {
-  return static_cast<size_t>(max(8, width - settingsLabelWidth(width) - kSettingsGutterWidth - 1));
+ftxui::Color toneColor(VoiceTone tone) {
+  switch (tone) {
+    case VoiceTone::Plain: return uiSecondaryText();
+    case VoiceTone::Muted: return uiMutedText();
+    case VoiceTone::Strong: return uiPrimaryText();
+    case VoiceTone::Slot: return uiFocusColor();
+    case VoiceTone::Success: return uiSuccessColor();
+    case VoiceTone::Warning: return uiWarnColor();
+    case VoiceTone::Danger: return uiDangerColor();
+  }
+  return uiPrimaryText();
 }
+
+string onOff(bool value) { return value ? "On" : "Off"; }
+
+string queueStatusWord(const string& statusText) {
+  // CUPS reports "idle.  enabled since ..."; the first clause is the state.
+  auto word = statusText.substr(0, statusText.find('.'));
+  return trim(word);
+}
+
 }  // namespace
 
-ftxui::Element settingLine(const string& label, const string& value, int width, bool selected) {
-  return settingRow(label, styledText(ellipsize(value, settingValueWidth(width)), uiPrimaryText()), width, selected);
-}
-
-ftxui::Element settingToggleLine(const string& label, bool enabled, int width, bool selected) {
-  return settingRow(label, styledText(enabled ? "On" : "Off", enabled ? uiSuccessColor() : uiMutedText()), width,
-                    selected);
-}
-
-ftxui::Element settingStatusLine(const string& label, const string& value, ftxui::Color valueColor, int width) {
-  return settingRow(label, styledText(ellipsize(value, settingValueWidth(width)), valueColor), width, false);
-}
-
-ftxui::Element settingListLine(const string& name, const string& status, ftxui::Color statusColor, int width,
-                               bool selected) {
-  const int statusWidth = status.empty() ? 0 : max(10, min(18, static_cast<int>(status.size()) + 2));
-  const int nameWidth = max(12, width - statusWidth - kSettingsGutterWidth - 2);
-  auto row = ftxui::hbox({
-                 settingsGutter(selected),
-                 styledText(ellipsize(name, static_cast<size_t>(nameWidth)),
-                            selected ? uiFocusColor() : uiPrimaryText()),
-                 ftxui::filler(),
-                 styledText(status, statusColor),
-                 ftxui::text(" "),
-             }) |
-             ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
-  if (selected) row = row | ftxui::select;
-  return row;
-}
-
-ftxui::Element settingNoteLine(const string& text, ftxui::Color color, int width) {
-  return ftxui::hbox({settingsGutter(false),
-                      styledText(ellipsize(text, static_cast<size_t>(max(8, width - kSettingsGutterWidth))), color),
-                      ftxui::filler()});
-}
-
-ftxui::Element settingsSectionHeader(const string& title, ftxui::Element meta) {
-  ftxui::Elements parts{uiHeaderText(" " + title, uiSecondaryText()), ftxui::filler()};
-  if (meta) {
-    parts.push_back(move(meta));
-    parts.push_back(ftxui::text(" "));
+bool App::settingsCategoryDirty(SettingsCategory category) const {
+  const auto& draft = settingsDraft_;
+  const auto& saved = settings_;
+  switch (category) {
+    case SettingsCategory::General:
+      return draft.dataDirectory != saved.dataDirectory || draft.backgroundServiceEnabled != saved.backgroundServiceEnabled ||
+             draft.lowStockThreshold != saved.lowStockThreshold;
+    case SettingsCategory::Appearance:
+      return draft.appearance.colors != saved.appearance.colors;
+    case SettingsCategory::Updates:
+      return draft.updateChecksEnabled != saved.updateChecksEnabled;
+    case SettingsCategory::Printer:
+      return draft.printerQueue != saved.printerQueue || draft.autoPrintScannedLabels != saved.autoPrintScannedLabels ||
+             draft.symbolStandard != saved.symbolStandard;
+    case SettingsCategory::QuickLabels:
+      return draft.quickLabelPresets != saved.quickLabelPresets;
+    case SettingsCategory::InventatoryScan:
+      return draft.deviceServicePort != saved.deviceServicePort;
+    case SettingsCategory::DigiKey:
+      return draft.digiKeyClientId != saved.digiKeyClientId || draft.digiKeyAccountId != saved.digiKeyAccountId ||
+             draft.digiKeySite != saved.digiKeySite || draft.digiKeyLanguage != saved.digiKeyLanguage ||
+             draft.digiKeyCurrency != saved.digiKeyCurrency || stagedDigiKeySecretChanged_;
   }
-  return ftxui::hbox(move(parts)) | ftxui::bgcolor(uiSurfaceBg());
+  return false;
 }
 
-// Buttons must not stretch: without the trailing filler the raised/filled
-// background spans the whole panel and reads as a bar.
-ftxui::Element settingsActionRow(ftxui::Elements buttons) {
-  ftxui::Elements parts{settingsGutter(false)};
-  for (size_t index = 0; index < buttons.size(); ++index) {
-    if (index > 0) parts.push_back(ftxui::text("  "));
-    parts.push_back(move(buttons[index]));
+App::SettingsPageModel App::settingsPageModel() const {
+  auto self = const_cast<App*>(this);
+  const auto& draft = settingsDraft_;
+  const auto& saved = settings_;
+  SettingsPageModel model;
+  auto& rows = model.rows;
+
+  const auto button = [](string label, string key, string id, function<void()> run, bool primary = false,
+                         bool danger = false, bool enabled = true) {
+    SettingsButton result;
+    result.label = move(label);
+    result.key = move(key);
+    result.targetId = move(id);
+    result.run = move(run);
+    result.primary = primary;
+    result.danger = danger;
+    result.enabled = enabled;
+    return result;
+  };
+  // A staged change shows the new value in the warning colour and the saved one beside it.
+  const auto markChange = [](SettingsRow& row, bool changed, const string& was) {
+    if (!changed) return;
+    row.tone = VoiceTone::Warning;
+    row.note = "was " + was;
+    row.noteTone = VoiceTone::Muted;
+  };
+  const auto toggleRow = [&](string group, string label, bool AppSettings::*member, string id) {
+    SettingsRow row;
+    row.group = move(group);
+    row.label = move(label);
+    row.value = onOff(draft.*member);
+    row.targetId = move(id);
+    row.activate = [self, member] {
+      self->settingsDraft_.*member = !(self->settingsDraft_.*member);
+      if (member == &AppSettings::backgroundServiceEnabled) self->settingsDraft_.backgroundConsentAsked = true;
+      self->settingsDirty_ = self->settingsDraftHasChanges();
+      self->dirty_ = true;
+    };
+    markChange(row, draft.*member != saved.*member, onOff(saved.*member));
+    return row;
+  };
+  const auto editRow = [&](string group, string label, string value, int field, string id) {
+    SettingsRow row;
+    row.group = move(group);
+    row.label = move(label);
+    const bool editing = settingsEditingField_ && settingsField_ == field;
+    row.value = editing ? inputBuffer_ + "_" : move(value);
+    row.editing = editing;
+    if (editing) row.tone = VoiceTone::Slot;
+    row.field = field;
+    row.targetId = move(id);
+    row.activate = [self, field] { self->beginSettingsFieldEdit(field); };
+    return row;
+  };
+  const auto infoRow = [&](string group, string label, string value, VoiceTone tone = VoiceTone::Plain) {
+    SettingsRow row;
+    row.group = move(group);
+    row.label = move(label);
+    row.value = move(value);
+    row.tone = tone;
+    return row;
+  };
+
+  switch (settingsCategory_) {
+    case SettingsCategory::General: {
+      model.status = {{voiceCount(static_cast<int>(store_.items().size()), "part", "parts"), VoiceTone::Strong},
+                      {" in "},
+                      {voiceCount(static_cast<int>(store_.racks().size()), "rack", "racks"), VoiceTone::Strong},
+                      {", kept in " + homeRelative(saved.dataDirectory) + "."}};
+      auto folder = infoRow("Data", "Folder", homeRelative(draft.dataDirectory), VoiceTone::Strong);
+      folder.targetId = "settings.data.browse";
+      folder.activate = [self] { self->stageInventatoryFolder(); };
+      folder.buttons = {button("Change", "b", "settings.data.browse.button", [self] { self->stageInventatoryFolder(); })};
+      markChange(folder, draft.dataDirectory != saved.dataDirectory, homeRelative(saved.dataDirectory));
+      rows.push_back(move(folder));
+
+      auto backup = infoRow("", "Backup", "All inventory data", VoiceTone::Muted);
+      backup.targetId = "settings.data.backup.row";
+      backup.activate = [self] { self->backupData(); };
+      backup.buttons = {button("Back up", "k", "settings.data.backup", [self] { self->backupData(); }),
+                        button("Restore", "r", "settings.data.restore", [self] { self->restoreData(); }, false, true)};
+      rows.push_back(move(backup));
+
+      auto exportRow = infoRow("", "Export", "Every part as CSV", VoiceTone::Muted);
+      exportRow.targetId = "settings.data.export.row";
+      exportRow.activate = [self] { self->exportInventory(); };
+      exportRow.buttons = {button("Export", "x", "settings.data.export", [self] { self->exportInventory(); })};
+      rows.push_back(move(exportRow));
+
+      rows.push_back(toggleRow("Behaviour", "Keep running when closed", &AppSettings::backgroundServiceEnabled,
+                               "settings.general.background"));
+      auto threshold = editRow("", "Low stock at or below", to_string(draft.lowStockThreshold) + " pcs", 0,
+                               "settings.general.low_stock_threshold");
+      if (!threshold.editing) {
+        markChange(threshold, draft.lowStockThreshold != saved.lowStockThreshold, to_string(saved.lowStockThreshold) + " pcs");
+      }
+      rows.push_back(move(threshold));
+      rows.push_back(infoRow("Files", "Settings file", homeRelative(settingsPath_), VoiceTone::Muted));
+      break;
+    }
+
+    case SettingsCategory::Appearance: {
+      const AppearanceSettings defaults;
+      int changedFromDefault = 0;
+      for (size_t index = 0; index < kAppearanceColorCount; ++index) {
+        if (draft.appearance.colors[index] != defaults.colors[index]) ++changedFromDefault;
+      }
+      model.status = changedFromDefault == 0
+                         ? VoiceLine{{"Using the default Slate colours."}}
+                         : VoiceLine{{voiceCount(changedFromDefault, "colour", "colours"), VoiceTone::Strong},
+                                     {changedFromDefault == 1 ? " differs from the defaults." : " differ from the defaults."}};
+      const auto addGroup = [&](const string& group, initializer_list<AppearanceColorRole> roles) {
+        bool first = true;
+        for (const auto role : roles) {
+          const auto index = static_cast<int>(role);
+          const auto color = draft.appearance.colors[static_cast<size_t>(index)];
+          const bool editing = settingsEditingField_ && settingsField_ == index;
+          SettingsRow row = infoRow(first ? group : "", appearanceColorLabel(role),
+                                    editing ? inputBuffer_ + "_" : appearanceColorHex(color),
+                                    editing ? VoiceTone::Slot : VoiceTone::Strong);
+          row.editing = editing;
+          row.swatch = color;
+          row.field = index;
+          row.targetId = "settings.appearance.color." + to_string(index);
+          row.activate = [self, index] {
+            self->settingsField_ = index;
+            self->openAppearancePicker();
+          };
+          row.buttonsOnFocus = true;
+          row.buttons = {button("Pick", "p", "settings.appearance.picker.open", [self] { self->openAppearancePicker(); }),
+                         button("Hex", "e", "settings.appearance.hex.edit",
+                                [self] { self->beginSettingsFieldEdit(self->settingsField_); }),
+                         button("Reset", "r", "settings.appearance.reset.selected",
+                                [self] { self->resetSelectedAppearanceColor(); })};
+          if (!editing) markChange(row, color != saved.appearance.colors[static_cast<size_t>(index)],
+                                   appearanceColorHex(saved.appearance.colors[static_cast<size_t>(index)]));
+          rows.push_back(move(row));
+          first = false;
+        }
+      };
+      addGroup("Surfaces", {AppearanceColorRole::CanvasBg, AppearanceColorRole::SurfaceBg, AppearanceColorRole::RaisedSurfaceBg,
+                            AppearanceColorRole::HoverBg, AppearanceColorRole::SelectionBg, AppearanceColorRole::Divider});
+      addGroup("Text", {AppearanceColorRole::PrimaryText, AppearanceColorRole::SecondaryText, AppearanceColorRole::MutedText,
+                        AppearanceColorRole::FocusText});
+      addGroup("Accents", {AppearanceColorRole::Interactive, AppearanceColorRole::Link, AppearanceColorRole::Success,
+                           AppearanceColorRole::WarningText, AppearanceColorRole::DangerText});
+      addGroup("Status fills", {AppearanceColorRole::ActiveBg, AppearanceColorRole::ActiveSoftBg, AppearanceColorRole::WarningBg,
+                                AppearanceColorRole::DangerBg, AppearanceColorRole::DangerFlashBg});
+      auto all = infoRow("", "All colours", changedFromDefault == 0 ? "Defaults" : to_string(changedFromDefault) + " changed",
+                         VoiceTone::Muted);
+      all.buttons = {button("Reset all", "d", "settings.appearance.reset.all", [self] { self->resetAppearanceColors(); },
+                            false, true, changedFromDefault > 0)};
+      rows.push_back(move(all));
+      break;
+    }
+
+    case SettingsCategory::Updates: {
+      const bool checking = updateCheckFuture_.valid();
+      const auto version = softwareVersion();
+      const bool canUpdate = !checking && isVersionNewer(saved.latestAvailableVersion, version);
+      const bool hasLastCheck = saved.lastUpdateCheckUnixSeconds > 0;
+      const auto lastCheck = hasLastCheck ? nowTimestampString(static_cast<time_t>(saved.lastUpdateCheckUnixSeconds))
+                                          : string("Never");
+      if (checking) {
+        model.status = {{"Checking for updates..."}};
+      } else if (updateCheckFailed_) {
+        model.status = {{"The last update check failed.", VoiceTone::Danger}};
+      } else if (canUpdate) {
+        model.status = {{"Inventatory "}, {saved.latestAvailableVersion, VoiceTone::Warning}, {" is available. You have " + version + "."}};
+      } else if (!hasLastCheck) {
+        model.status = {{"Updates have not been checked yet."}};
+      } else {
+        model.status = {{"Inventatory "}, {version, VoiceTone::Strong}, {" is up to date. Last checked " + lastCheck + "."}};
+      }
+
+      auto software = infoRow("Software", "Inventatory", version, VoiceTone::Strong);
+      if (checking) {
+        software.note = "Checking...";
+      } else if (updateCheckFailed_) {
+        software.note = "Check failed";
+        software.noteTone = VoiceTone::Danger;
+      } else if (canUpdate) {
+        software.note = saved.latestAvailableVersion + " available";
+        software.noteTone = VoiceTone::Warning;
+      } else if (hasLastCheck) {
+        software.note = "Up to date";
+        software.noteTone = VoiceTone::Success;
+      }
+      software.targetId = "settings.updates.row";
+      software.activate = [self, canUpdate] { canUpdate ? self->beginSoftwareUpdate() : self->beginUpdateChecks(); };
+      if (canUpdate) {
+        software.buttons.push_back(button("Update", "u", "settings.updates.update", [self] { self->beginSoftwareUpdate(); }, true));
+      }
+      software.buttons.push_back(button("Check", "c", "settings.updates.check", [self] { self->beginUpdateChecks(); }, false,
+                                        false, !checking));
+      rows.push_back(move(software));
+      rows.push_back(toggleRow("", "Check every day", &AppSettings::updateChecksEnabled, "settings.updates.autocheck"));
+      rows.push_back(infoRow("", "Last check", lastCheck, VoiceTone::Muted));
+
+      auto firmware = infoRow("Scanner", "Firmware", deviceFirmwareVersion_.empty() ? "Not reported" : deviceFirmwareVersion_,
+                              deviceFirmwareVersion_.empty() ? VoiceTone::Muted : VoiceTone::Plain);
+      if (scanFirmwareFuture_.valid()) {
+        firmware.note = "Checking...";
+      } else if (scanFirmwareCheckFailed_) {
+        firmware.note = "Check failed";
+        firmware.noteTone = VoiceTone::Danger;
+      } else if (!deviceFirmwareVersion_.empty() && isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_)) {
+        firmware.note = scanFirmwareLatestVersion_ + " available";
+        firmware.noteTone = VoiceTone::Warning;
+      }
+      rows.push_back(move(firmware));
+      rows.push_back(infoRow("", "Hardware", "R1"));
+      break;
+    }
+
+    case SettingsCategory::Printer: {
+      const PrinterQueueInfo* configured = nullptr;
+      for (const auto& queue : printerQueues_) {
+        if (queue.name == draft.printerQueue) configured = &queue;
+      }
+      if (draft.printerQueue.empty()) {
+        model.status = printerQueues_.empty()
+                           ? VoiceLine{{"No printer is set up, and none was found.", VoiceTone::Warning}}
+                           : VoiceLine{{"No printer is selected.", VoiceTone::Warning}};
+      } else if (configured == nullptr) {
+        model.status = {{draft.printerQueue, VoiceTone::Strong}, {" was not found.", VoiceTone::Warning}};
+      } else {
+        model.status = {{draft.printerQueue, VoiceTone::Strong}, {" is " + toLower(queueStatusWord(configured->statusText)) + "."}};
+      }
+
+      auto queue = infoRow("Printing", "Print to", draft.printerQueue.empty() ? "None" : draft.printerQueue,
+                           draft.printerQueue.empty() ? VoiceTone::Muted : VoiceTone::Strong);
+      queue.targetId = "settings.printer.queue";
+      queue.activate = [self] { self->cycleStagedPrinterQueue(); };
+      queue.buttons = {button("Test print", "t", "settings.printer.test", [self] { self->testStagedPrinter(); }, false, false,
+                              !draft.printerQueue.empty())};
+      markChange(queue, draft.printerQueue != saved.printerQueue, saved.printerQueue.empty() ? "None" : saved.printerQueue);
+      rows.push_back(move(queue));
+
+      auto found = infoRow("", "Printers found", to_string(printerQueues_.size()));
+      found.targetId = "settings.printer.found";
+      found.activate = [self] { self->refreshPrinterState(); };
+      found.buttons = {button("Refresh", "r", "settings.printer.refresh", [self] { self->refreshPrinterState(); })};
+      rows.push_back(move(found));
+      rows.push_back(toggleRow("", "Label after each scan", &AppSettings::autoPrintScannedLabels, "settings.printer.autolabel"));
+
+      auto symbols = infoRow("Labels", "Rack symbols", symbolStandardLabel(draft.symbolStandard), VoiceTone::Strong);
+      symbols.targetId = "settings.printer.symbols";
+      symbols.activate = [self] { self->toggleSymbolStandard(); };
+      markChange(symbols, draft.symbolStandard != saved.symbolStandard, symbolStandardLabel(saved.symbolStandard));
+      rows.push_back(move(symbols));
+
+      auto presets = infoRow("", "Quick labels",
+                             to_string(draft.quickLabelPresets.size()) + " of " + to_string(kQuickLabelPresetLimit) + " presets");
+      presets.targetId = "settings.printer.quick_labels";
+      presets.activate = [self] { self->selectSettingsCategory(SettingsCategory::QuickLabels); };
+      presets.buttons = {button("Edit", "", "settings.printer.quick_labels.edit",
+                                [self] { self->selectSettingsCategory(SettingsCategory::QuickLabels); })};
+      rows.push_back(move(presets));
+      break;
+    }
+
+    case SettingsCategory::QuickLabels: {
+      const auto& presets = draft.quickLabelPresets;
+      const int count = static_cast<int>(presets.size());
+      model.status = {{to_string(count) + " of " + to_string(kQuickLabelPresetLimit), VoiceTone::Strong},
+                      {" presets in use."}};
+      for (int index = 0; index < count; ++index) {
+        auto row = editRow(index == 0 ? "Presets" : "", "Preset " + to_string(index + 1), presets[static_cast<size_t>(index)],
+                           index, "settings.quick_label." + to_string(index));
+        const bool changed = static_cast<size_t>(index) >= saved.quickLabelPresets.size() ||
+                             saved.quickLabelPresets[static_cast<size_t>(index)] != presets[static_cast<size_t>(index)];
+        if (!row.editing && changed) row.tone = VoiceTone::Warning;
+        row.buttonsOnFocus = true;
+        row.buttons = {button("Test", "t", "settings.quick_label.test", [self] { self->testQuickLabelPreset(); }),
+                       button("Remove", "x", "settings.quick_label.remove", [self] { self->deleteQuickLabelPreset(); }, false, true),
+                       button("Up", "[", "settings.quick_label.up", [self] { self->moveQuickLabelPreset(-1); }, false, false,
+                              index > 0),
+                       button("Down", "]", "settings.quick_label.down", [self] { self->moveQuickLabelPreset(1); }, false, false,
+                              index + 1 < count)};
+        rows.push_back(move(row));
+      }
+      const bool canAdd = presets.size() < kQuickLabelPresetLimit;
+      auto add = infoRow(count == 0 ? "Presets" : "", "New preset",
+                         canAdd ? to_string(kQuickLabelPresetLimit - presets.size()) + " free" : "All 12 in use", VoiceTone::Muted);
+      add.targetId = "settings.quick_label.add.row";
+      if (canAdd) add.activate = [self] { self->addQuickLabelPreset(); };
+      add.buttons = {button("Add", "a", "settings.quick_label.add.primary", [self] { self->addQuickLabelPreset(); }, false,
+                            false, canAdd)};
+      rows.push_back(move(add));
+
+      auto wire = editRow("Custom", "Wire label", wireLabelText_.empty() ? "Not set" : wireLabelText_, count,
+                          "settings.quick_label.wire");
+      if (!wire.editing && wireLabelText_.empty()) wire.tone = VoiceTone::Muted;
+      wire.buttons = {button("Print", "w", "settings.quick_label.wire.custom",
+                             [self] { self->printWireLabel(self->wireLabelText_); }, false, false, !wireLabelText_.empty())};
+      rows.push_back(move(wire));
+      break;
+    }
+
+    case SettingsCategory::InventatoryScan: {
+      const bool setupComplete = inventatoryScanConfig_.setupComplete || !inventatoryScanConfig_.deviceId.empty();
+      if (!setupComplete) {
+        model.status = {{"The R1 is not set up yet."}};
+        auto status = infoRow("Scanner", "Status", "Not set up", VoiceTone::Muted);
+        status.targetId = "settings.scan.status";
+        status.activate = [self] { self->openInventatoryScanSetup(); };
+        status.buttons = {button("Begin setup", "b", "settings.scan.begin_setup", [self] { self->openInventatoryScanSetup(); }, true)};
+        rows.push_back(move(status));
+        break;
+      }
+      const auto now = time(nullptr);
+      const bool hasIdentity = !inventatoryScanConfig_.deviceId.empty();
+      const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
+      size_t waiting = 0;
+      size_t failed = 0;
+      for (const auto& record : deviceEventRecords_) {
+        if (record.state == "failed") ++failed;
+        else if (record.state == "received") ++waiting;
+      }
+      const auto lastContact = deviceLastSeen_ > 0 ? nowTimestampString(deviceLastSeen_) : string();
+      if (!hasIdentity) {
+        model.status = {{"Waiting for the R1 to report in."}};
+      } else if (online) {
+        model.status = {{"The R1 is online."}};
+      } else {
+        model.status = {{"The R1 is offline.", VoiceTone::Warning}};
+        if (!lastContact.empty()) model.status.push_back({" Last contact " + lastContact + "."});
+      }
+      if (failed > 0) {
+        model.status.push_back({" "});
+        model.status.push_back({voiceCount(static_cast<int>(failed), "scan", "scans") + " could not be saved.", VoiceTone::Danger});
+      }
+
+      auto status = infoRow("Scanner", "Status", !hasIdentity ? "Waiting" : online ? "Online" : "Offline",
+                            !hasIdentity ? VoiceTone::Muted : online ? VoiceTone::Success : VoiceTone::Warning);
+      if (hasIdentity && deviceLastSeen_ > 0) status.note = "signal " + to_string(deviceRssi_) + " dBm";
+      rows.push_back(move(status));
+      auto device = infoRow("", "Device", hasIdentity ? inventatoryScanConfig_.deviceId : "Not reported yet",
+                            hasIdentity ? VoiceTone::Plain : VoiceTone::Muted);
+      device.targetId = "settings.scan.device";
+      device.activate = [self] { self->openInventatoryScanSetup(); };
+      device.buttons = {button("Pair new", "p", "settings.scan.pair", [self] { self->openInventatoryScanSetup(); })};
+      rows.push_back(move(device));
+      rows.push_back(infoRow("", "Firmware", deviceFirmwareVersion_.empty() ? "Not reported" : deviceFirmwareVersion_,
+                             deviceFirmwareVersion_.empty() ? VoiceTone::Muted : VoiceTone::Plain));
+
+      auto waitingRow = infoRow("Scans", "Waiting to save", to_string(waiting));
+      waitingRow.targetId = "settings.scan.events";
+      waitingRow.activate = [self] { self->refreshDeviceEventRecords(); };
+      waitingRow.buttons = {button("Refresh", "v", "settings.scan.events.refresh", [self] { self->refreshDeviceEventRecords(); })};
+      rows.push_back(move(waitingRow));
+      auto failedRow = infoRow("", "Failed to save", to_string(failed), failed > 0 ? VoiceTone::Danger : VoiceTone::Plain);
+      failedRow.targetId = "settings.scan.events.failed";
+      if (failed > 0) failedRow.activate = [self] { self->retryFailedDeviceEvents(); };
+      failedRow.buttons = {
+          button("Retry", "y", "settings.scan.events.retry", [self] { self->retryFailedDeviceEvents(); }, false, false, failed > 0),
+          button("Discard", "x", "settings.scan.events.discard", [self] { self->discardFailedDeviceEvents(); }, false, true,
+                 failed > 0)};
+      rows.push_back(move(failedRow));
+
+      auto port = editRow("Service", "Port", to_string(draft.deviceServicePort), 0, "settings.scan.port");
+      if (!port.editing) markChange(port, draft.deviceServicePort != saved.deviceServicePort, to_string(saved.deviceServicePort));
+      if (!port.editing && draft.deviceServicePort != saved.deviceServicePort) port.note += ", applies on next launch";
+      port.buttons = {button("Restart", "h", "settings.scan.restart", [self] { self->restartDeviceService(); })};
+      rows.push_back(move(port));
+
+      auto token = infoRow("Security", "Access token", "Hidden", VoiceTone::Muted);
+      token.buttons = {button("Copy", "t", "settings.scan.token.copy", [self] { self->copyInventatoryScanToken(); }),
+                       button("Regenerate", "r", "settings.scan.token.regenerate",
+                              [self] { self->regenerateInventatoryScanToken(); }, false, true)};
+      rows.push_back(move(token));
+      auto pairing = infoRow("", "Pairing", hasIdentity ? inventatoryScanConfig_.deviceId : "Set up", VoiceTone::Plain);
+      pairing.buttons = {button("Forget", "c", "settings.scan.clear", [self] { self->clearInventatoryScanPairing(); }, false, true)};
+      rows.push_back(move(pairing));
+      break;
+    }
+
+    case SettingsCategory::DigiKey: {
+      const bool configured = !trim(saved.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
+      if (!configured) {
+        model.status = {{"DigiKey is not set up yet."}};
+        auto status = infoRow("Account", "Status", "Not set up", VoiceTone::Muted);
+        status.targetId = "settings.digikey.status";
+        status.activate = [self] { self->openDigiKeySetup(); };
+        status.buttons = {button("Begin setup", "b", "settings.digikey.begin_setup", [self] { self->openDigiKeySetup(); }, true)};
+        rows.push_back(move(status));
+        break;
+      }
+      const bool refreshRunning = !digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid();
+      if (refreshRunning) {
+        model.status = {{"Refreshing DigiKey data: "},
+                        {to_string(digiKeyRefreshCompleted_) + " of " + to_string(digiKeyRefreshTotal_), VoiceTone::Strong},
+                        {" parts done."}};
+      } else if (!digiKeyRefreshLastError_.empty()) {
+        model.status = {{"The last DigiKey refresh failed: ", VoiceTone::Danger}, {digiKeyRefreshLastError_}};
+      } else {
+        model.status = {{"DigiKey is set up for "}, {draft.digiKeySite + ", " + draft.digiKeyCurrency, VoiceTone::Strong}, {"."}};
+      }
+      const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
+      struct Field {
+        const char* group;
+        const char* label;
+        string value;
+        string savedValue;
+      };
+      const vector<Field> fields = {
+          {"Account", "Client ID", draft.digiKeyClientId, saved.digiKeyClientId},
+          {"", "Client secret", hasSecret ? "Hidden" : "Not set", hasSecret ? "Hidden" : "Not set"},
+          {"", "Account ID", draft.digiKeyAccountId, saved.digiKeyAccountId},
+          {"Region", "Site", draft.digiKeySite, saved.digiKeySite},
+          {"", "Language", draft.digiKeyLanguage, saved.digiKeyLanguage},
+          {"", "Currency", draft.digiKeyCurrency, saved.digiKeyCurrency},
+      };
+      for (size_t index = 0; index < fields.size(); ++index) {
+        const auto& field = fields[index];
+        auto row = editRow(field.group, field.label, field.value.empty() ? "Not set" : field.value, static_cast<int>(index),
+                           "settings.digikey." + to_string(index));
+        if (row.editing && index == 1) row.value = string(inputBuffer_.size(), '*') + "_";
+        if (!row.editing && field.value.empty()) row.tone = VoiceTone::Muted;
+        if (!row.editing && index == 1 && stagedDigiKeySecretChanged_) {
+          row.tone = VoiceTone::Warning;
+          row.note = "changed";
+        } else if (!row.editing) {
+          markChange(row, field.value != field.savedValue, field.savedValue.empty() ? "Not set" : field.savedValue);
+        }
+        if (index == 0) row.buttons = {button("Test", "t", "settings.digikey.test", [self] { self->testStagedDigiKey(); })};
+        rows.push_back(move(row));
+      }
+      string refresh = "Not run yet";
+      auto refreshTone = VoiceTone::Muted;
+      if (refreshRunning) {
+        refresh = to_string(digiKeyRefreshCompleted_) + " of " + to_string(digiKeyRefreshTotal_) + " done";
+        refreshTone = VoiceTone::Plain;
+      } else if (digiKeyRefreshTotal_ > 0) {
+        refresh = to_string(digiKeyRefreshSucceeded_) + " updated, " + to_string(digiKeyRefreshFailed_) + " failed";
+        refreshTone = digiKeyRefreshFailed_ > 0 ? VoiceTone::Warning : VoiceTone::Plain;
+      }
+      auto refreshRow = infoRow("Inventory", "Last refresh", refresh, refreshTone);
+      const bool refreshEnabled = !refreshRunning && !settingsDirty_;
+      refreshRow.targetId = "settings.digikey.refresh.row";
+      if (refreshEnabled) refreshRow.activate = [self] { self->beginDigiKeyRefresh(); };
+      refreshRow.buttons = {button("Refresh", "r", "settings.digikey.refresh", [self] { self->beginDigiKeyRefresh(); }, false,
+                                   false, refreshEnabled)};
+      rows.push_back(move(refreshRow));
+      break;
+    }
   }
-  parts.push_back(ftxui::filler());
-  return ftxui::hbox(move(parts));
+  return model;
 }
-
-void appendSettingsSection(ftxui::Elements& panel, const string& title, ftxui::Elements rows, ftxui::Element meta) {
-  if (!panel.empty()) panel.push_back(ftxui::text(""));
-  panel.push_back(settingsSectionHeader(title, move(meta)));
-  for (auto& row : rows) panel.push_back(move(row));
-}
-
-// Versions table shared by the header row and data rows: a fixed label column,
-// capped Current/Latest columns, and a Status column that takes what is left.
-struct VersionRowData {
-  string label;
-  string current;
-  string latest;
-  string status;
-  bool mutedCurrent = false;  // "no data available", not a real version
-  ftxui::Color latestColor = uiInteractiveColor();
-  ftxui::Color statusColor = uiMutedText();
-};
-
-int versionTableValueWidth(int width) {  // each of the two version columns
-  const int remainder = max(0, width - kSettingsGutterWidth - settingsLabelWidth(width));
-  return min(max(8, remainder * 2 / 7), 16);
-}
-
-ftxui::Element versionTableCell(const string& text, ftxui::Color color, int width) {
-  return styledText(text.empty() ? string() : ellipsize(text, static_cast<size_t>(max(1, width))), color) |
-         ftxui::size(ftxui::WIDTH, ftxui::EQUAL, max(1, width));
-}
-
-ftxui::Element versionTableHeader(int width) {
-  const int valueWidth = versionTableValueWidth(width);
-  return ftxui::hbox({
-             ftxui::text(string(kSettingsGutterWidth, ' ')),
-             styledText("Label", uiDimColor()) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, settingsLabelWidth(width)),
-             styledText("Current", uiDimColor()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, valueWidth),
-             styledText("Latest", uiDimColor()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, valueWidth),
-             styledText("Status", uiDimColor()),
-         }) |
-         ftxui::bgcolor(uiSurfaceBg());
-}
-
-ftxui::Element versionTableRow(const VersionRowData& data, int width) {
-  const int labelWidth = settingsLabelWidth(width);
-  const int valueWidth = versionTableValueWidth(width);
-  // Status takes the remaining width: success = verified current state,
-  // warn = real error, interactive = an update exists to act on,
-  // muted/blank = no data yet.
-  return ftxui::hbox({
-             ftxui::text(string(kSettingsGutterWidth, ' ')),
-             styledText(data.label, uiSecondaryText()) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
-             versionTableCell(data.current, data.mutedCurrent ? uiMutedText() : uiPrimaryText(), valueWidth),
-             versionTableCell(data.latest, data.latestColor, valueWidth),
-             versionTableCell(data.status, data.status.empty() ? uiMutedText() : data.statusColor,
-                              max(1, width - kSettingsGutterWidth - labelWidth - 2 * valueWidth)),
-         }) |
-         ftxui::bgcolor(uiSurfaceBg());
-}
-
-ftxui::Element appearanceColorLine(AppearanceColorRole role, int width, bool selected) {
-  // Gutter, swatch, gap, and the right-aligned "#RRGGBB " take 15 columns;
-  // one more keeps a full-width label from abutting the hex value.
-  const auto labelWidth = max(10, width - 16);
-  auto row = ftxui::hbox({
-                 styledText(selected ? " > " : "   ", selected ? uiFocusColor() : uiSecondaryText()),
-                 styledText("   ", uiPrimaryText(), uiAppearanceColor(role)),
-                 styledText(" ", uiPrimaryText()),
-                 styledText(ellipsize(appearanceColorLabel(role), static_cast<size_t>(labelWidth - 1)),
-                            selected ? uiFocusColor() : uiSecondaryText()) |
-                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
-                 ftxui::filler(),
-                 styledText(appearanceColorHex(activeUiAppearance().colors[static_cast<size_t>(role)]),
-                            selected ? uiPrimaryText() : uiMutedText()),
-                 styledText(" "),
-             }) |
-             ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
-  if (selected) row = row | ftxui::select;
-  return row;
-}
-
-}  // namespace settings_page_detail
 
 ftxui::Element App::renderSettingsUi() const {
   auto self = const_cast<App*>(this);
-  constexpr int categoryWidth = 24;
   const auto* active = ftxui::ScreenInteractive::Active();
-  const int contentWidth = max(60, (active != nullptr ? active->dimx() : 120) - categoryWidth - 3);
+  const int screenWidth = active != nullptr ? active->dimx() : 120;
+  const int navWidth = screenWidth >= 110 ? 26 : 25;
+  const int contentWidth = max(60, screenWidth - navWidth);
+  const auto surface = uiSurfaceBg();
+  const auto canvas = uiCanvasBg();
 
-  ftxui::Elements categories;
-  categories.push_back(styledText(" Settings", uiMutedText()));
-  const auto addCategory = [&](SettingsCategory category, int indent) {
-    const bool selected = category == settingsCategory_;
-    const string marker = indent > 0 ? (selected ? "    > " : "      ") : (selected ? "  > " : "    ");
-    auto row = fullLine(marker + settingsCategoryName(category),
-                        selected ? uiFocusColor() : uiSecondaryText(),
-                        selected ? uiSelectionBg() : uiCanvasBg());
-    categories.push_back(target(row, "settings.category." + settingsCategoryName(category), UiTargetKind::Category,
-                                [self, category] {
-                                  self->settingsCategory_ = category;
-                                  self->settingsField_ = 0;
-                                  self->settingsEditingField_ = false;
-                                  self->appearancePickerOpen_ = false;
-                                  if (category == SettingsCategory::Printer) self->refreshPrinterState();
-                                  self->dirty_ = true;
-                                }));
+  // ---- navigation: the selected item shares the content surface, like a tab joined to its page ----
+  const bool updateAvailable = isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
+  const bool scanSetUp = inventatoryScanConfig_.setupComplete || !inventatoryScanConfig_.deviceId.empty();
+  size_t failedScans = 0;
+  for (const auto& record : deviceEventRecords_) failedScans += record.state == "failed" ? 1 : 0;
+  const bool digiKeySetUp = !trim(settings_.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
+  const auto navNote = [&](SettingsCategory category) -> pair<string, ftxui::Color> {
+    if (settingsCategoryDirty(category)) return {"Unsaved", uiWarnColor()};
+    switch (category) {
+      case SettingsCategory::Updates:
+        if (updateAvailable) return {"New", uiWarnColor()};
+        break;
+      case SettingsCategory::Printer:
+        if (settings_.printerQueue.empty()) return {"Off", uiMutedText()};
+        break;
+      case SettingsCategory::InventatoryScan:
+        if (!scanSetUp) return {"Off", uiMutedText()};
+        if (failedScans > 0) return {"Error", uiDangerColor()};
+        break;
+      case SettingsCategory::DigiKey:
+        if (!digiKeySetUp) return {"Off", uiMutedText()};
+        break;
+      default:
+        break;
+    }
+    return {"", uiMutedText()};
   };
+
+  ftxui::Elements nav;
+  const auto groupLabel = [&](const string& text) { nav.push_back(styledText(" " + text, uiMutedText(), canvas)); };
   for (const auto& entry : settingsCategoryEntries()) {
     const auto category = static_cast<SettingsCategory>(entry.categoryIndex);
-    if (entry.categoryIndex == 0) categories.push_back(styledText(" System", uiDimColor()));
-    if (entry.categoryIndex == 3) categories.push_back(styledText(" Devices", uiDimColor()));
-    if (entry.categoryIndex == 6) categories.push_back(styledText(" Integrations", uiDimColor()));
-    addCategory(category, entry.indent);
+    if (entry.categoryIndex == 0) groupLabel("System");
+    if (entry.categoryIndex == 3) {
+      nav.push_back(ftxui::text(""));
+      groupLabel("Devices");
+    }
+    if (entry.categoryIndex == 6) {
+      nav.push_back(ftxui::text(""));
+      groupLabel("Integrations");
+    }
+    const bool selected = category == settingsCategory_;
+    const auto bg = selected ? surface : canvas;
+    const auto note = navNote(category);
+    auto row = ftxui::hbox({
+                   styledText(selected ? " >" : "  ", uiFocusColor(), bg) | ftxui::bold,
+                   styledText(string(1 + entry.indent * 2, ' '), uiSecondaryText(), bg),
+                   selected ? uiHeaderText(settingsCategoryName(category), uiFocusColor(), bg)
+                            : styledText(settingsCategoryName(category), uiSecondaryText(), bg),
+                   ftxui::filler(),
+                   styledText(note.first, note.second, bg),
+                   ftxui::text(" "),
+               }) |
+               ftxui::bgcolor(bg);
+    nav.push_back(target(move(row), "settings.category." + settingsCategoryName(category), UiTargetKind::Category,
+                         [self, category] { self->selectSettingsCategory(category); }));
   }
 
-  auto categoryHeader = ftxui::hbox({
-      uiHeaderText(" " + settingsCategoryName(settingsCategory_), uiPrimaryText()),
-      ftxui::filler(),
-      styledText(settingsDirty_ ? "Unsaved changes" : "Saved", settingsDirty_ ? uiWarnColor() : uiSuccessColor()),
-      ftxui::text(" "),
-  }) | ftxui::bgcolor(uiSurfaceBg());
-
-  ftxui::Elements rows;
-  const auto toggleSetting = [self](bool& value) {
-    value = !value;
-    self->settingsDirty_ = true;
-    self->dirty_ = true;
-  };
-
-  if (settingsCategory_ == SettingsCategory::General) {
-    appendSettingsSection(rows, "Data storage", {
-        settingLine("Inventatory folder", settingsDraft_.dataDirectory.u8string(), contentWidth),
-        settingsActionRow({
-            target(uiSecondaryButton("Change folder"), "settings.data.browse", UiTargetKind::Button,
-                   [self] { self->stageInventatoryFolder(); }),
-        }),
-    });
-    appendSettingsSection(rows, "Backup and export", {
-        settingsActionRow({
-            target(uiSecondaryButton("Export CSV"), "settings.data.export", UiTargetKind::Button,
-                   [self] { self->exportInventory(); }),
-            target(uiSecondaryButton("Backup folder"), "settings.data.backup", UiTargetKind::Button,
-                   [self] { self->backupData(); }),
-            target(uiSecondaryButton("Restore backup"), "settings.data.restore", UiTargetKind::Button,
-                   [self] { self->restoreData(); }),
-        }),
-    });
-    const bool thresholdEditing = settingsEditingField_ && settingsField_ == 0;
-    appendSettingsSection(rows, "Application", {
-        target(settingToggleLine("Background & startup", settingsDraft_.backgroundServiceEnabled, contentWidth),
-               "settings.general.background", UiTargetKind::Field,
-               [self, toggleSetting] {
-                 toggleSetting(self->settingsDraft_.backgroundServiceEnabled);
-                 self->settingsDraft_.backgroundConsentAsked = true;
-               }),
-        target(settingLine("Low-stock threshold",
-                           thresholdEditing ? inputBuffer_ + "_" : to_string(settingsDraft_.lowStockThreshold),
-                           contentWidth, thresholdEditing),
-               "settings.general.low_stock_threshold", UiTargetKind::Field,
-               [self] { self->beginSettingsFieldEdit(0); }),
-        settingStatusLine("Settings file", settingsPath_.u8string(), uiMutedText(), contentWidth),
-    });
-  } else if (settingsCategory_ == SettingsCategory::Updates) {
-    const bool softwareChecking = updateCheckFuture_.valid();
-    const auto softwareVersionText = softwareVersion();
-    const bool canUpdate = !softwareChecking && isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
-
-    // Real last-check time from the persisted settings; 0 means no check has
-    // ever completed.
-    const bool hasLastCheck = settings_.lastUpdateCheckUnixSeconds > 0;
-    auto lastChecked = ftxui::hbox({
-        styledText("Last checked: ", uiMutedText()),
-        styledText(hasLastCheck ? nowTimestampString(static_cast<time_t>(settings_.lastUpdateCheckUnixSeconds))
-                                : string("Never"),
-                   hasLastCheck ? uiSecondaryText() : uiMutedText()),
-    });
-
-    // Consistent Label | Current | Latest | Status table. Columns stay blank
-    // where a row has no data instead of inventing placeholder values.
-    VersionRowData software;
-    software.label = "Inventatory software";
-    software.current = softwareVersionText;
-    software.latest = updateCheckFailed_ ? string() : settings_.latestAvailableVersion;
-    if (softwareChecking) {
-      software.statusColor = uiMutedText();
-      software.status = string("Checking ") + uiLoadingSpinner();
-    } else if (updateCheckFailed_) {
-      software.statusColor = uiWarnColor();
-      software.status = "Check failed";
-    } else if (!hasLastCheck) {
-      software.status = "Not checked yet";  // muted by default
-    } else if (canUpdate) {
-      software.statusColor = uiInteractiveColor();
-      software.status = "Update available";
-    } else {
-      software.statusColor = uiSuccessColor();
-      software.status = "Up to date";
+  // ---- content ----
+  const auto model = settingsPageModel();
+  // The action column is as wide as the widest button group on the page, so every row's first
+  // button starts at the same column.
+  int actionWidth = 0;
+  for (const auto& row : model.rows) {
+    int width = 0;
+    for (const auto& button : row.buttons) {
+      width += (width > 0 ? 1 : 0) + static_cast<int>(button.label.size()) + 2 +
+               (button.key.empty() ? 0 : static_cast<int>(button.key.size()) + 1);
     }
+    actionWidth = max(actionWidth, width);
+  }
+  // Columns are sized from this page's own content: the longest group and label set their columns,
+  // the widest button group sets the action column, and the value takes the rest.
+  int longestGroup = 0;
+  int longestLabel = 0;
+  for (const auto& row : model.rows) {
+    longestGroup = max(longestGroup, static_cast<int>(row.group.size()));
+    longestLabel = max(longestLabel, static_cast<int>(row.label.size()));
+  }
+  const int markerWidth = 2;
+  // On narrow terminals the group names move from the gutter to their own line above the group.
+  const bool groupsInGutter = contentWidth >= 90;
+  const int groupWidth = groupsInGutter ? clamp(longestGroup + 3, 10, 15) : 0;
+  int labelWidth = clamp(longestLabel + 3, 14, 30);
+  int valueWidth = contentWidth - markerWidth - groupWidth - labelWidth - actionWidth - 3;
+  if (valueWidth < 16) {
+    labelWidth = max(14, labelWidth - (16 - valueWidth));
+    valueWidth = contentWidth - markerWidth - groupWidth - labelWidth - actionWidth - 3;
+  }
 
-    VersionRowData firmware;
-    firmware.label = "Inventascan firmware";
-    firmware.current = deviceFirmwareVersion_.empty() ? string("Not reported") : deviceFirmwareVersion_;
-    firmware.mutedCurrent = deviceFirmwareVersion_.empty();
-    const bool firmwareNewerKnown = !scanFirmwareFuture_.valid() && !deviceFirmwareVersion_.empty() &&
-                                    isVersionNewer(scanFirmwareLatestVersion_, deviceFirmwareVersion_);
-    if (scanFirmwareFuture_.valid()) {
-      firmware.statusColor = uiMutedText();
-      firmware.status = string("Checking ") + uiLoadingSpinner();
-    } else if (scanFirmwareCheckFailed_) {
-      // A failed run clears the cached latest, so this precedes the newer check.
-      firmware.statusColor = uiWarnColor();
-      firmware.status = "Check failed";
-    } else if (firmwareNewerKnown) {
-      firmware.latest = scanFirmwareLatestVersion_;  // interactive color by default
-      firmware.statusColor = uiInteractiveColor();
-      firmware.status = "Update available";
-    }
-
-    VersionRowData hardware;
-    hardware.label = "Inventascan hardware";
-    hardware.current = "R1";  // latest/status: no such data for hardware revisions
-
-    const auto checkLabel = softwareChecking ? "Searching for software updates " + uiLoadingSpinner()
-                                             : "Check for software updates";
-    ftxui::Elements updateActions;
-    // Check is a repeatable maintenance action; the filled primary button is
-    // reserved for actually updating once a newer version is known.
-    updateActions.push_back(target(uiSecondaryButton(checkLabel, uiInteractiveColor(), !softwareChecking),
-                                   "settings.updates.check", UiTargetKind::Button,
-                                   [self] { self->beginUpdateChecks(); }, !softwareChecking));
-    if (canUpdate) {
-      updateActions.push_back(target(uiPrimaryButton("Update to " + settings_.latestAvailableVersion),
-                                     "settings.updates.update", UiTargetKind::Button,
-                                     [self] { self->beginSoftwareUpdate(); }));
-    }
-
-    appendSettingsSection(rows, "Versions", {
-        versionTableHeader(contentWidth),
-        versionTableRow(software, contentWidth),
-        versionTableRow(firmware, contentWidth),
-        versionTableRow(hardware, contentWidth),
-        settingsActionRow(move(updateActions)),
-    }, move(lastChecked));
-    appendSettingsSection(rows, "Preferences", {
-        target(settingToggleLine("Auto-check for updates", settingsDraft_.updateChecksEnabled, contentWidth),
-               "settings.updates.autocheck", UiTargetKind::Field,
-               [self, toggleSetting] { toggleSetting(self->settingsDraft_.updateChecksEnabled); }),
-    });
-  } else if (settingsCategory_ == SettingsCategory::Appearance) {
-    auto appearanceRows = renderSettingsAppearanceRows(contentWidth);
-    for (auto& row : appearanceRows) rows.push_back(move(row));
-  } else if (settingsCategory_ == SettingsCategory::Printer) {
-    appendSettingsSection(rows, "Print queue", {
-        settingsDraft_.printerQueue.empty()
-            ? settingStatusLine("Configured queue", "Not configured", uiWarnColor(), contentWidth)
-            : settingLine("Configured queue", settingsDraft_.printerQueue, contentWidth),
-        target(settingToggleLine("Auto-label", settingsDraft_.autoPrintScannedLabels, contentWidth),
-               "settings.printer.autolabel", UiTargetKind::Field,
-               [self, toggleSetting] { toggleSetting(self->settingsDraft_.autoPrintScannedLabels); }),
-    });
-    appendSettingsSection(rows, "Label symbols", {
-        target(settingLine("Schematic symbols", symbolStandardLabel(settingsDraft_.symbolStandard), contentWidth),
-               "settings.printer.symbols", UiTargetKind::Field,
-               [self] { self->toggleSymbolStandard(); }),
-    });
-    ftxui::Elements queueRows;
-    if (printerQueues_.empty()) {
-      queueRows.push_back(settingNoteLine("No printer queues detected", uiWarnColor(), contentWidth));
-    } else {
-      for (size_t index = 0; index < printerQueues_.size(); ++index) {
-        const auto& printer = printerQueues_[index];
-        queueRows.push_back(target(settingListLine(printer.name, printer.statusText,
-                                                   printer.statusText == "Ready" ? uiSuccessColor() : uiSecondaryText(),
-                                                   contentWidth, index == printerSelection_),
-                                   "settings.printer." + to_string(index), UiTargetKind::Row, [self, index] {
-                                     self->printerSelection_ = index;
-                                     self->stageSelectedPrinterQueue();
-                                   }));
+  size_t cursor = settingsRow_;
+  if (!model.rows.empty() && (cursor >= model.rows.size() || !model.rows[cursor].focusable())) {
+    cursor = model.rows.size();
+    for (size_t index = 0; index < model.rows.size(); ++index) {
+      if (model.rows[index].focusable()) {
+        cursor = index;
+        break;
       }
-    }
-    queueRows.push_back(settingsActionRow({
-        target(uiSecondaryButton("Refresh"), "settings.printer.refresh", UiTargetKind::Button,
-               [self] { self->refreshPrinterState(); }),
-        target(uiSecondaryButton("Test selected"), "settings.printer.test", UiTargetKind::Button,
-               [self] { self->testStagedPrinter(); }),
-    }));
-    appendSettingsSection(rows, "Detected queues", move(queueRows),
-                          styledText(to_string(printerQueues_.size()) + " found", uiMutedText()));
-  } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
-    const auto& presets = settingsDraft_.quickLabelPresets;
-    const int presetCount = static_cast<int>(presets.size());
-    const bool canAddPreset = presets.size() < kQuickLabelPresetLimit;
-    ftxui::Elements presetRows;
-    if (presets.empty()) presetRows.push_back(settingNoteLine("No quick labels yet", uiMutedText(), contentWidth));
-    for (size_t index = 0; index < presets.size(); ++index) {
-      const bool editing = settingsEditingField_ && settingsField_ == static_cast<int>(index);
-      presetRows.push_back(target(settingLine("Preset " + to_string(index + 1),
-                                              editing ? inputBuffer_ + "_" : presets[index], contentWidth,
-                                              settingsField_ == static_cast<int>(index)),
-                                  "settings.quick_label." + to_string(index), UiTargetKind::Field,
-                                  [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
-    }
-    const bool presetSelected = settingsField_ >= 0 && settingsField_ < presetCount;
-    const bool canMoveDown = settingsField_ >= 0 && settingsField_ + 1 < presetCount;
-    presetRows.push_back(settingsActionRow({
-        target(uiSecondaryButton("+ Add", nullopt, canAddPreset), "settings.quick_label.add.primary",
-               UiTargetKind::Button, [self] { self->addQuickLabelPreset(); }, canAddPreset),
-        target(uiSecondaryButton("Test", nullopt, presetSelected), "settings.quick_label.test", UiTargetKind::Button,
-               [self] { self->testQuickLabelPreset(); }, presetSelected),
-        target(uiSecondaryButton("Remove", uiWarnColor(), presetSelected), "settings.quick_label.remove",
-               UiTargetKind::Button, [self] { self->deleteQuickLabelPreset(); }, presetSelected),
-        target(uiSecondaryButton("Up", uiSecondaryText(), settingsField_ > 0), "settings.quick_label.up",
-               UiTargetKind::Button, [self] { self->moveQuickLabelPreset(-1); }, settingsField_ > 0),
-        target(uiSecondaryButton("Down", uiSecondaryText(), canMoveDown), "settings.quick_label.down",
-               UiTargetKind::Button, [self] { self->moveQuickLabelPreset(1); }, canMoveDown),
-    }));
-    appendSettingsSection(rows, "Presets", move(presetRows),
-                          styledText(to_string(presets.size()) + "/" + to_string(kQuickLabelPresetLimit),
-                                     uiMutedText()));
-
-    const int customLabelField = presetCount;
-    const bool customLabelSelected = settingsField_ == customLabelField;
-    const bool customLabelEditing = settingsEditingField_ && customLabelSelected;
-    const auto wireValue = customLabelEditing ? inputBuffer_ + "_"
-                                              : wireLabelText_.empty() ? "Enter custom wire text" : wireLabelText_;
-    appendSettingsSection(rows, "Custom label", {
-        target(settingLine("Wire label", wireValue, contentWidth, customLabelSelected), "settings.quick_label.wire",
-               UiTargetKind::Field, [self, customLabelField] { self->beginSettingsFieldEdit(customLabelField); }),
-        settingsActionRow({
-            target(uiPrimaryButton("Print custom label", !wireLabelText_.empty()), "settings.quick_label.wire.custom",
-                   UiTargetKind::Button, [self] { self->printWireLabel(self->wireLabelText_); },
-                   !wireLabelText_.empty()),
-        }),
-    });
-  } else if (settingsCategory_ == SettingsCategory::InventatoryScan) {
-    const bool setupComplete = inventatoryScanConfig_.setupComplete || !inventatoryScanConfig_.deviceId.empty();
-    if (!setupComplete) {
-      appendSettingsSection(rows, "Setup", {
-          settingStatusLine("Status", "Not set up", uiMutedText(), contentWidth),
-          settingsActionRow({target(uiPrimaryButton("Begin Setup"), "settings.scan.begin_setup", UiTargetKind::Button,
-                                    [self] { self->openInventatoryScanSetup(); })}),
-      });
-    } else {
-      // Pairing is the reason this panel exists, so it leads. Token and
-      // diagnostics operations stay on the Actions sheet.
-      const auto now = time(nullptr);
-      const bool online = deviceLastSeen_ > 0 && now - deviceLastSeen_ <= 15;
-      const bool hasDeviceIdentity = !inventatoryScanConfig_.deviceId.empty();
-      ftxui::Elements deviceRows;
-      deviceRows.push_back(settingStatusLine(
-          "Status", !hasDeviceIdentity ? "Waiting for device" : online ? "Online" : "Offline",
-          !hasDeviceIdentity ? uiMutedText() : online ? uiSuccessColor() : uiWarnColor(), contentWidth));
-      if (hasDeviceIdentity) {
-        // Signal strength and last-contact are only meaningful once the device
-        // has actually reported in; before that they would read as fake zeros.
-        deviceRows.push_back(settingLine("Device", inventatoryScanConfig_.deviceId, contentWidth));
-        if (deviceLastSeen_ > 0) {
-          deviceRows.push_back(settingLine("Signal", to_string(deviceRssi_) + " dBm", contentWidth));
-          deviceRows.push_back(settingLine(
-              "Last seen", to_string(static_cast<long long>(now - deviceLastSeen_)) + "s ago", contentWidth));
-        }
-      }
-      deviceRows.push_back(settingsActionRow({target(uiPrimaryButton("Pair new device"), "settings.scan.pair",
-                                                     UiTargetKind::Button,
-                                                     [self] { self->openInventatoryScanSetup(); })}));
-      appendSettingsSection(rows, "Device", move(deviceRows));
-
-      const auto portValue = settingsEditingField_ ? inputBuffer_ + "_" : to_string(settingsDraft_.deviceServicePort);
-      appendSettingsSection(rows, "Bridge service", {
-          target(settingLine("Service port", portValue, contentWidth, settingsEditingField_), "settings.scan.port",
-                 UiTargetKind::Field, [self] { self->beginSettingsFieldEdit(0); }),
-          settingsActionRow({target(uiSecondaryButton("Restart bridge"), "settings.scan.restart",
-                                    UiTargetKind::Button, [self] { self->restartDeviceService(); })}),
-      });
-    }
-  } else if (settingsCategory_ == SettingsCategory::DigiKey) {
-    const bool configured = !trim(settings_.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
-    if (!configured) {
-      appendSettingsSection(rows, "Setup", {
-          settingStatusLine("Status", "Not configured", uiMutedText(), contentWidth),
-          settingsActionRow({target(uiPrimaryButton("Begin Setup"), "settings.digikey.begin_setup",
-                                    UiTargetKind::Button, [self] { self->openDigiKeySetup(); })}),
-      });
-    } else {
-      const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
-      const vector<pair<string, string>> fields = {
-          {"Client ID", settingsDraft_.digiKeyClientId},
-          {"Client secret", hasSecret ? "Hidden" : "Not configured"},
-          {"Account ID", settingsDraft_.digiKeyAccountId},
-          {"Site", settingsDraft_.digiKeySite},
-          {"Language", settingsDraft_.digiKeyLanguage},
-          {"Currency", settingsDraft_.digiKeyCurrency},
-      };
-      ftxui::Elements credentialRows;
-      for (size_t index = 0; index < fields.size(); ++index) {
-        const bool editing = settingsEditingField_ && settingsField_ == static_cast<int>(index);
-        const auto value = editing ? (index == 1 ? string(inputBuffer_.size(), '*') : inputBuffer_) + "_"
-                                   : fields[index].second;
-        credentialRows.push_back(target(settingLine(fields[index].first, value, contentWidth, editing),
-                                        "settings.digikey." + to_string(index), UiTargetKind::Field,
-                                        [self, index] { self->beginSettingsFieldEdit(static_cast<int>(index)); }));
-      }
-      credentialRows.push_back(settingsActionRow({target(uiSecondaryButton("Test credentials"),
-                                                         "settings.digikey.test", UiTargetKind::Button,
-                                                         [self] { self->testStagedDigiKey(); })}));
-      appendSettingsSection(rows, "API credentials", move(credentialRows));
-
-      const bool refreshRunning = !digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid();
-      string refreshStatus = "Not run";
-      auto refreshColor = uiMutedText();
-      if (refreshRunning) {
-        refreshStatus = "Refreshing " + to_string(digiKeyRefreshCompleted_) + "/" +
-                        to_string(digiKeyRefreshTotal_) + " items";
-        refreshColor = uiInteractiveColor();
-      } else if (digiKeyRefreshTotal_ > 0) {
-        refreshStatus = "Last run: " + to_string(digiKeyRefreshSucceeded_) + " updated, " +
-                        to_string(digiKeyRefreshFailed_) + " failed";
-        refreshColor = digiKeyRefreshFailed_ > 0 ? uiWarnColor() : uiSuccessColor();
-      }
-      ftxui::Elements enrichmentRows;
-      enrichmentRows.push_back(settingStatusLine("Refresh status", refreshStatus, refreshColor, contentWidth));
-      if (!refreshRunning && !digiKeyRefreshLastError_.empty()) {
-        enrichmentRows.push_back(settingStatusLine("Last error", digiKeyRefreshLastError_, uiWarnColor(), contentWidth));
-      }
-      const bool refreshEnabled = !refreshRunning && !settingsDirty_;
-      enrichmentRows.push_back(settingsActionRow({target(
-          uiPrimaryButton(refreshRunning ? uiLoadingSpinner() + " Refreshing inventory data" : "Refresh inventory data",
-                          refreshEnabled),
-          "settings.digikey.refresh", UiTargetKind::Button, [self] { self->beginDigiKeyRefresh(); }, refreshEnabled)}));
-      appendSettingsSection(rows, "Inventory enrichment", move(enrichmentRows));
     }
   }
 
-  auto settingsBody = ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator |
-                      ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex;
-  auto settingsFooter = ftxui::hbox({
-      ftxui::text(" "),
-      target(uiPrimaryButton("Save", settingsDirty_), "settings.save", UiTargetKind::Button,
-             [self] { self->saveSettingsDraft(); }, settingsDirty_),
-      ftxui::text("  "),
-      target(uiSecondaryButton("Cancel", uiSecondaryText(), settingsDirty_), "settings.cancel", UiTargetKind::Button,
-             [self] { self->cancelSettingsDraft(); }, settingsDirty_),
-      ftxui::filler(),
-      styledText(appearancePickerOpen_ ? "arrows picker  Enter accept  Esc cancel"
-                                       : "↑↓ categories  j/k lists  Tab focus  Enter activate",
-                   uiMutedText()),
-  });
+  ftxui::Elements body;
+  for (size_t index = 0; index < model.rows.size(); ++index) {
+    const auto& row = model.rows[index];
+    if (!row.group.empty() && index > 0) body.push_back(ftxui::text(""));
+    if (!row.group.empty() && !groupsInGutter) {
+      body.push_back(ftxui::hbox({ftxui::text(string(markerWidth, ' ')), styledText(row.group, uiMutedText())}));
+    }
+    const bool focused = index == cursor;
+    const auto bg = focused ? uiSelectionBg() : surface;
+
+    ftxui::Elements valueParts;
+    int used = 0;
+    if (row.swatch) {
+      const auto rgb = *row.swatch;
+      valueParts.push_back(styledText("  ", uiPrimaryText(),
+                                      ftxui::Color::RGB(static_cast<uint8_t>((rgb >> 16) & 0xFFu),
+                                                        static_cast<uint8_t>((rgb >> 8) & 0xFFu),
+                                                        static_cast<uint8_t>(rgb & 0xFFu))));
+      valueParts.push_back(ftxui::text(" "));
+      used += 3;
+    }
+    // Paths keep both ends; everything else is cut at the end.
+    const auto valueRoom = static_cast<size_t>(max(4, valueWidth - used - 1));
+    const auto valueText = row.value.find('/') != string::npos ? middleEllipsize(row.value, valueRoom)
+                                                               : ellipsize(row.value, valueRoom);
+    const bool strong = row.tone == VoiceTone::Strong || row.tone == VoiceTone::Warning || row.tone == VoiceTone::Slot;
+    valueParts.push_back(strong ? uiHeaderText(valueText, focused && row.tone == VoiceTone::Strong ? uiFocusColor() : toneColor(row.tone))
+                                : styledText(valueText, toneColor(row.tone)));
+    used += static_cast<int>(valueText.size());
+    if (!row.note.empty() && used + 3 < valueWidth) {
+      valueParts.push_back(styledText("  " + ellipsize(row.note, static_cast<size_t>(valueWidth - used - 3)), toneColor(row.noteTone)));
+    }
+    valueParts.push_back(ftxui::filler());
+
+    auto left = ftxui::hbox({
+                    styledText(focused ? ">" : " ", uiFocusColor()) | ftxui::bold |
+                        ftxui::size(ftxui::WIDTH, ftxui::EQUAL, markerWidth),
+                    styledText(groupsInGutter ? row.group : string(), uiMutedText()) |
+                        ftxui::size(ftxui::WIDTH, ftxui::EQUAL, groupWidth),
+                    styledText(ellipsize(row.label, static_cast<size_t>(labelWidth - 1)), focused ? uiFocusColor() : uiSecondaryText()) |
+                        ftxui::size(ftxui::WIDTH, ftxui::EQUAL, labelWidth),
+                    ftxui::hbox(move(valueParts)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, valueWidth),
+                }) |
+                ftxui::bgcolor(bg);
+    if (row.focusable() && !row.targetId.empty()) {
+      left = target(move(left), row.targetId, UiTargetKind::Field, [self, index] {
+        self->settingsRow_ = index;
+        self->activateSettingsRow();
+      });
+    }
+
+    ftxui::Elements buttons;
+    if (!row.buttonsOnFocus || focused) {
+      for (const auto& spec : row.buttons) {
+        if (!buttons.empty()) buttons.push_back(ftxui::text(" "));
+        const auto kind = spec.primary ? UiButtonKind::Primary : spec.danger ? UiButtonKind::Danger : UiButtonKind::Normal;
+        buttons.push_back(target(uiButton(spec.label, spec.key, kind), spec.targetId, UiTargetKind::Button, spec.run,
+                                 spec.enabled));
+      }
+    }
+    buttons.push_back(ftxui::filler());
+    auto line = ftxui::hbox({move(left), ftxui::text("  "),
+                             ftxui::hbox(move(buttons)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, actionWidth),
+                             ftxui::filler()}) |
+                ftxui::bgcolor(bg);
+    if (focused) line = line | ftxui::select;
+    body.push_back(move(line));
+  }
+
+  if (appearancePickerOpen_) {
+    body.push_back(ftxui::text(""));
+    for (auto& element : renderSettingsAppearancePicker()) body.push_back(move(element));
+  }
+
+  ftxui::Element right = nullptr;
+  if (settingsDirty_) {
+    right = ftxui::hbox({
+        uiHeaderText("Unsaved changes", uiWarnColor()),
+        ftxui::text("  "),
+        target(uiButton("Save", "s", UiButtonKind::Primary), "settings.save", UiTargetKind::Button,
+               [self] { self->saveSettingsDraft(); }),
+        ftxui::text(" "),
+        target(uiButton("Discard", "Esc"), "settings.cancel", UiTargetKind::Button, [self] { self->cancelSettingsDraft(); }),
+    });
+  }
+  auto header = uiPageHeader(uiHeaderText(settingsCategoryName(settingsCategory_), uiPrimaryText()), uiVoiceLine(model.status, nullopt, contentWidth - 3),
+                             move(right));
 
   return ftxui::hbox({
-      ftxui::vbox(move(categories)) | ftxui::bgcolor(uiCanvasBg()) |
-          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, categoryWidth),
-      uiDivider(),
-      ftxui::vbox({move(categoryHeader), uiDivider(), move(settingsBody), uiDivider(), move(settingsFooter)}) |
-          ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex,
+      ftxui::vbox({ftxui::vbox(move(nav)), ftxui::filler()}) | ftxui::bgcolor(canvas) |
+          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, navWidth),
+      ftxui::vbox({move(header), ftxui::vbox(move(body)) | ftxui::yframe | ftxui::flex}) | ftxui::bgcolor(surface) |
+          ftxui::flex,
   });
 }
 

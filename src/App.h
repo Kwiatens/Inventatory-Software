@@ -359,6 +359,38 @@ class App {
     size_t originalIndex = 0;
   };
 
+  // Settings rows (docs/ui-style-guide.md, section 4). One model per category drives rendering, the
+  // row cursor, Enter, mouse targets, and the "was ..." notes for staged changes.
+  struct SettingsButton {
+    std::string label;
+    std::string key;  // accelerator shown on the button; the action itself is registered in currentActions()
+    std::string targetId;
+    std::function<void()> run;
+    bool primary = false;
+    bool danger = false;
+    bool enabled = true;
+  };
+  struct SettingsRow {
+    std::string group;  // named in the gutter on the first row of a group
+    std::string label;
+    std::string value;
+    VoiceTone tone = VoiceTone::Strong;  // Strong: changeable value; Plain/Muted: read-only
+    std::string note;
+    VoiceTone noteTone = VoiceTone::Muted;
+    std::string targetId;
+    std::function<void()> activate;  // Enter on the row, or a click on it
+    std::vector<SettingsButton> buttons;
+    std::optional<std::uint32_t> swatch;
+    int field = -1;  // settingsField_ to select while the cursor is on this row
+    bool buttonsOnFocus = false;  // contextual buttons, shown only on the focused row
+    bool editing = false;
+    bool focusable() const { return static_cast<bool>(activate) || !buttons.empty(); }
+  };
+  struct SettingsPageModel {
+    VoiceLine status;
+    std::vector<SettingsRow> rows;
+  };
+
   struct UndoSnapshot {
     std::vector<InventoryItem> items;
     std::vector<InventatoryRack> racks;
@@ -516,7 +548,14 @@ class App {
   ftxui::Element renderBomProjectUi() const;
   ftxui::Element renderHistoryUi() const;
   ftxui::Element renderSettingsUi() const;
-  ftxui::Elements renderSettingsAppearanceRows(int contentWidth) const;
+  ftxui::Elements renderSettingsAppearancePicker() const;
+  SettingsPageModel settingsPageModel() const;
+  bool settingsCategoryDirty(SettingsCategory category) const;
+  void selectSettingsCategory(SettingsCategory category);
+  void moveSettingsRow(int delta);
+  void activateSettingsRow();
+  void requestSettingsDiscard();
+  void cycleStagedPrinterQueue();
   ftxui::Element renderOnboardingWordmark() const;
   bool wordmarkRevealRunning() const;
   ftxui::Element renderOnboardingFrame(ftxui::Element content) const;
@@ -1007,6 +1046,7 @@ class App {
   AppSettings settingsDraft_;
   SettingsCategory settingsCategory_ = SettingsCategory::General;
   int settingsField_ = 0;
+  size_t settingsRow_ = 0;  // row cursor within the current category
   bool settingsDirty_ = false;
   bool settingsEditingField_ = false;
   bool appearancePickerOpen_ = false;

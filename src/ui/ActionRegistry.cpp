@@ -198,12 +198,13 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Settings:
+      // Settings rows show these keys on their buttons; Enter on a row and the row cursor are page-local.
       if (settingsCategory_ == SettingsCategory::General) {
         add("choose data folder", "General", "b", chr('b'), [self] { self->stageInventatoryFolder(); });
         add("edit low-stock threshold", "General", "e", chr('e'),
             [self] { self->beginSettingsFieldEdit(0); });
         add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
-        add("backup data", "Data", "k", chr('k'), [self] { self->backupData(); });
+        add("back up data", "Data", "k", chr('k'), [self] { self->backupData(); });
         add("restore backup", "Data", "r", chr('r'), [self] { self->restoreData(); });
       }
       if (settingsCategory_ == SettingsCategory::Updates) {
@@ -221,21 +222,28 @@ vector<App::Action> App::currentActions() const {
         add("reset all colors", "Appearance", "d", chr('d'), [self] { self->resetAppearanceColors(); });
       }
       if (settingsCategory_ == SettingsCategory::Printer) {
-        add("refresh", "Printer", "r", chr('r'), [self] { self->refreshPrinterState(); });
+        add("refresh printers", "Printer", "r", chr('r'), [self] { self->refreshPrinterState(); });
         add("switch EU/US symbols", "Printer", "y", chr('y'), [self] { self->toggleSymbolStandard(); });
-        if (selectedPrinterQueue() != nullptr) {
-          add("test", "Printer", "t", chr('t'), [self] {
-            if (const auto* printer = self->selectedPrinterQueue()) {
-              self->printerCheck_ = {false, "Testing printer queue..."};
-              if (self->enqueuePrinterProbe(printer->name)) {
-                self->setMessage("Testing printer queue...", 4);
-              } else {
-                self->setMessage("Printer request queue is full; try again shortly", 4,
-                                 UiMessageSeverity::Warning);
-              }
-              self->dirty_ = true;
-            }
-          });
+        if (!settingsDraft_.printerQueue.empty()) {
+          add("test print", "Printer", "t", chr('t'), [self] { self->testStagedPrinter(); });
+        }
+      }
+      if (settingsCategory_ == SettingsCategory::QuickLabels) {
+        const int presetCount = static_cast<int>(settingsDraft_.quickLabelPresets.size());
+        const bool presetSelected = settingsField_ >= 0 && settingsField_ < presetCount;
+        if (settingsDraft_.quickLabelPresets.size() < kQuickLabelPresetLimit) {
+          add("add preset", "Presets", "a", chr('a'), [self] { self->addQuickLabelPreset(); });
+        }
+        if (presetSelected) {
+          add("test print preset", "Presets", "t", chr('t'), [self] { self->testQuickLabelPreset(); });
+          add("remove preset", "Presets", "x", chr('x'), [self] { self->deleteQuickLabelPreset(); });
+          if (settingsField_ > 0) add("move preset up", "Presets", "[", chr('['), [self] { self->moveQuickLabelPreset(-1); });
+          if (settingsField_ + 1 < presetCount) {
+            add("move preset down", "Presets", "]", chr(']'), [self] { self->moveQuickLabelPreset(1); });
+          }
+        }
+        if (!wireLabelText_.empty()) {
+          add("print wire label", "Custom", "w", chr('w'), [self] { self->printWireLabel(self->wireLabelText_); });
         }
       }
       if (settingsCategory_ == SettingsCategory::InventatoryScan) {
@@ -251,7 +259,7 @@ vector<App::Action> App::currentActions() const {
           add("restart bridge", "Device", "h", chr('h'), [self] { self->restartDeviceService(); });
           add("copy token", "Device", "t", chr('t'), [self] { self->copyInventatoryScanToken(); });
           add("regenerate token", "Device", "r", chr('r'), [self] { self->regenerateInventatoryScanToken(); });
-          add("clear device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });
+          add("forget device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });
         }
       }
       if (settingsCategory_ == SettingsCategory::DigiKey) {
@@ -265,7 +273,7 @@ vector<App::Action> App::currentActions() const {
       }
       if (settingsDirty_) {
         add("save settings", "Changes", "s", chr('s'), [self] { self->saveSettingsDraft(); });
-        add("discard changes", "Changes", "Esc", special(KeyType::Escape), [self] { self->cancelSettingsDraft(); });
+        add("discard changes", "Changes", "Esc", special(KeyType::Escape), [self] { self->requestSettingsDiscard(); });
       }
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
