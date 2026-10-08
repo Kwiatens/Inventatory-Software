@@ -8922,32 +8922,11 @@ void testBomPickPlanRoute() {
   assert(plan.shortMatches.size() == 3);
 
   // The guiding sentences read as plain text.
-  assert(voiceText(bomPickStopTitle(rack)) == "Open Rack 1 and take 19 parts from 3 slots");
-  assert(voiceText(bomPickStopGuide(rack)) == "Start with 10 of 100nF from E3 and 6 of 1uF from C5. Then 1 more slot.");
-  assert(voiceText(bomPickStopGuide(plan.stops[1])) == "Take 6 of 1K from D4.");
+  assert(voiceText(bomPickStopTitle(rack)) == "Rack 1: take 19 parts from 3 slots");
   assert(voiceText(bomPickStopTitle(plan.stops[2])) == "Collect 2 parts kept outside racks");
   assert(voiceText(bomPickNextStop(plan, 0)) == "Then Rack 4: 6 parts from 1 slot.");
   assert(voiceText(bomPickNextStop(plan, 1)) == "Then 2 parts kept outside racks.");
   assert(voiceText(bomPickNextStop(plan, 2)) == "This is the last stop.");
-
-  // Small remainders are summarised instead of listed.
-  BomPickStop ones;
-  ones.rackId = "rack-2";
-  ones.title = "Rack 2";
-  for (const auto* slot : {"A2", "A3", "B4"}) {
-    BomPick pick;
-    pick.slot = slot;
-    pick.designation = "10k";
-    pick.quantity = 1;
-    ones.picks.push_back(pick);
-  }
-  assert(voiceText(bomPickStopGuide(ones)) == "One part from each slot.");
-  ones.picks[0].quantity = 4;
-  ones.picks[1].quantity = 2;
-  assert(voiceText(bomPickStopGuide(ones)) == "Start with 4 of 10k from A2 and 2 of 10k from A3. The last one is a single part.");
-  ones.picks[1].quantity = 1;
-  ones.picks[2].quantity = 2;
-  assert(voiceText(bomPickStopGuide(ones)) == "Start with 4 of 10k from A2 and 2 of 10k from B4. The last one is a single part.");
 
   // Project summary and finish lines.
   assert(voiceText(bomProjectSummary(analysis, 1)) ==

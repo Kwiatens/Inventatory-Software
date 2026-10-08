@@ -115,8 +115,8 @@ blank.
 matching part when one line has several candidates, and that choice is remembered.
 
 **Pick parts** (`f`) walks the parts you have, one rack at a time. The header tells
-you what to do ("Open Rack 1 and take 26 parts from 7 slots", then the largest
-picks), every slot to open is lit and shows its value and `Take N`, and the list
+you what to do ("Rack 1: take 26 parts from 7 slots"), every slot to open is lit
+and shows its value and `Take N`, and the list
 beside the grid adds the board references each pick is for. Take everything that
 is lit, then press Enter for the next rack; Backspace goes back. Parts kept outside
 racks come last, grouped by location. Parts with nothing in stock never appear on

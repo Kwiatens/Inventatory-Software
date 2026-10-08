@@ -50,11 +50,8 @@ struct BomPickPlan {
 // stock outside any rack follow in one stop sorted by location.
 BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& store);
 
-// Header line 1 of a stop: "Open Rack 1 and take 26 parts from 7 slots".
+// Page header of a stop: "Rack 1: take 26 parts from 7 slots".
 VoiceLine bomPickStopTitle(const BomPickStop& stop);
-// Header line 2 of a stop: "Start with 10 of 100nF from E3 and 6 of 1uF from C5. The rest are one or
-// two each."
-VoiceLine bomPickStopGuide(const BomPickStop& stop);
 // Line under the pick list: "Then Rack 2: 4 parts from 4 slots." or "That is the last stop."
 VoiceLine bomPickNextStop(const BomPickPlan& plan, size_t stopIndex);
 // Project summary under the project name: "You have 15 of 43 parts. The other 28 need ordering, 21
