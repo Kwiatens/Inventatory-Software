@@ -13,6 +13,7 @@
 #include "core/transfer/InventoryTransfer.h"
 #include "core/scanner/InventatoryScanProtocol.h"
 #include "core/bom/BomMatch.h"
+#include "core/bom/BomPickPlan.h"
 #include "core/bom/BomProjectStore.h"
 #include "app/settings/AppSettings.h"
 #include "app/shell/AppBootstrap.h"
@@ -356,23 +357,6 @@ class App {
     InventoryItem original;
     bool isNew = false;
     size_t originalIndex = 0;
-  };
-
-  // One part to pull during the Find in racks workflow.
-  struct BuildPick {
-    std::string itemId;
-    std::string slot;  // rack slot such as "B3"; empty for loose parts
-    std::string label;
-    std::string detail;
-    int quantity = 0;
-  };
-
-  // One stop on the walkthrough: a rack, or the final loose-parts screen.
-  struct BuildStep {
-    std::string rackId;  // empty on the loose-parts step
-    std::string title;
-    std::string subtitle;
-    std::vector<BuildPick> picks;
   };
 
   struct UndoSnapshot {
@@ -801,7 +785,10 @@ class App {
   bool backupData();
   bool restoreData();
   void retrySaveState();
-  std::vector<BuildStep> bomBuildSteps() const;
+  BomPickPlan bomPickPlan() const;
+  // Pieces the user says they took for one pick; defaults to everything the plan asks for.
+  int bomPickTaken(const BomPick& pick) const;
+  void adjustBomPickTaken(int delta);
   BomProject* activeBomProject();
   const BomProject* activeBomProject() const;
 
@@ -956,6 +943,9 @@ class App {
   mutable ftxui::Box bomTableBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
+  // Finish screen: amounts corrected by the user (match index -> pieces taken) and the selected row.
+  std::map<size_t, int> bomPickTaken_;
+  size_t bomFinishSelection_ = 0;
   std::string bomRestockItemId_;
   std::string bomDeleteConfirmationProjectId_;
   time_t bomDeleteConfirmationUntil_ = 0;

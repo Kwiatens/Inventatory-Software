@@ -17,102 +17,61 @@ namespace inventatory {
 using namespace std;
 using namespace app_actions;
 
-vector<App::BuildStep> App::bomBuildSteps() const {
-  vector<BuildStep> steps;
-  if (!bomAnalysisValid_) {
-    return steps;
+BomPickPlan App::bomPickPlan() const {
+  if (!bomAnalysisValid_) return {};
+  return planBomPicks(bomAnalysis_, store_);
+}
+
+int App::bomPickTaken(const BomPick& pick) const {
+  const auto found = bomPickTaken_.find(pick.matchIndex);
+  return found == bomPickTaken_.end() ? pick.quantity : clamp(found->second, 0, pick.quantity);
+}
+
+void App::adjustBomPickTaken(int delta) {
+  if (!bomDeductPrompt_) return;
+  const auto plan = bomPickPlan();
+  vector<const BomPick*> picks;
+  for (const auto& stop : plan.stops) {
+    for (const auto& pick : stop.picks) picks.push_back(&pick);
   }
-
-  // Rack stops come first in rack order so the shelf is walked once, then a
-  // single stop collects everything that lives outside a rack.
-  map<string, BuildStep> rackSteps;
-  BuildStep loose;
-  loose.title = "Not in a rack";
-
-  for (const auto& match : bomAnalysis_.matches) {
-    const auto itemId = match.chosenItemId();
-    if (itemId.empty()) {
-      const auto& line = bomAnalysis_.lines[match.lineIndex];
-      BuildPick pick;
-      pick.label = line.designation + " (add in Stock)";
-      pick.detail = packageFromFootprint(line.footprint);
-      pick.slot = "Add in Stock";
-      pick.quantity = match.needed;
-      loose.picks.push_back(move(pick));
-      continue;
-    }
-    const auto* item = store_.findById(itemId);
-    if (item == nullptr) {
-      continue;
-    }
-
-    const auto& line = bomAnalysis_.lines[match.lineIndex];
-    BuildPick pick;
-    pick.itemId = itemId;
-    pick.slot = item->rackSlot;
-    pick.label = line.designation;
-    pick.detail = packageFromFootprint(line.footprint);
-    pick.quantity = match.needed;
-
-    if (item->rackId.empty() || item->rackSlot.empty()) {
-      pick.slot = item->location.empty() ? "Unfiled" : item->location;
-      loose.picks.push_back(move(pick));
-      continue;
-    }
-
-    auto& step = rackSteps[item->rackId];
-    step.rackId = item->rackId;
-    step.picks.push_back(move(pick));
-  }
-
-  vector<const InventatoryRack*> orderedRacks;
-  for (const auto& rack : store_.racks()) {
-    if (rackSteps.count(rack.id) != 0) {
-      orderedRacks.push_back(&rack);
-    }
-  }
-  sort(orderedRacks.begin(), orderedRacks.end(), [](const InventatoryRack* lhs, const InventatoryRack* rhs) {
-    const auto left = rackNumberFromCode(lhs->code);
-    const auto right = rackNumberFromCode(rhs->code);
-    return left != right ? left < right : lhs->code < rhs->code;
-  });
-
-  for (const auto* rack : orderedRacks) {
-    auto step = rackSteps[rack->id];
-    step.title = "Rack " + to_string(max(1, rackNumberFromCode(rack->code)));
-    step.subtitle = rack->componentType;
-    sort(step.picks.begin(), step.picks.end(),
-         [](const BuildPick& lhs, const BuildPick& rhs) { return lhs.slot < rhs.slot; });
-    steps.push_back(move(step));
-  }
-
-  if (!loose.picks.empty()) {
-    sort(loose.picks.begin(), loose.picks.end(),
-         [](const BuildPick& lhs, const BuildPick& rhs) { return lhs.slot < rhs.slot; });
-    steps.push_back(move(loose));
-  }
-  return steps;
+  if (picks.empty()) return;
+  const auto& pick = *picks[min(bomFinishSelection_, picks.size() - 1)];
+  bomPickTaken_[pick.matchIndex] = clamp(bomPickTaken(pick) + delta, 0, pick.quantity);
+  dirty_ = true;
 }
 
 void App::beginBomBuild() {
   if (!bomAnalysisValid_) {
     return;
   }
-  if (bomBuildSteps().empty()) {
-    setMessage("Nothing to pick: no BOM line matched a part in stock", 4);
+  if (bomPickPlan().empty()) {
+    setMessage("Nothing to pick yet. Every part of this project still needs ordering.", 4);
     return;
   }
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
+  bomPickTaken_.clear();
+  bomFinishSelection_ = 0;
   bomView_ = BomView::Build;
   dirty_ = true;
 }
 
 void App::advanceBomBuild(int delta) {
-  const auto steps = bomBuildSteps();
-  if (steps.empty()) {
+  const auto plan = bomPickPlan();
+  if (plan.empty()) {
     bomView_ = BomView::Split;
+    bomDeductPrompt_ = false;
     dirty_ = true;
+    return;
+  }
+
+  if (bomDeductPrompt_) {
+    // Back from the finish screen returns to the last stop.
+    if (delta < 0) {
+      bomDeductPrompt_ = false;
+      bomBuildStep_ = plan.stops.size() - 1;
+      dirty_ = true;
+    }
     return;
   }
 
@@ -123,15 +82,11 @@ void App::advanceBomBuild(int delta) {
     dirty_ = true;
     return;
   }
-  if (next >= static_cast<int>(steps.size())) {
-    if (!bomBuildReady(bomAnalysis_)) {
-      setMessage("Find in racks viewed; completion is disabled while BOM shortages remain", 6);
-      bomBuildStep_ = steps.size() - 1;
-      dirty_ = true;
-      return;
-    }
-    // Past the last stop the walkthrough asks its one and only question.
+  if (next >= static_cast<int>(plan.stops.size())) {
+    // Past the last stop the walkthrough asks its one question. Shortages do not block it: whatever
+    // was taken can still be deducted, and the missing lines stay on the shopping list.
     bomDeductPrompt_ = true;
+    bomFinishSelection_ = 0;
     dirty_ = true;
     return;
   }
@@ -141,29 +96,25 @@ void App::advanceBomBuild(int delta) {
 }
 
 void App::finishBomBuild(bool subtractFromStock) {
-  if (!bomBuildReady(bomAnalysis_)) {
-    bomDeductPrompt_ = false;
-    setMessage("Build cannot be completed until every BOM line has enough stock", 6);
-    return;
-  }
-  const auto steps = bomBuildSteps();
+  const auto plan = bomPickPlan();
   int parts = 0;
   int pieces = 0;
 
   if (subtractFromStock) {
     captureUndoSnapshot();
     const auto now = time(nullptr);
-    for (const auto& step : steps) {
-      for (const auto& pick : step.picks) {
+    for (const auto& stop : plan.stops) {
+      for (const auto& pick : stop.picks) {
         auto* item = store_.findById(pick.itemId);
-        if (item == nullptr) {
+        const int taken = bomPickTaken(pick);
+        if (item == nullptr || taken <= 0) {
           continue;
         }
-        item->quantity = max(0, item->quantity - pick.quantity);
+        item->quantity = max(0, item->quantity - taken);
         item->lastUpdated = now;
         reconcileRackAssignment(store_, *item);
         ++parts;
-        pieces += pick.quantity;
+        pieces += taken;
       }
     }
     if (!saveState("bom_build", activeBomProjectId_)) {
@@ -172,9 +123,11 @@ void App::finishBomBuild(bool subtractFromStock) {
     }
   }
 
+  // Only a build with every line covered counts as built; a partial kit leaves the project open.
   auto* project = activeBomProject();
-  const auto previousLastBuilt = project == nullptr ? time_t(0) : project->lastBuilt;
-  if (project != nullptr) {
+  const bool complete = bomBuildReady(bomAnalysis_);
+  if (project != nullptr && complete) {
+    const auto previousLastBuilt = project->lastBuilt;
     project->lastBuilt = time(nullptr);
     if (!saveBomProjects()) {
       project->lastBuilt = previousLastBuilt;
@@ -186,17 +139,22 @@ void App::finishBomBuild(bool subtractFromStock) {
 
   const auto name = project == nullptr ? string("Project") : project->name;
   if (subtractFromStock) {
-    logActivity("build", name + " · " + to_string(parts) + " parts · " + to_string(pieces) + " pieces · " +
-                             to_string(bomAnalysis_.boards) + " boards");
+    logActivity("build", name + (complete ? "" : " (partial)") + " · " + to_string(parts) + " parts · " +
+                             to_string(pieces) + " pieces · " + to_string(bomAnalysis_.boards) + " boards");
   }
 
+  const auto shortLines = plan.shortMatches.size();
   bomDeductPrompt_ = false;
   bomBuildStep_ = 0;
+  bomPickTaken_.clear();
   bomView_ = BomView::Split;
   refreshBomAnalysis();
-  setMessage(subtractFromStock ? "Build complete · stock updated · Ctrl+Z undoes it"
-                               : "Build complete · stock unchanged",
-             6);
+  string message = subtractFromStock ? voiceCount(pieces, "part", "parts") + " taken out of stock. Ctrl+Z puts them back."
+                                     : string("Stock was left as it was.");
+  if (shortLines > 0) {
+    message += " " + voiceCount(static_cast<int>(shortLines), "line is", "lines are") + " still on the shopping list.";
+  }
+  setMessage(message, 6);
 }
 
 bool App::exportBomShortages() {
