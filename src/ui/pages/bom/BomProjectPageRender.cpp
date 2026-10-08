@@ -233,7 +233,7 @@ ftxui::Element App::renderBomProjectUi() const {
                "bom.build.next", UiTargetKind::Button, [self] { self->advanceBomBuild(1); }),
         target(uiButton("Back", "Bksp"), "bom.build.back", UiTargetKind::Button, [self] { self->advanceBomBuild(-1); }),
     });
-    auto header = uiPageHeader(voiceTitle(bomPickStopTitle(stop)), uiVoiceLine(bomPickStopGuide(stop), nullopt, screenWidth - 3), move(buttons));
+    auto header = uiPageHeader(voiceTitle(bomPickStopTitle(stop)), ftxui::text(""), move(buttons));
 
     // The pick list: slot, part, the board references it is for, and how many to take.
     const bool loose = stop.rackId.empty();
@@ -300,27 +300,35 @@ ftxui::Element App::renderBomProjectUi() const {
         if (column > 0) cells.push_back(ftxui::text(" "));
         const auto slot = rackSlotLabel(column, row);
         const auto found = picksBySlot.find(slot);
+        // Every slot shows its number and the value stored there, in the same place, so the grid
+        // reads the same whether or not it is lit. Lit slots add the amount to take.
+        const auto* pick = found != picksBySlot.end() ? found->second : nullptr;
+        const auto* item = pick != nullptr ? store_.findById(pick->itemId) : itemAtRackSlot(store_, stop.rackId, slot);
+        string value = pick != nullptr ? pick->designation : string("-");
+        if (item != nullptr) {
+          const auto split = splitPartName(item->partName).value;
+          value = split.empty() ? item->partName : split;
+        }
+        const auto valueWidth = static_cast<size_t>(max(1, slotWidth2 - 2));
         ftxui::Element body;
-        if (found != picksBySlot.end()) {
+        if (pick != nullptr) {
           // Lit slots pulse between the interactive fill and the active surface; both states stay lit.
           const auto bg = pulse ? uiInteractiveColor() : uiActiveBg();
           const auto fg = pulse ? uiCanvasBg() : uiPrimaryText();
           const auto slotFg = pulse ? uiCanvasBg() : uiFocusColor();
           body = ftxui::vbox({
                      uiHeaderText(" " + slot, slotFg),
-                     uiHeaderText(" " + ellipsize(found->second->designation, static_cast<size_t>(max(1, slotWidth2 - 1))), fg),
+                     uiHeaderText(" " + ellipsize(value, valueWidth), fg),
                      ftxui::filler(),
-                     uiHeaderText(" Take " + to_string(found->second->quantity), fg),
+                     uiHeaderText(" Take " + to_string(pick->quantity), fg),
                  }) |
                  ftxui::color(fg) | ftxui::bgcolor(bg);
         } else {
-          const auto* item = itemAtRackSlot(store_, stop.rackId, slot);
-          const auto value = item == nullptr ? string("-") : splitPartName(item->partName).value;
-          body = ftxui::vbox({ftxui::filler(),
-                              styledText(" " + ellipsize(value.empty() ? item->partName : value,
-                                                         static_cast<size_t>(max(1, slotWidth2 - 1))),
-                                         uiDimColor()),
-                              ftxui::filler()}) |
+          body = ftxui::vbox({
+                     styledText(" " + slot, uiMutedText()),
+                     styledText(" " + ellipsize(value, valueWidth), uiDimColor()),
+                     ftxui::filler(),
+                 }) |
                  ftxui::bgcolor(uiRaisedSurfaceBg());
         }
         cells.push_back(move(body) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth2) |

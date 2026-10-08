@@ -235,8 +235,7 @@ Inventatory speaks like a calm colleague standing next to the rack. It is not a 
 chat. The second line of each page header is one or two plain sentences about the situation
 right now:
 
-- `Open Rack 1 and take 26 parts from 7 slots` /
-  `Start with 10 of 100nF from E3 and 6 of 1uF from C5. The rest are one or two each.`
+- `Rack 1: take 26 parts from 7 slots`
 - `You have 15 of 43 parts. The other 28 need ordering, 21 have a DigiKey match.`
 - `The R1 is online, but 2 scans could not be saved. Retry them or discard them.`
 - `Everything is saved. 94 parts in 9 racks.`
