@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Stock: Sort / Filter is a panel under the list header that stays open while you choose. Each
+  choice applies at once, and the panel shows how many parts match. The header shows the sort and
+  the modification-date filter in use, so the list's state is visible with the panel closed.
+
+### Removed
+- Stock: the number keys 1 to 5 no longer pick filter options. Use the arrow keys and Enter, or click.
+
 ## [v0.1.4] - 2026-10-08
 
 ### Added
