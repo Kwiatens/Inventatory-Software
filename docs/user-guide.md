@@ -39,11 +39,15 @@ administrative commands are available through Actions. Delete asks for
 confirmation before removing the part from the database and records the change
 in History.
 
-Press `f`, choose **filters** from Actions, or click **Sort / Filter** to open
-the Stock filter menu. It can sort by quantity or name, limit results by
-modification date, and be closed by pressing `f`, Escape, or the button again.
-Choose **Reset filters** to restore all modification dates and A-Z sorting.
-The Sort / Filter control remains available while the stock list is scrolled.
+Press `f`, choose **filters** from Actions, or click **Filter** to open the Stock
+filter panel under the list header. The header shows the sort and modification-date
+filter in use, for example `A-Z, last 7 days`. The panel has two rows: **Sort** (A-Z,
+Z-A, Quantity, largest first) and **Modified** (All, Today, 7 days, 30 days, Over 30).
+Move with the arrow keys (or `h`, `j`, `k`, `l`) and press Enter, or click an option, to
+apply it. The panel stays open so several choices can be made in one visit, and it shows
+how many parts match. Close it with `f` or Escape. **Reset filters** restores all
+modification dates and A-Z sorting. The Filter control remains available while the stock
+list is scrolled.
 
 When the list is grouped by name, category and part rows use the same connected
 gray branch treatment as the project comparison view.

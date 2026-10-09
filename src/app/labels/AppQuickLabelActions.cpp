@@ -166,104 +166,79 @@ void App::deleteQuickLabelPreset() {
 void App::openStockFilterPanel() {
   if (closestSearchActive_) return;
   if (inputMode_ == InputMode::StockFilter) {
-    stockDateFilterSubmenuOpen_ = false;
     inputMode_ = InputMode::None;
     focusedTargetId_.clear();
     dirty_ = true;
     return;
   }
   inputMode_ = InputMode::StockFilter;
-  stockDateFilterSubmenuOpen_ = false;
-  stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
+  stockFilterRow_ = 0;
+  stockFilterOption_ = stockSortOrderIndex(stockSortOrder_);
   focusedTargetId_.clear();
   dirty_ = true;
 }
 
-void App::openStockDateFilterSubmenu() {
-  stockDateFilterSubmenuOpen_ = true;
-  stockFilterSelection_ = static_cast<int>(stockDateFilter_);
+void App::focusStockFilterOption(int row, int option) {
+  stockFilterRow_ = std::clamp(row, 0, kStockFilterRowCount - 1);
+  stockFilterOption_ = clampStockFilterOption(stockFilterRow_, option);
   dirty_ = true;
 }
 
+// Filters apply at once and the panel stays open, so several choices can be
+// made in one visit. The page updates behind the panel.
 void App::applyStockDateFilter(StockDateFilter filter) {
   stockDateFilter_ = filter;
-  stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
-  stockDateFilterSubmenuOpen_ = false;
-  inputMode_ = InputMode::None;
   syncSelectionToFilter();
-  setMessage("Stock filter: " + stockDateFilterName(filter), 3);
   dirty_ = true;
 }
 
 void App::applyStockSortOrder(StockSortOrder order) {
   stockSortOrder_ = order;
-  stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
-  stockDateFilterSubmenuOpen_ = false;
-  inputMode_ = InputMode::None;
   syncSelectionToFilter();
-  const auto message = order == StockSortOrder::Az ? "Stock sorted A-Z"
-                       : order == StockSortOrder::Za ? "Stock sorted Z-A"
-                                                     : "Stock sorted by quantity";
-  setMessage(message, 3);
   dirty_ = true;
 }
 
 void App::resetStockFilters() {
-  resetStockFilterState(stockDateFilter_, stockSortOrder_, stockFilterSelection_, stockDateFilterSubmenuOpen_);
-  inputMode_ = InputMode::None;
-  focusedTargetId_.clear();
+  resetStockFilterState(stockDateFilter_, stockSortOrder_);
   syncSelectionToFilter();
   setMessage("Stock filters reset", 2);
   dirty_ = true;
 }
 
-void App::activateStockFilterMenuItem(int index) {
-  switch (stockFilterMenuItemAt(index)) {
-    case StockFilterMenuItem::Date:
-      openStockDateFilterSubmenu();
+void App::activateStockFilterOption(int row, int option) {
+  switch (row) {
+    case 0:
+      applyStockSortOrder(stockSortOrderAt(clampStockFilterOption(row, option)));
       break;
-    case StockFilterMenuItem::Quantity:
-      applyStockSortOrder(StockSortOrder::Quantity);
+    case 1:
+      applyStockDateFilter(stockDateFilterAt(clampStockFilterOption(row, option)));
       break;
-    case StockFilterMenuItem::Az:
-      applyStockSortOrder(StockSortOrder::Az);
-      break;
-    case StockFilterMenuItem::Za:
-      applyStockSortOrder(StockSortOrder::Za);
-      break;
-    case StockFilterMenuItem::Reset:
+    default:
       resetStockFilters();
       break;
   }
 }
 
 void App::handleStockFilterKey(const KeyEvent& key) {
-  const int optionCount = stockDateFilterSubmenuOpen_ ? kStockDateFilterOptionCount : kStockFilterMenuOptionCount;
-  if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
-    stockFilterSelection_ = max(0, stockFilterSelection_ - 1);
-  } else if (key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j')) {
-    stockFilterSelection_ = min(optionCount - 1, stockFilterSelection_ + 1);
+  const bool up = key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k');
+  const bool down = key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j');
+  const bool left = key.type == KeyType::Left || (key.type == KeyType::Character && key.ch == 'h');
+  const bool right = key.type == KeyType::Right || (key.type == KeyType::Character && key.ch == 'l');
+  if (up) {
+    focusStockFilterOption(stockFilterRow_ - 1, stockFilterOption_);
+  } else if (down) {
+    focusStockFilterOption(stockFilterRow_ + 1, stockFilterOption_);
+  } else if (left) {
+    focusStockFilterOption(stockFilterRow_, stockFilterOption_ - 1);
+  } else if (right) {
+    focusStockFilterOption(stockFilterRow_, stockFilterOption_ + 1);
   } else if (key.type == KeyType::Enter) {
-    if (stockDateFilterSubmenuOpen_) {
-      applyStockDateFilter(stockDateFilterAt(stockFilterSelection_));
-    } else {
-      activateStockFilterMenuItem(stockFilterSelection_);
-    }
-    return;
+    activateStockFilterOption(stockFilterRow_, stockFilterOption_);
   } else if (key.type == KeyType::Escape || (key.type == KeyType::Character && key.ch == 'f')) {
-    stockDateFilterSubmenuOpen_ = false;
-    stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
     inputMode_ = InputMode::None;
-  } else if (key.type == KeyType::Left && stockDateFilterSubmenuOpen_) {
-    stockDateFilterSubmenuOpen_ = false;
-    stockFilterSelection_ = stockFilterMenuSelection(stockDateFilter_, stockSortOrder_);
-  } else if (key.type == KeyType::Character && key.ch >= '1' && key.ch <= '5' && !stockDateFilterSubmenuOpen_) {
-    activateStockFilterMenuItem(key.ch - '1');
-    return;
-  } else {
-    return;
+    focusedTargetId_.clear();
+    dirty_ = true;
   }
-  dirty_ = true;
 }
 
 void App::moveQuickLabelPreset(int direction) {

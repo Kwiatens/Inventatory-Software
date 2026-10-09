@@ -1139,21 +1139,45 @@ void testDecimalParsingCommaLocale();
 void testStockFilterState();
 
 void testStockFilterState() {
-  assert(stockFilterMenuItemAt(0) == StockFilterMenuItem::Date);
-  assert(stockFilterMenuItemAt(3) == StockFilterMenuItem::Za);
-  assert(stockFilterMenuItemAt(4) == StockFilterMenuItem::Reset);
-  assert(stockFilterMenuSelection(StockDateFilter::All, StockSortOrder::Az) == 2);
-  assert(stockFilterMenuSelection(StockDateFilter::Last7Days, StockSortOrder::Za) == 0);
+  // Panel rows and their option counts. Clamping keeps keyboard focus inside a row.
+  assert(stockFilterOptionCount(0) == 3);
+  assert(stockFilterOptionCount(1) == 5);
+  assert(stockFilterOptionCount(2) == 1);
+  assert(clampStockFilterOption(0, 7) == 2);
+  assert(clampStockFilterOption(1, -1) == 0);
+  assert(clampStockFilterOption(2, 3) == 0);
 
+  // Panel positions round-trip, so the applied option is marked on the row that owns it.
+  assert(stockSortOrderAt(0) == StockSortOrder::Az);
+  assert(stockSortOrderAt(1) == StockSortOrder::Za);
+  assert(stockSortOrderAt(2) == StockSortOrder::Quantity);
+  for (int option = 0; option < kStockSortOptionCount; ++option) {
+    assert(stockSortOrderIndex(stockSortOrderAt(option)) == option);
+  }
+  assert(stockDateFilterAt(4) == StockDateFilter::OlderThan30Days);
+  for (int option = 0; option < kStockDateFilterOptionCount; ++option) {
+    assert(stockDateFilterIndex(stockDateFilterAt(option)) == option);
+  }
+
+  // Header summary names the sort and the date filter in use.
+  assert(stockFilterSummary(StockSortOrder::Az, StockDateFilter::All) == "A-Z, all dates");
+  assert(stockFilterSummary(StockSortOrder::Quantity, StockDateFilter::Last30Days) == "Quantity, last 30 days");
+  assert(stockFilterSummary(StockSortOrder::Za, StockDateFilter::OlderThan30Days) == "Z-A, over 30 days");
+
+  // Header budget: an A-Z or Z-A summary must fit beside the category label and the
+  // Filter button in the 47-column part cell at 100 columns, with the 3-digit quantity column.
+  for (const auto sortOrder : {StockSortOrder::Az, StockSortOrder::Za}) {
+    for (int option = 0; option < kStockDateFilterOptionCount; ++option) {
+      assert(stockFilterSummary(sortOrder, stockDateFilterAt(option)).size() <= 17);
+    }
+  }
+
+  // Reset clears the date filter and the sort order together.
   auto dateFilter = StockDateFilter::Last30Days;
   auto sortOrder = StockSortOrder::Quantity;
-  int selection = 0;
-  bool dateSubmenuOpen = true;
-  resetStockFilterState(dateFilter, sortOrder, selection, dateSubmenuOpen);
+  resetStockFilterState(dateFilter, sortOrder);
   assert(dateFilter == StockDateFilter::All);
   assert(sortOrder == StockSortOrder::Az);
-  assert(selection == 2);
-  assert(!dateSubmenuOpen);
 }
 
 // Physical value parsing and matching tests
