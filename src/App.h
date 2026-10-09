@@ -522,7 +522,8 @@ class App {
   void handleEditValueKey(const KeyEvent& key);
   void handleRackValueKey(const KeyEvent& key);
   void handleStockFilterKey(const KeyEvent& key);
-  void activateStockFilterMenuItem(int index);
+  void focusStockFilterOption(int row, int option);
+  void activateStockFilterOption(int row, int option);
   void handleStocktakeCountKey(const KeyEvent& key);
   void handleQuantityAdjustKey(const KeyEvent& key);
   void handleBomRestockKey(const KeyEvent& key);
@@ -533,6 +534,7 @@ class App {
   ftxui::Element renderHeaderUi() const;
   std::string pageName() const;
   ftxui::Element renderStockUi() const;
+  ftxui::Element renderStockFilterPanel(int width, int shownCount) const;
   ftxui::Elements renderStockListRows(const std::vector<InventorySearchMatch>& searchMatches,
                                       const std::vector<size_t>& filtered, bool rankedView,
                                       size_t activeSelection, int qtyWidth,
@@ -757,7 +759,6 @@ class App {
   void openSelectedRackItemDetail();
   void openSelectedRackDatasheet();
   void openStockFilterPanel();
-  void openStockDateFilterSubmenu();
   void applyStockDateFilter(StockDateFilter filter);
   void applyStockSortOrder(StockSortOrder order);
   void resetStockFilters();
@@ -880,8 +881,9 @@ class App {
   bool stocktakeCommitPending_ = false;
   std::string stocktakeSessionId_;
   std::unordered_map<std::string, int> stocktakeCounts_;
-  int stockFilterSelection_ = 0;
-  bool stockDateFilterSubmenuOpen_ = false;
+  // Keyboard focus inside the Sort / Filter panel: the row and the option in it.
+  int stockFilterRow_ = 0;
+  int stockFilterOption_ = 0;
   // Vendor/catalogue identifiers are reference data, not what the page is for,
   // so the details block starts collapsed.
   bool stockDetailsExpanded_ = false;
