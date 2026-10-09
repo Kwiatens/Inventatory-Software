@@ -17,6 +17,8 @@ namespace inventatory {
 
 using namespace std;
 
+// Fits the Modified and reset rows at 100 columns; the panel sits over the list's right edge.
+constexpr int kStockFilterPanelWidth = 53;
 
 ftxui::Element App::renderStockUi() const {
   const auto searchMatches = stockSearchMatches();
@@ -74,8 +76,16 @@ ftxui::Element App::renderStockUi() const {
                                      : rankedView ? "Stock  " + to_string(filtered.size()) + " matches, ranked by value"
                                                   : groupByCategory ? string("Component Category") : string();
   const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
-  auto filterButton = target(styledText(" Sort / Filter ", filtersEnabled ? uiInteractiveColor() : uiMutedColor(),
-                                       filtersEnabled ? uiRaisedSurfaceBg() : uiSurfaceBg()),
+  // The summary states the sort and date filter in use, so they show while the panel is closed.
+  const auto filterSummaryText = filtersEnabled ? styledText(stockFilterSummary(stockSortOrder_, stockDateFilter_),
+                                                             uiMutedText())
+                                                : ftxui::text("");
+  const auto filterButtonBg = filtersEnabled ? uiRaisedSurfaceBg() : uiSurfaceBg();
+  auto filterButton = target(ftxui::hbox({
+                                 styledText(" Filter ", filtersEnabled ? uiInteractiveColor() : uiMutedText(),
+                                            filterButtonBg),
+                                 styledText("f ", uiMutedText(), filterButtonBg),
+                             }),
                              "stock.filters.header", UiTargetKind::Button,
                              [self] { self->openStockFilterPanel(); }, filtersEnabled);
   ftxui::Element listHeader;
@@ -88,9 +98,10 @@ ftxui::Element App::renderStockUi() const {
                                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, qtyWidth);
     const auto groupedHeaderLabel = ftxui::hbox({
                                          styledText(stockHeader, stocktakeActive_ ? uiAccentColor() : uiSecondaryText()),
+                                         ftxui::filler(),
+                                         filterSummaryText,
                                          ftxui::text(" "),
                                          filterButton,
-                                         ftxui::filler(),
                                      }) |
                                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, partWidth);
     listHeader = ftxui::hbox({
@@ -102,46 +113,10 @@ ftxui::Element App::renderStockUi() const {
     listHeader = ftxui::hbox({
         styledText(stockHeader, stocktakeActive_ ? uiAccentColor() : uiSecondaryText()),
         ftxui::filler(),
+        filterSummaryText,
+        ftxui::text(" "),
         filterButton,
     }) | ftxui::bgcolor(uiSurfaceBg());
-  }
-
-  ftxui::Element filterMenu = ftxui::text("");
-  if (inputMode_ == InputMode::StockFilter && !closestSearchActive_) {
-    ftxui::Elements filterRows;
-    if (stockDateFilterSubmenuOpen_) {
-      filterRows.push_back(fullLine("Filter by date of modification", uiSecondaryText(), uiPanelLeftBg()));
-      for (int index = 0; index < kStockDateFilterOptionCount; ++index) {
-        const bool selected = static_cast<int>(index) == stockFilterSelection_;
-        const auto dateFilter = stockDateFilterAt(index);
-        auto row = fullLine(string(selected ? "  > " : "    ") + stockDateFilterName(dateFilter),
-                            selected ? uiTitleColor() : uiMutedColor(),
-                            selected ? uiSelectionBg() : uiPanelLeftBg());
-        filterRows.push_back(target(row, "stock.filter.date." + to_string(index), UiTargetKind::Button,
-                                    [self, dateFilter] { self->applyStockDateFilter(dateFilter); }));
-      }
-    } else {
-      filterRows.push_back(fullLine("Filter", uiSecondaryText(), uiPanelLeftBg()));
-      const vector<string> labels = {"Date of modification", "Sort: quantity", "Sort: A-Z", "Sort: Z-A",
-                                    "Reset filters"};
-      static const char* const kFilterTargetIds[] = {"stock.filter.date", "stock.filter.sort.1",
-                                                     "stock.filter.sort.2", "stock.filter.sort.3",
-                                                     "stock.filter.reset"};
-      for (size_t index = 0; index < labels.size(); ++index) {
-        const bool selected = static_cast<int>(index) == stockFilterSelection_;
-        auto row = fullLine(string(selected ? "  > " : "    ") + labels[index],
-                            selected ? uiTitleColor() : uiMutedColor(),
-                            selected ? uiSelectionBg() : uiPanelLeftBg());
-        const int itemIndex = static_cast<int>(index);
-        filterRows.push_back(target(row, kFilterTargetIds[index], UiTargetKind::Button,
-                                    [self, itemIndex] { self->activateStockFilterMenuItem(itemIndex); }));
-      }
-    }
-    filterMenu = ftxui::window(styledText(" Sort / Filter ", uiAccentColor()),
-                               ftxui::vbox(move(filterRows)) | ftxui::bgcolor(uiPanelLeftBg()) |
-                                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34)) |
-                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, 34) |
-                 ftxui::color(uiAccentColor()) | ftxui::bgcolor(uiPanelLeftBg());
   }
 
   auto listBody = ftxui::vbox(move(listRows)) | ftxui::yframe | ftxui::vscroll_indicator |
@@ -150,13 +125,16 @@ ftxui::Element App::renderStockUi() const {
   ftxui::Element listPanel = ftxui::vbox({move(listHeader), move(listBody)}) |
                              ftxui::bgcolor(uiSurfaceBg()) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth) |
                              ftxui::flex;
-  if (inputMode_ == InputMode::StockFilter && !closestSearchActive_) {
-    // Clear only the popup footprint, then draw it over the list. This keeps
+  const bool filterOpen = inputMode_ == InputMode::StockFilter && !closestSearchActive_;
+  if (filterOpen) {
+    // Clear only the panel footprint, then draw it over the list. This keeps
     // the stock rows in place while preventing their text from bleeding
-    // through the floating menu.
+    // through the floating panel.
+    const int panelWidth = min(kStockFilterPanelWidth, listOuterWidth);
     auto filterOverlay = ftxui::vbox({
         ftxui::text(""),
-        ftxui::hbox({ftxui::filler(), filterMenu | ftxui::clear_under}),
+        ftxui::hbox({ftxui::filler(),
+                     renderStockFilterPanel(panelWidth, static_cast<int>(filtered.size())) | ftxui::clear_under}),
         ftxui::filler(),
     });
     listPanel = ftxui::dbox({listPanel, filterOverlay}) |
@@ -288,6 +266,73 @@ ftxui::Element App::renderStockUi() const {
       page,
       overlay,
   });
+}
+
+// The Sort / Filter panel is borderless and sits on the raised surface. Each choice
+// row is a segmented control: the applied option is primary text, the others
+// are muted, and the keyboard-focused option takes the selection colour. Every
+// choice applies at once and the panel stays open.
+ftxui::Element App::renderStockFilterPanel(int width, int shownCount) const {
+  auto self = const_cast<App*>(this);
+  const auto rowBg = uiRaisedSurfaceBg();
+  const int totalCount = static_cast<int>(store_.items().size());
+
+  vector<string> sortLabels;
+  for (int option = 0; option < kStockSortOptionCount; ++option) {
+    sortLabels.push_back(stockSortOrderPanelName(stockSortOrderAt(option)));
+  }
+  vector<string> dateLabels;
+  for (int option = 0; option < kStockDateFilterOptionCount; ++option) {
+    dateLabels.push_back(stockDateFilterPanelName(stockDateFilterAt(option)));
+  }
+
+  const auto choiceRow = [&](int row, const string& name, const vector<string>& options, int applied,
+                             const string& idPrefix, const auto& activate) {
+    const bool rowFocused = stockFilterRow_ == row;
+    ftxui::Elements cells = {
+        styledText(rowFocused ? "> " : "  ", uiPrimaryText(), rowBg),
+        fixedCell(name, 11, uiSecondaryText()),
+    };
+    for (int option = 0; option < static_cast<int>(options.size()); ++option) {
+      if (option > 0) cells.push_back(styledText("  ", uiMutedText(), rowBg));
+      const bool focused = rowFocused && stockFilterOption_ == option;
+      const bool isApplied = option == applied;
+      auto cell = styledText(options[option],
+                             focused ? uiFocusColor() : isApplied ? uiPrimaryText() : uiMutedText(),
+                             focused ? uiSelectionBg() : rowBg);
+      cells.push_back(target(cell, idPrefix + to_string(option), UiTargetKind::Button,
+                             [activate, row, option] { activate(row, option); }));
+    }
+    cells.push_back(ftxui::filler());
+    return ftxui::hbox(move(cells)) | ftxui::bgcolor(rowBg);
+  };
+
+  const auto activateOption = [self](int row, int option) {
+    self->focusStockFilterOption(row, option);
+    self->activateStockFilterOption(row, option);
+  };
+  const bool resetFocused = stockFilterRow_ == kStockFilterRowCount - 1;
+  auto resetRow = ftxui::hbox({
+                      styledText(resetFocused ? "> " : "  ", uiPrimaryText(), rowBg),
+                      target(uiSecondaryButton("Reset filters", resetFocused ? optional(uiFocusColor()) : nullopt),
+                             "stock.filter.reset", UiTargetKind::Button,
+                             [activateOption] { activateOption(kStockFilterRowCount - 1, 0); }),
+                      ftxui::filler(),
+                      styledText(to_string(shownCount) + " of " + to_string(totalCount) +
+                                     (totalCount == 1 ? " part  " : " parts  "),
+                                 uiMutedText(), rowBg),
+                  }) |
+                  ftxui::bgcolor(rowBg);
+
+  return ftxui::vbox({
+             choiceRow(0, "Sort", sortLabels, stockSortOrderIndex(stockSortOrder_), "stock.filter.sort.",
+                       activateOption),
+             choiceRow(1, "Modified", dateLabels, stockDateFilterIndex(stockDateFilter_), "stock.filter.date.",
+                       activateOption),
+             uiDivider(),
+             resetRow,
+         }) |
+         ftxui::bgcolor(rowBg) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
 }  // namespace inventatory
