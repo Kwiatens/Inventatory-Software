@@ -499,6 +499,9 @@ class App {
     std::mutex completionMutex;
     std::optional<PrinterWorkResult> result;
     bool cancelled = false;
+    // Set by the UI thread before the worker starts and never changed afterwards, so it identifies
+    // the quick-label request that a cancelled, still-running job belongs to.
+    std::string requestId;
   };
 
   struct ImportSyncBatchResult {
@@ -659,6 +662,8 @@ class App {
   // refused immediately so HTTP workers never wait on a loop that is no longer running.
   void cancelPendingDeviceRequests();
   void stopPrinterWork();
+  // Records the durable effects of a print job that finished before stopPrinterWork() cancelled it.
+  void recordStoppedPrinterWork(const PrinterWorkResult& result);
   std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
   bool workspaceIsCurrent(WorkspaceGeneration generation) const;
