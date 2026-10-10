@@ -291,6 +291,10 @@ class BluezAgent final {
         return false;
       }
     }
+    if (!resolveBluezOwner(error)) {
+      stop();
+      return false;
+    }
     auto* reply = callBluez(connection_, "/org/bluez", "org.bluez.AgentManager1", "RegisterAgent",
                             g_variant_new("(os)", kAgentPath, "KeyboardDisplay"), G_VARIANT_TYPE("()"), 5000, &error);
     if (reply == nullptr) {
@@ -323,6 +327,43 @@ class BluezAgent final {
     if (devicePath == nullptr) return false;
     std::lock_guard<std::mutex> lock(mutex_);
     return expectedDevicePath_ == devicePath;
+  }
+
+  // Only the unique name that owns org.bluez may drive the agent. Any other
+  // process on the system bus could otherwise call Cancel() or read the pairing
+  // code through RequestPinCode() by naming the expected device path.
+  bool senderIsBluez(GDBusMethodInvocation* invocation) const {
+    const gchar* sender = g_dbus_method_invocation_get_sender(invocation);
+    if (sender == nullptr) return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return !bluezOwner_.empty() && bluezOwner_ == sender;
+  }
+
+  // Resolved once from the thread that registers the agent, never from the agent
+  // loop thread, so method dispatch never blocks on a synchronous D-Bus call.
+  bool resolveBluezOwner(std::string& error) {
+    GError* ownerError = nullptr;
+    auto* reply = g_dbus_connection_call_sync(connection_, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                                              "org.freedesktop.DBus", "GetNameOwner",
+                                              g_variant_new("(s)", kBluezName), G_VARIANT_TYPE("(s)"),
+                                              G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, &ownerError);
+    if (reply == nullptr) {
+      error = ownerError == nullptr ? "Bluetooth service owner is unavailable" : ownerError->message;
+      if (ownerError != nullptr) g_error_free(ownerError);
+      return false;
+    }
+    if (ownerError != nullptr) g_error_free(ownerError);
+    const gchar* name = nullptr;
+    g_variant_get(reply, "(&s)", &name);
+    std::string owner = name != nullptr ? name : "";
+    g_variant_unref(reply);
+    if (owner.empty()) {
+      error = "Bluetooth service owner is unavailable";
+      return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    bluezOwner_ = std::move(owner);
+    return true;
   }
 
   void setExpectedDevicePath(std::string devicePath) {
@@ -445,6 +486,11 @@ class BluezAgent final {
   static void methodCall(GDBusConnection*, const gchar*, const gchar*, const gchar*, const gchar* methodName,
                          GVariant* parameters, GDBusMethodInvocation* invocation, gpointer userData) {
     auto* agent = static_cast<BluezAgent*>(userData);
+    if (!agent->senderIsBluez(invocation)) {
+      g_dbus_method_invocation_return_dbus_error(invocation, "org.bluez.Error.Rejected",
+                                                 "Caller is not the Bluetooth service");
+      return;
+    }
     if (std::strcmp(methodName, "Release") == 0) {
       g_dbus_method_invocation_return_value(invocation, nullptr);
       return;
@@ -612,6 +658,8 @@ class BluezAgent final {
 
   std::string pairingCode_;
   std::string expectedDevicePath_;
+  // Unique bus name of org.bluez, guarded by mutex_.
+  std::string bluezOwner_;
   mutable std::mutex mutex_;
   std::condition_variable readyChanged_;
   std::thread loopThread_;
