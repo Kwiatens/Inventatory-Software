@@ -390,6 +390,7 @@ bool App::stopUpdateWorkUntil(chrono::steady_clock::time_point deadline) {
   finished = finishWorker(updateOperationFuture_, deadline) && finished;
   finished = finishWorker(updateCheckFuture_, deadline) && finished;
   finished = finishWorker(scanFirmwareFuture_, deadline) && finished;
+  finished = finishWorker(bleProvisionFuture_, deadline) && finished;
   if (!finished) {
     workAbandoned_ = true;
     return false;

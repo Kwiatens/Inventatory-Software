@@ -188,6 +188,10 @@ void App::refreshBleSetupDiscovery() {
 }
 
 bool App::provisionSelectedBleSetupDevice() {
+  if (bleProvisionRunning()) {
+    setMessage("Setup is already running", 3);
+    return false;
+  }
   const auto devices = bleProvisioning_.devices();
   if (devices.empty() || bleSetupSelection_ >= devices.size()) {
     setMessage("Select a nearby Scan R1 first", 4);
@@ -204,13 +208,36 @@ bool App::provisionSelectedBleSetupDevice() {
   request.wifiPassword = bleWifiPassword_;
   request.deviceToken = candidateToken;
   request.pairingCode = blePairingCode_;
-  string error;
-  const auto outcome = bleProvisioning_.provision(request, error);
-  if (outcome == BleProvisioningOutcome::Failed) {
-    setMessage(error.empty() ? "Bluetooth setup failed" : error, 5);
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    setMessage("Scanner setup unavailable while the workspace is changing", 4);
     return false;
   }
-  inventatoryScanConfig_.token = candidateToken;
+  const auto generation = context->generation;
+  bleProvisionFuture_ = std::async(std::launch::async, [this, request = std::move(request), generation]() mutable {
+    BleProvisionResult r;
+    r.workspaceGeneration = generation;
+    r.candidateToken = request.deviceToken;
+    r.outcome = bleProvisioning_.provision(request, r.error);
+    request.wifiPassword.assign(request.wifiPassword.size(), '\0');
+    request.pairingCode.clear();
+    return r;
+  });
+  bleSetupMessage_ = "Sending the setup to the Scan R1; this can take up to a minute";
+  setMessage(bleSetupMessage_, 6);
+  dirty_ = true;
+  return true;
+}
+
+void App::finishBleProvisioning(BleProvisionResult result) {
+  if (result.outcome == BleProvisioningOutcome::Failed) {
+    setMessage(result.error.empty() ? "Bluetooth setup failed" : result.error, 5);
+    dirty_ = true;
+    result.candidateToken.assign(result.candidateToken.size(), '\0');
+    result.candidateToken.clear();
+    return;
+  }
+  inventatoryScanConfig_.token = result.candidateToken;
   inventatoryScanConfig_.deviceId.clear();
   // Persist the unpaired state before replacing the workspace credential. If
   // the final paired-state write fails, a restart remains fail-closed even if
@@ -244,7 +271,7 @@ bool App::provisionSelectedBleSetupDevice() {
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   blePairingCode_.clear();
-  bleSetupOutcomeUncertain_ = outcome == BleProvisioningOutcome::Indeterminate;
+  bleSetupOutcomeUncertain_ = result.outcome == BleProvisioningOutcome::Indeterminate;
   bleSetupMessage_ = bleSetupOutcomeUncertain_
                          ? "Setup result was not confirmed; the token was retained so the R1 can recover if it accepted it"
                          : "Wi-Fi setup confirmed securely; waiting for the R1 to join the PC service";
@@ -252,11 +279,36 @@ bool App::provisionSelectedBleSetupDevice() {
     bleSetupMessage_ = "Scanner setup was sent, but pairing data is not fully saved; press R to retry saving";
     setMessage(bleSetupMessage_, 7);
     dirty_ = true;
-    return false;
+    result.candidateToken.assign(result.candidateToken.size(), '\0');
+    result.candidateToken.clear();
+    return;
   }
   setMessage(bleSetupMessage_, 6);
+  if (page_ == Page::ScanSetup && scanSetupStep_ == ScanSetupStep::Confirm) {
+    inputBuffer_.assign(inputBuffer_.size(), '\0');
+    inputBuffer_.clear();
+    if (returnToOnboardingAfterScan_) {
+      beginWizardTransition(Page::ScanSetup, onboardingStep_, ScanSetupStep::Complete, true);
+    } else {
+      scanSetupStep_ = ScanSetupStep::Complete;
+    }
+  }
   dirty_ = true;
-  return true;
+  result.candidateToken.assign(result.candidateToken.size(), '\0');
+  result.candidateToken.clear();
+}
+
+void App::processBleProvisioning() {
+  if (!bleProvisionFuture_.valid() || bleProvisionFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
+  auto result = bleProvisionFuture_.get();
+  if (!workspaceIsCurrent(result.workspaceGeneration)) {
+    result.candidateToken.assign(result.candidateToken.size(), '\0');
+    result.candidateToken.clear();
+    setMessage("Scanner setup finished for a different workspace; run the setup again", 7, UiMessageSeverity::Warning);
+    dirty_ = true;
+    return;
+  }
+  finishBleProvisioning(move(result));
 }
 
 void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
@@ -378,7 +430,7 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
       break;
     case ScanSetupStep::Confirm:
       bleProvisioning_.stopDiscovery();
-      if (provisionSelectedBleSetupDevice()) advanceScanStep(ScanSetupStep::Complete);
+      provisionSelectedBleSetupDevice();
       break;
     case ScanSetupStep::Complete:
       cancel();
