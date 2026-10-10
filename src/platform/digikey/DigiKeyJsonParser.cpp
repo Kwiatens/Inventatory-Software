@@ -48,8 +48,12 @@ class JsonParser {
     const char ch = peek();
     if (ch == '"') {
       string value;
-      if (!parseString(value, error)) {
+      bool oversized = false;
+      if (!parseString(value, error, &oversized)) {
         return nullptr;
+      }
+      if (oversized) {
+        return make_shared<JsonValue>(JsonValue::OversizedText{});
       }
       return make_shared<JsonValue>(move(value));
     }
@@ -170,7 +174,11 @@ class JsonParser {
     }
   }
 
-  bool parseString(string& out, string* error) {
+  // Parses one string completely, so every escape and control character is validated. When `oversized` is
+  // non-null (a value, not an object key), a string longer than the field limit is not an error: it is
+  // reported through `oversized` and its text is discarded, which keeps memory bounded. Object keys pass
+  // nullptr and still fail on the limit.
+  bool parseString(string& out, string* error, bool* oversized = nullptr) {
     if (!consume('"')) {
       if (error != nullptr) {
         *error = "Expected JSON string";
@@ -179,10 +187,17 @@ class JsonParser {
     }
 
     out.clear();
+    if (oversized != nullptr) *oversized = false;
     const auto append = [&](char value) {
+      if (oversized != nullptr && *oversized) return true;
       if (out.size() >= kMaximumDigiKeyFieldBytes) {
-        if (error != nullptr) *error = "JSON string exceeds the 4 KiB field limit";
-        return false;
+        if (oversized == nullptr) {
+          if (error != nullptr) *error = "JSON string exceeds the 4 KiB field limit";
+          return false;
+        }
+        *oversized = true;
+        out.clear();
+        return true;
       }
       out.push_back(value);
       return true;

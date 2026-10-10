@@ -2574,6 +2574,117 @@ void testInventoryCommitDiffSeparatesAmbiguousValues() {
   assert(parameterChange != changes.end() && parameterChange->after == "Resistance=10k");
 }
 
+// An oversized string value must not fail the whole DigiKey document. Its text is validated like any other
+// string but never stored, so readers see it as absent while the fields around it still read correctly.
+void testDigiKeyOversizedJsonStrings() {
+  using namespace digikey_detail;
+  const string oversized(5000, 'm');
+
+  {
+    // An unused marketing string does not stop the normal fields from being read.
+    string error;
+    const string payload = R"({"ManufacturerProductNumber":"ABC-100","Marketing":")" + oversized +
+                           R"(","Description":{"ProductDescription":"Resistor 10k"},"Count":3})";
+    assert(validateDigiKeyJsonPayload(payload, &error));
+    assert(error.empty());
+    const auto root = parseJson(payload, &error);
+    assert(root.has_value());
+    assert(readStringPath(*root, {"ManufacturerProductNumber"}).value_or("") == "ABC-100");
+    assert(readStringPath(*root, {"Description", "ProductDescription"}).value_or("") == "Resistor 10k");
+    assert(readPath(*root, {"Count"}).value_or("") == "3");
+    assert(!readStringPath(*root, {"Marketing"}).has_value());
+    assert(!readPath(*root, {"Marketing"}).has_value());
+  }
+
+  {
+    // As the product description, the oversized text is reported as no value, never as a cut-off prefix.
+    string error;
+    const auto root = parseJson(R"({"Product":{"Description":{"ProductDescription":")" + oversized + R"("}}})", &error);
+    assert(root.has_value());
+    assert(!readPath(*root, {"Product", "Description", "ProductDescription"}).has_value());
+    assert(!readStringPath(*root, {"Product", "Description", "ProductDescription"}).has_value());
+    const auto* product = findMember(*root, "Product");
+    assert(product != nullptr);
+    assert(!readFirstMember(*product, {"ProductDescription"}).has_value());
+    const auto details = parseProductDetails("ABC-100-ND", *root);
+    assert(details.productDescription.empty());
+  }
+
+  {
+    // Oversized entries inside an array are absent values; their neighbours are unaffected.
+    string error;
+    const auto root = parseJson(R"({"items":[")" + oversized + R"(","kept"]})", &error);
+    assert(root.has_value());
+    const auto* items = findMember(*root, "items");
+    assert(items != nullptr);
+    const auto* array = asArray(*items);
+    assert(array != nullptr && array->size() == 2);
+    assert(valueText((*array)[0]).empty());
+    assert(valueText((*array)[1]) == "kept");
+  }
+
+  {
+    // Escapes inside an oversized string are still decoded and validated, so valid ones are accepted.
+    string error;
+    assert(validateDigiKeyJsonPayload(R"({"d":")" + oversized + R"(\né😀"})", &error));
+    assert(error.empty());
+
+    // Malformed content inside an oversized string is refused exactly as it is in a short one.
+    const vector<string> malformed = {
+        R"({"d":")" + oversized + R"(\q"})",       // invalid escape
+        R"({"d":")" + oversized + R"(\u12g4"})",   // bad hex digit
+        R"({"d":")" + oversized + R"(\uD800"})",   // lone high surrogate
+        R"({"d":")" + oversized + R"(\uDC00"})",   // lone low surrogate
+        R"({"d":")" + oversized + R"(\u0000"})",   // NUL escape
+        R"({"d":")" + oversized + "\x01" + R"("})",  // raw control character
+        R"({"d":")" + oversized,                   // unterminated
+    };
+    for (const auto& payload : malformed) {
+      error.clear();
+      assert(!validateDigiKeyJsonPayload(payload, &error));
+      assert(!error.empty());
+    }
+  }
+
+  {
+    // Duplicate keys are still refused when the earlier value is oversized.
+    string error;
+    assert(!validateDigiKeyJsonPayload(R"({"a":")" + oversized + R"(","a":"x"})", &error));
+    assert(error.find("duplicate") != string::npos);
+
+    // Numbers keep their own limit, and an oversized string next to them does not change it.
+    error.clear();
+    assert(!validateDigiKeyJsonPayload("{\"number\":" + string(4097, '1') + ",\"text\":\"" + oversized + "\"}", &error));
+    assert(error.find("number") != string::npos);
+  }
+
+  {
+    // Object keys keep the field limit: only values are allowed to exceed it.
+    string error;
+    assert(!validateDigiKeyJsonPayload("{\"" + oversized + "\":1}", &error));
+    assert(error.find("4 KiB field limit") != string::npos);
+  }
+
+  {
+    // Many oversized values stay within the payload limit, and the whole payload limit still applies.
+    string error;
+    string many = "[";
+    for (int index = 0; index < 200; ++index) {
+      if (index > 0) many += ",";
+      many += "\"" + oversized + "\"";
+    }
+    many += "]";
+    assert(validateDigiKeyJsonPayload(many, &error));
+    assert(error.empty());
+
+    string tooLarge = "{\"d\":\"";
+    tooLarge.append(4U * 1024U * 1024U, 'q');
+    tooLarge += "\"}";
+    assert(!validateDigiKeyJsonPayload(tooLarge, &error));
+    assert(error.find("4 MiB") != string::npos);
+  }
+}
+
 // DigiKey response parsing must not lose a usable product to an odd display-only value, must find the
 // real package among look-alike parameters, and must size the token lifetime from the server's answer.
 void testDigiKeyParsingRobustness() {
@@ -11107,6 +11218,7 @@ const vector<TestCase>& registeredTests() {
     {"history", "InventoryCommitSnapshotsStayValid", testInventoryCommitSnapshotsStayValid},
     {"history", "InventoryCommitDiffSeparatesAmbiguousValues", testInventoryCommitDiffSeparatesAmbiguousValues},
     {"history", "SnapshotSemanticsRejectInvalidSnapshots", testSnapshotSemanticsRejectInvalidSnapshots},
+    {"import", "DigiKeyOversizedJsonStrings", testDigiKeyOversizedJsonStrings},
     {"import", "DigiKeyParsingRobustness", testDigiKeyParsingRobustness},
     {"storage", "SqliteSchemaValidation", testSqliteSchemaValidation},
     {"import", "PackageGHardening", testPackageGHardening},
