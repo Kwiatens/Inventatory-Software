@@ -675,7 +675,7 @@ void testHeaderClockYieldsToActionsControl() {
   constexpr int kFixed = 85;
   assert(headerClockFor(91, kFixed) == HeaderClock::Hidden);
   assert(headerClockFor(92, kFixed) == HeaderClock::Compact);
-  assert(headerClockFor(100, kFixed) != HeaderClock::Hidden);
+  assert(headerClockFor(100, kFixed) == HeaderClock::Compact);
   assert(headerClockFor(105, kFixed) == HeaderClock::Compact);
   assert(headerClockFor(106, kFixed) == HeaderClock::Full);
   assert(headerClockFor(120, kFixed) == HeaderClock::Full);
@@ -1517,12 +1517,17 @@ void testBackgroundRuntimeDirectory() {
 
 // Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing comma-decimal locale a failure
 // instead of a silent skip, so the locale regression tests cannot quietly stop running.
+// Locale tests that could not run because no comma-decimal locale is installed. main() reports them with
+// the CTest "skipped" status (77), the same way it reports skipped credential tests.
+int skippedLocaleTests = 0;
+
 void skipOrFailMissingLocale(const char* testName) {
   const char* require = getenv("INVENTATORY_REQUIRE_LOCALE_TESTS");
   if (require != nullptr && string(require) == "1") {
     cerr << "No comma-decimal locale installed but INVENTATORY_REQUIRE_LOCALE_TESTS=1: " << testName << '\n';
     std::exit(1);
   }
+  ++skippedLocaleTests;
 }
 
 // The credential tests need a running, unlocked Secret Service (a desktop session, or
@@ -2606,7 +2611,8 @@ void testInventoryCommitDiffSeparatesAmbiguousValues() {
   assert(changes.size() == 1 && changes.front().field == "vendor category path");
 
   // Identical values, and ordinary values, are unchanged and render as before.
-  assert(inventoryCommitDiff(before, before).empty());
+  const auto identical = before;
+  assert(inventoryCommitDiff(before, identical).empty());
   after = before;
   after.items().front().tags = {"smd", "production"};
   after.items().front().parameters = {{"Resistance", "10k"}};
@@ -4508,7 +4514,9 @@ void testWorkspaceGenerationAndQuickLabelCache() {
   const auto second = advanceWorkspaceGeneration(first);
   assert(first != 0);
   assert(second != first);
-  assert(workspaceGenerationMatches(first, first));
+  const auto firstAgain = advanceWorkspaceGeneration(0);
+  assert(firstAgain == first);
+  assert(workspaceGenerationMatches(first, firstAgain));
   assert(!workspaceGenerationMatches(second, first));
   assert(!workspaceGenerationMatches(0, first));
   assert(advanceWorkspaceGeneration(numeric_limits<WorkspaceGeneration>::max()) == 1);
@@ -4530,7 +4538,8 @@ void testWorkspaceGenerationAndQuickLabelCache() {
   labelIdentity.deviceId = "r1-a";
   labelIdentity.labelText = "GND";
   labelIdentity.workspaceGeneration = first;
-  assert(quickLabelPrintCacheIdentityMatches(labelIdentity, labelIdentity));
+  const auto sameLabelIdentity = labelIdentity;
+  assert(quickLabelPrintCacheIdentityMatches(labelIdentity, sameLabelIdentity));
   auto changedLabelDevice = labelIdentity;
   changedLabelDevice.deviceId = "r1-b";
   assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelDevice));
@@ -4673,7 +4682,7 @@ void testEnvironmentValueLookup() {
 void testPathComparisonHelpers() {
   namespace transferDetail = inventatory::inventory_transfer_detail;
   const auto compareBase = testTempRoot() / "inventatory-path-compare-test";
-  assert(transferDetail::equivalentPath(compareBase / "same", compareBase / "same"));
+  assert(transferDetail::equivalentPath(compareBase / "same", compareBase / "." / "same"));
   assert(!transferDetail::equivalentPath(compareBase / "one", compareBase / "two"));
   bool pathsOverlapResult = false;
   string pathsOverlapError;
@@ -8670,9 +8679,9 @@ void testApplicationIconAsset() {
 #else
   const auto icoPath = filesystem::path("branding") / "icons" / "inventatory.ico";
 #endif
-  if (!filesystem::is_regular_file(icoPath)) {
-    cout << "SKIPPED application icon check: " << icoPath.string() << " is not readable from here\n";
-  } else {
+  // The icon is part of the source tree, so a missing file is a failure, not a skip.
+  assert(filesystem::is_regular_file(icoPath));
+  {
     ifstream icoStream(icoPath, ios::binary);
     uint16_t reserved = 0, type = 0, count = 0;
     icoStream.read(reinterpret_cast<char*>(&reserved), 2);
@@ -11617,6 +11626,11 @@ int main(int argc, char** argv) {
   }
   currentTestLabel().store("(finished)");
 
+  if (skippedLocaleTests > 0) {
+    cout << "Inventatory core tests passed, but " << skippedLocaleTests
+         << " locale test(s) were SKIPPED: no comma-decimal locale is installed\n";
+    return 77;  // CTest SKIP_RETURN_CODE
+  }
   if (skippedCredentialTests > 0) {
     cout << "Inventatory core tests passed, but " << skippedCredentialTests
          << " credential test group(s) were SKIPPED: no unlocked Secret Service (see docs/linux-support.md)\n";
