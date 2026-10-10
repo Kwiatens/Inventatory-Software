@@ -5550,17 +5550,21 @@ void testEmbeddedNulItemNameIsStoredIntact() {
   // The item reader converts text with C-string functions, so a reload would stop at the NUL and
   // cannot show the stored bytes. Check the stored value directly: length(CAST(... AS BLOB)) counts
   // every byte and hex() covers the whole value.
-  SqliteConnection connection;
-  assert(openDatabaseReadOnly(tempPath, connection));
-  SqliteStatement statement;
-  assert(sqliteApi().prepare_v2(connection.db,
-                                "SELECT length(CAST(part_name AS BLOB)), hex(part_name) "
-                                "FROM inventatory_items WHERE id = ?",
-                                -1, &statement.stmt, nullptr) == SQLITE_OK);
-  assert(sqliteApi().bind_text(statement.stmt, 1, "nul-name-1", -1, SQLITE_TRANSIENT) == SQLITE_OK);
-  assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
-  assert(sqliteApi().column_int64(statement.stmt, 0) == 7);
-  assert(sqliteText(statement.stmt, 1) == "61626300646566");
+  {
+    // Scope the connection so it is closed before the file is removed; Windows cannot delete an
+    // open file.
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(tempPath, connection));
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db,
+                                  "SELECT length(CAST(part_name AS BLOB)), hex(part_name) "
+                                  "FROM inventatory_items WHERE id = ?",
+                                  -1, &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().bind_text(statement.stmt, 1, "nul-name-1", -1, SQLITE_TRANSIENT) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    assert(sqliteApi().column_int64(statement.stmt, 0) == 7);
+    assert(sqliteText(statement.stmt, 1) == "61626300646566");
+  }
   filesystem::remove(tempPath);
 }
 
