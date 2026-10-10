@@ -225,28 +225,52 @@ string makeImportedId(const string& digikeyPart, const string& manufacturerPart)
   return cleaned + "-" + makeId().substr(0, 8);
 }
 
-bool sameCode(const string& lhs, const string& rhs) {
-  return !trim(lhs).empty() && toLower(trim(lhs)) == toLower(trim(rhs));
+struct InventoryIndex {
+  unordered_map<string, const InventoryItem*> byDigiKeyPart;
+  unordered_map<string, const InventoryItem*> bySku;
+};
+
+InventoryIndex buildInventoryIndex(const vector<InventoryItem>& existingItems) {
+  InventoryIndex index;
+  index.byDigiKeyPart.reserve(existingItems.size());
+  index.bySku.reserve(existingItems.size());
+  for (const auto& item : existingItems) {
+    const auto digikeyKey = toLower(trim(item.digikeyPartNumber));
+    if (!digikeyKey.empty()) {
+      index.byDigiKeyPart.emplace(digikeyKey, &item);
+    }
+    const auto skuKey = toLower(trim(item.sku));
+    if (!skuKey.empty()) {
+      index.bySku.emplace(skuKey, &item);
+    }
+  }
+  return index;
 }
 
-void detectConflict(CsvImportCandidate& candidate, const vector<InventoryItem>& existingItems) {
-  for (const auto& item : existingItems) {
-    if (sameCode(candidate.item.digikeyPartNumber, item.digikeyPartNumber)) {
+void detectConflict(CsvImportCandidate& candidate, const InventoryIndex& index) {
+  const auto digikeyKey = toLower(trim(candidate.item.digikeyPartNumber));
+  if (!digikeyKey.empty()) {
+    const auto it = index.byDigiKeyPart.find(digikeyKey);
+    if (it != index.byDigiKeyPart.end()) {
+      const auto* item = it->second;
       candidate.hasConflict = true;
-      candidate.existingItemId = item.id;
-      candidate.existingPartName = item.partName;
-      candidate.existingQuantity = item.quantity;
+      candidate.existingItemId = item->id;
+      candidate.existingPartName = item->partName;
+      candidate.existingQuantity = item->quantity;
       candidate.matchedField = "DigiKey part";
       return;
     }
   }
 
-  for (const auto& item : existingItems) {
-    if (sameCode(candidate.item.sku, item.sku)) {
+  const auto skuKey = toLower(trim(candidate.item.sku));
+  if (!skuKey.empty()) {
+    const auto it = index.bySku.find(skuKey);
+    if (it != index.bySku.end()) {
+      const auto* item = it->second;
       candidate.hasConflict = true;
-      candidate.existingItemId = item.id;
-      candidate.existingPartName = item.partName;
-      candidate.existingQuantity = item.quantity;
+      candidate.existingItemId = item->id;
+      candidate.existingPartName = item->partName;
+      candidate.existingQuantity = item->quantity;
       candidate.matchedField = "Manufacturer part";
       return;
     }
@@ -261,7 +285,7 @@ void addOptionalParameter(vector<Parameter>& parameters, const string& name, con
 }
 
 CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& columns, size_t sourceRow,
-                                    const vector<InventoryItem>& existingItems) {
+                                    const InventoryIndex& index) {
   CsvImportCandidate candidate;
   candidate.sourceRow = sourceRow;
 
@@ -291,7 +315,7 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
   addOptionalParameter(candidate.item.parameters, "Line Value", csvCell(row, columns.lineValue));
   addOptionalParameter(candidate.item.parameters, "Source Row", to_string(sourceRow));
 
-  detectConflict(candidate, existingItems);
+  detectConflict(candidate, index);
   return candidate;
 }
 
@@ -321,12 +345,14 @@ CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryIt
     return result;
   }
 
+  const auto index = buildInventoryIndex(existingItems);
+
   size_t compatibleRows = 0;
   for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
     const auto& row = rows[rowIndex];
     if (rowLooksLikeDigiKeyOrderLine(row, columns)) {
       ++compatibleRows;
-      result.candidates.push_back(candidateFromRow(row, columns, rowIndex + 1, existingItems));
+      result.candidates.push_back(candidateFromRow(row, columns, rowIndex + 1, index));
     } else if (any_of(row.begin(), row.end(), [](const string& value) { return !trim(value).empty(); })) {
       result.warnings.push_back("Skipped row " + to_string(rowIndex + 1) + ": not a valid DigiKey product line");
     }

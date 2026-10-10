@@ -253,10 +253,21 @@ ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
         if (hovered) element = element | ftxui::bgcolor(uiHoverBg());
         if (focused) element = element | ftxui::color(uiFocusColor()) | ftxui::bgcolor(uiSelectionBg()) | ftxui::bold;
         break;
+      case UiTargetKind::Surface:
+        // Surfaces are registered with reserveSurfaceTarget(), never here.
+        break;
     }
   }
   uiTargets_.push_back(UiTarget{move(id), kind, {}, enabled, focusable, move(activate)});
   return element | ftxui::reflect(uiTargets_.back().bounds);
+}
+
+ftxui::Box& App::reserveSurfaceTarget(string id) const {
+  // The activate callback is a no-op so a click is consumed without action.
+  // uiTargets_ is a deque, so the returned reference stays valid as later
+  // targets are appended.
+  uiTargets_.push_back(UiTarget{move(id), UiTargetKind::Surface, {}, true, false, [] {}});
+  return uiTargets_.back().bounds;
 }
 
 bool App::handleMouse(const ftxui::Mouse& mouse) {
@@ -268,7 +279,8 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
   string hovered;
   for (auto it = uiTargets_.rbegin(); it != uiTargets_.rend(); ++it) {
     if (it->enabled && contains(*it)) {
-      hovered = it->id;
+      // A surface blocks hover on the targets beneath it but never highlights itself.
+      if (it->kind != UiTargetKind::Surface) hovered = it->id;
       break;
     }
   }
@@ -286,7 +298,14 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       sheetIndex_ = max(0, min(count - 1, sheetIndex_ + delta));
       dirty_ = true;
     }
-    else if (page_ == Page::Stock) moveSelection(delta);
+    else if (page_ == Page::Stock) {
+      // The Sort / Filter panel is drawn over the list. A wheel over it scrolls
+      // nothing, so the stock selection behind the panel does not move.
+      const auto filterPanel = find_if(uiTargets_.begin(), uiTargets_.end(),
+                                       [](const UiTarget& target) { return target.id == "stock.filter.panel"; });
+      const bool overFilterPanel = filterPanel != uiTargets_.end() && contains(*filterPanel);
+      if (!overFilterPanel) moveSelection(delta);
+    }
     else if (page_ == Page::Import) moveImportSelection(delta);
     else if (page_ == Page::History) {
       if (uiBoxContains(historyDetailPanelBounds_, mouse.x, mouse.y)) {
