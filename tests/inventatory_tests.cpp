@@ -4577,6 +4577,45 @@ void testItemFilterQueries() {
   assert(items[tagFiltered[0]].id == "esp32-s3-module");
 }
 
+// rack: names a whole rack code: r1 must not find the R10 locations, and the value ignores case.
+void testRackQueryMatchesWholeRackCode() {
+  vector<InventatoryRack> racks;
+  for (const char* code : {"R1", "R2", "R10"}) {
+    InventatoryRack rack;
+    rack.id = string("rack-") + code;
+    rack.code = code;
+    rack.componentType = "Resistors";
+    rack.rows = 4;
+    rack.columns = 6;
+    racks.push_back(rack);
+  }
+  const auto placed = [](const char* id, const char* rackId, const char* slot) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = "Resistor";
+    item.quantity = 1;
+    item.rackId = rackId;
+    item.rackSlot = slot;
+    return item;
+  };
+  const vector<InventoryItem> items = {placed("r1-a1", "rack-R1", "A1"), placed("r1-a2", "rack-R1", "A2"),
+                                       placed("r2-a1", "rack-R2", "A1"), placed("r10-a1", "rack-R10", "A1")};
+  const auto idsFor = [&](const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query, racks, 5)) ids.push_back(items[index].id);
+    return ids;
+  };
+
+  assert((idsFor("rack:r1") == vector<string>{"r1-a1", "r1-a2"}));
+  assert((idsFor("rack:R1") == vector<string>{"r1-a1", "r1-a2"}));
+  assert((idsFor("rack:r10") == vector<string>{"r10-a1"}));
+  assert((idsFor("rack:r2") == vector<string>{"r2-a1"}));
+  assert((idsFor("rack:r1-a1") == vector<string>{"r1-a1"}));
+  assert((idsFor("rack:r1-a") == vector<string>{"r1-a1", "r1-a2"}));
+  assert((idsFor("rack:R1-A2") == vector<string>{"r1-a2"}));
+  assert(idsFor("rack:r3").empty());
+}
+
 void testLowStockClassification() {
   InventoryItem outOfStock;
   outOfStock.id = "out";
@@ -10738,6 +10777,7 @@ const vector<TestCase>& registeredTests() {
     {"platform", "WindowsEnvironmentValueIsUtf8", testWindowsEnvironmentValueIsUtf8},
 #endif
     {"inventory", "ItemFilterQueries", testItemFilterQueries},
+    {"inventory", "RackQueryMatchesWholeRackCode", testRackQueryMatchesWholeRackCode},
 #ifndef _WIN32
     {"platform", "LinuxChildProcessIsBounded", testLinuxChildProcessIsBounded},
 #endif
