@@ -1060,7 +1060,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604",
       "synced",
       "RC0603FR-0710KL",
-      1710000000,
+      1710000000, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
   });
 
   items.push_back({
@@ -1079,7 +1079,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/espressif-systems/ESP32-S3/15240400",
       "synced",
       "ESP32-S3-WROOM-1",
-      1710000100,
+      1710000100, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
   });
 
   ensureInventoryIdentifiers(items);
@@ -2942,8 +2942,8 @@ void testSqliteSchemaValidation() {
   filesystem::remove(duplicatePath, cleanupError);
   {
     InventoryStore duplicate;
-    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1});
-    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1});
+    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
     assert(!duplicate.save(duplicatePath));
   }
   filesystem::remove(duplicatePath, cleanupError);
@@ -2999,7 +2999,7 @@ void testSqliteSchemaValidation() {
     request.protocolVersion = 1;
     request.requestId = "completion-sync";
     request.deviceId = "device-a";
-    request.events = {{"completion-event", "inventory.adjust", "completion-item", 1}};
+    request.events = {{"completion-event", "inventory.adjust", "completion-item", 1, ""}};
     DeviceSyncResponse response;
     string error;
     assert(acceptDeviceSyncEvents(completionPath, request, response, error));
@@ -3929,7 +3929,7 @@ void testScannerCommitIgnoresUnsavedMemoryEdits() {
   request.protocolVersion = 1;
   request.requestId = "unsaved-sync";
   request.deviceId = "device-a";
-  request.events = {{"unsaved-event", "inventory.adjust", persisted.items()[1].machineCode, 1}};
+  request.events = {{"unsaved-event", "inventory.adjust", persisted.items()[1].machineCode, 1, ""}};
   DeviceSyncResponse response;
   string error;
   assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -4009,9 +4009,9 @@ void testPendingDeviceEventsKeepArrivalOrder() {
   request.requestId = "order-sync";
   request.deviceId = "device-order";
   const auto code = store.items().front().machineCode;
-  request.events = {{"ev-9", "inventory.adjust", code, 5},
-                    {"ev-10", "inventory.adjust", code, -8},
-                    {"ev-1", "inventory.adjust", code, 1}};
+  request.events = {{"ev-9", "inventory.adjust", code, 5, ""},
+                    {"ev-10", "inventory.adjust", code, -8, ""},
+                    {"ev-1", "inventory.adjust", code, 1, ""}};
   DeviceSyncResponse response;
   string error;
   assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -4379,8 +4379,8 @@ void testInventoryMerge() {
     request.protocolVersion = 1;
     request.requestId = "e2e-sync";
     request.deviceId = "device-a";
-    request.events = {{"e2e-event-1", "inventory.receive", persisted.items()[0].machineCode, 4},
-                      {"e2e-event-2", "inventory.receive", "NEW-SCANNED-CODE", 2}};
+    request.events = {{"e2e-event-1", "inventory.receive", persisted.items()[0].machineCode, 4, ""},
+                      {"e2e-event-2", "inventory.receive", "NEW-SCANNED-CODE", 2, ""}};
     DeviceSyncResponse response;
     string error;
     assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -4402,7 +4402,7 @@ void testInventoryMerge() {
       result.appliedDelta = event.value;
       result.quantity = item->quantity;
       assert(completeDeviceSyncEvent(candidate, path, result, &live));
-      live = move(candidate);
+      live = std::move(candidate);
     }
     assert(live.items().size() == 3);
 
@@ -5471,7 +5471,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   filesystem::remove(databasePath, removeError);
 
   InventoryStore persisted;
-  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7});
+  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
   assert(persisted.save(databasePath));
 
   {
@@ -5481,7 +5481,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   }
 
   InventoryStore retained;
-  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3});
+  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
   assert(!retained.load(databasePath));
   assert(retained.items().size() == 1);
   assert(retained.items().front().id == "live-item");
@@ -5799,7 +5799,7 @@ void testDigiKeyCsvMergesRowsWithoutDigiKeyNumber() {
 void testCategoryHeadersAndPartDescriptors() {
   auto backend = make_unique<MockPrinterBackend>();
   auto* backendPtr = backend.get();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
   service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
   const auto expectHeader = [&](const InventoryItem& candidate, const string& expected) {
     const auto plan = service.buildLabelPlan(candidate);
@@ -5931,7 +5931,7 @@ void testCategoryHeadersAndPartDescriptors() {
     candidate.vendorMetadata.provider = provider;
     candidate.vendorMetadata.categoryPath = {category};
     candidate.vendorMetadata.title = title;
-    candidate.vendorMetadata.parameters = move(parameters);
+    candidate.vendorMetadata.parameters = std::move(parameters);
     const auto descriptor = describePart(candidate);
     if (descriptor.purposeLabel != purpose || descriptor.printLabel != print || descriptor.source != source) {
       cerr << "Descriptor mismatch for category '" << category << "': expected '" << purpose << "' / '" << print
@@ -6645,7 +6645,7 @@ void testCategoryHeadersAndPartDescriptors() {
 
 void testCompactPartNameWrapping() {
   auto backend = make_unique<MockPrinterBackend>();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
   InventoryItem item;
   item.id = "mcu-1";
   item.partName = "STM32G0 demo board";
@@ -6694,7 +6694,7 @@ void testCompactPartNameWrapping() {
 
 void testPackageAndMosfetTiles() {
   auto backend = make_unique<MockPrinterBackend>();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
   InventoryItem item;
   item.id = "mosfet-1";
   item.partName = "N-channel MOSFET";
@@ -6751,7 +6751,7 @@ void testLongHeaderKeepsPartName() {
 
 void testDiodeParameterTiles() {
   auto backend = make_unique<MockPrinterBackend>();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
 
   InventoryItem diode;
   diode.id = "diode-1";
@@ -8916,9 +8916,9 @@ void testUpdatePreviewPresentation() {
   assert(string(previewHints.start) == "Enter");
   assert(string(previewHints.cancel) == "Esc");
   assert(string(previewHints.readNotes) == "Up/Down read notes");
-  assert(updatePreviewStartsOnKey(KeyEvent{KeyType::Enter, '\0'}));
-  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 's'}));
-  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 'S'}));
+  assert(updatePreviewStartsOnKey(KeyEvent{KeyType::Enter, '\0', ""}));
+  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 's', ""}));
+  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 'S', ""}));
 
   assert(cleanMarkdownInline("[PR #12](https://github.com/pull/12)") == "PR #12");
   assert(cleanMarkdownInline("**Notice:** See [`readme`](https://example.com)") == "Notice: See readme");
@@ -8963,7 +8963,7 @@ void testUtf8TextInputEditing() {
   // Typed characters keep their full UTF-8 sequence and Backspace removes
   // whole characters, so Polish letters and unit symbols never corrupt text.
   string buffer;
-  appendKeyText(buffer, KeyEvent{KeyType::Character, 'a'});
+  appendKeyText(buffer, KeyEvent{KeyType::Character, 'a', ""});
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC5\x82"});      // ł
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC2\xB5"});      // µ
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xE2\x84\xA6"});  // Ω
@@ -8977,7 +8977,7 @@ void testUtf8TextInputEditing() {
   assert(buffer.empty());
   eraseLastCharacter(buffer);
   assert(buffer.empty());
-  appendKeyText(buffer, KeyEvent{KeyType::Character, '\0'});
+  appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', ""});
   assert(buffer.empty());
 }
 
@@ -10846,7 +10846,7 @@ void testDeviceEventInboxRecovery() {
   request.mode = "ready";
   request.rssi = -40;
   request.queueDepth = 1;
-  request.events = {{"recovery-event", "inventory.adjust", "9999", 1}};
+  request.events = {{"recovery-event", "inventory.adjust", "9999", 1, ""}};
   DeviceSyncResponse response;
   string error;
   assert(acceptDeviceSyncEvents(path, request, response, error));
