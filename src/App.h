@@ -432,6 +432,12 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
+  struct DigiKeyTestResult {
+    bool ok = false;
+    std::string error;
+    WorkspaceGeneration generation = 0;
+  };
+
   // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
   // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
   // it, and only while no lookup is running.
@@ -634,6 +640,7 @@ class App {
   bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
+  void processDigiKeyTest();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -1085,6 +1092,7 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
+  std::future<DigiKeyTestResult> digiKeyTestFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckFailed_ = false;
