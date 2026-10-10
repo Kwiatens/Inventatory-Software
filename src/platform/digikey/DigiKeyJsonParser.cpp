@@ -216,19 +216,19 @@ class JsonParser {
           if (!append(escaped)) return false;
           break;
         case 'b':
-          if (!append('\b')) return false;
+          if (!append(' ')) return false;
           break;
         case 'f':
-          if (!append('\f')) return false;
+          if (!append(' ')) return false;
           break;
         case 'n':
-          if (!append('\n')) return false;
+          if (!append(' ')) return false;
           break;
         case 'r':
-          if (!append('\r')) return false;
+          if (!append(' ')) return false;
           break;
         case 't':
-          if (!append('\t')) return false;
+          if (!append(' ')) return false;
           break;
         case 'u': {
           const auto hexDigit = [](char value) -> int {
@@ -253,6 +253,11 @@ class JsonParser {
             return false;
           }
           unsigned codePoint = codeUnit;
+          if (codePoint == 0U) {
+            // A NUL would cut the string short wherever it is later stored or compared as C text.
+            if (error != nullptr) *error = "JSON string contains a NUL character";
+            return false;
+          }
           if (codeUnit >= 0xD800U && codeUnit <= 0xDBFFU) {
             if (text_.size() - pos_ < 6U || text_[pos_] != '\\' || text_[pos_ + 1U] != 'u') {
               if (error != nullptr) *error = "JSON high surrogate is missing its pair";
@@ -269,6 +274,10 @@ class JsonParser {
             if (error != nullptr) *error = "JSON string contains an unpaired low surrogate";
             return false;
           }
+
+          // Escaped control characters (including the C1 range) are shown as spaces so a vendor string can
+          // never carry terminal control sequences into the inventory.
+          if (codePoint < 0x20U || (codePoint >= 0x7FU && codePoint <= 0x9FU)) codePoint = 0x20U;
 
           if (codePoint <= 0x7FU) {
             if (!append(static_cast<char>(codePoint))) return false;
