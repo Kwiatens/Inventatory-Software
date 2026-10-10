@@ -34,6 +34,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scanner: a failed DigiKey lookup for a scanned part is reported, and a sync that omits fields no
   longer blanks the stored DigiKey details.
 - Backup: a backup that cannot be fully scanned is rejected.
+- Scanner: Bluetooth setup of a Scan R1 no longer freezes the terminal, a lost reply to the setup write
+  keeps the token so the scanner can recover, and one network address can no longer hold every
+  connection slot of the scanner service. A nearby device flooding Bluetooth discovery no longer hides
+  the real scanner.
+- Settings: Test DigiKey runs in the background instead of freezing the terminal.
+- Stock: the ranked list header keeps the Filter button visible at 100 columns.
+- Import: a very long text field no longer crashes inductance detection, a very long label name no
+  longer stalls printing, a CSV with millions of cells is refused instead of using gigabytes of memory,
+  and one oversized unused DigiKey text no longer fails the whole lookup.
+- Printing (Windows): a queue that cannot be queried or a print job that fails to close is reported.
+- Updates (Windows): a failed final write of the downloaded update is reported as such.
+- Setup (Windows): the uninstaller lists anything it could not delete.
 
 ## [v0.1.4] - 2026-10-08
 
