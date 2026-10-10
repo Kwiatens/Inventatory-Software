@@ -238,6 +238,7 @@ void App::processPrinterWork() {
 
     const auto workKind = work.kind;
     auto completion = make_shared<PrinterWorkCompletion>();
+    completion->requestId = work.requestId;
     PrinterWork workerWork = work;
     try {
       thread([completion, work = move(workerWork)]() mutable {
@@ -293,23 +294,82 @@ void App::processPrinterWork() {
   }
 }
 
+// Called on the UI thread before the workspace that started a job is replaced, so a finished job is
+// recorded against that workspace.  The generation check keeps the activity entry out of any
+// workspace that is no longer current.  Print outcomes are recorded like a normal finished result;
+// a worker that never finished is handled by stopPrinterWork().
+void App::recordStoppedPrinterWork(const PrinterWorkResult& result) {
+  const bool sent = result.success;
+  const bool workspaceCurrent = workspaceIsCurrent(result.work.workspaceGeneration);
+  switch (result.work.kind) {
+    case PrinterWorkKind::PrintItem:
+      if (sent && workspaceCurrent) {
+        logActivity("print", result.work.item.partName + " label printed");
+      }
+      break;
+    case PrinterWorkKind::PrintRack:
+      if (sent && workspaceCurrent) {
+        logActivity("print", result.work.rack.code + " rack label printed");
+      }
+      break;
+    case PrinterWorkKind::PrintWire:
+      if (!result.work.quickLabelIdentity.has_value()) {
+        if (sent && workspaceCurrent) logActivity("print", "wire label printed");
+        break;
+      }
+      if (sent) {
+        if (workspaceCurrent) logActivity("print", "wire label printed");
+        storeQuickLabelPrintResult({result.work.requestId, "completed", "", "Label sent"},
+                                   *result.work.quickLabelIdentity);
+      } else {
+        const auto error = result.error.empty() ? string("Printer failed") : result.error;
+        storeQuickLabelPrintResult({result.work.requestId, "failed", "printer_failed", error},
+                                   *result.work.quickLabelIdentity);
+      }
+      break;
+    case PrinterWorkKind::Refresh:
+    case PrinterWorkKind::Probe:
+      // These only update the printer status shown in the UI, which the stopped workspace discards.
+      break;
+  }
+}
+
 void App::stopPrinterWork() {
   {
     lock_guard<mutex> lock(printerWorkMutex_);
     printerWorkQueue_.clear();
   }
+  // A job the worker already finished is recorded below.  A job still running is cancelled; the
+  // worker sees the flag under the same mutex and drops its result instead of publishing it.
+  string runningRequestId;
   if (printerWorkCompletion_ != nullptr) {
     const auto completion = printerWorkCompletion_;
-    lock_guard<mutex> lock(completion->completionMutex);
-    completion->cancelled = true;
-    completion->result.reset();
+    optional<PrinterWorkResult> finished;
+    {
+      lock_guard<mutex> lock(completion->completionMutex);
+      completion->cancelled = true;
+      finished = move(completion->result);
+      completion->result.reset();
+    }
     printerWorkCompletion_.reset();
+    if (finished.has_value()) {
+      recordStoppedPrinterWork(*finished);
+    } else {
+      runningRequestId = completion->requestId;
+    }
   }
   printerWorkActiveKind_.reset();
   {
     lock_guard<mutex> lock(quickLabelMutex_);
     for (auto& entry : quickLabelPrintResults_) {
-      if (entry.second.result.status == "pending") {
+      if (entry.second.result.status != "pending") continue;
+      if (!runningRequestId.empty() && entry.first == runningRequestId) {
+        // The print may already have reached the printer.  "failed" is terminal for the quick-label
+        // exchange, so the request is not re-sent, and the code keeps it apart from a printer error.
+        entry.second.result.status = "failed";
+        entry.second.result.code = "cancelled";
+        entry.second.result.message = "Printing was cancelled before the label was confirmed";
+      } else {
         entry.second.result.status = "failed";
         entry.second.result.code = "workspace_changed";
         entry.second.result.message = "Printing was cancelled while the workspace changed";
