@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Stock: the number keys 1 to 5 no longer pick filter options. Use the arrow keys and Enter, or click.
 
+### Fixed
+- Projects: when saving the stock taken for a build fails, the build no longer stays open, so Deduct
+  from stock cannot be confirmed a second time and take the same parts out twice. Press R to retry the save.
+- Racks: Print, Enter and Detail on a rack slot now act on the part in that slot, whatever the Stock
+  list is sorted or filtered by. A part added in Stock is selected after saving.
+- DigiKey: a lookup that finds no exact match no longer fills the part with a similar-looking product.
+  Control characters in DigiKey text are shown as spaces, and text with an embedded NUL is refused.
+
 ## [v0.1.4] - 2026-10-08
 
 ### Added

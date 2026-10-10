@@ -3045,6 +3045,24 @@ void testPackageGHardening() {
     assert(error.find("4 MiB") != string::npos);
   }
 
+  {
+    // The keyword fallback only accepts the part that was asked for, never a merely similar one.
+    string parseError;
+    const auto root = digikey_detail::parseJson(
+        R"({"ExactMatches":[],"Products":[{"ManufacturerProductNumber":"ABC-100",)"
+        R"("Description":{"ProductDescription":"Resistor nd 10k"},)"
+        R"("ProductVariations":[{"DigiKeyProductNumber":"ABC-100-ND"},{"DigiKeyProductNumber":"ABC-100-1-ND"}]}]})",
+        &parseError);
+    assert(root.has_value());
+    const auto byVariation = digikey_detail::resolveSearchResult(*root, "abc-100-1-nd");
+    assert(byVariation.has_value() && byVariation->productNumber == "ABC-100-1-ND");
+    const auto byMpn = digikey_detail::resolveSearchResult(*root, "ABC100");
+    assert(byMpn.has_value() && byMpn->productNumber == "ABC-100-ND");
+    assert(!digikey_detail::resolveSearchResult(*root, "XYZ-999-ND").has_value());
+    assert(!digikey_detail::resolveSearchResult(*root, "nd").has_value());
+    assert(!digikey_detail::resolveSearchResult(*root, "resistor").has_value());
+  }
+
 #ifdef _WIN32
   {
     string error;
