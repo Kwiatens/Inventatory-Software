@@ -9065,7 +9065,7 @@ void testReleaseMetadataParsing() {
   assert(nestedUrlMetadata.updateAvailable);
   assert(nestedUrlMetadata.latestVersion == "v1.2.5");
   const auto emptyOptionalChannel = parseReleaseMetadata(
-      "[]", "0.1.0", "Kwiatens/Inventatory-Hardware", false);
+      "[]", "0.1.0", "Kwiatens/Inventatory-Firmware", false);
   assert(emptyOptionalChannel.completed);
   assert(!emptyOptionalChannel.updateAvailable);
   assert(emptyOptionalChannel.latestVersion.empty());
