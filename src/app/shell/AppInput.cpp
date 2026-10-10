@@ -298,7 +298,14 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       sheetIndex_ = max(0, min(count - 1, sheetIndex_ + delta));
       dirty_ = true;
     }
-    else if (page_ == Page::Stock) moveSelection(delta);
+    else if (page_ == Page::Stock) {
+      // The Sort / Filter panel is drawn over the list. A wheel over it scrolls
+      // nothing, so the stock selection behind the panel does not move.
+      const auto filterPanel = find_if(uiTargets_.begin(), uiTargets_.end(),
+                                       [](const UiTarget& target) { return target.id == "stock.filter.panel"; });
+      const bool overFilterPanel = filterPanel != uiTargets_.end() && contains(*filterPanel);
+      if (!overFilterPanel) moveSelection(delta);
+    }
     else if (page_ == Page::Import) moveImportSelection(delta);
     else if (page_ == Page::History) {
       if (uiBoxContains(historyDetailPanelBounds_, mouse.x, mouse.y)) {
