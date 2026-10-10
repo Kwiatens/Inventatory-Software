@@ -10277,6 +10277,29 @@ void testBackupEmptyWorkspaceAndInvalidSources() {
   filesystem::remove_all(failedBundle, cleanupError);
 }
 
+void testBackupBundleEnumerationFailure() {
+  namespace transferDetail = inventatory::inventory_transfer_detail;
+  const auto root = testTempRoot() / ("inventatory-transfer-enumerate-test-" + to_string(getpid()));
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(root);
+  const vector<transferDetail::BackupEntry> noEntries;
+  string error;
+  // A bundle folder that does not exist cannot be scanned, so validation must not pass.
+  assert(!transferDetail::validateEntries(root / "missing-bundle", noEntries, error));
+  assert(error.rfind("Unable to enumerate backup bundle", 0) == 0);
+  // A regular file is not a folder and fails the same way.
+  const auto notFolder = root / "not-a-folder";
+  {
+    ofstream output(notFolder, ios::binary);
+    output << "data";
+  }
+  error.clear();
+  assert(!transferDetail::validateEntries(notFolder, noEntries, error));
+  assert(error.rfind("Unable to enumerate backup bundle", 0) == 0);
+  filesystem::remove_all(root, cleanupError);
+}
+
 void testDeviceEventInboxRecovery() {
   const auto path = testTempRoot() / "inventatory-device-event-recovery-test.db";
   error_code cleanupError;
@@ -10940,6 +10963,7 @@ const vector<TestCase>& registeredTests() {
     {"bom", "EnrichmentCacheRules", testEnrichmentCacheRules},
     {"transfer", "BackupExportAndRestoreWorkflow", testBackupExportAndRestoreWorkflow},
     {"transfer", "BackupEmptyWorkspaceAndInvalidSources", testBackupEmptyWorkspaceAndInvalidSources},
+    {"transfer", "BackupBundleEnumerationFailure", testBackupBundleEnumerationFailure},
     {"storage", "DeviceEventInboxRecovery", testDeviceEventInboxRecovery},
     {"storage", "OpenDatabaseCreatesParentDirectories", testOpenDatabaseCreatesParentDirectories},
 #ifndef _WIN32
