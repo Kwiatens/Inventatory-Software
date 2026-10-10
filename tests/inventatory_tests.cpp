@@ -5345,6 +5345,62 @@ void testMovementDiffBetweenStores() {
   filesystem::remove(databasePath, cleanupError);
 }
 
+void testDigiKeyCsvConflictLookup() {
+  const string csv =
+      "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+      "111-AAA-ND,ABC-111,Acme,Part one,5\n"
+      "222-BBB-ND,ABC-222,Acme,Part two,5\n"
+      "333-CCC-ND,ABC-333,Acme,Part three,5\n";
+  InventoryItem first;
+  first.id = "first";
+  first.digikeyPartNumber = "  111-aaa-nd ";
+  InventoryItem duplicate;
+  duplicate.id = "duplicate";
+  duplicate.digikeyPartNumber = "111-AAA-ND";
+  InventoryItem bySku;
+  bySku.id = "by-sku";
+  bySku.sku = " abc-222";
+  InventoryItem blank;
+  blank.id = "blank";
+
+  const auto result = parseDigiKeyCsvText(csv, {blank, first, duplicate, bySku});
+  assert(result.ok && result.candidates.size() == 3);
+  // The first matching item in inventory order wins, ignoring case and surrounding spaces.
+  assert(result.candidates[0].hasConflict && result.candidates[0].existingItemId == "first");
+  assert(result.candidates[0].matchedField == "DigiKey part");
+  assert(result.candidates[1].hasConflict && result.candidates[1].existingItemId == "by-sku");
+  assert(result.candidates[1].matchedField == "Manufacturer part");
+  // An item with empty codes never conflicts.
+  assert(!result.candidates[2].hasConflict);
+}
+
+void testDigiKeyMetadataMergeKeepsKnownFields() {
+  InventoryItem item;
+  item.vendorMetadata.provider = "digikey";
+  item.vendorMetadata.providerProductNumber = "P1-ND";
+  item.vendorMetadata.categoryPath = {"Passive", "Resistors"};
+  item.vendorMetadata.title = "Old title";
+  item.vendorMetadata.parameters = {{"Tolerance", "1%"}};
+
+  DigiKeyProductDetails sparse;
+  sparse.vendorMetadata.provider = "digikey";
+  sparse.vendorMetadata.providerProductNumber = "P1-ND";
+  sparse.vendorMetadata.categoryPath = {"Passive", "Resistors"};
+  sparse.vendorMetadata.title = "Old title";
+  sparse.vendorMetadata.parameters = {{"Tolerance", "1%"}};
+  // Nothing differs, so nothing counts as changed.
+  assert(!app_actions::mergeDigiKeyMetadata(item, sparse));
+
+  // A later response that omits fields must not blank the stored ones.
+  DigiKeyProductDetails omitting;
+  omitting.vendorMetadata.title = "New title";
+  assert(app_actions::mergeDigiKeyMetadata(item, omitting));
+  assert(item.vendorMetadata.title == "New title");
+  assert(item.vendorMetadata.providerProductNumber == "P1-ND");
+  assert(item.vendorMetadata.categoryPath.size() == 2);
+  assert(item.vendorMetadata.parameters.size() == 1);
+}
+
 void testDigiKeyCsvPolishHeaders() {
   const string csv =
       "Indeks,Nr kat. DigiKey,Manufacturer Part Number,Producent,Opis,Numer referencyjny klienta,IloĹ›Ä‡,"
@@ -10990,6 +11046,8 @@ const vector<TestCase>& registeredTests() {
     {"import", "CsvInchMarkInUnquotedField", testCsvInchMarkInUnquotedField},
     {"import", "CsvQuotedFieldRecovery", testCsvQuotedFieldRecovery},
     {"import", "CsvClosingQuotePadding", testCsvClosingQuotePadding},
+    {"import", "DigiKeyCsvConflictLookup", testDigiKeyCsvConflictLookup},
+    {"import", "DigiKeyMetadataMergeKeepsKnownFields", testDigiKeyMetadataMergeKeepsKnownFields},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
