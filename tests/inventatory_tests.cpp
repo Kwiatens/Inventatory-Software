@@ -69,6 +69,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cassert>
+#include <cctype>
 #include <chrono>
 #include <deque>
 #include <filesystem>
@@ -11331,6 +11332,224 @@ void testScannerCredentialResolutionOrSkip() {
   else skipMissingCredentialStore("scanner credential resolution");
 }
 
+// Inventory history lives in its own table. Each save replaces the table, and loading returns the points
+// oldest first, so every field has to survive the round trip exactly.
+void testInventoryHistoryPersistenceRoundTrip() {
+  const auto database = testTempRoot() / "inventatory-history-persistence.db";
+  error_code cleanupError;
+  filesystem::remove(database, cleanupError);
+
+  const auto samePoint = [](const InventoryHistoryPoint& left, const InventoryHistoryPoint& right) {
+    return left.timestamp == right.timestamp && left.itemCount == right.itemCount &&
+           left.totalUnits == right.totalUnits && left.lowStockCount == right.lowStockCount &&
+           left.outOfStockCount == right.outOfStockCount && left.dataErrorCount == right.dataErrorCount;
+  };
+
+  vector<InventoryHistoryPoint> written;
+  for (size_t index = 0; index < 3; ++index) {
+    InventoryHistoryPoint point;
+    point.timestamp = static_cast<time_t>(1710000000ULL + 3600ULL * index);
+    point.itemCount = 10 + index;
+    point.totalUnits = 100 + index;
+    point.lowStockCount = 2 + index;
+    point.outOfStockCount = 1 + index;
+    point.dataErrorCount = index;
+    written.push_back(point);
+  }
+  assert(saveInventoryHistory(database, written));
+
+  vector<InventoryHistoryPoint> loaded;
+  assert(loadInventoryHistory(database, loaded));
+  assert(loaded.size() == written.size());
+  for (size_t index = 0; index < written.size(); ++index) assert(samePoint(loaded[index], written[index]));
+
+  // Saving the points in reverse order must still load them oldest first.
+  const vector<InventoryHistoryPoint> reversed(written.rbegin(), written.rend());
+  assert(saveInventoryHistory(database, reversed));
+  assert(loadInventoryHistory(database, loaded));
+  assert(loaded.size() == written.size());
+  for (size_t index = 0; index < written.size(); ++index) assert(samePoint(loaded[index], written[index]));
+
+  // A second save replaces the first; it does not append to it.
+  vector<InventoryHistoryPoint> replacement(1, written.front());
+  replacement.front().itemCount = 99;
+  assert(saveInventoryHistory(database, replacement));
+  assert(loadInventoryHistory(database, loaded));
+  assert(loaded.size() == 1 && loaded.front().itemCount == 99);
+  filesystem::remove(database, cleanupError);
+}
+
+// Builds a small workspace and writes a backup bundle from it.
+bool createSmallBackupBundle(const filesystem::path& root, const filesystem::path& bundle, string& error) {
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(root / "source");
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "bundle-item";
+  item.partName = "Bundle resistor";
+  item.quantity = 4;
+  store.items().push_back(item);
+  ensureInventoryIdentifiers(store.items());
+  reconcileRackAssignments(store);
+  if (!store.save(root / "source" / "inventory.db")) return false;
+  if (!ensureInventoryCommitHistory(root / "source" / "inventory.db", store)) return false;
+  {
+    ofstream activity(root / "source" / "activity.tsv", ios::binary);
+    activity << "1710000000 \"test\" \"bundle marker\"\n";
+  }
+  AppSettings settings;
+  settings.dataDirectory = root / "source";
+  settings.completedOnboardingVersion = 1;
+  if (!saveAppSettings(root / "settings.conf", settings)) return false;
+  return createInventatoryBackup(root / "source", root / "settings.conf", bundle, "1.0.0", error);
+}
+
+// The manifest records a size and a SHA-256 digest for each bundled file. A change that keeps the size is
+// caught only by the digest, so this changes one letter without changing the file's length.
+void testBackupBundleDetectsSameSizeCorruption() {
+  const auto root = testTempRoot() / "inventatory-bundle-digest";
+  const auto bundle = root / "bundle";
+  string error;
+  assert(createSmallBackupBundle(root, bundle, error));
+  assert(validateInventatoryBackup(bundle, error));
+
+  const auto activityPath = bundle / "activity.tsv";
+  string original;
+  {
+    ifstream input(activityPath, ios::binary);
+    original.assign(istreambuf_iterator<char>(input), istreambuf_iterator<char>());
+  }
+  const auto marker = original.find("bundle marker");
+  assert(marker != string::npos);
+  string altered = original;
+  altered[marker] = 'B';  // "bundle marker" becomes "Bundle marker": same length, different bytes
+  assert(altered.size() == original.size() && altered != original);
+  {
+    ofstream output(activityPath, ios::binary | ios::trunc);
+    output << altered;
+  }
+  error.clear();
+  assert(!validateInventatoryBackup(bundle, error));
+  assert(!error.empty());
+  {
+    ofstream output(activityPath, ios::binary | ios::trunc);
+    output << original;
+  }
+  assert(validateInventatoryBackup(bundle, error));
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+}
+
+// A bundle holds only the documented files. Scanner pairing data and any token, secret or password must
+// stay out of it, including the sanitized settings file.
+void testBackupBundleHoldsOnlyDocumentedFiles() {
+  const auto root = testTempRoot() / "inventatory-bundle-contents";
+  const auto bundle = root / "bundle";
+  string error;
+  assert(createSmallBackupBundle(root, bundle, error));
+
+  const set<string> documented = {"manifest.tsv", "inventory.db", "activity.tsv", "printer.conf",
+                                  "quick_labels.conf", "settings.conf"};
+  size_t entries = 0;
+  for (const auto& entry : filesystem::directory_iterator(bundle)) {
+    ++entries;
+    assert(documented.count(entry.path().filename().string()) == 1);
+  }
+  assert(entries >= 3);  // the manifest, the database and the settings are always written
+  assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
+
+  string settingsText;
+  {
+    ifstream input(bundle / "settings.conf", ios::binary);
+    settingsText.assign(istreambuf_iterator<char>(input), istreambuf_iterator<char>());
+  }
+  transform(settingsText.begin(), settingsText.end(), settingsText.begin(),
+            [](unsigned char character) { return static_cast<char>(tolower(character)); });
+  assert(settingsText.find("token") == string::npos);
+  assert(settingsText.find("secret") == string::npos);
+  assert(settingsText.find("password") == string::npos);
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+}
+
+// A restore journal that cannot be parsed must stop startup recovery before any workspace file changes,
+// and the journal must stay on disk so it can be inspected.
+void testCorruptRestoreJournalLeavesWorkspaceAlone() {
+  const auto root = testTempRoot() / "inventatory-corrupt-journal";
+  const auto workspace = root / "workspace";
+  const auto settingsPath = root / "settings.conf";
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(workspace);
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "journal-item";
+  item.partName = "Journal resistor";
+  store.items().push_back(item);
+  ensureInventoryIdentifiers(store.items());
+  reconcileRackAssignments(store);
+  assert(store.save(workspace / "inventory.db"));
+  const auto journalPath = inventatory::inventory_transfer_detail::restoreJournalPath(settingsPath);
+  {
+    ofstream journal(journalPath, ios::binary);
+    journal << "this is not a restore journal\n";
+  }
+
+  string error;
+  assert(!recoverInventatoryRestore(workspace, settingsPath, error));
+  assert(!error.empty());
+  assert(filesystem::exists(journalPath));
+  InventoryStore reloaded;
+  assert(reloaded.load(workspace / "inventory.db"));
+  assert(reloaded.items().size() == 1 && reloaded.items().front().id == "journal-item");
+  filesystem::remove_all(root, cleanupError);
+}
+
+// writeFileAtomically either replaces the destination completely or leaves it as it was. A failed write
+// reports an error and leaves no temporary file in the destination folder.
+void testWriteFileAtomicallyFailureKeepsPriorFile() {
+  const auto root = testTempRoot() / "inventatory-atomic-failure";
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(root);
+  const auto readWhole = [](const filesystem::path& path) {
+    ifstream input(path, ios::binary);
+    return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  };
+
+  const auto destination = root / "settings.conf";
+  assert(writeFileAtomically(destination, "previous\n"));
+
+  // A regular file where a folder is needed makes the write impossible.
+  const auto blocking = root / "blocking";
+  {
+    ofstream output(blocking, ios::binary);
+    output << "not a folder";
+  }
+  string error;
+  assert(!writeFileAtomically(blocking / "child.conf", "new\n", &error));
+  assert(!error.empty());
+  assert(readWhole(blocking) == "not a folder");
+
+  // A folder cannot be replaced by a file, and the failed replacement must not leave its temporary file.
+  const auto folder = root / "folder";
+  filesystem::create_directories(folder);
+  error.clear();
+  assert(!writeFileAtomically(folder, "new\n", &error));
+  assert(!error.empty());
+  assert(filesystem::is_directory(folder));
+
+  assert(readWhole(destination) == "previous\n");
+  size_t entries = 0;
+  for (const auto& entry : filesystem::directory_iterator(root)) {
+    (void)entry;
+    ++entries;
+  }
+  assert(entries == 3);  // settings.conf, blocking and folder; no temporary file
+  filesystem::remove_all(root, cleanupError);
+}
+
 // Every test is registered here, in execution order, under the area it covers. `--list` prints
 // "area/name" and `--filter` matches a substring of that label.
 struct TestCase {
@@ -11517,6 +11736,11 @@ const vector<TestCase>& registeredTests() {
     {"transfer", "BackupExportAndRestoreWorkflow", testBackupExportAndRestoreWorkflow},
     {"transfer", "BackupEmptyWorkspaceAndInvalidSources", testBackupEmptyWorkspaceAndInvalidSources},
     {"transfer", "BackupBundleEnumerationFailure", testBackupBundleEnumerationFailure},
+    {"history", "InventoryHistoryPersistenceRoundTrip", testInventoryHistoryPersistenceRoundTrip},
+    {"transfer", "BackupBundleDetectsSameSizeCorruption", testBackupBundleDetectsSameSizeCorruption},
+    {"transfer", "BackupBundleHoldsOnlyDocumentedFiles", testBackupBundleHoldsOnlyDocumentedFiles},
+    {"transfer", "CorruptRestoreJournalLeavesWorkspaceAlone", testCorruptRestoreJournalLeavesWorkspaceAlone},
+    {"storage", "WriteFileAtomicallyFailureKeepsPriorFile", testWriteFileAtomicallyFailureKeepsPriorFile},
     {"storage", "DeviceEventInboxRecovery", testDeviceEventInboxRecovery},
     {"storage", "OpenDatabaseCreatesParentDirectories", testOpenDatabaseCreatesParentDirectories},
 #ifndef _WIN32
