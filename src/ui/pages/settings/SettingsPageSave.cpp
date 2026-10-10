@@ -209,6 +209,16 @@ bool App::saveSettingsDraft() {
       settings_ = oldSettings;
       settingsDraft_ = oldSettings;
       const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
+      // The credential store and the OS startup entry were changed earlier in this save; put them back too.
+      if (startupChanged) {
+        string ignored;
+        setBackgroundStartupEnabled(oldSettings.backgroundServiceEnabled, ignored);
+      }
+      rollbackDigiKeySecret();
+      stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
+      stagedDigiKeySecret_.clear();
+      stagedDigiKeySecretChanged_ = false;
+      settingsDirty_ = false;
       if (oldContext != nullptr) {
         activateWorkspaceContext(oldContext->paths);
       } else {
@@ -260,6 +270,10 @@ bool App::saveSettingsDraft() {
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   auto bridgeRestart = DeviceServiceRestart::Restarted;
   if (portChanged || dataChanged) bridgeRestart = restartDeviceService();
+  // A background service that cannot start is reported after the rest of the save has been applied, so the
+  // printer queue and the staged secret are never left half applied.
+  bool backgroundStartFailed = false;
+  bool backgroundDisabledSaved = true;
   if (backgroundChanged) {
     if (settings_.backgroundServiceEnabled) {
       const bool backgroundStarted = backgroundController_.start(true, false, [this] {
@@ -273,17 +287,9 @@ bool App::saveSettingsDraft() {
         settingsDraft_.backgroundServiceEnabled = false;
         string startupError;
         setBackgroundStartupEnabled(false, startupError);
-        if (!saveAppSettings(settingsPath_, settings_)) {
-          appSettingsSavePending_ = true;
-          persistenceError_ = "Background service could not start and its disabled state could not be saved.";
-          setMessage(persistenceError_ + " Press R to retry.", 7, UiMessageSeverity::Error);
-          settingsDirty_ = true;
-          return false;
-        }
-        setMessage("Settings saved, but the background service could not start; it was disabled", 7,
-                   UiMessageSeverity::Warning);
-        settingsDirty_ = false;
-        return false;
+        backgroundStartFailed = true;
+        backgroundDisabledSaved = saveAppSettings(settingsPath_, settings_);
+        if (!backgroundDisabledSaved) appSettingsSavePending_ = true;
       }
     } else {
       backgroundController_.disableBackgroundMode();
@@ -309,6 +315,17 @@ bool App::saveSettingsDraft() {
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
+  if (backgroundStartFailed) {
+    if (!backgroundDisabledSaved) {
+      persistenceError_ = "Background service could not start and its disabled state could not be saved.";
+      setMessage(persistenceError_ + " Press R to retry.", 7, UiMessageSeverity::Error);
+      settingsDirty_ = true;
+      return false;
+    }
+    setMessage("Settings saved, but the background service could not start; it was disabled", 7,
+               UiMessageSeverity::Warning);
+    return false;
+  }
   if (portChanged || dataChanged) {
     const auto notice = settingsBridgeNotice(bridgeRestart);
     setMessage(notice.text, 4, notice.severity);
