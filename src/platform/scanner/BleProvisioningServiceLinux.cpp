@@ -632,6 +632,17 @@ std::vector<std::string> uuidsForAdapterFilter() {
   return {kSetupServiceUuid};
 }
 
+std::string sanitizeDeviceName(const std::string& name) {
+  std::string clean;
+  clean.reserve(std::min(name.size(), static_cast<size_t>(64U)));
+  for (const unsigned char ch : name) {
+    if (ch < 0x20U || ch == 0x7fU) continue;
+    clean.push_back(static_cast<char>(ch));
+    if (clean.size() == 64U) break;
+  }
+  return clean;
+}
+
 }  // namespace
 
 BleProvisioningService::BleProvisioningService() = default;
@@ -642,6 +653,7 @@ void BleProvisioningService::startDiscovery() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     devices_.clear();
+    lastSeen_.clear();
     discovering_ = true;
   }
   worker_ = std::thread(&BleProvisioningService::discoveryLoop, this);
@@ -661,17 +673,39 @@ std::vector<BleSetupDevice> BleProvisioningService::devices() const {
 }
 
 void BleProvisioningService::rememberDevice(uint64_t address, const std::string& name, int rssi) {
+  const std::string cleanName = sanitizeDeviceName(name);
+  const auto now = std::chrono::steady_clock::now();
+
   std::lock_guard<std::mutex> lock(mutex_);
+  auto& lastSeen = lastSeen_;
+
   const auto found = std::find_if(devices_.begin(), devices_.end(), [address](const BleSetupDevice& device) {
     return device.address == address;
   });
   if (found != devices_.end()) {
-    found->name = name;
+    found->name = cleanName;
     found->rssi = rssi;
+    lastSeen[address] = now;
     return;
   }
-  if (devices_.size() >= kMaximumDiscoveredDevices) return;
-  devices_.push_back({address, name, rssi});
+  if (devices_.size() >= kMaximumDiscoveredDevices) {
+    auto oldestIt = devices_.begin();
+    auto oldestTime = std::chrono::steady_clock::time_point::max();
+    for (auto it = devices_.begin(); it != devices_.end(); ++it) {
+      const auto seenIt = lastSeen.find(it->address);
+      const auto seenTime = seenIt != lastSeen.end() ? seenIt->second : std::chrono::steady_clock::time_point::min();
+      if (seenTime < oldestTime) {
+        oldestTime = seenTime;
+        oldestIt = it;
+      }
+    }
+    if (oldestIt != devices_.end()) {
+      lastSeen.erase(oldestIt->address);
+      devices_.erase(oldestIt);
+    }
+  }
+  devices_.push_back({address, cleanName, rssi});
+  lastSeen[address] = now;
 }
 
 void BleProvisioningService::discoveryLoop() {
