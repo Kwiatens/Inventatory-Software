@@ -37,7 +37,7 @@ Projects uses the Stock page's split list/detail rhythm rather than parallel
 ready/shortage panels. The comparison list groups rows first into `In Stock` and
 `Missing`, then into component categories such as `Capacitors`, while keeping
 Part, Package, location or suggested match, a merged Need / Have count, and
-Status aligned in one surface. Keep one prominent `Find in racks` action. That action opens the
+Status aligned in one surface. Keep one prominent `Pick parts` action. That action opens the
 rack-by-rack pick workflow. Keep the comparison keyboard-first, preserve the
 shared action sheet, and do not add a persistent shortcut wall or a separate
 inspector pane. Incomplete workflow warnings belong in the shared bottom status
