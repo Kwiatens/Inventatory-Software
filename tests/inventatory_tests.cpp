@@ -7281,13 +7281,27 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   assert(elapsed < chrono::seconds(1));
   assert(syncCalls == 2);
 
+  // One address cannot hold every pending slot: past the per-address cap its next connection is refused,
+  // and it is served again as soon as the idle ones close.
+  vector<NativeSocket> floodClients;
+  for (int index = 0; index < 8; ++index) floodClients.push_back(connectSlowLocalClient(server.port()));
+  this_thread::sleep_for(chrono::milliseconds(100));
+  const auto refusedResponse = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 44, body));
+  assert(refusedResponse.rfind("HTTP/1.1 200 OK", 0) != 0);
+  assert(syncCalls == 2);
+  for (const auto client : floodClients) closeSocket(client);
+  this_thread::sleep_for(chrono::milliseconds(300));
+  const auto recoveredResponse = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 44, body));
+  assert(recoveredResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
+  assert(syncCalls == 3);
+
   const string rotatedToken = "111102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
   server.setDeviceCredentials(deviceId, rotatedToken, replayState);
   const auto oldTokenAfterRotation = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 44, body));
   assert(oldTokenAfterRotation.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
   const auto newTokenAfterRotation = sendLocalHttpRequest(server.port(), signedSyncRequest(rotatedToken, deviceId, 44, body));
   assert(newTokenAfterRotation.rfind("HTTP/1.1 200 OK", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   server.stop();
 
   LocalHttpServer restarted;
@@ -7295,7 +7309,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   assert(restarted.start(freeScannerTestPort(), onSync));
   const auto persistedReplay = sendLocalHttpRequest(restarted.port(), signedSyncRequest(rotatedToken, deviceId, 44, body));
   assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   restarted.stop();
 
 #ifndef _WIN32
@@ -7534,7 +7548,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto rejectedWithCorruptState =
       sendLocalHttpRequest(corruptStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(rejectedWithCorruptState.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   corruptStateServer.stop();
 
   const auto malformedFingerprintState = stateDirectory / "malformed-fingerprint.state";
@@ -7549,7 +7563,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto rejectedWithMalformedFingerprint = sendLocalHttpRequest(
       malformedFingerprintServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(rejectedWithMalformedFingerprint.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   malformedFingerprintServer.stop();
 
   // State left behind by a previous pairing secret (a rotation that crashed before the file was
@@ -7566,7 +7580,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto acceptedWithForeignState =
       sendLocalHttpRequest(foreignStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(acceptedWithForeignState.rfind("HTTP/1.1 200 OK", 0) == 0);
-  assert(syncCalls == 4);
+  assert(syncCalls == 5);
   {
     ifstream rewritten(foreignReplayState);
     stringstream rewrittenText;
@@ -7577,7 +7591,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto replayedAfterForeignState =
       sendLocalHttpRequest(foreignStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(replayedAfterForeignState.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 4);
+  assert(syncCalls == 5);
   foreignStateServer.stop();
 
   LocalHttpServer queuedStopServer;

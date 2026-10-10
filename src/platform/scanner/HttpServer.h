@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 #include <deque>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "platform/scanner/SocketPlatform.h"
@@ -33,9 +34,11 @@ using std::mutex;
 using std::string;
 using std::thread;
 using std::uint16_t;
+using std::uint32_t;
 using std::uint64_t;
 using std::vector;
 using std::deque;
+using std::unordered_map;
 using std::unordered_set;
 
 class LocalHttpServer {
@@ -62,6 +65,10 @@ class LocalHttpServer {
     NativeSocket socket = kInvalidSocket;
     string request;
   };
+  struct QueuedClient {
+    NativeSocket socket = kInvalidSocket;
+    uint32_t address = 0;
+  };
 
   void workerLoop();
   void readerLoop();
@@ -83,8 +90,9 @@ class LocalHttpServer {
   mutable mutex socketMutex_;
   mutable mutex pendingClientMutex_;
   condition_variable pendingClientChanged_;
-  deque<NativeSocket> pendingClientQueue_;
+  deque<QueuedClient> pendingClientQueue_;
   size_t pendingClientCount_ = 0;
+  unordered_map<uint32_t, size_t> pendingClientsPerAddress_;
   mutable mutex clientQueueMutex_;
   condition_variable clientQueueChanged_;
   deque<ReadyClient> clientQueue_;
