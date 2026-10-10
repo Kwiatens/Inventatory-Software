@@ -185,8 +185,45 @@ inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetail
 
   // The retained provider record is the sole input for deterministic vendor
   // label resolution; direct item fields remain available for the UI.
-  item.vendorMetadata = details.vendorMetadata;
-  changed = true;
+  const auto mergeVendorField = [&](string& target, const string& value) {
+    if (!value.empty() && target != value) {
+      target = value;
+      changed = true;
+    }
+  };
+
+  mergeVendorField(item.vendorMetadata.provider, details.vendorMetadata.provider);
+  mergeVendorField(item.vendorMetadata.providerProductNumber, details.vendorMetadata.providerProductNumber);
+  mergeVendorField(item.vendorMetadata.manufacturerPartNumber, details.vendorMetadata.manufacturerPartNumber);
+  mergeVendorField(item.vendorMetadata.categoryId, details.vendorMetadata.categoryId);
+  mergeVendorField(item.vendorMetadata.title, details.vendorMetadata.title);
+  mergeVendorField(item.vendorMetadata.detailedDescription, details.vendorMetadata.detailedDescription);
+  mergeVendorField(item.vendorMetadata.productUrl, details.vendorMetadata.productUrl);
+  mergeVendorField(item.vendorMetadata.locale, details.vendorMetadata.locale);
+
+  if (!details.vendorMetadata.categoryPath.empty() &&
+      item.vendorMetadata.categoryPath != details.vendorMetadata.categoryPath) {
+    item.vendorMetadata.categoryPath = details.vendorMetadata.categoryPath;
+    changed = true;
+  }
+
+  if (!details.vendorMetadata.parameters.empty()) {
+    const auto& newParams = details.vendorMetadata.parameters;
+    const auto& oldParams = item.vendorMetadata.parameters;
+    bool differ = oldParams.size() != newParams.size();
+    if (!differ) {
+      for (size_t i = 0; i < oldParams.size(); ++i) {
+        if (oldParams[i].name != newParams[i].name || oldParams[i].value != newParams[i].value) {
+          differ = true;
+          break;
+        }
+      }
+    }
+    if (differ) {
+      item.vendorMetadata.parameters = newParams;
+      changed = true;
+    }
+  }
 
   for (const auto& parameter : details.parameters) {
     if (upsertParameter(item.parameters, parameter.name, parameter.value)) {
