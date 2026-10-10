@@ -10,9 +10,10 @@
 #include <cstdlib>
 #include <limits>
 #include <locale>
-#include <regex>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 
 namespace inventatory {
 
@@ -427,6 +428,58 @@ string canonicalInductanceUnit(string unit) {
   return "H";
 }
 
+// Character classes of the inductance grammar. They are ASCII-only, as the C locale used by the
+// former std::regex matcher: \d is [0-9], \s is the C isspace set, and \b uses [A-Za-z0-9_].
+bool isAsciiDigit(char ch) { return ch >= '0' && ch <= '9'; }
+
+bool isAsciiWordChar(char ch) {
+  return isAsciiDigit(ch) || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_';
+}
+
+bool isRegexSpace(char ch) {
+  return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r';
+}
+
+char asciiLower(char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; }
+
+// Matches the inductance grammar  \d+(?:\.\d+)?|\d+[rR]\d+  then  \s*  then  [munp]?h  then  \b
+// (case-insensitively) at `start`, which must be a digit. The alternatives cannot both match at the
+// same position, and no backtracking choice can succeed where the greedy one fails, so this single
+// forward pass gives the same result as the regular expression. Returns the number as written
+// (still containing any 'R') and the unit as written.
+std::optional<std::pair<string, string>> matchInductanceAt(const string& text, size_t start) {
+  const size_t size = text.size();
+  size_t cursor = start;
+  while (cursor < size && isAsciiDigit(text[cursor])) ++cursor;
+  size_t numberEnd = cursor;
+  if (cursor < size && (text[cursor] == 'r' || text[cursor] == 'R')) {
+    const size_t digitsStart = cursor + 1;
+    numberEnd = digitsStart;
+    while (numberEnd < size && isAsciiDigit(text[numberEnd])) ++numberEnd;
+    if (numberEnd == digitsStart) return std::nullopt;
+  } else if (cursor + 1 < size && text[cursor] == '.' && isAsciiDigit(text[cursor + 1])) {
+    numberEnd = cursor + 1;
+    while (numberEnd < size && isAsciiDigit(text[numberEnd])) ++numberEnd;
+  }
+
+  size_t unitStart = numberEnd;
+  while (unitStart < size && isRegexSpace(text[unitStart])) ++unitStart;
+  size_t unitLength = 0;
+  if (unitStart + 1 < size && (asciiLower(text[unitStart]) == 'm' || asciiLower(text[unitStart]) == 'u' ||
+                               asciiLower(text[unitStart]) == 'n' || asciiLower(text[unitStart]) == 'p') &&
+      asciiLower(text[unitStart + 1]) == 'h') {
+    unitLength = 2;
+  } else if (unitStart < size && asciiLower(text[unitStart]) == 'h') {
+    unitLength = 1;
+  } else {
+    return std::nullopt;
+  }
+
+  const size_t unitEnd = unitStart + unitLength;
+  if (unitEnd < size && isAsciiWordChar(text[unitEnd])) return std::nullopt;
+  return std::make_pair(text.substr(start, numberEnd - start), text.substr(unitStart, unitLength));
+}
+
 }  // namespace
 
 bool looksLikeFrequencyValue(const string& value) {
@@ -444,14 +497,16 @@ bool looksLikeInductanceValue(const string& value) {
 }
 
 std::optional<string> extractInductance(const string& text) {
-  static const std::regex valuePattern(R"(\b(\d+(?:\.\d+)?|\d+[rR]\d+)\s*([munp]?h)\b)",
-                                       std::regex_constants::icase);
-  std::smatch match;
-  if (!std::regex_search(text, match, valuePattern) || match.size() <= 2) return std::nullopt;
-  auto number = match[1].str();
-  std::replace(number.begin(), number.end(), 'R', '.');
-  std::replace(number.begin(), number.end(), 'r', '.');
-  return number + canonicalInductanceUnit(match[2].str());
+  for (size_t start = 0; start < text.size(); ++start) {
+    if (!isAsciiDigit(text[start]) || (start > 0 && isAsciiWordChar(text[start - 1]))) continue;
+    auto match = matchInductanceAt(text, start);
+    if (!match) continue;
+    auto number = std::move(match->first);
+    std::replace(number.begin(), number.end(), 'R', '.');
+    std::replace(number.begin(), number.end(), 'r', '.');
+    return number + canonicalInductanceUnit(match->second);
+  }
+  return std::nullopt;
 }
 
 }  // namespace value_text
