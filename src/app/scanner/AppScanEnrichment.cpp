@@ -69,6 +69,13 @@ void App::processScanDigiKeyEnrichment() {
         logActivity("scan", "Synced DigiKey metadata for " + item->partName);
         saveState("digikey", result.itemId, "DigiKey enrichment");
       }
+    } else if (!result.error.empty()) {
+      // A workspace without DigiKey credentials stays silent; only a lookup that was attempted and failed is shown.
+      const auto shortError = result.error.size() > 80 ? result.error.substr(0, 77) + "..." : result.error;
+      const auto message = "DigiKey lookup failed for a scanned part: " + shortError;
+      setMessage(message, 5, UiMessageSeverity::Warning);
+      logActivity("scan", message);
+      dirty_ = true;
     }
   }
   if (scanDigiKeyEnrichmentQueue_.empty()) return;
@@ -85,8 +92,10 @@ void App::processScanDigiKeyEnrichment() {
     const auto config = loadDigiKeyConfig();
     if (!config.valid()) return result;
     DigiKeyApiClient client(config);
-    string error;
-    result.details = client.fetchProductDetails(lookup, &error);
+    result.details = client.fetchProductDetails(lookup, &result.error);
+    if (!result.details && result.error.empty()) {
+      result.error = "DigiKey lookup failed";
+    }
     return result;
   });
 }

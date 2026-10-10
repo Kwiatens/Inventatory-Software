@@ -421,6 +421,7 @@ class App {
   struct ScanDigiKeyEnrichmentResult {
     std::string itemId;
     std::optional<DigiKeyProductDetails> details;
+    std::string error;
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
