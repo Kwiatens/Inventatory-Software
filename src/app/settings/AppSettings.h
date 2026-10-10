@@ -15,6 +15,11 @@ namespace inventatory {
 
 constexpr int kDefaultLowStockThreshold = 5;
 
+// Byte limits for DigiKey settings text. The settings validator and the Settings editor both use these,
+// so an edit that is accepted on screen is always accepted when settings are saved.
+inline constexpr std::size_t kMaxDigiKeyFieldBytes = 512U;
+inline constexpr std::size_t kMaxDigiKeyLocaleFieldBytes = 32U;
+
 enum class AppearanceColorRole : std::uint8_t {
   CanvasBg,
   SurfaceBg,

@@ -8255,6 +8255,41 @@ void testInvalidLowStockThresholdIsRejected() {
   assert(!removeError);
 }
 
+void testDigiKeySettingsFieldLimits() {
+  // The Settings editor and the settings validator share these limits; a value accepted on screen must save.
+  const auto path = testTempRoot() / "inventatory-digikey-field-limits-test.conf";
+  AppSettings limits;
+  limits.digiKeyClientId = string(kMaxDigiKeyFieldBytes, 'c');
+  limits.digiKeyAccountId = string(kMaxDigiKeyFieldBytes, 'a');
+  limits.digiKeySite = string(kMaxDigiKeyLocaleFieldBytes, 's');
+  limits.digiKeyLanguage = string(kMaxDigiKeyLocaleFieldBytes, 'l');
+  limits.digiKeyCurrency = string(kMaxDigiKeyLocaleFieldBytes, 'u');
+  assert(saveAppSettings(path, limits));
+  AppSettings loaded;
+  assert(loadAppSettings(path, loaded));
+  assert(loaded.digiKeySite == limits.digiKeySite);
+  assert(loaded.digiKeyCurrency == limits.digiKeyCurrency);
+
+  // One byte over each limit must be rejected, and the last good file must stay in place.
+  const auto oneOver = [&](AppSettings candidate, auto mutate) {
+    mutate(candidate);
+    return !saveAppSettings(path, candidate);
+  };
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyClientId.push_back('c'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyAccountId.push_back('a'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeySite.push_back('s'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyLanguage.push_back('l'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyCurrency.push_back('u'); }));
+  AppSettings afterRejects;
+  assert(loadAppSettings(path, afterRejects));
+  assert(afterRejects.digiKeySite == limits.digiKeySite);
+  assert(afterRejects.digiKeyCurrency == limits.digiKeyCurrency);
+  assert(afterRejects.digiKeyClientId == limits.digiKeyClientId);
+  error_code removeError;
+  filesystem::remove(path, removeError);
+  assert(!removeError);
+}
+
 void testSymbolStandardPersistence() {
   // The EU default is not written, so the file stays readable by releases that predate the setting.
   const auto path = testTempRoot() / "inventatory-symbol-standard-settings-test.conf";
@@ -10773,6 +10808,7 @@ const vector<TestCase>& registeredTests() {
     {"settings", "LegacySettingsAppearanceFallback", testLegacySettingsAppearanceFallback},
     {"settings", "LegacyWarningDangerColorsUpgrade", testLegacyWarningDangerColorsUpgradeToCurrentDefaults},
     {"settings", "InvalidLowStockThresholdIsRejected", testInvalidLowStockThresholdIsRejected},
+    {"settings", "DigiKeySettingsFieldLimits", testDigiKeySettingsFieldLimits},
     {"settings", "SymbolStandardPersistence", testSymbolStandardPersistence},
     {"update", "UpdatePreviewPresentation", testUpdatePreviewPresentation},
     {"ui", "Utf8TextInputEditing", testUtf8TextInputEditing},

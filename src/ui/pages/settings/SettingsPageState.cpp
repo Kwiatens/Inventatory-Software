@@ -234,8 +234,19 @@ void App::commitSettingsFieldEdit() {
       settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
     }
   } else if (settingsCategory_ == SettingsCategory::DigiKey) {
+    // Keep the editor open on an over-long value: the validator rejects it on save, so accepting it here would
+    // make every later save fail.
+    const auto tooLong = [this](const char* label, size_t limit, const string& text) {
+      if (text.size() <= limit) return false;
+      setMessage(string(label) + " must be " + to_string(limit) + " bytes or fewer", 4);
+      return true;
+    };
+    const auto value = trim(inputBuffer_);
     switch (settingsField_) {
-      case 0: settingsDraft_.digiKeyClientId = trim(inputBuffer_); break;
+      case 0:
+        if (tooLong("DigiKey client ID", kMaxDigiKeyFieldBytes, value)) return;
+        settingsDraft_.digiKeyClientId = value;
+        break;
       case 1:
         if (trim(inputBuffer_).empty()) {
           setMessage("Client secret cannot be empty; press Esc to keep the stored secret", 4);
@@ -244,10 +255,22 @@ void App::commitSettingsFieldEdit() {
         stagedDigiKeySecret_ = inputBuffer_;
         stagedDigiKeySecretChanged_ = true;
         break;
-      case 2: settingsDraft_.digiKeyAccountId = trim(inputBuffer_); break;
-      case 3: settingsDraft_.digiKeySite = trim(inputBuffer_); break;
-      case 4: settingsDraft_.digiKeyLanguage = trim(inputBuffer_); break;
-      case 5: settingsDraft_.digiKeyCurrency = trim(inputBuffer_); break;
+      case 2:
+        if (tooLong("DigiKey account ID", kMaxDigiKeyFieldBytes, value)) return;
+        settingsDraft_.digiKeyAccountId = value;
+        break;
+      case 3:
+        if (tooLong("DigiKey site", kMaxDigiKeyLocaleFieldBytes, value)) return;
+        settingsDraft_.digiKeySite = value;
+        break;
+      case 4:
+        if (tooLong("DigiKey language", kMaxDigiKeyLocaleFieldBytes, value)) return;
+        settingsDraft_.digiKeyLanguage = value;
+        break;
+      case 5:
+        if (tooLong("DigiKey currency", kMaxDigiKeyLocaleFieldBytes, value)) return;
+        settingsDraft_.digiKeyCurrency = value;
+        break;
       default: break;
     }
   }
