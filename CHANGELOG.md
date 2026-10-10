@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings: Test DigiKey runs in the background instead of freezing the terminal.
 - Scanner (Linux): the Bluetooth pairing agent only answers the Bluetooth service, so another program
   on the system bus can no longer cancel pairing or ask for the pairing code.
+- Stock: a bare search word such as `r1` finds rack R1 only, not R10 to R19, and the mouse wheel over the
+  open Sort / Filter panel no longer moves the stock rows behind it.
 - Stock: the ranked list header keeps the Filter button visible at 100 columns.
 - Import: a very long text field no longer crashes inductance detection, a very long label name no
   longer stalls printing, a CSV with millions of cells is refused instead of using gigabytes of memory,
