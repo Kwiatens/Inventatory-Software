@@ -408,7 +408,7 @@ QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& 
       continue;
     }
     if (containsInsensitive(item.searchableText(), token)) continue;
-    if (containsInsensitive(itemRackLocation, token)) continue;
+    if (tokenMatchesRackLocation(itemRackLocation, token)) continue;
     return {false, nullopt};
   }
 
