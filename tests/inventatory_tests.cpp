@@ -10733,6 +10733,33 @@ void testCsvQuotedFieldRecovery() {
   assert(error.find("unterminated quoted field") != string::npos);
 }
 
+// Spaces or tabs between a closing quote and the delimiter or line break are padding, not content.
+void testCsvClosingQuotePadding() {
+  string error;
+  const auto spaced = parseCsv("\"abc\" ,x\n", ',', error);
+  assert(error.empty());
+  assert(spaced.size() == 1 && spaced[0] == (vector<string>{"abc", "x"}));
+
+  const auto trailing = parseCsv("\"abc\"  \nnext,row\n", ',', error);
+  assert(error.empty());
+  assert(trailing.size() == 2 && trailing[0] == vector<string>{"abc"});
+  assert(trailing[1] == (vector<string>{"next", "row"}));
+
+  const auto tabbed = parseCsv("\"abc\"\t;x\r\n", ';', error);
+  assert(error.empty());
+  assert(tabbed.size() == 1 && tabbed[0] == (vector<string>{"abc", "x"}));
+
+  // When the tab is the delimiter it closes the cell itself and is not skipped as padding.
+  const auto tabDelimited = parseCsv("\"abc\"\tx\n", '\t', error);
+  assert(error.empty());
+  assert(tabDelimited.size() == 1 && tabDelimited[0] == (vector<string>{"abc", "x"}));
+
+  // The KiCad inch mark keeps its content when a space follows the quote and ordinary text follows it.
+  const auto inch = parseCsv("\"2.13\" ePaper\"  ,x\n", ',', error);
+  assert(error.empty());
+  assert(inch.size() == 1 && inch[0] == (vector<string>{"2.13\" ePaper", "x"}));
+}
+
 // Credential-backed groups skip themselves (and are counted) when the host has no unlocked keyring.
 void testScannerCredentialResolutionOrSkip() {
   if (credentialStoreAvailable()) testScannerCredentialResolution();
@@ -10900,6 +10927,7 @@ const vector<TestCase>& registeredTests() {
     {"import", "CsvDelimiterSniffing", testCsvDelimiterSniffing},
     {"import", "CsvInchMarkInUnquotedField", testCsvInchMarkInUnquotedField},
     {"import", "CsvQuotedFieldRecovery", testCsvQuotedFieldRecovery},
+    {"import", "CsvClosingQuotePadding", testCsvClosingQuotePadding},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},

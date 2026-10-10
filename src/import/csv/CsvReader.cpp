@@ -218,13 +218,20 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
 
     if (inQuotes) {
       if (ch == '"') {
+        // Spaces and tabs after a closing quote are padding when the delimiter, a line break or the end
+        // of text follows them. A tab is never padding when it is the delimiter itself.
+        size_t after = index + 1;
+        while (after < text.size() && (text[after] == ' ' || text[after] == '\t') && text[after] != delimiter) {
+          ++after;
+        }
         if (index + 1 < text.size() && text[index + 1] == '"') {
           field.push_back('"');
           ++index;
           if (fieldTooLarge()) return {};
-        } else if (index + 1 >= text.size() || text[index + 1] == delimiter || text[index + 1] == '\r' ||
-                   text[index + 1] == '\n') {
+        } else if (after >= text.size() || text[after] == delimiter || text[after] == '\r' ||
+                   text[after] == '\n') {
           inQuotes = false;
+          index = after - 1;
         } else {
           // Lenient recovery: KiCad writes inch marks unescaped, as in
           // "2.13" ePaper". A quote that is not followed by a delimiter or a
