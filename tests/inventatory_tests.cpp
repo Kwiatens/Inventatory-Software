@@ -8742,6 +8742,16 @@ void testElectricalValueParsing() {
   assert(near(value("10K", ValueKind::Resistance), 1e4));
   assert(near(value("500k", ValueKind::Resistance), 5e5));
   assert(near(value("2M", ValueKind::Resistance), 2e6));
+  // Under an explicit ohm unit a lowercase m is milli and only an uppercase M is mega.
+  assert(near(value("10mOhm", ValueKind::Resistance), 1e-2));
+  assert(near(value("0.01R", ValueKind::Resistance), 1e-2));
+  assert(near(value("10 MOhms", ValueKind::Resistance), 1e7));
+  assert(near(value("10MOhm", ValueKind::Resistance), 1e7));
+  // The micro and ohm signs read as the ASCII units.
+  assert(near(value("0.1\xC2\xB5" "F", ValueKind::Capacitance), 1e-7));
+  assert(near(value("0.1\xCE\xBC" "F", ValueKind::Capacitance), 1e-7));
+  assert(near(value("10k\xCE\xA9", ValueKind::Resistance), 1e4));
+  assert(near(value("10m\xE2\x84\xA6", ValueKind::Resistance), 1e-2));
   assert(near(value("280R", ValueKind::Resistance), 280.0));
   assert(near(value("270 ohm", ValueKind::Resistance), 270.0));
   // Leading R is RKM notation for a sub-ohm value.

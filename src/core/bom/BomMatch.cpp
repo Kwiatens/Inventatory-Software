@@ -90,6 +90,16 @@ optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
       compact.push_back(ch);
     }
   }
+  // The micro and ohm signs are written as their UTF-8 sequences; read them as the ASCII units "u" and "ohm".
+  for (const auto& [sign, ascii] : {pair<const char*, const char*>{"\xC2\xB5", "u"},
+                                    {"\xCE\xBC", "u"},
+                                    {"\xCE\xA9", "ohm"},
+                                    {"\xE2\x84\xA6", "ohm"}}) {
+    for (size_t at = compact.find(sign); at != string::npos; at = compact.find(sign, at)) {
+      const auto length = string(sign).size();
+      compact.replace(at, length, ascii);
+    }
+  }
   if (compact.empty()) {
     return nullopt;
   }
