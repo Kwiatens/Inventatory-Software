@@ -24,3 +24,15 @@ x64/
 verification/
 verify-*.png
 data/*.tsv
+
+# Compiler, IDE and packaging output
+*.o
+*.a
+*.so
+*.dylib
+*.tar.gz
+*.tar.xz
+*.tgz
+.idea/
+cmake-build-*/
+compile_commands.json
