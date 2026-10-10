@@ -1,6 +1,9 @@
 #pragma once
 
+#include "ui/shared/AppUiShared.h"
+
 #include <algorithm>
+#include <cstddef>
 #include <string>
 
 namespace inventatory {
@@ -108,6 +111,41 @@ inline std::string stockFilterSummary(StockSortOrder sortOrder, StockDateFilter 
 inline void resetStockFilterState(StockDateFilter& dateFilter, StockSortOrder& sortOrder) {
   dateFilter = StockDateFilter::All;
   sortOrder = StockSortOrder::Az;
+}
+
+// Cells drawn by the Filter button: " Filter " followed by its "f " key hint.
+constexpr std::size_t kStockFilterButtonCells = 10;
+
+// Outer widths of the stock list and detail panels for a terminal of screenWidth columns.
+inline int stockDetailOuterWidth(int screenWidth) {
+  return std::clamp(screenWidth / 3, 42, 60);
+}
+
+inline int stockListOuterWidth(int screenWidth) {
+  return std::max(42, screenWidth - stockDetailOuterWidth(screenWidth) - 1);
+}
+
+// Ranked-view header of the stock list. The full wording comes first, then the
+// short wording, and the applied-filter summary is dropped only when even the
+// short wording cannot share the panel with it and the Filter button.
+struct StockRankedHeader {
+  std::string label;
+  bool showSummary = false;
+  std::size_t cells = 0;  // Width of label, summary (when shown), gap, and Filter button.
+};
+
+inline StockRankedHeader stockRankedHeaderFor(std::size_t matchCount, const std::string& filterSummary,
+                                              int availableWidth) {
+  const std::string matches = std::to_string(matchCount) + " matches";
+  const std::string fullLabel = "Stock  " + matches + ", ranked by value";
+  const std::string shortLabel = "Ranked  " + matches;
+  const auto cellsFor = [&](const std::string& label, bool withSummary) {
+    return displayWidth(label) + (withSummary ? displayWidth(filterSummary) : 0) + 1 + kStockFilterButtonCells;
+  };
+  const auto available = static_cast<std::size_t>(std::max(availableWidth, 0));
+  if (cellsFor(fullLabel, true) <= available) return {fullLabel, true, cellsFor(fullLabel, true)};
+  if (cellsFor(shortLabel, true) <= available) return {shortLabel, true, cellsFor(shortLabel, true)};
+  return {shortLabel, false, cellsFor(shortLabel, false)};
 }
 
 }  // namespace inventatory

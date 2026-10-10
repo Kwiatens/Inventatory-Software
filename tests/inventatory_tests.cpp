@@ -1173,6 +1173,41 @@ void testStockFilterState() {
     }
   }
 
+  // Ranked header budget: at 100 columns the list panel is 57 cells wide. The
+  // old "Stock N matches, ranked by value" header needs 60 cells beside the
+  // "A-Z, all dates" summary and the Filter button, so it pushed the button out.
+  assert(stockListOuterWidth(100) == 57);
+  assert(stockListOuterWidth(120) == 77);
+  assert(displayWidth("Stock  12 matches, ranked by value") + 1 + displayWidth("A-Z, all dates") + 1 +
+             kStockFilterButtonCells > 57);
+  const auto narrowRanked = stockRankedHeaderFor(12, "A-Z, all dates", stockListOuterWidth(100));
+  assert(narrowRanked.label == "Ranked  12 matches");
+  assert(narrowRanked.showSummary);
+  assert(narrowRanked.cells <= 57);
+  // Wider panels keep the full wording when it fits, with or without the longest summary.
+  const auto wideRanked = stockRankedHeaderFor(12, stockFilterSummary(StockSortOrder::Quantity,
+                                                                      StockDateFilter::Last30Days),
+                                               stockListOuterWidth(120));
+  assert(wideRanked.label == "Stock  12 matches, ranked by value");
+  assert(wideRanked.showSummary);
+  assert(wideRanked.cells <= 77);
+  // Every summary and match count the page can show keeps the Filter button inside the panel
+  // at the supported 100, 120, and 160 column terminals, and the summary is never cut.
+  for (const int screenWidth : {100, 120, 160}) {
+    const int listWidth = stockListOuterWidth(screenWidth);
+    for (const size_t matchCount : {size_t{0}, size_t{9}, size_t{10}, size_t{99}, size_t{999}, size_t{12345}}) {
+      for (const auto sortOrder : {StockSortOrder::Az, StockSortOrder::Quantity, StockSortOrder::Za}) {
+        for (int option = 0; option < kStockDateFilterOptionCount; ++option) {
+          const auto summary = stockFilterSummary(sortOrder, stockDateFilterAt(option));
+          const auto header = stockRankedHeaderFor(matchCount, summary, listWidth);
+          assert(header.cells <= static_cast<size_t>(listWidth));
+          assert(header.label.rfind("Stock  ", 0) == 0 || header.label.rfind("Ranked  ", 0) == 0);
+          if (!header.showSummary) assert(header.label == "Ranked  " + to_string(matchCount) + " matches");
+        }
+      }
+    }
+  }
+
   // Reset clears the date filter and the sort order together.
   auto dateFilter = StockDateFilter::Last30Days;
   auto sortOrder = StockSortOrder::Quantity;
