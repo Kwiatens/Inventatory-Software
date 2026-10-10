@@ -425,6 +425,13 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
+  struct BleProvisionResult {
+    BleProvisioningOutcome outcome = BleProvisioningOutcome::Failed;
+    std::string error;
+    std::string candidateToken;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
   // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
   // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
   // it, and only while no lookup is running.
@@ -687,6 +694,9 @@ class App {
   bool copyInventatoryScanToken();
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
+  void processBleProvisioning();
+  void finishBleProvisioning(BleProvisionResult result);
+  inline bool bleProvisionRunning() const { return bleProvisionFuture_.valid(); }
   void enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration);
   void processDeviceRequests();
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
@@ -1041,6 +1051,7 @@ class App {
   std::string blePairingCode_;
   std::string bleSetupMessage_;
   bool bleSetupOutcomeUncertain_ = false;
+  std::future<BleProvisionResult> bleProvisionFuture_;
   ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
   DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
