@@ -3,20 +3,26 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <initializer_list>
+#include <limits>
 #include <string>
 #include <vector>
 
 namespace inventatory {
 
 using std::initializer_list;
+using std::size_t;
 using std::string;
 using std::vector;
 
 // The largest CSV text, in bytes, any importer reads.
 inline constexpr std::uintmax_t kMaximumCsvInputBytes = 25U * 1024U * 1024U;
+
+// The largest total number of parsed cells allowed across all rows.
+inline constexpr size_t kMaximumCsvCells = 2000000;
 
 // Removes a leading UTF-8 byte order mark so the first header cell stays clean.
 string stripByteOrderMark(string text);
@@ -41,8 +47,10 @@ char sniffDelimiter(const string& text);
 
 // RFC4180-ish scanner. Doubled quotes inside a quoted field yield one quote,
 // CR is dropped everywhere, a line break inside a quoted field becomes a space (cells are single-line),
-// and fully blank rows are discarded.
-vector<vector<string>> parseCsv(const string& text, char delimiter, string& error);
+// and fully blank rows are discarded. When `maxRows` is specified, scanning stops early once that many
+// non-blank rows have been parsed.
+vector<vector<string>> parseCsv(const string& text, char delimiter, string& error,
+                                size_t maxRows = (std::numeric_limits<size_t>::max)());
 
 // Lowercases and strips every non-alphanumeric character, so "Digi-Key Part #"
 // and "digikey part number" collapse onto comparable keys.

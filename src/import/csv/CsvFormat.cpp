@@ -35,7 +35,7 @@ bool hasDigiKeyHeaders(const vector<string>& headers) {
 CsvFormat detectCsvFormat(const string& text) {
   const auto cleaned = stripByteOrderMark(text);
   string error;
-  const auto rows = parseCsv(cleaned, sniffDelimiter(cleaned), error);
+  const auto rows = parseCsv(cleaned, sniffDelimiter(cleaned), error, 1);
   if (!error.empty() || rows.empty()) {
     return CsvFormat::Unknown;
   }

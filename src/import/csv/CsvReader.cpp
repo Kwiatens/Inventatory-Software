@@ -193,8 +193,11 @@ char sniffDelimiter(const string& text) {
   return ',';
 }
 
-vector<vector<string>> parseCsv(const string& text, char delimiter, string& error) {
+vector<vector<string>> parseCsv(const string& text, char delimiter, string& error, size_t maxRows) {
   error.clear();
+  if (maxRows == 0) {
+    return {};
+  }
   if (text.size() > kMaximumCsvInputBytes) {
     error = "CSV exceeds the 25 MiB safety limit";
     return {};
@@ -204,6 +207,7 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
   vector<string> row;
   string field;
   bool inQuotes = false;
+  size_t totalCells = 0;
 
   const auto fieldTooLarge = [&]() {
     if (field.size() > kMaximumCsvFieldBytes) {
@@ -261,6 +265,10 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
         error = "CSV row contains too many fields";
         return {};
       }
+      if (totalCells + row.size() > kMaximumCsvCells) {
+        error = "CSV has too many cells";
+        return {};
+      }
     } else if (ch == '\n') {
       row.push_back(trim(field));
       field.clear();
@@ -269,11 +277,19 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
         return {};
       }
       if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
+        if (totalCells + row.size() > kMaximumCsvCells) {
+          error = "CSV has too many cells";
+          return {};
+        }
         if (rows.size() >= kMaximumCsvRows) {
           error = "CSV contains too many rows";
           return {};
         }
+        totalCells += row.size();
         rows.push_back(move(row));
+        if (rows.size() >= maxRows) {
+          return rows;
+        }
       }
       row.clear();
     } else if (ch != '\r') {
@@ -293,10 +309,15 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
     return {};
   }
   if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
+    if (totalCells + row.size() > kMaximumCsvCells) {
+      error = "CSV has too many cells";
+      return {};
+    }
     if (rows.size() >= kMaximumCsvRows) {
       error = "CSV contains too many rows";
       return {};
     }
+    totalCells += row.size();
     rows.push_back(move(row));
   }
 
