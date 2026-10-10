@@ -127,8 +127,16 @@ InventoryItem mergeEditedItem(const InventoryItem& base, const InventoryItem& ed
   if (edited.quantity == base.quantity) {
     merged.quantity = current.quantity;
   } else if (quantity == QuantityMerge::ApplyDelta) {
-    const long long combined = static_cast<long long>(current.quantity) + edited.quantity - base.quantity;
-    merged.quantity = static_cast<int>(clamp<long long>(combined, 0, (numeric_limits<int>::max)()));
+    const long long delta = static_cast<long long>(edited.quantity) - base.quantity;
+    const long long combined = static_cast<long long>(current.quantity) + delta;
+    const long long bounded = clamp<long long>(combined, 0, (numeric_limits<int>::max)());
+    if (bounded != combined) {
+      const string change = (delta > 0 ? "+" : "") + to_string(delta);
+      const string direction = combined < 0 ? "below zero" : "above the maximum";
+      addNotice(notices, name + ": quantity change of " + change + " would take stock " + direction +
+                             "; it was set to " + to_string(bounded));
+    }
+    merged.quantity = static_cast<int>(bounded);
   } else if (current.quantity != base.quantity && current.quantity != edited.quantity) {
     addNotice(notices, name + ": quantity was changed to " + to_string(current.quantity) +
                            " elsewhere; your value " + to_string(edited.quantity) + " was kept");
