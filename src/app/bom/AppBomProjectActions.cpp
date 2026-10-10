@@ -225,11 +225,12 @@ void App::openSelectedBomProject() {
     return;
   }
   auto& project = bomProjects_[min(bomProjectSelection_, bomProjects_.size() - 1)];
-  bomFile_ = parseKicadBomText(project.bomText, project.name);
-  if (!bomFile_.ok) {
-    setMessage("Stored BOM could not be read: " + bomFile_.error, 6);
+  auto parsed = parseKicadBomText(project.bomText, project.name);
+  if (!parsed.ok) {
+    setMessage("Stored BOM could not be read: " + parsed.error, 6);
     return;
   }
+  bomFile_ = std::move(parsed);
 
   project.lastOpened = time(nullptr);
   activeBomProjectId_ = project.id;
