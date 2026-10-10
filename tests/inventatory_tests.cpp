@@ -9029,6 +9029,34 @@ void testKicadBomParsing() {
   assert(explicitQuantity.lines.front().quantityPerBoard == 7);
 }
 
+void testBomAnalysisHugeDescriptionAndTieBreak() {
+  // An item with a megabyte of text and no value parameter must not make every BOM line re-read it.
+  InventoryItem huge;
+  huge.id = "huge";
+  huge.partName = "Resistor 10k 0603";
+  huge.notes.reserve(1024U * 1024U);
+  while (huge.notes.size() < 1024U * 1024U) huge.notes += "10k ";
+  huge.quantity = 5;
+  InventoryItem bigger;
+  bigger.id = "bigger";
+  bigger.partName = "Resistor 10k 0603";
+  bigger.quantity = 500;
+  const vector<InventoryItem> items = {huge, bigger};
+  BomLine line;
+  line.designators = {"R1"};
+  line.footprint = "R_0603_1608Metric";
+  line.designation = "10k";
+  line.quantityPerBoard = 1;
+  KicadBomFile bom;
+  bom.ok = true;
+  bom.lines.assign(300, line);
+  const auto analysis = analyzeBom(bom, items, 1, {});
+  assert(analysis.matches.size() == 300);
+  // Equal scores are ordered by stock, so the bigger reel comes first.
+  assert(!analysis.matches.front().candidates.empty());
+  assert(analysis.matches.front().candidates.front().itemId == "bigger");
+}
+
 void testElectricalValueParsing() {
   const auto value = [](const string& text, ValueKind expected) {
     ValueKind kind = ValueKind::None;
@@ -10949,6 +10977,24 @@ void testCsvQuotedFieldRecovery() {
 }
 
 // Spaces or tabs between a closing quote and the delimiter or line break are padding, not content.
+void testCsvCellBudgetAndHeaderOnlyDetection() {
+  string error;
+  // 4,001 rows of 500 cells exceed the total cell budget even though every per-row limit holds.
+  string wide;
+  const string row = string(499, ',') + "\n";
+  for (int line = 0; line < 4001; ++line) wide += row;
+  assert(parseCsv(wide, ',', error).empty());
+  assert(error.find("too many cells") != string::npos);
+  // A file within the budget still parses.
+  string narrow;
+  for (int line = 0; line < 100; ++line) narrow += "a,b,c\n";
+  assert(parseCsv(narrow, ',', error).size() == 100 && error.empty());
+  // maxRows stops after the header, so a huge body is never scanned.
+  const auto header = parseCsv("Designator,Footprint,Quantity\n" + wide, ',', error, 1);
+  assert(header.size() == 1 && header.front().size() == 3 && error.empty());
+  assert(detectCsvFormat("Designator,Footprint,Quantity,Value\nR1,R_0603,1,10k\n" + wide) == CsvFormat::KicadBom);
+}
+
 void testCsvClosingQuotePadding() {
   string error;
   const auto spaced = parseCsv("\"abc\" ,x\n", ',', error);
@@ -11145,12 +11191,14 @@ const vector<TestCase>& registeredTests() {
     {"import", "CsvInchMarkInUnquotedField", testCsvInchMarkInUnquotedField},
     {"import", "CsvQuotedFieldRecovery", testCsvQuotedFieldRecovery},
     {"import", "CsvClosingQuotePadding", testCsvClosingQuotePadding},
+    {"import", "CsvCellBudgetAndHeaderOnlyDetection", testCsvCellBudgetAndHeaderOnlyDetection},
     {"import", "DigiKeyCsvConflictLookup", testDigiKeyCsvConflictLookup},
     {"import", "DigiKeyMetadataMergeKeepsKnownFields", testDigiKeyMetadataMergeKeepsKnownFields},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
     {"bom", "ElectricalValueParsing", testElectricalValueParsing},
+    {"bom", "BomAnalysisHugeDescriptionAndTieBreak", testBomAnalysisHugeDescriptionAndTieBreak},
     {"bom", "PackageFromFootprint", testPackageFromFootprint},
     {"bom", "MatchingPrefersValueAndPackage", testMatchingPrefersValueAndPackage},
     {"bom", "MatchingIgnoresPackageCodesAndPinCounts", testMatchingIgnoresPackageCodesAndPinCounts},
