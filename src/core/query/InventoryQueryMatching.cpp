@@ -27,6 +27,51 @@ struct TokenMatchResult {
   optional<PhysicalValueComparison> physical;
 };
 
+// True for a number with no unit, such as "10", "-4.7" or "0.5": optional sign, digits, at most one point.
+bool isBareNumber(const string& text) {
+  size_t index = (!text.empty() && (text[0] == '+' || text[0] == '-')) ? 1 : 0;
+  size_t digits = 0;
+  bool decimalPoint = false;
+  for (; index < text.size(); ++index) {
+    if (isdigit(static_cast<unsigned char>(text[index])) != 0) {
+      ++digits;
+    } else if (text[index] == '.' && !decimalPoint) {
+      decimalPoint = true;
+    } else {
+      return false;
+    }
+  }
+  return digits > 0;
+}
+
+// The unit a bare number is read in for a value type, so "10" on a resistance means 10 ohm.
+const char* baseUnitName(PhysicalValueType type) {
+  switch (type) {
+    case PhysicalValueType::Resistance: return "ohm";
+    case PhysicalValueType::Capacitance: return "F";
+    case PhysicalValueType::Inductance: return "H";
+    case PhysicalValueType::Frequency: return "Hz";
+    case PhysicalValueType::Unknown: break;
+  }
+  return "";
+}
+
+// True when needle occurs in text bounded by characters that cannot continue a value. "10" is found
+// in "10 Ohm" but not in "100 Ohm" or "4.10".
+bool containsWholeToken(const string& text, const string& needle) {
+  const auto continuesValue = [](char character) {
+    const auto unsignedCharacter = static_cast<unsigned char>(character);
+    return isalnum(unsignedCharacter) != 0 || character == '.' || unsignedCharacter >= 0x80;
+  };
+  for (auto at = text.find(needle); at != string::npos; at = text.find(needle, at + 1)) {
+    const auto end = at + needle.size();
+    const bool startsToken = at == 0 || !continuesValue(text[at - 1]);
+    const bool endsToken = end == text.size() || !continuesValue(text[end]);
+    if (startsToken && endsToken) return true;
+  }
+  return false;
+}
+
 TokenMatchResult tokenMatchesParameterList(const vector<Parameter>& parameters, const string& value) {
   const auto equalsPos = value.find('=');
   const auto needleKey = toLower(equalsPos == string::npos ? value : value.substr(0, equalsPos));
@@ -46,7 +91,8 @@ TokenMatchResult tokenMatchesParameterList(const vector<Parameter>& parameters, 
       continue;
     }
 
-    // Try physical value matching first when the value looks like a physical quantity
+    // A physical needle ("0.1uF", "4k7") is matched by value only. Its raw text is never searched,
+    // because "1uF" would then also find "11uF".
     auto parsedNeedle = parsePhysicalValue(needleValue);
     if (parsedNeedle.has_value() && parsedNeedle->type != PhysicalValueType::Unknown) {
       // If a key was specified (e.g. "param:Capacitance=0.1uF"), only match
@@ -62,6 +108,28 @@ TokenMatchResult tokenMatchesParameterList(const vector<Parameter>& parameters, 
         result.matched = true;
         result.physical = bestPhysicalComparison(result.physical, comparison);
       }
+      continue;
+    }
+
+    // A bare number on a parameter named for a value type ("param:Resistance=10") is compared in that
+    // type's base unit. A value that parses as a physical quantity must equal it exactly, so "10" does
+    // not find "100 Ohm". A value that does not parse ("10") must contain the number as a whole token.
+    const auto valueType = parameterNameToType(parameter.name);
+    if (valueType != PhysicalValueType::Unknown && isBareNumber(needleValue)) {
+      const auto parsedValue = parsePhysicalValue(parameter.value);
+      if (parsedValue.has_value() && parsedValue->type != PhysicalValueType::Unknown) {
+        if (parsedValue->type == valueType) {
+          const auto comparison =
+              comparePhysicalValues(parameter.value, needleValue + " " + baseUnitName(valueType));
+          if (comparison.has_value() && comparison->band == PhysicalValueMatchBand::Exact) {
+            result.matched = true;
+            result.physical = bestPhysicalComparison(result.physical, comparison);
+          }
+        }
+      } else if (containsWholeToken(parameterValue, loweredNeedleValue)) {
+        result.matched = true;
+      }
+      continue;
     }
 
     // Fall back to substring match
@@ -195,6 +263,18 @@ bool tokenMatchesField(const string& field, const string& value) {
   return containsInsensitive(field, value);
 }
 
+// Matches a rack: value against a location such as "R1-A1". A value without a dash names a whole
+// rack, so "r1" finds R1-A1 but not R10-A1. A value with a dash is a case-insensitive prefix of the
+// location, so "r1-a" finds R1-A1 and R1-A2. An empty value keeps the match-everything behaviour.
+bool tokenMatchesRackLocation(const string& location, const string& value) {
+  if (value.empty()) return containsInsensitive(location, value);
+  const auto loweredLocation = toLower(location);
+  const auto loweredValue = toLower(value);
+  if (loweredLocation.rfind(loweredValue, 0) != 0) return false;
+  if (loweredValue.find('-') != string::npos) return true;
+  return loweredLocation.size() == loweredValue.size() || loweredLocation[loweredValue.size()] == '-';
+}
+
 }  // namespace
 
 optional<PhysicalValueComparison> partNamePhysicalComparison(const InventoryItem& item, const string& target) {
@@ -281,7 +361,7 @@ QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& 
     }
     if (token.rfind("rack:", 0) == 0) {
       const auto value = token.substr(5);
-      if (tokenMatchesField(itemRackLocation, value)) continue;
+      if (tokenMatchesRackLocation(itemRackLocation, value)) continue;
       return {false, nullopt};
     }
     if (token.rfind("sku:", 0) == 0) {
@@ -328,7 +408,7 @@ QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& 
       continue;
     }
     if (containsInsensitive(item.searchableText(), token)) continue;
-    if (containsInsensitive(itemRackLocation, token)) continue;
+    if (tokenMatchesRackLocation(itemRackLocation, token)) continue;
     return {false, nullopt};
   }
 

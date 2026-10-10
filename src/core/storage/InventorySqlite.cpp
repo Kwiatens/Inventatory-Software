@@ -57,8 +57,12 @@ SqliteStatement::~SqliteStatement() {
 }
 
 string sqliteText(sqlite3_stmt* stmt, int column) {
+  // Read by the stored length, not as a C string, so an embedded NUL is kept rather than cutting the text.
+  // column_bytes must be asked after column_text.
   const auto* text = sqliteApi().column_text(stmt, column);
-  return text == nullptr ? string() : reinterpret_cast<const char*>(text);
+  if (text == nullptr) return string();
+  const int length = sqliteApi().column_bytes(stmt, column);
+  return string(reinterpret_cast<const char*>(text), static_cast<size_t>(length < 0 ? 0 : length));
 }
 
 bool openDatabase(const filesystem::path& path, SqliteConnection& connection) {

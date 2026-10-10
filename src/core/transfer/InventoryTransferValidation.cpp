@@ -27,16 +27,17 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
   set<string> listed;
   uintmax_t aggregateSize = 0;
   for (const auto& entry : entries) listed.insert(entry.name);
+  // The iterator owns enumerationError: a failed construction or increment ends the loop early, so
+  // it is checked after the loop as well. Per-entry queries use their own code so they cannot hide
+  // or clear an enumeration failure.
   error_code enumerationError;
-  for (filesystem::directory_iterator iterator(directory, enumerationError), end; iterator != end;
-       iterator.increment(enumerationError)) {
-    if (enumerationError) {
-      error = "Unable to enumerate backup bundle: " + enumerationError.message();
-      return false;
-    }
+  filesystem::directory_iterator iterator(directory, enumerationError);
+  const filesystem::directory_iterator end;
+  for (; !enumerationError && iterator != end; iterator.increment(enumerationError)) {
     const auto current = iterator->path();
-    if (filesystem::is_symlink(current, enumerationError) || enumerationError ||
-        !filesystem::is_regular_file(current, enumerationError) || enumerationError) {
+    error_code entryError;
+    if (filesystem::is_symlink(current, entryError) || entryError ||
+        !filesystem::is_regular_file(current, entryError) || entryError) {
       error = "Backup bundle contains an unexpected entry";
       return false;
     }
@@ -45,6 +46,10 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
       error = "Backup bundle contains an unlisted file: " + name;
       return false;
     }
+  }
+  if (enumerationError) {
+    error = "Unable to enumerate backup bundle: " + enumerationError.message();
+    return false;
   }
   for (const auto& entry : entries) {
     if (entry.size > kMaximumBackupPayloadBytes ||

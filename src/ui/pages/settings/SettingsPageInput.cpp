@@ -37,6 +37,10 @@ void App::toggleSymbolStandard() {
 
 void App::selectSettingsCategory(SettingsCategory category) {
   if (settingsEditingField_) {
+    if (settingsCategory_ == SettingsCategory::DigiKey && settingsField_ == 1) {
+      inputBuffer_.assign(inputBuffer_.size(), '\0');
+      inputBuffer_.clear();
+    }
     settingsEditingField_ = false;
     inputBuffer_.clear();
   }
@@ -93,7 +97,7 @@ void App::requestSettingsDiscard() {
   if (settingsConfirmAction_ != "discard-settings" || now > settingsConfirmUntil_) {
     settingsConfirmAction_ = "discard-settings";
     settingsConfirmUntil_ = now + 5;
-    setMessage("Press Esc again to discard your unsaved settings changes", 5, UiMessageSeverity::Warning);
+    setMessage("Press Discard or Esc again to discard your unsaved settings changes", 5, UiMessageSeverity::Warning);
     return;
   }
   settingsConfirmAction_.clear();
@@ -144,6 +148,10 @@ void App::handleSettingsKey(const KeyEvent& key) {
     } else if (key.type == KeyType::Enter) {
       commitSettingsFieldEdit();
     } else if (key.type == KeyType::Escape) {
+      if (settingsCategory_ == SettingsCategory::DigiKey && settingsField_ == 1) {
+        inputBuffer_.assign(inputBuffer_.size(), '\0');
+        inputBuffer_.clear();
+      }
       settingsEditingField_ = false;
       inputBuffer_.clear();
       dirty_ = true;

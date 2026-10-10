@@ -26,8 +26,6 @@ constexpr size_t kMaxDataDirectoryBytes = 32767U;
 constexpr size_t kMaxPrinterQueueBytes = 1024U;
 constexpr size_t kMaxVersionBytes = 128U;
 constexpr size_t kMaxUrlBytes = 4096U;
-constexpr size_t kMaxDigiKeyFieldBytes = 512U;
-constexpr size_t kMaxLocaleFieldBytes = 32U;
 
 bool validOptionalText(const string& value, size_t maximum) {
   return value.empty() || (value.size() <= maximum &&
@@ -66,9 +64,9 @@ bool validAppSettings(const AppSettings& settings) {
          validOptionalText(settings.latestReleaseUrl, kMaxUrlBytes) &&
          validOptionalText(settings.digiKeyClientId, kMaxDigiKeyFieldBytes) &&
          validOptionalText(settings.digiKeyAccountId, kMaxDigiKeyFieldBytes) &&
-         validOptionalText(settings.digiKeySite, kMaxLocaleFieldBytes) &&
-         validOptionalText(settings.digiKeyLanguage, kMaxLocaleFieldBytes) &&
-         validOptionalText(settings.digiKeyCurrency, kMaxLocaleFieldBytes) &&
+         validOptionalText(settings.digiKeySite, kMaxDigiKeyLocaleFieldBytes) &&
+         validOptionalText(settings.digiKeyLanguage, kMaxDigiKeyLocaleFieldBytes) &&
+         validOptionalText(settings.digiKeyCurrency, kMaxDigiKeyLocaleFieldBytes) &&
          validQuickLabels(settings.quickLabelPresets, settings.quickLabelRevision);
 }
 
@@ -274,14 +272,17 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
         return false;
       }
     } else if (key == "digikey_site") {
-      if (!parseQuotedValue(value, loaded.digiKeySite) || loaded.digiKeySite.size() > kMaxLocaleFieldBytes) return false;
+      if (!parseQuotedValue(value, loaded.digiKeySite) || loaded.digiKeySite.size() > kMaxDigiKeyLocaleFieldBytes) {
+        return false;
+      }
     } else if (key == "digikey_language") {
-      if (!parseQuotedValue(value, loaded.digiKeyLanguage) || loaded.digiKeyLanguage.size() > kMaxLocaleFieldBytes) {
+      if (!parseQuotedValue(value, loaded.digiKeyLanguage) ||
+          loaded.digiKeyLanguage.size() > kMaxDigiKeyLocaleFieldBytes) {
         return false;
       }
     } else if (key == "digikey_currency") {
       if (!parseQuotedValue(value, loaded.digiKeyCurrency) ||
-          loaded.digiKeyCurrency.size() > kMaxLocaleFieldBytes) {
+          loaded.digiKeyCurrency.size() > kMaxDigiKeyLocaleFieldBytes) {
         return false;
       }
     } else if (key == "symbol_standard") {
@@ -325,9 +326,9 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       !validOptionalText(loaded.latestReleaseUrl, kMaxUrlBytes) ||
       !validOptionalText(loaded.digiKeyClientId, kMaxDigiKeyFieldBytes) ||
       !validOptionalText(loaded.digiKeyAccountId, kMaxDigiKeyFieldBytes) ||
-      !validOptionalText(loaded.digiKeySite, kMaxLocaleFieldBytes) ||
-      !validOptionalText(loaded.digiKeyLanguage, kMaxLocaleFieldBytes) ||
-      !validOptionalText(loaded.digiKeyCurrency, kMaxLocaleFieldBytes)) {
+      !validOptionalText(loaded.digiKeySite, kMaxDigiKeyLocaleFieldBytes) ||
+      !validOptionalText(loaded.digiKeyLanguage, kMaxDigiKeyLocaleFieldBytes) ||
+      !validOptionalText(loaded.digiKeyCurrency, kMaxDigiKeyLocaleFieldBytes)) {
     return false;
   }
   if (loaded.schemaVersion == 2) legacyFormat = true;

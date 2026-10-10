@@ -193,8 +193,11 @@ char sniffDelimiter(const string& text) {
   return ',';
 }
 
-vector<vector<string>> parseCsv(const string& text, char delimiter, string& error) {
+vector<vector<string>> parseCsv(const string& text, char delimiter, string& error, size_t maxRows) {
   error.clear();
+  if (maxRows == 0) {
+    return {};
+  }
   if (text.size() > kMaximumCsvInputBytes) {
     error = "CSV exceeds the 25 MiB safety limit";
     return {};
@@ -204,6 +207,7 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
   vector<string> row;
   string field;
   bool inQuotes = false;
+  size_t totalCells = 0;
 
   const auto fieldTooLarge = [&]() {
     if (field.size() > kMaximumCsvFieldBytes) {
@@ -218,13 +222,20 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
 
     if (inQuotes) {
       if (ch == '"') {
+        // Spaces and tabs after a closing quote are padding when the delimiter, a line break or the end
+        // of text follows them. A tab is never padding when it is the delimiter itself.
+        size_t after = index + 1;
+        while (after < text.size() && (text[after] == ' ' || text[after] == '\t') && text[after] != delimiter) {
+          ++after;
+        }
         if (index + 1 < text.size() && text[index + 1] == '"') {
           field.push_back('"');
           ++index;
           if (fieldTooLarge()) return {};
-        } else if (index + 1 >= text.size() || text[index + 1] == delimiter || text[index + 1] == '\r' ||
-                   text[index + 1] == '\n') {
+        } else if (after >= text.size() || text[after] == delimiter || text[after] == '\r' ||
+                   text[after] == '\n') {
           inQuotes = false;
+          index = after - 1;
         } else {
           // Lenient recovery: KiCad writes inch marks unescaped, as in
           // "2.13" ePaper". A quote that is not followed by a delimiter or a
@@ -254,6 +265,10 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
         error = "CSV row contains too many fields";
         return {};
       }
+      if (totalCells + row.size() > kMaximumCsvCells) {
+        error = "CSV has too many cells";
+        return {};
+      }
     } else if (ch == '\n') {
       row.push_back(trim(field));
       field.clear();
@@ -262,11 +277,19 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
         return {};
       }
       if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
+        if (totalCells + row.size() > kMaximumCsvCells) {
+          error = "CSV has too many cells";
+          return {};
+        }
         if (rows.size() >= kMaximumCsvRows) {
           error = "CSV contains too many rows";
           return {};
         }
+        totalCells += row.size();
         rows.push_back(move(row));
+        if (rows.size() >= maxRows) {
+          return rows;
+        }
       }
       row.clear();
     } else if (ch != '\r') {
@@ -286,10 +309,15 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
     return {};
   }
   if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
+    if (totalCells + row.size() > kMaximumCsvCells) {
+      error = "CSV has too many cells";
+      return {};
+    }
     if (rows.size() >= kMaximumCsvRows) {
       error = "CSV contains too many rows";
       return {};
     }
+    totalCells += row.size();
     rows.push_back(move(row));
   }
 

@@ -27,6 +27,7 @@ struct SqliteApi {
   decltype(&::sqlite3_column_int64) column_int64 = &::sqlite3_column_int64;
   decltype(&::sqlite3_column_type) column_type = &::sqlite3_column_type;
   decltype(&::sqlite3_column_text) column_text = &::sqlite3_column_text;
+  decltype(&::sqlite3_column_bytes) column_bytes = &::sqlite3_column_bytes;
   decltype(&::sqlite3_changes) changes = &::sqlite3_changes;
   decltype(&::sqlite3_busy_timeout) busy_timeout = &::sqlite3_busy_timeout;
   decltype(&::sqlite3_backup_init) backup_init = &::sqlite3_backup_init;

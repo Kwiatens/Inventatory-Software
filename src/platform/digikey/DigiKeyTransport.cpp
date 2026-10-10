@@ -201,6 +201,10 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     return false;
   }
 
+  // The bearer token and client secret must never follow a redirect to another host, so none is followed.
+  DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+  WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
   if (!headers.empty() &&
       !WinHttpAddRequestHeaders(request, headers.c_str(), static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD)) {
     if (error != nullptr) {

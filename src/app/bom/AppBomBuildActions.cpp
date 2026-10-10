@@ -99,6 +99,7 @@ void App::finishBomBuild(bool subtractFromStock) {
   const auto plan = bomPickPlan();
   int parts = 0;
   int pieces = 0;
+  bool stockSaved = true;
 
   if (subtractFromStock) {
     captureUndoSnapshot();
@@ -117,23 +118,21 @@ void App::finishBomBuild(bool subtractFromStock) {
         pieces += taken;
       }
     }
-    if (!saveState("bom_build", activeBomProjectId_)) {
-      setMessage("Build stock changes are in memory; press R to retry saving", 6);
-      return;
-    }
+    // A failed save keeps the deduction in memory for the R retry. The walkthrough still closes below so
+    // the finish prompt cannot be confirmed again and deduct the same pieces a second time.
+    stockSaved = saveState("bom_build", activeBomProjectId_);
   }
 
   // Only a build with every line covered counts as built; a partial kit leaves the project open.
   auto* project = activeBomProject();
   const bool complete = bomBuildReady(bomAnalysis_);
+  bool projectSaved = true;
   if (project != nullptr && complete) {
     const auto previousLastBuilt = project->lastBuilt;
     project->lastBuilt = time(nullptr);
     if (!saveBomProjects()) {
       project->lastBuilt = previousLastBuilt;
-      bomDeductPrompt_ = false;
-      setMessage("Build stock was saved, but the project timestamp was not; press R to retry", 7);
-      return;
+      projectSaved = false;
     }
   }
 
@@ -143,12 +142,22 @@ void App::finishBomBuild(bool subtractFromStock) {
                              to_string(pieces) + " pieces · " + to_string(bomAnalysis_.boards) + " boards");
   }
 
+  // The walkthrough always closes here, saved or not. Leaving it open after the stock was deducted would let
+  // the finish prompt deduct the same pieces again.
   const auto shortLines = plan.shortMatches.size();
   bomDeductPrompt_ = false;
   bomBuildStep_ = 0;
   bomPickTaken_.clear();
   bomView_ = BomView::Split;
   refreshBomAnalysis();
+  if (!stockSaved) {
+    setMessage("Build stock changes are in memory; press R to retry saving", 7, UiMessageSeverity::Error);
+    return;
+  }
+  if (!projectSaved) {
+    setMessage("Build stock was saved, but the project timestamp was not; press R to retry", 7);
+    return;
+  }
   string message = subtractFromStock ? voiceCount(pieces, "part", "parts") + " taken out of stock. Ctrl+Z puts them back."
                                      : string("Stock was left as it was.");
   if (shortLines > 0) {

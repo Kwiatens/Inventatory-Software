@@ -176,6 +176,8 @@ void App::processBackgroundWork() {
   processUpdateCheck();
   processSoftwareUpdate();
   processScanFirmwareCheck();
+  processBleProvisioning();
+  processDigiKeyTest();
   processScanDigiKeyEnrichment();
   processDigiKeyRefresh();
   processImportSync();

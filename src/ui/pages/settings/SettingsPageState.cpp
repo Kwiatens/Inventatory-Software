@@ -12,8 +12,11 @@
 #include <ftxui/component/screen_interactive.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace inventatory {
@@ -41,6 +44,7 @@ void App::openSettings(SettingsCategory category) {
   settingsDirty_ = false;
   settingsEditingField_ = false;
   appearancePickerOpen_ = false;
+  stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
@@ -102,6 +106,10 @@ bool App::testStagedPrinter() {
 }
 
 bool App::testStagedDigiKey() {
+  if (digiKeyTestFuture_.valid()) {
+    setMessage("DigiKey test is already running", 3);
+    return false;
+  }
   DigiKeyConfig config;
   config.clientId = settingsDraft_.digiKeyClientId;
   config.accountId = settingsDraft_.digiKeyAccountId;
@@ -123,11 +131,46 @@ bool App::testStagedDigiKey() {
     setMessage("Client ID and client secret are required", 4);
     return false;
   }
-  string error;
-  DigiKeyApiClient client(move(config));
-  const bool ok = client.testConnection(&error);
-  setMessage(ok ? "DigiKey credentials are valid" : "DigiKey test failed: " + error, 5);
-  return ok;
+  const auto context = currentWorkspaceContext();
+  const auto generation = context != nullptr ? context->generation : 0;
+  try {
+    digiKeyTestFuture_ = std::async(
+        std::launch::async,
+        [config = std::move(config), generation]() -> DigiKeyTestResult {
+          DigiKeyTestResult result;
+          result.generation = generation;
+          try {
+            DigiKeyApiClient client(std::move(config));
+            result.ok = client.testConnection(&result.error);
+          } catch (const std::exception& e) {
+            result.ok = false;
+            result.error = e.what();
+          } catch (...) {
+            result.ok = false;
+            result.error = "Connection test failed unexpectedly";
+          }
+          return result;
+        });
+  } catch (...) {
+    setMessage("Unable to start DigiKey test", 4, UiMessageSeverity::Error);
+    return false;
+  }
+  setMessage("Testing DigiKey credentials...", 10);
+  dirty_ = true;
+  return true;
+}
+
+void App::processDigiKeyTest() {
+  if (!digiKeyTestFuture_.valid() ||
+      digiKeyTestFuture_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+    return;
+  }
+  const auto result = digiKeyTestFuture_.get();
+  if (workspaceIsCurrent(result.generation)) {
+    setMessage(result.ok ? "DigiKey credentials are valid" : "DigiKey test failed: " + result.error, 5,
+               result.ok ? UiMessageSeverity::Success : UiMessageSeverity::Error);
+    dirty_ = true;
+  }
 }
 
 void App::beginSettingsFieldEdit(int field) {
@@ -234,20 +277,46 @@ void App::commitSettingsFieldEdit() {
       settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
     }
   } else if (settingsCategory_ == SettingsCategory::DigiKey) {
+    // Keep the editor open on an over-long value: the validator rejects it on save, so accepting it here would
+    // make every later save fail.
+    const auto tooLong = [this](const char* label, size_t limit, const string& text) {
+      if (text.size() <= limit) return false;
+      setMessage(string(label) + " must be " + to_string(limit) + " bytes or fewer", 4);
+      return true;
+    };
+    const auto value = trim(inputBuffer_);
     switch (settingsField_) {
-      case 0: settingsDraft_.digiKeyClientId = trim(inputBuffer_); break;
+      case 0:
+        if (tooLong("DigiKey client ID", kMaxDigiKeyFieldBytes, value)) return;
+        settingsDraft_.digiKeyClientId = value;
+        break;
       case 1:
         if (trim(inputBuffer_).empty()) {
           setMessage("Client secret cannot be empty; press Esc to keep the stored secret", 4);
           return;
         }
+        stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
         stagedDigiKeySecret_ = inputBuffer_;
         stagedDigiKeySecretChanged_ = true;
+        inputBuffer_.assign(inputBuffer_.size(), '\0');
+        inputBuffer_.clear();
         break;
-      case 2: settingsDraft_.digiKeyAccountId = trim(inputBuffer_); break;
-      case 3: settingsDraft_.digiKeySite = trim(inputBuffer_); break;
-      case 4: settingsDraft_.digiKeyLanguage = trim(inputBuffer_); break;
-      case 5: settingsDraft_.digiKeyCurrency = trim(inputBuffer_); break;
+      case 2:
+        if (tooLong("DigiKey account ID", kMaxDigiKeyFieldBytes, value)) return;
+        settingsDraft_.digiKeyAccountId = value;
+        break;
+      case 3:
+        if (tooLong("DigiKey site", kMaxDigiKeyLocaleFieldBytes, value)) return;
+        settingsDraft_.digiKeySite = value;
+        break;
+      case 4:
+        if (tooLong("DigiKey language", kMaxDigiKeyLocaleFieldBytes, value)) return;
+        settingsDraft_.digiKeyLanguage = value;
+        break;
+      case 5:
+        if (tooLong("DigiKey currency", kMaxDigiKeyLocaleFieldBytes, value)) return;
+        settingsDraft_.digiKeyCurrency = value;
+        break;
       default: break;
     }
   }
@@ -335,8 +404,10 @@ void App::cancelSettingsDraft() {
   settingsDirty_ = false;
   settingsEditingField_ = false;
   appearancePickerOpen_ = false;
+  stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
+  inputBuffer_.assign(inputBuffer_.size(), '\0');
   inputBuffer_.clear();
   setMessage("Settings changes discarded", 3);
 }

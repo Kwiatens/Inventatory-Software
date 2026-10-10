@@ -229,15 +229,19 @@ optional<SearchMatch> extractSearchMatch(const JsonPtr& product) {
   if (variations != nullptr) {
     for (const auto& variation : *variations) {
       if (const auto number = readFirstMember(variation, {"DigiKeyProductNumber"}); number.has_value() && !number->empty()) {
-        match.productNumber = *number;
-        return match;
+        match.productNumbers.push_back(*number);
       }
+    }
+    if (!match.productNumbers.empty()) {
+      match.productNumber = match.productNumbers.front();
+      return match;
     }
   }
 
   if (const auto directNumber = readFirstMember(product, {"DigiKeyProductNumber"}); directNumber.has_value() &&
                                                                      !directNumber->empty()) {
     match.productNumber = *directNumber;
+    match.productNumbers.push_back(*directNumber);
     return match;
   }
 
@@ -246,6 +250,18 @@ optional<SearchMatch> extractSearchMatch(const JsonPtr& product) {
     return match;
   }
 
+  return nullopt;
+}
+
+// A keyword result is only accepted for the part that was asked for: the query must be one of the product's
+// DigiKey numbers or its manufacturer part number. Any weaker similarity would merge another part's data.
+optional<string> identifiedProductNumber(const SearchMatch& match, const string& query) {
+  const auto wanted = normalizeSearchKey(query);
+  if (wanted.empty()) return nullopt;
+  for (const auto& number : match.productNumbers) {
+    if (normalizeSearchKey(number) == wanted) return number;
+  }
+  if (normalizeSearchKey(match.manufacturerPartNumber) == wanted) return match.productNumber;
   return nullopt;
 }
 
@@ -258,7 +274,10 @@ optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& que
       return;
     }
     for (const auto& product : *products) {
-      if (const auto match = extractSearchMatch(product); match.has_value()) {
+      if (auto match = extractSearchMatch(product); match.has_value()) {
+        const auto identified = identifiedProductNumber(*match, query);
+        if (!identified.has_value()) continue;
+        match->productNumber = *identified;
         const int score = scoreSearchMatch(*match, query, exactBucket);
         if (score > bestScore) {
           bestScore = score;

@@ -75,8 +75,10 @@ void App::handleDigiKeySetupKey(const KeyEvent& key) {
     settingsDraft_ = settings_;
     settingsDirty_ = false;
     settingsEditingField_ = false;
+    stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
     stagedDigiKeySecret_.clear();
     stagedDigiKeySecretChanged_ = false;
+    inputBuffer_.assign(inputBuffer_.size(), '\0');
     inputBuffer_.clear();
     settingsCategory_ = SettingsCategory::DigiKey;
     changePage(Page::Settings);
@@ -126,8 +128,10 @@ void App::handleDigiKeySetupKey(const KeyEvent& key) {
         setMessage("Enter a DigiKey Client secret", 3);
         return;
       }
+      stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
       stagedDigiKeySecret_ = inputBuffer_;
       stagedDigiKeySecretChanged_ = true;
+      inputBuffer_.assign(inputBuffer_.size(), '\0');
       inputBuffer_.clear();
       settingsDirty_ = true;
       digiKeySetupStep_ = DigiKeySetupStep::Review;

@@ -90,6 +90,16 @@ optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
       compact.push_back(ch);
     }
   }
+  // The micro and ohm signs are written as their UTF-8 sequences; read them as the ASCII units "u" and "ohm".
+  for (const auto& [sign, ascii] : {pair<const char*, const char*>{"\xC2\xB5", "u"},
+                                    {"\xCE\xBC", "u"},
+                                    {"\xCE\xA9", "ohm"},
+                                    {"\xE2\x84\xA6", "ohm"}}) {
+    for (size_t at = compact.find(sign); at != string::npos; at = compact.find(sign, at)) {
+      const auto length = string(sign).size();
+      compact.replace(at, length, ascii);
+    }
+  }
   if (compact.empty()) {
     return nullopt;
   }
@@ -217,6 +227,18 @@ BomAnalysis analyzeBom(const KicadBomFile& bom, const vector<InventoryItem>& ite
   analysis.lines = bom.lines;
   analysis.matches.reserve(bom.lines.size());
 
+  unordered_map<string, int> quantities;
+  quantities.reserve(items.size());
+  for (const auto& item : items) {
+    quantities.emplace(item.id, item.quantity);
+  }
+
+  vector<ItemValueCache> itemCaches;
+  itemCaches.reserve(items.size());
+  for (const auto& item : items) {
+    itemCaches.push_back(precomputeItemValues(item));
+  }
+
   for (size_t index = 0; index < bom.lines.size(); ++index) {
     const auto& line = bom.lines[index];
     BomMatch match;
@@ -226,8 +248,9 @@ BomAnalysis analyzeBom(const KicadBomFile& bom, const vector<InventoryItem>& ite
     ValueKind bomKind = ValueKind::None;
     const auto bomValue = parseElectricalValue(line.designation, bomKind);
 
-    for (const auto& item : items) {
-      const auto score = scoreItem(item, line, bomPackage, bomValue, bomKind);
+    for (size_t itemIndex = 0; itemIndex < items.size(); ++itemIndex) {
+      const auto& item = items[itemIndex];
+      const auto score = scoreItem(item, line, bomPackage, bomValue, bomKind, itemCaches[itemIndex]);
       if (score >= kBomMatchThreshold) {
         match.candidates.push_back({item.id, score});
       }
@@ -241,9 +264,8 @@ BomAnalysis analyzeBom(const KicadBomFile& bom, const vector<InventoryItem>& ite
                     return lhs.score > rhs.score;
                   }
                   const auto find = [&](const string& id) {
-                    const auto it = find_if(items.begin(), items.end(),
-                                            [&](const InventoryItem& item) { return item.id == id; });
-                    return it == items.end() ? 0 : it->quantity;
+                    const auto it = quantities.find(id);
+                    return it == quantities.end() ? 0 : it->second;
                   };
                   return find(lhs.itemId) > find(rhs.itemId);
                 });

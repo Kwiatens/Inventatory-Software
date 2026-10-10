@@ -597,14 +597,7 @@ void App::handleRackManagementKey(const KeyEvent& key) {
       setMessage("No part in this slot", 2);
       return;
     }
-    const auto it = find_if(store_.items().begin(), store_.items().end(), [&](const InventoryItem& candidate) {
-      return candidate.id == item->id;
-    });
-    if (it != store_.items().end()) {
-      selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
-      syncSelectionToFilter();
-      changePage(Page::Stock);
-    }
+    if (selectStockItemById(item->id)) changePage(Page::Stock);
     return;
   }
 

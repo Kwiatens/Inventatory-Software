@@ -210,7 +210,15 @@ class WindowsPrinterBackend final : public PrinterBackend {
 
     unique_ptr<void, decltype(&ClosePrinter)> printerHandle(handle, ClosePrinter);
     DWORD bytesNeeded = 0;
-    GetPrinterW(handle, 2, nullptr, 0, &bytesNeeded);
+    if (!GetPrinterW(handle, 2, nullptr, 0, &bytesNeeded)) {
+      // The sizing call is expected to fail with ERROR_INSUFFICIENT_BUFFER; any other error means the
+      // queue could not be queried and must not be reported as ready.
+      const DWORD sizingError = GetLastError();
+      if (sizingError != ERROR_INSUFFICIENT_BUFFER) {
+        result.message = "Unable to query printer status: " + windowsErrorText(sizingError);
+        return result;
+      }
+    }
     if (bytesNeeded == 0) {
       result.ok = true;
       result.message = "Printer queue opened";
@@ -269,9 +277,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
     }
 
     bool success = false;
-    const auto endDoc = [&]() {
-      EndDocPrinter(handle);
-    };
+    const auto endDoc = [&]() { return EndDocPrinter(handle) != FALSE; };
 
     do {
       if (!StartPagePrinter(handle)) {
@@ -300,7 +306,13 @@ class WindowsPrinterBackend final : public PrinterBackend {
       success = true;
     } while (false);
 
-    endDoc();
+    const bool documentClosed = endDoc();
+    if (success && !documentClosed) {
+      if (error != nullptr) {
+        *error = "Unable to finish printer job: " + windowsErrorText(GetLastError());
+      }
+      success = false;
+    }
     return success;
   }
 };

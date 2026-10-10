@@ -6,7 +6,7 @@
 
 **Open-source, terminal-based hardware inventory management for PCB designers.**
 
-Track your hardware components in a fast terminal UI. The system is designed, so that most of the work is automated.
+Track your hardware components in a fast terminal UI. The system is designed so that most of the work is automated.
 Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' barcode scanner and much more.
 
 [![Release](https://img.shields.io/github/v/release/Kwiatens/Inventatory-Software?include_prereleases&style=flat-square&color=58B9B0&labelColor=0D1010)](https://github.com/Kwiatens/Inventatory-Software/releases/latest)
@@ -15,7 +15,7 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' b
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-58B9B0?style=flat-square&labelColor=0D1010)
 
 [**Website**](https://kwiatens.github.io/Inventatory-Site/) &nbsp;·&nbsp;
-[Documentation]([docs/user-guide.md](https://kwiatens.github.io/Inventatory-Site/docs/)) &nbsp;·&nbsp;
+[Documentation](https://kwiatens.github.io/Inventatory-Site/docs/) &nbsp;·&nbsp;
 [Report an issue](https://github.com/Kwiatens/Inventatory-Software/issues)
 
 </div>
@@ -25,7 +25,7 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' b
 **This project is currently in a beta state!**
 
 > **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
-> There you can explore what the project can do, and is where you can find the documentation and instructions.
+> There you can explore what the project can do and find the documentation and instructions.
 
 ## Install on Windows
 
@@ -49,8 +49,8 @@ The whole system is **designed to be extremely fast, and requires as little user
 Key features:
 - The system automatically assigns each part to a specific slot on each 3D-printable rack, so later it can give you the precise location of it, not just generic 'Drawer 12'.
 - Integration with popular EDA software - it automatically compares your inventory with the BOM of your PCB, and points out precisely on which rack and slot each component lives.
-- DIY-able Hardware scanning device called 'Inventatory Scanner' - used for scanning vendor part bags, and Inventatory QR codes from the SMD tubes on the racks.
-- Direct integration with the most popular electronics part vendors (like DigiKey).
+- A DIY-able hardware scanner, the Inventatory Scan R1, for reading vendor part bags and the Inventatory QR codes on the SMD tubes in the racks.
+- Direct integration with the most popular electronics part vendors (such as DigiKey).
 - ZPL Label Printer integration for the tubes that go on 3D printable storage racks.
 - Search by electrical parameters, not only by name! Electrical parameters are applied automatically too, from the vendor's API.
 

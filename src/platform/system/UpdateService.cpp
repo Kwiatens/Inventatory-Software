@@ -753,6 +753,10 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
     }
   }
   output.close();
+  if (successful && output.fail()) {
+    error = "Could not write the update asset";
+    successful = false;
+  }
   WinHttpCloseHandle(request); WinHttpCloseHandle(connection); WinHttpCloseHandle(session);
   if (!successful) {
     if (error.empty()) error = "The update download was interrupted";

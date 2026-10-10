@@ -67,7 +67,11 @@ ftxui::Element App::renderInventatoryScanSetupContent() const {
       rows.push_back(styledText("Wi-Fi password: " + string(bleWifiPassword_.empty() ? 0 : 12, '*'), uiTitleColor()));
       rows.push_back(styledText("Verification code: " + blePairingCode_, uiTitleColor()));
       rows.push_back(ftxui::text(""));
-      rows.push_back(styledText("Enter transfer configuration   Esc cancel", uiInteractiveColor()));
+      if (bleProvisionRunning()) {
+        rows.push_back(styledText("Sending the setup to the Scan R1. Please keep it nearby.", uiWarnColor()));
+      } else {
+        rows.push_back(styledText("Enter transfer configuration   Esc cancel", uiInteractiveColor()));
+      }
       break;
     }
     case ScanSetupStep::Complete:

@@ -1,7 +1,7 @@
 # Third-party notices
 
 Inventatory links against [FTXUI](https://github.com/ArthurSonzogni/FTXUI), pinned to commit
-`5cfed50702f52d51c1b189b5f97f8beaf5eaa2a6`, under the MIT License:
+`182ef70cd4dc1109d06e66361a9da86445928578`, under the MIT License:
 
 Copyright (c) 2019 Arthur Sonzogni.
 
@@ -49,4 +49,4 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The geometry of the IEC fuse symbol follows the fuse in [Electrical Symbols IEC.svg](https://commons.wikimedia.org/wiki/File:Electrical_Symbols_IEC.svg) on Wikimedia Commons, which is dedicated to the public domain under CC0 1.0. The IC package, pin header and rack grid icons are original to Inventatory. Sources and the generator are in `tools/rack_symbols/`.
+The geometry of the IEC fuse symbol follows the fuse in [Electrical Symbols IEC.svg](https://commons.wikimedia.org/wiki/File:Electrical_Symbols_IEC.svg) on Wikimedia Commons, which is dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). The IC package, pin header and rack grid icons are original to Inventatory. Sources and the generator are in `tools/rack_symbols/`. The electronic-symbols license text is in `tools/rack_symbols/LICENSE.electronic-symbols.txt`.

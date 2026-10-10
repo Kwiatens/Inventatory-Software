@@ -87,6 +87,10 @@ void LocalHttpServer::stop() {
 
   if (acceptor_.joinable()) acceptor_.join();
 
+  {
+    lock_guard<mutex> lock(pendingClientMutex_);
+    running_.store(false);
+  }
   pendingClientChanged_.notify_all();
   if (reader_.joinable()) reader_.join();
 

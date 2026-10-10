@@ -14,6 +14,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Stock: the number keys 1 to 5 no longer pick filter options. Use the arrow keys and Enter, or click.
 
+### Fixed
+- Projects: when saving the stock taken for a build fails, the build no longer stays open, so Deduct
+  from stock cannot be confirmed a second time and take the same parts out twice. Press R to retry the save.
+- Racks: Print, Enter and Detail on a rack slot now act on the part in that slot, whatever the Stock
+  list is sorted or filtered by. A part added in Stock is selected after saving.
+- DigiKey: a lookup that finds no exact match no longer fills the part with a similar-looking product.
+  Control characters in DigiKey text are shown as spaces, and text with an embedded NUL is refused.
+- Settings: the Discard button asks for a second press like Esc does, and a DigiKey site, language or
+  currency that is too long is refused when you confirm it instead of making every save fail.
+- Settings: a background service that cannot start no longer skips the printer queue change, and a data
+  folder that fails to load now also restores the previous DigiKey secret and startup entry.
+- Stock: `rack:r1` matches only rack R1, not R10 to R19, and `param:Capacitance=1uF` no longer matches
+  11 uF. A bare number in `param:` is compared in the unit of that parameter.
+- Projects: BOM values written as 10mOhm, 0.1 uF with the micro sign, or 10k with the ohm sign are
+  read correctly, and a BOM that fails to import keeps the open project's analysis.
+- Import: a CSV cell whose closing quote is followed by spaces is read correctly, a DigiKey import on a
+  large inventory is much faster, and a quantity change that would take stock below zero is reported.
+- Scanner: a failed DigiKey lookup for a scanned part is reported, and a sync that omits fields no
+  longer blanks the stored DigiKey details.
+- Backup: a backup that cannot be fully scanned is rejected.
+- Scanner: Bluetooth setup of a Scan R1 no longer freezes the terminal, a lost reply to the setup write
+  keeps the token so the scanner can recover, and one network address can no longer hold every
+  connection slot of the scanner service. A nearby device flooding Bluetooth discovery no longer hides
+  the real scanner.
+- Settings: Test DigiKey runs in the background instead of freezing the terminal.
+- Scanner (Linux): the Bluetooth pairing agent only answers the Bluetooth service, so another program
+  on the system bus can no longer cancel pairing or ask for the pairing code.
+- Stock: a bare search word such as `r1` finds rack R1 only, not R10 to R19, and the mouse wheel over the
+  open Sort / Filter panel no longer moves the stock rows behind it.
+- Import and labels: very long text no longer risks overflowing the stack while label sizes, units and
+  package names are read, and an embedded NUL in a stored name is kept instead of cutting the text.
+- Stock: the ranked list header keeps the Filter button visible at 100 columns.
+- Import: a very long text field no longer crashes inductance detection, a very long label name no
+  longer stalls printing, a CSV with millions of cells is refused instead of using gigabytes of memory,
+  and one oversized unused DigiKey text no longer fails the whole lookup.
+- Printing (Windows): a queue that cannot be queried or a print job that fails to close is reported.
+- Updates (Windows): a failed final write of the downloaded update is reported as such.
+- Setup (Windows): the uninstaller lists anything it could not delete.
+
 ## [v0.1.4] - 2026-10-08
 
 ### Added
@@ -148,3 +187,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial beta release start.
+
+[Unreleased]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.4...HEAD
+[v0.1.4]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.3...v0.1.4
+[v0.1.3]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.2...v0.1.3
+[v0.1.2]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.1...v0.1.2
+[v0.1.1]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.0...v0.1.1
+[v0.1.0]: https://github.com/Kwiatens/Inventatory-Software/releases/tag/v0.1.0

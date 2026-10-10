@@ -26,13 +26,15 @@ bool App::printSelectedRackPartLabel() {
     setMessage("No part in this slot", 2);
     return false;
   }
-  const auto it = find_if(store_.items().begin(), store_.items().end(), [&](const InventoryItem& candidate) {
-    return candidate.id == item->id;
-  });
-  if (it != store_.items().end()) {
-    selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
+  // Print the slot's own part; the Stock selection is a sorted position and must not be involved.
+  const auto itemId = item->id;
+  ensureInventoryIdentifiers(store_.items());
+  const auto* printable = store_.findById(itemId);
+  if (printable == nullptr) {
+    setMessage("Selected part is no longer available", 2);
+    return false;
   }
-  return printSelectedLabel();
+  return printLabelForItem(*printable, "Printed label for ", true);
 }
 
 bool App::printSelectedRackLabel() {
