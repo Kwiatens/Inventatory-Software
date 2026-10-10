@@ -195,6 +195,18 @@ bool tokenMatchesField(const string& field, const string& value) {
   return containsInsensitive(field, value);
 }
 
+// Matches a rack: value against a location such as "R1-A1". A value without a dash names a whole
+// rack, so "r1" finds R1-A1 but not R10-A1. A value with a dash is a case-insensitive prefix of the
+// location, so "r1-a" finds R1-A1 and R1-A2. An empty value keeps the match-everything behaviour.
+bool tokenMatchesRackLocation(const string& location, const string& value) {
+  if (value.empty()) return containsInsensitive(location, value);
+  const auto loweredLocation = toLower(location);
+  const auto loweredValue = toLower(value);
+  if (loweredLocation.rfind(loweredValue, 0) != 0) return false;
+  if (loweredValue.find('-') != string::npos) return true;
+  return loweredLocation.size() == loweredValue.size() || loweredLocation[loweredValue.size()] == '-';
+}
+
 }  // namespace
 
 optional<PhysicalValueComparison> partNamePhysicalComparison(const InventoryItem& item, const string& target) {
@@ -281,7 +293,7 @@ QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& 
     }
     if (token.rfind("rack:", 0) == 0) {
       const auto value = token.substr(5);
-      if (tokenMatchesField(itemRackLocation, value)) continue;
+      if (tokenMatchesRackLocation(itemRackLocation, value)) continue;
       return {false, nullopt};
     }
     if (token.rfind("sku:", 0) == 0) {
