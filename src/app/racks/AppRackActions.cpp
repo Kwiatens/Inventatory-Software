@@ -429,18 +429,11 @@ void App::openSelectedRackItemDetail() {
     return;
   }
 
-  const auto it = find_if(store_.items().begin(), store_.items().end(), [&](const InventoryItem& candidate) {
-    return candidate.id == item->id;
-  });
-  if (it == store_.items().end()) {
+  // Reset the stock query, sort and date filter so the detail panel can always show the part.
+  if (!selectStockItemById(item->id)) {
     setMessage("Selected part is no longer available", 2);
     return;
   }
-
-  // The stock selection is position-based, so reset the stock query before
-  // selecting a rack part to ensure the detail panel can always show it.
-  searchQuery_.clear();
-  selectedPosition_ = static_cast<size_t>(distance(store_.items().begin(), it));
   inputMode_ = InputMode::None;
   focusedTargetId_.clear();
   // Leaving Racks drops a half-finished move and pending confirmations, as changePage does.
@@ -449,7 +442,6 @@ void App::openSelectedRackItemDetail() {
   cancelDeleteConfirmation();
   cancelRackDeletion();
   page_ = Page::Stock;
-  syncSelectionToFilter();
   dirty_ = true;
 }
 

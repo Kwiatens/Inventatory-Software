@@ -1,10 +1,12 @@
 // Inventatory Scan R1 BLE discovery and encrypted first-use provisioning.
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace inventatory {
@@ -49,6 +51,8 @@ class BleProvisioningService {
 
   mutable std::mutex mutex_;
   std::vector<BleSetupDevice> devices_;
+  // When each listed device was last seen, so a full list can evict the stalest entry. Guarded by mutex_.
+  std::unordered_map<std::uint64_t, std::chrono::steady_clock::time_point> lastSeen_;
   std::thread worker_;
   bool discovering_ = false;
 };

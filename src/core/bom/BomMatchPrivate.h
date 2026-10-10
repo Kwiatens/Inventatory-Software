@@ -27,9 +27,37 @@ enum class NumberNotation {
 std::optional<double> parseNumberWithMultiplier(const std::string& body, NumberNotation notation);
 std::string compactKey(const std::string& value);
 std::optional<double> itemValueFor(const InventoryItem& item, ValueKind kind);
+
+struct ItemValueCache {
+  std::optional<double> capacitance;
+  std::optional<double> resistance;
+  std::optional<double> inductance;
+  std::optional<double> frequency;
+
+  std::optional<double> valueFor(ValueKind kind) const {
+    switch (kind) {
+      case ValueKind::Capacitance:
+        return capacitance;
+      case ValueKind::Resistance:
+        return resistance;
+      case ValueKind::Inductance:
+        return inductance;
+      case ValueKind::Frequency:
+        return frequency;
+      case ValueKind::None:
+      default:
+        return std::nullopt;
+    }
+  }
+};
+
+ItemValueCache precomputeItemValues(const InventoryItem& item);
+
 std::optional<std::string> itemPackage(const InventoryItem& item);
 bool sameText(const std::string& lhs, const std::string& rhs);
 bool partNameHasToken(const InventoryItem& item, const std::string& designation);
+int scoreItem(const InventoryItem& item, const BomLine& line, const std::string& bomPackage,
+              std::optional<double> bomValue, ValueKind bomKind, const ItemValueCache& cache);
 int scoreItem(const InventoryItem& item, const BomLine& line, const std::string& bomPackage,
               std::optional<double> bomValue, ValueKind bomKind);
 int saturatingAdd(int lhs, int rhs);
