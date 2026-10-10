@@ -311,6 +311,7 @@ bool App::saveSettingsDraft() {
   }
   settingsDirty_ = false;
   appearancePickerOpen_ = false;
+  stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
