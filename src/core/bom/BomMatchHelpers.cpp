@@ -229,7 +229,12 @@ optional<double> itemValueFor(const InventoryItem& item, ValueKind kind) {
   // package codes ("0603") or pin counts ("10 POS"), never component values. A
   // unit written as its own word ("604 OHM", "100 nF") still belongs to the
   // number in front of it.
-  const auto tokens = tokenizeQuery(item.partName + " " + item.notes);
+  // Cap the text used for free-text value recovery to the first 512 bytes of
+  // partName and 512 bytes of notes; this only affects absurdly long descriptions.
+  constexpr size_t kMaxFreeTextBytes = 512;
+  const auto partNameCap = item.partName.substr(0, min(item.partName.size(), kMaxFreeTextBytes));
+  const auto notesCap = item.notes.substr(0, min(item.notes.size(), kMaxFreeTextBytes));
+  const auto tokens = tokenizeQuery(partNameCap + " " + notesCap);
   for (size_t index = 0; index < tokens.size(); ++index) {
     auto token = tokens[index];
     if (none_of(token.begin(), token.end(), [](unsigned char ch) { return isalpha(ch) != 0; })) {
@@ -244,6 +249,15 @@ optional<double> itemValueFor(const InventoryItem& item, ValueKind kind) {
     }
   }
   return nullopt;
+}
+
+ItemValueCache precomputeItemValues(const InventoryItem& item) {
+  ItemValueCache cache;
+  cache.capacitance = itemValueFor(item, ValueKind::Capacitance);
+  cache.resistance = itemValueFor(item, ValueKind::Resistance);
+  cache.inductance = itemValueFor(item, ValueKind::Inductance);
+  cache.frequency = itemValueFor(item, ValueKind::Frequency);
+  return cache;
 }
 
 optional<string> itemPackage(const InventoryItem& item) {
@@ -274,20 +288,10 @@ bool partNameHasToken(const InventoryItem& item, const string& designation) {
   return compactKey(item.partName + " " + item.notes + " " + item.sku).find(needle) != string::npos;
 }
 
-int scoreItem(const InventoryItem& item, const BomLine& line, const string& bomPackage,
-              optional<double> bomValue, ValueKind bomKind) {
-  if (sameText(line.designation, item.sku) || sameText(line.designation, item.digikeyPartNumber)) {
-    return 100;
-  }
-  if (looksLikePartNumber(line.designation) && partNameHasToken(item, line.designation)) {
-    return 85;
-  }
+namespace {
 
-  if (!bomValue) {
-    return 0;
-  }
-
-  const auto candidateValue = itemValueFor(item, bomKind);
+int evaluateScoredCandidate(const InventoryItem& item, const string& bomPackage,
+                            optional<double> bomValue, optional<double> candidateValue) {
   if (!candidateValue) {
     return 0;
   }
@@ -301,6 +305,40 @@ int scoreItem(const InventoryItem& item, const BomLine& line, const string& bomP
     return 70;
   }
   return packageMatches(bomPackage, *package) ? 90 : 30;
+}
+
+}  // namespace
+
+int scoreItem(const InventoryItem& item, const BomLine& line, const string& bomPackage,
+              optional<double> bomValue, ValueKind bomKind, const ItemValueCache& cache) {
+  if (sameText(line.designation, item.sku) || sameText(line.designation, item.digikeyPartNumber)) {
+    return 100;
+  }
+  if (looksLikePartNumber(line.designation) && partNameHasToken(item, line.designation)) {
+    return 85;
+  }
+
+  if (!bomValue) {
+    return 0;
+  }
+
+  return evaluateScoredCandidate(item, bomPackage, bomValue, cache.valueFor(bomKind));
+}
+
+int scoreItem(const InventoryItem& item, const BomLine& line, const string& bomPackage,
+              optional<double> bomValue, ValueKind bomKind) {
+  if (sameText(line.designation, item.sku) || sameText(line.designation, item.digikeyPartNumber)) {
+    return 100;
+  }
+  if (looksLikePartNumber(line.designation) && partNameHasToken(item, line.designation)) {
+    return 85;
+  }
+
+  if (!bomValue) {
+    return 0;
+  }
+
+  return evaluateScoredCandidate(item, bomPackage, bomValue, itemValueFor(item, bomKind));
 }
 
 int saturatingAdd(int lhs, int rhs) {
