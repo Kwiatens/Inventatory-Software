@@ -119,32 +119,53 @@ void writeMainValue(ostringstream& out, const InventatoryLabelPlan& plan) {
       return;
     }
   }
+  const auto sanitized = sanitizeLabelText(plan.mainValue);
   const auto oneLine = fitFont0Text(plan.mainValue, kLeftColumnWidth, {40, 36, 32, 28, 26});
-  if (!oneLine.text.empty() && oneLine.text == sanitizeLabelText(plan.mainValue)) {
+  if (!oneLine.text.empty() && oneLine.text == sanitized) {
     writeCenteredLine(out, kValueCenterY, oneLine.size, oneLine.text);
     return;
   }
   // Long names wrap onto two lines at word boundaries before anything is cut.
-  istringstream words(sanitizeLabelText(plan.mainValue));
-  vector<string> tokens{istream_iterator<string>(words), istream_iterator<string>()};
-  for (const auto size : {24, 22, 20, 18}) {
-    string first;
-    string second;
-    for (const auto& token : tokens) {
-      auto& line = second.empty() && estimateFont0Width(first.empty() ? token : first + " " + token, size, size) <=
-                                         kLeftColumnWidth
-                       ? first
-                       : second;
-      line += (line.empty() ? "" : " ") + token;
-    }
-    if (!first.empty() && !second.empty() && estimateFont0Width(second, size, size) <= kLeftColumnWidth) {
-      const auto pitch = size + 2;
-      const auto blockTop = kValueCenterY - (pitch + size * kCapHeight) / 2;
-      writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(first, size, size)),
-                static_cast<int>(blockTop + 0.5), size, size, first);
-      writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(second, size, size)),
-                static_cast<int>(blockTop + 0.5) + pitch, size, size, second);
-      return;
+  // Two lines at the smallest font (18) can hold at most ~120 bytes in this column.
+  // If the sanitized text exceeds a safe bound, it cannot possibly fit onto two
+  // lines before anything is cut, so skip wrapping and step down instead.
+  constexpr size_t kMaxTwoLineBytes = 256;
+  if (sanitized.size() <= kMaxTwoLineBytes) {
+    istringstream words(sanitized);
+    vector<string> tokens{istream_iterator<string>(words), istream_iterator<string>()};
+    for (const auto size : {24, 22, 20, 18}) {
+      string first;
+      string second;
+      bool fits = true;
+      for (const auto& token : tokens) {
+        if (second.empty()) {
+          const auto candidate = first.empty() ? token : first + " " + token;
+          if (estimateFont0Width(candidate, size, size) <= kLeftColumnWidth) {
+            first = candidate;
+          } else {
+            second = token;
+            if (estimateFont0Width(second, size, size) > kLeftColumnWidth) {
+              fits = false;
+              break;
+            }
+          }
+        } else {
+          second += " " + token;
+          if (estimateFont0Width(second, size, size) > kLeftColumnWidth) {
+            fits = false;
+            break;
+          }
+        }
+      }
+      if (fits && !first.empty() && !second.empty()) {
+        const auto pitch = size + 2;
+        const auto blockTop = kValueCenterY - (pitch + size * kCapHeight) / 2;
+        writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(first, size, size)),
+                  static_cast<int>(blockTop + 0.5), size, size, first);
+        writeText(out, centeredLeft(kLeft, kLeftColumnWidth, estimateFont0Width(second, size, size)),
+                  static_cast<int>(blockTop + 0.5) + pitch, size, size, second);
+        return;
+      }
     }
   }
   // A single long token (a part number) steps down in size rather than wrapping.
