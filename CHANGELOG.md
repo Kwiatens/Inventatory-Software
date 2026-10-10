@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list is sorted or filtered by. A part added in Stock is selected after saving.
 - DigiKey: a lookup that finds no exact match no longer fills the part with a similar-looking product.
   Control characters in DigiKey text are shown as spaces, and text with an embedded NUL is refused.
+- Settings: the Discard button asks for a second press like Esc does, and a DigiKey site, language or
+  currency that is too long is refused when you confirm it instead of making every save fail.
+- Settings: a background service that cannot start no longer skips the printer queue change, and a data
+  folder that fails to load now also restores the previous DigiKey secret and startup entry.
+- Stock: `rack:r1` matches only rack R1, not R10 to R19, and `param:Capacitance=1uF` no longer matches
+  11 uF. A bare number in `param:` is compared in the unit of that parameter.
+- Projects: BOM values written as 10mOhm, 0.1 uF with the micro sign, or 10k with the ohm sign are
+  read correctly, and a BOM that fails to import keeps the open project's analysis.
+- Import: a CSV cell whose closing quote is followed by spaces is read correctly, a DigiKey import on a
+  large inventory is much faster, and a quantity change that would take stock below zero is reported.
+- Scanner: a failed DigiKey lookup for a scanned part is reported, and a sync that omits fields no
+  longer blanks the stored DigiKey details.
+- Backup: a backup that cannot be fully scanned is rejected.
 
 ## [v0.1.4] - 2026-10-08
 
