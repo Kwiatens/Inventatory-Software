@@ -200,10 +200,12 @@ App::SettingsPageModel App::settingsPageModel() const {
       for (size_t index = 0; index < kAppearanceColorCount; ++index) {
         if (draft.appearance.colors[index] != defaults.colors[index]) ++changedFromDefault;
       }
-      model.status = changedFromDefault == 0
-                         ? VoiceLine{{"Using the default Slate colours."}}
-                         : VoiceLine{{voiceCount(changedFromDefault, "colour", "colours"), VoiceTone::Strong},
-                                     {changedFromDefault == 1 ? " differs from the defaults." : " differ from the defaults."}};
+      if (changedFromDefault == 0) {
+        model.status = VoiceLine{{"Using the default Slate colours."}};
+      } else {
+        model.status = VoiceLine{{voiceCount(changedFromDefault, "colour", "colours"), VoiceTone::Strong},
+                                 {changedFromDefault == 1 ? " differs from the defaults." : " differ from the defaults."}};
+      }
       const auto addGroup = [&](const string& group, initializer_list<AppearanceColorRole> roles) {
         bool first = true;
         for (const auto role : roles) {
@@ -314,9 +316,11 @@ App::SettingsPageModel App::settingsPageModel() const {
         if (queue.name == draft.printerQueue) configured = &queue;
       }
       if (draft.printerQueue.empty()) {
-        model.status = printerQueues_.empty()
-                           ? VoiceLine{{"No printer is set up, and none was found.", VoiceTone::Warning}}
-                           : VoiceLine{{"No printer is selected.", VoiceTone::Warning}};
+        if (printerQueues_.empty()) {
+          model.status = VoiceLine{{"No printer is set up, and none was found.", VoiceTone::Warning}};
+        } else {
+          model.status = VoiceLine{{"No printer is selected.", VoiceTone::Warning}};
+        }
       } else if (configured == nullptr) {
         model.status = {{draft.printerQueue, VoiceTone::Strong}, {" was not found.", VoiceTone::Warning}};
       } else {
