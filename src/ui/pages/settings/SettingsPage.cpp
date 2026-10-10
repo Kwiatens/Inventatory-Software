@@ -456,7 +456,6 @@ App::SettingsPageModel App::settingsPageModel() const {
 
       auto port = editRow("Service", "Port", to_string(draft.deviceServicePort), 0, "settings.scan.port");
       if (!port.editing) markChange(port, draft.deviceServicePort != saved.deviceServicePort, to_string(saved.deviceServicePort));
-      if (!port.editing && draft.deviceServicePort != saved.deviceServicePort) port.note += ", applies on next launch";
       port.buttons = {button("Restart", "h", "settings.scan.restart", [self] { self->restartDeviceService(); })};
       rows.push_back(move(port));
 

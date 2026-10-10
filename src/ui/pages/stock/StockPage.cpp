@@ -41,6 +41,9 @@ ftxui::Element App::renderStockUi() const {
   for (const auto& item : store_.items()) {
     longestPartName = max(longestPartName, displayWidth(item.partName));
     longestQuantity = max(longestQuantity, to_string(item.quantity).size());
+    if (stocktakeActive_) {
+      longestQuantity = max(longestQuantity, to_string(stocktakeCountFor(item)).size());
+    }
     longestCategory = max(longestCategory, displayWidth(displayCategory(item.category)));
   }
   // The separators are positioned from the complete inventory, not just the
