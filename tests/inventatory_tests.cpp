@@ -4852,6 +4852,44 @@ void testRackQueryMatchesWholeRackCode() {
   assert(idsFor("rack:r3").empty());
 }
 
+// A bare free-text token that names a rack follows the same rule as rack:. "r1" finds R1-A1 but not
+// R10-A1, a dashed token still finds its exact location, and a part name such as "10k" still matches.
+void testBareFreeTextRackTokenMatchesWholeRackCode() {
+  vector<InventatoryRack> racks;
+  for (const char* code : {"R1", "R2", "R10"}) {
+    InventatoryRack rack;
+    rack.id = string("rack-") + code;
+    rack.code = code;
+    rack.componentType = "Resistors";
+    rack.rows = 4;
+    rack.columns = 6;
+    racks.push_back(rack);
+  }
+  const auto placed = [](const char* id, const char* partName, const char* rackId, const char* slot) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = partName;
+    item.quantity = 1;
+    item.rackId = rackId;
+    item.rackSlot = slot;
+    return item;
+  };
+  const vector<InventoryItem> items = {placed("r1-a1", "Resistor", "rack-R1", "A1"),
+                                       placed("r10-a1", "Resistor", "rack-R10", "A1"),
+                                       placed("r2-a1", "Resistor 10k", "rack-R2", "A1")};
+  const auto idsFor = [&](const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query, racks, 5)) ids.push_back(items[index].id);
+    return ids;
+  };
+
+  assert((idsFor("r1") == vector<string>{"r1-a1"}));
+  assert((idsFor("r10") == vector<string>{"r10-a1"}));
+  assert((idsFor("R1-A1") == vector<string>{"r1-a1"}));
+  assert((idsFor("r1-a") == vector<string>{"r1-a1"}));
+  assert((idsFor("10k") == vector<string>{"r2-a1"}));
+}
+
 // param: values on a physical parameter are compared by value. "1uF" must not find "11uF", and a bare
 // number must not find a longer number, while non-numeric needles keep the substring match.
 void testParameterQueryMatchesValuesNotSubstrings() {
@@ -11268,6 +11306,7 @@ const vector<TestCase>& registeredTests() {
 #endif
     {"inventory", "ItemFilterQueries", testItemFilterQueries},
     {"inventory", "RackQueryMatchesWholeRackCode", testRackQueryMatchesWholeRackCode},
+    {"inventory", "BareFreeTextRackTokenMatchesWholeRackCode", testBareFreeTextRackTokenMatchesWholeRackCode},
     {"inventory", "ParameterQueryMatchesValuesNotSubstrings", testParameterQueryMatchesValuesNotSubstrings},
 #ifndef _WIN32
     {"platform", "LinuxChildProcessIsBounded", testLinuxChildProcessIsBounded},
