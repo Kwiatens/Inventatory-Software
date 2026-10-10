@@ -1133,6 +1133,8 @@ size_t zplOccurrences(const string& zpl, const string& needle) {
 void testPhysicalValueParsing();
 void testPhysicalValueMatching();
 void testInductanceTextScanner();
+void testLabelTextScannersAreLinear();
+void testDigiKeyPackageSearchIsBounded();
 void testPhysicalValueSearchIntegration();
 void testPhysicalValueCommaDecimalLocale();
 void testClosestValueSearchStaysWithinFamilyAndBand();
@@ -6988,6 +6990,63 @@ void testFont0TruncationMatchesSearch() {
   assert(estimateFont0Width(string(1u << 20, 'M'), 40, 40) == 32715572);
 }
 
+void testLabelTextScannersAreLinear() {
+  // Bracketed metric in a tile value; a non-matching suffix must not match.
+  assert(labelTileValue("0.472\" (12.50 mm)") == "12.5mm");
+  assert(labelTileValue("0.472\" (12.50 mmx)") != "12.5mm");
+
+  // Size line: the leftmost "N mm x N mm" wins, and a fraction can start a later match.
+  InventoryItem footprint;
+  footprint.parameters = {{"Size / Dimension", "0.157\" L x 0.157\" W (4.00mm x 4.00mm)"}};
+  assert(label_printer_detail::shortPackageLine(footprint) == "4x4mm");
+  footprint.parameters = {{"Size / Dimension", "2.50 mm X 1.00mm"}};
+  assert(label_printer_detail::shortPackageLine(footprint) == "2.5x1mm");
+  footprint.parameters = {{"Size / Dimension", "1.2.5 mm x 3mm"}};
+  assert(label_printer_detail::shortPackageLine(footprint) == "2.5x3mm");
+
+  // Unit checks (the tile for a rated voltage): accepted units and rejected trailing letters.
+  const auto voltageTile = [](const string& rated) {
+    InventoryItem capacitor;
+    capacitor.category = "Aluminum Electrolytic Capacitors";
+    capacitor.parameters = {{"Capacitance", u8"100 µF"}, {"Voltage - Rated", rated}};
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+    return labelTile(service.buildLabelPlan(capacitor), "VOLTAGE");
+  };
+  assert(!voltageTile("16 V").empty());
+  assert(!voltageTile("16V").empty());
+  assert(!voltageTile("16 VDC").empty());
+  assert(!voltageTile("16 Vdc").empty());
+  assert(voltageTile("16 VDCX").empty());
+  assert(voltageTile("16 Vx").empty());
+  assert(voltageTile("16 F").empty());
+  assert(voltageTile("V16").empty());
+
+  // Hostile inputs: a million-character digit run and a million spaces after one digit must return
+  // quickly and without recursion. None of them holds a match.
+  const string digits(1000000, '7');
+  assert(labelTileValue("\"(" + digits + ")").find("mm") == string::npos);
+  footprint.parameters = {{"Size / Dimension", digits}};
+  assert(label_printer_detail::shortPackageLine(footprint).find("mm") == string::npos);
+  footprint.parameters = {{"Size / Dimension", digits + " mm x 2mm"}};
+  const auto longSize = label_printer_detail::shortPackageLine(footprint);
+  assert(!longSize.empty() && longSize.size() <= 12);
+  assert(voltageTile(digits).empty());
+  assert(voltageTile("1" + string(1000000, ' ')).empty());
+}
+
+void testDigiKeyPackageSearchIsBounded() {
+  using digikey_detail::extractComponentPackageFromText;
+  assert(extractComponentPackageFromText("IC REG LDO 3.3V SOT-23-5").value_or("") == "SOT-23-5");
+  assert(extractComponentPackageFromText("Microchip QFN-32 package").value_or("") == "QFN-32");
+  assert(extractComponentPackageFromText("10uF 16V 1206 X5R").value_or("") == "1206");
+  assert(!extractComponentPackageFromText("no package named here").has_value());
+
+  // Only the first 4096 bytes are searched, so a long digit run cannot exhaust the matcher stack.
+  const auto longRun = extractComponentPackageFromText("SOIC-" + string(1000000, '7'));
+  assert(longRun.has_value() && longRun->size() <= 4096 && longRun->rfind("SOIC-", 0) == 0);
+  assert(!extractComponentPackageFromText(string(4096, ' ') + "SOIC-16").has_value());
+}
+
 void testDielectricNeverComesFromMountingType() {
   LabelPrinterService service(make_unique<MockPrinterBackend>());
 
@@ -11312,6 +11371,8 @@ const vector<TestCase>& registeredTests() {
     {"inventory", "PhysicalValueParsing", testPhysicalValueParsing},
     {"inventory", "PhysicalValueMatching", testPhysicalValueMatching},
     {"inventory", "InductanceTextScanner", testInductanceTextScanner},
+    {"label", "LabelTextScannersAreLinear", testLabelTextScannersAreLinear},
+    {"import", "DigiKeyPackageSearchIsBounded", testDigiKeyPackageSearchIsBounded},
     {"inventory", "PhysicalValueSearchIntegration", testPhysicalValueSearchIntegration},
     {"inventory", "ClosestValueSearchStaysWithinFamilyAndBand", testClosestValueSearchStaysWithinFamilyAndBand},
     {"inventory", "PhysicalValueCommaDecimalLocale", testPhysicalValueCommaDecimalLocale},
