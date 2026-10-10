@@ -132,7 +132,7 @@ bool validPrerelease(const std::string& value) {
       previousSeparator = false;
       continue;
     }
-    if (ch != '.' && ch != '-' || previousSeparator) return false;
+    if ((ch != '.' && ch != '-') || previousSeparator) return false;
     previousSeparator = true;
   }
   return true;
