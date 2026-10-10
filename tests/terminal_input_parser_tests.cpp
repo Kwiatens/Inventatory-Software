@@ -6,16 +6,13 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/terminal_input_parser.hpp>
 
-// assert() compiles to nothing under NDEBUG (Release), so the checks below
-// would never run in CI. Use an always-on check instead.
-#undef assert
-#define assert(expr)                                                                          \
-  do {                                                                                        \
-    if (!(expr)) {                                                                            \
-      std::fprintf(stderr, "Assertion failed: %s at %s:%d\n", #expr, __FILE__, __LINE__);     \
-      std::exit(1);                                                                           \
-    }                                                                                         \
-  } while (false)
+// The checks are assert() calls. CMake's Release configuration defines NDEBUG, which compiles every
+// assert() out, so a Release ctest run would pass without checking anything. Keep the checks enabled
+// in every build type.
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <cassert>
 
 int main() {
   {

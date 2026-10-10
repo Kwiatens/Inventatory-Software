@@ -1,3 +1,10 @@
+// The checks in this file are assert() calls. CMake's Release configuration defines NDEBUG, which
+// compiles every assert() out, so a Release ctest run would pass without checking anything. Keep the
+// checks enabled in every build type. This must come before the first standard header.
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+
 #include "core/inventory/Inventory.h"
 #include "App.h"
 #include "app/UpdateWizardPresentation.h"
