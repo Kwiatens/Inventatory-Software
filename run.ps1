@@ -9,7 +9,7 @@ Set-Location $root
 
 $cmakeConfigureArgs = @(
   '-DINVENTATORY_RELEASE_REPOSITORY=Kwiatens/Inventatory-Software',
-  '-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Hardware'
+  '-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Firmware'
 )
 cmake -S . -B build @cmakeConfigureArgs
 cmake --build build

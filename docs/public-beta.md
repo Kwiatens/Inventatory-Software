@@ -44,7 +44,7 @@ protocol code. Runtime packages and scanner setup are listed in
 Build from a clean clone with Visual Studio 2026 C++ tools and CMake 3.20 or
 newer. Visual Studio 2022 has also been used successfully:
 
-    cmake -S . -B build -DINVENTATORY_RELEASE_REPOSITORY=Kwiatens/Inventatory-Software -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Hardware
+    cmake -S . -B build -DINVENTATORY_RELEASE_REPOSITORY=Kwiatens/Inventatory-Software -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=Kwiatens/Inventatory-Firmware
     cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
     ctest --test-dir build -C Release --output-on-failure
 
