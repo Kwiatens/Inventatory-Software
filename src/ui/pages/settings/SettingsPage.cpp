@@ -736,7 +736,7 @@ ftxui::Element App::renderSettingsUi() const {
         target(uiButton("Save", "s", UiButtonKind::Primary), "settings.save", UiTargetKind::Button,
                [self] { self->saveSettingsDraft(); }),
         ftxui::text(" "),
-        target(uiButton("Discard", "Esc"), "settings.cancel", UiTargetKind::Button, [self] { self->cancelSettingsDraft(); }),
+        target(uiButton("Discard", "Esc"), "settings.cancel", UiTargetKind::Button, [self] { self->requestSettingsDiscard(); }),
     });
   }
   auto header = uiPageHeader(uiHeaderText(settingsCategoryName(settingsCategory_), uiPrimaryText()), uiVoiceLine(model.status, nullopt, contentWidth - 3),
