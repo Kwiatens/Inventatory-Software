@@ -6727,6 +6727,52 @@ void testCapacitorValueAndTiles() {
   assert(fitFont0Text("", 100, {12}).text.empty());
 }
 
+void testFont0TruncationMatchesSearch() {
+  // Text that fits is returned unchanged, with its estimated width.
+  const auto unchanged = fitFont0Text("SS34", 166, {40, 36});
+  assert(unchanged.text == "SS34" && unchanged.size == 40 && unchanged.width == 85);
+
+  // Text that needs truncation: the longest prefix whose estimated width plus "..." fits. Expected
+  // values were measured with the previous one-character-at-a-time search.
+  const auto manufacturer = fitFont0Text("A very long manufacturer name that cannot fit", 60, {16, 12});
+  assert(manufacturer.text == "A very lon..." && manufacturer.size == 12 && manufacturer.width == 60);
+  const auto part = fitFont0Text("Texas Instruments LM358 dual op-amp, 8-pin SOIC", 100, {16, 14, 12});
+  assert(part.text == "Texas Instrumen..." && part.size == 12 && part.width == 95);
+  const auto rack = fitFont0Text("R1234567890ABCDEF", 30, {17, 16, 15, 14, 13});
+  assert(rack.text == "R1..." && rack.size == 13 && rack.width == 25);
+  // A cut that ends in a space is measured without that space ("Wa Wb..." fits, "Wa Wb ..." would not).
+  const auto spaced = fitFont0Text("Wa Wb Wc Wd", 50, {12});
+  assert(spaced.text == "Wa Wb..." && spaced.size == 12 && spaced.width == 43);
+  const auto spacedWide = fitFont0Text("MMM MMMM", 45, {12});
+  assert(spacedWide.text == "MMM..." && spacedWide.width == 39);
+  // Multi-byte characters are removed whole.
+  const auto euro = fitFont0Text(u8"€€€€€€", 30, {12});
+  assert(euro.text == u8"€€..." && euro.size == 12 && euro.width == 25);
+  // When even the ellipsis is too wide, the bare ellipsis is returned.
+  const auto nothingFits = fitFont0Text("abc", 2, {12});
+  assert(nothingFits.text == "..." && nothingFits.size == 12 && nothingFits.width == 11);
+
+  // A 1 MiB name must finish quickly and still fit the box, with the ellipsis at the end.
+  string megabyte;
+  while (megabyte.size() < (1u << 20)) megabyte += "Resistor 10k 1% 0603 MM ";
+  megabyte.resize(1u << 20);
+  const auto longName = fitFont0Text(megabyte, 166, {40, 36, 32, 28, 26, 24, 22});
+  assert(longName.width <= 166 && longName.text.size() > 3);
+  assert(longName.text.compare(0, 8, "Resistor") == 0);
+  assert(longName.text.compare(longName.text.size() - 3, 3, "...") == 0);
+
+  // The same for a 1 MiB name of two-byte characters: the cut never splits a character.
+  string omegas;
+  while (omegas.size() < (1u << 20)) omegas += u8"Ω";
+  const auto longOmegas = fitFont0Text(omegas, 60, {12});
+  assert(longOmegas.width <= 60 && longOmegas.size == 12);
+  assert(longOmegas.text.compare(longOmegas.text.size() - 3, 3, "...") == 0);
+  assert((longOmegas.text.size() - 3) % 2 == 0);
+
+  // The estimate of a 1 MiB string is computed without overflowing: 78 hundredths per "M" at size 40.
+  assert(estimateFont0Width(string(1u << 20, 'M'), 40, 40) == 32715572);
+}
+
 void testDielectricNeverComesFromMountingType() {
   LabelPrinterService service(make_unique<MockPrinterBackend>());
 
@@ -11060,6 +11106,7 @@ const vector<TestCase>& registeredTests() {
     {"label", "LongHeaderKeepsPartName", testLongHeaderKeepsPartName},
     {"label", "DiodeParameterTiles", testDiodeParameterTiles},
     {"label", "CapacitorValueAndTiles", testCapacitorValueAndTiles},
+    {"label", "Font0TruncationMatchesSearch", testFont0TruncationMatchesSearch},
     {"label", "DielectricNeverComesFromMountingType", testDielectricNeverComesFromMountingType},
     {"label", "DiscreteSemiconductorKinds", testDiscreteSemiconductorKinds},
     {"import", "DigiKeyCsvMissingManufacturerPartNumber", testDigiKeyCsvMissingManufacturerPartNumber},

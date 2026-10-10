@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
+#include <limits>
 
 namespace inventatory {
 
@@ -216,52 +218,82 @@ string fitSingleLineLabel(const string& value, size_t maxLength) {
   return fieldOrBlank(value, maxLength);
 }
 
+namespace {
+
+// Advance width of one byte of font 0 text, in hundredths of the ^A0 width
+// parameter, checked against test prints: letters and digits came out at or
+// below these values, while "-" (1.5 digits) and symbols print much wider than
+// in a typical condensed face. A UTF-8 lead byte stands for its whole
+// character; continuation bytes add nothing.
+int font0ByteHundredths(unsigned char ch) {
+  if ((ch & 0xC0) == 0x80) return 0;  // UTF-8 continuation byte
+  if (ch >= 0x80) return 62;
+  if (ch == ' ') return 24;
+  if (ch == '-') return 78;  // measured: 1.5 digits wide
+  if (strchr("Iil.,:;'!|", ch) != nullptr) return 28;
+  if (strchr("MWmw", ch) != nullptr) return 78;
+  if (isdigit(ch)) return 50;
+  if (isupper(ch)) return 56;
+  if (islower(ch)) return 47;
+  return 66;
+}
+
+// 64-bit so that long text cannot overflow while it is being measured.
+int64_t font0Hundredths(const string& text) {
+  int64_t hundredths = 0;
+  for (const auto character : text) hundredths += font0ByteHundredths(static_cast<unsigned char>(character));
+  return hundredths;
+}
+
+int64_t font0Width(int64_t hundredths, int width) { return (hundredths * width + 99) / 100; }
+
+int saturateToInt(int64_t value) {
+  return static_cast<int>(clamp<int64_t>(value, numeric_limits<int>::min(), numeric_limits<int>::max()));
+}
+
+}  // namespace
+
 int estimateFont0Width(const string& text, int height, int width) {
   (void)height;
-  // Advance widths of font 0, in hundredths of the ^A0 width parameter,
-  // checked against test prints: letters and digits came out at or below
-  // these values, while "-" (1.5 digits) and symbols print much wider than in
-  // a typical condensed face.
-  int hundredths = 0;
-  for (const auto character : text) {
-    const auto ch = static_cast<unsigned char>(character);
-    if ((ch & 0xC0) == 0x80) continue;  // UTF-8 continuation byte
-    if (ch >= 0x80) hundredths += 62;
-    else if (ch == ' ') hundredths += 24;
-    else if (ch == '-') hundredths += 78;  // measured: 1.5 digits wide
-    else if (strchr("Iil.,:;'!|", ch) != nullptr) hundredths += 28;
-    else if (strchr("MWmw", ch) != nullptr) hundredths += 78;
-    else if (isdigit(ch)) hundredths += 50;
-    else if (isupper(ch)) hundredths += 56;
-    else if (islower(ch)) hundredths += 47;
-    else hundredths += 66;
-  }
-  return (hundredths * width + 99) / 100;
+  return saturateToInt(font0Width(font0Hundredths(text), width));
 }
 
 FittedLabelText fitFont0Text(const string& text, int maxWidth, initializer_list<int> sizes) {
   FittedLabelText fitted;
   const auto cleaned = sanitiseZplFragment(text);
   if (cleaned.empty() || sizes.size() == 0) return fitted;
+  const auto cleanedHundredths = font0Hundredths(cleaned);
   for (const auto size : sizes) {
-    const auto width = estimateFont0Width(cleaned, size, size);
-    if (width <= maxWidth) return {cleaned, size, width};
+    const auto width = font0Width(cleanedHundredths, size);
+    if (width <= maxWidth) return {cleaned, size, saturateToInt(width)};
   }
-  // Nothing fits: keep the smallest size and drop trailing characters.
+  // Nothing fits: keep the smallest size and drop trailing characters, one
+  // character at a time from the end, until the text plus its ellipsis fits.
+  // Only trailing bytes are removed, so the width of each candidate is kept as
+  // a running total instead of being measured again: the search is linear in
+  // the text length. The first candidate that fits is the same as before.
   const auto size = *(sizes.end() - 1);
-  string cut = cleaned;
-  while (!cut.empty()) {
+  const auto ellipsisHundredths = font0Hundredths("...");
+  size_t end = cleaned.size();
+  int64_t hundredths = cleanedHundredths;  // of cleaned[0, end)
+  while (end > 0) {
     do {
-      cut.pop_back();
-    } while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80);
-    if (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0x80) != 0) {
-      cut.pop_back();  // lead byte of a multi-byte character
+      hundredths -= font0ByteHundredths(static_cast<unsigned char>(cleaned[--end]));
+    } while (end > 0 && (static_cast<unsigned char>(cleaned[end - 1]) & 0xC0) == 0x80);
+    if (end > 0 && (static_cast<unsigned char>(cleaned[end - 1]) & 0x80) != 0) {
+      hundredths -= font0ByteHundredths(static_cast<unsigned char>(cleaned[--end]));  // lead byte
     }
-    const auto candidate = trim(cut) + "...";
-    const auto width = estimateFont0Width(candidate, size, size);
-    if (width <= maxWidth || cut.empty()) return {candidate, size, width};
+    if (end == 0) break;
+    // The candidate is trim(cut) + "...", so trailing spaces of the cut are not measured.
+    auto visible = end;
+    auto visibleHundredths = hundredths;
+    while (visible > 0 && isspace(static_cast<unsigned char>(cleaned[visible - 1])) != 0) {
+      visibleHundredths -= font0ByteHundredths(static_cast<unsigned char>(cleaned[--visible]));
+    }
+    const auto width = font0Width(visibleHundredths + ellipsisHundredths, size);
+    if (width <= maxWidth) return {trim(cleaned.substr(0, end)) + "...", size, saturateToInt(width)};
   }
-  return fitted;
+  return {"...", size, estimateFont0Width("...", size, size)};
 }
 
 CableFlagFont cableFlagFont(const string& text) {
