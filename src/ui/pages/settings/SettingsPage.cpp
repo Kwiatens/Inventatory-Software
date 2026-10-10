@@ -23,7 +23,7 @@ using namespace settings_page_detail;
 
 namespace {
 
-// "~/Dokumenty/Inventatory" rather than the full home path.
+// "~/Documents/Inventatory" rather than the full home path.
 string homeRelative(const filesystem::path& path) {
   auto text = path.u8string();
   const char* home = getenv("HOME");
@@ -36,7 +36,7 @@ string homeRelative(const filesystem::path& path) {
   return text;
 }
 
-// Paths keep both ends: "~/Dokumenty/.../settings.conf".
+// Paths keep both ends: "~/Documents/.../settings.conf".
 string middleEllipsize(const string& text, size_t width) {
   if (text.size() <= width || width < 8) return ellipsize(text, width);
   const size_t tail = (width - 3) / 2;
