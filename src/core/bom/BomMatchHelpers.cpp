@@ -92,7 +92,6 @@ optional<double> parseNumberWithMultiplier(const string& body, NumberNotation no
   if (body.empty()) {
     return nullopt;
   }
-  const bool resistanceLike = notation != NumberNotation::Reactive;
 
   size_t alpha = string::npos;
   for (size_t index = 0; index < body.size(); ++index) {
@@ -131,8 +130,9 @@ optional<double> parseNumberWithMultiplier(const string& body, NumberNotation no
         multiplier = 1e-6;
         break;
       case 'm':
-        // For resistors a bare M means megaohm; for reactive units it is milli.
-        multiplier = resistanceLike ? 1e6 : 1e-3;
+        // Without a unit a lowercase m in a resistor value is read as mega, as before. Under an explicit ohm
+        // unit it is milli ("10mOhm" is a current-sense resistor); only an uppercase M is mega there.
+        multiplier = notation == NumberNotation::Unitless ? 1e6 : 1e-3;
         break;
       case 'k':
         multiplier = 1e3;
