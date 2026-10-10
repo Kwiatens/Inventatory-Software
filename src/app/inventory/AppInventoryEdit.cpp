@@ -206,7 +206,7 @@ void App::saveWorkingCopy() {
     captureUndoSnapshot();
     store_.items().push_back(workingCopy_.item);
     reconcileRackAssignment(store_, store_.items().back());
-    selectedPosition_ = store_.items().empty() ? 0 : store_.items().size() - 1;
+    selectStockItemById(workingCopy_.item.id, true);
   } else if (auto* live = store_.findById(workingCopy_.item.id)) {
     captureUndoSnapshot();
     *live = mergeEditedItem(workingCopy_.original, workingCopy_.item, *live, QuantityMerge::PreferEdited,
