@@ -12,8 +12,11 @@
 #include <ftxui/component/screen_interactive.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace inventatory {
@@ -102,6 +105,10 @@ bool App::testStagedPrinter() {
 }
 
 bool App::testStagedDigiKey() {
+  if (digiKeyTestFuture_.valid()) {
+    setMessage("DigiKey test is already running", 3);
+    return false;
+  }
   DigiKeyConfig config;
   config.clientId = settingsDraft_.digiKeyClientId;
   config.accountId = settingsDraft_.digiKeyAccountId;
@@ -123,11 +130,46 @@ bool App::testStagedDigiKey() {
     setMessage("Client ID and client secret are required", 4);
     return false;
   }
-  string error;
-  DigiKeyApiClient client(move(config));
-  const bool ok = client.testConnection(&error);
-  setMessage(ok ? "DigiKey credentials are valid" : "DigiKey test failed: " + error, 5);
-  return ok;
+  const auto context = currentWorkspaceContext();
+  const auto generation = context != nullptr ? context->generation : 0;
+  try {
+    digiKeyTestFuture_ = std::async(
+        std::launch::async,
+        [config = std::move(config), generation]() -> DigiKeyTestResult {
+          DigiKeyTestResult result;
+          result.generation = generation;
+          try {
+            DigiKeyApiClient client(std::move(config));
+            result.ok = client.testConnection(&result.error);
+          } catch (const std::exception& e) {
+            result.ok = false;
+            result.error = e.what();
+          } catch (...) {
+            result.ok = false;
+            result.error = "Connection test failed unexpectedly";
+          }
+          return result;
+        });
+  } catch (...) {
+    setMessage("Unable to start DigiKey test", 4, UiMessageSeverity::Error);
+    return false;
+  }
+  setMessage("Testing DigiKey credentials...", 10);
+  dirty_ = true;
+  return true;
+}
+
+void App::processDigiKeyTest() {
+  if (!digiKeyTestFuture_.valid() ||
+      digiKeyTestFuture_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+    return;
+  }
+  const auto result = digiKeyTestFuture_.get();
+  if (workspaceIsCurrent(result.generation)) {
+    setMessage(result.ok ? "DigiKey credentials are valid" : "DigiKey test failed: " + result.error, 5,
+               result.ok ? UiMessageSeverity::Success : UiMessageSeverity::Error);
+    dirty_ = true;
+  }
 }
 
 void App::beginSettingsFieldEdit(int field) {
