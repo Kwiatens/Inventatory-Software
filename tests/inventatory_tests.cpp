@@ -1132,6 +1132,7 @@ size_t zplOccurrences(const string& zpl, const string& needle) {
 // Forward declarations for physical value tests
 void testPhysicalValueParsing();
 void testPhysicalValueMatching();
+void testInductanceTextScanner();
 void testPhysicalValueSearchIntegration();
 void testPhysicalValueCommaDecimalLocale();
 void testClosestValueSearchStaysWithinFamilyAndBand();
@@ -1383,6 +1384,56 @@ void testPhysicalValueMatching() {
 
   // Within the workable band should match
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
+}
+
+void testInductanceTextScanner() {
+  using value_text::extractInductance;
+
+  // Ordinary text: the values and canonical units the former regular expression produced.
+  assert(extractInductance("FIXED IND 4R7 uH 3.7A").value_or("") == "4.7uH");
+  assert(extractInductance("4r7 UH").value_or("") == "4.7uH");
+  assert(extractInductance("10 MH choke").value_or("") == "10mH");
+  assert(extractInductance("3.3uH").value_or("") == "3.3uH");
+  assert(extractInductance("22 nh").value_or("") == "22nH");
+  assert(extractInductance("100 ph").value_or("") == "100pH");
+  assert(extractInductance("1 h").value_or("") == "1H");
+  assert(extractInductance("choke, 47 mH, 2A").value_or("") == "47mH");
+  assert(extractInductance("(10mH)").value_or("") == "10mH");
+  assert(extractInductance("10\tmH").value_or("") == "10mH");
+  assert(extractInductance("10\nmH").value_or("") == "10mH");
+
+  // The first value in the text wins, and a non-matching earlier candidate does not hide a later one.
+  assert(extractInductance("5 uH 10 mH").value_or("") == "5uH");
+  assert(extractInductance("100 MHz then 2.2 uH").value_or("") == "2.2uH");
+
+  // Word boundaries: a number glued to a preceding word character, or a unit followed by a word
+  // character, is not a value.
+  assert(!extractInductance("A10mH").has_value());
+  assert(!extractInductance("10mHz").has_value());
+  assert(!extractInductance("10mH_x").has_value());
+  assert(!extractInductance("1R2R3 uH").has_value());
+  assert(!extractInductance("4R7").has_value());
+  assert(!extractInductance("4R uH").has_value());
+  assert(!extractInductance("10 \xC2\xB5" "H").has_value());
+
+  // Text with no value.
+  assert(!extractInductance("").has_value());
+  assert(!extractInductance("no value here").has_value());
+  assert(!extractInductance("12 Ohm").has_value());
+
+  // A long digit run (a CSV description of up to 1 MiB) must neither overflow the stack nor
+  // take quadratic time; each result is checked, not only that the call returns.
+  const string digits(1000000, '7');
+  const auto withUnit = extractInductance(digits + " mH");
+  assert(withUnit.has_value() && withUnit->size() == digits.size() + 2);
+  assert(withUnit->compare(digits.size(), 2, "mH") == 0);
+  assert(!extractInductance(digits).has_value());
+
+  // Many separate candidates, each one scanned once, still finish and find the last value.
+  string spaced;
+  for (int index = 0; index < 200000; ++index) spaced += "1 ";
+  assert(!extractInductance(spaced).has_value());
+  assert(extractInductance(spaced + "2 uH").value_or("") == "2uH");
 }
 
 #ifndef _WIN32
@@ -10939,6 +10990,7 @@ const vector<TestCase>& registeredTests() {
     // to pass the test suite unnoticed.
     {"inventory", "PhysicalValueParsing", testPhysicalValueParsing},
     {"inventory", "PhysicalValueMatching", testPhysicalValueMatching},
+    {"inventory", "InductanceTextScanner", testInductanceTextScanner},
     {"inventory", "PhysicalValueSearchIntegration", testPhysicalValueSearchIntegration},
     {"inventory", "ClosestValueSearchStaysWithinFamilyAndBand", testClosestValueSearchStaysWithinFamilyAndBand},
     {"inventory", "PhysicalValueCommaDecimalLocale", testPhysicalValueCommaDecimalLocale},
