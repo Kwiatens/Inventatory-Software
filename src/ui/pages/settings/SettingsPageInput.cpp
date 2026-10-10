@@ -93,7 +93,7 @@ void App::requestSettingsDiscard() {
   if (settingsConfirmAction_ != "discard-settings" || now > settingsConfirmUntil_) {
     settingsConfirmAction_ = "discard-settings";
     settingsConfirmUntil_ = now + 5;
-    setMessage("Press Esc again to discard your unsaved settings changes", 5, UiMessageSeverity::Warning);
+    setMessage("Press Discard or Esc again to discard your unsaved settings changes", 5, UiMessageSeverity::Warning);
     return;
   }
   settingsConfirmAction_.clear();
