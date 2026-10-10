@@ -281,6 +281,9 @@ ftxui::Element App::renderStockUi() const {
 // choice applies at once and the panel stays open.
 ftxui::Element App::renderStockFilterPanel(int width, int shownCount) const {
   auto self = const_cast<App*>(this);
+  // Reserve the whole panel before its option targets register, so a click on a
+  // blank cell is consumed here instead of selecting the stock row beneath it.
+  ftxui::Box& panelBounds = reserveSurfaceTarget("stock.filter.panel");
   const auto rowBg = uiRaisedSurfaceBg();
   const int totalCount = static_cast<int>(store_.items().size());
 
@@ -339,7 +342,7 @@ ftxui::Element App::renderStockFilterPanel(int width, int shownCount) const {
              uiDivider(),
              resetRow,
          }) |
-         ftxui::bgcolor(rowBg) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+         ftxui::bgcolor(rowBg) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width) | ftxui::reflect(panelBounds);
 }
 
 }  // namespace inventatory
