@@ -318,7 +318,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   } catch (...) {
     return false;
   }
-  if (!input.eof() || malformedLine || malformedAppearance && !legacyFormat || loaded.schemaVersion < 1 ||
+  if (!input.eof() || malformedLine || (malformedAppearance && !legacyFormat) || loaded.schemaVersion < 1 ||
       loaded.schemaVersion > 2 || loaded.lowStockThreshold <= 0 ||
       loaded.lastUpdateCheckUnixSeconds < 0 || !validOptionalText(loadedDataDirectory, kMaxDataDirectoryBytes) ||
       !validOptionalText(loaded.printerQueue, kMaxPrinterQueueBytes) ||
