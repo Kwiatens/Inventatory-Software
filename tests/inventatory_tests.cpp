@@ -1,3 +1,10 @@
+// The checks in this file are assert() calls. CMake's Release configuration defines NDEBUG, which
+// compiles every assert() out, so a Release ctest run would pass without checking anything. Keep the
+// checks enabled in every build type. This must come before the first standard header.
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+
 #include "core/inventory/Inventory.h"
 #include "App.h"
 #include "app/UpdateWizardPresentation.h"
@@ -62,6 +69,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cassert>
+#include <cctype>
 #include <chrono>
 #include <deque>
 #include <filesystem>
@@ -668,7 +676,7 @@ void testHeaderClockYieldsToActionsControl() {
   constexpr int kFixed = 85;
   assert(headerClockFor(91, kFixed) == HeaderClock::Hidden);
   assert(headerClockFor(92, kFixed) == HeaderClock::Compact);
-  assert(headerClockFor(100, kFixed) != HeaderClock::Hidden);
+  assert(headerClockFor(100, kFixed) == HeaderClock::Compact);
   assert(headerClockFor(105, kFixed) == HeaderClock::Compact);
   assert(headerClockFor(106, kFixed) == HeaderClock::Full);
   assert(headerClockFor(120, kFixed) == HeaderClock::Full);
@@ -1052,7 +1060,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604",
       "synced",
       "RC0603FR-0710KL",
-      1710000000,
+      1710000000, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
   });
 
   items.push_back({
@@ -1071,7 +1079,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/espressif-systems/ESP32-S3/15240400",
       "synced",
       "ESP32-S3-WROOM-1",
-      1710000100,
+      1710000100, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
   });
 
   ensureInventoryIdentifiers(items);
@@ -1132,6 +1140,9 @@ size_t zplOccurrences(const string& zpl, const string& needle) {
 // Forward declarations for physical value tests
 void testPhysicalValueParsing();
 void testPhysicalValueMatching();
+void testInductanceTextScanner();
+void testLabelTextScannersAreLinear();
+void testDigiKeyPackageSearchIsBounded();
 void testPhysicalValueSearchIntegration();
 void testPhysicalValueCommaDecimalLocale();
 void testClosestValueSearchStaysWithinFamilyAndBand();
@@ -1169,6 +1180,41 @@ void testStockFilterState() {
   for (const auto sortOrder : {StockSortOrder::Az, StockSortOrder::Za}) {
     for (int option = 0; option < kStockDateFilterOptionCount; ++option) {
       assert(stockFilterSummary(sortOrder, stockDateFilterAt(option)).size() <= 17);
+    }
+  }
+
+  // Ranked header budget: at 100 columns the list panel is 57 cells wide. The
+  // old "Stock N matches, ranked by value" header needs 60 cells beside the
+  // "A-Z, all dates" summary and the Filter button, so it pushed the button out.
+  assert(stockListOuterWidth(100) == 57);
+  assert(stockListOuterWidth(120) == 77);
+  assert(displayWidth("Stock  12 matches, ranked by value") + 1 + displayWidth("A-Z, all dates") + 1 +
+             kStockFilterButtonCells > 57);
+  const auto narrowRanked = stockRankedHeaderFor(12, "A-Z, all dates", stockListOuterWidth(100));
+  assert(narrowRanked.label == "Ranked  12 matches");
+  assert(narrowRanked.showSummary);
+  assert(narrowRanked.cells <= 57);
+  // Wider panels keep the full wording when it fits, with or without the longest summary.
+  const auto wideRanked = stockRankedHeaderFor(12, stockFilterSummary(StockSortOrder::Quantity,
+                                                                      StockDateFilter::Last30Days),
+                                               stockListOuterWidth(120));
+  assert(wideRanked.label == "Stock  12 matches, ranked by value");
+  assert(wideRanked.showSummary);
+  assert(wideRanked.cells <= 77);
+  // Every summary and match count the page can show keeps the Filter button inside the panel
+  // at the supported 100, 120, and 160 column terminals, and the summary is never cut.
+  for (const int screenWidth : {100, 120, 160}) {
+    const int listWidth = stockListOuterWidth(screenWidth);
+    for (const size_t matchCount : {size_t{0}, size_t{9}, size_t{10}, size_t{99}, size_t{999}, size_t{12345}}) {
+      for (const auto sortOrder : {StockSortOrder::Az, StockSortOrder::Quantity, StockSortOrder::Za}) {
+        for (int option = 0; option < kStockDateFilterOptionCount; ++option) {
+          const auto summary = stockFilterSummary(sortOrder, stockDateFilterAt(option));
+          const auto header = stockRankedHeaderFor(matchCount, summary, listWidth);
+          assert(header.cells <= static_cast<size_t>(listWidth));
+          assert(header.label.rfind("Stock  ", 0) == 0 || header.label.rfind("Ranked  ", 0) == 0);
+          if (!header.showSummary) assert(header.label == "Ranked  " + to_string(matchCount) + " matches");
+        }
+      }
     }
   }
 
@@ -1385,6 +1431,56 @@ void testPhysicalValueMatching() {
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
 }
 
+void testInductanceTextScanner() {
+  using value_text::extractInductance;
+
+  // Ordinary text: the values and canonical units the former regular expression produced.
+  assert(extractInductance("FIXED IND 4R7 uH 3.7A").value_or("") == "4.7uH");
+  assert(extractInductance("4r7 UH").value_or("") == "4.7uH");
+  assert(extractInductance("10 MH choke").value_or("") == "10mH");
+  assert(extractInductance("3.3uH").value_or("") == "3.3uH");
+  assert(extractInductance("22 nh").value_or("") == "22nH");
+  assert(extractInductance("100 ph").value_or("") == "100pH");
+  assert(extractInductance("1 h").value_or("") == "1H");
+  assert(extractInductance("choke, 47 mH, 2A").value_or("") == "47mH");
+  assert(extractInductance("(10mH)").value_or("") == "10mH");
+  assert(extractInductance("10\tmH").value_or("") == "10mH");
+  assert(extractInductance("10\nmH").value_or("") == "10mH");
+
+  // The first value in the text wins, and a non-matching earlier candidate does not hide a later one.
+  assert(extractInductance("5 uH 10 mH").value_or("") == "5uH");
+  assert(extractInductance("100 MHz then 2.2 uH").value_or("") == "2.2uH");
+
+  // Word boundaries: a number glued to a preceding word character, or a unit followed by a word
+  // character, is not a value.
+  assert(!extractInductance("A10mH").has_value());
+  assert(!extractInductance("10mHz").has_value());
+  assert(!extractInductance("10mH_x").has_value());
+  assert(!extractInductance("1R2R3 uH").has_value());
+  assert(!extractInductance("4R7").has_value());
+  assert(!extractInductance("4R uH").has_value());
+  assert(!extractInductance("10 \xC2\xB5" "H").has_value());
+
+  // Text with no value.
+  assert(!extractInductance("").has_value());
+  assert(!extractInductance("no value here").has_value());
+  assert(!extractInductance("12 Ohm").has_value());
+
+  // A long digit run (a CSV description of up to 1 MiB) must neither overflow the stack nor
+  // take quadratic time; each result is checked, not only that the call returns.
+  const string digits(1000000, '7');
+  const auto withUnit = extractInductance(digits + " mH");
+  assert(withUnit.has_value() && withUnit->size() == digits.size() + 2);
+  assert(withUnit->compare(digits.size(), 2, "mH") == 0);
+  assert(!extractInductance(digits).has_value());
+
+  // Many separate candidates, each one scanned once, still finish and find the last value.
+  string spaced;
+  for (int index = 0; index < 200000; ++index) spaced += "1 ";
+  assert(!extractInductance(spaced).has_value());
+  assert(extractInductance(spaced + "2 uH").value_or("") == "2uH");
+}
+
 #ifndef _WIN32
 void testBackgroundRuntimeDirectory() {
   error_code ignored;
@@ -1422,12 +1518,17 @@ void testBackgroundRuntimeDirectory() {
 
 // Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing comma-decimal locale a failure
 // instead of a silent skip, so the locale regression tests cannot quietly stop running.
+// Locale tests that could not run because no comma-decimal locale is installed. main() reports them with
+// the CTest "skipped" status (77), the same way it reports skipped credential tests.
+int skippedLocaleTests = 0;
+
 void skipOrFailMissingLocale(const char* testName) {
   const char* require = getenv("INVENTATORY_REQUIRE_LOCALE_TESTS");
   if (require != nullptr && string(require) == "1") {
     cerr << "No comma-decimal locale installed but INVENTATORY_REQUIRE_LOCALE_TESTS=1: " << testName << '\n';
     std::exit(1);
   }
+  ++skippedLocaleTests;
 }
 
 // The credential tests need a running, unlocked Secret Service (a desktop session, or
@@ -1586,6 +1687,8 @@ void testLinuxControllerLockProbesNeverBlockAcquisition() {
       probes.fetch_add(1);
     }
   });
+  // Wait until the prober has really run, so the acquisitions below overlap with it even on a busy machine.
+  while (probes.load() == 0) this_thread::yield();
   int failures = 0;
   for (int attempt = 0; attempt < 300; ++attempt) {
     BackgroundController service;
@@ -2509,7 +2612,8 @@ void testInventoryCommitDiffSeparatesAmbiguousValues() {
   assert(changes.size() == 1 && changes.front().field == "vendor category path");
 
   // Identical values, and ordinary values, are unchanged and render as before.
-  assert(inventoryCommitDiff(before, before).empty());
+  const auto identical = before;
+  assert(inventoryCommitDiff(before, identical).empty());
   after = before;
   after.items().front().tags = {"smd", "production"};
   after.items().front().parameters = {{"Resistance", "10k"}};
@@ -2521,6 +2625,117 @@ void testInventoryCommitDiffSeparatesAmbiguousValues() {
     return change.field == "parameters";
   });
   assert(parameterChange != changes.end() && parameterChange->after == "Resistance=10k");
+}
+
+// An oversized string value must not fail the whole DigiKey document. Its text is validated like any other
+// string but never stored, so readers see it as absent while the fields around it still read correctly.
+void testDigiKeyOversizedJsonStrings() {
+  using namespace digikey_detail;
+  const string oversized(5000, 'm');
+
+  {
+    // An unused marketing string does not stop the normal fields from being read.
+    string error;
+    const string payload = R"({"ManufacturerProductNumber":"ABC-100","Marketing":")" + oversized +
+                           R"(","Description":{"ProductDescription":"Resistor 10k"},"Count":3})";
+    assert(validateDigiKeyJsonPayload(payload, &error));
+    assert(error.empty());
+    const auto root = parseJson(payload, &error);
+    assert(root.has_value());
+    assert(readStringPath(*root, {"ManufacturerProductNumber"}).value_or("") == "ABC-100");
+    assert(readStringPath(*root, {"Description", "ProductDescription"}).value_or("") == "Resistor 10k");
+    assert(readPath(*root, {"Count"}).value_or("") == "3");
+    assert(!readStringPath(*root, {"Marketing"}).has_value());
+    assert(!readPath(*root, {"Marketing"}).has_value());
+  }
+
+  {
+    // As the product description, the oversized text is reported as no value, never as a cut-off prefix.
+    string error;
+    const auto root = parseJson(R"({"Product":{"Description":{"ProductDescription":")" + oversized + R"("}}})", &error);
+    assert(root.has_value());
+    assert(!readPath(*root, {"Product", "Description", "ProductDescription"}).has_value());
+    assert(!readStringPath(*root, {"Product", "Description", "ProductDescription"}).has_value());
+    const auto* product = findMember(*root, "Product");
+    assert(product != nullptr);
+    assert(!readFirstMember(*product, {"ProductDescription"}).has_value());
+    const auto details = parseProductDetails("ABC-100-ND", *root);
+    assert(details.productDescription.empty());
+  }
+
+  {
+    // Oversized entries inside an array are absent values; their neighbours are unaffected.
+    string error;
+    const auto root = parseJson(R"({"items":[")" + oversized + R"(","kept"]})", &error);
+    assert(root.has_value());
+    const auto* items = findMember(*root, "items");
+    assert(items != nullptr);
+    const auto* array = asArray(*items);
+    assert(array != nullptr && array->size() == 2);
+    assert(valueText((*array)[0]).empty());
+    assert(valueText((*array)[1]) == "kept");
+  }
+
+  {
+    // Escapes inside an oversized string are still decoded and validated, so valid ones are accepted.
+    string error;
+    assert(validateDigiKeyJsonPayload(R"({"d":")" + oversized + R"(\né😀"})", &error));
+    assert(error.empty());
+
+    // Malformed content inside an oversized string is refused exactly as it is in a short one.
+    const vector<string> malformed = {
+        R"({"d":")" + oversized + R"(\q"})",       // invalid escape
+        R"({"d":")" + oversized + R"(\u12g4"})",   // bad hex digit
+        R"({"d":")" + oversized + R"(\uD800"})",   // lone high surrogate
+        R"({"d":")" + oversized + R"(\uDC00"})",   // lone low surrogate
+        R"({"d":")" + oversized + R"(\u0000"})",   // NUL escape
+        R"({"d":")" + oversized + "\x01" + R"("})",  // raw control character
+        R"({"d":")" + oversized,                   // unterminated
+    };
+    for (const auto& payload : malformed) {
+      error.clear();
+      assert(!validateDigiKeyJsonPayload(payload, &error));
+      assert(!error.empty());
+    }
+  }
+
+  {
+    // Duplicate keys are still refused when the earlier value is oversized.
+    string error;
+    assert(!validateDigiKeyJsonPayload(R"({"a":")" + oversized + R"(","a":"x"})", &error));
+    assert(error.find("duplicate") != string::npos);
+
+    // Numbers keep their own limit, and an oversized string next to them does not change it.
+    error.clear();
+    assert(!validateDigiKeyJsonPayload("{\"number\":" + string(4097, '1') + ",\"text\":\"" + oversized + "\"}", &error));
+    assert(error.find("number") != string::npos);
+  }
+
+  {
+    // Object keys keep the field limit: only values are allowed to exceed it.
+    string error;
+    assert(!validateDigiKeyJsonPayload("{\"" + oversized + "\":1}", &error));
+    assert(error.find("4 KiB field limit") != string::npos);
+  }
+
+  {
+    // Many oversized values stay within the payload limit, and the whole payload limit still applies.
+    string error;
+    string many = "[";
+    for (int index = 0; index < 200; ++index) {
+      if (index > 0) many += ",";
+      many += "\"" + oversized + "\"";
+    }
+    many += "]";
+    assert(validateDigiKeyJsonPayload(many, &error));
+    assert(error.empty());
+
+    string tooLarge = "{\"d\":\"";
+    tooLarge.append(4U * 1024U * 1024U, 'q');
+    tooLarge += "\"}";
+    assert(!validateDigiKeyJsonPayload(tooLarge, &error));
+    assert(error.find("4 MiB") != string::npos);
+  }
 }
 
 // DigiKey response parsing must not lose a usable product to an odd display-only value, must find the
@@ -2727,8 +2942,8 @@ void testSqliteSchemaValidation() {
   filesystem::remove(duplicatePath, cleanupError);
   {
     InventoryStore duplicate;
-    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1});
-    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1});
+    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
     assert(!duplicate.save(duplicatePath));
   }
   filesystem::remove(duplicatePath, cleanupError);
@@ -2784,7 +2999,7 @@ void testSqliteSchemaValidation() {
     request.protocolVersion = 1;
     request.requestId = "completion-sync";
     request.deviceId = "device-a";
-    request.events = {{"completion-event", "inventory.adjust", "completion-item", 1}};
+    request.events = {{"completion-event", "inventory.adjust", "completion-item", 1, ""}};
     DeviceSyncResponse response;
     string error;
     assert(acceptDeviceSyncEvents(completionPath, request, response, error));
@@ -3020,6 +3235,17 @@ void testPackageGHardening() {
       assert(!error.empty());
     }
 
+    // A NUL escape is refused, and other escaped control characters never reach the inventory as such.
+    error.clear();
+    assert(!digikey_detail::parseJson(R"({"d":"a\u0000b"})", &error).has_value());
+    assert(error.find("NUL") != string::npos);
+    {
+      string controlError;
+      const auto controls = digikey_detail::parseJson(R"({"d":"a\u001bb\n\u009bc\t"})", &controlError);
+      assert(controls.has_value());
+      assert(digikey_detail::readStringPath(*controls, {"d"}).value_or("") == "a b  c");
+    }
+
     string deeplyNested = "0";
     for (size_t index = 0; index < 66; ++index) deeplyNested = "{\"nested\":" + deeplyNested + "}";
     assert(!validateDigiKeyJsonPayload(deeplyNested, &error));
@@ -3032,6 +3258,24 @@ void testPackageGHardening() {
     const string oversizedPayload(4U * 1024U * 1024U + 1U, ' ');
     assert(!validateDigiKeyJsonPayload(oversizedPayload, &error));
     assert(error.find("4 MiB") != string::npos);
+  }
+
+  {
+    // The keyword fallback only accepts the part that was asked for, never a merely similar one.
+    string parseError;
+    const auto root = digikey_detail::parseJson(
+        R"({"ExactMatches":[],"Products":[{"ManufacturerProductNumber":"ABC-100",)"
+        R"("Description":{"ProductDescription":"Resistor nd 10k"},)"
+        R"("ProductVariations":[{"DigiKeyProductNumber":"ABC-100-ND"},{"DigiKeyProductNumber":"ABC-100-1-ND"}]}]})",
+        &parseError);
+    assert(root.has_value());
+    const auto byVariation = digikey_detail::resolveSearchResult(*root, "abc-100-1-nd");
+    assert(byVariation.has_value() && byVariation->productNumber == "ABC-100-1-ND");
+    const auto byMpn = digikey_detail::resolveSearchResult(*root, "ABC100");
+    assert(byMpn.has_value() && byMpn->productNumber == "ABC-100-ND");
+    assert(!digikey_detail::resolveSearchResult(*root, "XYZ-999-ND").has_value());
+    assert(!digikey_detail::resolveSearchResult(*root, "nd").has_value());
+    assert(!digikey_detail::resolveSearchResult(*root, "resistor").has_value());
   }
 
 #ifdef _WIN32
@@ -3685,7 +3929,7 @@ void testScannerCommitIgnoresUnsavedMemoryEdits() {
   request.protocolVersion = 1;
   request.requestId = "unsaved-sync";
   request.deviceId = "device-a";
-  request.events = {{"unsaved-event", "inventory.adjust", persisted.items()[1].machineCode, 1}};
+  request.events = {{"unsaved-event", "inventory.adjust", persisted.items()[1].machineCode, 1, ""}};
   DeviceSyncResponse response;
   string error;
   assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -3765,9 +4009,9 @@ void testPendingDeviceEventsKeepArrivalOrder() {
   request.requestId = "order-sync";
   request.deviceId = "device-order";
   const auto code = store.items().front().machineCode;
-  request.events = {{"ev-9", "inventory.adjust", code, 5},
-                    {"ev-10", "inventory.adjust", code, -8},
-                    {"ev-1", "inventory.adjust", code, 1}};
+  request.events = {{"ev-9", "inventory.adjust", code, 5, ""},
+                    {"ev-10", "inventory.adjust", code, -8, ""},
+                    {"ev-1", "inventory.adjust", code, 1, ""}};
   DeviceSyncResponse response;
   string error;
   assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -3911,6 +4155,45 @@ void testInventoryMerge() {
     staged.quantity = 0;
     current.quantity = 2;
     assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity == 0);
+  }
+
+  // Import: a staged change the live stock can no longer absorb is clamped and reported, never silent.
+  {
+    const auto base = mergeTestItem("merge-clamp", "Clamped part", 10);
+    auto staged = base;
+    staged.quantity = 5;  // staged delta -5
+    auto current = base;
+    current.quantity = 2;  // stock changed elsewhere: 2 - 5 is below zero
+    vector<string> notices;
+    assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity == 0);
+    assert(notices.size() == 1);
+    assert(anyNoticeContains(notices, "Clamped part"));
+    assert(anyNoticeContains(notices, "quantity change of -5"));
+    assert(anyNoticeContains(notices, "below zero"));
+    assert(anyNoticeContains(notices, "set to 0"));
+
+    // The clamp at the top of the range is reported as well.
+    auto grown = base;
+    grown.quantity = 13;  // staged delta +3
+    auto full = base;
+    full.quantity = numeric_limits<int>::max();
+    vector<string> overflow;
+    assert(mergeEditedItem(base, grown, full, QuantityMerge::ApplyDelta, &overflow).quantity ==
+           numeric_limits<int>::max());
+    assert(overflow.size() == 1);
+    assert(anyNoticeContains(overflow, "quantity change of +3"));
+    assert(anyNoticeContains(overflow, "above the maximum"));
+
+    // Normal deltas, up and down, stay in range and report nothing.
+    vector<string> quiet;
+    auto liveTwelve = base;
+    liveTwelve.quantity = 12;
+    assert(mergeEditedItem(base, grown, liveTwelve, QuantityMerge::ApplyDelta, &quiet).quantity == 15);
+    auto stagedSeven = base;
+    stagedSeven.quantity = 7;  // staged delta -3
+    assert(mergeEditedItem(base, stagedSeven, liveTwelve, QuantityMerge::ApplyDelta, &quiet).quantity == 9);
+    assert(mergeEditedItem(base, stagedSeven, base, QuantityMerge::ApplyDelta, &quiet).quantity == 7);
+    assert(quiet.empty());
   }
 
   // Import review: scanner quantity change and scanner-created item survive the staged commit.
@@ -4096,8 +4379,8 @@ void testInventoryMerge() {
     request.protocolVersion = 1;
     request.requestId = "e2e-sync";
     request.deviceId = "device-a";
-    request.events = {{"e2e-event-1", "inventory.receive", persisted.items()[0].machineCode, 4},
-                      {"e2e-event-2", "inventory.receive", "NEW-SCANNED-CODE", 2}};
+    request.events = {{"e2e-event-1", "inventory.receive", persisted.items()[0].machineCode, 4, ""},
+                      {"e2e-event-2", "inventory.receive", "NEW-SCANNED-CODE", 2, ""}};
     DeviceSyncResponse response;
     string error;
     assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -4119,7 +4402,7 @@ void testInventoryMerge() {
       result.appliedDelta = event.value;
       result.quantity = item->quantity;
       assert(completeDeviceSyncEvent(candidate, path, result, &live));
-      live = move(candidate);
+      live = std::move(candidate);
     }
     assert(live.items().size() == 3);
 
@@ -4232,7 +4515,9 @@ void testWorkspaceGenerationAndQuickLabelCache() {
   const auto second = advanceWorkspaceGeneration(first);
   assert(first != 0);
   assert(second != first);
-  assert(workspaceGenerationMatches(first, first));
+  const auto firstAgain = advanceWorkspaceGeneration(0);
+  assert(firstAgain == first);
+  assert(workspaceGenerationMatches(first, firstAgain));
   assert(!workspaceGenerationMatches(second, first));
   assert(!workspaceGenerationMatches(0, first));
   assert(advanceWorkspaceGeneration(numeric_limits<WorkspaceGeneration>::max()) == 1);
@@ -4254,7 +4539,8 @@ void testWorkspaceGenerationAndQuickLabelCache() {
   labelIdentity.deviceId = "r1-a";
   labelIdentity.labelText = "GND";
   labelIdentity.workspaceGeneration = first;
-  assert(quickLabelPrintCacheIdentityMatches(labelIdentity, labelIdentity));
+  const auto sameLabelIdentity = labelIdentity;
+  assert(quickLabelPrintCacheIdentityMatches(labelIdentity, sameLabelIdentity));
   auto changedLabelDevice = labelIdentity;
   changedLabelDevice.deviceId = "r1-b";
   assert(!quickLabelPrintCacheIdentityMatches(labelIdentity, changedLabelDevice));
@@ -4397,7 +4683,7 @@ void testEnvironmentValueLookup() {
 void testPathComparisonHelpers() {
   namespace transferDetail = inventatory::inventory_transfer_detail;
   const auto compareBase = testTempRoot() / "inventatory-path-compare-test";
-  assert(transferDetail::equivalentPath(compareBase / "same", compareBase / "same"));
+  assert(transferDetail::equivalentPath(compareBase / "same", compareBase / "." / "same"));
   assert(!transferDetail::equivalentPath(compareBase / "one", compareBase / "two"));
   bool pathsOverlapResult = false;
   string pathsOverlapError;
@@ -4546,6 +4832,123 @@ void testItemFilterQueries() {
   const auto tagFiltered = filterItems(items, "tag:module param:Flash=16MB");
   assert(tagFiltered.size() == 1);
   assert(items[tagFiltered[0]].id == "esp32-s3-module");
+}
+
+// rack: names a whole rack code: r1 must not find the R10 locations, and the value ignores case.
+void testRackQueryMatchesWholeRackCode() {
+  vector<InventatoryRack> racks;
+  for (const char* code : {"R1", "R2", "R10"}) {
+    InventatoryRack rack;
+    rack.id = string("rack-") + code;
+    rack.code = code;
+    rack.componentType = "Resistors";
+    rack.rows = 4;
+    rack.columns = 6;
+    racks.push_back(rack);
+  }
+  const auto placed = [](const char* id, const char* rackId, const char* slot) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = "Resistor";
+    item.quantity = 1;
+    item.rackId = rackId;
+    item.rackSlot = slot;
+    return item;
+  };
+  const vector<InventoryItem> items = {placed("r1-a1", "rack-R1", "A1"), placed("r1-a2", "rack-R1", "A2"),
+                                       placed("r2-a1", "rack-R2", "A1"), placed("r10-a1", "rack-R10", "A1")};
+  const auto idsFor = [&](const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query, racks, 5)) ids.push_back(items[index].id);
+    return ids;
+  };
+
+  assert((idsFor("rack:r1") == vector<string>{"r1-a1", "r1-a2"}));
+  assert((idsFor("rack:R1") == vector<string>{"r1-a1", "r1-a2"}));
+  assert((idsFor("rack:r10") == vector<string>{"r10-a1"}));
+  assert((idsFor("rack:r2") == vector<string>{"r2-a1"}));
+  assert((idsFor("rack:r1-a1") == vector<string>{"r1-a1"}));
+  assert((idsFor("rack:r1-a") == vector<string>{"r1-a1", "r1-a2"}));
+  assert((idsFor("rack:R1-A2") == vector<string>{"r1-a2"}));
+  assert(idsFor("rack:r3").empty());
+}
+
+// A bare free-text token that names a rack follows the same rule as rack:. "r1" finds R1-A1 but not
+// R10-A1, a dashed token still finds its exact location, and a part name such as "10k" still matches.
+void testBareFreeTextRackTokenMatchesWholeRackCode() {
+  vector<InventatoryRack> racks;
+  for (const char* code : {"R1", "R2", "R10"}) {
+    InventatoryRack rack;
+    rack.id = string("rack-") + code;
+    rack.code = code;
+    rack.componentType = "Resistors";
+    rack.rows = 4;
+    rack.columns = 6;
+    racks.push_back(rack);
+  }
+  const auto placed = [](const char* id, const char* partName, const char* rackId, const char* slot) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = partName;
+    item.quantity = 1;
+    item.rackId = rackId;
+    item.rackSlot = slot;
+    return item;
+  };
+  const vector<InventoryItem> items = {placed("r1-a1", "Resistor", "rack-R1", "A1"),
+                                       placed("r10-a1", "Resistor", "rack-R10", "A1"),
+                                       placed("r2-a1", "Resistor 10k", "rack-R2", "A1")};
+  const auto idsFor = [&](const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query, racks, 5)) ids.push_back(items[index].id);
+    return ids;
+  };
+
+  assert((idsFor("r1") == vector<string>{"r1-a1"}));
+  assert((idsFor("r10") == vector<string>{"r10-a1"}));
+  assert((idsFor("R1-A1") == vector<string>{"r1-a1"}));
+  assert((idsFor("r1-a") == vector<string>{"r1-a1"}));
+  assert((idsFor("10k") == vector<string>{"r2-a1"}));
+}
+
+// param: values on a physical parameter are compared by value. "1uF" must not find "11uF", and a bare
+// number must not find a longer number, while non-numeric needles keep the substring match.
+void testParameterQueryMatchesValuesNotSubstrings() {
+  const auto withParameter = [](const char* id, const char* name, const char* value) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = "Part";
+    item.quantity = 1;
+    item.parameters = {{name, value}};
+    return item;
+  };
+  const auto idsFor = [](const vector<InventoryItem>& items, const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query)) ids.push_back(items[index].id);
+    return ids;
+  };
+
+  const vector<InventoryItem> capacitors = {
+      withParameter("cap-11uf", "Capacitance", "11uF"),
+      withParameter("cap-11-spaced", "Capacitance", "11 uF"),
+      withParameter("cap-1uf", "Capacitance", "1 uF"),
+      withParameter("cap-1000nf", "Capacitance", "1000 nF"),
+  };
+  assert((idsFor(capacitors, "param:Capacitance=1uF") == vector<string>{"cap-1uf", "cap-1000nf"}));
+
+  const vector<InventoryItem> resistors = {
+      withParameter("res-100ohm", "Resistance", "100 Ohm"),
+      withParameter("res-10ohm", "Resistance", "10 Ohm"),
+      withParameter("res-10k", "Resistance", "10k"),
+      withParameter("res-plain", "Resistance", "10"),
+  };
+  assert((idsFor(resistors, "param:Resistance=10") == vector<string>{"res-10ohm", "res-plain"}));
+
+  const vector<InventoryItem> packages = {
+      withParameter("pkg-0603", "Package", "0603 (1608 Metric)"),
+      withParameter("pkg-0402", "Package", "0402 (1005 Metric)"),
+  };
+  assert((idsFor(packages, "param:Package=0603") == vector<string>{"pkg-0603"}));
 }
 
 void testLowStockClassification() {
@@ -5068,7 +5471,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   filesystem::remove(databasePath, removeError);
 
   InventoryStore persisted;
-  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7});
+  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
   assert(persisted.save(databasePath));
 
   {
@@ -5078,7 +5481,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   }
 
   InventoryStore retained;
-  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3});
+  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
   assert(!retained.load(databasePath));
   assert(retained.items().size() == 1);
   assert(retained.items().front().id == "live-item");
@@ -5129,6 +5532,39 @@ void testMachineCodeSqliteRoundTrip() {
   assert(loaded.items().front().vendorMetadata.provider == "digikey");
   assert(loaded.items().front().vendorMetadata.categoryPath == vector<string>({"Diodes"}));
   assert(loaded.items().front().vendorMetadata.parameters.size() == 1);
+  filesystem::remove(tempPath);
+}
+
+void testEmbeddedNulItemNameIsStoredIntact() {
+  const auto tempPath = testTempRoot() / "inventatory-embedded-nul-name.db";
+  filesystem::remove(tempPath);
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "nul-name-1";
+  item.partName = string("abc\0def", 7);
+  item.quantity = 1;
+  item.lastUpdated = 1710000000;
+  store.items().push_back(item);
+  assert(store.save(tempPath));
+
+  // The item reader converts text with C-string functions, so a reload would stop at the NUL and
+  // cannot show the stored bytes. Check the stored value directly: length(CAST(... AS BLOB)) counts
+  // every byte and hex() covers the whole value.
+  {
+    // Scope the connection so it is closed before the file is removed; Windows cannot delete an
+    // open file.
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(tempPath, connection));
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db,
+                                  "SELECT length(CAST(part_name AS BLOB)), hex(part_name) "
+                                  "FROM inventatory_items WHERE id = ?",
+                                  -1, &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().bind_text(statement.stmt, 1, "nul-name-1", -1, SQLITE_TRANSIENT) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    assert(sqliteApi().column_int64(statement.stmt, 0) == 7);
+    assert(sqliteText(statement.stmt, 1) == "61626300646566");
+  }
   filesystem::remove(tempPath);
 }
 
@@ -5196,6 +5632,62 @@ void testMovementDiffBetweenStores() {
   assert(loadedMovements.front().occurredAt == 1710000200);
   assert(loadInventoryMovements(databasePath, 2).size() == 2);
   filesystem::remove(databasePath, cleanupError);
+}
+
+void testDigiKeyCsvConflictLookup() {
+  const string csv =
+      "Digi-Key Part Number,Manufacturer Part Number,Manufacturer,Description,Quantity\n"
+      "111-AAA-ND,ABC-111,Acme,Part one,5\n"
+      "222-BBB-ND,ABC-222,Acme,Part two,5\n"
+      "333-CCC-ND,ABC-333,Acme,Part three,5\n";
+  InventoryItem first;
+  first.id = "first";
+  first.digikeyPartNumber = "  111-aaa-nd ";
+  InventoryItem duplicate;
+  duplicate.id = "duplicate";
+  duplicate.digikeyPartNumber = "111-AAA-ND";
+  InventoryItem bySku;
+  bySku.id = "by-sku";
+  bySku.sku = " abc-222";
+  InventoryItem blank;
+  blank.id = "blank";
+
+  const auto result = parseDigiKeyCsvText(csv, {blank, first, duplicate, bySku});
+  assert(result.ok && result.candidates.size() == 3);
+  // The first matching item in inventory order wins, ignoring case and surrounding spaces.
+  assert(result.candidates[0].hasConflict && result.candidates[0].existingItemId == "first");
+  assert(result.candidates[0].matchedField == "DigiKey part");
+  assert(result.candidates[1].hasConflict && result.candidates[1].existingItemId == "by-sku");
+  assert(result.candidates[1].matchedField == "Manufacturer part");
+  // An item with empty codes never conflicts.
+  assert(!result.candidates[2].hasConflict);
+}
+
+void testDigiKeyMetadataMergeKeepsKnownFields() {
+  InventoryItem item;
+  item.vendorMetadata.provider = "digikey";
+  item.vendorMetadata.providerProductNumber = "P1-ND";
+  item.vendorMetadata.categoryPath = {"Passive", "Resistors"};
+  item.vendorMetadata.title = "Old title";
+  item.vendorMetadata.parameters = {{"Tolerance", "1%"}};
+
+  DigiKeyProductDetails sparse;
+  sparse.vendorMetadata.provider = "digikey";
+  sparse.vendorMetadata.providerProductNumber = "P1-ND";
+  sparse.vendorMetadata.categoryPath = {"Passive", "Resistors"};
+  sparse.vendorMetadata.title = "Old title";
+  sparse.vendorMetadata.parameters = {{"Tolerance", "1%"}};
+  // Nothing differs, so nothing counts as changed.
+  assert(!app_actions::mergeDigiKeyMetadata(item, sparse));
+
+  // A later response that omits fields must not blank the stored ones.
+  DigiKeyProductDetails omitting;
+  omitting.vendorMetadata.title = "New title";
+  assert(app_actions::mergeDigiKeyMetadata(item, omitting));
+  assert(item.vendorMetadata.title == "New title");
+  assert(item.vendorMetadata.providerProductNumber == "P1-ND");
+  assert(item.vendorMetadata.categoryPath.size() == 2);
+  assert(item.vendorMetadata.parameters.size() == 1);
 }
 
 void testDigiKeyCsvPolishHeaders() {
@@ -5311,7 +5803,7 @@ void testDigiKeyCsvMergesRowsWithoutDigiKeyNumber() {
 void testCategoryHeadersAndPartDescriptors() {
   auto backend = make_unique<MockPrinterBackend>();
   auto* backendPtr = backend.get();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
   service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
   const auto expectHeader = [&](const InventoryItem& candidate, const string& expected) {
     const auto plan = service.buildLabelPlan(candidate);
@@ -5443,7 +5935,7 @@ void testCategoryHeadersAndPartDescriptors() {
     candidate.vendorMetadata.provider = provider;
     candidate.vendorMetadata.categoryPath = {category};
     candidate.vendorMetadata.title = title;
-    candidate.vendorMetadata.parameters = move(parameters);
+    candidate.vendorMetadata.parameters = std::move(parameters);
     const auto descriptor = describePart(candidate);
     if (descriptor.purposeLabel != purpose || descriptor.printLabel != print || descriptor.source != source) {
       cerr << "Descriptor mismatch for category '" << category << "': expected '" << purpose << "' / '" << print
@@ -6157,7 +6649,7 @@ void testCategoryHeadersAndPartDescriptors() {
 
 void testCompactPartNameWrapping() {
   auto backend = make_unique<MockPrinterBackend>();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
   InventoryItem item;
   item.id = "mcu-1";
   item.partName = "STM32G0 demo board";
@@ -6206,7 +6698,7 @@ void testCompactPartNameWrapping() {
 
 void testPackageAndMosfetTiles() {
   auto backend = make_unique<MockPrinterBackend>();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
   InventoryItem item;
   item.id = "mosfet-1";
   item.partName = "N-channel MOSFET";
@@ -6263,7 +6755,7 @@ void testLongHeaderKeepsPartName() {
 
 void testDiodeParameterTiles() {
   auto backend = make_unique<MockPrinterBackend>();
-  LabelPrinterService service(move(backend));
+  LabelPrinterService service(std::move(backend));
 
   InventoryItem diode;
   diode.id = "diode-1";
@@ -6471,6 +6963,109 @@ void testCapacitorValueAndTiles() {
   assert(utf8.width == 18);
   assert(utf8.text == u8"\u03A9...");
   assert(fitFont0Text("", 100, {12}).text.empty());
+}
+
+void testFont0TruncationMatchesSearch() {
+  // Text that fits is returned unchanged, with its estimated width.
+  const auto unchanged = fitFont0Text("SS34", 166, {40, 36});
+  assert(unchanged.text == "SS34" && unchanged.size == 40 && unchanged.width == 85);
+
+  // Text that needs truncation: the longest prefix whose estimated width plus "..." fits. Expected
+  // values were measured with the previous one-character-at-a-time search.
+  const auto manufacturer = fitFont0Text("A very long manufacturer name that cannot fit", 60, {16, 12});
+  assert(manufacturer.text == "A very lon..." && manufacturer.size == 12 && manufacturer.width == 60);
+  const auto part = fitFont0Text("Texas Instruments LM358 dual op-amp, 8-pin SOIC", 100, {16, 14, 12});
+  assert(part.text == "Texas Instrumen..." && part.size == 12 && part.width == 95);
+  const auto rack = fitFont0Text("R1234567890ABCDEF", 30, {17, 16, 15, 14, 13});
+  assert(rack.text == "R1..." && rack.size == 13 && rack.width == 25);
+  // A cut that ends in a space is measured without that space ("Wa Wb..." fits, "Wa Wb ..." would not).
+  const auto spaced = fitFont0Text("Wa Wb Wc Wd", 50, {12});
+  assert(spaced.text == "Wa Wb..." && spaced.size == 12 && spaced.width == 43);
+  const auto spacedWide = fitFont0Text("MMM MMMM", 45, {12});
+  assert(spacedWide.text == "MMM..." && spacedWide.width == 39);
+  // Multi-byte characters are removed whole.
+  const auto euro = fitFont0Text(u8"€€€€€€", 30, {12});
+  assert(euro.text == u8"€€..." && euro.size == 12 && euro.width == 25);
+  // When even the ellipsis is too wide, the bare ellipsis is returned.
+  const auto nothingFits = fitFont0Text("abc", 2, {12});
+  assert(nothingFits.text == "..." && nothingFits.size == 12 && nothingFits.width == 11);
+
+  // A 1 MiB name must finish quickly and still fit the box, with the ellipsis at the end.
+  string megabyte;
+  while (megabyte.size() < (1u << 20)) megabyte += "Resistor 10k 1% 0603 MM ";
+  megabyte.resize(1u << 20);
+  const auto longName = fitFont0Text(megabyte, 166, {40, 36, 32, 28, 26, 24, 22});
+  assert(longName.width <= 166 && longName.text.size() > 3);
+  assert(longName.text.compare(0, 8, "Resistor") == 0);
+  assert(longName.text.compare(longName.text.size() - 3, 3, "...") == 0);
+
+  // The same for a 1 MiB name of two-byte characters: the cut never splits a character.
+  string omegas;
+  while (omegas.size() < (1u << 20)) omegas += u8"Ω";
+  const auto longOmegas = fitFont0Text(omegas, 60, {12});
+  assert(longOmegas.width <= 60 && longOmegas.size == 12);
+  assert(longOmegas.text.compare(longOmegas.text.size() - 3, 3, "...") == 0);
+  assert((longOmegas.text.size() - 3) % 2 == 0);
+
+  // The estimate of a 1 MiB string is computed without overflowing: 78 hundredths per "M" at size 40.
+  assert(estimateFont0Width(string(1u << 20, 'M'), 40, 40) == 32715572);
+}
+
+void testLabelTextScannersAreLinear() {
+  // Bracketed metric in a tile value; a non-matching suffix must not match.
+  assert(labelTileValue("0.472\" (12.50 mm)") == "12.5mm");
+  assert(labelTileValue("0.472\" (12.50 mmx)") != "12.5mm");
+
+  // Size line: the leftmost "N mm x N mm" wins, and a fraction can start a later match.
+  InventoryItem footprint;
+  footprint.parameters = {{"Size / Dimension", "0.157\" L x 0.157\" W (4.00mm x 4.00mm)"}};
+  assert(label_printer_detail::shortPackageLine(footprint) == "4x4mm");
+  footprint.parameters = {{"Size / Dimension", "2.50 mm X 1.00mm"}};
+  assert(label_printer_detail::shortPackageLine(footprint) == "2.5x1mm");
+  footprint.parameters = {{"Size / Dimension", "1.2.5 mm x 3mm"}};
+  assert(label_printer_detail::shortPackageLine(footprint) == "2.5x3mm");
+
+  // Unit checks (the tile for a rated voltage): accepted units and rejected trailing letters.
+  const auto voltageTile = [](const string& rated) {
+    InventoryItem capacitor;
+    capacitor.category = "Aluminum Electrolytic Capacitors";
+    capacitor.parameters = {{"Capacitance", u8"100 µF"}, {"Voltage - Rated", rated}};
+    LabelPrinterService service(make_unique<MockPrinterBackend>());
+    return labelTile(service.buildLabelPlan(capacitor), "VOLTAGE");
+  };
+  assert(!voltageTile("16 V").empty());
+  assert(!voltageTile("16V").empty());
+  assert(!voltageTile("16 VDC").empty());
+  assert(!voltageTile("16 Vdc").empty());
+  assert(voltageTile("16 VDCX").empty());
+  assert(voltageTile("16 Vx").empty());
+  assert(voltageTile("16 F").empty());
+  assert(voltageTile("V16").empty());
+
+  // Hostile inputs: a million-character digit run and a million spaces after one digit must return
+  // quickly and without recursion. None of them holds a match.
+  const string digits(1000000, '7');
+  assert(labelTileValue("\"(" + digits + ")").find("mm") == string::npos);
+  footprint.parameters = {{"Size / Dimension", digits}};
+  assert(label_printer_detail::shortPackageLine(footprint).find("mm") == string::npos);
+  footprint.parameters = {{"Size / Dimension", digits + " mm x 2mm"}};
+  const auto longSize = label_printer_detail::shortPackageLine(footprint);
+  assert(!longSize.empty() && longSize.size() <= 12);
+  assert(voltageTile(digits).empty());
+  assert(voltageTile("1" + string(1000000, ' ')).empty());
+}
+
+void testDigiKeyPackageSearchIsBounded() {
+  using digikey_detail::extractComponentPackageFromText;
+  assert(extractComponentPackageFromText("IC REG LDO 3.3V SOT-23-5").value_or("") == "SOT-23-5");
+  assert(extractComponentPackageFromText("Microchip QFN-32 package").value_or("") == "QFN-32");
+  assert(extractComponentPackageFromText("10uF 16V 1206 X5R").value_or("") == "1206");
+  assert(!extractComponentPackageFromText("no package named here").has_value());
+
+  // Only the first 4096 bytes are searched, so a long digit run cannot exhaust the matcher stack.
+  const auto longRun = extractComponentPackageFromText("SOIC-" + string(1000000, '7'));
+  assert(longRun.has_value() && longRun->size() <= 4096 && longRun->rfind("SOIC-", 0) == 0);
+  assert(!extractComponentPackageFromText(string(4096, ' ') + "SOIC-16").has_value());
 }
 
 void testDielectricNeverComesFromMountingType() {
@@ -6981,13 +7576,27 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   assert(elapsed < chrono::seconds(1));
   assert(syncCalls == 2);
 
+  // One address cannot hold every pending slot: past the per-address cap its next connection is refused,
+  // and it is served again as soon as the idle ones close.
+  vector<NativeSocket> floodClients;
+  for (int index = 0; index < 8; ++index) floodClients.push_back(connectSlowLocalClient(server.port()));
+  this_thread::sleep_for(chrono::milliseconds(100));
+  const auto refusedResponse = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 44, body));
+  assert(refusedResponse.rfind("HTTP/1.1 200 OK", 0) != 0);
+  assert(syncCalls == 2);
+  for (const auto client : floodClients) closeSocket(client);
+  this_thread::sleep_for(chrono::milliseconds(300));
+  const auto recoveredResponse = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 44, body));
+  assert(recoveredResponse.rfind("HTTP/1.1 200 OK", 0) == 0);
+  assert(syncCalls == 3);
+
   const string rotatedToken = "111102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
   server.setDeviceCredentials(deviceId, rotatedToken, replayState);
   const auto oldTokenAfterRotation = sendLocalHttpRequest(server.port(), signedSyncRequest(token, deviceId, 44, body));
   assert(oldTokenAfterRotation.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
   const auto newTokenAfterRotation = sendLocalHttpRequest(server.port(), signedSyncRequest(rotatedToken, deviceId, 44, body));
   assert(newTokenAfterRotation.rfind("HTTP/1.1 200 OK", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   server.stop();
 
   LocalHttpServer restarted;
@@ -6995,7 +7604,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   assert(restarted.start(freeScannerTestPort(), onSync));
   const auto persistedReplay = sendLocalHttpRequest(restarted.port(), signedSyncRequest(rotatedToken, deviceId, 44, body));
   assert(persistedReplay.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   restarted.stop();
 
 #ifndef _WIN32
@@ -7234,7 +7843,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto rejectedWithCorruptState =
       sendLocalHttpRequest(corruptStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(rejectedWithCorruptState.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   corruptStateServer.stop();
 
   const auto malformedFingerprintState = stateDirectory / "malformed-fingerprint.state";
@@ -7249,7 +7858,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto rejectedWithMalformedFingerprint = sendLocalHttpRequest(
       malformedFingerprintServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(rejectedWithMalformedFingerprint.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 3);
+  assert(syncCalls == 4);
   malformedFingerprintServer.stop();
 
   // State left behind by a previous pairing secret (a rotation that crashed before the file was
@@ -7266,7 +7875,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto acceptedWithForeignState =
       sendLocalHttpRequest(foreignStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(acceptedWithForeignState.rfind("HTTP/1.1 200 OK", 0) == 0);
-  assert(syncCalls == 4);
+  assert(syncCalls == 5);
   {
     ifstream rewritten(foreignReplayState);
     stringstream rewrittenText;
@@ -7277,7 +7886,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   const auto replayedAfterForeignState =
       sendLocalHttpRequest(foreignStateServer.port(), signedSyncRequest(rotatedToken, deviceId, 1, body));
   assert(replayedAfterForeignState.rfind("HTTP/1.1 409 Conflict", 0) == 0);
-  assert(syncCalls == 4);
+  assert(syncCalls == 5);
   foreignStateServer.stop();
 
   LocalHttpServer queuedStopServer;
@@ -8075,9 +8684,9 @@ void testApplicationIconAsset() {
 #else
   const auto icoPath = filesystem::path("branding") / "icons" / "inventatory.ico";
 #endif
-  if (!filesystem::is_regular_file(icoPath)) {
-    cout << "SKIPPED application icon check: " << icoPath.string() << " is not readable from here\n";
-  } else {
+  // The icon is part of the source tree, so a missing file is a failure, not a skip.
+  assert(filesystem::is_regular_file(icoPath));
+  {
     ifstream icoStream(icoPath, ios::binary);
     uint16_t reserved = 0, type = 0, count = 0;
     icoStream.read(reinterpret_cast<char*>(&reserved), 2);
@@ -8226,6 +8835,41 @@ void testInvalidLowStockThresholdIsRejected() {
   assert(!removeError);
 }
 
+void testDigiKeySettingsFieldLimits() {
+  // The Settings editor and the settings validator share these limits; a value accepted on screen must save.
+  const auto path = testTempRoot() / "inventatory-digikey-field-limits-test.conf";
+  AppSettings limits;
+  limits.digiKeyClientId = string(kMaxDigiKeyFieldBytes, 'c');
+  limits.digiKeyAccountId = string(kMaxDigiKeyFieldBytes, 'a');
+  limits.digiKeySite = string(kMaxDigiKeyLocaleFieldBytes, 's');
+  limits.digiKeyLanguage = string(kMaxDigiKeyLocaleFieldBytes, 'l');
+  limits.digiKeyCurrency = string(kMaxDigiKeyLocaleFieldBytes, 'u');
+  assert(saveAppSettings(path, limits));
+  AppSettings loaded;
+  assert(loadAppSettings(path, loaded));
+  assert(loaded.digiKeySite == limits.digiKeySite);
+  assert(loaded.digiKeyCurrency == limits.digiKeyCurrency);
+
+  // One byte over each limit must be rejected, and the last good file must stay in place.
+  const auto oneOver = [&](AppSettings candidate, auto mutate) {
+    mutate(candidate);
+    return !saveAppSettings(path, candidate);
+  };
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyClientId.push_back('c'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyAccountId.push_back('a'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeySite.push_back('s'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyLanguage.push_back('l'); }));
+  assert(oneOver(limits, [](AppSettings& s) { s.digiKeyCurrency.push_back('u'); }));
+  AppSettings afterRejects;
+  assert(loadAppSettings(path, afterRejects));
+  assert(afterRejects.digiKeySite == limits.digiKeySite);
+  assert(afterRejects.digiKeyCurrency == limits.digiKeyCurrency);
+  assert(afterRejects.digiKeyClientId == limits.digiKeyClientId);
+  error_code removeError;
+  filesystem::remove(path, removeError);
+  assert(!removeError);
+}
+
 void testSymbolStandardPersistence() {
   // The EU default is not written, so the file stays readable by releases that predate the setting.
   const auto path = testTempRoot() / "inventatory-symbol-standard-settings-test.conf";
@@ -8276,9 +8920,9 @@ void testUpdatePreviewPresentation() {
   assert(string(previewHints.start) == "Enter");
   assert(string(previewHints.cancel) == "Esc");
   assert(string(previewHints.readNotes) == "Up/Down read notes");
-  assert(updatePreviewStartsOnKey(KeyEvent{KeyType::Enter, '\0'}));
-  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 's'}));
-  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 'S'}));
+  assert(updatePreviewStartsOnKey(KeyEvent{KeyType::Enter, '\0', ""}));
+  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 's', ""}));
+  assert(!updatePreviewStartsOnKey(KeyEvent{KeyType::Character, 'S', ""}));
 
   assert(cleanMarkdownInline("[PR #12](https://github.com/pull/12)") == "PR #12");
   assert(cleanMarkdownInline("**Notice:** See [`readme`](https://example.com)") == "Notice: See readme");
@@ -8323,7 +8967,7 @@ void testUtf8TextInputEditing() {
   // Typed characters keep their full UTF-8 sequence and Backspace removes
   // whole characters, so Polish letters and unit symbols never corrupt text.
   string buffer;
-  appendKeyText(buffer, KeyEvent{KeyType::Character, 'a'});
+  appendKeyText(buffer, KeyEvent{KeyType::Character, 'a', ""});
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC5\x82"});      // ł
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC2\xB5"});      // µ
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xE2\x84\xA6"});  // Ω
@@ -8337,7 +8981,7 @@ void testUtf8TextInputEditing() {
   assert(buffer.empty());
   eraseLastCharacter(buffer);
   assert(buffer.empty());
-  appendKeyText(buffer, KeyEvent{KeyType::Character, '\0'});
+  appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', ""});
   assert(buffer.empty());
 }
 
@@ -8426,7 +9070,7 @@ void testReleaseMetadataParsing() {
   assert(nestedUrlMetadata.updateAvailable);
   assert(nestedUrlMetadata.latestVersion == "v1.2.5");
   const auto emptyOptionalChannel = parseReleaseMetadata(
-      "[]", "0.1.0", "Kwiatens/Inventatory-Hardware", false);
+      "[]", "0.1.0", "Kwiatens/Inventatory-Firmware", false);
   assert(emptyOptionalChannel.completed);
   assert(!emptyOptionalChannel.updateAvailable);
   assert(emptyOptionalChannel.latestVersion.empty());
@@ -8694,6 +9338,34 @@ void testKicadBomParsing() {
   assert(explicitQuantity.lines.front().quantityPerBoard == 7);
 }
 
+void testBomAnalysisHugeDescriptionAndTieBreak() {
+  // An item with a megabyte of text and no value parameter must not make every BOM line re-read it.
+  InventoryItem huge;
+  huge.id = "huge";
+  huge.partName = "Resistor 10k 0603";
+  huge.notes.reserve(1024U * 1024U);
+  while (huge.notes.size() < 1024U * 1024U) huge.notes += "10k ";
+  huge.quantity = 5;
+  InventoryItem bigger;
+  bigger.id = "bigger";
+  bigger.partName = "Resistor 10k 0603";
+  bigger.quantity = 500;
+  const vector<InventoryItem> items = {huge, bigger};
+  BomLine line;
+  line.designators = {"R1"};
+  line.footprint = "R_0603_1608Metric";
+  line.designation = "10k";
+  line.quantityPerBoard = 1;
+  KicadBomFile bom;
+  bom.ok = true;
+  bom.lines.assign(300, line);
+  const auto analysis = analyzeBom(bom, items, 1, {});
+  assert(analysis.matches.size() == 300);
+  // Equal scores are ordered by stock, so the bigger reel comes first.
+  assert(!analysis.matches.front().candidates.empty());
+  assert(analysis.matches.front().candidates.front().itemId == "bigger");
+}
+
 void testElectricalValueParsing() {
   const auto value = [](const string& text, ValueKind expected) {
     ValueKind kind = ValueKind::None;
@@ -8713,6 +9385,16 @@ void testElectricalValueParsing() {
   assert(near(value("10K", ValueKind::Resistance), 1e4));
   assert(near(value("500k", ValueKind::Resistance), 5e5));
   assert(near(value("2M", ValueKind::Resistance), 2e6));
+  // Under an explicit ohm unit a lowercase m is milli and only an uppercase M is mega.
+  assert(near(value("10mOhm", ValueKind::Resistance), 1e-2));
+  assert(near(value("0.01R", ValueKind::Resistance), 1e-2));
+  assert(near(value("10 MOhms", ValueKind::Resistance), 1e7));
+  assert(near(value("10MOhm", ValueKind::Resistance), 1e7));
+  // The micro and ohm signs read as the ASCII units.
+  assert(near(value("0.1\xC2\xB5" "F", ValueKind::Capacitance), 1e-7));
+  assert(near(value("0.1\xCE\xBC" "F", ValueKind::Capacitance), 1e-7));
+  assert(near(value("10k\xCE\xA9", ValueKind::Resistance), 1e4));
+  assert(near(value("10m\xE2\x84\xA6", ValueKind::Resistance), 1e-2));
   assert(near(value("280R", ValueKind::Resistance), 280.0));
   assert(near(value("270 ohm", ValueKind::Resistance), 270.0));
   // Leading R is RKM notation for a sub-ohm value.
@@ -10124,6 +10806,29 @@ void testBackupEmptyWorkspaceAndInvalidSources() {
   filesystem::remove_all(failedBundle, cleanupError);
 }
 
+void testBackupBundleEnumerationFailure() {
+  namespace transferDetail = inventatory::inventory_transfer_detail;
+  const auto root = testTempRoot() / ("inventatory-transfer-enumerate-test-" + to_string(getpid()));
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(root);
+  const vector<transferDetail::BackupEntry> noEntries;
+  string error;
+  // A bundle folder that does not exist cannot be scanned, so validation must not pass.
+  assert(!transferDetail::validateEntries(root / "missing-bundle", noEntries, error));
+  assert(error.rfind("Unable to enumerate backup bundle", 0) == 0);
+  // A regular file is not a folder and fails the same way.
+  const auto notFolder = root / "not-a-folder";
+  {
+    ofstream output(notFolder, ios::binary);
+    output << "data";
+  }
+  error.clear();
+  assert(!transferDetail::validateEntries(notFolder, noEntries, error));
+  assert(error.rfind("Unable to enumerate backup bundle", 0) == 0);
+  filesystem::remove_all(root, cleanupError);
+}
+
 void testDeviceEventInboxRecovery() {
   const auto path = testTempRoot() / "inventatory-device-event-recovery-test.db";
   error_code cleanupError;
@@ -10145,7 +10850,7 @@ void testDeviceEventInboxRecovery() {
   request.mode = "ready";
   request.rssi = -40;
   request.queueDepth = 1;
-  request.events = {{"recovery-event", "inventory.adjust", "9999", 1}};
+  request.events = {{"recovery-event", "inventory.adjust", "9999", 1, ""}};
   DeviceSyncResponse response;
   string error;
   assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -10580,10 +11285,273 @@ void testCsvQuotedFieldRecovery() {
   assert(error.find("unterminated quoted field") != string::npos);
 }
 
+// Spaces or tabs between a closing quote and the delimiter or line break are padding, not content.
+void testCsvCellBudgetAndHeaderOnlyDetection() {
+  string error;
+  // 4,001 rows of 500 cells exceed the total cell budget even though every per-row limit holds.
+  string wide;
+  const string row = string(499, ',') + "\n";
+  for (int line = 0; line < 4001; ++line) wide += row;
+  assert(parseCsv(wide, ',', error).empty());
+  assert(error.find("too many cells") != string::npos);
+  // A file within the budget still parses.
+  string narrow;
+  for (int line = 0; line < 100; ++line) narrow += "a,b,c\n";
+  assert(parseCsv(narrow, ',', error).size() == 100 && error.empty());
+  // maxRows stops after the header, so a huge body is never scanned.
+  const auto header = parseCsv("Designator,Footprint,Quantity\n" + wide, ',', error, 1);
+  assert(header.size() == 1 && header.front().size() == 3 && error.empty());
+  assert(detectCsvFormat("Designator,Footprint,Quantity,Value\nR1,R_0603,1,10k\n" + wide) == CsvFormat::KicadBom);
+}
+
+void testCsvClosingQuotePadding() {
+  string error;
+  const auto spaced = parseCsv("\"abc\" ,x\n", ',', error);
+  assert(error.empty());
+  assert(spaced.size() == 1 && spaced[0] == (vector<string>{"abc", "x"}));
+
+  const auto trailing = parseCsv("\"abc\"  \nnext,row\n", ',', error);
+  assert(error.empty());
+  assert(trailing.size() == 2 && trailing[0] == vector<string>{"abc"});
+  assert(trailing[1] == (vector<string>{"next", "row"}));
+
+  const auto tabbed = parseCsv("\"abc\"\t;x\r\n", ';', error);
+  assert(error.empty());
+  assert(tabbed.size() == 1 && tabbed[0] == (vector<string>{"abc", "x"}));
+
+  // When the tab is the delimiter it closes the cell itself and is not skipped as padding.
+  const auto tabDelimited = parseCsv("\"abc\"\tx\n", '\t', error);
+  assert(error.empty());
+  assert(tabDelimited.size() == 1 && tabDelimited[0] == (vector<string>{"abc", "x"}));
+
+  // The KiCad inch mark keeps its content when a space follows the quote and ordinary text follows it.
+  const auto inch = parseCsv("\"2.13\" ePaper\"  ,x\n", ',', error);
+  assert(error.empty());
+  assert(inch.size() == 1 && inch[0] == (vector<string>{"2.13\" ePaper", "x"}));
+}
+
 // Credential-backed groups skip themselves (and are counted) when the host has no unlocked keyring.
 void testScannerCredentialResolutionOrSkip() {
   if (credentialStoreAvailable()) testScannerCredentialResolution();
   else skipMissingCredentialStore("scanner credential resolution");
+}
+
+// Inventory history lives in its own table. Each save replaces the table, and loading returns the points
+// oldest first, so every field has to survive the round trip exactly.
+void testInventoryHistoryPersistenceRoundTrip() {
+  const auto database = testTempRoot() / "inventatory-history-persistence.db";
+  error_code cleanupError;
+  filesystem::remove(database, cleanupError);
+
+  const auto samePoint = [](const InventoryHistoryPoint& left, const InventoryHistoryPoint& right) {
+    return left.timestamp == right.timestamp && left.itemCount == right.itemCount &&
+           left.totalUnits == right.totalUnits && left.lowStockCount == right.lowStockCount &&
+           left.outOfStockCount == right.outOfStockCount && left.dataErrorCount == right.dataErrorCount;
+  };
+
+  vector<InventoryHistoryPoint> written;
+  for (size_t index = 0; index < 3; ++index) {
+    InventoryHistoryPoint point;
+    point.timestamp = static_cast<time_t>(1710000000ULL + 3600ULL * index);
+    point.itemCount = 10 + index;
+    point.totalUnits = 100 + index;
+    point.lowStockCount = 2 + index;
+    point.outOfStockCount = 1 + index;
+    point.dataErrorCount = index;
+    written.push_back(point);
+  }
+  assert(saveInventoryHistory(database, written));
+
+  vector<InventoryHistoryPoint> loaded;
+  assert(loadInventoryHistory(database, loaded));
+  assert(loaded.size() == written.size());
+  for (size_t index = 0; index < written.size(); ++index) assert(samePoint(loaded[index], written[index]));
+
+  // Saving the points in reverse order must still load them oldest first.
+  const vector<InventoryHistoryPoint> reversed(written.rbegin(), written.rend());
+  assert(saveInventoryHistory(database, reversed));
+  assert(loadInventoryHistory(database, loaded));
+  assert(loaded.size() == written.size());
+  for (size_t index = 0; index < written.size(); ++index) assert(samePoint(loaded[index], written[index]));
+
+  // A second save replaces the first; it does not append to it.
+  vector<InventoryHistoryPoint> replacement(1, written.front());
+  replacement.front().itemCount = 99;
+  assert(saveInventoryHistory(database, replacement));
+  assert(loadInventoryHistory(database, loaded));
+  assert(loaded.size() == 1 && loaded.front().itemCount == 99);
+  filesystem::remove(database, cleanupError);
+}
+
+// Builds a small workspace and writes a backup bundle from it.
+bool createSmallBackupBundle(const filesystem::path& root, const filesystem::path& bundle, string& error) {
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(root / "source");
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "bundle-item";
+  item.partName = "Bundle resistor";
+  item.quantity = 4;
+  store.items().push_back(item);
+  ensureInventoryIdentifiers(store.items());
+  reconcileRackAssignments(store);
+  if (!store.save(root / "source" / "inventory.db")) return false;
+  if (!ensureInventoryCommitHistory(root / "source" / "inventory.db", store)) return false;
+  {
+    ofstream activity(root / "source" / "activity.tsv", ios::binary);
+    activity << "1710000000 \"test\" \"bundle marker\"\n";
+  }
+  AppSettings settings;
+  settings.dataDirectory = root / "source";
+  settings.completedOnboardingVersion = 1;
+  if (!saveAppSettings(root / "settings.conf", settings)) return false;
+  return createInventatoryBackup(root / "source", root / "settings.conf", bundle, "1.0.0", error);
+}
+
+// The manifest records a size and a SHA-256 digest for each bundled file. A change that keeps the size is
+// caught only by the digest, so this changes one letter without changing the file's length.
+void testBackupBundleDetectsSameSizeCorruption() {
+  const auto root = testTempRoot() / "inventatory-bundle-digest";
+  const auto bundle = root / "bundle";
+  string error;
+  assert(createSmallBackupBundle(root, bundle, error));
+  assert(validateInventatoryBackup(bundle, error));
+
+  const auto activityPath = bundle / "activity.tsv";
+  string original;
+  {
+    ifstream input(activityPath, ios::binary);
+    original.assign(istreambuf_iterator<char>(input), istreambuf_iterator<char>());
+  }
+  const auto marker = original.find("bundle marker");
+  assert(marker != string::npos);
+  string altered = original;
+  altered[marker] = 'B';  // "bundle marker" becomes "Bundle marker": same length, different bytes
+  assert(altered.size() == original.size() && altered != original);
+  {
+    ofstream output(activityPath, ios::binary | ios::trunc);
+    output << altered;
+  }
+  error.clear();
+  assert(!validateInventatoryBackup(bundle, error));
+  assert(!error.empty());
+  {
+    ofstream output(activityPath, ios::binary | ios::trunc);
+    output << original;
+  }
+  assert(validateInventatoryBackup(bundle, error));
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+}
+
+// A bundle holds only the documented files. Scanner pairing data and any token, secret or password must
+// stay out of it, including the sanitized settings file.
+void testBackupBundleHoldsOnlyDocumentedFiles() {
+  const auto root = testTempRoot() / "inventatory-bundle-contents";
+  const auto bundle = root / "bundle";
+  string error;
+  assert(createSmallBackupBundle(root, bundle, error));
+
+  const set<string> documented = {"manifest.tsv", "inventory.db", "activity.tsv", "printer.conf",
+                                  "quick_labels.conf", "settings.conf"};
+  size_t entries = 0;
+  for (const auto& entry : filesystem::directory_iterator(bundle)) {
+    ++entries;
+    assert(documented.count(entry.path().filename().string()) == 1);
+  }
+  assert(entries >= 3);  // the manifest, the database and the settings are always written
+  assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
+
+  string settingsText;
+  {
+    ifstream input(bundle / "settings.conf", ios::binary);
+    settingsText.assign(istreambuf_iterator<char>(input), istreambuf_iterator<char>());
+  }
+  transform(settingsText.begin(), settingsText.end(), settingsText.begin(),
+            [](unsigned char character) { return static_cast<char>(tolower(character)); });
+  assert(settingsText.find("token") == string::npos);
+  assert(settingsText.find("secret") == string::npos);
+  assert(settingsText.find("password") == string::npos);
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+}
+
+// A restore journal that cannot be parsed must stop startup recovery before any workspace file changes,
+// and the journal must stay on disk so it can be inspected.
+void testCorruptRestoreJournalLeavesWorkspaceAlone() {
+  const auto root = testTempRoot() / "inventatory-corrupt-journal";
+  const auto workspace = root / "workspace";
+  const auto settingsPath = root / "settings.conf";
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(workspace);
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "journal-item";
+  item.partName = "Journal resistor";
+  store.items().push_back(item);
+  ensureInventoryIdentifiers(store.items());
+  reconcileRackAssignments(store);
+  assert(store.save(workspace / "inventory.db"));
+  const auto journalPath = inventatory::inventory_transfer_detail::restoreJournalPath(settingsPath);
+  {
+    ofstream journal(journalPath, ios::binary);
+    journal << "this is not a restore journal\n";
+  }
+
+  string error;
+  assert(!recoverInventatoryRestore(workspace, settingsPath, error));
+  assert(!error.empty());
+  assert(filesystem::exists(journalPath));
+  InventoryStore reloaded;
+  assert(reloaded.load(workspace / "inventory.db"));
+  assert(reloaded.items().size() == 1 && reloaded.items().front().id == "journal-item");
+  filesystem::remove_all(root, cleanupError);
+}
+
+// writeFileAtomically either replaces the destination completely or leaves it as it was. A failed write
+// reports an error and leaves no temporary file in the destination folder.
+void testWriteFileAtomicallyFailureKeepsPriorFile() {
+  const auto root = testTempRoot() / "inventatory-atomic-failure";
+  error_code cleanupError;
+  filesystem::remove_all(root, cleanupError);
+  filesystem::create_directories(root);
+  const auto readWhole = [](const filesystem::path& path) {
+    ifstream input(path, ios::binary);
+    return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  };
+
+  const auto destination = root / "settings.conf";
+  assert(writeFileAtomically(destination, "previous\n"));
+
+  // A regular file where a folder is needed makes the write impossible.
+  const auto blocking = root / "blocking";
+  {
+    ofstream output(blocking, ios::binary);
+    output << "not a folder";
+  }
+  string error;
+  assert(!writeFileAtomically(blocking / "child.conf", "new\n", &error));
+  assert(!error.empty());
+  assert(readWhole(blocking) == "not a folder");
+
+  // A folder cannot be replaced by a file, and the failed replacement must not leave its temporary file.
+  const auto folder = root / "folder";
+  filesystem::create_directories(folder);
+  error.clear();
+  assert(!writeFileAtomically(folder, "new\n", &error));
+  assert(!error.empty());
+  assert(filesystem::is_directory(folder));
+
+  assert(readWhole(destination) == "previous\n");
+  size_t entries = 0;
+  for (const auto& entry : filesystem::directory_iterator(root)) {
+    (void)entry;
+    ++entries;
+  }
+  assert(entries == 3);  // settings.conf, blocking and folder; no temporary file
+  filesystem::remove_all(root, cleanupError);
 }
 
 // Every test is registered here, in execution order, under the area it covers. `--list` prints
@@ -10641,6 +11609,9 @@ const vector<TestCase>& registeredTests() {
     // to pass the test suite unnoticed.
     {"inventory", "PhysicalValueParsing", testPhysicalValueParsing},
     {"inventory", "PhysicalValueMatching", testPhysicalValueMatching},
+    {"inventory", "InductanceTextScanner", testInductanceTextScanner},
+    {"label", "LabelTextScannersAreLinear", testLabelTextScannersAreLinear},
+    {"import", "DigiKeyPackageSearchIsBounded", testDigiKeyPackageSearchIsBounded},
     {"inventory", "PhysicalValueSearchIntegration", testPhysicalValueSearchIntegration},
     {"inventory", "ClosestValueSearchStaysWithinFamilyAndBand", testClosestValueSearchStaysWithinFamilyAndBand},
     {"inventory", "PhysicalValueCommaDecimalLocale", testPhysicalValueCommaDecimalLocale},
@@ -10651,6 +11622,7 @@ const vector<TestCase>& registeredTests() {
     {"history", "InventoryCommitSnapshotsStayValid", testInventoryCommitSnapshotsStayValid},
     {"history", "InventoryCommitDiffSeparatesAmbiguousValues", testInventoryCommitDiffSeparatesAmbiguousValues},
     {"history", "SnapshotSemanticsRejectInvalidSnapshots", testSnapshotSemanticsRejectInvalidSnapshots},
+    {"import", "DigiKeyOversizedJsonStrings", testDigiKeyOversizedJsonStrings},
     {"import", "DigiKeyParsingRobustness", testDigiKeyParsingRobustness},
     {"storage", "SqliteSchemaValidation", testSqliteSchemaValidation},
     {"import", "PackageGHardening", testPackageGHardening},
@@ -10664,6 +11636,9 @@ const vector<TestCase>& registeredTests() {
     {"platform", "WindowsEnvironmentValueIsUtf8", testWindowsEnvironmentValueIsUtf8},
 #endif
     {"inventory", "ItemFilterQueries", testItemFilterQueries},
+    {"inventory", "RackQueryMatchesWholeRackCode", testRackQueryMatchesWholeRackCode},
+    {"inventory", "BareFreeTextRackTokenMatchesWholeRackCode", testBareFreeTextRackTokenMatchesWholeRackCode},
+    {"inventory", "ParameterQueryMatchesValuesNotSubstrings", testParameterQueryMatchesValuesNotSubstrings},
 #ifndef _WIN32
     {"platform", "LinuxChildProcessIsBounded", testLinuxChildProcessIsBounded},
 #endif
@@ -10690,6 +11665,7 @@ const vector<TestCase>& registeredTests() {
     {"storage", "ItemSerializationRoundTrip", testItemSerializationRoundTrip},
     {"storage", "IncompleteRackLoadIsNotWrittenBack", testIncompleteRackLoadIsNotWrittenBack},
     {"storage", "MachineCodeSqliteRoundTrip", testMachineCodeSqliteRoundTrip},
+    {"storage", "EmbeddedNulItemNameIsStoredIntact", testEmbeddedNulItemNameIsStoredIntact},
 #ifndef _WIN32
     {"update", "UpdateDownloadFolderAndInstallDirectory", testUpdateDownloadFolderAndInstallDirectory},
 #endif
@@ -10708,6 +11684,7 @@ const vector<TestCase>& registeredTests() {
     {"label", "LongHeaderKeepsPartName", testLongHeaderKeepsPartName},
     {"label", "DiodeParameterTiles", testDiodeParameterTiles},
     {"label", "CapacitorValueAndTiles", testCapacitorValueAndTiles},
+    {"label", "Font0TruncationMatchesSearch", testFont0TruncationMatchesSearch},
     {"label", "DielectricNeverComesFromMountingType", testDielectricNeverComesFromMountingType},
     {"label", "DiscreteSemiconductorKinds", testDiscreteSemiconductorKinds},
     {"import", "DigiKeyCsvMissingManufacturerPartNumber", testDigiKeyCsvMissingManufacturerPartNumber},
@@ -10734,6 +11711,7 @@ const vector<TestCase>& registeredTests() {
     {"settings", "LegacySettingsAppearanceFallback", testLegacySettingsAppearanceFallback},
     {"settings", "LegacyWarningDangerColorsUpgrade", testLegacyWarningDangerColorsUpgradeToCurrentDefaults},
     {"settings", "InvalidLowStockThresholdIsRejected", testInvalidLowStockThresholdIsRejected},
+    {"settings", "DigiKeySettingsFieldLimits", testDigiKeySettingsFieldLimits},
     {"settings", "SymbolStandardPersistence", testSymbolStandardPersistence},
     {"update", "UpdatePreviewPresentation", testUpdatePreviewPresentation},
     {"ui", "Utf8TextInputEditing", testUtf8TextInputEditing},
@@ -10744,10 +11722,15 @@ const vector<TestCase>& registeredTests() {
     {"import", "CsvDelimiterSniffing", testCsvDelimiterSniffing},
     {"import", "CsvInchMarkInUnquotedField", testCsvInchMarkInUnquotedField},
     {"import", "CsvQuotedFieldRecovery", testCsvQuotedFieldRecovery},
+    {"import", "CsvClosingQuotePadding", testCsvClosingQuotePadding},
+    {"import", "CsvCellBudgetAndHeaderOnlyDetection", testCsvCellBudgetAndHeaderOnlyDetection},
+    {"import", "DigiKeyCsvConflictLookup", testDigiKeyCsvConflictLookup},
+    {"import", "DigiKeyMetadataMergeKeepsKnownFields", testDigiKeyMetadataMergeKeepsKnownFields},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
     {"bom", "ElectricalValueParsing", testElectricalValueParsing},
+    {"bom", "BomAnalysisHugeDescriptionAndTieBreak", testBomAnalysisHugeDescriptionAndTieBreak},
     {"bom", "PackageFromFootprint", testPackageFromFootprint},
     {"bom", "MatchingPrefersValueAndPackage", testMatchingPrefersValueAndPackage},
     {"bom", "MatchingIgnoresPackageCodesAndPinCounts", testMatchingIgnoresPackageCodesAndPinCounts},
@@ -10756,6 +11739,12 @@ const vector<TestCase>& registeredTests() {
     {"bom", "EnrichmentCacheRules", testEnrichmentCacheRules},
     {"transfer", "BackupExportAndRestoreWorkflow", testBackupExportAndRestoreWorkflow},
     {"transfer", "BackupEmptyWorkspaceAndInvalidSources", testBackupEmptyWorkspaceAndInvalidSources},
+    {"transfer", "BackupBundleEnumerationFailure", testBackupBundleEnumerationFailure},
+    {"history", "InventoryHistoryPersistenceRoundTrip", testInventoryHistoryPersistenceRoundTrip},
+    {"transfer", "BackupBundleDetectsSameSizeCorruption", testBackupBundleDetectsSameSizeCorruption},
+    {"transfer", "BackupBundleHoldsOnlyDocumentedFiles", testBackupBundleHoldsOnlyDocumentedFiles},
+    {"transfer", "CorruptRestoreJournalLeavesWorkspaceAlone", testCorruptRestoreJournalLeavesWorkspaceAlone},
+    {"storage", "WriteFileAtomicallyFailureKeepsPriorFile", testWriteFileAtomicallyFailureKeepsPriorFile},
     {"storage", "DeviceEventInboxRecovery", testDeviceEventInboxRecovery},
     {"storage", "OpenDatabaseCreatesParentDirectories", testOpenDatabaseCreatesParentDirectories},
 #ifndef _WIN32
@@ -10865,6 +11854,11 @@ int main(int argc, char** argv) {
   }
   currentTestLabel().store("(finished)");
 
+  if (skippedLocaleTests > 0) {
+    cout << "Inventatory core tests passed, but " << skippedLocaleTests
+         << " locale test(s) were SKIPPED: no comma-decimal locale is installed\n";
+    return 77;  // CTest SKIP_RETURN_CODE
+  }
   if (skippedCredentialTests > 0) {
     cout << "Inventatory core tests passed, but " << skippedCredentialTests
          << " credential test group(s) were SKIPPED: no unlocked Secret Service (see docs/linux-support.md)\n";

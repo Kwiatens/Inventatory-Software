@@ -62,16 +62,26 @@ function Remove-InventatoryInstallLeftovers {
 
 # Credential Manager holds the DigiKey secret and the Scan R1 pairing token under 'Inventatory/<name>'
 # targets. They belong to the data that the user chose to delete, so they are removed with it.
+# Anything that could not be deleted is collected here and listed at the end instead of being reported as removed.
+$script:leftBehind = New-Object System.Collections.Generic.List[string]
+
 function Remove-InventatoryStoredSecrets {
-  try {
-    $listing = @(& cmdkey.exe /list 2>$null)
-    foreach ($line in $listing) {
-      if ([string]$line -match '(Inventatory/\S+)') {
-        & cmdkey.exe "/delete:$($Matches[1])" 2>$null | Out-Null
-      }
+  $listing = @(& cmdkey.exe /list 2>$null)
+  foreach ($line in $listing) {
+    if ([string]$line -match '(Inventatory/\S+)') {
+      $target = $Matches[1]
+      & cmdkey.exe "/delete:$target" 2>$null | Out-Null
+      if ($LASTEXITCODE -ne 0) { $script:leftBehind.Add("Credential Manager entry $target") }
     }
+  }
+}
+
+function Remove-InventatoryUserFolder([string]$path) {
+  if (-not (Test-Path -LiteralPath $path)) { return }
+  try {
+    Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
   } catch {
-    Write-Warning 'Stored Inventatory credentials could not be removed. Delete the Inventatory entries in Windows Credential Manager manually.'
+    $script:leftBehind.Add($path)
   }
 }
 
@@ -90,8 +100,13 @@ Remove-Item -LiteralPath $bootstrapDownloadRoot -Recurse -Force -ErrorAction Sil
 Remove-InventatoryInstallLeftovers
 if ((Read-Host 'Also delete Documents\Inventatory and local settings? [y/N]') -match '^[Yy]') {
   # MyDocuments follows a redirected Documents folder (for example OneDrive known-folder backup).
-  Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Inventatory') -Recurse -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'Inventatory') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-InventatoryUserFolder (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Inventatory')
+  Remove-InventatoryUserFolder (Join-Path $env:LOCALAPPDATA 'Inventatory')
   Remove-InventatoryStoredSecrets
+}
+if ($script:leftBehind.Count -gt 0) {
+  Write-Warning 'Inventatory was removed, but these items could not be deleted. Remove them manually:'
+  foreach ($item in $script:leftBehind) { Write-Warning "  $item" }
+  exit 1
 }
 Write-Host 'Inventatory was removed.'

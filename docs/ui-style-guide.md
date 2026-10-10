@@ -93,7 +93,7 @@ separate panels that were assembled afterwards.
   colour, followed by a muted count.
 - Related things sit next to each other. A list that describes a grid starts on the grid's
   header row and shares its top edge. A row's buttons sit on that row.
-- Truncate paths in the middle (`~/Dokumenty/.../settings.conf`) and names at the end (`...`).
+- Truncate paths in the middle (`~/Documents/.../settings.conf`) and names at the end (`...`).
   A truncation must never cut a number or unit.
 
 ### Minimum size
@@ -208,11 +208,11 @@ Rules:
 
 ## 9. Guided workflows
 
-Find in racks, setup wizards, and imports guide the user through physical or multi-step work.
+Picking parts from racks, setup wizards, and imports guide the user through physical or multi-step work.
 
 - Lead with one plain instruction that holds the numbers that matter:
   `Take 26 parts from 7 slots in Rack 1`.
-- Confirm work in natural units. In Find in racks, that unit is a rack, not a slot: everything
+- Confirm work in natural units. In Pick parts, that unit is a rack, not a slot: everything
   to take from the current rack is shown at once, and one key confirms the rack.
 - Highlighted targets show what to do there (`Take 10`), not stock levels.
 - Use one notation for values in the list and the grid.
