@@ -31,8 +31,8 @@ ftxui::Element App::renderStockUi() const {
   const size_t activeSelection = closestSearchActive_ ? closestSelectedPosition_ : selectedPosition_;
   const auto* activeScreen = ftxui::ScreenInteractive::Active();
   const int screenWidth = activeScreen != nullptr ? activeScreen->dimx() : 120;
-  const int detailOuterWidth = clamp(screenWidth / 3, 42, 60);
-  const int listOuterWidth = max(42, screenWidth - detailOuterWidth - 1);
+  const int detailOuterWidth = stockDetailOuterWidth(screenWidth);
+  const int listOuterWidth = stockListOuterWidth(screenWidth);
   const int listInnerWidth = max(20, listOuterWidth - 2);
   const int detailInnerWidth = max(20, detailOuterWidth - 2);
   size_t longestQuantity = string("Qty").size();
@@ -70,19 +70,23 @@ ftxui::Element App::renderStockUi() const {
   auto detailRows = renderStockDetailRows(searchMatches, rankedView, activeSelection, detailInnerWidth);
   const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue;
   auto self = const_cast<App*>(this);
+  const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
+  const auto filterSummary = stockFilterSummary(stockSortOrder_, stockDateFilter_);
+  // The ranked header shortens its wording, and drops the summary, before the
+  // Filter button would be pushed out of the list panel.
+  const bool rankedMatchesHeader = rankedView && filtersEnabled;
+  const auto rankedHeader = stockRankedHeaderFor(filtered.size(), filterSummary, listOuterWidth);
   const auto stockHeader = stocktakeActive_
                                ? "Stocktake  " + to_string(stocktakeCountedItems()) + "/" +
                                      to_string(store_.items().size()) + " counted"
                                : closestSearchActive_
                                      ? "Closest to  " + (closestSearchQuery_.empty() ? string("...") : closestSearchQuery_) +
                                            ", " + to_string(filtered.size()) + " candidates"
-                                     : rankedView ? "Stock  " + to_string(filtered.size()) + " matches, ranked by value"
+                                     : rankedView ? rankedHeader.label
                                                   : groupByCategory ? string("Component Category") : string();
-  const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
   // The summary states the sort and date filter in use, so they show while the panel is closed.
-  const auto filterSummaryText = filtersEnabled ? styledText(stockFilterSummary(stockSortOrder_, stockDateFilter_),
-                                                             uiMutedText())
-                                                : ftxui::text("");
+  const bool showFilterSummary = filtersEnabled && (!rankedMatchesHeader || rankedHeader.showSummary);
+  const auto filterSummaryText = showFilterSummary ? styledText(filterSummary, uiMutedText()) : ftxui::text("");
   const auto filterButtonBg = filtersEnabled ? uiRaisedSurfaceBg() : uiSurfaceBg();
   auto filterButton = target(ftxui::hbox({
                                  styledText(" Filter ", filtersEnabled ? uiInteractiveColor() : uiMutedText(),
