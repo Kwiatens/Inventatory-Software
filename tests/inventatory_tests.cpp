@@ -4616,6 +4616,46 @@ void testRackQueryMatchesWholeRackCode() {
   assert(idsFor("rack:r3").empty());
 }
 
+// param: values on a physical parameter are compared by value. "1uF" must not find "11uF", and a bare
+// number must not find a longer number, while non-numeric needles keep the substring match.
+void testParameterQueryMatchesValuesNotSubstrings() {
+  const auto withParameter = [](const char* id, const char* name, const char* value) {
+    InventoryItem item;
+    item.id = id;
+    item.partName = "Part";
+    item.quantity = 1;
+    item.parameters = {{name, value}};
+    return item;
+  };
+  const auto idsFor = [](const vector<InventoryItem>& items, const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query)) ids.push_back(items[index].id);
+    return ids;
+  };
+
+  const vector<InventoryItem> capacitors = {
+      withParameter("cap-11uf", "Capacitance", "11uF"),
+      withParameter("cap-11-spaced", "Capacitance", "11 uF"),
+      withParameter("cap-1uf", "Capacitance", "1 uF"),
+      withParameter("cap-1000nf", "Capacitance", "1000 nF"),
+  };
+  assert((idsFor(capacitors, "param:Capacitance=1uF") == vector<string>{"cap-1uf", "cap-1000nf"}));
+
+  const vector<InventoryItem> resistors = {
+      withParameter("res-100ohm", "Resistance", "100 Ohm"),
+      withParameter("res-10ohm", "Resistance", "10 Ohm"),
+      withParameter("res-10k", "Resistance", "10k"),
+      withParameter("res-plain", "Resistance", "10"),
+  };
+  assert((idsFor(resistors, "param:Resistance=10") == vector<string>{"res-10ohm", "res-plain"}));
+
+  const vector<InventoryItem> packages = {
+      withParameter("pkg-0603", "Package", "0603 (1608 Metric)"),
+      withParameter("pkg-0402", "Package", "0402 (1005 Metric)"),
+  };
+  assert((idsFor(packages, "param:Package=0603") == vector<string>{"pkg-0603"}));
+}
+
 void testLowStockClassification() {
   InventoryItem outOfStock;
   outOfStock.id = "out";
@@ -10778,6 +10818,7 @@ const vector<TestCase>& registeredTests() {
 #endif
     {"inventory", "ItemFilterQueries", testItemFilterQueries},
     {"inventory", "RackQueryMatchesWholeRackCode", testRackQueryMatchesWholeRackCode},
+    {"inventory", "ParameterQueryMatchesValuesNotSubstrings", testParameterQueryMatchesValuesNotSubstrings},
 #ifndef _WIN32
     {"platform", "LinuxChildProcessIsBounded", testLinuxChildProcessIsBounded},
 #endif
