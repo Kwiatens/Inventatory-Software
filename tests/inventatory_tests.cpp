@@ -3942,6 +3942,45 @@ void testInventoryMerge() {
     assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity == 0);
   }
 
+  // Import: a staged change the live stock can no longer absorb is clamped and reported, never silent.
+  {
+    const auto base = mergeTestItem("merge-clamp", "Clamped part", 10);
+    auto staged = base;
+    staged.quantity = 5;  // staged delta -5
+    auto current = base;
+    current.quantity = 2;  // stock changed elsewhere: 2 - 5 is below zero
+    vector<string> notices;
+    assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity == 0);
+    assert(notices.size() == 1);
+    assert(anyNoticeContains(notices, "Clamped part"));
+    assert(anyNoticeContains(notices, "quantity change of -5"));
+    assert(anyNoticeContains(notices, "below zero"));
+    assert(anyNoticeContains(notices, "set to 0"));
+
+    // The clamp at the top of the range is reported as well.
+    auto grown = base;
+    grown.quantity = 13;  // staged delta +3
+    auto full = base;
+    full.quantity = numeric_limits<int>::max();
+    vector<string> overflow;
+    assert(mergeEditedItem(base, grown, full, QuantityMerge::ApplyDelta, &overflow).quantity ==
+           numeric_limits<int>::max());
+    assert(overflow.size() == 1);
+    assert(anyNoticeContains(overflow, "quantity change of +3"));
+    assert(anyNoticeContains(overflow, "above the maximum"));
+
+    // Normal deltas, up and down, stay in range and report nothing.
+    vector<string> quiet;
+    auto liveTwelve = base;
+    liveTwelve.quantity = 12;
+    assert(mergeEditedItem(base, grown, liveTwelve, QuantityMerge::ApplyDelta, &quiet).quantity == 15);
+    auto stagedSeven = base;
+    stagedSeven.quantity = 7;  // staged delta -3
+    assert(mergeEditedItem(base, stagedSeven, liveTwelve, QuantityMerge::ApplyDelta, &quiet).quantity == 9);
+    assert(mergeEditedItem(base, stagedSeven, base, QuantityMerge::ApplyDelta, &quiet).quantity == 7);
+    assert(quiet.empty());
+  }
+
   // Import review: scanner quantity change and scanner-created item survive the staged commit.
   {
     InventoryStore base;
