@@ -27,6 +27,7 @@ namespace {
 
 constexpr uint32_t kClientIoTimeoutMs = 2000U;
 constexpr size_t kMaxQueuedClients = 16;
+constexpr size_t kMaxPendingPerAddress = 8;
 constexpr uint32_t kReaderSelectIntervalMs = 100U;
 // Pause after an accept() failure that is not tied to a single aborted connection (descriptor or
 // kernel memory exhaustion), so a persistent error does not turn the acceptor into a busy loop.
@@ -37,6 +38,7 @@ struct PendingClient {
   string request;
   size_t expectedSize = string::npos;
   chrono::steady_clock::time_point deadline;
+  uint32_t address = 0;
 };
 
 
@@ -126,12 +128,16 @@ void LocalHttpServer::acceptLoop() {
       continue;
     }
 
+    const uint32_t peerAddress = static_cast<uint32_t>(clientAddress.sin_addr.s_addr);
     bool queued = false;
     {
       lock_guard<mutex> lock(pendingClientMutex_);
-      if (running_.load() && pendingClientCount_ < kMaxQueuedClients) {
-        pendingClientQueue_.push_back(client);
+      const auto addressEntry = pendingClientsPerAddress_.find(peerAddress);
+      const size_t addressCount = addressEntry != pendingClientsPerAddress_.end() ? addressEntry->second : 0U;
+      if (running_.load() && pendingClientCount_ < kMaxQueuedClients && addressCount < kMaxPendingPerAddress) {
+        pendingClientQueue_.push_back({client, peerAddress});
         ++pendingClientCount_;
+        pendingClientsPerAddress_[peerAddress] = addressCount + 1U;
         queued = true;
       }
     }
@@ -147,15 +153,23 @@ void LocalHttpServer::readerLoop() {
   vector<PendingClient> pending;
   pending.reserve(kMaxQueuedClients);
 
-  const auto releasePendingSlot = [this] {
+  const auto releasePendingSlot = [this](uint32_t address) {
     lock_guard<mutex> lock(pendingClientMutex_);
     if (pendingClientCount_ > 0) --pendingClientCount_;
+    const auto it = pendingClientsPerAddress_.find(address);
+    if (it != pendingClientsPerAddress_.end()) {
+      if (it->second > 1U) {
+        --it->second;
+      } else {
+        pendingClientsPerAddress_.erase(it);
+      }
+    }
   };
   const auto closePendingClient = [&releasePendingSlot](PendingClient& client) {
     if (client.socket != kInvalidSocket) {
       closeSocket(client.socket);
       client.socket = kInvalidSocket;
-      releasePendingSlot();
+      releasePendingSlot(client.address);
     }
   };
 
@@ -166,23 +180,29 @@ void LocalHttpServer::readerLoop() {
         pendingClientChanged_.wait(lock, [this] { return !running_.load() || !pendingClientQueue_.empty(); });
       }
       while (!pendingClientQueue_.empty()) {
-        pending.push_back({pendingClientQueue_.front(), {}, string::npos,
-                           chrono::steady_clock::now() + chrono::milliseconds(kClientIoTimeoutMs)});
+        const auto queued = pendingClientQueue_.front();
         pendingClientQueue_.pop_front();
+        PendingClient item;
+        item.socket = queued.socket;
+        item.deadline = chrono::steady_clock::now() + chrono::milliseconds(kClientIoTimeoutMs);
+        item.address = queued.address;
+        pending.push_back(move(item));
       }
     }
 
     if (!running_.load()) {
       for (auto& client : pending) closePendingClient(client);
       while (true) {
-        NativeSocket client = kInvalidSocket;
+        QueuedClient queuedItem{};
         {
           lock_guard<mutex> lock(pendingClientMutex_);
           if (pendingClientQueue_.empty()) break;
-          client = pendingClientQueue_.front();
+          queuedItem = pendingClientQueue_.front();
           pendingClientQueue_.pop_front();
         }
-        PendingClient queued{client};
+        PendingClient queued;
+        queued.socket = queuedItem.socket;
+        queued.address = queuedItem.address;
         closePendingClient(queued);
       }
       return;
@@ -271,7 +291,7 @@ void LocalHttpServer::readerLoop() {
         } else {
           ReadyClient completed{client.socket, move(client.request)};
           client.socket = kInvalidSocket;
-          releasePendingSlot();
+          releasePendingSlot(client.address);
           bool queued = false;
           {
             lock_guard<mutex> lock(clientQueueMutex_);

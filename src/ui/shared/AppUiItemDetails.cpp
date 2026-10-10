@@ -2,11 +2,11 @@
 
 #include "ui/shared/AppUiShared.h"
 #include "core/parts/PartDescriptor.h"
+#include "core/parts/PhysicalValue.h"
 
 #include <algorithm>
 #include <cctype>
 #include <optional>
-#include <regex>
 
 namespace inventatory {
 
@@ -74,33 +74,8 @@ bool looksLikeInductanceValue(const string& value) {
   return normalized.find_first_of("0123456789") != string::npos && normalized.back() == 'h';
 }
 
-string canonicalInductanceUnit(string unit) {
-  unit = toLower(move(unit));
-  if (unit == "uh") {
-    return "uH";
-  }
-  if (unit == "nh") {
-    return "nH";
-  }
-  if (unit == "mh") {
-    return "mH";
-  }
-  if (unit == "ph") {
-    return "pH";
-  }
-  return "H";
-}
-
 optional<string> extractInductanceFromText(const string& text) {
-  regex valuePattern(R"(\b(\d+(?:\.\d+)?|\d+[rR]\d+)\s*([munp]?h)\b)", regex_constants::icase);
-  smatch match;
-  if (regex_search(text, match, valuePattern) && match.size() > 2) {
-    auto number = match[1].str();
-    replace(number.begin(), number.end(), 'R', '.');
-    replace(number.begin(), number.end(), 'r', '.');
-    return number + canonicalInductanceUnit(match[2].str());
-  }
-  return nullopt;
+  return value_text::extractInductance(text);
 }
 
 const Parameter* findParameter(const vector<Parameter>& parameters, initializer_list<const char*> names) {

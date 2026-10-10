@@ -77,14 +77,26 @@ bool parseBluetoothAddress(const std::string& value, uint64_t& address) {
 
 GVariant* callBluez(GDBusConnection* connection, const std::string& objectPath, const char* interfaceName,
                     const char* methodName, GVariant* parameters, const GVariantType* expectedReply,
-                    int timeoutMs, std::string* errorText = nullptr) {
+                    int timeoutMs, std::string* errorText = nullptr, std::string* errorName = nullptr) {
+  if (errorName != nullptr) errorName->clear();
   if (connection == nullptr) return nullptr;
   GError* error = nullptr;
   auto* result = g_dbus_connection_call_sync(connection, kBluezName, objectPath.c_str(), interfaceName, methodName,
                                               parameters, expectedReply, G_DBUS_CALL_FLAGS_NONE, timeoutMs, nullptr,
                                               &error);
-  if (result == nullptr && errorText != nullptr) {
-    *errorText = error == nullptr ? "Bluetooth service request failed" : error->message;
+  if (result == nullptr) {
+    if (errorText != nullptr) {
+      *errorText = error == nullptr ? "Bluetooth service request failed" : error->message;
+    }
+    if (errorName != nullptr && error != nullptr) {
+      gchar* remoteError = g_dbus_error_get_remote_error(error);
+      if (remoteError != nullptr) {
+        *errorName = remoteError;
+        g_free(remoteError);
+      } else if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT)) {
+        *errorName = "org.freedesktop.DBus.Error.Timeout";
+      }
+    }
   }
   if (error != nullptr) g_error_free(error);
   return result;
@@ -248,8 +260,8 @@ void propertiesChanged(GDBusConnection*, const gchar*, const gchar*, const gchar
           state->terminal = true;
           state->succeeded = false;
         }
+        state->changed.notify_one();
       }
-      state->changed.notify_one();
       g_variant_unref(value);
     }
   }
@@ -278,6 +290,10 @@ class BluezAgent final {
         stop();
         return false;
       }
+    }
+    if (!resolveBluezOwner(error)) {
+      stop();
+      return false;
     }
     auto* reply = callBluez(connection_, "/org/bluez", "org.bluez.AgentManager1", "RegisterAgent",
                             g_variant_new("(os)", kAgentPath, "KeyboardDisplay"), G_VARIANT_TYPE("()"), 5000, &error);
@@ -313,6 +329,43 @@ class BluezAgent final {
     return expectedDevicePath_ == devicePath;
   }
 
+  // Only the unique name that owns org.bluez may drive the agent. Any other
+  // process on the system bus could otherwise call Cancel() or read the pairing
+  // code through RequestPinCode() by naming the expected device path.
+  bool senderIsBluez(GDBusMethodInvocation* invocation) const {
+    const gchar* sender = g_dbus_method_invocation_get_sender(invocation);
+    if (sender == nullptr) return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return !bluezOwner_.empty() && bluezOwner_ == sender;
+  }
+
+  // Resolved once from the thread that registers the agent, never from the agent
+  // loop thread, so method dispatch never blocks on a synchronous D-Bus call.
+  bool resolveBluezOwner(std::string& error) {
+    GError* ownerError = nullptr;
+    auto* reply = g_dbus_connection_call_sync(connection_, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                                              "org.freedesktop.DBus", "GetNameOwner",
+                                              g_variant_new("(s)", kBluezName), G_VARIANT_TYPE("(s)"),
+                                              G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, &ownerError);
+    if (reply == nullptr) {
+      error = ownerError == nullptr ? "Bluetooth service owner is unavailable" : ownerError->message;
+      if (ownerError != nullptr) g_error_free(ownerError);
+      return false;
+    }
+    if (ownerError != nullptr) g_error_free(ownerError);
+    const gchar* name = nullptr;
+    g_variant_get(reply, "(&s)", &name);
+    std::string owner = name != nullptr ? name : "";
+    g_variant_unref(reply);
+    if (owner.empty()) {
+      error = "Bluetooth service owner is unavailable";
+      return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    bluezOwner_ = std::move(owner);
+    return true;
+  }
+
   void setExpectedDevicePath(std::string devicePath) {
     std::lock_guard<std::mutex> lock(mutex_);
     expectedDevicePath_ = std::move(devicePath);
@@ -344,8 +397,8 @@ class BluezAgent final {
         {
           std::lock_guard<std::mutex> lock(item->mutex);
           item->complete = true;
+          item->changed.notify_one();
         }
-        item->changed.notify_one();
         return G_SOURCE_REMOVE;
       }, &request);
     }
@@ -386,8 +439,8 @@ class BluezAgent final {
       {
         std::lock_guard<std::mutex> lock(item->mutex);
         item->complete = true;
+        item->changed.notify_one();
       }
-      item->changed.notify_one();
       return G_SOURCE_REMOVE;
     }, &request);
     {
@@ -433,6 +486,11 @@ class BluezAgent final {
   static void methodCall(GDBusConnection*, const gchar*, const gchar*, const gchar*, const gchar* methodName,
                          GVariant* parameters, GDBusMethodInvocation* invocation, gpointer userData) {
     auto* agent = static_cast<BluezAgent*>(userData);
+    if (!agent->senderIsBluez(invocation)) {
+      g_dbus_method_invocation_return_dbus_error(invocation, "org.bluez.Error.Rejected",
+                                                 "Caller is not the Bluetooth service");
+      return;
+    }
     if (std::strcmp(methodName, "Release") == 0) {
       g_dbus_method_invocation_return_value(invocation, nullptr);
       return;
@@ -579,8 +637,8 @@ class BluezAgent final {
       if (error != nullptr) startupError_ = error->message;
       ready_ = true;
       shouldRunLoop = registration != 0 && connection != nullptr && !stopRequested_;
+      readyChanged_.notify_all();
     }
-    readyChanged_.notify_all();
     if (shouldRunLoop) g_main_loop_run(loop);
     if (registration != 0 && connection != nullptr) g_dbus_connection_unregister_object(connection, registration);
     if (node != nullptr) g_dbus_node_info_unref(node);
@@ -600,6 +658,8 @@ class BluezAgent final {
 
   std::string pairingCode_;
   std::string expectedDevicePath_;
+  // Unique bus name of org.bluez, guarded by mutex_.
+  std::string bluezOwner_;
   mutable std::mutex mutex_;
   std::condition_variable readyChanged_;
   std::thread loopThread_;
@@ -632,6 +692,17 @@ std::vector<std::string> uuidsForAdapterFilter() {
   return {kSetupServiceUuid};
 }
 
+std::string sanitizeDeviceName(const std::string& name) {
+  std::string clean;
+  clean.reserve(std::min(name.size(), static_cast<size_t>(64U)));
+  for (const unsigned char ch : name) {
+    if (ch < 0x20U || ch == 0x7fU) continue;
+    clean.push_back(static_cast<char>(ch));
+    if (clean.size() == 64U) break;
+  }
+  return clean;
+}
+
 }  // namespace
 
 BleProvisioningService::BleProvisioningService() = default;
@@ -642,6 +713,7 @@ void BleProvisioningService::startDiscovery() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     devices_.clear();
+    lastSeen_.clear();
     discovering_ = true;
   }
   worker_ = std::thread(&BleProvisioningService::discoveryLoop, this);
@@ -661,17 +733,39 @@ std::vector<BleSetupDevice> BleProvisioningService::devices() const {
 }
 
 void BleProvisioningService::rememberDevice(uint64_t address, const std::string& name, int rssi) {
+  const std::string cleanName = sanitizeDeviceName(name);
+  const auto now = std::chrono::steady_clock::now();
+
   std::lock_guard<std::mutex> lock(mutex_);
+  auto& lastSeen = lastSeen_;
+
   const auto found = std::find_if(devices_.begin(), devices_.end(), [address](const BleSetupDevice& device) {
     return device.address == address;
   });
   if (found != devices_.end()) {
-    found->name = name;
+    found->name = cleanName;
     found->rssi = rssi;
+    lastSeen[address] = now;
     return;
   }
-  if (devices_.size() >= kMaximumDiscoveredDevices) return;
-  devices_.push_back({address, name, rssi});
+  if (devices_.size() >= kMaximumDiscoveredDevices) {
+    auto oldestIt = devices_.begin();
+    auto oldestTime = std::chrono::steady_clock::time_point::max();
+    for (auto it = devices_.begin(); it != devices_.end(); ++it) {
+      const auto seenIt = lastSeen.find(it->address);
+      const auto seenTime = seenIt != lastSeen.end() ? seenIt->second : std::chrono::steady_clock::time_point::min();
+      if (seenTime < oldestTime) {
+        oldestTime = seenTime;
+        oldestIt = it;
+      }
+    }
+    if (oldestIt != devices_.end()) {
+      lastSeen.erase(oldestIt->address);
+      devices_.erase(oldestIt);
+    }
+  }
+  devices_.push_back({address, cleanName, rssi});
+  lastSeen[address] = now;
 }
 
 void BleProvisioningService::discoveryLoop() {
@@ -938,9 +1032,15 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
   g_variant_builder_init(&options, G_VARIANT_TYPE("a{sv}"));
   g_variant_builder_add(&options, "{sv}", "type", g_variant_new_string("request"));
   auto* value = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, payload.data(), payload.size(), sizeof(guint8));
+  std::string writeErrorName;
   auto* writeReply = callBluez(connection, requestPath, "org.bluez.GattCharacteristic1", "WriteValue",
                                g_variant_new("(@ay@a{sv})", value, g_variant_builder_end(&options)),
-                               G_VARIANT_TYPE("()"), 15000);
+                               G_VARIANT_TYPE("()"), 15000, nullptr, &writeErrorName);
+  const bool writeDelivered = writeReply != nullptr;
+  const bool writeTimedOut =
+      !writeDelivered &&
+      (writeErrorName == "org.freedesktop.DBus.Error.NoReply" ||
+       writeErrorName == "org.freedesktop.DBus.Error.Timeout");
   std::fill(payload.begin(), payload.end(), 0U);
 
   bool resultWasTerminal = false;
@@ -966,7 +1066,7 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
     publicError = "The scanner rejected the Wi-Fi setup request";
     return BleProvisioningOutcome::Failed;
   }
-  if (writeReply != nullptr) {
+  if (writeDelivered || writeTimedOut) {
     publicError = "Scanner setup was sent, but the scanner did not confirm it before Bluetooth closed";
     return BleProvisioningOutcome::Indeterminate;
   }

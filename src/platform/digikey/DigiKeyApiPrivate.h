@@ -46,6 +46,9 @@ struct JsonValue {
   struct Number {
     string text;
   };
+  // A string value longer than kMaximumDigiKeyFieldBytes. The parser validates its whole text but keeps none
+  // of it, so no reader can mistake a cut-off prefix for the complete value. Readers treat it as absent text.
+  struct OversizedText {};
   using Object = std::unordered_map<string, shared_ptr<JsonValue>>;
   using Array = vector<shared_ptr<JsonValue>>;
 
@@ -53,16 +56,19 @@ struct JsonValue {
   explicit JsonValue(string text) : data(std::move(text)) {}
   explicit JsonValue(Number number) : data(std::move(number)) {}
   explicit JsonValue(bool flag) : data(flag) {}
+  explicit JsonValue(OversizedText) : data(OversizedText{}) {}
   explicit JsonValue(Object object) : data(std::move(object)) {}
   explicit JsonValue(Array array) : data(std::move(array)) {}
 
-  std::variant<std::nullptr_t, bool, string, Number, Object, Array> data = nullptr;
+  std::variant<std::nullptr_t, bool, string, Number, OversizedText, Object, Array> data = nullptr;
 };
 
 using JsonPtr = shared_ptr<JsonValue>;
 
 struct SearchMatch {
   string productNumber;
+  // Every DigiKey number the product is sold under (one per packaging variation).
+  vector<string> productNumbers;
   string manufacturerId;
   string manufacturerPartNumber;
   string productDescription;
@@ -99,6 +105,8 @@ bool looksLikePackagingType(const string& value);
 optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names,
                                     const std::function<bool(const string&)>& accept = {});
 optional<string> extractInductanceFromText(const string& text);
+// Package name (SOT-23, 0805, QFN-32, ...) found in product text; only a bounded prefix of the text is searched.
+optional<string> extractComponentPackageFromText(const string& text);
 
 optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& query);
 DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr& root);

@@ -282,7 +282,10 @@ class App {
     DigiKey,
   };
 
-  enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
+  // Surface is a non-actionable region (for example an overlay panel) that
+  // consumes pointer hits so clicks do not fall through to targets beneath it.
+  // It never shows hover and is never focusable.
+  enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button, Surface };
 
   struct UiTarget {
     std::string id;
@@ -421,7 +424,21 @@ class App {
   struct ScanDigiKeyEnrichmentResult {
     std::string itemId;
     std::optional<DigiKeyProductDetails> details;
+    std::string error;
     WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct BleProvisionResult {
+    BleProvisioningOutcome outcome = BleProvisioningOutcome::Failed;
+    std::string error;
+    std::string candidateToken;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct DigiKeyTestResult {
+    bool ok = false;
+    std::string error;
+    WorkspaceGeneration generation = 0;
   };
 
   // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
@@ -482,6 +499,9 @@ class App {
     std::mutex completionMutex;
     std::optional<PrinterWorkResult> result;
     bool cancelled = false;
+    // Set by the UI thread before the worker starts and never changed afterwards, so it identifies
+    // the quick-label request that a cancelled, still-running job belongs to.
+    std::string requestId;
   };
 
   struct ImportSyncBatchResult {
@@ -585,6 +605,10 @@ class App {
   void handleActionSheetKey(const KeyEvent& key);
   ftxui::Element target(ftxui::Element element, std::string id, UiTargetKind kind,
                         std::function<void()> activate, bool enabled = true, bool focusable = true) const;
+  // Reserves a Surface region before the targets inside it are registered: hit
+  // testing runs newest-first, so those inner targets still win. Apply
+  // ftxui::reflect() to the returned box on the region's outer element.
+  ftxui::Box& reserveSurfaceTarget(std::string id) const;
   bool handleMouse(const ftxui::Mouse& mouse);
   void moveUiFocus(int delta);
   bool activateFocusedTarget();
@@ -626,6 +650,7 @@ class App {
   bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
+  void processDigiKeyTest();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -637,6 +662,8 @@ class App {
   // refused immediately so HTTP workers never wait on a loop that is no longer running.
   void cancelPendingDeviceRequests();
   void stopPrinterWork();
+  // Records the durable effects of a print job that finished before stopPrinterWork() cancelled it.
+  void recordStoppedPrinterWork(const PrinterWorkResult& result);
   std::shared_ptr<const WorkspaceContext> currentWorkspaceContext() const;
   void activateWorkspaceContext(const InventatoryDataPaths& paths);
   bool workspaceIsCurrent(WorkspaceGeneration generation) const;
@@ -686,6 +713,9 @@ class App {
   bool copyInventatoryScanToken();
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
+  void processBleProvisioning();
+  void finishBleProvisioning(BleProvisionResult result);
+  inline bool bleProvisionRunning() const { return bleProvisionFuture_.valid(); }
   void enqueueDeviceStatus(const DeviceStatusReport& report, WorkspaceGeneration workspaceGeneration);
   void processDeviceRequests();
   bool handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse& response, std::string& error);
@@ -702,6 +732,7 @@ class App {
   PrinterQueueInfo* selectedPrinterQueue();
   const PrinterQueueInfo* selectedPrinterQueue() const;
   void syncSelectionToFilter();
+  bool selectStockItemById(const std::string& itemId, bool keepView = false);
   void moveSelection(int delta);
   void changePage(Page page);
   static Page pageFor(app_navigation::PrimaryPage page);
@@ -1039,6 +1070,7 @@ class App {
   std::string blePairingCode_;
   std::string bleSetupMessage_;
   bool bleSetupOutcomeUncertain_ = false;
+  std::future<BleProvisionResult> bleProvisionFuture_;
   ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
   DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
   std::string wireLabelText_;
@@ -1072,6 +1104,7 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
+  std::future<DigiKeyTestResult> digiKeyTestFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckFailed_ = false;
