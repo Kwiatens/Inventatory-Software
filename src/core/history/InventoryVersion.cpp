@@ -105,9 +105,9 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
   }
   for (const auto& item : items) {
     const auto data = serializeItem(item);
-    sqliteApi().bind_text(itemStatement.stmt, 1, next.id.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(itemStatement.stmt, 2, item.id.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(itemStatement.stmt, 3, data.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(itemStatement.stmt, 1, next.id.c_str(), static_cast<int>(next.id.size()), SQLITE_TRANSIENT);
+    sqliteApi().bind_text(itemStatement.stmt, 2, item.id.c_str(), static_cast<int>(item.id.size()), SQLITE_TRANSIENT);
+    sqliteApi().bind_text(itemStatement.stmt, 3, data.c_str(), static_cast<int>(data.size()), SQLITE_TRANSIENT);
     if (sqliteApi().step(itemStatement.stmt) != SQLITE_DONE) return false;
     sqliteApi().reset(itemStatement.stmt);
     sqliteApi().clear_bindings(itemStatement.stmt);
@@ -122,9 +122,9 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
   }
   for (const auto& rack : racks) {
     const auto data = serializeRackSnapshot(rack);
-    sqliteApi().bind_text(rackStatement.stmt, 1, next.id.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(rackStatement.stmt, 2, rack.id.c_str(), -1, SQLITE_TRANSIENT);
-    sqliteApi().bind_text(rackStatement.stmt, 3, data.c_str(), -1, SQLITE_TRANSIENT);
+    sqliteApi().bind_text(rackStatement.stmt, 1, next.id.c_str(), static_cast<int>(next.id.size()), SQLITE_TRANSIENT);
+    sqliteApi().bind_text(rackStatement.stmt, 2, rack.id.c_str(), static_cast<int>(rack.id.size()), SQLITE_TRANSIENT);
+    sqliteApi().bind_text(rackStatement.stmt, 3, data.c_str(), static_cast<int>(data.size()), SQLITE_TRANSIENT);
     if (sqliteApi().step(rackStatement.stmt) != SQLITE_DONE) return false;
     sqliteApi().reset(rackStatement.stmt);
     sqliteApi().clear_bindings(rackStatement.stmt);
