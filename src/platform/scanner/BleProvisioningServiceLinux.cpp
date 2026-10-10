@@ -77,14 +77,26 @@ bool parseBluetoothAddress(const std::string& value, uint64_t& address) {
 
 GVariant* callBluez(GDBusConnection* connection, const std::string& objectPath, const char* interfaceName,
                     const char* methodName, GVariant* parameters, const GVariantType* expectedReply,
-                    int timeoutMs, std::string* errorText = nullptr) {
+                    int timeoutMs, std::string* errorText = nullptr, std::string* errorName = nullptr) {
+  if (errorName != nullptr) errorName->clear();
   if (connection == nullptr) return nullptr;
   GError* error = nullptr;
   auto* result = g_dbus_connection_call_sync(connection, kBluezName, objectPath.c_str(), interfaceName, methodName,
                                               parameters, expectedReply, G_DBUS_CALL_FLAGS_NONE, timeoutMs, nullptr,
                                               &error);
-  if (result == nullptr && errorText != nullptr) {
-    *errorText = error == nullptr ? "Bluetooth service request failed" : error->message;
+  if (result == nullptr) {
+    if (errorText != nullptr) {
+      *errorText = error == nullptr ? "Bluetooth service request failed" : error->message;
+    }
+    if (errorName != nullptr && error != nullptr) {
+      gchar* remoteError = g_dbus_error_get_remote_error(error);
+      if (remoteError != nullptr) {
+        *errorName = remoteError;
+        g_free(remoteError);
+      } else if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT)) {
+        *errorName = "org.freedesktop.DBus.Error.Timeout";
+      }
+    }
   }
   if (error != nullptr) g_error_free(error);
   return result;
@@ -248,8 +260,8 @@ void propertiesChanged(GDBusConnection*, const gchar*, const gchar*, const gchar
           state->terminal = true;
           state->succeeded = false;
         }
+        state->changed.notify_one();
       }
-      state->changed.notify_one();
       g_variant_unref(value);
     }
   }
@@ -344,8 +356,8 @@ class BluezAgent final {
         {
           std::lock_guard<std::mutex> lock(item->mutex);
           item->complete = true;
+          item->changed.notify_one();
         }
-        item->changed.notify_one();
         return G_SOURCE_REMOVE;
       }, &request);
     }
@@ -386,8 +398,8 @@ class BluezAgent final {
       {
         std::lock_guard<std::mutex> lock(item->mutex);
         item->complete = true;
+        item->changed.notify_one();
       }
-      item->changed.notify_one();
       return G_SOURCE_REMOVE;
     }, &request);
     {
@@ -579,8 +591,8 @@ class BluezAgent final {
       if (error != nullptr) startupError_ = error->message;
       ready_ = true;
       shouldRunLoop = registration != 0 && connection != nullptr && !stopRequested_;
+      readyChanged_.notify_all();
     }
-    readyChanged_.notify_all();
     if (shouldRunLoop) g_main_loop_run(loop);
     if (registration != 0 && connection != nullptr) g_dbus_connection_unregister_object(connection, registration);
     if (node != nullptr) g_dbus_node_info_unref(node);
@@ -972,9 +984,15 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
   g_variant_builder_init(&options, G_VARIANT_TYPE("a{sv}"));
   g_variant_builder_add(&options, "{sv}", "type", g_variant_new_string("request"));
   auto* value = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, payload.data(), payload.size(), sizeof(guint8));
+  std::string writeErrorName;
   auto* writeReply = callBluez(connection, requestPath, "org.bluez.GattCharacteristic1", "WriteValue",
                                g_variant_new("(@ay@a{sv})", value, g_variant_builder_end(&options)),
-                               G_VARIANT_TYPE("()"), 15000);
+                               G_VARIANT_TYPE("()"), 15000, nullptr, &writeErrorName);
+  const bool writeDelivered = writeReply != nullptr;
+  const bool writeTimedOut =
+      !writeDelivered &&
+      (writeErrorName == "org.freedesktop.DBus.Error.NoReply" ||
+       writeErrorName == "org.freedesktop.DBus.Error.Timeout");
   std::fill(payload.begin(), payload.end(), 0U);
 
   bool resultWasTerminal = false;
@@ -1000,7 +1018,7 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
     publicError = "The scanner rejected the Wi-Fi setup request";
     return BleProvisioningOutcome::Failed;
   }
-  if (writeReply != nullptr) {
+  if (writeDelivered || writeTimedOut) {
     publicError = "Scanner setup was sent, but the scanner did not confirm it before Bluetooth closed";
     return BleProvisioningOutcome::Indeterminate;
   }
