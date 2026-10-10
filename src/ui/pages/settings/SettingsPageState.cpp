@@ -44,6 +44,7 @@ void App::openSettings(SettingsCategory category) {
   settingsDirty_ = false;
   settingsEditingField_ = false;
   appearancePickerOpen_ = false;
+  stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
@@ -294,8 +295,11 @@ void App::commitSettingsFieldEdit() {
           setMessage("Client secret cannot be empty; press Esc to keep the stored secret", 4);
           return;
         }
+        stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
         stagedDigiKeySecret_ = inputBuffer_;
         stagedDigiKeySecretChanged_ = true;
+        inputBuffer_.assign(inputBuffer_.size(), '\0');
+        inputBuffer_.clear();
         break;
       case 2:
         if (tooLong("DigiKey account ID", kMaxDigiKeyFieldBytes, value)) return;
@@ -400,8 +404,10 @@ void App::cancelSettingsDraft() {
   settingsDirty_ = false;
   settingsEditingField_ = false;
   appearancePickerOpen_ = false;
+  stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
+  inputBuffer_.assign(inputBuffer_.size(), '\0');
   inputBuffer_.clear();
   setMessage("Settings changes discarded", 3);
 }
