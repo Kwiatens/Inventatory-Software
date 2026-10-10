@@ -105,6 +105,8 @@ bool looksLikePackagingType(const string& value);
 optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names,
                                     const std::function<bool(const string&)>& accept = {});
 optional<string> extractInductanceFromText(const string& text);
+// Package name (SOT-23, 0805, QFN-32, ...) found in product text; only a bounded prefix of the text is searched.
+optional<string> extractComponentPackageFromText(const string& text);
 
 optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& query);
 DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr& root);

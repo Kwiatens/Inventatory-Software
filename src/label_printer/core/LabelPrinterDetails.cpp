@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
-#include <regex>
 #include <sstream>
 
 namespace inventatory {
@@ -65,14 +64,96 @@ string trimTrailingZeros(string number) {
   return number;
 }
 
+// The label patterns in this file were std::regex searches. std::regex matchers may use stack that
+// grows with the input length, and imported text can be very long, so these are linear scanners.
+// They match the same ASCII grammar: \d is [0-9], \s is the C isspace set, and (?![A-Za-z]) is an
+// ASCII letter test. Each scanner finds the leftmost match, as regex_search does.
+bool isAsciiDigitChar(char ch) { return ch >= '0' && ch <= '9'; }
+
+bool isAsciiLetterChar(char ch) { return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'); }
+
+bool isRegexSpaceChar(char ch) {
+  return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r';
+}
+
+size_t skipRegexSpaces(const string& value, size_t pos) {
+  while (pos < value.size() && isRegexSpaceChar(value[pos])) ++pos;
+  return pos;
+}
+
+// True when `literal` occurs at `pos`. An empty literal matches at every position up to the end.
+bool literalAt(const string& value, size_t pos, const char* literal) {
+  return pos <= value.size() && value.compare(pos, strlen(literal), literal) == 0;
+}
+
+bool letterAt(const string& value, size_t pos) { return pos < value.size() && isAsciiLetterChar(value[pos]); }
+
+// End of the decimal \d+(?:\.\d+)? that starts at `pos`, which must hold a digit. The fraction is
+// taken whenever it is present: every pattern here needs a space, "m", "x" or ")" after the number,
+// so a shorter number could never be followed by a match.
+size_t decimalEnd(const string& value, size_t pos) {
+  size_t end = pos;
+  while (end < value.size() && isAsciiDigitChar(value[end])) ++end;
+  if (end + 1 < value.size() && value[end] == '.' && isAsciiDigitChar(value[end + 1])) {
+    ++end;
+    while (end < value.size() && isAsciiDigitChar(value[end])) ++end;
+  }
+  return end;
+}
+
+// Matches (\d+(?:\.\d+)?)\s*mm\s*[xX]\s*(\d+(?:\.\d+)?)\s*mm at `start`, which must hold a digit.
+bool metricSizeAt(const string& value, size_t start, string& first, string& second) {
+  const size_t firstEnd = decimalEnd(value, start);
+  size_t pos = skipRegexSpaces(value, firstEnd);
+  if (!literalAt(value, pos, "mm")) return false;
+  pos = skipRegexSpaces(value, pos + 2);
+  if (pos >= value.size() || (value[pos] != 'x' && value[pos] != 'X')) return false;
+  pos = skipRegexSpaces(value, pos + 1);
+  if (pos >= value.size() || !isAsciiDigitChar(value[pos])) return false;
+  const size_t secondEnd = decimalEnd(value, pos);
+  if (!literalAt(value, skipRegexSpaces(value, secondEnd), "mm")) return false;
+  first = value.substr(start, firstEnd - start);
+  second = value.substr(pos, secondEnd - pos);
+  return true;
+}
+
+// The leftmost "N mm x N mm" in `value`, with both numbers as written.
+bool findMetricSize(const string& value, string& first, string& second) {
+  size_t start = 0;
+  while (start < value.size()) {
+    if (!isAsciiDigitChar(value[start])) {
+      ++start;
+      continue;
+    }
+    if (metricSizeAt(value, start, first, second)) return true;
+    // Every later start inside this digit run reaches the same end of the run, so none can match
+    // either: skip to the end of the run.
+    while (start < value.size() && isAsciiDigitChar(value[start])) ++start;
+  }
+  return false;
+}
+
+// The leftmost "(N mm)" in `value`, with the number as written. Only '(' can start the match.
+bool findBracketedMetric(const string& value, string& number) {
+  for (size_t open = value.find('('); open != string::npos; open = value.find('(', open + 1)) {
+    if (open + 1 >= value.size() || !isAsciiDigitChar(value[open + 1])) continue;
+    const size_t end = decimalEnd(value, open + 1);
+    if (literalAt(value, skipRegexSpaces(value, end), "mm)")) {
+      number = value.substr(open + 1, end - open - 1);
+      return true;
+    }
+  }
+  return false;
+}
+
 // "0.157" L x 0.157" W (4.00mm x 4.00mm)" -> "4x4mm".
 string metricSizeLine(const string& value) {
-  static const regex pattern(R"((\d+(?:\.\d+)?)\s*mm\s*[xX]\s*(\d+(?:\.\d+)?)\s*mm)");
-  smatch match;
-  if (!regex_search(value, match, pattern)) {
+  string first;
+  string second;
+  if (!findMetricSize(value, first, second)) {
     return {};
   }
-  return trimTrailingZeros(match[1].str()) + "x" + trimTrailingZeros(match[2].str()) + "mm";
+  return trimTrailingZeros(first) + "x" + trimTrailingZeros(second) + "mm";
 }
 
 // Cuts a vendor list ("Polyester, Metallized") at its first comma, but keeps a
@@ -114,19 +195,70 @@ optional<string> exactParameter(const InventoryItem& item, initializer_list<cons
 // unit is a mismatched parameter, and a blank tile is better than a wrong one.
 enum class Unit { Any, Volt, Amp, Watt, Ohm, Hertz, Celsius, Millimetre };
 
+// The positions where the unit letters may start after an optional SI prefix, in the order a regex
+// engine tries them: after the prefix when one is present, then at `pos` itself.
+vector<size_t> unitStarts(const string& value, size_t pos, const char* prefixes, bool micro) {
+  static const char kMicroSign[] = u8"µ";
+  vector<size_t> starts;
+  if (pos < value.size() && value[pos] != '\0' && strchr(prefixes, value[pos]) != nullptr) starts.push_back(pos + 1);
+  if (micro && literalAt(value, pos, kMicroSign)) starts.push_back(pos + 2);
+  starts.push_back(pos);
+  return starts;
+}
+
+// Whether a unit of `unit` follows the digit that precedes `pos`, with the spaces after the digit
+// already skipped. The patterns these replace were \d\s*(prefix)?UNIT(?![A-Za-z]) and similar.
+bool unitAfterDigit(const string& value, size_t pos, Unit unit) {
+  static const char kSiPrefixes[] = "pnumkKMG";
+  switch (unit) {
+    case Unit::Any:
+      return true;
+    case Unit::Volt:
+      for (const size_t letter : unitStarts(value, pos, kSiPrefixes, true)) {
+        if (!literalAt(value, letter, "V")) continue;
+        // (?:DC|AC|dc|ac)? is tried with its suffix first, then without it.
+        for (const char* suffix : {"DC", "AC", "dc", "ac", ""}) {
+          if (literalAt(value, letter + 1, suffix) && !letterAt(value, letter + 1 + strlen(suffix))) return true;
+        }
+      }
+      return false;
+    case Unit::Amp:
+      for (const size_t letter : unitStarts(value, pos, kSiPrefixes, true)) {
+        if (literalAt(value, letter, "A") && !letterAt(value, letter + 1)) return true;
+      }
+      return false;
+    case Unit::Watt:
+      for (const size_t letter : unitStarts(value, pos, kSiPrefixes, true)) {
+        if (literalAt(value, letter, "W") && !letterAt(value, letter + 1)) return true;
+      }
+      return false;
+    case Unit::Ohm:
+      for (const size_t letter : unitStarts(value, pos, kSiPrefixes, true)) {
+        if (literalAt(value, letter, u8"Ω") || literalAt(value, letter, "Ohm")) return true;
+      }
+      return false;
+    case Unit::Hertz:
+      for (const size_t letter : unitStarts(value, pos, "kKMG", false)) {
+        if (literalAt(value, letter, "Hz")) return true;
+      }
+      return false;
+    case Unit::Celsius:
+      if (literalAt(value, pos, u8"°") && literalAt(value, skipRegexSpaces(value, pos + 2), "C")) return true;
+      return literalAt(value, pos, "C") && !letterAt(value, pos + 1);
+    case Unit::Millimetre:
+      return literalAt(value, pos, "mm") && !letterAt(value, pos + 2);
+  }
+  return false;
+}
+
 bool hasUnit(const string& value, Unit unit) {
   if (unit == Unit::Any) return true;
-  // Compiled once, in Unit order after Any: building a std::regex is far costlier than matching it.
-  static const regex kUnitPatterns[] = {
-      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?V(?:DC|AC|dc|ac)?(?![A-Za-z]))"),
-      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?A(?![A-Za-z]))"),
-      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?W(?![A-Za-z]))"),
-      regex(u8R"(\d\s*(?:[pnumkKMG]|µ)?(?:Ω|Ohm))"),
-      regex(u8R"(\d\s*[kKMG]?Hz)"),
-      regex(u8R"(\d\s*(?:°\s*C|C(?![A-Za-z])))"),
-      regex(u8R"(\d\s*mm(?![A-Za-z]))"),
-  };
-  return regex_search(value, kUnitPatterns[static_cast<size_t>(unit) - 1]);
+  // Every unit pattern starts with a digit, so the digit is the only possible match start. No unit
+  // begins with a space, so the greedy run of spaces after a digit is the only choice that can match.
+  for (size_t at = 0; at < value.size(); ++at) {
+    if (isAsciiDigitChar(value[at]) && unitAfterDigit(value, skipRegexSpaces(value, at + 1), unit)) return true;
+  }
+  return false;
 }
 
 // "Through Hole" and "Surface Mount" describe how a part is fitted, never an
@@ -362,10 +494,9 @@ string labelTileValue(const string& value) {
   replaceAll(text, u8"®", "");
   replaceAll(text, u8"™", "");
   // Vendors often give inches with millimetres in brackets; keep the metric value.
-  static const regex metricInBrackets(R"(\((\d+(?:\.\d+)?)\s*mm\))");
-  smatch metric;
-  if (text.find('"') != string::npos && regex_search(text, metric, metricInBrackets)) {
-    text = trimTrailingZeros(metric[1].str()) + "mm";
+  string bracketed;
+  if (text.find('"') != string::npos && findBracketedMetric(text, bracketed)) {
+    text = trimTrailingZeros(bracketed) + "mm";
   }
   text = cutAt(text, " @ ");
   text = cutAtListComma(text);

@@ -47,9 +47,15 @@ optional<string> extractComponentPackageFromText(const string& text) {
     return patterns;
   }();
 
+  // std::regex matchers may use stack that grows with the input length, and imported descriptions can
+  // be very long. Only the first 4096 bytes are searched: package names sit in short descriptions, so
+  // only a package name beyond that bound (or one cut by it) can change the result.
+  constexpr size_t kMaxSearchedBytes = 4096;
+  const string searched = text.substr(0, kMaxSearchedBytes);
+
   for (const auto& re : kPatterns) {
     smatch match;
-    if (regex_search(text, match, re) && match.size() > 1) return match[1].str();
+    if (regex_search(searched, match, re) && match.size() > 1) return match[1].str();
   }
 
   return nullopt;
