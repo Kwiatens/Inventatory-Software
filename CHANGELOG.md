@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the system bus can no longer cancel pairing or ask for the pairing code.
 - Stock: a bare search word such as `r1` finds rack R1 only, not R10 to R19, and the mouse wheel over the
   open Sort / Filter panel no longer moves the stock rows behind it.
+- Import and labels: very long text no longer risks overflowing the stack while label sizes, units and
+  package names are read, and an embedded NUL in a stored name is kept instead of cutting the text.
 - Stock: the ranked list header keeps the Filter button visible at 100 columns.
 - Import: a very long text field no longer crashes inductance detection, a very long label name no
   longer stalls printing, a CSV with millions of cells is refused instead of using gigabytes of memory,
