@@ -1672,6 +1672,8 @@ void testLinuxControllerLockProbesNeverBlockAcquisition() {
       probes.fetch_add(1);
     }
   });
+  // Wait until the prober has really run, so the acquisitions below overlap with it even on a busy machine.
+  while (probes.load() == 0) this_thread::yield();
   int failures = 0;
   for (int attempt = 0; attempt < 300; ++attempt) {
     BackgroundController service;
