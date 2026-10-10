@@ -3020,6 +3020,17 @@ void testPackageGHardening() {
       assert(!error.empty());
     }
 
+    // A NUL escape is refused, and other escaped control characters never reach the inventory as such.
+    error.clear();
+    assert(!digikey_detail::parseJson(R"({"d":"a\u0000b"})", &error).has_value());
+    assert(error.find("NUL") != string::npos);
+    {
+      string controlError;
+      const auto controls = digikey_detail::parseJson(R"({"d":"a\u001bb\n\u009bc\t"})", &controlError);
+      assert(controls.has_value());
+      assert(digikey_detail::readStringPath(*controls, {"d"}).value_or("") == "a b  c");
+    }
+
     string deeplyNested = "0";
     for (size_t index = 0; index < 66; ++index) deeplyNested = "{\"nested\":" + deeplyNested + "}";
     assert(!validateDigiKeyJsonPayload(deeplyNested, &error));
