@@ -702,6 +702,7 @@ class App {
   PrinterQueueInfo* selectedPrinterQueue();
   const PrinterQueueInfo* selectedPrinterQueue() const;
   void syncSelectionToFilter();
+  bool selectStockItemById(const std::string& itemId, bool keepView = false);
   void moveSelection(int delta);
   void changePage(Page page);
   static Page pageFor(app_navigation::PrimaryPage page);

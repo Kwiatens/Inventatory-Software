@@ -231,6 +231,33 @@ void App::syncSelectionToFilter() {
   dirty_ = true;
 }
 
+// The stock selection is a position in the sorted and filtered match list, not an index into the store, so
+// a part picked from another page is found in that list by id. Unless keepView is set, or the part is already
+// visible, the search, the closest-value mode, the sort and the date filter are reset so the part is shown.
+bool App::selectStockItemById(const string& itemId, bool keepView) {
+  const auto locate = [&]() -> optional<size_t> {
+    const auto matches = stockSearchMatches();
+    for (size_t position = 0; position < matches.size(); ++position) {
+      if (store_.items()[matches[position].itemIndex].id == itemId) return position;
+    }
+    return nullopt;
+  };
+  auto position = keepView && !closestSearchActive_ ? locate() : nullopt;
+  if (!position) {
+    searchQuery_.clear();
+    closestSearchActive_ = false;
+    resetStockFilterState(stockDateFilter_, stockSortOrder_);
+    position = locate();
+  }
+  if (!position) {
+    syncSelectionToFilter();
+    return false;
+  }
+  selectedPosition_ = *position;
+  dirty_ = true;
+  return true;
+}
+
 void App::moveSelection(int delta) {
   const auto matches = stockSearchMatches();
   if (matches.empty()) {
