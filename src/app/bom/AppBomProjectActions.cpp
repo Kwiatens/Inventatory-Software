@@ -124,11 +124,14 @@ bool App::saveBomProjects() {
 }
 
 void App::beginBomProject(const string& bomText, const string& name, const filesystem::path& sourcePath) {
-  bomFile_ = parseKicadBomText(bomText, name);
-  if (!bomFile_.ok) {
-    setMessage("BOM import failed: " + bomFile_.error, 6);
+  // Parse into a local first: a failed re-import must keep the BOM that the open project is analysed from,
+  // otherwise the next refreshBomAnalysis() would invalidate that project's analysis.
+  auto parsed = parseKicadBomText(bomText, name);
+  if (!parsed.ok) {
+    setMessage("BOM import failed: " + parsed.error, 6);
     return;
   }
+  bomFile_ = std::move(parsed);
 
   // A freshly imported project is held in memory until the user pins it, so a
   // one-off analysis never clutters the list.
