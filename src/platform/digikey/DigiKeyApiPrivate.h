@@ -63,6 +63,8 @@ using JsonPtr = shared_ptr<JsonValue>;
 
 struct SearchMatch {
   string productNumber;
+  // Every DigiKey number the product is sold under (one per packaging variation).
+  vector<string> productNumbers;
   string manufacturerId;
   string manufacturerPartNumber;
   string productDescription;
