@@ -282,7 +282,10 @@ class App {
     DigiKey,
   };
 
-  enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button };
+  // Surface is a non-actionable region (for example an overlay panel) that
+  // consumes pointer hits so clicks do not fall through to targets beneath it.
+  // It never shows hover and is never focusable.
+  enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button, Surface };
 
   struct UiTarget {
     std::string id;
@@ -599,6 +602,10 @@ class App {
   void handleActionSheetKey(const KeyEvent& key);
   ftxui::Element target(ftxui::Element element, std::string id, UiTargetKind kind,
                         std::function<void()> activate, bool enabled = true, bool focusable = true) const;
+  // Reserves a Surface region before the targets inside it are registered: hit
+  // testing runs newest-first, so those inner targets still win. Apply
+  // ftxui::reflect() to the returned box on the region's outer element.
+  ftxui::Box& reserveSurfaceTarget(std::string id) const;
   bool handleMouse(const ftxui::Mouse& mouse);
   void moveUiFocus(int delta);
   bool activateFocusedTarget();
