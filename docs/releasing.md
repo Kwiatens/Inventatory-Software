@@ -38,4 +38,8 @@ is made public, or right after.
       disallow force pushes and branch deletion.
 - [ ] Default workflow token permission read-only, and approval required for
       workflows from first-time contributors (Settings, Actions).
+- [ ] Repository variable `SCAN_FIRMWARE_REPOSITORY` (owner/repo, for example
+      `Kwiatens/Inventatory-Firmware`). Set it only once that repository is
+      public. Release builds check it for Scan R1 firmware updates, and a
+      private repository cannot be checked, so leave the variable unset until then.
 - [ ] Community profile (`/community`) shows every item complete.
