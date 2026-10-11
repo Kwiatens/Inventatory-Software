@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Hardware Inventory Management System
 // Terminal application controller and shared app state.
 
@@ -386,6 +389,7 @@ class App {
     std::optional<std::uint32_t> swatch;
     int field = -1;  // settingsField_ to select while the cursor is on this row
     bool buttonsOnFocus = false;  // contextual buttons, shown only on the focused row
+    bool buttonsOnly = false;  // no label or value: the buttons start the row (unconfigured integrations)
     bool editing = false;
     bool focusable() const { return static_cast<bool>(activate) || !buttons.empty(); }
   };

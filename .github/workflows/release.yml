@@ -62,13 +62,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          SCAN_FIRMWARE_REPOSITORY: ${{ vars.SCAN_FIRMWARE_REPOSITORY }}
         run: |
           $tag = $env:RELEASE_TAG
           $version = $tag.Substring(1)
           cmake -S . -B build "-DINVENTATORY_VERSION=$version" `
             "-DINVENTATORY_RELEASE_REPOSITORY=$env:GITHUB_REPOSITORY" `
-            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=$env:GITHUB_REPOSITORY_OWNER/Inventatory-Firmware"
+            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=$env:SCAN_FIRMWARE_REPOSITORY"
           cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
           ctest --test-dir build -C Release --output-on-failure
       - name: Package release assets
@@ -92,11 +92,9 @@ jobs:
           # The package-level LICENSE is sourced from the tracked complete
           # GPL text so a clean release run never depends on stale dist output.
           Copy-Item -LiteralPath $trackedLicense -Destination (Join-Path $packageRoot 'LICENSE') -Force
-          New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'docs') | Out-Null
-          Copy-Item -LiteralPath 'docs\public-beta.md' -Destination (Join-Path $packageRoot 'docs') -Force
           $requiredFiles = @(
             'inventatory.exe', 'inventatory-background.exe', 'LICENSE', 'LICENSE.md', 'README.md', 'THIRD_PARTY_NOTICES.md',
-            'Uninstall-Inventatory.cmd', 'Uninstall-Inventatory.ps1', 'docs\public-beta.md'
+            'Uninstall-Inventatory.cmd', 'Uninstall-Inventatory.ps1'
           )
           foreach ($requiredFile in $requiredFiles) {
             if (-not (Test-Path (Join-Path $packageRoot $requiredFile))) {
@@ -179,18 +177,18 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          SCAN_FIRMWARE_REPOSITORY: ${{ vars.SCAN_FIRMWARE_REPOSITORY }}
         run: |
           version="${RELEASE_TAG#v}"
           cmake -S . -B build-linux-debug -DCMAKE_BUILD_TYPE=Debug \
             -DINVENTATORY_VERSION="$version" \
             -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
-            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$GITHUB_REPOSITORY_OWNER/Inventatory-Firmware"
+            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$SCAN_FIRMWARE_REPOSITORY"
           cmake --build build-linux-debug --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
           cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release \
             -DINVENTATORY_VERSION="$version" \
             -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
-            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$GITHUB_REPOSITORY_OWNER/Inventatory-Firmware"
+            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$SCAN_FIRMWARE_REPOSITORY"
           cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
           export INVENTATORY_REQUIRE_LOCALE_TESTS=1
           export INVENTATORY_REQUIRE_KEYRING_TESTS=1
@@ -216,13 +214,11 @@ jobs:
         run: |
           set -euo pipefail
           package_root="$PWD/dist/Inventatory"
-          mkdir -p "$package_root/docs"
           install -m 755 build-linux-release/inventatory "$package_root/inventatory"
           install -m 644 LICENSE LICENSE.md README.md THIRD_PARTY_NOTICES.md "$package_root/"
-          install -m 644 docs/linux-support.md "$package_root/docs/linux-support.md"
           archive_path="$PWD/dist/Inventatory-linux-x64.tar.gz"
           tar -C "$package_root" -czf "$archive_path" \
-            inventatory LICENSE LICENSE.md README.md THIRD_PARTY_NOTICES.md docs/linux-support.md
+            inventatory LICENSE LICENSE.md README.md THIRD_PARTY_NOTICES.md
           install -m 755 installer/Install-Inventatory.sh dist/Install-Inventatory.sh
           (
             cd dist

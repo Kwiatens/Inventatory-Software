@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - GitHub release update discovery for public releases.
 
 #define WIN32_LEAN_AND_MEAN
@@ -132,7 +135,7 @@ bool validPrerelease(const std::string& value) {
       previousSeparator = false;
       continue;
     }
-    if (ch != '.' && ch != '-' || previousSeparator) return false;
+    if ((ch != '.' && ch != '-') || previousSeparator) return false;
     previousSeparator = true;
   }
   return true;

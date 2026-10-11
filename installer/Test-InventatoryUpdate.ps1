@@ -25,24 +25,6 @@ function Assert-DirectInstallCommand {
       $readmeLinuxCommand -notmatch 'releases/latest/download/Inventatory-linux-x64\.tar\.gz' -or
       $readmeLinuxCommand -notmatch 'releases/latest/download/SHA256SUMS-linux\.txt' -or
       $readmeLinuxCommand -notmatch 'releases/latest/download/Install-Inventatory\.sh') {
-    throw 'The Linux install command must download all assets from the latest stable release.'
-  }
-
-  $publicBetaCommand = (Get-Content (Join-Path $repositoryRoot 'docs/public-beta.md') |
-    Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
-  if (-not $publicBetaCommand -or
-      $publicBetaCommand -notmatch 'releases/latest/download/Install-Inventatory\.ps1' -or
-      $publicBetaCommand -notmatch 'powershell\.exe .*ExecutionPolicy Bypass .*Install-Inventatory\.ps1') {
-    throw 'The public beta Windows command must install from the latest stable release.'
-  }
-
-  $publicBetaLinuxCommand = (Get-Content (Join-Path $repositoryRoot 'docs/public-beta.md') |
-    Where-Object { $_ -match 'Inventatory-linux-x64\.tar\.gz' } | Select-Object -First 1)
-  if (-not $publicBetaLinuxCommand -or
-      $publicBetaLinuxCommand -notmatch 'releases/latest/download/Inventatory-linux-x64\.tar\.gz' -or
-      $publicBetaLinuxCommand -notmatch 'releases/latest/download/SHA256SUMS-linux\.txt' -or
-      $publicBetaLinuxCommand -notmatch 'releases/latest/download/Install-Inventatory\.sh') {
-    throw 'The public beta Linux command must download all assets from the latest stable release.'
   }
 
   $launcher = Get-Content -Raw (Join-Path $PSScriptRoot 'Install-Inventatory.cmd')

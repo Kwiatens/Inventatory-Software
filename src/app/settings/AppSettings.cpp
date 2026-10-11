@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Hardware Inventory Management System
 // Versioned user-level application settings, stored outside inventory data.
 
@@ -318,7 +321,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   } catch (...) {
     return false;
   }
-  if (!input.eof() || malformedLine || malformedAppearance && !legacyFormat || loaded.schemaVersion < 1 ||
+  if (!input.eof() || malformedLine || (malformedAppearance && !legacyFormat) || loaded.schemaVersion < 1 ||
       loaded.schemaVersion > 2 || loaded.lowStockThreshold <= 0 ||
       loaded.lastUpdateCheckUnixSeconds < 0 || !validOptionalText(loadedDataDirectory, kMaxDataDirectoryBytes) ||
       !validOptionalText(loaded.printerQueue, kMaxPrinterQueueBytes) ||
