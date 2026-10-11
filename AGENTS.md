@@ -5,6 +5,11 @@ Inventatory. It describes the current codebase and its supported behavior. Do
 not treat it as a reason to redesign the application: first understand the
 existing path, preserve its invariants, and make the smallest coherent change.
 
+Rules shared with the scanner firmware repository (commit and changelog format,
+licensing headers, agent autonomy, secrets and logging, verification reporting)
+are in [docs/project-standards.md](docs/project-standards.md). This file adds the
+rules for the application code.
+
 ## Project overview
 
 Inventatory is a C++17 terminal inventory application in public beta with
@@ -40,6 +45,15 @@ this six-destination navigation; keep them synchronized when changing it.
 Repository-wide instructions belong here. A future nested `AGENTS.md` may add
 more specific rules for a subtree, but it must not silently contradict the
 security, persistence, or UI invariants below.
+
+## Autonomy and reporting
+
+- Commit, push, tag, open pull requests, or publish releases only when the user
+  asks for that step.
+- Do not discard, overwrite, or revert changes you did not make.
+- Report verification by the level that actually ran (compiled, host or unit
+  tests executed, or hardware and live integration executed). List the checks
+  you could not run and why.
 
 ## Repository map and ownership
 
@@ -332,27 +346,16 @@ tracked source, documentation, installer scripts, and workflow files are the
 reviewable inputs. If a generated file is needed for a release, update the
 tracked source/script that produces it and verify the generated result locally.
 
-## Change and commit standard
+## Commits and changelog
 
-Use one logical change per commit. Allowed types are:
+The commit format (types, shared scopes, subject and body rules, breaking
+changes), AI co-author trailers, and the changelog rules are in
+[docs/project-standards.md](docs/project-standards.md). The domain scopes for this
+repository are:
 
-`feat`, `fix`, `refactor`, `perf`, `style`, `test`, `docs`, `build`, `ci`,
-`chore`, `revert`.
-
-The scope is required for normal changes and should be short, lowercase, and
-meaningful, for example `inventory`, `storage`, `ui`, `setup`, `startup`,
-`import`, `scan`, `platform`, `printer`, `release`, `build`, `ci`, or `project`.
-
-Commit subjects must use imperative present tense, start with a lowercase word
-after the colon, omit a trailing period and vague wording, stay concise (ideally
-72 characters or fewer), and describe the user or maintenance outcome rather
-than the editor or AI used. Never include `WIP`, temporary debugging language,
-credentials, or local paths.
-
-Use a body after a blank line when the non-obvious reason, compatibility
-constraint, security consequence, migration, or testing matters. Wrap body
-text near 100 columns. Breaking changes use `!` after the scope and include a
-`BREAKING CHANGE:` footer.
+`app`, `background`, `bom`, `catalogue`, `core`, `device`, `digikey`, `history`,
+`import`, `inventory`, `labels`, `platform`, `printer`, `racks`, `restore`,
+`scan`, `search`, `settings`, `setup`, `startup`, `stock`, `storage`, `ui`, `update`.
 
 Examples:
 
@@ -361,8 +364,8 @@ feat(import): add KiCad BOM project matching
 fix(storage): preserve inventory history during restore
 refactor(ui): move shared detail formatting into helpers
 test(scan): cover replayed device counters
-docs(project): document release installation
-build(cmake): pin the bundled SQLite amalgamation
+docs(release): document release installation
+ci(build): pin the release workflow to a full commit SHA
 ```
 
 Do not commit generated output, unrelated cleanup, temporary checkpoints,
@@ -383,4 +386,6 @@ must not expose local tooling or an AI agent.
 - [ ] No credentials, secrets, local paths, generated output, or unrelated
       files entered the diff.
 - [ ] Version bumps include a corresponding entry in `CHANGELOG.md`.
-- [ ] Commit/PR wording follows the standard above.
+- [ ] Commit, branch and PR wording follows
+      [docs/project-standards.md](docs/project-standards.md), and new source
+      files carry the SPDX header.
