@@ -6,8 +6,8 @@
 
 **Open-source, terminal-based hardware inventory management for PCB designers.**
 
-Track your hardware components in a fast terminal UI. The system is designed so that most of the work is automated.
-Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' barcode scanner and much more.
+Track your hardware components in a fast terminal UI. Designed so that most of the work is automated.
+Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1' device and much more.
 
 [![Release](https://img.shields.io/github/v/release/Kwiatens/Inventatory-Software?include_prereleases&style=flat-square&color=58B9B0&labelColor=0D1010)](https://github.com/Kwiatens/Inventatory-Software/releases/latest)
 [![License](https://img.shields.io/github/license/Kwiatens/Inventatory-Software?style=flat-square&color=58B9B0&labelColor=0D1010)](LICENSE)
@@ -21,11 +21,10 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' b
 </div>
 
 ---
-
-> **Status:** public beta (`0.1.4`, see [CHANGELOG.md](CHANGELOG.md)).
-
 > **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
 > There you can explore what the project can do and find the documentation and instructions.
+
+> **Current version:** public beta (`0.1.4`, see [CHANGELOG.md](CHANGELOG.md)).
 
 ## Install on Windows
 
@@ -44,7 +43,12 @@ Run it with
 `$HOME/.local/bin/inventatory`. See [Linux support](docs/linux-support.md) for
 runtime dependencies, scanner access, data locations, and native build steps.
 
-The whole system is **designed to be extremely fast, and requires as little user input as possible.**
+The whole system is **designed to be fast, and require as little user input as possible** - so that you can focus on your job, and not on micromanaging your inventory.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="branding/readme/roadmap-light.svg">
+  <img src="branding/readme/roadmap.svg" alt="Plans and future features: MCP integration, multi-user workflow, more vendor APIs, more EDA software, custom rack sizes and parametric racks." width="830">
+</picture>
 
 Key features:
 - The system automatically assigns each part to a specific slot on each 3D-printable rack, so later it can give you the precise location of it, not just generic 'Drawer 12'.
@@ -53,11 +57,6 @@ Key features:
 - Direct integration with the most popular electronics part vendors (such as DigiKey).
 - ZPL Label Printer integration for the tubes that go on 3D printable storage racks.
 - Search by electrical parameters, not only by name! Electrical parameters are applied automatically too, from the vendor's API.
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="branding/readme/roadmap-light.svg">
-  <img src="branding/readme/roadmap.svg" alt="Plans and future features: MCP integration, multi-user workflow, more vendor APIs, more EDA software, custom rack sizes and parametric racks." width="830">
-</picture>
 
 ## Building and testing
 
