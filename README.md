@@ -29,8 +29,7 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 
 ## Install on Windows
 
-Open Command Prompt and paste the following command to download and install the
-latest stable release for the current Windows user:
+Open Command Prompt and paste the following command:
 
     curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
@@ -40,7 +39,7 @@ On Ubuntu 24.04:
 
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
-Run it with
+Then run with
 `$HOME/.local/bin/inventatory`. See [Linux support](docs/linux-support.md)
 
 <picture>
@@ -50,11 +49,9 @@ Run it with
 
 ## Building and testing
 
-Build with CMake 3.20 or newer and a C++17 compiler, then run `ctest --test-dir <build-dir> --output-on-failure`.
-The core tests are one program, `inventatory_tests`; run `inventatory_tests --list` to see its tests and
-`inventatory_tests --filter <text>` to run only the ones whose name contains the text. The exact build commands
-are in [docs/public-beta.md](docs/public-beta.md) and the Linux test notes in
-[docs/linux-support.md](docs/linux-support.md#running-the-tests).
+All the information here and below is only useful, when you want to manually compile the software.
+
+Build with CMake 3.20 or newer and a C++17 compiler, then run tests with `ctest --test-dir <build-dir> --output-on-failure`.
 
 ## Documentation
 
@@ -69,4 +66,4 @@ are in [docs/public-beta.md](docs/public-beta.md) and the Linux test notes in
 
 ## License
 
-Inventatory is licensed under GPL-3.0-only. Each release package includes the complete license text; see [LICENSE.md](LICENSE.md) for the project notice.
+Inventatory is licensed under GPL-3.0-only. See [LICENSE.md](LICENSE.md) for the project notice.
