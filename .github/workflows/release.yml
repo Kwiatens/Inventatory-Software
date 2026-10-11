@@ -62,13 +62,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          SCAN_FIRMWARE_REPOSITORY: ${{ vars.SCAN_FIRMWARE_REPOSITORY }}
         run: |
           $tag = $env:RELEASE_TAG
           $version = $tag.Substring(1)
           cmake -S . -B build "-DINVENTATORY_VERSION=$version" `
             "-DINVENTATORY_RELEASE_REPOSITORY=$env:GITHUB_REPOSITORY" `
-            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=$env:GITHUB_REPOSITORY_OWNER/Inventatory-Firmware"
+            "-DINVENTATORY_SCAN_FIRMWARE_REPOSITORY=$env:SCAN_FIRMWARE_REPOSITORY"
           cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
           ctest --test-dir build -C Release --output-on-failure
       - name: Package release assets
@@ -177,18 +177,18 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          SCAN_FIRMWARE_REPOSITORY: ${{ vars.SCAN_FIRMWARE_REPOSITORY }}
         run: |
           version="${RELEASE_TAG#v}"
           cmake -S . -B build-linux-debug -DCMAKE_BUILD_TYPE=Debug \
             -DINVENTATORY_VERSION="$version" \
             -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
-            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$GITHUB_REPOSITORY_OWNER/Inventatory-Firmware"
+            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$SCAN_FIRMWARE_REPOSITORY"
           cmake --build build-linux-debug --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
           cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release \
             -DINVENTATORY_VERSION="$version" \
             -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
-            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$GITHUB_REPOSITORY_OWNER/Inventatory-Firmware"
+            -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$SCAN_FIRMWARE_REPOSITORY"
           cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
           export INVENTATORY_REQUIRE_LOCALE_TESTS=1
           export INVENTATORY_REQUIRE_KEYRING_TESTS=1
