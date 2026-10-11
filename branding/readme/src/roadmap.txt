@@ -1,12 +1,8 @@
-type: panel
-title: Planned features
-intro: Not built yet.
-sprite: filmRackEmpty
-columns: Item | Status
+title: Plans and future features
 
-row: MCP integration | planned
-row: Multi-user workflow | planned
-row: More vendor APIs | planned
-row: More EDA software | planned
-row: Custom rack sizes | planned
-row: Parametric racks | planned
+row: MCP integration | Let AI assistants work with your inventory
+row: Multi-user workflow | Share one inventory between several people
+row: More vendor APIs | Look up parts beyond DigiKey
+row: More EDA software | Read BOMs from more design tools
+row: Custom rack sizes | Racks that fit your shelf and your parts
+row: Parametric racks | Generate rack models from a few dimensions
