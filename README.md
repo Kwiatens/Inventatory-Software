@@ -25,7 +25,7 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 > **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
 > There you can explore what the project can do and find the documentation and instructions.
 
-> **Current version:** public beta (`0.1.4`, see [CHANGELOG.md](CHANGELOG.md)).
+> **Current version:** public beta (`0.1.5`, see [CHANGELOG.md](CHANGELOG.md)).
 
 ## Install on Windows
 
