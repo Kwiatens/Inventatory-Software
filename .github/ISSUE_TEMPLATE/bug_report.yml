@@ -1,0 +1,57 @@
+name: Bug report
+description: Something does not work as described
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Security problems do not belong in an issue: see `SECURITY.md`.
+  - type: input
+    id: version
+    attributes:
+      label: Inventatory version
+      description: The output of `inventatory --version`.
+    validations:
+      required: true
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system and terminal
+      description: For example Windows 11 with Windows Terminal, or Ubuntu 24.04 with a named terminal.
+    validations:
+      required: true
+  - type: input
+    id: scanner_firmware
+    attributes:
+      label: Scanner firmware version
+      description: Only if an Inventatory Scan R1 is involved.
+    validations:
+      required: false
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: Describe the problem in detail.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Remove tokens, Wi-Fi passwords, DigiKey credentials and inventory data before you attach anything.
+    validations:
+      required: false
