@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Small Winsock/POSIX socket compatibility boundary for the Scan R1 listener.
 #pragma once
 
