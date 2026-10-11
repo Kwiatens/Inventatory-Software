@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - two-step confirmation for actions that discard in-memory work.
 //
 // The first request only arms the guard (the caller tells the user what will be

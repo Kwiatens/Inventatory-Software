@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Hardware Inventory Management System
 // Contextual action registry: the single source of truth for each screen's
 // commands. The action bar and the bottom sheet are both generated from

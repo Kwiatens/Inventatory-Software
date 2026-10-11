@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - pure layout rules for the bottom action sheet.
 //
 // The sheet replaces the context line at the bottom of the frame, so on a

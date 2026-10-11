@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Hardware Inventory Management System
 // Find in racks: the rack-by-rack pick route for a BOM analysis, and the sentences that guide it.
 

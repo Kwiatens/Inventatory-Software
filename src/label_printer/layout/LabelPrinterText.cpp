@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Label text and electrical-value formatting helpers.
 
 #include "label_printer/core/LabelPrinterPrivate.h"
