@@ -214,6 +214,7 @@ jobs:
         run: |
           set -euo pipefail
           package_root="$PWD/dist/Inventatory"
+          mkdir -p "$package_root"
           install -m 755 build-linux-release/inventatory "$package_root/inventatory"
           install -m 644 LICENSE LICENSE.md README.md THIRD_PARTY_NOTICES.md "$package_root/"
           archive_path="$PWD/dist/Inventatory-linux-x64.tar.gz"
