@@ -17,9 +17,9 @@ Security problems do not go in issues. See [SECURITY.md](SECURITY.md).
   [docs/linux-support.md](docs/linux-support.md).
 
 Build and test both the Debug and the Release configuration before you open a pull request. The continuous
-integration runs the same commands, plus a Clang build and a sanitizer build, on every pull request.
-Add a focused test for every behavior you change. `inventatory_tests --list` shows the named tests, and
-`inventatory_tests --filter <text>` runs a subset.
+integration runs the same commands, plus a Clang build, a sanitizer build and a secret-logging check, on every
+pull request. Add a focused test for every behavior you change. `inventatory_tests --list` shows the named
+tests, and `inventatory_tests --filter <text>` runs a subset.
 
 ## Code
 
@@ -28,21 +28,22 @@ Add a focused test for every behavior you change. `inventatory_tests --list` sho
 - Keep platform-specific code behind the existing platform files and preprocessor guards.
 - Anything shown on screen follows [docs/ui-style-guide.md](docs/ui-style-guide.md). UI changes also
   follow [docs/ui-contributor-guide.md](docs/ui-contributor-guide.md).
+- New source files carry the SPDX header described in [docs/project-standards.md](docs/project-standards.md).
 
 ## Commits and pull requests
 
 - Write each commit subject as `type(scope): imperative summary`, with a lowercase summary and no full stop,
-  ideally 72 characters or fewer. Example: `fix(storage): preserve inventory history during restore`.
-  Allowed types are `feat`, `fix`, `refactor`, `perf`, `style`, `test`, `docs`, `build`, `ci`, `chore` and
-  `revert`.
+  72 characters or fewer. The shared rules are in [docs/project-standards.md](docs/project-standards.md).
+  Example: `fix(storage): preserve inventory history during restore`.
 - Keep one logical change per commit.
 - If a change is visible to users, add an entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Write
   the entry in plain terms of what users can see or do, not as a list of code changes.
 
-## Data and secrets
+## Data, secrets and logging
 
 Never commit credentials, tokens, device identifiers, real inventory data or local file paths. This applies
-to test fixtures and screenshots too.
+to test fixtures and screenshots too. Passwords, tokens and other credentials are never written to logs or
+console output. The `secret-logging` CI job rejects console output that names a credential.
 
 ## Licensing
 

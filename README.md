@@ -22,7 +22,7 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scan R1' b
 
 ---
 
-**This project is currently in a beta state!**
+> **Status:** public beta (`0.1.4`, see [CHANGELOG.md](CHANGELOG.md)).
 
 > **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
 > There you can explore what the project can do and find the documentation and instructions.
@@ -69,6 +69,17 @@ The core tests are one program, `inventatory_tests`; run `inventatory_tests --li
 `inventatory_tests --filter <text>` to run only the ones whose name contains the text. The exact build commands
 are in [docs/public-beta.md](docs/public-beta.md) and the Linux test notes in
 [docs/linux-support.md](docs/linux-support.md#running-the-tests).
+
+## Documentation
+
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute.
+- [SECURITY.md](SECURITY.md): private vulnerability reporting and the security scope.
+- [AGENTS.md](AGENTS.md): architecture, invariants and verification rules, also the guide for coding agents.
+- [docs/project-standards.md](docs/project-standards.md): rules shared with the Scan R1 firmware repository.
+- [docs/scanner-transport-security.md](docs/scanner-transport-security.md): the Scan R1 transport protocol.
+- [docs/releasing.md](docs/releasing.md): release steps and repository settings.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each version.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): licenses of bundled dependencies.
 
 ## License
 
