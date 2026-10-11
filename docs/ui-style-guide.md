@@ -2,9 +2,6 @@
 
 This guide covers how Inventatory's terminal interface looks and reads: glyphs, alignment,
 controls, color, status, and guided workflows. Every page and overlay follows it.
-`docs/ui-redesign.md` describes what each workspace contains. This guide describes how that
-content is drawn. If the two disagree, follow this guide and update the other document in the
-same change.
 
 The goal is a calm, plain, aligned interface that a person can understand without being taught.
 Use position, weight, and words to explain the interface. Do not use decoration for this.
