@@ -1,11 +1,12 @@
 # Contributing to Inventatory
 
-Thank you for taking the time to contribute. Inventatory is in public beta, and a bug report with clear
-steps helps as much as a code change.
+Thank you for your intrest in helping with the development of Inventatory!
+
+Here is a guide on how to contribute to the project.
 
 ## Start with an issue
 
-For a bug, open an issue with the steps to reproduce it, the Inventatory version and your operating system.
+For a bug, open an issue with the steps to reproduce it, the Inventatory version and your operating system (exact version would really help).
 For a larger change, open an issue first so the approach can be agreed before you write the code.
 
 Security problems do not go in issues. See [SECURITY.md](SECURITY.md).
@@ -32,9 +33,6 @@ tests, and `inventatory_tests --filter <text>` runs a subset.
 
 ## Commits and pull requests
 
-- Write each commit subject as `type(scope): imperative summary`, with a lowercase summary and no full stop,
-  72 characters or fewer. The shared rules are in [docs/project-standards.md](docs/project-standards.md).
-  Example: `fix(storage): preserve inventory history during restore`.
 - Keep one logical change per commit.
 - If a change is visible to users, add an entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Write
   the entry in plain terms of what users can see or do, not as a list of code changes.
