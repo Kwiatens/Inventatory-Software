@@ -1,0 +1,46 @@
+name: README art
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "branding/readme/src/**"
+      - "tools/readme_art.py"
+      - "tools/readme_art_data/**"
+  pull_request:
+    paths:
+      - "branding/readme/src/**"
+      - "tools/readme_art.py"
+      - "tools/readme_art_data/**"
+      - "branding/readme/*.svg"
+
+concurrency:
+  group: readme-art-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: ${{ github.event_name == 'push' }}
+      - name: Render the graphics
+        run: python3 tools/readme_art.py
+      - name: Fail a pull request whose graphics are out of date
+        if: github.event_name == 'pull_request'
+        run: git diff --exit-code -- branding/readme
+      - name: Commit the re-rendered graphics
+        if: github.event_name == 'push'
+        run: |
+          if git diff --quiet -- branding/readme; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add branding/readme/*.svg
+          git commit -m "chore(project): re-render the README graphics"
+          git push

@@ -1,0 +1,12 @@
+type: panel
+title: Planned features
+intro: Not built yet.
+sprite: filmRackEmpty
+columns: Item | Status
+
+row: MCP integration | planned
+row: Multi-user workflow | planned
+row: More vendor APIs | planned
+row: More EDA software | planned
+row: Custom rack sizes | planned
+row: Parametric racks | planned
