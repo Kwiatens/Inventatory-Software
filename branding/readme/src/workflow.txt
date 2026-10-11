@@ -1,0 +1,12 @@
+type: panel
+title: How it works
+intro: From a vendor bag to the exact slot, with as little typing as possible.
+sprite: scannerSmall
+sprite_scale: 4
+columns: Step | By
+
+row: Scan the vendor bag | Scan R1
+row: Part gets a rack slot | automatic
+row: Compare with a PCB BOM | EDA import
+row: Go to the rack and slot | location
+
