@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - digit entry for numeric prompts that start with a default value.
 //
 // A prompt that is pre-filled with the current or suggested quantity behaves
