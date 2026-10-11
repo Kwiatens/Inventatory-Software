@@ -46,10 +46,6 @@ runtime dependencies, scanner access, data locations, and native build steps.
 
 The whole system is **designed to be extremely fast, and requires as little user input as possible.**
 
-<p align="center">
-  <img src="branding/readme/workflow.svg" alt="How it works: scan the vendor bag with the Scan R1, the part gets a rack slot, compare with a PCB BOM, go to the rack and slot." width="760">
-</p>
-
 Key features:
 - The system automatically assigns each part to a specific slot on each 3D-printable rack, so later it can give you the precise location of it, not just generic 'Drawer 12'.
 - Integration with popular EDA software - it automatically compares your inventory with the BOM of your PCB, and points out precisely on which rack and slot each component lives.
@@ -58,11 +54,10 @@ Key features:
 - ZPL Label Printer integration for the tubes that go on 3D printable storage racks.
 - Search by electrical parameters, not only by name! Electrical parameters are applied automatically too, from the vendor's API.
 
-## Plans and future features
-
-<p align="center">
-  <img src="branding/readme/roadmap.svg" alt="Planned features, not built yet: MCP integration, multi-user workflow, more vendor APIs, more EDA software, custom rack sizes and parametric racks." width="760">
-</p>
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="branding/readme/roadmap-light.svg">
+  <img src="branding/readme/roadmap.svg" alt="Plans and future features: MCP integration, multi-user workflow, more vendor APIs, more EDA software, custom rack sizes and parametric racks." width="830">
+</picture>
 
 ## Building and testing
 
