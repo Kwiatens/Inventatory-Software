@@ -361,7 +361,7 @@ endif()
 if(NOT WIN32)
   install(TARGETS inventatory RUNTIME DESTINATION bin)
   install(FILES LICENSE LICENSE.md THIRD_PARTY_NOTICES.md DESTINATION share/doc/Inventatory)
-  install(FILES README.md docs/linux-support.md DESTINATION share/doc/Inventatory)
+  install(FILES README.md DESTINATION share/doc/Inventatory)
   install(FILES packaging/linux/inventatory.desktop DESTINATION share/applications)
   foreach(icon_size 16 24 32 48 64 128 256 512)
     install(FILES branding/icons/inventatory-${icon_size}.png
