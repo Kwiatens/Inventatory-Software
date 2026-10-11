@@ -13,9 +13,8 @@ Security problems do not go in issues. See [SECURITY.md](SECURITY.md).
 
 ## Build and test
 
-- Windows: follow the build steps in [docs/public-beta.md](docs/public-beta.md).
-- Linux (Ubuntu 24.04): the required packages and optional runtime services are in
-  [docs/linux-support.md](docs/linux-support.md).
+- Windows: build with Visual Studio 2022 or newer and CMake 3.20 or newer.
+- Linux (Ubuntu 24.04): install `build-essential cmake pkg-config libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev`.
 
 Build and test both the Debug and the Release configuration before you open a pull request. The continuous
 integration runs the same commands, plus a Clang build, a sanitizer build and a secret-logging check, on every
@@ -27,8 +26,7 @@ tests, and `inventatory_tests --filter <text>` runs a subset.
 - The code is C++17. Match the code around your change: two-space indentation, the existing naming, and the
   ownership boundaries in [AGENTS.md](AGENTS.md).
 - Keep platform-specific code behind the existing platform files and preprocessor guards.
-- Anything shown on screen follows [docs/ui-style-guide.md](docs/ui-style-guide.md). UI changes also
-  follow [docs/ui-contributor-guide.md](docs/ui-contributor-guide.md).
+- Anything shown on screen follows [docs/ui-style-guide.md](docs/ui-style-guide.md).
 - New source files carry the SPDX header described in [docs/project-standards.md](docs/project-standards.md).
 
 ## Commits and pull requests

@@ -25,8 +25,7 @@ The user-facing interface is the terminal UI. The current normal workspace navig
 
 `1 Stock`, `2 Racks`, `3 Import`, `4 Projects`, `5 History`, `6 Settings`.
 
-`docs/user-guide.md`, `docs/ui-redesign.md`, and the implemented code describe
-this six-destination navigation; keep them synchronized when changing it.
+The implemented code and UI style guide describe this six-destination navigation; keep them synchronized when changing it.
 
 ## Before editing
 
@@ -118,8 +117,6 @@ cmake -S . -B build-linux-release -DCMAKE_BUILD_TYPE=Release
 cmake --build build-linux-release --parallel
 ctest --test-dir build-linux-release --output-on-failure
 ```
-
-See `docs/linux-support.md` for optional runtime services and installation.
 
 For a focused core test iteration, build and run the `inventatory_tests` target;
 `inventatory_tests --list` shows its named tests and `--filter <text>` runs only
@@ -267,7 +264,7 @@ another worker reads concurrently.
 
 ## Inventatory Scan R1 security invariants
 
-Treat `docs/scanner-transport-security.md` and the code in
+Treat the scanner transport implementation in
 `src/core/scanner/InventatoryScanProtocol.cpp` and
 `src/platform/scanner/HttpServer.cpp` as a
 security boundary. Changes must preserve all of the following:
