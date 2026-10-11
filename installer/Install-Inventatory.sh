@@ -75,7 +75,7 @@ validate_archive() {
   tar -tvzf "$archive_path" > "$details" 2>/dev/null || fail 'The Linux update archive could not be inspected'
   while IFS= read -r member; do
     case "$member" in
-      inventatory|LICENSE|LICENSE.md|README.md|THIRD_PARTY_NOTICES.md|docs/|docs/linux-support.md) ;;
+      inventatory|LICENSE|LICENSE.md|README.md|THIRD_PARTY_NOTICES.md) ;;
       *) fail 'The Linux update archive contains an unexpected path' ;;
     esac
   done < "$listing"
@@ -83,10 +83,7 @@ validate_archive() {
     kind=$(printf '%s' "$entry" | cut -c 1)
     case "$kind" in
       -) ;;
-      d)
-        member=${entry##* }
-        [ "$member" = 'docs/' ] || fail 'The Linux update archive contains an unexpected directory'
-        ;;
+      d) fail 'The Linux update archive contains an unexpected directory' ;;
       *) fail 'The Linux update archive contains a non-regular file' ;;
     esac
   done < "$details"
