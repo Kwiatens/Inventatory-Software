@@ -50,14 +50,6 @@ The whole system is **designed to be fast, and require as little user input as p
   <img src="branding/readme/roadmap.svg" alt="Plans and future features: MCP integration, multi-user workflow, more vendor APIs, more EDA software, custom rack sizes and parametric racks." width="830">
 </picture>
 
-Key features:
-- The system automatically assigns each part to a specific slot on each 3D-printable rack, so later it can give you the precise location of it, not just generic 'Drawer 12'.
-- Integration with popular EDA software - it automatically compares your inventory with the BOM of your PCB, and points out precisely on which rack and slot each component lives.
-- A DIY-able hardware scanner, the Inventatory Scan R1, for reading vendor part bags and the Inventatory QR codes on the SMD tubes in the racks.
-- Direct integration with the most popular electronics part vendors (such as DigiKey).
-- ZPL Label Printer integration for the tubes that go on 3D printable storage racks.
-- Search by electrical parameters, not only by name! Electrical parameters are applied automatically too, from the vendor's API.
-
 ## Building and testing
 
 Build with CMake 3.20 or newer and a C++17 compiler, then run `ctest --test-dir <build-dir> --output-on-failure`.
