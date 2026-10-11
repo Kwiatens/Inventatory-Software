@@ -136,3 +136,23 @@ jobs:
           cmake -S . -B build
           cmake --build build --config Release --target inventatory inventatory_background inventatory_tests inventatory_input_tests -- /m:1
           ctest --test-dir build -C Release --output-on-failure
+
+  # Console output never names a credential. git grep exits 1 when nothing matches; only that status passes.
+  secret-logging:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reject credentials in console output
+        run: |
+          status=0
+          git grep -n -E -e '(std::(cout|cerr|clog)|printf|fprintf|OutputDebugString|syslog)[^;]*(password|token|secret|credential)' -- src tests tools || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "::error::A console output call names a credential"
+            exit 1
+          elif [ "$status" -gt 1 ]; then
+            echo "::error::git grep failed with exit $status"
+            exit "$status"
+          fi
