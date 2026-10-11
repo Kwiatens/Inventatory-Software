@@ -404,11 +404,12 @@ App::SettingsPageModel App::settingsPageModel() const {
       const bool setupComplete = inventatoryScanConfig_.setupComplete || !inventatoryScanConfig_.deviceId.empty();
       if (!setupComplete) {
         model.status = {{"The R1 is not set up yet."}};
-        auto status = infoRow("Scanner", "Status", "Not set up", VoiceTone::Muted);
-        status.targetId = "settings.scan.status";
-        status.activate = [self] { self->openInventatoryScanSetup(); };
-        status.buttons = {button("Begin setup", "b", "settings.scan.begin_setup", [self] { self->openInventatoryScanSetup(); }, true)};
-        rows.push_back(move(status));
+        SettingsRow setup;
+        setup.buttonsOnly = true;
+        setup.targetId = "settings.scan.status";
+        setup.activate = [self] { self->openInventatoryScanSetup(); };
+        setup.buttons = {button("Begin setup", "b", "settings.scan.begin_setup", [self] { self->openInventatoryScanSetup(); }, true)};
+        rows.push_back(move(setup));
         break;
       }
       const auto now = time(nullptr);
@@ -481,11 +482,12 @@ App::SettingsPageModel App::settingsPageModel() const {
       const bool configured = !trim(saved.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
       if (!configured) {
         model.status = {{"DigiKey is not set up yet."}};
-        auto status = infoRow("Account", "Status", "Not set up", VoiceTone::Muted);
-        status.targetId = "settings.digikey.status";
-        status.activate = [self] { self->openDigiKeySetup(); };
-        status.buttons = {button("Begin setup", "b", "settings.digikey.begin_setup", [self] { self->openDigiKeySetup(); }, true)};
-        rows.push_back(move(status));
+        SettingsRow setup;
+        setup.buttonsOnly = true;
+        setup.targetId = "settings.digikey.status";
+        setup.activate = [self] { self->openDigiKeySetup(); };
+        setup.buttons = {button("Begin setup", "b", "settings.digikey.begin_setup", [self] { self->openDigiKeySetup(); }, true)};
+        rows.push_back(move(setup));
         break;
       }
       const bool refreshRunning = !digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid();
@@ -623,6 +625,7 @@ ftxui::Element App::renderSettingsUi() const {
   // button starts at the same column.
   int actionWidth = 0;
   for (const auto& row : model.rows) {
+    if (row.buttonsOnly) continue;
     int width = 0;
     for (const auto& button : row.buttons) {
       width += (width > 0 ? 1 : 0) + static_cast<int>(button.label.size()) + 2 +
@@ -669,6 +672,28 @@ ftxui::Element App::renderSettingsUi() const {
     }
     const bool focused = index == cursor;
     const auto bg = focused ? uiSelectionBg() : surface;
+
+    if (row.buttonsOnly) {
+      // Only the marker and the buttons, starting at the front of the body.
+      auto marker = styledText(focused ? ">" : " ", uiFocusColor()) | ftxui::bold |
+                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, markerWidth);
+      if (row.focusable() && !row.targetId.empty()) {
+        marker = target(move(marker), row.targetId, UiTargetKind::Field, [self, index] {
+          self->settingsRow_ = index;
+          self->activateSettingsRow();
+        });
+      }
+      ftxui::Elements buttons;
+      for (const auto& spec : row.buttons) {
+        if (!buttons.empty()) buttons.push_back(ftxui::text(" "));
+        const auto kind = spec.primary ? UiButtonKind::Primary : spec.danger ? UiButtonKind::Danger : UiButtonKind::Normal;
+        buttons.push_back(target(uiButton(spec.label, spec.key, kind), spec.targetId, UiTargetKind::Button, spec.run, spec.enabled));
+      }
+      auto line = ftxui::hbox({move(marker), ftxui::hbox(move(buttons)), ftxui::filler()}) | ftxui::bgcolor(bg);
+      if (focused) line = line | ftxui::select;
+      body.push_back(move(line));
+      continue;
+    }
 
     ftxui::Elements valueParts;
     int used = 0;
