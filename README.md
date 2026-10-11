@@ -40,7 +40,7 @@ On Ubuntu 24.04:
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
 Then run with
-`$HOME/.local/bin/inventatory`. See [Linux support](docs/linux-support.md)
+`$HOME/.local/bin/inventatory`.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/roadmap-light.svg">
@@ -59,7 +59,6 @@ Build with CMake 3.20 or newer and a C++17 compiler, then run tests with `ctest 
 - [SECURITY.md](SECURITY.md): private vulnerability reporting and the security scope.
 - [AGENTS.md](AGENTS.md): architecture, invariants and verification rules, also the guide for coding agents.
 - [docs/project-standards.md](docs/project-standards.md): rules shared with the Scan R1 firmware repository.
-- [docs/scanner-transport-security.md](docs/scanner-transport-security.md): the Scan R1 transport protocol.
 - [docs/releasing.md](docs/releasing.md): release steps and repository settings.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each version.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): licenses of bundled dependencies.

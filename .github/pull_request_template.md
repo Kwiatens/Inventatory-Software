@@ -13,7 +13,7 @@
 
 ## Testing
 
-- [ ] Debug and Release tests pass (`ctest --output-on-failure`), or the Windows commands in `docs/public-beta.md` pass
+- [ ] Debug and Release tests pass (`ctest --output-on-failure`)
 - [ ] Each behavior change has a focused test in `tests/`
 - [ ] UI changes were checked at 100x30 and by keyboard and mouse (if applicable)
 

@@ -1535,7 +1535,7 @@ void skipOrFailMissingLocale(const char* testName) {
 }
 
 // The credential tests need a running, unlocked Secret Service (a desktop session, or
-// `dbus-run-session` with an unlocked gnome-keyring; see docs/linux-support.md). Without one they are
+// `dbus-run-session` with an unlocked gnome-keyring). Without one they are
 // skipped with a visible notice and the run ends with the CTest "skipped" status (77) instead of aborting
 // every test that follows. Set INVENTATORY_REQUIRE_KEYRING_TESTS=1 (CI) to make that a failure.
 int skippedCredentialTests = 0;
@@ -11864,7 +11864,7 @@ int main(int argc, char** argv) {
   }
   if (skippedCredentialTests > 0) {
     cout << "Inventatory core tests passed, but " << skippedCredentialTests
-         << " credential test group(s) were SKIPPED: no unlocked Secret Service (see docs/linux-support.md)\n";
+         << " credential test group(s) were SKIPPED: no unlocked Secret Service\n";
     return 77;  // CTest SKIP_RETURN_CODE
   }
   cout << "Inventatory core tests passed (" << selected.size() << " tests)\n";

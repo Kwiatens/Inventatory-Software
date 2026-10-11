@@ -30,8 +30,7 @@ your own computer, with your own scanner and your own data.
 In scope:
 
 - The Scan R1 device service: the local HTTP service, Bluetooth Low Energy provisioning, and the
-  HMAC-authenticated request protocol with replay protection. The design is described in
-  [docs/scanner-transport-security.md](docs/scanner-transport-security.md).
+  HMAC-authenticated request protocol with replay protection.
 - Storage of secrets. The scanner token and DigiKey credentials belong in Windows Credential Manager or the
   Linux Secret Service. They must never appear in configuration files, logs, backups or the inventory
   database.
