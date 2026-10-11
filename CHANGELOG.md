@@ -6,11 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.5] - 2026-10-11
+
 ### Changed
 - Stock: Sort / Filter is a panel under the list header that stays open while you choose. Each
   choice applies at once, and the panel shows how many parts match. The header shows the sort and
   the modification-date filter in use, so the list's state is visible with the panel closed.
 - Settings: an unconfigured Inventatory Scan or DigiKey panel shows only its Begin setup button at the front.
+- Projects: a BOM analysis is faster on large inventories.
 
 ### Removed
 - Stock: the number keys 1 to 5 no longer pick filter options. Use the arrow keys and Enter, or click.
@@ -45,7 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scanner (Linux): the Bluetooth pairing agent only answers the Bluetooth service, so another program
   on the system bus can no longer cancel pairing or ask for the pairing code.
 - Stock: a bare search word such as `r1` finds rack R1 only, not R10 to R19, and the mouse wheel over the
-  open Sort / Filter panel no longer moves the stock rows behind it.
+  open Sort / Filter panel no longer moves the stock rows behind it, and a click on its empty space
+  no longer selects the stock row behind it.
 - Import and labels: very long text no longer risks overflowing the stack while label sizes, units and
   package names are read, and an embedded NUL in a stored name is kept instead of cutting the text.
 - Stock: the ranked list header keeps the Filter button visible at 100 columns.
@@ -55,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Printing (Windows): a queue that cannot be queried or a print job that fails to close is reported.
 - Updates (Windows): a failed final write of the downloaded update is reported as such.
 - Setup (Windows): the uninstaller lists anything it could not delete.
+- Printing: a label that finished printing is kept in the record when the program shuts down or the
+  workspace changes while a print is being stopped, so it is not printed a second time by mistake.
+- Stock: stocktake counts wider than the quantity column are no longer clipped.
+- Settings: the scanner port note no longer says that a change applies on the next launch.
 
 ## [v0.1.4] - 2026-10-08
 
@@ -191,7 +199,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial beta release start.
 
-[Unreleased]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.5...HEAD
+[v0.1.5]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.4...v0.1.5
 [v0.1.4]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.3...v0.1.4
 [v0.1.3]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.2...v0.1.3
 [v0.1.2]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.1...v0.1.2
