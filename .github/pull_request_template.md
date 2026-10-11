@@ -2,6 +2,15 @@
 
 <!-- What changes for the user or the maintainer, and why. -->
 
+## Change type
+
+<!-- Choose one or more that apply -->
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation or project files
+- [ ] Refactoring or chore
+
 ## Testing
 
 - [ ] Debug and Release tests pass (`ctest --output-on-failure`), or the Windows commands in `docs/public-beta.md` pass
@@ -10,6 +19,7 @@
 
 ## Checklist
 
-- [ ] One logical change per commit, with `type(scope): summary` subjects
+- [ ] Commit subjects follow `docs/project-standards.md`, with one logical change per commit
 - [ ] `CHANGELOG.md` has an entry under `[Unreleased]` for user-visible changes
+- [ ] New source files carry the SPDX header
 - [ ] The diff contains no credentials, tokens, device identifiers, real inventory data or local paths
