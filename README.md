@@ -41,10 +41,7 @@ On Ubuntu 24.04:
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
 Run it with
-`$HOME/.local/bin/inventatory`. See [Linux support](docs/linux-support.md) for
-runtime dependencies, scanner access, data locations, and native build steps.
-
-The whole system is **designed to be fast, and require as little user input as possible** - so that you can focus on your job, and not on micromanaging your inventory.
+`$HOME/.local/bin/inventatory`. See [Linux support](docs/linux-support.md)
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/roadmap-light.svg">
