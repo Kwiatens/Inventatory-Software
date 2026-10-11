@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Hardware Inventory Management System
 // Data-path bootstrap helpers shared by startup and safe directory switching.
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - keyboard focus tracking for clickable terminal targets.
 //
 // Focus is identified by the stable target id rather than by the position in

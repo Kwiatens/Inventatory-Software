@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - ZPL drawing helpers shared by the part and rack labels.
 //
 // Labels are 256 x 200 dots (32 x 25 mm, 203 dpi). Test prints land about 3 dots right of and 10 dots below the

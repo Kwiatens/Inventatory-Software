@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - quick-label, wire-label, and stock-filter actions.
 
 #include "App.h"

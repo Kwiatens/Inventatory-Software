@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Settings page: one row model per category, rendered on the shared page skeleton.
 
 #include "App.h"

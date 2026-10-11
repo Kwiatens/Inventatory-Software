@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - SQLite row loading and transactional inventory writes.
 
 #include "core/storage/InventoryStorageInternal.h"

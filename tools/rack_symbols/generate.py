@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Render the rack label symbols into a generated C++ source file.
 
 See README.md. Needs Pillow and Chrome/Chromium (headless) on PATH.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Rack placement and movement actions.
 
 // Inventatory - rack navigation, editing, movement, and printing actions.

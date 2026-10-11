@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Parsing of CUPS "lpstat -p" queue lines. Header-only so it is
 // unit-testable on every platform.
 

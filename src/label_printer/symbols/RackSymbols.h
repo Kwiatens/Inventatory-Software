@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Electrical symbols printed on rack labels.
 //
 // The bitmaps are generated from open-licensed SVG artwork by tools/rack_symbols/generate.py. Only the

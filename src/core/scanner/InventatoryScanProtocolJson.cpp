@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - bounded JSON parsing and encoding for Scan R1 messages.
 
 #include "core/scanner/InventatoryScanProtocolPrivate.h"

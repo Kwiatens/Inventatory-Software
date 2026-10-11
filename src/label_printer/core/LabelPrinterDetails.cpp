@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Item label detail selection helpers.
 
 #include "label_printer/core/LabelPrinterPrivate.h"

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - inventory commit diff and reversal workflows.
 
 #include "core/history/InventoryVersionInternal.h"

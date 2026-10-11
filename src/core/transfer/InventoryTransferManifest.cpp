@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Backup hashing and manifest serialization.
 
 #include "core/transfer/InventoryTransferPrivate.h"

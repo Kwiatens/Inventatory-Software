@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // The checks in this file are assert() calls. CMake's Release configuration defines NDEBUG, which
 // compiles every assert() out, so a Release ctest run would pass without checking anything. Keep the
 // checks enabled in every build type. This must come before the first standard header.

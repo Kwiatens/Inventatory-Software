@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Notification-area lifetime control for the background scanner service.
 
 #define WIN32_LEAN_AND_MEAN

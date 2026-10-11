@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Inventatory - Shared part descriptor context and matching helpers.
 
 #include "PartDescriptorPrivate.h"
