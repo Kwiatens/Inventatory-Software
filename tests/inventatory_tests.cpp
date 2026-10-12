@@ -9832,6 +9832,82 @@ void testEasyEdaBomRefusesAmbiguousRows() {
   assert(matching.ok && !matching.lines.front().quantityConflict && matching.lines.front().quantityPerBoard == 2);
 }
 
+void testEasyEdaRowWithPartNumberKept() {
+  const string header = "Name\tDesignator\tFootprint\tQuantity\tSupplier\tSupplier Part\n";
+  // (a) EasyEDA row H1 with an LCSC part number is kept, same row without part numbers is skipped with a warning.
+  const string rowWithPart = header + "Standoff M3\tH1\tMountingHole_3.2mm\t1\tLCSC\tC12345\n";
+  const auto bomKept = parseEasyEdaBomText(rowWithPart, "kept");
+  assert(bomKept.ok);
+  assert(bomKept.lines.size() == 1);
+  assert(bomKept.warnings.empty());
+  assert(bomKept.lines.front().designators == vector<string>{"H1"});
+  assert(bomKept.lines.front().supplierPartNumber == "C12345");
+  assert(bomKept.lines.front().supplier == "LCSC");
+
+  const string rowWithoutPart = header + "Standoff M3\tH1\tMountingHole_3.2mm\t1\t\t\n";
+  const auto bomSkipped = parseEasyEdaBomText(rowWithoutPart, "skipped");
+  assert(!bomSkipped.ok);
+  assert(bomSkipped.lines.empty());
+  assert(bomSkipped.warnings.size() == 1);
+  assert(bomSkipped.warnings.front().find("Standoff M3 is not orderable") != string::npos);
+
+  // When another orderable row is present, the BOM succeeds and keeps only the orderable row with a warning.
+  const string mixed = rowWithoutPart + "10k\tR1\tR0402\t1\tLCSC\tC25744\n";
+  const auto bomMixed = parseEasyEdaBomText(mixed, "mixed");
+  assert(bomMixed.ok);
+  assert(bomMixed.lines.size() == 1);
+  assert(bomMixed.lines.front().designators == vector<string>{"R1"});
+  assert(bomMixed.warnings.size() == 1);
+  assert(bomMixed.warnings.front().find("Standoff M3 is not orderable") != string::npos);
+}
+
+void testEasyEdaProDialectDetectionAndParsing() {
+  const string proBom =
+      "No.,Quantity,Comment,Designator,Footprint,Value,Manufacturer Part,Manufacturer,Supplier Part,Supplier\n"
+      "1,1,100nF 50V,C1,0402,100nF,CL05B104KO5NNNC,Samsung,C60474,LCSC\n"
+      "2,2,10k 1%,R1 R2,0402,10k,RC0402FR-0710KL,Yageo,C25744,LCSC\n";
+
+  // Detected as EasyEdaBom before KiCad
+  assert(detectCsvFormat(proBom) == CsvFormat::EasyEdaBom);
+
+  // Parsed with part numbers and value priority (Value over Comment)
+  const auto bom = parseEasyEdaBomText(proBom, "ProProject");
+  assert(bom.ok);
+  assert(bom.lines.size() == 2);
+  assert(bom.lines[0].designators == vector<string>{"C1"});
+  assert(bom.lines[0].designation == "100nF");
+  assert(bom.lines[0].footprint == "0402");
+  assert(bom.lines[0].manufacturerPartNumber == "CL05B104KO5NNNC");
+  assert(bom.lines[0].supplierPartNumber == "C60474");
+  assert(bom.lines[0].supplier == "LCSC");
+  assert(bom.lines[0].quantityPerBoard == 1);
+
+  assert((bom.lines[1].designators == vector<string>{"R1", "R2"}));
+  assert(bom.lines[1].designation == "10k");
+  assert(bom.lines[1].manufacturerPartNumber == "RC0402FR-0710KL");
+  assert(bom.lines[1].supplierPartNumber == "C25744");
+  assert(bom.lines[1].quantityPerBoard == 2);
+
+  // Rejects a duplicated designator across rows
+  const string duplicateProBom =
+      proBom + "3,1,100nF,C1,0402,100nF,CL05B104KO5NNNC,Samsung,C60474,LCSC\n";
+  const auto duplicate = parseEasyEdaBomText(duplicateProBom, "DuplicatePro");
+  assert(!duplicate.ok);
+  assert(duplicate.error.find("Designator C1 appears on rows 2 and 4") != string::npos);
+
+  // Plain KiCad header files without part-number columns are still KicadBom
+  const string plainKicad =
+      "Designator,Footprint,Value,Quantity\n"
+      "C1,C_0402,100nF,1\n";
+  assert(detectCsvFormat(plainKicad) == CsvFormat::KicadBom);
+  assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);
+
+  const string kicadWithComment =
+      "Reference,Footprint,Comment,Quantity\n"
+      "R1,R_0402,10k,1\n";
+  assert(detectCsvFormat(kicadWithComment) == CsvFormat::KicadBom);
+}
+
 void testBomDialectDetection() {
   assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);
   assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
@@ -9931,6 +10007,56 @@ void testBomIdentityMatching() {
   conflicted.quantityConflict = true;
   const auto conflict = analyzeBom(bomTestFile({conflicted}), {loose}, 1, {}).matches.front();
   assert(!conflict.confirmed && conflict.check == BomCheckReason::QuantityConflict);
+}
+
+void testBomLcscPartNumberMatching() {
+  InventoryItem plain;
+  plain.id = "cap-100n-plain";
+  plain.partName = "CAP CER 100NF 16V X7R 0402";
+  plain.quantity = 100;
+  plain.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0402 (1005 Metric)"}};
+
+  InventoryItem lcscItem = plain;
+  lcscItem.id = "cap-100n-lcsc";
+  lcscItem.sku = "C60474";
+  lcscItem.quantity = 50;
+
+  InventoryItem differentSkuItem = plain;
+  differentSkuItem.id = "cap-100n-diff";
+  differentSkuItem.sku = "C99999";
+  differentSkuItem.quantity = 50;
+
+  // An LCSC-supplier line whose supplier part equals a stock item's sku is an identity match and auto-confirms when unique.
+  const auto lcscLine = bomTestLine("100nF", "C0402", 4, "LCSC", "C60474");
+  const auto matched = analyzeBom(bomTestFile({lcscLine}), {lcscItem}, 1, {}).matches.front();
+  assert(matched.confirmed);
+  assert(matched.check == BomCheckReason::None);
+  assert(matched.chosenItemId() == "cap-100n-lcsc");
+  assert(matched.sufficient);
+  assert(matched.candidates.size() == 1 && matched.candidates.front().identity && matched.candidates.front().score == 100);
+
+  // Also matches when vendorMetadata.provider is LCSC and providerProductNumber matches.
+  InventoryItem metaItem = plain;
+  metaItem.id = "cap-100n-meta";
+  metaItem.vendorMetadata.provider = "LCSC";
+  metaItem.vendorMetadata.providerProductNumber = "C60474";
+  const auto metaMatched = analyzeBom(bomTestFile({lcscLine}), {metaItem}, 1, {}).matches.front();
+  assert(metaMatched.confirmed && metaMatched.chosenItemId() == "cap-100n-meta");
+
+  // A different SKU does not match via the supplier part number; since the line has a supplier part number,
+  // it is not confirmed on value alone (IdentityNotInStock).
+  const auto unmatched = analyzeBom(bomTestFile({lcscLine}), {differentSkuItem}, 1, {}).matches.front();
+  assert(!unmatched.confirmed);
+  assert(unmatched.check == BomCheckReason::IdentityNotInStock);
+
+  // A DigiKey-supplier line does NOT match via sku.
+  InventoryItem dkSkuItem = plain;
+  dkSkuItem.id = "cap-dk-sku";
+  dkSkuItem.sku = "1276-1000-1-ND";
+  const auto dkLine = bomTestLine("100nF", "C0402", 4, "DigiKey", "1276-1000-1-ND");
+  const auto dkResult = analyzeBom(bomTestFile({dkLine}), {dkSkuItem}, 1, {}).matches.front();
+  assert(!dkResult.confirmed);
+  assert(dkResult.check == BomCheckReason::IdentityNotInStock);
 }
 
 void testBomConfirmationLifecycle() {
@@ -12298,8 +12424,11 @@ const vector<TestCase>& registeredTests() {
     {"bom", "KicadBomCharacterisation", testKicadBomCharacterisation},
     {"bom", "EasyEdaBomParsing", testEasyEdaBomParsing},
     {"bom", "EasyEdaBomRefusesAmbiguousRows", testEasyEdaBomRefusesAmbiguousRows},
+    {"bom", "EasyEdaRowWithPartNumberKept", testEasyEdaRowWithPartNumberKept},
+    {"bom", "EasyEdaProDialectDetectionAndParsing", testEasyEdaProDialectDetectionAndParsing},
     {"bom", "BomDialectDetection", testBomDialectDetection},
     {"bom", "BomIdentityMatching", testBomIdentityMatching},
+    {"bom", "BomLcscPartNumberMatching", testBomLcscPartNumberMatching},
     {"bom", "BomConfirmationLifecycle", testBomConfirmationLifecycle},
     {"bom", "BomLineKeysSeparateEasyEdaParts", testBomLineKeysSeparateEasyEdaParts},
     {"bom", "BomPickCommitsAndProblems", testBomPickCommitsAndProblems},

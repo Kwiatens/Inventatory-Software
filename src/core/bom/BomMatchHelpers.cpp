@@ -360,6 +360,14 @@ CandidateScore scoreItem(const InventoryItem& item, const BomLine& line, const s
       samePartNumber(line.supplierPartNumber, digiKeyNumberOf(item))) {
     return {100, true};
   }
+  if (!line.supplierPartNumber.empty() && !isDigiKeySupplier(line)) {
+    if (samePartNumber(line.supplierPartNumber, item.sku) ||
+        (!item.vendorMetadata.provider.empty() &&
+         compactKey(item.vendorMetadata.provider) == compactKey(line.supplier) &&
+         samePartNumber(line.supplierPartNumber, item.vendorMetadata.providerProductNumber))) {
+      return {100, true};
+    }
+  }
   if (!line.manufacturerPartNumber.empty() && partNameHasToken(item, line.manufacturerPartNumber)) {
     return {85, true};
   }
