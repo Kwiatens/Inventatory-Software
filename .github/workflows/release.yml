@@ -155,24 +155,29 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # The Linux package is built in AlmaLinux 9 (glibc 2.34, GCC 11), which sets the oldest distribution it runs on.
   build-linux:
     needs: validate
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    container:
+      image: almalinux:9@sha256:9819dc675b67b595c2b59e42be7763fca1a8bb217fa5944e04daa22e9a64db16
+      # gnome-keyring-daemon carries the cap_ipc_lock file capability and cannot start without it.
+      options: --cap-add IPC_LOCK
     steps:
+      - name: Install Linux build and runtime dependencies
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf config-manager --set-enabled crb
+          dnf install -y --setopt=install_weak_deps=False \
+            gcc-c++ make cmake pkgconf-pkg-config binutils git tar \
+            libsecret-devel libcurl-devel openssl-devel glib2-devel \
+            dbus-daemon gnome-keyring glibc-langpack-pl glibc-langpack-de
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.sha }}
           persist-credentials: false
-      - name: Install Linux build and runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            build-essential cmake pkg-config \
-            libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev \
-            dbus-x11 gnome-keyring locales
-          sudo locale-gen pl_PL.UTF-8 de_DE.UTF-8
       - name: Build and test Linux debug and release configurations
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
@@ -190,6 +195,7 @@ jobs:
             -DINVENTATORY_RELEASE_REPOSITORY="$GITHUB_REPOSITORY" \
             -DINVENTATORY_SCAN_FIRMWARE_REPOSITORY="$SCAN_FIRMWARE_REPOSITORY"
           cmake --build build-linux-release --parallel 2 --target inventatory inventatory_tests inventatory_input_tests
+          mkdir -p "$HOME/.cache" "$HOME/.local/share/keyrings"
           export INVENTATORY_REQUIRE_LOCALE_TESTS=1
           export INVENTATORY_REQUIRE_KEYRING_TESTS=1
           printf '%s' 'ci-keyring-password' | dbus-run-session -- bash -c '
@@ -197,6 +203,8 @@ jobs:
             ctest --test-dir build-linux-debug --output-on-failure
             ctest --test-dir build-linux-release --output-on-failure
           '
+      - name: Check the release binary's Linux compatibility floor
+        run: bash tools/check-linux-abi.sh build-linux-release/inventatory
       - name: Smoke test the Linux release binary
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
