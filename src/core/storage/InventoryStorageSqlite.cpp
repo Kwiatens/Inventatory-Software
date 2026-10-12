@@ -47,7 +47,7 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
            rack_id, rack_slot, rack_assignment,
            label_override, vendor_provider, vendor_product_number, vendor_manufacturer_part_number,
            vendor_category_id, vendor_category_path, vendor_title, vendor_detailed_description,
-           vendor_parameters, vendor_product_url, vendor_locale
+           vendor_parameters, vendor_product_url, vendor_locale, vendor_sources
     FROM inventatory_items
     ORDER BY part_name COLLATE NOCASE ASC
   )SQL";
@@ -93,6 +93,7 @@ bool loadItemsFromInventatoryTable(SqliteConnection& connection, vector<Inventor
     item.vendorMetadata.parameters = deserializeParametersFromStorage(sqliteText(statement.stmt, 30));
     item.vendorMetadata.productUrl = sqliteText(statement.stmt, 31);
     item.vendorMetadata.locale = sqliteText(statement.stmt, 32);
+    item.vendorSources = deserializeVendorSourcesFromStorage(sqliteText(statement.stmt, 33));
     items.push_back(move(item));
   }
 
@@ -187,8 +188,8 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
       rack_id, rack_slot, rack_assignment,
       label_override, vendor_provider, vendor_product_number, vendor_manufacturer_part_number,
       vendor_category_id, vendor_category_path, vendor_title, vendor_detailed_description,
-      vendor_parameters, vendor_product_url, vendor_locale
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      vendor_parameters, vendor_product_url, vendor_locale, vendor_sources
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )SQL";
 
   if (sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
@@ -235,6 +236,8 @@ bool writeItemsToInventatoryTable(SqliteConnection& connection, const vector<Inv
     sqliteApi().bind_text(statement.stmt, 31, vendorParameters.c_str(), static_cast<int>(vendorParameters.size()), SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 32, item.vendorMetadata.productUrl.c_str(), static_cast<int>(item.vendorMetadata.productUrl.size()), SQLITE_TRANSIENT);
     sqliteApi().bind_text(statement.stmt, 33, item.vendorMetadata.locale.c_str(), static_cast<int>(item.vendorMetadata.locale.size()), SQLITE_TRANSIENT);
+    const auto vendorSources = serializeVendorSourcesForStorage(item.vendorSources);
+    sqliteApi().bind_text(statement.stmt, 34, vendorSources.c_str(), static_cast<int>(vendorSources.size()), SQLITE_TRANSIENT);
 
     if (sqliteApi().step(statement.stmt) != SQLITE_DONE) {
       execSql(connection, "ROLLBACK");
