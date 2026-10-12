@@ -68,7 +68,7 @@ assignment, unassignment, filtering, and rack administration are in Actions.
 Open Import and choose a CSV file. The format is detected from its header: a
 DigiKey order CSV goes to the review list, and a KiCad BOM or an EasyEDA BOM export
 goes to Projects. A BOM needs a Designator column, a Footprint column, and a value
-column: Designation or Value for KiCad, Name for EasyEDA.
+column: Designation or Value for KiCad, Name, Value or Comment for EasyEDA.
 
 For a DigiKey order, review each candidate, correct it if needed, then Accept or
 Skip. After the final row, choose whether to enrich accepted parts with DigiKey
@@ -80,7 +80,7 @@ Footprint, Quantity, and Supplier Part. Include Manufacturer Part when the desig
 has it, because it identifies the part exactly. An export is refused, with the
 row to fix named, when a designator appears twice, a row has no name or
 designator, or a quantity is not a whole number. EasyEDA Pro CSV exports use the
-same reader, but they have not been tested against a Pro export yet. XLSX exports
+same reader, but they have not been tested against a real Pro export yet. XLSX exports
 are not read.
 
 ## Project workflow
@@ -95,9 +95,8 @@ A BOM becomes a project on the Projects page. Each line is compared with stock:
   not have enough units.
 
 A line is chosen without asking only when a stock part carries the line's
-manufacturer part number or DigiKey number, or when exactly one stock part fits
-the line's value and package. A line with an LCSC number is confirmed by you until
-LCSC support is added. Shortages are looked up on DigiKey in the background. A
+manufacturer part number, supplier part number or DigiKey number, or when exactly one stock part fits
+the line's value and package. Shortages are looked up on DigiKey in the background. A
 suggestion that does not fit the line is marked check before ordering. `o` writes
 the shopping list beside the BOM, with a Suggestion check column.
 

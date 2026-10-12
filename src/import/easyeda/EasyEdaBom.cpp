@@ -35,6 +35,12 @@ EasyEdaColumns mapEasyEdaColumns(const vector<string>& headers) {
   columns.designator = findColumn(headers, {"Designator"});
   columns.footprint = findColumn(headers, {"Footprint"});
   columns.name = findColumn(headers, {"Name"});
+  if (columns.name < 0) {
+    columns.name = findColumn(headers, {"Value"});
+  }
+  if (columns.name < 0) {
+    columns.name = findColumn(headers, {"Comment"});
+  }
   columns.quantity = findColumn(headers, {"Quantity"});
   columns.supplier = findColumn(headers, {"Supplier"});
   columns.supplierPart = findColumn(headers, {"Supplier Part"});
@@ -79,7 +85,7 @@ KicadBomFile parseEasyEdaBomText(const string& text, const string& projectName) 
 
   const auto columns = mapEasyEdaColumns(rows.front());
   if (columns.name < 0 || columns.designator < 0 || columns.footprint < 0) {
-    bom.error = "BOM is missing the Name, Designator or Footprint column";
+    bom.error = "BOM is missing the Name, Value or Comment, Designator or Footprint column";
     return bom;
   }
 
@@ -125,7 +131,7 @@ KicadBomFile parseEasyEdaBomText(const string& text, const string& projectName) 
     const bool allNonOrderable = all_of(line.designators.begin(), line.designators.end(), [&](const string& ref) {
       return isNonOrderableDesignator(ref, line.footprint);
     });
-    if (allNonOrderable || (!hasPartNumber && isNonElectricalFootprint(line.footprint))) {
+    if (!hasPartNumber && (allNonOrderable || isNonElectricalFootprint(line.footprint))) {
       bom.warnings.push_back(rowLabel + line.designation + " is not orderable");
       continue;
     }
