@@ -189,4 +189,30 @@ inline std::vector<UpdateNoteLine> formatUpdateNotes(const std::string& notes, i
   return result;
 }
 
+inline int updateNotesLineWidth(const UpdateNoteLine& line) {
+  switch (line.kind) {
+    case UpdateNoteLineKind::Heading:
+      return 2 + static_cast<int>(displayWidth(line.text)) + 2;
+    case UpdateNoteLineKind::BulletStart:
+      return 4 + static_cast<int>(displayWidth(line.text)) + 2;
+    case UpdateNoteLineKind::BulletContinuation:
+      return 4 + static_cast<int>(displayWidth(line.text)) + 2;
+    case UpdateNoteLineKind::Paragraph:
+      return 2 + static_cast<int>(displayWidth(line.text)) + 2;
+    case UpdateNoteLineKind::Empty:
+      return 0;
+  }
+  return 0;
+}
+
+inline int updateNotesPanelWidth(const std::vector<UpdateNoteLine>& lines, int availableWidth, int minWidth = 56) {
+  int maxLineWidth = 0;
+  for (const auto& line : lines) {
+    maxLineWidth = std::max(maxLineWidth, updateNotesLineWidth(line));
+  }
+  const int safeAvailable = std::max(20, availableWidth);
+  const int safeMin = std::min(minWidth, safeAvailable);
+  return std::clamp(maxLineWidth, safeMin, safeAvailable);
+}
+
 }  // namespace inventatory
