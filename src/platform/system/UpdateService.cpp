@@ -440,6 +440,18 @@ bool queryContentLength(HINTERNET request, std::uint64_t& total) {
   return total <= kMaximumUpdateAssetBytes;
 }
 #else
+// Limits a transfer and its redirects to HTTPS. libcurl 7.85 and newer take the protocol name; older libcurl
+// (AlmaLinux 9 ships 7.76, and release binaries are built against it) takes the bit mask.
+void allowOnlyHttps(CURL* request) {
+#if LIBCURL_VERSION_NUM >= 0x075500
+  curl_easy_setopt(request, CURLOPT_PROTOCOLS_STR, "https");
+  curl_easy_setopt(request, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+#else
+  curl_easy_setopt(request, CURLOPT_PROTOCOLS, static_cast<long>(CURLPROTO_HTTPS));
+  curl_easy_setopt(request, CURLOPT_REDIR_PROTOCOLS, static_cast<long>(CURLPROTO_HTTPS));
+#endif
+}
+
 struct ReleaseMetadataResponse {
   std::string body;
   bool oversized = false;
@@ -474,8 +486,7 @@ std::string fetchLatestReleaseJson(const std::string& repository) {
   curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 8000L);
   curl_easy_setopt(request, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(request, CURLOPT_MAXREDIRS, 3L);
-  curl_easy_setopt(request, CURLOPT_PROTOCOLS_STR, "https");
-  curl_easy_setopt(request, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+  allowOnlyHttps(request);
   curl_easy_setopt(request, CURLOPT_NOSIGNAL, 1L);
   curl_easy_setopt(request, CURLOPT_WRITEFUNCTION, receiveReleaseMetadata);
   curl_easy_setopt(request, CURLOPT_WRITEDATA, &response);
@@ -876,8 +887,7 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
   curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 7200000L);
   curl_easy_setopt(request, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(request, CURLOPT_MAXREDIRS, 5L);
-  curl_easy_setopt(request, CURLOPT_PROTOCOLS_STR, "https");
-  curl_easy_setopt(request, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+  allowOnlyHttps(request);
   curl_easy_setopt(request, CURLOPT_NOSIGNAL, 1L);
   curl_easy_setopt(request, CURLOPT_MAXFILESIZE_LARGE, static_cast<curl_off_t>(kMaximumUpdateAssetBytes));
   curl_easy_setopt(request, CURLOPT_WRITEFUNCTION, receive);
