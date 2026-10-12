@@ -2816,6 +2816,228 @@ void testDigiKeyParsingRobustness() {
   }
 }
 
+void testInventoryItemVendorSourcesRoundTrip() {
+  // Retained sources must survive the item record that commit snapshots store, including characters the
+  // field encoding has to escape. A record written before sources existed still reads, with none.
+  InventoryItem item;
+  item.id = "source-item";
+  item.partName = "Source part";
+  item.vendorMetadata.provider = "digikey";
+  item.vendorMetadata.providerProductNumber = "P1-ND";
+
+  VendorProductMetadata other;
+  other.provider = "tme";
+  other.providerProductNumber = "TME-SYM-1";
+  other.manufacturerPartNumber = "MPN \"quoted\"\tTAB";
+  other.categoryId = "cat;1";
+  other.categoryPath = {"Connectors", "Header|pins"};
+  other.title = "Header; 2.54mm";
+  other.detailedDescription = "Line one\nLine two";
+  other.parameters = {{"Number of Positions", "8"}, {"Pitch = 2.54", "a;b"}};
+  other.productUrl = "https://example.invalid/p/1";
+  other.locale = "pl";
+  item.vendorSources = {other};
+
+  const auto line = serializeItem(item);
+  InventoryItem parsed;
+  assert(deserializeItemStrict(line, parsed));
+  assert(parsed.vendorSources.size() == 1);
+  const auto& source = parsed.vendorSources.front();
+  assert(source.provider == other.provider);
+  assert(source.providerProductNumber == other.providerProductNumber);
+  assert(source.manufacturerPartNumber == other.manufacturerPartNumber);
+  assert(source.categoryId == other.categoryId);
+  assert(source.categoryPath == other.categoryPath);
+  assert(source.title == other.title);
+  assert(source.detailedDescription == other.detailedDescription);
+  assert(source.parameters.size() == 2);
+  assert(source.parameters[1].name == "Pitch = 2.54" && source.parameters[1].value == "a;b");
+  assert(source.productUrl == other.productUrl);
+  assert(source.locale == other.locale);
+  assert(serializeItem(parsed) == line);
+
+  // Without sources the record ends with an empty quoted field. Removing that field gives the layout that
+  // commit snapshots had before sources existed, and the strict reader must accept it.
+  item.vendorSources.clear();
+  const string emptyField = "\t\"\"";
+  const auto current = serializeItem(item);
+  assert(current.size() > emptyField.size());
+  assert(current.compare(current.size() - emptyField.size(), emptyField.size(), emptyField) == 0);
+  const auto legacy = current.substr(0, current.size() - emptyField.size());
+  InventoryItem legacyParsed;
+  assert(deserializeItemStrict(legacy, legacyParsed));
+  assert(legacyParsed.vendorSources.empty());
+  assert(legacyParsed.vendorMetadata.provider == "digikey");
+
+  // Unknown trailing data still fails the strict reader, and the lenient reader ignores a damaged record.
+  InventoryItem rejected;
+  assert(!deserializeItemStrict(legacy + "\t\"junk\"", rejected));
+  assert(deserializeVendorSourcesFromStorage("\"not a record\" ").empty());
+}
+
+void testSqliteUpgradesLegacyDatabase() {
+  // A version 1 database gains only the vendor_sources column. Its items and commit history keep their data,
+  // read-only validation leaves the file at version 1, and the first read-write open upgrades it.
+  const auto path = testTempRoot() / "inventatory-legacy-upgrade-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  {
+    InventoryStore store;
+    InventoryItem resistor;
+    resistor.id = "legacy-resistor";
+    resistor.partName = "Legacy resistor";
+    resistor.quantity = 12;
+    resistor.vendorMetadata.provider = "digikey";
+    resistor.vendorMetadata.providerProductNumber = "R1-ND";
+    resistor.vendorMetadata.parameters = {{"Resistance", "10k"}};
+    InventoryItem capacitor;
+    capacitor.id = "legacy-capacitor";
+    capacitor.partName = "Legacy capacitor";
+    capacitor.quantity = 3;
+    store.items().push_back(resistor);
+    store.items().push_back(capacitor);
+    // Commit the items so the file has a history snapshot to carry through the upgrade.
+    InventoryStore empty;
+    InventoryCommitDraft draft;
+    draft.message = "Legacy fixture";
+    InventoryCommit committed;
+    assert(store.saveWithCommit(path, empty, draft, {}, nullptr, &committed));
+    assert(!committed.id.empty());
+  }
+  const auto readUserVersion = [](SqliteConnection& connection) {
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db, "PRAGMA user_version", -1, &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    return sqliteApi().column_int64(statement.stmt, 0);
+  };
+  const auto scalarInt = [](SqliteConnection& connection, const char* sql) {
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db, sql, -1, &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    return sqliteApi().column_int64(statement.stmt, 0);
+  };
+  {
+    // Rebuild the file in the version 1 layout: no vendor_sources column and commit snapshots without the field.
+    SqliteConnection connection;
+    assert(openDatabase(path, connection));
+    assert(scalarInt(connection, "SELECT COUNT(*) FROM inventatory_inventory_commit_items") > 0);
+    assert(execSql(connection,
+                   "UPDATE inventatory_inventory_commit_items SET item_data = substr(item_data, 1, length(item_data) - 3)"));
+    assert(execSql(connection, "ALTER TABLE inventatory_items DROP COLUMN vendor_sources"));
+    assert(execSql(connection, "PRAGMA user_version = 1"));
+  }
+  {
+    // Read-only validation accepts the legacy layout and cannot change it.
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(path, connection));
+    string error;
+    assert(validateInventoryDatabase(connection, &error));
+    assert(readUserVersion(connection) == 1);
+    assert(!tableColumnExists(connection, "inventatory_items", "vendor_sources"));
+  }
+  {
+    // The first read-write open upgrades the file. A second open changes nothing.
+    SqliteConnection connection;
+    assert(openDatabase(path, connection));
+    string error;
+    assert(ensureInventoryDatabaseSchema(connection, &error));
+    assert(readUserVersion(connection) == 2);
+    assert(tableColumnExists(connection, "inventatory_items", "vendor_sources"));
+    assert(scalarInt(connection, "SELECT COUNT(*) FROM inventatory_items WHERE vendor_sources = ''") == 2);
+    assert(ensureInventoryDatabaseSchema(connection, &error));
+    assert(readUserVersion(connection) == 2);
+    assert(validateInventoryDatabase(connection, &error));
+  }
+  {
+    InventoryStore reloaded;
+    assert(reloaded.load(path));
+    assert(reloaded.items().size() == 2);
+    const InventoryItem* loaded = nullptr;
+    for (const auto& item : reloaded.items()) {
+      if (item.id == "legacy-resistor") loaded = &item;
+    }
+    assert(loaded != nullptr);
+    assert(loaded->partName == "Legacy resistor" && loaded->quantity == 12);
+    assert(loaded->vendorMetadata.provider == "digikey");
+    assert(loaded->vendorMetadata.providerProductNumber == "R1-ND");
+    assert(loaded->vendorMetadata.parameters.size() == 1);
+    assert(loaded->vendorSources.empty());
+
+    // A source attached after the upgrade is written to the new column and read back.
+    for (auto& item : reloaded.items()) {
+      if (item.id != "legacy-resistor") continue;
+      VendorProductMetadata other;
+      other.provider = "tme";
+      other.providerProductNumber = "TME-SYM-1";
+      item.vendorSources = {other};
+    }
+    assert(reloaded.save(path));
+  }
+  {
+    InventoryStore again;
+    assert(again.load(path));
+    const InventoryItem* loaded = nullptr;
+    for (const auto& item : again.items()) {
+      if (item.id == "legacy-resistor") loaded = &item;
+    }
+    assert(loaded != nullptr);
+    assert(loaded->vendorSources.size() == 1);
+    assert(loaded->vendorSources.front().provider == "tme");
+    assert(loaded->vendorSources.front().providerProductNumber == "TME-SYM-1");
+    assert(loaded->vendorMetadata.provider == "digikey");
+  }
+  filesystem::remove(path, cleanupError);
+}
+
+void testSqliteRejectsIncompleteLegacyDatabase() {
+  // A legacy database missing another required column is refused, and refused without changes. A version
+  // number this build does not know is refused too.
+  const auto path = testTempRoot() / "inventatory-legacy-incomplete-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  {
+    InventoryStore store;
+    InventoryItem item;
+    item.id = "incomplete-item";
+    item.partName = "Incomplete part";
+    store.items().push_back(item);
+    assert(store.save(path));
+  }
+  const auto readUserVersion = [](SqliteConnection& connection) {
+    SqliteStatement statement;
+    assert(sqliteApi().prepare_v2(connection.db, "PRAGMA user_version", -1, &statement.stmt, nullptr) == SQLITE_OK);
+    assert(sqliteApi().step(statement.stmt) == SQLITE_ROW);
+    return sqliteApi().column_int64(statement.stmt, 0);
+  };
+  {
+    SqliteConnection connection;
+    assert(openDatabase(path, connection));
+    assert(execSql(connection, "ALTER TABLE inventatory_items DROP COLUMN vendor_sources"));
+    assert(execSql(connection, "ALTER TABLE inventatory_items DROP COLUMN rack_assignment"));
+    assert(execSql(connection, "PRAGMA user_version = 1"));
+  }
+  {
+    SqliteConnection connection;
+    assert(openDatabase(path, connection));
+    string error;
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    assert(readUserVersion(connection) == 1);
+    assert(!tableColumnExists(connection, "inventatory_items", "vendor_sources"));
+    assert(!validateInventoryDatabase(connection, &error));
+    assert(readUserVersion(connection) == 1);
+  }
+  {
+    SqliteConnection connection;
+    assert(openDatabase(path, connection));
+    assert(execSql(connection, "PRAGMA user_version = 3"));
+    string error;
+    assert(!ensureInventoryDatabaseSchema(connection, &error));
+    assert(!validateInventoryDatabase(connection, &error));
+    assert(readUserVersion(connection) == 3);
+  }
+  filesystem::remove(path, cleanupError);
+}
+
 void testSqliteSchemaValidation() {
   const auto unsupportedPath = testTempRoot() / "inventatory-unsupported-schema-test.db";
   const auto invalidPath = testTempRoot() / "inventatory-invalid-schema-test.db";
@@ -12357,6 +12579,9 @@ const vector<TestCase>& registeredTests() {
     {"import", "DigiKeyOversizedJsonStrings", testDigiKeyOversizedJsonStrings},
     {"import", "DigiKeyParsingRobustness", testDigiKeyParsingRobustness},
     {"storage", "SqliteSchemaValidation", testSqliteSchemaValidation},
+    {"storage", "SqliteUpgradesLegacyDatabase", testSqliteUpgradesLegacyDatabase},
+    {"storage", "SqliteRejectsIncompleteLegacyDatabase", testSqliteRejectsIncompleteLegacyDatabase},
+    {"storage", "InventoryItemVendorSourcesRoundTrip", testInventoryItemVendorSourcesRoundTrip},
     {"import", "PackageGHardening", testPackageGHardening},
     {"scanner", "ScannerCommitIgnoresUnsavedMemoryEdits", testScannerCommitIgnoresUnsavedMemoryEdits},
     {"inventory", "InventoryMerge", testInventoryMerge},

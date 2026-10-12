@@ -254,6 +254,84 @@ bool deserializeParametersFromStorageStrict(const string& value, vector<Paramete
   return deserializeParametersStrictImpl(value, parameters);
 }
 
+// Each source is one quoted record holding the ten vendorMetadata fields. The
+// records are separated by spaces, so the list is itself a sequence of quoted
+// strings and can sit inside an item record as a single quoted field.
+string serializeVendorSourcesForStorage(const vector<VendorProductMetadata>& sources) {
+  ostringstream out;
+  for (size_t index = 0; index < sources.size(); ++index) {
+    const auto& source = sources[index];
+    ostringstream record;
+    record << quoted(source.provider) << '\t' << quoted(source.providerProductNumber) << '\t'
+           << quoted(source.manufacturerPartNumber) << '\t' << quoted(source.categoryId) << '\t'
+           << quoted(serializeTagsForStorage(source.categoryPath)) << '\t' << quoted(source.title) << '\t'
+           << quoted(source.detailedDescription) << '\t' << quoted(serializeParametersForStorage(source.parameters))
+           << '\t' << quoted(source.productUrl) << '\t' << quoted(source.locale);
+    if (index > 0) out << ' ';
+    out << quoted(record.str());
+  }
+  return out.str();
+}
+
+namespace {
+
+// Reads the raw fields of one source record. The structured fields stay encoded so the strict and
+// lenient readers can each decide how to treat them.
+bool readVendorSourceRecord(const string& record, VendorProductMetadata& source, string& categoryPath,
+                            string& parameters) {
+  istringstream input(record);
+  if (!(input >> quoted(source.provider) >> quoted(source.providerProductNumber) >>
+        quoted(source.manufacturerPartNumber) >> quoted(source.categoryId) >> quoted(categoryPath) >>
+        quoted(source.title) >> quoted(source.detailedDescription) >> quoted(parameters) >>
+        quoted(source.productUrl) >> quoted(source.locale))) {
+    return false;
+  }
+  input >> ws;
+  return input.eof();
+}
+
+}  // namespace
+
+vector<VendorProductMetadata> deserializeVendorSourcesFromStorage(const string& value) {
+  // A damaged record is skipped so the readable sources still load. The strict reader below refuses it.
+  istringstream list(value);
+  vector<VendorProductMetadata> sources;
+  for (list >> ws; !list.eof(); list >> ws) {
+    string record;
+    if (!(list >> quoted(record))) break;
+    VendorProductMetadata source;
+    string categoryPath;
+    string parameters;
+    if (!readVendorSourceRecord(record, source, categoryPath, parameters) || trim(source.provider).empty()) continue;
+    source.categoryPath = deserializeTagsFromStorage(categoryPath);
+    source.parameters = deserializeParametersFromStorage(parameters);
+    sources.push_back(move(source));
+  }
+  return sources;
+}
+
+bool deserializeVendorSourcesFromStorageStrict(const string& value, vector<VendorProductMetadata>& sources) {
+  istringstream list(value);
+  vector<VendorProductMetadata> parsed;
+  for (list >> ws; !list.eof(); list >> ws) {
+    string record;
+    if (!(list >> quoted(record))) return false;
+    VendorProductMetadata source;
+    string categoryPath;
+    string parameters;
+    if (!readVendorSourceRecord(record, source, categoryPath, parameters) || trim(source.provider).empty()) {
+      return false;
+    }
+    if (!deserializeTagsFromStorageStrict(categoryPath, source.categoryPath) ||
+        !deserializeParametersFromStorageStrict(parameters, source.parameters)) {
+      return false;
+    }
+    parsed.push_back(move(source));
+  }
+  sources = move(parsed);
+  return true;
+}
+
 string serializeItem(const InventoryItem& item) {
   ostringstream out;
   out << quoted(item.id) << '\t' << quoted(item.partName) << '\t' << quoted(item.manufacturer) << '\t'
@@ -270,7 +348,8 @@ string serializeItem(const InventoryItem& item) {
        << quoted(serializeTagsForStorage(item.vendorMetadata.categoryPath)) << '\t'
        << quoted(item.vendorMetadata.title) << '\t' << quoted(item.vendorMetadata.detailedDescription) << '\t'
        << quoted(serializeParametersForStorage(item.vendorMetadata.parameters)) << '\t'
-       << quoted(item.vendorMetadata.productUrl) << '\t' << quoted(item.vendorMetadata.locale);
+       << quoted(item.vendorMetadata.productUrl) << '\t' << quoted(item.vendorMetadata.locale) << '\t'
+       << quoted(serializeVendorSourcesForStorage(item.vendorSources));
   return out.str();
 }
 
@@ -308,8 +387,13 @@ bool deserializeItemImpl(const string& line, InventoryItem& item, bool strict) {
     else return false;
     if (!deserializeTagsFromStorageStrict(categoryPath, parsed.vendorMetadata.categoryPath) ||
         !deserializeParametersFromStorageStrict(vendorParameters, parsed.vendorMetadata.parameters)) return false;
+    // Records written before vendor sources existed end here.
+    string vendorSources;
+    input >> ws;
+    if (!input.eof() && !(input >> quoted(vendorSources))) return false;
     input >> ws;
     if (!input.eof()) return false;
+    if (!deserializeVendorSourcesFromStorageStrict(vendorSources, parsed.vendorSources)) return false;
     item = move(parsed);
     return true;
   }
@@ -341,6 +425,11 @@ bool deserializeItemImpl(const string& line, InventoryItem& item, bool strict) {
         quoted(parsed.vendorMetadata.productUrl) >> quoted(parsed.vendorMetadata.locale)) {
       parsed.vendorMetadata.categoryPath = deserializeTagsFromStorage(categoryPath);
       parsed.vendorMetadata.parameters = deserializeParametersFromStorage(vendorParameters);
+      string vendorSources;
+      input >> ws;
+      if (!input.eof() && (input >> quoted(vendorSources))) {
+        parsed.vendorSources = deserializeVendorSourcesFromStorage(vendorSources);
+      }
     }
   }
 

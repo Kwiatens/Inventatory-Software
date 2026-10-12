@@ -88,7 +88,7 @@ bool createSchemaObjects(SqliteConnection& connection, string* error) {
           product_url TEXT NOT NULL, sync_status TEXT NOT NULL, sku TEXT NOT NULL, last_updated INTEGER NOT NULL,
           inventatory_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,
           machine_code TEXT NOT NULL DEFAULT '', rack_id TEXT NOT NULL DEFAULT '', rack_slot TEXT NOT NULL DEFAULT '',
-          rack_assignment TEXT NOT NULL DEFAULT 'automatic'
+          rack_assignment TEXT NOT NULL DEFAULT 'automatic', vendor_sources TEXT NOT NULL DEFAULT ''
         )
       )SQL",
       R"SQL(
@@ -253,7 +253,9 @@ bool readIntegrityOk(SqliteConnection& connection, string* error) {
   return true;
 }
 
-bool validateCurrentSchema(SqliteConnection& connection, string* error) {
+// schemaVersion is the version the database reports. Columns added by a later
+// version are required only once the database reports that version.
+bool validateCurrentSchema(SqliteConnection& connection, string* error, int schemaVersion) {
   struct RequiredColumns {
     const char* table;
     vector<const char*> columns;
@@ -300,6 +302,39 @@ bool validateCurrentSchema(SqliteConnection& connection, string* error) {
       return false;
     }
   }
+  if (schemaVersion >= kInventoryDatabaseSchemaVersion &&
+      !tableColumnExists(connection, "inventatory_items", "vendor_sources")) {
+    setSqlError(connection, error, "Incomplete Inventatory SQLite item schema");
+    return false;
+  }
+  return true;
+}
+
+// Upgrades a legacy database in place. The only change is the vendor_sources column, appended with an
+// empty default, so every existing item, rack assignment and commit snapshot keeps its data. The
+// upgrade runs in one transaction; on any failure it rolls back and the database stays at the legacy version.
+bool upgradeLegacySchema(SqliteConnection& connection, string* error) {
+  if (!validateCurrentSchema(connection, error, kInventoryLegacySchemaVersion)) return false;
+  if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
+    setSqlError(connection, error, "Unable to begin the Inventatory SQLite schema upgrade");
+    return false;
+  }
+  const auto fail = [&]() {
+    execSql(connection, "ROLLBACK");
+    return false;
+  };
+  if (!execSql(connection, "ALTER TABLE inventatory_items ADD COLUMN vendor_sources TEXT NOT NULL DEFAULT ''")) {
+    setSqlError(connection, error, "Unable to upgrade the Inventatory SQLite item schema");
+    return fail();
+  }
+  if (!execSql(connection, "PRAGMA user_version = " + to_string(kInventoryDatabaseSchemaVersion)) ||
+      !validateCurrentSchema(connection, error, kInventoryDatabaseSchemaVersion)) {
+    return fail();
+  }
+  if (!execSql(connection, "COMMIT")) {
+    setSqlError(connection, error, "Unable to commit the Inventatory SQLite schema upgrade");
+    return fail();
+  }
   return true;
 }
 }  // namespace
@@ -322,7 +357,9 @@ bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error) 
     return false;
   }
   if (hasUserTables) {
-    if (version != kInventoryDatabaseSchemaVersion || !validateCurrentSchema(connection, error)) {
+    if (version == kInventoryLegacySchemaVersion) return upgradeLegacySchema(connection, error);
+    if (version != kInventoryDatabaseSchemaVersion ||
+        !validateCurrentSchema(connection, error, kInventoryDatabaseSchemaVersion)) {
       if (error != nullptr && error->empty()) *error = "Unsupported or invalid Inventatory SQLite schema";
       return false;
     }
@@ -341,7 +378,8 @@ bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error) 
     return false;
   };
   if (!createSchemaObjects(connection, error) || !createSchemaIndexes(connection, error) ||
-      !execSql(connection, "PRAGMA user_version = 1") || !validateInventoryDatabase(connection, error)) return fail();
+      !execSql(connection, "PRAGMA user_version = " + to_string(kInventoryDatabaseSchemaVersion)) ||
+      !validateInventoryDatabase(connection, error)) return fail();
   if (!execSql(connection, "COMMIT")) {
     setSqlError(connection, error, "Unable to commit SQLite schema initialization");
     return fail();
@@ -363,11 +401,13 @@ bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
     return false;
   }
   sqlite3_int64 version = 0;
-  if (!queryInt64(connection, "PRAGMA user_version", version) || version != kInventoryDatabaseSchemaVersion) {
+  if (!queryInt64(connection, "PRAGMA user_version", version) ||
+      (version != kInventoryDatabaseSchemaVersion && version != kInventoryLegacySchemaVersion)) {
     setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
     return false;
   }
-  if (!validateCurrentSchema(connection, error) || !validateDataValues(connection, error) ||
+  // A legacy database is checked as it is. It is upgraded only when it is opened read-write.
+  if (!validateCurrentSchema(connection, error, static_cast<int>(version)) || !validateDataValues(connection, error) ||
       !readIntegrityOk(connection, error)) {
     return false;
   }
