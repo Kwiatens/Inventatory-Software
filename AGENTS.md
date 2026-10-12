@@ -14,8 +14,11 @@ rules for the application code.
 
 Inventatory is a C++17 terminal inventory application in public beta with
 separate Windows and Linux releases. Windows remains supported through Visual
-Studio 2022 and CMake 3.20 or newer; native Linux targets Ubuntu 24.04 x86-64
-with GCC or Clang and CMake 3.20 or newer. The application has a shared
+Studio 2022 and CMake 3.20 or newer; native Linux targets x86-64 distributions with
+glibc 2.34 or newer. The release is built and tested with GCC 11 in AlmaLinux 9, and
+`tools/check-linux-abi.sh` enforces that floor. CI also builds with Clang and runs the
+sanitizers on Ubuntu 24.04, and checks the release binary on Ubuntu 22.04, Debian 12 and AlmaLinux 9
+with `tools/check-linux-runtime.sh`. Both need CMake 3.20 or newer. The application has a shared
 foreground terminal UI, local SQLite persistence, import workflows, label
 printing, and the authenticated physical Inventatory Scan R1 device service.
 Windows keeps its background/tray process; Linux uses a per-user systemd
@@ -105,8 +108,8 @@ cmake --build build --config Release --target inventatory inventatory_background
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-On Ubuntu 24.04, install `build-essential cmake pkg-config libsecret-1-dev
-libcurl4-openssl-dev libssl-dev libglib2.0-dev`, then build and test Debug and
+Install the Linux build dependencies listed in CONTRIBUTING.md for your
+distribution, then build and test Debug and
 Release configurations:
 
 ```sh
