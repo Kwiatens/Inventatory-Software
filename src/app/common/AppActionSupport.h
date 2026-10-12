@@ -188,7 +188,14 @@ inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetail
 
   // The retained provider record is the sole input for deterministic vendor
   // label resolution; direct item fields remain available for the UI.
+  // An item already bound to another catalogue provider keeps that identity:
+  // replacing it would swap the part its provider number points at.
+  const auto boundProvider = toLower(trim(item.vendorMetadata.provider));
+  const bool identityOwnedElsewhere = !boundProvider.empty() && boundProvider != "digikey";
   const auto mergeVendorField = [&](string& target, const string& value) {
+    if (identityOwnedElsewhere) {
+      return;
+    }
     if (!value.empty() && target != value) {
       target = value;
       changed = true;
@@ -204,13 +211,13 @@ inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetail
   mergeVendorField(item.vendorMetadata.productUrl, details.vendorMetadata.productUrl);
   mergeVendorField(item.vendorMetadata.locale, details.vendorMetadata.locale);
 
-  if (!details.vendorMetadata.categoryPath.empty() &&
+  if (!identityOwnedElsewhere && !details.vendorMetadata.categoryPath.empty() &&
       item.vendorMetadata.categoryPath != details.vendorMetadata.categoryPath) {
     item.vendorMetadata.categoryPath = details.vendorMetadata.categoryPath;
     changed = true;
   }
 
-  if (!details.vendorMetadata.parameters.empty()) {
+  if (!identityOwnedElsewhere && !details.vendorMetadata.parameters.empty()) {
     const auto& newParams = details.vendorMetadata.parameters;
     const auto& oldParams = item.vendorMetadata.parameters;
     bool differ = oldParams.size() != newParams.size();
