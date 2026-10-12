@@ -7,8 +7,8 @@ rules for changelog entries and versions are in
 
 ## Cutting a release
 
-1. Check that `main` passes CI: the `linux`, `linux-clang`, `linux-sanitizers`,
-   `secret-logging` and `windows` jobs.
+1. Check that `main` passes CI: the `linux`, `linux-runtime`, `linux-clang`,
+   `linux-sanitizers`, `secret-logging` and `windows` jobs.
 2. Set the version in `project(InventatorySoftware VERSION x.y.z)` in
    `CMakeLists.txt`.
 3. In `CHANGELOG.md`, move the `[Unreleased]` entries under a new
@@ -17,7 +17,10 @@ rules for changelog entries and versions are in
    `vX.Y.Z-rc.N`. The release workflow rejects any other tag format.
 5. The `Public beta release` workflow (`.github/workflows/release.yml`) runs on
    the tag, builds the Windows and Linux packages, and publishes the GitHub
-   release. Its notes come from the matching `CHANGELOG.md` section. A
+   release. The Linux package is built in an AlmaLinux 9 container, and
+   `tools/check-linux-abi.sh` fails the job when its binary needs a glibc newer
+   than 2.34, a libstdc++ newer than GCC 11's, or a versioned libcurl. Its notes
+   come from the matching `CHANGELOG.md` section. A
    `release-notes/<tag>.md` file overrides them, and so does the notes input when
    the workflow is started by hand. If none of these exists, GitHub's generated
    notes are used.
