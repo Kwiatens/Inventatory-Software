@@ -26,8 +26,8 @@ BomPickPlan App::bomPickPlan() const {
 }
 
 int App::bomPickTaken(const BomPick& pick) const {
-  const auto found = bomPickTaken_.find(pick.matchIndex);
-  return found == bomPickTaken_.end() ? pick.quantity : clamp(found->second, 0, pick.quantity);
+  if (pick.commitIndex >= bomCommitTaken_.size()) return pick.quantity;
+  return clamp(bomCommitTaken_[pick.commitIndex], 0, pick.quantity);
 }
 
 void App::adjustBomPickTaken(int delta) {
@@ -39,7 +39,8 @@ void App::adjustBomPickTaken(int delta) {
   }
   if (picks.empty()) return;
   const auto& pick = *picks[min(bomFinishSelection_, picks.size() - 1)];
-  bomPickTaken_[pick.matchIndex] = clamp(bomPickTaken(pick) + delta, 0, pick.quantity);
+  if (pick.commitIndex >= bomCommitTaken_.size()) return;
+  bomCommitTaken_[pick.commitIndex] = clamp(bomPickTaken(pick) + delta, 0, pick.quantity);
   dirty_ = true;
 }
 
@@ -47,13 +48,19 @@ void App::beginBomBuild() {
   if (!bomAnalysisValid_) {
     return;
   }
-  if (bomPickPlan().empty()) {
+  // The walkthrough starts from the stock on the shelf now. Its picks are frozen here, and finishing deducts
+  // only what was frozen, and only if the stock still matches it.
+  refreshBomAnalysis();
+  const auto plan = bomPickPlan();
+  if (plan.empty()) {
     setMessage("Nothing to pick yet. Every part of this project still needs ordering.", 4);
     return;
   }
+  bomCommits_ = bomPickCommits(plan, bomAnalysis_, store_);
+  bomCommitTaken_.clear();
+  for (const auto& commit : bomCommits_) bomCommitTaken_.push_back(commit.quantity);
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
-  bomPickTaken_.clear();
   bomFinishSelection_ = 0;
   bomView_ = BomView::Build;
   dirty_ = true;
@@ -99,27 +106,51 @@ void App::advanceBomBuild(int delta) {
 }
 
 void App::finishBomBuild(bool subtractFromStock) {
+  // Deducting works from the live stock. Refresh first, so the check below compares the walkthrough with the
+  // shelf as it is now, not as it was when the project was last analysed.
+  if (subtractFromStock) refreshBomAnalysis();
   const auto plan = bomPickPlan();
   int parts = 0;
   int pieces = 0;
   bool stockSaved = true;
 
   if (subtractFromStock) {
+    // Nothing is deducted unless every pick still matches the walkthrough: the same item, unchanged, with enough
+    // units. Any difference stops the whole deduction, so no part is taken from the wrong item or below zero.
+    const auto abandon = [this](const string& reason) {
+      bomDeductPrompt_ = false;
+      bomBuildStep_ = 0;
+      bomCommits_.clear();
+      bomCommitTaken_.clear();
+      bomView_ = BomView::Split;
+      refreshBomAnalysis();
+      setMessage(reason, 7, UiMessageSeverity::Error);
+    };
+    if (!sameBomPickCommits(bomPickCommits(plan, bomAnalysis_, store_), bomCommits_)) {
+      abandon("Stock or matches changed since the walkthrough began. Nothing was taken out. Start the build again.");
+      return;
+    }
+    const auto problems = bomPickProblems(bomCommits_, bomCommitTaken_, store_);
+    if (!problems.empty()) {
+      string reason = "Nothing was taken out. " + problems.front();
+      if (problems.size() > 1) reason += " " + to_string(problems.size() - 1) + " more to check.";
+      abandon(reason + " Start the build again.");
+      return;
+    }
+
     captureUndoSnapshot();
     const auto now = time(nullptr);
-    for (const auto& stop : plan.stops) {
-      for (const auto& pick : stop.picks) {
-        auto* item = store_.findById(pick.itemId);
-        const int taken = bomPickTaken(pick);
-        if (item == nullptr || taken <= 0) {
-          continue;
-        }
-        item->quantity = max(0, item->quantity - taken);
-        item->lastUpdated = now;
-        reconcileRackAssignment(store_, *item);
-        ++parts;
-        pieces += taken;
+    for (size_t index = 0; index < bomCommits_.size(); ++index) {
+      const int taken = bomCommitTaken_[index];
+      auto* item = store_.findById(bomCommits_[index].itemId);
+      if (item == nullptr || taken <= 0) {
+        continue;
       }
+      item->quantity -= taken;  // checked above: on hand is at least the total drawn from this item
+      item->lastUpdated = now;
+      reconcileRackAssignment(store_, *item);
+      ++parts;
+      pieces += taken;
     }
     // A failed save keeps the deduction in memory for the R retry. The walkthrough still closes below so
     // the finish prompt cannot be confirmed again and deduct the same pieces a second time.
@@ -148,9 +179,11 @@ void App::finishBomBuild(bool subtractFromStock) {
   // The walkthrough always closes here, saved or not. Leaving it open after the stock was deducted would let
   // the finish prompt deduct the same pieces again.
   const auto shortLines = plan.shortMatches.size();
+  const auto unconfirmedLines = plan.unconfirmedMatches.size();
   bomDeductPrompt_ = false;
   bomBuildStep_ = 0;
-  bomPickTaken_.clear();
+  bomCommits_.clear();
+  bomCommitTaken_.clear();
   bomView_ = BomView::Split;
   refreshBomAnalysis();
   if (!stockSaved) {
@@ -165,6 +198,10 @@ void App::finishBomBuild(bool subtractFromStock) {
                                      : string("Stock was left as it was.");
   if (shortLines > 0) {
     message += " " + voiceCount(static_cast<int>(shortLines), "line is", "lines are") + " still on the shopping list.";
+  }
+  if (unconfirmedLines > 0) {
+    message += " " + voiceCount(static_cast<int>(unconfirmedLines), "line", "lines") +
+               " waiting for a confirmed part; they were not taken.";
   }
   setMessage(message, 6);
 }

@@ -15,12 +15,13 @@ namespace inventatory {
 
 using namespace std;
 
-optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion) {
+optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified) {
   switch (outcome) {
     case BomLookupOutcome::Found: {
       const auto trimmed = trim(suggestion);
       // A part without a usable number gives the user nothing to act on.
-      return trimmed.empty() || trimmed == "-" ? string(kBomEnrichmentNoMatch) : trimmed;
+      if (trimmed.empty() || trimmed == "-") return string(kBomEnrichmentNoMatch);
+      return verified ? string(kBomEnrichmentVerified) + trimmed : trimmed;
     }
     case BomLookupOutcome::NoMatch:
       return string(kBomEnrichmentNoMatch);
@@ -37,25 +38,43 @@ bool bomEnrichmentCached(const map<string, string>& enrichment, const string& ke
   return !value.empty() && value != "-";
 }
 
+string bomEnrichmentPart(const string& stored) {
+  const string prefix = kBomEnrichmentVerified;
+  const auto value = stored.rfind(prefix, 0) == 0 ? stored.substr(prefix.size()) : stored;
+  const auto trimmed = trim(value);
+  return trimmed == "-" || trimmed == kBomEnrichmentNoMatch ? string() : trimmed;
+}
+
+bool bomEnrichmentVerified(const string& stored) {
+  return stored.rfind(string(kBomEnrichmentVerified), 0) == 0;
+}
+
 string bomEnrichmentExportText(const string& stored) {
-  const auto value = trim(stored);
-  return value == "-" || value == kBomEnrichmentNoMatch ? string() : value;
+  return bomEnrichmentPart(stored);
 }
 
 BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<string, string>& enrichment) {
   BomShortageExport result;
-  result.text = "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n";
+  result.text =
+      "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part,Suggestion check\r\n";
   for (const auto& match : analysis.matches) {
     if (match.sufficient || match.lineIndex >= analysis.lines.size()) {
       continue;
     }
     const auto& line = analysis.lines[match.lineIndex];
     const auto suggestion = enrichment.find(bomLineKey(line));
+    const auto part = suggestion == enrichment.end() ? string() : bomEnrichmentPart(suggestion->second);
+    // A suggestion that did not fit the line is never presented as a verified part.
+    const string check = part.empty() ? string()
+                         : bomEnrichmentVerified(suggestion->second) ? string("verified")
+                                                                     : string("check before ordering");
+    // A line waiting for confirmation is on the list, and counts nothing on hand: the stock it names is not yet
+    // the part the user has accepted for this line.
+    const int onHand = match.confirmed ? match.available : 0;
     result.text += csvTextCell(line.designation) + ',' + csvTextCell(line.footprint) + ',' +
                    csvTextCell(packageFromFootprint(line.footprint)) + ',' + csvTextCell(join(line.designators, ' ')) +
-                   ',' + to_string(match.needed) + ',' + to_string(match.available) + ',' +
-                   csvTextCell(suggestion == enrichment.end() ? string() : bomEnrichmentExportText(suggestion->second)) +
-                   "\r\n";
+                   ',' + to_string(match.needed) + ',' + to_string(onHand) + ',' + csvTextCell(part) + ',' +
+                   csvTextCell(check) + "\r\n";
     ++result.rows;
   }
   return result;

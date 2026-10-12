@@ -455,6 +455,9 @@ class App {
   struct BomEnrichmentResult {
     std::string key;
     std::string suggestion;
+    // The supplier's part fits the BOM line by the same rules stock must pass. Unverified suggestions are
+    // labelled "check before ordering" wherever they are shown or exported.
+    bool verified = false;
     BomLookupOutcome outcome = BomLookupOutcome::Failed;
     std::string projectId;
     WorkspaceGeneration workspaceGeneration = 0;
@@ -861,9 +864,10 @@ class App {
   bool restoreData();
   void retrySaveState();
   BomPickPlan bomPickPlan() const;
-  // Pieces the user says they took for one pick; defaults to everything the plan asks for.
+  // Pieces the user says they took for one pick; defaults to everything the walkthrough committed to.
   int bomPickTaken(const BomPick& pick) const;
   void adjustBomPickTaken(int delta);
+  void confirmBomMatch();
   BomProject* activeBomProject();
   const BomProject* activeBomProject() const;
 
@@ -1019,8 +1023,12 @@ class App {
   mutable ftxui::Box bomTableBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
-  // Finish screen: amounts corrected by the user (match index -> pieces taken) and the selected row.
-  std::map<size_t, int> bomPickTaken_;
+  // The picks the walkthrough started with, frozen when it began. Finish deducts only if the stock still
+  // matches them. Taken amounts are indexed by commit, so re-sorting the analysis cannot move them.
+  std::vector<BomPickCommit> bomCommits_;
+  std::vector<int> bomCommitTaken_;
+  // "Next match" choices not yet confirmed (bomLineKey -> item id). They move the suggestion and never confirm it.
+  std::map<std::string, std::string> bomSuggestions_;
   size_t bomFinishSelection_ = 0;
   std::string bomRestockItemId_;
   std::string bomDeleteConfirmationProjectId_;

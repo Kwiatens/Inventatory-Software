@@ -44,6 +44,8 @@
 #include "import/csv/CsvFormat.h"
 #include "import/csv/CsvReader.h"
 #include "import/kicad/KicadBom.h"
+#include "import/bom/BomImport.h"
+#include "import/easyeda/EasyEdaBom.h"
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomPickPlan.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
@@ -9478,6 +9480,31 @@ void testPackageFromFootprint() {
   assert(!packageMatches("0603", ""));
 }
 
+void testEasyEdaAndIpcPackageNames() {
+  // EasyEDA and JLCPCB footprints lead with the chip code.
+  assert(packageFromFootprint("R0402") == "0402");
+  assert(packageFromFootprint("C0402") == "0402");
+  assert(packageFromFootprint("C0402_NEW") == "0402");
+  assert(packageFromFootprint("C0603") == "0603");
+  // IPC-7351 names carry the metric size between the letters and an X.
+  assert(packageFromFootprint("CAPC1608X90N") == "0603");
+  assert(packageFromFootprint("RESC2012X70N") == "0805");
+  assert(packageFromFootprint("CAPC3216X180N") == "1206");
+  // Other packages keep the name KiCad and EasyEDA give them.
+  assert(packageFromFootprint("SOT-23-3") == "SOT-23-3");
+  assert(packageFromFootprint("LED-SMD_L3.5-W3.5-P1.10-BR") == "LED-SMD");
+  assert(packageFromFootprint("CASTELLATED_PAD_2") == "CASTELLATED");
+
+  // The EasyEDA footprint of a chip matches the same chip in stock, and not another size.
+  assert(packageMatches(packageFromFootprint("R0402"), "0402 (1005 Metric)"));
+  assert(packageMatches(packageFromFootprint("CAPC1608X90N"), "0603 (1608 Metric)"));
+  assert(!packageMatches(packageFromFootprint("C0402"), "0603 (1608 Metric)"));
+  assert(!packageMatches("0402", "0201 (0603 Metric)"));
+  // Chip codes must be the same chip, not merely contain the same digits.
+  assert(packageMatches("0603", "0603 (1608 Metric)"));
+  assert(!packageMatches("0603", "0805 (2012 Metric)"));
+}
+
 void testMatchingPrefersValueAndPackage() {
   vector<InventoryItem> items;
 
@@ -9531,13 +9558,15 @@ void testMatchingPrefersValueAndPackage() {
     return size_t{0};
   };
 
-  // Value plus package beats value alone, even though the 0805 reel is far
-  // larger and would otherwise win the tie-break.
+  // Value plus package ranks the 0603 part first, ahead of a far larger 0805 reel. The 0603 part is only the
+  // suggestion: the package-less part fits the line as well, so the user confirms one of them.
   const auto capIndex = lineIndexOf("100nF");
   assert(analysis.matches[capIndex].chosenItemId() == "cap-100nf-0603");
   assert(analysis.matches[capIndex].needed == 2);
   assert(analysis.matches[capIndex].available == 340);
-  assert(analysis.matches[capIndex].sufficient);
+  assert(!analysis.matches[capIndex].confirmed);
+  assert(!analysis.matches[capIndex].sufficient);
+  assert(analysis.matches[capIndex].check == BomCheckReason::Ambiguous);
   // The 0805 part is rejected outright; only the 0603 and the package-less
   // fallback are offered as alternates.
   assert(analysis.matches[capIndex].candidates.size() == 2);
@@ -9551,17 +9580,42 @@ void testMatchingPrefersValueAndPackage() {
   assert(analysis.matches[radialIndex].candidates.empty());
   assert(!analysis.matches[radialIndex].sufficient);
   assert(analysis.shortCount == 5);  // five of the eight KiCad lines are not sufficiently covered by this stock
+  assert(analysis.confirmCount == 1);  // the 100nF line waits for the user to pick its part
+  assert(analysis.readyCount == 1);    // only the exact module match is authorised on identity alone
   assert(!bomBuildReady(analysis));
 
   // A line needing more than the shelf holds is short.
   const auto oneMicroIndex = lineIndexOf("1uF");
   assert(!analysis.matches[oneMicroIndex].sufficient);
 
-  // Overrides pin the alternate across a re-analysis.
-  map<string, string> overrides;
-  overrides[bomLineKey(analysis.lines[capIndex])] = "cap-100nf-unknown";
-  const auto pinned = analyzeBom(bom, items, 1, overrides);
+  // A confirmation pins the chosen part across a re-analysis, for as long as that part is unchanged.
+  const auto& noPackageItem = items[2];
+  map<string, string> confirmations;
+  confirmations[bomLineKey(analysis.lines[capIndex])] =
+      encodeBomConfirmation({noPackageItem.id, bomItemFingerprint(noPackageItem)});
+  const auto pinned = analyzeBom(bom, items, 1, confirmations);
   assert(pinned.matches[capIndex].chosenItemId() == "cap-100nf-unknown");
+  assert(pinned.matches[capIndex].confirmed);
+  assert(pinned.matches[capIndex].sufficient);
+  assert(pinned.matches[capIndex].check == BomCheckReason::None);
+
+  // A bare item id, as earlier versions stored it, is not a confirmation. The top suggestion is shown, unconfirmed.
+  map<string, string> bareId;
+  bareId[bomLineKey(analysis.lines[capIndex])] = "cap-100nf-unknown";
+  const auto unpinned = analyzeBom(bom, items, 1, bareId);
+  assert(!unpinned.matches[capIndex].confirmed);
+  assert(unpinned.matches[capIndex].check == BomCheckReason::OverrideLost);
+  assert(unpinned.matches[capIndex].chosenItemId() == "cap-100nf-0603");
+
+  // A confirmation whose item has changed is lost. Nothing is put in its place silently.
+  InventoryItem changedItem = noPackageItem;
+  changedItem.partName = "Bulk 100nF, different reel";
+  vector<InventoryItem> changedItems = items;
+  changedItems[2] = changedItem;
+  const auto stale = analyzeBom(bom, changedItems, 1, confirmations);
+  assert(!stale.matches[capIndex].confirmed);
+  assert(stale.matches[capIndex].check == BomCheckReason::OverrideLost);
+  assert(stale.matches[capIndex].chosenItemId() == "cap-100nf-0603");
 
   // Board count scales every requirement and can flip a line into shortage.
   const auto doubled = analyzeBom(bom, items, 2, {});
@@ -9572,7 +9626,7 @@ void testMatchingPrefersValueAndPackage() {
   const auto exactIndex = lineIndexOf("ESP32-S3-WROOM-1");
   assert(analysis.matches[exactIndex].sufficient);   // 1 needed, 1 in stock
   assert(!doubled.matches[exactIndex].sufficient);   // 2 needed, 1 in stock
-  assert(bomBuildReady(analysis) == (analysis.shortCount == 0 && !analysis.matches.empty()));
+  assert(bomBuildReady(analysis) == (analysis.shortCount == 0 && analysis.confirmCount == 0 && !analysis.matches.empty()));
 }
 
 // Builds a hand-made analysis so the pick route is tested independently of the matcher.
@@ -9587,11 +9641,468 @@ BomAnalysis pickPlanAnalysis(const vector<tuple<string, string, int, vector<stri
     BomMatch match;
     match.lineIndex = analysis.lines.size();
     if (!itemId.empty()) match.candidates.push_back({itemId, 100});
+    // The walkthrough only ever picks confirmed matches, so the helper models lines the user has confirmed.
+    match.confirmed = !itemId.empty();
     match.needed = needed;
     analysis.lines.push_back(line);
     analysis.matches.push_back(match);
   }
   return analysis;
+}
+
+// Stock used to characterise the KiCad matching path: value, package and part-number cases in one set.
+vector<InventoryItem> characterisationStock() {
+  InventoryItem cap;
+  cap.id = "cap-100nf-0603";
+  cap.partName = "CAP CER 100NF 50V X7R 0603";
+  cap.category = "Capacitors";
+  cap.quantity = 340;
+  cap.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0603 (1608 Metric)"}};
+
+  InventoryItem wrongPackage = cap;
+  wrongPackage.id = "cap-100nf-0805";
+  wrongPackage.partName = "CAP CER 100NF 50V X7R 0805";
+  wrongPackage.quantity = 9000;
+  wrongPackage.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0805 (2012 Metric)"}};
+
+  InventoryItem noPackage = cap;
+  noPackage.id = "cap-100nf-unknown";
+  noPackage.partName = "Bulk 100nF";
+  noPackage.quantity = 5;
+  noPackage.parameters = {{"Capacitance", "100 nF"}};
+
+  InventoryItem oneMicro = cap;
+  oneMicro.id = "cap-1uf-0603";
+  oneMicro.partName = "CAP CER 1UF 25V X7R 0603";
+  oneMicro.quantity = 1;
+  oneMicro.parameters = {{"Capacitance", "1 uF"}, {"Package / Case", "0603 (1608 Metric)"}};
+
+  InventoryItem module;
+  module.id = "esp32-module";
+  module.partName = "IC RF TXRX+MCU MODULE";
+  module.category = "Integrated Circuits";
+  module.quantity = 7;
+  module.sku = "ESP32-S3-WROOM-1-N16R8";
+
+  InventoryItem exactModule;
+  exactModule.id = "esp32-exact";
+  exactModule.partName = "Espressif module";
+  exactModule.category = "Integrated Circuits";
+  exactModule.quantity = 1;
+  exactModule.sku = "ESP32-S3-WROOM-1";
+
+  return {cap, wrongPackage, noPackage, oneMicro, module, exactModule};
+}
+
+// One line per BOM match: key, quantities, chosen item, candidates with scores, and the totals.
+string describeBomAnalysis(const BomAnalysis& analysis) {
+  string text;
+  for (const auto& match : analysis.matches) {
+    const auto& line = analysis.lines[match.lineIndex];
+    text += bomLineKey(line) + " | needed " + to_string(match.needed) + " | available " +
+            to_string(match.available) + " | sufficient " + (match.sufficient ? "yes" : "no") + " | chosen " +
+            match.chosenItemId() + " |";
+    for (const auto& candidate : match.candidates) text += " " + candidate.itemId + ":" + to_string(candidate.score);
+    text += "\n";
+  }
+  text += "ready " + to_string(analysis.readyCount) + " short " + to_string(analysis.shortCount) + " pieces " +
+          to_string(analysis.totalPieces) + "\n";
+  return text;
+}
+
+void testKicadBomCharacterisation() {
+  // Captured before the EasyEDA work. KiCad lines carry no supplier identity, so their keys, quantities and
+  // candidate lists must stay byte-identical. Two intended changes are recorded here:
+  //  - the 100nF line has two equally good stock parts, so it is no longer sufficient on its own (confirm first);
+  //  - "esp32-module" is no longer a candidate: its name holds ESP32-S3-WROOM-1 only as part of "...-N16R8",
+  //    and a part number matches a whole word, not a substring.
+  const auto bom = parseKicadBomText(kicadBom, "Astro Arrow");
+  const auto analysis = analyzeBom(bom, characterisationStock(), 1, {});
+  const string expected = R"SNAP(1uf|c06031608metric | needed 6 | available 1 | sufficient no | chosen cap-1uf-0603 | cap-1uf-0603:90
+100nf|c06031608metric | needed 2 | available 340 | sufficient no | chosen cap-100nf-0603 | cap-100nf-0603:90 cap-100nf-unknown:70
+001uf|c06031608metric | needed 1 | available 0 | sufficient no | chosen  |
+100uf|cpradiald50mmp250mm | needed 2 | available 0 | sufficient no | chosen  |
+10k|r06031608metric | needed 1 | available 0 | sufficient no | chosen  |
+213epaper|jstphb8bphk1x08p200mmvertical | needed 1 | available 0 | sufficient no | chosen  |
+esp32s3wroom1|esp32s3wroom1 | needed 1 | available 1 | sufficient yes | chosen esp32-exact | esp32-exact:100
+ready 1 short 5 pieces 14
+)SNAP";
+  const string actual = describeBomAnalysis(analysis);
+  if (actual != expected) {
+    fputs(actual.c_str(), stderr);
+    assert(false);
+  }
+}
+
+// Synthetic export in the layout of an EasyEDA Standard BOM: UTF-8 with a byte order mark, tab delimited, quoted
+// cells. The Ohm sign is U+03A9 (bytes CE A9), as EasyEDA writes it.
+const string easyedaBom =
+    "\xEF\xBB\xBF"
+    "ID\tName\tDesignator\tFootprint\tQuantity\tSupplier\tSupplier Part\tPrice\n"
+    "\"1\"\t\"100nF\"\t\"C1,C3,C4,C6\"\t\"C0402\"\t\"4\"\t\"LCSC\"\t\"C60474\"\t\"0.001\"\n"
+    "\"2\"\t\"10k\xCE\xA9\"\t\"R1\"\t\"R0402\"\t\"1\"\t\"LCSC\"\t\"C25744\"\t\"0.001\"\n"
+    "\"3\"\t\"Castellated_Pad x1\"\t\"+5V,GND,BI\"\t\"CASTELLATED_PAD_2\"\t\"3\"\t\"\"\t\"\"\t\"\"\n"
+    "\"4\"\t\"ESP32-S3-WROOM-1\"\t\"U1\"\t\"ESP32-S3-WROOM-1\"\t\"1\"\t\"DigiKey\"\t\"1965-ESP32S3\"\t\"5.50\"\n";
+
+// A BOM line as the importers make it, for matching tests.
+BomLine bomTestLine(const string& designation, const string& footprint, int quantity, const string& supplier = "",
+                    const string& supplierPart = "", const string& manufacturerPart = "") {
+  BomLine line;
+  line.designators = {"U1"};
+  line.designation = designation;
+  line.footprint = footprint;
+  line.quantityPerBoard = quantity;
+  line.supplier = supplier;
+  line.supplierPartNumber = supplierPart;
+  line.manufacturerPartNumber = manufacturerPart;
+  return line;
+}
+
+KicadBomFile bomTestFile(const vector<BomLine>& lines) {
+  KicadBomFile bom;
+  bom.ok = true;
+  bom.lines = lines;
+  return bom;
+}
+
+void testEasyEdaBomParsing() {
+  assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
+  const auto bom = parseBomText(easyedaBom, "Rydful");
+  assert(bom.ok);
+  assert(bom.projectName == "Rydful");
+  // Three orderable rows. The castellated pads have no supplier part and are excluded, with a warning that names them.
+  assert(bom.lines.size() == 3);
+  assert(bom.warnings.size() == 1);
+  assert(bom.warnings.front().find("Castellated_Pad x1 is not orderable") != string::npos);
+
+  const auto& capacitors = bom.lines[0];
+  assert(capacitors.designators == (vector<string>{"C1", "C3", "C4", "C6"}));
+  assert(capacitors.quantityPerBoard == 4);
+  assert(capacitors.designation == "100nF");
+  assert(capacitors.footprint == "C0402");
+  assert(capacitors.supplier == "LCSC");
+  assert(capacitors.supplierPartNumber == "C60474");
+  assert(capacitors.manufacturerPartNumber.empty());
+  assert(!capacitors.quantityConflict);
+
+  assert(bom.lines[1].designation == "10k\xCE\xA9");
+  assert(bom.lines[1].footprint == "R0402");
+  ValueKind kind = ValueKind::None;
+  const auto resistance = parseElectricalValue(bom.lines[1].designation, kind);
+  assert(resistance.has_value() && kind == ValueKind::Resistance && fabs(*resistance - 10000.0) < 1e-6);
+
+  const auto& module = bom.lines[2];
+  assert(module.supplier == "DigiKey");
+  assert(module.supplierPartNumber == "1965-ESP32S3");
+  assert(module.designators == vector<string>{"U1"});
+}
+
+void testEasyEdaBomRefusesAmbiguousRows() {
+  const string header = "Name\tDesignator\tFootprint\tQuantity\tSupplier Part\n";
+
+  // A repeated designator would count one physical part twice, so the whole file is refused.
+  const auto duplicate = parseEasyEdaBomText(header + "100nF\tC1,C2\tC0402\t2\tC60474\n" + "10k\tC2\tR0402\t1\tC25744\n",
+                                             "duplicate");
+  assert(!duplicate.ok);
+  assert(duplicate.error.find("Designator C2 appears on rows 2 and 3") != string::npos);
+
+  // A row without a name or a designator cannot be placed or priced, so it is refused rather than dropped.
+  const auto noName = parseEasyEdaBomText(header + "\tR1\tR0402\t1\tC25744\n", "no name");
+  assert(!noName.ok && noName.error.find("has no Name for R1") != string::npos);
+  const auto noDesignator = parseEasyEdaBomText(header + "10k\t\tR0402\t1\tC25744\n", "no designator");
+  assert(!noDesignator.ok && noDesignator.error.find("has no designator") != string::npos);
+
+  // A quantity that is not a whole number means the export is damaged.
+  const auto badQuantity = parseEasyEdaBomText(header + "10k\tR1\tR0402\ttwo\tC25744\n", "bad quantity");
+  assert(!badQuantity.ok && badQuantity.error.find("is not a whole number") != string::npos);
+
+  const auto noNameColumn = parseEasyEdaBomText("Designator\tFootprint\tQuantity\nR1\tR0402\t1\n", "no column");
+  assert(!noNameColumn.ok && noNameColumn.error.find("missing the Name") != string::npos);
+
+  // A Quantity that disagrees with the designators is kept visible. The row never matches on its own, and demand is
+  // never less than the designators placed.
+  const auto mismatch = parseEasyEdaBomText(header + "10k\tR1,R2,R3\tR0402\t2\tC25744\n", "mismatch");
+  assert(mismatch.ok);
+  assert(mismatch.lines.size() == 1);
+  assert(mismatch.lines.front().quantityConflict);
+  assert(mismatch.lines.front().quantityPerBoard == 3);
+  assert(mismatch.warnings.size() == 1);
+
+  const auto matching = parseEasyEdaBomText(header + "10k\tR1,R2\tR0402\t2\tC25744\n", "matching");
+  assert(matching.ok && !matching.lines.front().quantityConflict && matching.lines.front().quantityPerBoard == 2);
+}
+
+void testBomDialectDetection() {
+  assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);
+  assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
+  // Designator and footprint, but no value column the importer can read: a BOM problem, not a DigiKey one.
+  assert(detectCsvFormat("Designator\tFootprint\tQuantity\nR1\tR0402\t1\n") == CsvFormat::BomMissingValue);
+  assert(detectCsvFormat("alpha,beta\n1,2\n") == CsvFormat::Unknown);
+  // Each dialect is parsed by its own reader, and the KiCad path is unchanged.
+  assert(parseBomText(easyedaBom, "x").lines.size() == 3);
+  assert(parseBomText(kicadBom, "x").lines.size() == 7);
+}
+
+void testBomIdentityMatching() {
+  InventoryItem plain;
+  plain.id = "cap-100n-plain";
+  plain.partName = "CAP CER 100NF 16V X7R 0402";
+  plain.quantity = 100;
+  plain.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0402 (1005 Metric)"}};
+  InventoryItem withMpn = plain;
+  withMpn.id = "cap-100n-mpn";
+  withMpn.sku = "CL05B104KO5NNNC";
+  withMpn.quantity = 50;
+
+  // The manufacturer part number identifies one item, so that item is accepted on identity alone.
+  const auto mpnLine = bomTestLine("100nF", "C0402", 4, "", "", "CL05B104KO5NNNC");
+  const auto identified = analyzeBom(bomTestFile({mpnLine}), {plain, withMpn}, 1, {}).matches.front();
+  assert(identified.confirmed && identified.check == BomCheckReason::None);
+  assert(identified.chosenItemId() == "cap-100n-mpn" && identified.sufficient);
+
+  // The same line with only the plain part in stock: the value fits, but the named part is not there. The user decides.
+  const auto notInStock = analyzeBom(bomTestFile({mpnLine}), {plain}, 1, {}).matches.front();
+  assert(!notInStock.confirmed && !notInStock.sufficient);
+  assert(notInStock.check == BomCheckReason::IdentityNotInStock);
+  assert(notInStock.needsConfirmation());
+
+  // An LCSC number the stock cannot identify never matches on value alone, whatever the Supplier says.
+  const auto lcscLine = bomTestLine("100nF", "C0402", 4, "LCSC", "C60474");
+  const auto lcsc = analyzeBom(bomTestFile({lcscLine}), {plain}, 1, {}).matches.front();
+  assert(!lcsc.confirmed && lcsc.check == BomCheckReason::IdentityNotInStock);
+
+  // A DigiKey part number identifies the item that carries that number, even when another item fits by value.
+  InventoryItem digiKeyResistor;
+  digiKeyResistor.id = "res-dk";
+  digiKeyResistor.partName = "RES 10K 1% 0402";
+  digiKeyResistor.digikeyPartNumber = "311-10.0KLRCT-ND";
+  digiKeyResistor.quantity = 20;
+  digiKeyResistor.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
+  InventoryItem otherResistor = digiKeyResistor;
+  otherResistor.id = "res-other";
+  otherResistor.digikeyPartNumber = "311-OTHER-ND";
+  const auto dkLine = bomTestLine("10k", "R0402", 1, "DigiKey", "311-10.0KLRCT-ND");
+  const auto dk = analyzeBom(bomTestFile({dkLine}), {otherResistor, digiKeyResistor}, 1, {}).matches.front();
+  assert(dk.confirmed && dk.chosenItemId() == "res-dk");
+
+  // A part number is a whole word of the name. LM3585 is not LM358, and LM358 is a whole word of its own name.
+  InventoryItem lm3585 = plain;
+  lm3585.id = "opamp-lm3585";
+  lm3585.partName = "LM3585 OPAMP SOIC-8";
+  lm3585.parameters.clear();
+  InventoryItem lm358 = lm3585;
+  lm358.id = "opamp-lm358";
+  lm358.partName = "LM358 OPAMP SOIC-8";
+  const auto opampLine = bomTestLine("LM358", "SOIC-8", 1);
+  const auto opamp = analyzeBom(bomTestFile({opampLine}), {lm3585}, 1, {}).matches.front();
+  assert(opamp.candidates.empty() && !opamp.confirmed);
+  const auto opampFound = analyzeBom(bomTestFile({opampLine}), {lm3585, lm358}, 1, {}).matches.front();
+  assert(opampFound.confirmed && opampFound.chosenItemId() == "opamp-lm358");
+  assert(opampFound.candidates.size() == 1 && opampFound.candidates.front().identity);
+
+  // Two equally good parts and no identifier: the match waits for the user, and the best candidate is only suggested.
+  InventoryItem tight = otherResistor;
+  tight.id = "res-01pct";
+  tight.partName = "RES 10K 0.1% 0402";
+  tight.digikeyPartNumber.clear();
+  tight.quantity = 500;
+  InventoryItem loose = otherResistor;
+  loose.id = "res-1pct";
+  loose.partName = "RES 10K 1% 0402";
+  loose.digikeyPartNumber.clear();
+  loose.quantity = 0;
+  const auto ambiguous = analyzeBom(bomTestFile({bomTestLine("10k", "R0402", 1)}), {loose, tight}, 1, {}).matches.front();
+  assert(!ambiguous.confirmed && !ambiguous.sufficient);
+  assert(ambiguous.check == BomCheckReason::Ambiguous);
+  assert(ambiguous.chosenItemId() == "res-01pct");  // the suggestion is the larger reel, never the authority
+
+  // One part with the right value but no package on either side is offered, not accepted. With a matching package
+  // the same kind of part is accepted.
+  InventoryItem noPackage = plain;
+  noPackage.id = "cap-no-package";
+  noPackage.partName = "CAP CER 100NF 16V X7R";
+  noPackage.parameters = {{"Capacitance", "100 nF"}};
+  const auto unverified = analyzeBom(bomTestFile({bomTestLine("100nF", "C0402", 4)}), {noPackage}, 1, {}).matches.front();
+  assert(!unverified.confirmed && unverified.check == BomCheckReason::Unverified);
+  assert(analyzeBom(bomTestFile({bomTestLine("100nF", "C0402", 4)}), {plain}, 1, {}).matches.front().confirmed);
+
+  // A quantity that disagrees with the designators waits for the user, even with one part in stock.
+  auto conflicted = bomTestLine("10k", "R0402", 3);
+  conflicted.quantityConflict = true;
+  const auto conflict = analyzeBom(bomTestFile({conflicted}), {loose}, 1, {}).matches.front();
+  assert(!conflict.confirmed && conflict.check == BomCheckReason::QuantityConflict);
+}
+
+void testBomConfirmationLifecycle() {
+  InventoryItem loose;
+  loose.id = "res-1pct";
+  loose.partName = "RES 10K 1% 0402";
+  loose.quantity = 0;
+  loose.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
+  InventoryItem tight = loose;
+  tight.id = "res-01pct";
+  tight.partName = "RES 10K 0.1% 0402";
+  tight.quantity = 500;
+  const vector<InventoryItem> items = {loose, tight};
+  const auto bom = bomTestFile({bomTestLine("10k", "R0402", 1)});
+  const auto key = bomLineKey(bom.lines.front());
+
+  // Confirming the 1% part pins it, even though the 0.1% reel ranks first.
+  map<string, string> confirmations = {{key, encodeBomConfirmation({loose.id, bomItemFingerprint(loose)})}};
+  const auto confirmed = analyzeBom(bom, items, 1, confirmations).matches.front();
+  assert(confirmed.confirmed && confirmed.chosenItemId() == "res-1pct");
+
+  // Stock moving does not invalidate a confirmation: quantity is not part of the fingerprint.
+  auto moved = items;
+  moved[0].quantity = 3;
+  assert(analyzeBom(bom, moved, 1, confirmations).matches.front().confirmed);
+
+  // Changing what the matcher reads does invalidate it. The line is unconfirmed, and nothing is swapped in silently.
+  auto edited = items;
+  edited[0].partName = "RES 10K 1% 0402 reel replaced";
+  const auto lost = analyzeBom(bom, edited, 1, confirmations).matches.front();
+  assert(!lost.confirmed && lost.check == BomCheckReason::OverrideLost);
+  assert(lost.chosenItemId() == "res-01pct");
+
+  // A confirmation for an item that has gone is lost the same way.
+  const auto gone = analyzeBom(bom, {tight}, 1, confirmations).matches.front();
+  assert(!gone.confirmed && gone.check == BomCheckReason::OverrideLost);
+
+  // "Next match" moves the suggestion but never confirms it.
+  const auto suggested = analyzeBom(bom, items, 1, {}, {{key, loose.id}}).matches.front();
+  assert(!suggested.confirmed && suggested.chosenItemId() == "res-1pct");
+  assert(suggested.check == BomCheckReason::Ambiguous);
+
+  // A bare item id, as earlier versions stored it, is not a confirmation.
+  const auto bare = analyzeBom(bom, items, 1, {{key, loose.id}}).matches.front();
+  assert(!bare.confirmed && bare.check == BomCheckReason::OverrideLost);
+
+  // Only a complete, well-formed confirmation decodes.
+  assert(!decodeBomConfirmation("").has_value());
+  assert(!decodeBomConfirmation("res-1pct").has_value());
+  assert(!decodeBomConfirmation("res-1pct\x1e").has_value());
+  assert(!decodeBomConfirmation("res-1pct\x1e" "xyz").has_value());
+  assert(!decodeBomConfirmation("\x1e" "0123456789abcdef").has_value());
+  const auto decoded = decodeBomConfirmation("res-1pct\x1e" "0123456789abcdef");
+  assert(decoded.has_value() && decoded->itemId == "res-1pct" && decoded->fingerprint == "0123456789abcdef");
+
+  // Fingerprints are stable: the same item always gives the same text, and an edit changes it.
+  assert(bomItemFingerprint(loose) == bomItemFingerprint(loose));
+  assert(bomItemFingerprint(loose) != bomItemFingerprint(edited.front()));
+  assert(bomItemFingerprint(loose).size() == 16);
+}
+
+void testBomLineKeysSeparateEasyEdaParts() {
+  // Two rows with the same name and footprint but different LCSC numbers are different parts and get different keys.
+  const auto first = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25744");
+  const auto second = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25745");
+  assert(bomLineKey(first) != bomLineKey(second));
+  // A KiCad line carries no supplier identity, so its key is the same as it was before identity columns existed.
+  assert(bomLineKey(bomTestLine("10k", "R_0402_1005Metric", 1)) == "10k|r04021005metric");
+
+  // A confirmation for one row never applies to the other.
+  InventoryItem reel;
+  reel.id = "res-reel";
+  reel.partName = "RES 10K 1% 0402";
+  reel.quantity = 40;
+  reel.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
+  const auto file = bomTestFile({first, second});
+  const map<string, string> confirmations = {{bomLineKey(first), encodeBomConfirmation({reel.id, bomItemFingerprint(reel)})}};
+  const auto analysis = analyzeBom(file, {reel}, 1, confirmations);
+  assert(analysis.matches[0].confirmed);
+  assert(!analysis.matches[1].confirmed);
+}
+
+void testBomPickCommitsAndProblems() {
+  InventoryStore store;
+  InventoryItem dk;
+  dk.id = "res-dk";
+  dk.partName = "RES 10K 1% 0402";
+  dk.digikeyPartNumber = "311-10.0KLRCT-ND";
+  dk.quantity = 20;
+  dk.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
+  store.items().push_back(dk);
+
+  // Two lines draw on the same item. Both are identified by the same DigiKey number, so both are confirmed.
+  const auto bom = bomTestFile({bomTestLine("10k", "R0402", 5, "DigiKey", "311-10.0KLRCT-ND"),
+                                bomTestLine("10k", "R0402", 7, "DigiKey", "311-10.0KLRCT-ND")});
+  const auto analysis = analyzeBom(bom, store.items(), 1, {});
+  const auto plan = planBomPicks(analysis, store);
+  const auto commits = bomPickCommits(plan, analysis, store);
+  assert(commits.size() == 2);
+  assert(commits[0].quantity == 5 && commits[1].quantity == 7);
+  assert(sameBomPickCommits(commits, commits));
+  assert(bomPickProblems(commits, {5, 7}, store).empty());
+
+  // Stock that fell below the walkthrough's take is reported, with the units involved. Nothing is clamped.
+  store.items()[0].quantity = 10;
+  const auto shortage = bomPickProblems(commits, {5, 7}, store);
+  assert(shortage.size() == 1);
+  assert(shortage.front().find("has 10 on hand, but the walkthrough takes 12") != string::npos);
+
+  // An item edited after the walkthrough began is reported as changed.
+  store.items()[0].quantity = 20;
+  store.items()[0].partName = "RES 10K 0.1% 0402";
+  const auto changed = bomPickProblems(commits, {5, 7}, store);
+  assert(!changed.empty() && changed.front().find("changed since the walkthrough began") != string::npos);
+
+  // An item that has gone is reported. A pick the user took zero from is not a problem.
+  store.items().clear();
+  const auto gone = bomPickProblems(commits, {5, 7}, store);
+  assert(!gone.empty() && gone.front().find("is no longer in stock") != string::npos);
+  assert(bomPickProblems(commits, {0, 0}, store).empty());
+
+  // The commit list differs when the plan differs, so a deduction against a changed plan is refused.
+  auto other = commits;
+  other[1].quantity = 6;
+  assert(!sameBomPickCommits(commits, other));
+}
+
+void testBomUnconfirmedLinesAreNeverPicked() {
+  InventoryStore store;
+  InventoryItem loose;
+  loose.id = "res-1pct";
+  loose.partName = "RES 10K 1% 0402";
+  loose.quantity = 40;
+  loose.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
+  InventoryItem tight = loose;
+  tight.id = "res-01pct";
+  tight.partName = "RES 10K 0.1% 0402";
+  store.items() = {loose, tight};
+
+  const auto analysis = analyzeBom(bomTestFile({bomTestLine("10k", "R0402", 3)}), store.items(), 1, {});
+  const auto plan = planBomPicks(analysis, store);
+  assert(plan.empty());  // nothing is picked from a match the user has not confirmed
+  assert(plan.pickLines == 0 && plan.pieces == 0);
+  assert(plan.unconfirmedMatches == vector<size_t>{0});
+  assert(!bomBuildReady(analysis));
+  assert(analysis.confirmCount == 1 && analysis.shortCount == 0);
+  assert(voiceText(bomProjectSummary(analysis, 0)) == "You have 0 of 1 parts. 1 needs your confirmation.");
+}
+
+void testBomSuggestionVerification() {
+  // A supplier suggestion is verified against its line by the same rules that accept stock.
+  InventoryItem capacitor;
+  capacitor.partName = "CAP CER 100NF 16V X7R 0402";
+  capacitor.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0402 (1005 Metric)"}};
+  const auto valueLine = bomTestLine("100nF", "C0402", 4);
+  assert(bomSuggestionFitsLine(valueLine, capacitor));
+
+  InventoryItem wrongPackage = capacitor;
+  wrongPackage.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0603 (1608 Metric)"}};
+  assert(!bomSuggestionFitsLine(valueLine, wrongPackage));
+
+  InventoryItem unknownPackage = capacitor;
+  unknownPackage.partName = "CAP CER 100NF 16V X7R";  // no package in the parameters or the name
+  unknownPackage.parameters = {{"Capacitance", "100 nF"}};
+  assert(!bomSuggestionFitsLine(valueLine, unknownPackage));
+
+  // A line that names a manufacturer part is only verified by that part, never by value alone.
+  const auto mpnLine = bomTestLine("100nF", "C0402", 4, "", "", "CL05B104KO5NNNC");
+  InventoryItem samePart = capacitor;
+  samePart.sku = "CL05B104KO5NNNC";
+  assert(bomSuggestionFitsLine(mpnLine, samePart));
+  assert(!bomSuggestionFitsLine(mpnLine, capacitor));
 }
 
 void testBomPickPlanRoute() {
@@ -9844,12 +10355,38 @@ void testEnrichmentCacheRules() {
   shortageEnrichment[bomLineKey(shortageBom.lines[2])] = kBomEnrichmentNoMatch;
   const auto shortageCsv = buildBomShortageCsv(shortageAnalysis, shortageEnrichment);
   assert(shortageCsv.rows == 3);
+  // A suggestion stored before verification existed is unverified, so it is exported as "check before ordering".
   assert(shortageCsv.text ==
-         "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part\r\n"
-         "\"100uF\",\"CP_Radial_D5.0mm_P2.50mm\",\"Radial 5.0mm\",\"C1\",2,0,\"493-13399-ND\"\r\n"
-         "\"10k\",\"R_0603_1608Metric\",\"0603\",\"R1\",1,0,\"\"\r\n"
-         "\"\t=SUM(1)\",\"\",\"\",\"U1\",3,0,\"\"\r\n");
+         "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part,Suggestion check\r\n"
+         "\"100uF\",\"CP_Radial_D5.0mm_P2.50mm\",\"Radial 5.0mm\",\"C1\",2,0,\"493-13399-ND\",\"check before ordering\"\r\n"
+         "\"10k\",\"R_0603_1608Metric\",\"0603\",\"R1\",1,0,\"\",\"\"\r\n"
+         "\"\t=SUM(1)\",\"\",\"\",\"U1\",3,0,\"\",\"\"\r\n");
   assert(shortageCsv.text.find("\"-\"") == string::npos);
+
+  // A verified suggestion is exported as verified, and the prefix never reaches the part number.
+  map<string, string> verifiedEnrichment;
+  verifiedEnrichment[bomLineKey(shortageBom.lines[0])] = bomEnrichmentEntry(BomLookupOutcome::Found, "493-13399-ND", true).value();
+  const auto verifiedCsv = buildBomShortageCsv(shortageAnalysis, verifiedEnrichment);
+  assert(verifiedCsv.text.find("\"493-13399-ND\",\"verified\"") != string::npos);
+  assert(verifiedCsv.text.find(kBomEnrichmentVerified) == string::npos);
+  assert(bomEnrichmentPart(verifiedEnrichment[bomLineKey(shortageBom.lines[0])]) == "493-13399-ND");
+  assert(bomEnrichmentVerified(verifiedEnrichment[bomLineKey(shortageBom.lines[0])]));
+  assert(!bomEnrichmentVerified("493-13399-ND"));  // stored before verification existed
+
+  // A line waiting for confirmation is on the shopping list with nothing on hand: the stock it names is not yet
+  // the part the user accepted for that line.
+  InventoryItem candidate;
+  candidate.id = "res-1pct";
+  candidate.partName = "RES 10K 1% 0402";
+  candidate.quantity = 40;
+  candidate.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
+  InventoryItem candidateTight = candidate;
+  candidateTight.id = "res-01pct";
+  candidateTight.partName = "RES 10K 0.1% 0402";
+  const auto waitingAnalysis = analyzeBom(bomTestFile({bomTestLine("10k", "R0402", 3)}), {candidate, candidateTight}, 1, {});
+  const auto waitingCsv = buildBomShortageCsv(waitingAnalysis, {});
+  assert(waitingCsv.rows == 1);
+  assert(waitingCsv.text.find(",3,0,") != string::npos);
 }
 
 void testBackupExportAndRestoreWorkflow() {
@@ -11755,8 +12292,19 @@ const vector<TestCase>& registeredTests() {
     {"bom", "ElectricalValueParsing", testElectricalValueParsing},
     {"bom", "BomAnalysisHugeDescriptionAndTieBreak", testBomAnalysisHugeDescriptionAndTieBreak},
     {"bom", "PackageFromFootprint", testPackageFromFootprint},
+    {"bom", "EasyEdaAndIpcPackageNames", testEasyEdaAndIpcPackageNames},
     {"bom", "MatchingPrefersValueAndPackage", testMatchingPrefersValueAndPackage},
     {"bom", "MatchingIgnoresPackageCodesAndPinCounts", testMatchingIgnoresPackageCodesAndPinCounts},
+    {"bom", "KicadBomCharacterisation", testKicadBomCharacterisation},
+    {"bom", "EasyEdaBomParsing", testEasyEdaBomParsing},
+    {"bom", "EasyEdaBomRefusesAmbiguousRows", testEasyEdaBomRefusesAmbiguousRows},
+    {"bom", "BomDialectDetection", testBomDialectDetection},
+    {"bom", "BomIdentityMatching", testBomIdentityMatching},
+    {"bom", "BomConfirmationLifecycle", testBomConfirmationLifecycle},
+    {"bom", "BomLineKeysSeparateEasyEdaParts", testBomLineKeysSeparateEasyEdaParts},
+    {"bom", "BomPickCommitsAndProblems", testBomPickCommitsAndProblems},
+    {"bom", "BomUnconfirmedLinesAreNeverPicked", testBomUnconfirmedLinesAreNeverPicked},
+    {"bom", "BomSuggestionVerification", testBomSuggestionVerification},
     {"bom", "PickPlanRoute", testBomPickPlanRoute},
     {"bom", "ProjectStorePersistence", testProjectStorePersistence},
     {"bom", "EnrichmentCacheRules", testEnrichmentCacheRules},

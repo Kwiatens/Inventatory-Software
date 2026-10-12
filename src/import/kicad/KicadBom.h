@@ -24,6 +24,12 @@ struct BomLine {
   string designation;          // "1uF", "ESP32-S3-WROOM-1"
   int quantityPerBoard = 0;
   string supplierRef;
+  // Identity columns from EasyEDA exports. Empty for KiCad BOMs.
+  string supplier;               // "LCSC", "DigiKey"
+  string supplierPartNumber;     // "C25744" for LCSC, a DigiKey part number for DigiKey
+  string manufacturerPartNumber; // "CL05B104KO5NNNC"
+  // The Quantity column disagrees with the designators on this row. The row never matches automatically.
+  bool quantityConflict = false;
 };
 
 struct KicadBomFile {

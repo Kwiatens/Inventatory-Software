@@ -6,9 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Projects: EasyEDA BOM exports can be imported. Name, Designator, Footprint and Quantity are read. Supplier Part
+  and Manufacturer Part are used to find stock when the export includes them.
+- Projects: press `c` to confirm the stock part shown for a line. A line that waits for confirmation is shown as Check.
+
 ### Changed
 - Linux: the release runs on any x86-64 distribution with glibc 2.34 or newer, not only Ubuntu 24.04. It is tested on Ubuntu 22.04, Debian 12, AlmaLinux 9 and Fedora 44.
 - Linux: the installer checks that the program starts before it installs or updates it, and reports the reason when it does not.
+- Projects: a line is matched to stock without asking only when a stock part carries the line's part number, or when
+  exactly one stock part fits its value and package. When several parts fit equally, the line waits for you to choose.
+  Earlier versions chose one of them silently.
+- Projects: `a` moves to the next matching part without saving it. Press `c` to confirm the part shown.
+- Projects: a confirmation is saved against the stock part as it was when you confirmed it. If that part's details
+  change, the line waits for you to confirm again. Projects saved by earlier versions need one confirmation per line.
+- Projects: a line with an LCSC part number waits for your confirmation, because LCSC numbers are not matched to stock yet.
+- Projects: a DigiKey suggestion that does not fit its line is marked "check before ordering", and the shopping list
+  has a Suggestion check column.
+- Import: the file picker offers CSV and text exports (.csv, .tsv, .txt).
+
+### Fixed
+- Projects: a part number matches a whole word of a stock name, so LM358 no longer matches LM3585.
+- Projects: footprints named like EasyEDA's (R0402, C0402_NEW) and IPC names (CAPC1608X90N) match stock of the same package.
+- Projects: finishing a build checks the stock first. If a part changed or has fewer units than the build takes, nothing
+  is taken out, and the message names the part. Stock is no longer reduced below zero without a message.
+- Projects: the amounts taken during a build stay with their lines when the list is re-sorted.
+- Projects: a restock never adds units to a part the line has not confirmed.
+- Projects: a BOM without a value column reports a BOM problem, not a DigiKey one.
 
 ## [v0.1.5] - 2026-10-11
 

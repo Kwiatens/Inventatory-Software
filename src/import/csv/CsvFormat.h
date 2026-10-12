@@ -16,6 +16,9 @@ enum class CsvFormat {
   Unknown,
   DigiKeyOrder,
   KicadBom,
+  EasyEdaBom,
+  // Designator and footprint columns, but no value column the BOM importer can read.
+  BomMissingValue,
 };
 
 // Reads only the header row, so detection stays cheap and never depends on

@@ -66,27 +66,49 @@ assignment, unassignment, filtering, and rack administration are in Actions.
 ## Import workflow
 
 Open Import and choose a CSV file. The format is detected from its header: a
-DigiKey order CSV goes to the review list, a KiCad BOM goes to Projects.
+DigiKey order CSV goes to the review list, and a KiCad BOM or an EasyEDA BOM export
+goes to Projects. A BOM needs a Designator column, a Footprint column, and a value
+column: Designation or Value for KiCad, Name for EasyEDA.
 
 For a DigiKey order, review each candidate, correct it if needed, then Accept or
 Skip. After the final row, choose whether to enrich accepted parts with DigiKey
 metadata. Inventatory reports created, merged, skipped, and failed counts before
 returning to inventory.
 
+EasyEDA: in EasyEDA Standard, choose File, Export BOM, and include Name, Designator,
+Footprint, Quantity, and Supplier Part. Include Manufacturer Part when the design
+has it, because it identifies the part exactly. An export is refused, with the
+row to fix named, when a designator appears twice, a row has no name or
+designator, or a quantity is not a whole number. EasyEDA Pro CSV exports use the
+same reader, but they have not been tested against a Pro export yet. XLSX exports
+are not read.
+
 ## Project workflow
 
-A KiCad BOM becomes a project on the Projects page. Every line is matched against
-stock by manufacturer part number, or by value and package for passives, and the
-result splits into what is pickable now and what has to be ordered. Shortages are
-looked up on DigiKey in the background; `o` writes them to a CSV beside the BOM.
+A BOM becomes a project on the Projects page. Each line is compared with stock:
 
-`+` and `-` change the board count and re-run the analysis. `a` cycles to the next
-matching part when one line has several candidates, and that choice is remembered.
+- Ready: a stock part is confirmed for the line, and enough units are on hand.
+- Check: stock has parts that fit the line, but the choice is yours. Press `a` to
+  step to the next candidate, and `c` to confirm the part shown. A confirmation
+  holds for as long as that stock part does not change.
+- Short or Missing: nothing in stock covers the line, or the confirmed part does
+  not have enough units.
 
-`b` starts the build walkthrough. It stops at one rack at a time, pulsing the slots
-holding parts this build needs, and lists what to take out of each. Enter advances,
+A line is chosen without asking only when a stock part carries the line's
+manufacturer part number or DigiKey number, or when exactly one stock part fits
+the line's value and package. A line with an LCSC number is confirmed by you until
+LCSC support is added. Shortages are looked up on DigiKey in the background. A
+suggestion that does not fit the line is marked check before ordering. `o` writes
+the shopping list beside the BOM, with a Suggestion check column.
+
+`+` and `-` change the board count. `f` starts the build walkthrough. It stops at
+one rack at a time, pulsing the slots holding parts this build needs, and lists
+what to take out of each. Only confirmed lines are picked. Enter advances, and
 Backspace goes back. Parts that live outside a rack come last, grouped by location.
-At the end, answer whether to subtract the picked parts from stock; Ctrl+Z undoes it.
+At the end, answer whether to subtract the picked parts from stock. Stock is checked
+again before anything is subtracted. If a part changed, or has fewer units than the
+walkthrough takes, nothing is subtracted and the message names the part. Ctrl+Z
+undoes a deduction.
 
 Projects persist in the inventory database, so reopening the app restores the
 analysis against current stock with no re-upload. `d` forgets one.

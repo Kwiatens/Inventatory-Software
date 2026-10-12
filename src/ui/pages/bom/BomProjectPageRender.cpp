@@ -99,7 +99,7 @@ ftxui::Element App::renderBomProjectUi() const {
     if (bomProjects_.empty()) {
       return ftxui::vbox({
                  uiPageHeader(uiHeaderText("Projects", uiPrimaryText()),
-                              uiVoiceLine({{"There are no projects yet. Import a KiCad BOM to start one."}}),
+                              uiVoiceLine({{"There are no projects yet. Import a BOM to start one."}}),
                               move(importButton)),
                  ftxui::filler(),
              }) |
@@ -392,11 +392,16 @@ ftxui::Element App::renderBomProjectUi() const {
                                    cell("Have", haveWidth, uiMutedText(), false, true),
                                    cell("Status", statusWidth, uiMutedText(), false, true)}));
 
+  // In stock: confirmed and covered. To check: stock parts that wait for the user to confirm one. Missing: nothing
+  // in stock covers the line.
+  const auto groupOf = [](const BomMatch& match) -> string {
+    return match.sufficient ? "s" : match.needsConfirmation() ? "c" : "m";
+  };
   map<string, int> groupCounts;
   for (const auto& match : bomAnalysis_.matches) {
     const auto& line = bomAnalysis_.lines[match.lineIndex];
-    ++groupCounts[(match.sufficient ? "s|" : "m|") + toLower(bomComparisonCategory(line, match, store_.items()))];
-    ++groupCounts[match.sufficient ? "s" : "m"];
+    ++groupCounts[groupOf(match) + "|" + toLower(bomComparisonCategory(line, match, store_.items()))];
+    ++groupCounts[groupOf(match)];
   }
 
   string previousAvailability;
@@ -406,12 +411,14 @@ ftxui::Element App::renderBomProjectUi() const {
     const auto& line = bomAnalysis_.lines[match.lineIndex];
     const bool selected = index == min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
     const auto* item = store_.findById(match.chosenItemId());
-    const auto availability = match.sufficient ? string("In stock") : string("Missing");
-    const string groupKey = match.sufficient ? "s" : "m";
+    const string groupKey = groupOf(match);
+    const string availability = groupKey == "s" ? "In stock" : groupKey == "c" ? "To check" : "Missing";
     const auto category = bomComparisonCategory(line, match, store_.items());
     if (availability != previousAvailability) {
       tableRows.push_back(ftxui::hbox({ftxui::text(" "),
-                                       uiHeaderText(availability, match.sufficient ? uiSuccessColor() : uiDangerColor()),
+                                       uiHeaderText(availability, groupKey == "s" ? uiSuccessColor()
+                                                                  : groupKey == "c" ? uiWarnColor()
+                                                                                    : uiDangerColor()),
                                        styledText("  " + to_string(groupCounts[groupKey]), uiMutedText()), ftxui::filler()}) |
                           ftxui::bgcolor(uiRaisedSurfaceBg()));
       previousAvailability = availability;
@@ -437,12 +444,19 @@ ftxui::Element App::renderBomProjectUi() const {
         where = item->location;
       }
       whereColor = uiLinkColor();
+    } else if (match.needsConfirmation() && item != nullptr) {
+      // The stock part this line would use, waiting for the user to confirm it.
+      where = "Suggested  " + item->partName;
+      whereColor = uiWarnColor();
     } else if (project != nullptr) {
       const auto lineKey = bomLineKey(line);
       const auto found = project->enrichment.find(lineKey);
       if (bomEnrichmentCached(project->enrichment, lineKey)) {
-        where = found->second == kBomEnrichmentNoMatch ? string("No DigiKey match") : "DigiKey  " + found->second;
-        whereColor = found->second == kBomEnrichmentNoMatch ? uiMutedText() : uiSecondaryText();
+        const auto part = bomEnrichmentPart(found->second);
+        const bool verified = bomEnrichmentVerified(found->second);
+        where = part.empty() ? string("No DigiKey match")
+                             : "DigiKey  " + part + (verified ? string() : string("  check before ordering"));
+        whereColor = part.empty() ? uiMutedText() : uiSecondaryText();
       } else if (bomEnrichmentFuture_.valid() && lineKey == bomEnrichmentActiveKey_) {
         where = "Looking up on DigiKey";
       } else if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), lineKey) != bomEnrichmentQueue_.end()) {
@@ -460,8 +474,13 @@ ftxui::Element App::renderBomProjectUi() const {
                    cell(where, whereWidth, whereColor),
                    cell(to_string(match.needed), needWidth, uiSecondaryText(), false, true),
                    cell(to_string(match.available), haveWidth, haveColor, true, true),
-                   cell(match.sufficient ? "Ready" : match.available > 0 ? "Short " + to_string(shortBy) : "Missing",
-                        statusWidth, match.sufficient ? uiSuccessColor() : haveColor, false, true),
+                   cell(match.sufficient                ? "Ready"
+                        : match.needsConfirmation()     ? "Check"
+                        : match.available > 0           ? "Short " + to_string(shortBy)
+                                                        : "Missing",
+                        statusWidth,
+                        match.sufficient ? uiSuccessColor() : match.needsConfirmation() ? uiWarnColor() : haveColor,
+                        false, true),
                }) |
                ftxui::bgcolor(bg);
     if (selected) row = row | ftxui::select;

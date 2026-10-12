@@ -279,8 +279,29 @@ optional<string> itemPackage(const InventoryItem& item) {
   return nullopt;
 }
 
-bool sameText(const string& lhs, const string& rhs) {
-  return !trim(lhs).empty() && toLower(trim(lhs)) == toLower(trim(rhs));
+bool samePartNumber(const string& lhs, const string& rhs) {
+  const auto left = compactKey(lhs);
+  return !left.empty() && left == compactKey(rhs);
+}
+
+bool partNumberWordIn(const string& text, const string& needle) {
+  if (needle.empty()) {
+    return false;
+  }
+  string word;
+  const auto wordMatches = [&] {
+    const bool matches = !word.empty() && compactKey(word) == needle;
+    word.clear();
+    return matches;
+  };
+  for (const char ch : text) {
+    if (isspace(static_cast<unsigned char>(ch)) || ch == ',' || ch == ';') {
+      if (wordMatches()) return true;
+    } else {
+      word.push_back(ch);
+    }
+  }
+  return wordMatches();
 }
 
 bool partNameHasToken(const InventoryItem& item, const string& designation) {
@@ -288,7 +309,7 @@ bool partNameHasToken(const InventoryItem& item, const string& designation) {
   if (needle.size() < 4) {
     return false;
   }
-  return compactKey(item.partName + " " + item.notes + " " + item.sku).find(needle) != string::npos;
+  return partNumberWordIn(item.partName, needle) || partNumberWordIn(item.notes, needle);
 }
 
 namespace {
@@ -310,38 +331,46 @@ int evaluateScoredCandidate(const InventoryItem& item, const string& bomPackage,
   return packageMatches(bomPackage, *package) ? 90 : 30;
 }
 
-}  // namespace
-
-int scoreItem(const InventoryItem& item, const BomLine& line, const string& bomPackage,
-              optional<double> bomValue, ValueKind bomKind, const ItemValueCache& cache) {
-  if (sameText(line.designation, item.sku) || sameText(line.designation, item.digikeyPartNumber)) {
-    return 100;
-  }
-  if (looksLikePartNumber(line.designation) && partNameHasToken(item, line.designation)) {
-    return 85;
-  }
-
-  if (!bomValue) {
-    return 0;
-  }
-
-  return evaluateScoredCandidate(item, bomPackage, bomValue, cache.valueFor(bomKind));
+// The DigiKey part number an item holds, from either field that can carry it.
+string digiKeyNumberOf(const InventoryItem& item) {
+  if (!item.digikeyPartNumber.empty()) return item.digikeyPartNumber;
+  if (compactKey(item.vendorMetadata.provider) == "digikey") return item.vendorMetadata.providerProductNumber;
+  return {};
 }
 
-int scoreItem(const InventoryItem& item, const BomLine& line, const string& bomPackage,
-              optional<double> bomValue, ValueKind bomKind) {
-  if (sameText(line.designation, item.sku) || sameText(line.designation, item.digikeyPartNumber)) {
-    return 100;
+bool isDigiKeySupplier(const BomLine& line) {
+  return compactKey(line.supplier) == "digikey";
+}
+
+}  // namespace
+
+CandidateScore scoreItem(const InventoryItem& item, const BomLine& line, const string& bomPackage,
+                         optional<double> bomValue, ValueKind bomKind, const ItemValueCache& cache) {
+  // Identifier matches decide on their own, each against the field it names. A DigiKey number never matches an
+  // LCSC row, and a manufacturer part number is never read as a value.
+  if (samePartNumber(line.designation, item.sku) || samePartNumber(line.designation, item.digikeyPartNumber)) {
+    return {100, true};
+  }
+  if (!line.manufacturerPartNumber.empty() &&
+      (samePartNumber(line.manufacturerPartNumber, item.sku) ||
+       samePartNumber(line.manufacturerPartNumber, item.vendorMetadata.manufacturerPartNumber))) {
+    return {100, true};
+  }
+  if (isDigiKeySupplier(line) && !line.supplierPartNumber.empty() &&
+      samePartNumber(line.supplierPartNumber, digiKeyNumberOf(item))) {
+    return {100, true};
+  }
+  if (!line.manufacturerPartNumber.empty() && partNameHasToken(item, line.manufacturerPartNumber)) {
+    return {85, true};
   }
   if (looksLikePartNumber(line.designation) && partNameHasToken(item, line.designation)) {
-    return 85;
+    return {85, true};
   }
 
   if (!bomValue) {
-    return 0;
+    return {0, false};
   }
-
-  return evaluateScoredCandidate(item, bomPackage, bomValue, itemValueFor(item, bomKind));
+  return {evaluateScoredCandidate(item, bomPackage, bomValue, cache.valueFor(bomKind)), false};
 }
 
 int saturatingAdd(int lhs, int rhs) {
