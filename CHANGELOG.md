@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Projects: EasyEDA BOM exports can be imported. Name, Designator, Footprint and Quantity are read. Supplier Part
-  and Manufacturer Part are used to find stock when the export includes them.
+- Projects: EasyEDA BOM exports can be imported. Name, Value, Comment, Designator, Footprint and Quantity are read.
+  Supplier Part and Manufacturer Part are used to find stock when the export includes them.
 - Projects: press `c` to confirm the stock part shown for a line. A line that waits for confirmation is shown as Check.
 
 ### Changed
@@ -20,7 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Projects: `a` moves to the next matching part without saving it. Press `c` to confirm the part shown.
 - Projects: a confirmation is saved against the stock part as it was when you confirmed it. If that part's details
   change, the line waits for you to confirm again. Projects saved by earlier versions need one confirmation per line.
-- Projects: a line with an LCSC part number waits for your confirmation, because LCSC numbers are not matched to stock yet.
 - Projects: a DigiKey suggestion that does not fit its line is marked "check before ordering", and the shopping list
   has a Suggestion check column.
 - Import: the file picker offers CSV and text exports (.csv, .tsv, .txt).
