@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Linux: the release runs on any x86-64 distribution with glibc 2.34 or newer, not only Ubuntu 24.04. It is tested on Ubuntu 22.04, Debian 12, AlmaLinux 9 and Fedora 44.
+- Linux: the installer checks that the program starts before it installs or updates it, and reports the reason when it does not.
+
 ## [v0.1.5] - 2026-10-11
 
 ### Changed
