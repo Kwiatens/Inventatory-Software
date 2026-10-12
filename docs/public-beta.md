@@ -1,6 +1,7 @@
 # Public beta
 
-Inventatory is a Windows-only public beta for local hardware inventory management.
+Inventatory is a public beta for local hardware inventory management on Windows x64. For the
+Linux x86-64 release, see the README.
 
 Download the latest release package and run Install-Inventatory.cmd. The installer
 downloads the package, verifies its SHA-256 checksum, installs for the current user,
