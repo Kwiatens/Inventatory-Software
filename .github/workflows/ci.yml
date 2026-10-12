@@ -109,14 +109,15 @@ jobs:
           # The base image ships libcurl-minimal, which provides libcurl.so.4 and conflicts with libcurl.
           dnf install -y --setopt=install_weak_deps=False \
             libsecret libcurl-minimal openssl-libs glib2 libstdc++ python3 git tar
+      # Checkout runs first: it cleans untracked files by default, which would remove a download made before it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Download the release binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: inventatory-linux-binary
           path: dist
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - name: Check the release binary on this distribution
         run: |
           tar -xzf dist/inventatory-linux-binary.tar.gz -C dist
