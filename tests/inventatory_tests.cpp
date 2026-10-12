@@ -5695,6 +5695,52 @@ void testDigiKeyMetadataMergeKeepsKnownFields() {
   assert(item.vendorMetadata.parameters.size() == 1);
 }
 
+void testDigiKeyMergeKeepsAnotherProviderIdentity() {
+  // An item already bound to a different catalogue provider keeps that
+  // provider's identity. A DigiKey response must not replace the provider or
+  // the product number it resolves.
+  InventoryItem item;
+  item.vendorMetadata.provider = "tme";
+  item.vendorMetadata.providerProductNumber = "TME-SYMBOL-1";
+  item.vendorMetadata.manufacturerPartNumber = "MPN-1";
+  item.vendorMetadata.title = "TME title";
+  item.vendorMetadata.categoryPath = {"Connectors"};
+
+  DigiKeyProductDetails details;
+  details.vendorMetadata.provider = "digikey";
+  details.vendorMetadata.providerProductNumber = "P1-ND";
+  details.vendorMetadata.manufacturerPartNumber = "MPN-2";
+  details.vendorMetadata.title = "DigiKey title";
+  details.vendorMetadata.categoryPath = {"Passive", "Resistors"};
+  details.vendorMetadata.parameters = {{"Tolerance", "1%"}};
+  // The only difference is the refused vendor identity, so nothing is applied.
+  assert(!app_actions::mergeDigiKeyMetadata(item, details));
+  assert(item.vendorMetadata.provider == "tme");
+  assert(item.vendorMetadata.providerProductNumber == "TME-SYMBOL-1");
+  assert(item.vendorMetadata.manufacturerPartNumber == "MPN-1");
+  assert(item.vendorMetadata.title == "TME title");
+  assert(item.vendorMetadata.categoryPath.size() == 1);
+  assert(item.vendorMetadata.parameters.empty());
+
+  // A provider comparison ignores case and surrounding spaces.
+  InventoryItem spelledDifferently;
+  spelledDifferently.vendorMetadata.provider = " DigiKey ";
+  spelledDifferently.vendorMetadata.providerProductNumber = "P1-ND";
+  DigiKeyProductDetails sameProvider;
+  sameProvider.vendorMetadata.provider = "digikey";
+  sameProvider.vendorMetadata.title = "DigiKey title";
+  assert(app_actions::mergeDigiKeyMetadata(spelledDifferently, sameProvider));
+  assert(spelledDifferently.vendorMetadata.title == "DigiKey title");
+
+  // An unbound item takes the DigiKey identity as before.
+  InventoryItem unbound;
+  assert(app_actions::mergeDigiKeyMetadata(unbound, details));
+  assert(unbound.vendorMetadata.provider == "digikey");
+  assert(unbound.vendorMetadata.providerProductNumber == "P1-ND");
+  assert(unbound.vendorMetadata.manufacturerPartNumber == "MPN-2");
+  assert(unbound.vendorMetadata.parameters.size() == 1);
+}
+
 void testDigiKeyCsvPolishHeaders() {
   const string csv =
       "Indeks,Nr kat. DigiKey,Manufacturer Part Number,Producent,Opis,Numer referencyjny klienta,IloĹ›Ä‡,"
@@ -12412,6 +12458,7 @@ const vector<TestCase>& registeredTests() {
     {"import", "CsvCellBudgetAndHeaderOnlyDetection", testCsvCellBudgetAndHeaderOnlyDetection},
     {"import", "DigiKeyCsvConflictLookup", testDigiKeyCsvConflictLookup},
     {"import", "DigiKeyMetadataMergeKeepsKnownFields", testDigiKeyMetadataMergeKeepsKnownFields},
+    {"import", "DigiKeyMergeKeepsAnotherProviderIdentity", testDigiKeyMergeKeepsAnotherProviderIdentity},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
