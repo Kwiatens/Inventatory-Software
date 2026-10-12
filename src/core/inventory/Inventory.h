@@ -85,6 +85,10 @@ struct InventoryItem {
   RackAssignmentMode rackAssignment = RackAssignmentMode::Automatic;
   string labelOverride;
   VendorProductMetadata vendorMetadata;
+  // Catalogue records from providers other than vendorMetadata's. The selected
+  // source stays in vendorMetadata; a second provider is kept here rather than
+  // replacing it.
+  vector<VendorProductMetadata> vendorSources;
 
   bool hasMissingMetadata() const;
   string searchableText() const;
@@ -332,10 +336,14 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);
-// Historical commit snapshots use a complete, fixed-width item record.  The
-// strict form rejects truncated records, trailing fields, and malformed
-// structured values instead of silently dropping data.
+// Historical commit snapshots use a complete item record.  The strict form
+// rejects truncated records, unknown trailing fields, and malformed structured
+// values instead of silently dropping data.  A record written before vendor
+// sources existed has no trailing source field and is read as having none.
 bool deserializeItemStrict(const string& line, InventoryItem& item);
+string serializeVendorSourcesForStorage(const vector<VendorProductMetadata>& sources);
+vector<VendorProductMetadata> deserializeVendorSourcesFromStorage(const string& value);
+bool deserializeVendorSourcesFromStorageStrict(const string& value, vector<VendorProductMetadata>& sources);
 string serializeTagsForStorage(const vector<string>& tags);
 vector<string> deserializeTagsFromStorage(const string& value);
 bool deserializeTagsFromStorageStrict(const string& value, vector<string>& tags);

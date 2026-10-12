@@ -66,10 +66,13 @@ bool tableExists(SqliteConnection& connection, const string& tableName);
 bool tableColumnExists(SqliteConnection& connection, const string& tableName, const string& columnName);
 
 // All SQLite persistence modules share this versioned schema. A fresh empty
-// database is created transactionally on a read-write connection. Existing
-// databases must already match the current schema; validation never creates or
-// alters objects.
-constexpr int kInventoryDatabaseSchemaVersion = 1;
+// database is created transactionally on a read-write connection. A legacy
+// database (kInventoryLegacySchemaVersion) is upgraded in place by
+// ensureInventoryDatabaseSchema(), which only appends the vendor_sources column.
+// Read-only validation accepts a legacy database unchanged and never alters it.
+// Any other existing database must already match the current schema.
+constexpr int kInventoryDatabaseSchemaVersion = 2;
+constexpr int kInventoryLegacySchemaVersion = 1;
 //
 // ensureInventoryDatabaseSchema() is the cheap structural check every entry point runs (version,
 // tables and columns). The row-by-row value checks scan whole tables, so they are separate:
