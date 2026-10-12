@@ -308,7 +308,7 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Project";
         if (!bomAnalysisValid_) {
           contextText = bomProjects_.empty()
-                            ? "Import a KiCad BOM to begin"
+                            ? "Import a BOM to begin"
                             : to_string(bomProjects_.size()) +
                                   (bomProjects_.size() == 1 ? " project" : " projects");
         } else if (bomView_ == BomView::Build) {

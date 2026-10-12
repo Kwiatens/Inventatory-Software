@@ -57,12 +57,20 @@ struct ItemValueCache {
 ItemValueCache precomputeItemValues(const InventoryItem& item);
 
 std::optional<std::string> itemPackage(const InventoryItem& item);
-bool sameText(const std::string& lhs, const std::string& rhs);
+// Two part numbers are the same when they match after case and separators are removed. Empty never matches.
+bool samePartNumber(const std::string& lhs, const std::string& rhs);
+// True when `needle` (already compacted) is a whole word of `text`. Words are split on spaces, commas and
+// semicolons, so "ESP32-S3-WROOM-1" is a word of "Espressif ESP32-S3-WROOM-1" but not of "...-N16R8".
+bool partNumberWordIn(const std::string& text, const std::string& needle);
 bool partNameHasToken(const InventoryItem& item, const std::string& designation);
-int scoreItem(const InventoryItem& item, const BomLine& line, const std::string& bomPackage,
-              std::optional<double> bomValue, ValueKind bomKind, const ItemValueCache& cache);
-int scoreItem(const InventoryItem& item, const BomLine& line, const std::string& bomPackage,
-              std::optional<double> bomValue, ValueKind bomKind);
+
+// The best score an item earns for a line, and whether that score came from an identifier match.
+struct CandidateScore {
+  int score = 0;
+  bool identity = false;
+};
+CandidateScore scoreItem(const InventoryItem& item, const BomLine& line, const std::string& bomPackage,
+                         std::optional<double> bomValue, ValueKind bomKind, const ItemValueCache& cache);
 int saturatingAdd(int lhs, int rhs);
 int saturatingMultiplyNonNegative(int lhs, int rhs);
 

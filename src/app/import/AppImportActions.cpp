@@ -58,8 +58,13 @@ void App::beginCsvImport() {
 
   // The file picker is the only way in, so detection replaces asking the user
   // which dialect they just chose.
-  if (detectCsvFormat(text) == CsvFormat::KicadBom) {
+  const auto format = detectCsvFormat(text);
+  if (format == CsvFormat::KicadBom || format == CsvFormat::EasyEdaBom) {
     beginBomProject(text, projectNameFromPath(selectedPath), selectedPath);
+    return;
+  }
+  if (format == CsvFormat::BomMissingValue) {
+    setMessage("BOM import failed: no value column. Export it with Name (EasyEDA) or Value (KiCad) included.", 8);
     return;
   }
 

@@ -175,7 +175,7 @@ bool copyToClipboard(const string& text) {
 }
 
 bool openCsvFileDialog(filesystem::path& selectedPath) {
-  const wchar_t filter[] = L"CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0";
+  const wchar_t filter[] = L"CSV and text files (*.csv;*.tsv;*.txt)\0*.csv;*.tsv;*.txt\0All files (*.*)\0*.*\0";
   wstring fileName(32768U, L'\0');
   OPENFILENAMEW dialog{};
   dialog.lStructSize = sizeof(dialog);
@@ -183,7 +183,7 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
   dialog.lpstrFilter = filter;
   dialog.lpstrFile = fileName.data();
   dialog.nMaxFile = static_cast<DWORD>(fileName.size());
-  dialog.lpstrTitle = L"Select a DigiKey order CSV or KiCad BOM";
+  dialog.lpstrTitle = L"Select a DigiKey order CSV or BOM export";
   dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
   dialog.lpstrDefExt = L"csv";
 

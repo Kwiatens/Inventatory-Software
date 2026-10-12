@@ -134,7 +134,7 @@ ftxui::Element App::renderImportCsvUi() const {
     return ftxui::vbox({
         ftxui::filler(),
         centered(uiHeaderText("Import components", uiPrimaryText())),
-        centered(styledText("DigiKey order CSV or KiCad BOM", uiInfoColor())),
+        centered(styledText("DigiKey order CSV or BOM export", uiInfoColor())),
         ftxui::text(""),
         centered(choose),
         ftxui::text(""),

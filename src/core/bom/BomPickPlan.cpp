@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 
 namespace inventatory {
 
@@ -42,6 +43,15 @@ BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& stor
 
   for (size_t index = 0; index < analysis.matches.size(); ++index) {
     const auto& match = analysis.matches[index];
+    // Nothing in stock is a shortage. A match the user has not confirmed waits for them and is never picked.
+    if (match.candidates.empty()) {
+      plan.shortMatches.push_back(index);
+      continue;
+    }
+    if (!match.confirmed) {
+      plan.unconfirmedMatches.push_back(index);
+      continue;
+    }
     if (!match.sufficient) plan.shortMatches.push_back(index);
     if (match.lineIndex >= analysis.lines.size()) continue;
 
@@ -102,7 +112,73 @@ BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& stor
     sort(loose.picks.begin(), loose.picks.end(), bySlot);
     plan.stops.push_back(move(loose));
   }
+
+  // Commit indexes follow the route, so a deduction can refer to a pick by its position in the walkthrough.
+  size_t commitIndex = 0;
+  for (auto& stop : plan.stops) {
+    for (auto& pick : stop.picks) pick.commitIndex = commitIndex++;
+  }
   return plan;
+}
+
+vector<BomPickCommit> bomPickCommits(const BomPickPlan& plan, const BomAnalysis& analysis,
+                                     const InventoryStore& store) {
+  vector<BomPickCommit> commits;
+  for (const auto& stop : plan.stops) {
+    for (const auto& pick : stop.picks) {
+      const auto& line = analysis.lines[analysis.matches[pick.matchIndex].lineIndex];
+      const auto* item = store.findById(pick.itemId);
+      BomPickCommit commit;
+      commit.lineKey = bomLineKey(line);
+      commit.designation = pick.designation;
+      commit.itemId = pick.itemId;
+      commit.quantity = pick.quantity;
+      commit.fingerprint = item == nullptr ? string() : bomItemFingerprint(*item);
+      commits.push_back(move(commit));
+    }
+  }
+  return commits;
+}
+
+bool sameBomPickCommits(const vector<BomPickCommit>& lhs, const vector<BomPickCommit>& rhs) {
+  if (lhs.size() != rhs.size()) return false;
+  for (size_t index = 0; index < lhs.size(); ++index) {
+    const auto& left = lhs[index];
+    const auto& right = rhs[index];
+    if (left.lineKey != right.lineKey || left.itemId != right.itemId || left.quantity != right.quantity ||
+        left.fingerprint != right.fingerprint) {
+      return false;
+    }
+  }
+  return true;
+}
+
+vector<string> bomPickProblems(const vector<BomPickCommit>& commits, const vector<int>& taken,
+                               const InventoryStore& store) {
+  vector<string> problems;
+  // Several picks can draw on one item, so the units taken from it are added up before they are compared with stock.
+  map<string, long long> drawn;
+  for (size_t index = 0; index < commits.size(); ++index) {
+    const int units = index < taken.size() ? taken[index] : commits[index].quantity;
+    if (units > 0) drawn[commits[index].itemId] += units;
+  }
+
+  set<string> reportedItems;
+  for (size_t index = 0; index < commits.size(); ++index) {
+    const auto& commit = commits[index];
+    const int units = index < taken.size() ? taken[index] : commit.quantity;
+    if (units <= 0) continue;
+    const auto* item = store.findById(commit.itemId);
+    if (item == nullptr) {
+      problems.push_back(commit.designation + " is no longer in stock.");
+    } else if (bomItemFingerprint(*item) != commit.fingerprint) {
+      problems.push_back(commit.designation + " changed since the walkthrough began.");
+    } else if (drawn[commit.itemId] > item->quantity && reportedItems.insert(commit.itemId).second) {
+      problems.push_back(item->partName + " has " + to_string(item->quantity) + " on hand, but the walkthrough takes " +
+                         to_string(drawn[commit.itemId]) + ".");
+    }
+  }
+  return problems;
 }
 
 VoiceLine bomPickStopTitle(const BomPickStop& stop) {
@@ -128,8 +204,13 @@ VoiceLine bomProjectSummary(const BomAnalysis& analysis, int suggestedMatches) {
   const int lines = static_cast<int>(analysis.matches.size());
   if (lines == 0) return {{"This BOM has no parts to place."}};
   const auto boards = voiceCount(analysis.boards, "board", "boards");
-  if (analysis.shortCount == 0) {
+  if (analysis.shortCount == 0 && analysis.confirmCount == 0) {
     return {{"You have all "}, {to_string(lines), VoiceTone::Strong}, {" parts for " + boards + "."}};
+  }
+  if (analysis.shortCount == 0) {
+    return {{"You have "}, {to_string(analysis.readyCount) + " of " + to_string(lines), VoiceTone::Strong},
+            {" parts. "}, {to_string(analysis.confirmCount), VoiceTone::Strong},
+            {analysis.confirmCount == 1 ? " needs your confirmation." : " need your confirmation."}};
   }
   VoiceLine line;
   if (analysis.readyCount == 0) {
@@ -140,6 +221,11 @@ VoiceLine bomProjectSummary(const BomAnalysis& analysis, int suggestedMatches) {
             {" parts. The other "},
             {to_string(analysis.shortCount), VoiceTone::Danger},
             {analysis.shortCount == 1 ? " needs ordering" : " need ordering"}};
+  }
+  if (analysis.confirmCount > 0) {
+    line.push_back({", "});
+    line.push_back({to_string(analysis.confirmCount), VoiceTone::Strong});
+    line.push_back({analysis.confirmCount == 1 ? " needs confirming" : " need confirming"});
   }
   if (suggestedMatches > 0) {
     line.push_back({", "});
