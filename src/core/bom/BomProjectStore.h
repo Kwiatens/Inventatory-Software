@@ -58,9 +58,17 @@ enum class BomLookupOutcome {
 // Stored in a project's enrichment map for a line DigiKey answered "no match" for.
 inline constexpr const char* kBomEnrichmentNoMatch = "(no match)";
 
+// Prefix of a stored suggestion whose supplier record fits its BOM line. A suggestion without the prefix was stored
+// before verification existed, and is treated as unverified: shown and exported as "check before ordering".
+inline constexpr const char* kBomEnrichmentVerified = "verified\x1e";
+
 // The enrichment entry a finished lookup may persist, or nullopt when nothing may be cached. A
 // failure is never cached: it is transient, and a cached value would stop the line from being retried.
-optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion);
+optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified = false);
+// The part number a stored suggestion names, without the verification prefix. Empty for markers.
+string bomEnrichmentPart(const string& stored);
+// True when a stored suggestion was verified against its BOM line.
+bool bomEnrichmentVerified(const string& stored);
 
 // True when the project already holds an answer for the line and it need not be looked up again.
 // Empty values and the "-" that earlier versions stored for every failure do not count.

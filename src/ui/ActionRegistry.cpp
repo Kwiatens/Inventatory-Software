@@ -327,10 +327,16 @@ vector<App::Action> App::currentActions() const {
         add("more boards", "Project", "+", chr('+'), [self] { self->adjustBomBoards(1); });
         add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
         add("alternate match", "Match", "a", chr('a'), [self] { self->cycleBomAlternate(); });
+        if (!bomAnalysis_.matches.empty()) {
+          const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
+          if (bomAnalysis_.matches[index].needsConfirmation()) {
+            add("confirm match", "Match", "c", chr('c'), [self] { self->confirmBomMatch(); });
+          }
+        }
         add("shopping list", "Order", "o", chr('o'), [self] { self->exportBomShortages(); });
         if (!bomAnalysis_.matches.empty()) {
           const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
-          if (!bomAnalysis_.matches[index].sufficient) {
+          if (!bomAnalysis_.matches[index].sufficient && !bomAnalysis_.matches[index].needsConfirmation()) {
             add("receive selected shortage", "Order", "r", chr('r'),
                 [self] { self->beginBomRestock(); });
           }

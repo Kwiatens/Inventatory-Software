@@ -7,6 +7,7 @@
 #include "import/kicad/KicadBom.h"
 
 #include "core/inventory/Inventory.h"
+#include "import/bom/BomRows.h"
 #include "import/csv/CsvReader.h"
 
 #include <algorithm>
@@ -18,8 +19,6 @@ namespace inventatory {
 using namespace std;
 
 namespace {
-
-constexpr size_t kMaximumDesignatorsPerRow = 10000;
 
 struct BomColumns {
   int designator = -1;
@@ -37,49 +36,6 @@ BomColumns mapBomColumns(const vector<string>& headers) {
   columns.quantity = findColumn(headers, {"Quantity", "Qty", "Quantity Per PCB"});
   columns.supplier = findColumn(headers, {"Supplier and ref", "Supplier", "Supplier and ref."});
   return columns;
-}
-
-optional<int> parseCount(const string& value) {
-  const auto trimmed = trim(value);
-  if (trimmed.empty()) {
-    return nullopt;
-  }
-  int result = 0;
-  for (unsigned char ch : trimmed) {
-    if (!isdigit(ch)) {
-      return nullopt;
-    }
-    const int digit = static_cast<int>(ch - '0');
-    if (result > (2147483647 - digit) / 10) {
-      return nullopt;
-    }
-    result = result * 10 + digit;
-  }
-  return result;
-}
-
-bool splitDesignators(const string& value, vector<string>& designators) {
-  string current;
-  const auto flush = [&] {
-    const auto trimmed = trim(current);
-    if (!trimmed.empty()) {
-      if (designators.size() >= kMaximumDesignatorsPerRow) {
-        return false;
-      }
-      designators.push_back(trimmed);
-    }
-    current.clear();
-    return true;
-  };
-
-  for (const char ch : value) {
-    if (ch == ',' || ch == ';' || ch == ' ' || ch == '\t') {
-      if (!flush()) return false;
-    } else {
-      current.push_back(ch);
-    }
-  }
-  return flush();
 }
 
 // Reference prefixes that never map to a purchasable part.
@@ -164,7 +120,7 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
 
     BomLine line;
     line.sourceRow = sourceRow;
-    if (!splitDesignators(csvCell(row, columns.designator), line.designators)) {
+    if (!splitBomDesignators(csvCell(row, columns.designator), line.designators)) {
       bom.warnings.push_back("Row " + to_string(sourceRow) + ": too many designators");
       continue;
     }
@@ -173,7 +129,7 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
     line.supplierRef = csvCell(row, columns.supplier);
     // KiCad usually writes an explicit Quantity, but ungrouped exports omit it.
     const auto quantityText = csvCell(row, columns.quantity);
-    const auto parsedQuantity = parseCount(quantityText);
+    const auto parsedQuantity = parseBomCount(quantityText);
     if (columns.quantity >= 0 && !trim(quantityText).empty() && !parsedQuantity) {
       bom.warnings.push_back("Row " + to_string(sourceRow) + ": " + line.designation +
                              " has an invalid explicit quantity");
