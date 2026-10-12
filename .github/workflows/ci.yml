@@ -64,6 +64,63 @@ jobs:
           '
       - name: Test Linux release installer
         run: bash installer/Test-InventatoryLinuxInstall.sh
+      - name: Package the release binary for the runtime checks
+        run: tar -C build-linux-release -czf inventatory-linux-binary.tar.gz inventatory
+      - name: Upload the release binary for the runtime checks
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: inventatory-linux-binary
+          path: inventatory-linux-binary.tar.gz
+          if-no-files-found: error
+
+  # The release binary built above must start, install and draw its interface on the distributions the release
+  # claims to support. AlmaLinux 9 is a RHEL 9 rebuild and stands in for RHEL 9.
+  linux-runtime:
+    needs: linux
+    name: Runtime on ${{ matrix.distribution }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distribution: Ubuntu 22.04
+            family: debian
+            image: ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
+          - distribution: Debian 12
+            family: debian
+            image: debian:12@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858
+          - distribution: AlmaLinux 9
+            family: rhel
+            image: almalinux:9@sha256:9819dc675b67b595c2b59e42be7763fca1a8bb217fa5944e04daa22e9a64db16
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install runtime libraries (Debian family)
+        if: matrix.family == 'debian'
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            libsecret-1-0 libcurl4 libssl3 libglib2.0-0 libstdc++6 libgcc-s1 python3 git ca-certificates
+      - name: Install runtime libraries (RHEL family)
+        if: matrix.family == 'rhel'
+        run: |
+          # The base image ships libcurl-minimal, which provides libcurl.so.4 and conflicts with libcurl.
+          dnf install -y --setopt=install_weak_deps=False \
+            libsecret libcurl-minimal openssl-libs glib2 libstdc++ python3 git tar
+      - name: Download the release binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: inventatory-linux-binary
+          path: dist
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the release binary on this distribution
+        run: |
+          tar -xzf dist/inventatory-linux-binary.tar.gz -C dist
+          bash tools/check-linux-runtime.sh dist/inventatory
 
   # A second compiler: Clang finds portability and warning problems that GCC does not, and runs the same
   # tests.
