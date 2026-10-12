@@ -39,7 +39,8 @@ void App::handleBomProjectKey(const KeyEvent& key) {
       // Leaving the finish screen changes nothing; the project stays open.
       bomDeductPrompt_ = false;
       bomBuildStep_ = 0;
-      bomPickTaken_.clear();
+      bomCommits_.clear();
+      bomCommitTaken_.clear();
       bomView_ = BomView::Split;
       dirty_ = true;
     }

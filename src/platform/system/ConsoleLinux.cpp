@@ -306,8 +306,8 @@ bool copyToClipboard(const string& text) {
 }
 
 bool openCsvFileDialog(filesystem::path& selectedPath) {
-  return runFileChooser({"--file-selection", "--title=Select a DigiKey order CSV or KiCad BOM",
-                         "--file-filter=CSV and KiCad files | *.csv *.xml *.kicad_pcb *.pos"}, selectedPath);
+  return runFileChooser({"--file-selection", "--title=Select a DigiKey order CSV or BOM export",
+                         "--file-filter=CSV and text files | *.csv *.tsv *.txt", "--file-filter=All files | *"}, selectedPath);
 }
 
 bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
