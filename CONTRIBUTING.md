@@ -14,7 +14,10 @@ Security problems do not go in issues. See [SECURITY.md](SECURITY.md).
 ## Build and test
 
 - Windows: build with Visual Studio 2022 or newer and CMake 3.20 or newer.
-- Linux (Ubuntu 24.04): install `build-essential cmake pkg-config libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev`.
+- Linux: the release is built in AlmaLinux 9 (glibc 2.34, GCC 11), as set in `.github/workflows/ci.yml`. Install the build dependencies for your distribution:
+  - Ubuntu or Debian: `build-essential cmake pkg-config libsecret-1-dev libcurl4-openssl-dev libssl-dev libglib2.0-dev git`.
+  - Fedora, AlmaLinux or RHEL: `gcc-c++ make cmake pkgconf-pkg-config libsecret-devel libcurl-devel openssl-devel glib2-devel git`.
+- A binary built on a newer distribution can need a newer glibc than the release supports. Check a local build with `bash tools/check-linux-abi.sh <binary>`.
 
 Build and test both the Debug and the Release configuration before you open a pull request. The continuous
 integration runs the same commands, plus a Clang build, a sanitizer build and a secret-logging check, on every

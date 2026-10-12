@@ -35,7 +35,9 @@ Open Command Prompt and paste the following command:
 
 ## Install on Linux
 
-On Ubuntu 24.04:
+Any x86-64 Linux distribution with glibc 2.34 or newer should work. The release is tested on Ubuntu 22.04,
+Debian 12, AlmaLinux 9 (a RHEL 9 rebuild) and Fedora 44. It also needs OpenSSL 3, libsecret, libcurl and a
+Secret Service provider (GNOME Keyring or KWallet) to store tokens.
 
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
