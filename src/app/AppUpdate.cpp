@@ -138,7 +138,6 @@ void App::loadUpdateCompletionMarker() {
     updateStep_ = UpdateWizardStep::Failed;
   } else {
     updateStep_ = UpdateWizardStep::Complete;
-    wordmarkRevealStartedAt_.store(uiAnimationTicks());
   }
   updateCompletionPending_ = true;
   updateNotesScroll_ = 0;
@@ -569,7 +568,9 @@ ftxui::Element App::renderUpdateContent() const {
   const int notesHeight = max(5, min(10, (active != nullptr ? active->dimy() : 30) - 18));
   ftxui::Elements rows;
   auto notesPanel = [&](const string& notes) {
-    const auto noteLines = formatUpdateNotes(notes, max(36, width - 4));
+    const int availableWidth = max(36, width - 4);
+    const auto noteLines = formatUpdateNotes(notes, availableWidth);
+    const int notesWidth = updateNotesPanelWidth(noteLines, availableWidth);
     const size_t maximumScroll = noteLines.size() > static_cast<size_t>(notesHeight)
                                      ? noteLines.size() - static_cast<size_t>(notesHeight)
                                      : 0U;
@@ -614,6 +615,7 @@ ftxui::Element App::renderUpdateContent() const {
     }
     if (visible.empty()) visible.push_back(fullLine(" ", uiMutedText(), uiSurfaceBg()));
     auto panel = ftxui::vbox(move(visible)) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, notesHeight) |
+                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, notesWidth) |
                  ftxui::reflect(self->updateNotesBounds_) | ftxui::bgcolor(uiSurfaceBg());
     return panel;
   };

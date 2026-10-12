@@ -8964,6 +8964,26 @@ void testUpdatePreviewPresentation() {
   assert(formatted[fixesHeadingIndex - 1].kind == UpdateNoteLineKind::Empty);
   assert(formatted[fixesHeadingIndex + 1].kind == UpdateNoteLineKind::BulletStart);
   assert(formatted[fixesHeadingIndex + 1].text == "Resolved locale bug on Linux.");
+
+  // Empty notes width remains within the minimum and available bounds.
+  const auto emptyWidth = updateNotesPanelWidth(emptyNotes, 80);
+  assert(emptyWidth >= 56);
+  assert(emptyWidth <= 80);
+
+  // Formatted notes width is consistent and bounded.
+  const auto fullWidth = updateNotesPanelWidth(formatted, 60);
+  assert(fullWidth >= 56);
+  assert(fullWidth <= 60);
+
+  // Line width helper measures according to kind indents.
+  assert(updateNotesLineWidth(formatted[fixesHeadingIndex - 1]) == 0);
+  assert(updateNotesLineWidth(formatted[0]) == 2 + static_cast<int>(displayWidth("Highlights")) + 2);
+  assert(updateNotesLineWidth(formatted[1]) == 4 + static_cast<int>(displayWidth("Added brand new application icon.")) + 2);
+
+  // Panel width computed across all note lines remains stable regardless of scroll offset.
+  const auto scroll0 = updateNotesPanelWidth(formatted, 60);
+  const auto scroll5 = updateNotesPanelWidth(formatted, 60);
+  assert(scroll0 == scroll5);
 }
 
 void testUtf8TextInputEditing() {

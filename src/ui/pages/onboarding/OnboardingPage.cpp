@@ -44,7 +44,6 @@ ftxui::Element onboardingChoicePrompt(char selectedOption, const string& first, 
 // and half a row down. The rows are the desktop wordmark's solid blocks with
 // its box-drawing shadow removed, after the chevron and a one-pixel gap.
 constexpr int kLetterRows = 5;
-constexpr int kLockupStemColumn = 8;
 constexpr int kLockupColumns = 100;  // the widest row plus its shadow column
 constexpr array<const char*, kLetterRows> kLockupPixels = {
     "##      ## ###    ## ##    ## ####### ###    ## ########  #####  ########  ######  ######  ##    ##",
@@ -54,12 +53,6 @@ constexpr array<const char*, kLetterRows> kLockupPixels = {
     "##      ## ##   ####   ####   ####### ##   ####    ##    ##   ##    ##     ######  ##   ##    ##",
 };
 constexpr double kShadowToCanvas = 0.62;
-// After a successful update the graphite lockup fades once into the accent gradient.
-constexpr long long kRevealDelayMs = 400;
-constexpr long long kRevealDurationMs = 900;
-// The dot animates in whole steps, like pixels switching, at the UI tick rate.
-constexpr long long kDotStepMs = 200;
-constexpr long long kDotBlinkMs = 400;
 
 uint32_t blendRgb(uint32_t from, uint32_t to, double amount) {
   const auto channel = [from, to, amount](int shift) {
@@ -84,41 +77,12 @@ bool lockupPixel(int row, int column) {
   return static_cast<size_t>(column) < strlen(pixels) && pixels[column] == '#';
 }
 
-// Graphite at rest; `reveal` (0 to 1) blends each row toward the accent gradient.
-uint32_t lockupRowRgb(int row, double reveal) {
-  const auto graphite = appearanceRgb(AppearanceColorRole::Divider);
-  const auto gradient = blendRgb(appearanceRgb(AppearanceColorRole::Interactive),
-                                 appearanceRgb(AppearanceColorRole::FocusText),
-                                 static_cast<double>(row) / (kLetterRows - 1));
-  return blendRgb(graphite, gradient, reveal);
-}
-
-// The i's dot is one letter pixel split into four rack slots, drawn as two
-// half-block cells: each cell's foreground is its top slot, its background the
-// bottom slot. Slots are in reading order: top-left, top-right, bottom-left,
-// bottom-right. An empty optional leaves the slot as canvas.
-using WordmarkDot = array<optional<uint32_t>, 4>;
-
-ftxui::Element wordmarkDotRow(const WordmarkDot& slots) {
-  const auto canvas = appearanceRgb(AppearanceColorRole::CanvasBg);
-  const auto cell = [canvas](const optional<uint32_t>& top, const optional<uint32_t>& bottom) {
-    return ftxui::text(u8"▀") | ftxui::color(rgbColor(top.value_or(canvas))) |
-           ftxui::bgcolor(rgbColor(bottom.value_or(canvas)));
-  };
-  return ftxui::hbox({
-      ftxui::text(string(kLockupStemColumn, ' ')),
-      cell(slots[0], slots[2]),
-      cell(slots[1], slots[3]),
-      ftxui::text(string(kLockupColumns - kLockupStemColumn - 2, ' ')),
-  });
-}
-
 // One terminal row of the lockup. Each cell shows its top and bottom half
 // separately so the half-row drop shadow lines up with the pixels above it.
-ftxui::Element lockupRow(int row, double reveal) {
+ftxui::Element lockupRow(int row) {
   const auto canvas = appearanceRgb(AppearanceColorRole::CanvasBg);
-  const auto face = [reveal](int pixelRow) { return lockupRowRgb(pixelRow, reveal); };
-  const auto shadow = [&](int pixelRow) { return blendRgb(face(pixelRow), canvas, kShadowToCanvas); };
+  const auto face = appearanceRgb(AppearanceColorRole::Divider);
+  const auto shadow = blendRgb(face, canvas, kShadowToCanvas);
   ftxui::Elements runs;
   string run;
   uint32_t runTop = canvas;
@@ -132,10 +96,10 @@ ftxui::Element lockupRow(int row, double reveal) {
     uint32_t top = canvas;
     uint32_t bottom = canvas;
     if (lockupPixel(row, column)) {
-      top = bottom = face(row);
+      top = bottom = face;
     } else {
-      if (lockupPixel(row - 1, column - 1)) top = shadow(row - 1);
-      if (lockupPixel(row, column - 1)) bottom = shadow(row);
+      if (lockupPixel(row - 1, column - 1)) top = shadow;
+      if (lockupPixel(row, column - 1)) bottom = shadow;
     }
     if (top != runTop || bottom != runBottom) {
       flush();
@@ -148,87 +112,20 @@ ftxui::Element lockupRow(int row, double reveal) {
   return ftxui::hbox(move(runs));
 }
 
-ftxui::Element alignedOnboardingWordmark(double reveal, const WordmarkDot& dot) {
+ftxui::Element alignedOnboardingWordmark() {
   ftxui::Elements renderedRows;
-  // The dot row and the gap below it are always reserved so the lockup never
-  // moves when the dot appears. The last row holds only the shadow's lower half.
-  renderedRows.push_back(wordmarkDotRow(dot));
-  renderedRows.push_back(ftxui::text(" "));
-  for (int row = 0; row <= kLetterRows; ++row) renderedRows.push_back(lockupRow(row, reveal));
+  for (int row = 0; row <= kLetterRows; ++row) renderedRows.push_back(lockupRow(row));
   return ftxui::vbox(move(renderedRows));
-}
-
-// A lit slot, and an empty one: the accent at 18 % over the canvas.
-uint32_t dotLitRgb() { return appearanceRgb(AppearanceColorRole::Interactive); }
-uint32_t dotEmptyRgb() {
-  return blendRgb(appearanceRgb(AppearanceColorRole::CanvasBg), appearanceRgb(AppearanceColorRole::Interactive), 0.18);
-}
-
-// Work of unknown length: one lit slot travels clockwise around empty slots.
-WordmarkDot busyDot(long long ticks) {
-  static constexpr array<size_t, 4> kClockwise = {0, 1, 3, 2};
-  WordmarkDot dot;
-  dot.fill(dotEmptyRgb());
-  dot[kClockwise[static_cast<size_t>((ticks / kDotStepMs) % 4)]] = dotLitRgb();
-  return dot;
-}
-
-// A download of known size: slots fill in reading order, one per quarter, and
-// the slot being filled blinks.
-WordmarkDot progressDot(double fraction, long long ticks) {
-  const auto filled = static_cast<size_t>(clamp(fraction, 0.0, 1.0) * 4.0);
-  WordmarkDot dot;
-  for (size_t slot = 0; slot < dot.size(); ++slot) {
-    const bool blinking = slot == filled && (ticks / kDotBlinkMs) % 2 == 0;
-    dot[slot] = slot < filled || blinking ? dotLitRgb() : dotEmptyRgb();
-  }
-  return dot;
-}
-
-WordmarkDot failedDot() {
-  WordmarkDot dot;
-  dot.fill(appearanceRgb(AppearanceColorRole::WarningText));
-  return dot;
 }
 
 }  // namespace
 
 bool App::wordmarkRevealRunning() const {
-  const auto startedAt = wordmarkRevealStartedAt_.load();
-  return startedAt >= 0 && uiAnimationTicks() - startedAt < kRevealDelayMs + kRevealDurationMs;
+  return false;
 }
 
 ftxui::Element App::renderOnboardingWordmark() const {
-  if (page_ != Page::Update) return alignedOnboardingWordmark(0.0, {});
-  const auto ticks = uiAnimationTicks();
-  switch (updateStep_) {
-    case UpdateWizardStep::Preparing:
-    case UpdateWizardStep::Verifying:
-    case UpdateWizardStep::HandingOff:
-      return alignedOnboardingWordmark(0.0, busyDot(ticks));
-    case UpdateWizardStep::Downloading: {
-      uint64_t downloaded = 0;
-      uint64_t total = 0;
-      if (updateDownloadState_ != nullptr) {
-        lock_guard<mutex> lock(updateDownloadState_->mutex);
-        downloaded = updateDownloadState_->downloadedBytes;
-        total = updateDownloadState_->totalBytes;
-      }
-      if (total == 0) return alignedOnboardingWordmark(0.0, busyDot(ticks));
-      return alignedOnboardingWordmark(0.0, progressDot(static_cast<double>(downloaded) / static_cast<double>(total), ticks));
-    }
-    case UpdateWizardStep::Failed:
-      return alignedOnboardingWordmark(0.0, failedDot());
-    case UpdateWizardStep::Complete: {
-      // Success is the one moment the lockup takes its colour: a single fade, no dot.
-      const auto startedAt = wordmarkRevealStartedAt_.load();
-      if (startedAt < 0) return alignedOnboardingWordmark(1.0, {});
-      const auto linear = clamp(static_cast<double>(ticks - startedAt - kRevealDelayMs) / kRevealDurationMs, 0.0, 1.0);
-      return alignedOnboardingWordmark(linear * linear * (3.0 - 2.0 * linear), {});
-    }
-    default:
-      return alignedOnboardingWordmark(0.0, {});
-  }
+  return alignedOnboardingWordmark();
 }
 
 ftxui::Element App::renderOnboardingFrame(ftxui::Element content) const {
