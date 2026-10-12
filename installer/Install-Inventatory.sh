@@ -139,6 +139,11 @@ else
   validate_archive
 fi
 
+# An executable the loader rejects (for example one that needs a newer glibc) is refused before activation,
+# so an update never replaces a working copy with one that cannot start. The loader's first message is kept.
+startup_error=$("$stage/inventatory" --version 2>&1 >/dev/null) ||
+  fail "This Inventatory build does not start on this system: $(printf '%s\n' "$startup_error" | head -n 1)"
+
 target_dir=$(dirname -- "$target")
 [ -w "$target_dir" ] || fail 'The executable folder is not writable; install Inventatory in a user-writable location'
 chmod 755 -- "$stage/inventatory" || fail 'Unable to set executable permissions'

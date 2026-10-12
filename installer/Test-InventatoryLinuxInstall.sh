@@ -31,11 +31,44 @@ version=$("$installed" --version)
 test "$version" = 'Inventatory installer fixture'
 printf 'Linux installer smoke test passed: %s\n' "$version"
 
+# An executable that cannot start is refused before activation, and the loader's reason is reported.
+broken_payload="$test_root/broken-payload"
+broken_package="$test_root/broken-package"
+broken_home="$test_root/broken-home"
+mkdir -p -- "$broken_payload" "$broken_package" "$broken_home"
+cat > "$broken_payload/inventatory" <<'FIXTURE'
+#!/bin/sh
+printf 'fixture loader error: version GLIBC_9.9 not found\n' >&2
+exit 1
+FIXTURE
+chmod 755 -- "$broken_payload/inventatory"
+tar -C "$broken_payload" -czf "$broken_package/Inventatory-linux-x64.tar.gz" inventatory
+sed 's/\r$//' "$repo_root/installer/Install-Inventatory.sh" > "$broken_package/Install-Inventatory.sh"
+chmod 755 -- "$broken_package/Install-Inventatory.sh"
+(
+  cd -- "$broken_package"
+  sha256sum Inventatory-linux-x64.tar.gz Install-Inventatory.sh > SHA256SUMS-linux.txt
+)
+if HOME="$broken_home" sh "$broken_package/Install-Inventatory.sh" > "$test_root/broken-install.log" 2>&1; then
+  printf 'An executable that cannot start was installed\n' >&2
+  exit 1
+fi
+grep -q 'does not start on this system: fixture loader error' "$test_root/broken-install.log"
+test ! -e "$broken_home/.local/bin/inventatory"
+printf 'Linux installer refusal of an unstartable executable test passed\n'
+
 # In-app update: the installer replaces the running executable once it exits and then removes the
 # private download folder the application created, whether the update succeeded or failed.
 live_dir="$test_root/live"
 mkdir -p -- "$live_dir"
+# The fixture process must run as "inventatory", so it is a copy of a real binary. On RHEL-family systems sleep is a
+# shell-style wrapper for the coreutils binary, and a copy of that wrapper would run as coreutils instead.
 sleep_binary=$(command -v sleep)
+sleep_program=
+if [ "$(head -c 2 -- "$sleep_binary")" = '#!' ]; then
+  sleep_binary=$(command -v coreutils)
+  sleep_program='--coreutils-prog=sleep'
+fi
 
 run_update_case() {
   case_name=$1
@@ -50,7 +83,7 @@ run_update_case() {
   (cd -- "$download_dir" && sha256sum Inventatory-linux-x64.tar.gz Install-Inventatory.sh > SHA256SUMS-linux.txt)
   if [ "$tamper" = tamper ]; then printf 'tampered' >> "$download_dir/Inventatory-linux-x64.tar.gz"; fi
   cp -- "$sleep_binary" "$live_dir/inventatory"
-  "$live_dir/inventatory" 30 &
+  "$live_dir/inventatory" ${sleep_program:+"$sleep_program"} 30 &
   live_pid=$!
   if [ "$replace_live" = replace ]; then
     # The file the process runs from was replaced on disk, so /proc/<pid>/exe now ends in " (deleted)".
