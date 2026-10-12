@@ -94,7 +94,7 @@ void App::processBomEnrichment() {
       });
       if (targetProject != bomProjects_.end() && !result.key.empty()) {
         // A failed lookup stores nothing so the line is retried the next time the project opens.
-        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion)) {
+        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion, result.verified)) {
           targetProject->enrichment[result.key] = *entry;
         } else {
           // Drop a stale "-" left behind by earlier versions rather than keep showing it.
@@ -151,17 +151,21 @@ void App::processBomEnrichment() {
     return;
   }
 
-  // fetchProductDetails falls back to a keyword search, so a free-form value
-  // such as "470uF Radial 8.0mm" resolves as well as a real part number.
-  const auto keywords = trim(line->designation + " " + packageFromFootprint(line->footprint));
+  // A manufacturer part number is the precise query. Without one, the keyword search uses the value and package,
+  // which can return a near miss, so its answer is checked against the line before it is shown as verified.
+  const BomLine lineSnapshot = *line;
+  const auto keywords = trim(line->manufacturerPartNumber.empty()
+                                 ? line->designation + " " + packageFromFootprint(line->footprint)
+                                 : line->manufacturerPartNumber);
   const auto session = bomEnrichmentClient_;
   const auto generation = bomEnrichmentGeneration_;
   const auto projectId = project->id;
   const auto requestSequence = bomEnrichmentSequence_;
-  bomEnrichmentFuture_ = async(launch::async, [session, key, keywords, projectId, generation, requestSequence] {
+  bomEnrichmentFuture_ = async(launch::async, [session, key, keywords, lineSnapshot, projectId, generation,
+                                                requestSequence] {
     string error;
     DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
-    BomEnrichmentResult result{key, {}, BomLookupOutcome::Failed, projectId, generation, requestSequence};
+    BomEnrichmentResult result{key, {}, false, BomLookupOutcome::Failed, projectId, generation, requestSequence};
     if (session->client == nullptr) {
       const auto config = loadDigiKeyConfig();
       if (!config.valid()) {
@@ -172,6 +176,13 @@ void App::processBomEnrichment() {
     }
     if (const auto details = session->client->lookupProductDetails(keywords, lookup, &error)) {
       result.suggestion = details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
+      // The supplier's record is judged the same way a stock item is: by its part number, or by its value and package.
+      InventoryItem probe;
+      probe.partName = details->productDescription;
+      probe.sku = details->manufacturerPartNumber;
+      probe.parameters = details->parameters;
+      if (!details->packageName.empty()) probe.parameters.push_back({"Package / Case", details->packageName});
+      result.verified = bomSuggestionFitsLine(lineSnapshot, probe);
       result.outcome = BomLookupOutcome::Found;
     } else if (lookup == DigiKeyLookupOutcome::NoMatch) {
       result.outcome = BomLookupOutcome::NoMatch;

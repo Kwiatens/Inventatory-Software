@@ -162,6 +162,9 @@ add_executable(inventatory
   src/import/csv/CsvReader.cpp
   src/import/csv/CsvFormat.cpp
   src/import/kicad/KicadBom.cpp
+  src/import/bom/BomRows.cpp
+  src/import/bom/BomImport.cpp
+  src/import/easyeda/EasyEdaBom.cpp
   src/import/digikey/DigiKeyCsvImport.cpp
   src/label_printer/core/LabelPrinter.cpp
   src/label_printer/core/LabelPrinterContext.cpp
@@ -268,6 +271,9 @@ add_executable(inventatory_tests
   src/import/csv/CsvReader.cpp
   src/import/csv/CsvFormat.cpp
   src/import/kicad/KicadBom.cpp
+  src/import/bom/BomRows.cpp
+  src/import/bom/BomImport.cpp
+  src/import/easyeda/EasyEdaBom.cpp
   src/import/digikey/DigiKeyCsvImport.cpp
   src/core/bom/BomMatch.cpp
   src/core/bom/BomPickPlan.cpp

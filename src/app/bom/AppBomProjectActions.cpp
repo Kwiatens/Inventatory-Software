@@ -6,6 +6,7 @@
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 
+#include "import/bom/BomImport.h"
 #include "import/csv/CsvFormat.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
@@ -67,7 +68,9 @@ void App::sortBomAnalysisForProject(BomAnalysis& analysis, const vector<Inventor
   stable_sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
     const auto& leftMatch = analysis.matches[lhs];
     const auto& rightMatch = analysis.matches[rhs];
-    if (leftMatch.sufficient != rightMatch.sufficient) return leftMatch.sufficient > rightMatch.sufficient;
+    // In stock first, then the lines waiting for a confirmation, then the missing ones.
+    const auto rank = [](const BomMatch& match) { return match.sufficient ? 0 : match.needsConfirmation() ? 1 : 2; };
+    if (rank(leftMatch) != rank(rightMatch)) return rank(leftMatch) < rank(rightMatch);
 
     const auto leftCategory = bomComparisonCategory(analysis.lines[leftMatch.lineIndex], leftMatch, items);
     const auto rightCategory = bomComparisonCategory(analysis.lines[rightMatch.lineIndex], rightMatch, items);
@@ -129,7 +132,7 @@ bool App::saveBomProjects() {
 void App::beginBomProject(const string& bomText, const string& name, const filesystem::path& sourcePath) {
   // Parse into a local first: a failed re-import must keep the BOM that the open project is analysed from,
   // otherwise the next refreshBomAnalysis() would invalidate that project's analysis.
-  auto parsed = parseKicadBomText(bomText, name);
+  auto parsed = parseBomText(bomText, name);
   if (!parsed.ok) {
     setMessage("BOM import failed: " + parsed.error, 6);
     return;
@@ -169,6 +172,9 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   bomSplitSelection_ = 0;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
+  bomSuggestions_.clear();
+  bomCommits_.clear();
+  bomCommitTaken_.clear();
   bomView_ = BomView::Split;
   inputMode_ = InputMode::None;
   refreshBomAnalysis();
@@ -202,7 +208,7 @@ void App::refreshBomAnalysis() {
     }
   }
 
-  bomAnalysis_ = analyzeBom(bomFile_, store_.items(), project->boards, project->overrides);
+  bomAnalysis_ = analyzeBom(bomFile_, store_.items(), project->boards, project->overrides, bomSuggestions_);
   sortBomAnalysisForProject(bomAnalysis_, store_.items());
   bomAnalysisValid_ = true;
   if (!bomAnalysis_.matches.empty()) {
@@ -228,7 +234,7 @@ void App::openSelectedBomProject() {
     return;
   }
   auto& project = bomProjects_[min(bomProjectSelection_, bomProjects_.size() - 1)];
-  auto parsed = parseKicadBomText(project.bomText, project.name);
+  auto parsed = parseBomText(project.bomText, project.name);
   if (!parsed.ok) {
     setMessage("Stored BOM could not be read: " + parsed.error, 6);
     return;
@@ -240,6 +246,9 @@ void App::openSelectedBomProject() {
   bomSplitSelection_ = 0;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
+  bomSuggestions_.clear();
+  bomCommits_.clear();
+  bomCommitTaken_.clear();
   bomView_ = BomView::Split;
   refreshBomAnalysis();
   queueBomEnrichment();
@@ -291,34 +300,62 @@ void App::cycleBomAlternate() {
   if (project == nullptr || !bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
     return;
   }
-
-  auto& match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
+  // Check the candidates against the stock on the shelf now, not the stock from when the project was opened.
+  refreshBomAnalysis();
+  const auto& match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
   if (match.candidates.size() < 2) {
     setMessage("No alternate match for this line", 2);
     return;
   }
 
+  // "Next match" only moves the suggestion. Nothing is saved until the user confirms it with c.
   const auto selectedLineKey = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
-  match.chosen = (match.chosen + 1) % match.candidates.size();
-  project->overrides[bomLineKey(bomAnalysis_.lines[match.lineIndex])] = match.chosenItemId();
-  recomputeBomTotals(bomAnalysis_, store_.items());
-  sortBomAnalysisForProject(bomAnalysis_, store_.items());
-  for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
-    const auto& sortedMatch = bomAnalysis_.matches[index];
-    if (sortedMatch.lineIndex < bomAnalysis_.lines.size() &&
-        bomLineKey(bomAnalysis_.lines[sortedMatch.lineIndex]) == selectedLineKey) {
-      bomSplitSelection_ = index;
-      break;
-    }
-  }
-  const bool saved = saveBomProjects();
+  const auto next = (match.chosen + 1) % match.candidates.size();
+  bomSuggestions_[selectedLineKey] = match.candidates[next].itemId;
+  refreshBomAnalysis();
 
-  const auto* item = store_.findById(project->overrides[selectedLineKey]);
-  const auto& selectedMatch = bomAnalysis_.matches[bomSplitSelection_];
-  setMessage(saved ? "Matched to " + (item == nullptr ? string("unknown part") : item->partName) + "  (" +
-                         to_string(selectedMatch.chosen + 1) + "/" + to_string(selectedMatch.candidates.size()) + ")"
-                  : "Alternate match changed in memory; press R to retry saving the project",
+  const auto& suggested = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
+  const auto* item = store_.findById(suggested.chosenItemId());
+  setMessage("Suggested " + (item == nullptr ? string("another part") : item->partName) + " (" +
+                 to_string(suggested.chosen + 1) + "/" + to_string(suggested.candidates.size()) +
+                 "). Press c to confirm it.",
              5);
+  dirty_ = true;
+}
+
+void App::confirmBomMatch() {
+  auto* project = activeBomProject();
+  if (project == nullptr || !bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
+    return;
+  }
+  // Confirm against the item as it is now: the saved fingerprint is what later checks compare against.
+  refreshBomAnalysis();
+  const auto match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
+  const auto selectedLineKey = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
+  const auto* candidate = match.chosenCandidate();
+  if (candidate == nullptr) {
+    setMessage("No stock part to confirm for this line", 3);
+    return;
+  }
+  if (match.confirmed && bomSuggestions_.count(selectedLineKey) == 0) {
+    setMessage("This line is already confirmed", 2);
+    return;
+  }
+  const auto* item = store_.findById(candidate->itemId);
+  if (item == nullptr) {
+    setMessage("That part is no longer in stock; choose again", 4);
+    refreshBomAnalysis();
+    return;
+  }
+
+  project->overrides[selectedLineKey] = encodeBomConfirmation({item->id, bomItemFingerprint(*item)});
+  bomSuggestions_.erase(selectedLineKey);
+  refreshBomAnalysis();
+  const bool saved = saveBomProjects();
+  setMessage(saved ? item->partName + " confirmed for this line"
+                   : "Confirmation changed in memory; press R to retry saving the project",
+             5);
+  dirty_ = true;
 }
 
 void App::deleteSelectedBomProject() {
@@ -357,6 +394,11 @@ void App::beginBomRestock() {
   const auto& match = bomAnalysis_.matches[index];
   if (match.sufficient) {
     setMessage("That BOM line is already covered", 2);
+    return;
+  }
+  if (match.needsConfirmation()) {
+    // Restocking a suggested part would add units to a part the user has not accepted for this line.
+    setMessage("Confirm this line's part first (press c)", 4);
     return;
   }
   const auto itemId = match.chosenItemId();

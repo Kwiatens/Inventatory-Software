@@ -22,6 +22,20 @@ bool hasKicadHeaders(const vector<string>& headers) {
   return designator && value && footprint;
 }
 
+// EasyEDA exports name the value column "Name", and always carry Designator and Footprint.
+bool hasEasyEdaHeaders(const vector<string>& headers) {
+  return findColumn(headers, {"Designator"}) >= 0 && findColumn(headers, {"Footprint"}) >= 0 &&
+         findColumn(headers, {"Name"}) >= 0;
+}
+
+// A BOM-shaped header with no usable value column. Reported as a BOM problem rather than a DigiKey one.
+bool hasBomHeadersWithoutValue(const vector<string>& headers) {
+  const bool designator = findColumn(headers, {"Designator", "Designators", "Reference", "References", "Ref",
+                                               "Refs"}) >= 0;
+  const bool footprint = findColumn(headers, {"Footprint", "Package", "Footprint Name"}) >= 0;
+  return designator && footprint && !hasEasyEdaHeaders(headers);
+}
+
 bool hasDigiKeyHeaders(const vector<string>& headers) {
   const bool digikeyPart = findColumn(headers, {"Digi-Key Part Number", "DigiKey Part Number", "DigiKey Part",
                                                 "Nr kat. DigiKey", "Digi-Key Part #"}) >= 0;
@@ -47,6 +61,12 @@ CsvFormat detectCsvFormat(const string& text) {
   // but only a KiCad export carries Designator plus Footprint.
   if (hasKicadHeaders(rows.front())) {
     return CsvFormat::KicadBom;
+  }
+  if (hasEasyEdaHeaders(rows.front())) {
+    return CsvFormat::EasyEdaBom;
+  }
+  if (hasBomHeadersWithoutValue(rows.front())) {
+    return CsvFormat::BomMissingValue;
   }
   if (hasDigiKeyHeaders(rows.front())) {
     return CsvFormat::DigiKeyOrder;
