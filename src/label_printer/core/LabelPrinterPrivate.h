@@ -62,6 +62,8 @@ string mainLabelTolerance(const InventoryItem& item);
 string shortPackageLine(const InventoryItem& item);
 string manufacturerLine(const InventoryItem& item);
 // Manufacturer names from fullest to shortest: "Infineon Technologies", "Infineon".
+vector<string> manufacturerWordCandidates(const string& name);
+// The word cuts, then the short brand names ("ST" for STMicroelectronics).
 vector<string> manufacturerCandidates(const string& name);
 string normalizedShieldingLine(const optional<string>& value);
 string labelTileValue(const string& value);
