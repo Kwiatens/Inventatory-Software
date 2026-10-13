@@ -190,6 +190,7 @@ add_executable(inventatory
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   src/platform/tme/TmeApi.cpp
   src/platform/tme/TmeEncoding.cpp
+  src/platform/tme/TmeVocabulary.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
@@ -267,6 +268,7 @@ add_executable(inventatory_tests
   ${INVENTATORY_CREDENTIAL_SOURCE}
   src/platform/tme/TmeApi.cpp
   src/platform/tme/TmeEncoding.cpp
+  src/platform/tme/TmeVocabulary.cpp
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp
   src/platform/digikey/DigiKeyJsonParser.cpp
