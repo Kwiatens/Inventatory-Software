@@ -268,6 +268,7 @@ bool App::saveInventoryState(const InventoryCommitDraft& draft) {
     else if (effectiveDraft.source == "bom_build") operation = "Built project inventory";
     else if (effectiveDraft.source == "scanner") operation = "Recorded scanner event";
     else if (effectiveDraft.source == "digikey") operation = "Applied DigiKey enrichment";
+    else if (effectiveDraft.source == "tme") operation = "Applied TME enrichment";
     else if (effectiveDraft.source == "undo") operation = "Undid inventory commit";
     else if (effectiveDraft.source == "revert") operation = "Corrected inventory history";
     else if (effectiveDraft.source == "checkpoint") operation = "Inventory checkpoint";

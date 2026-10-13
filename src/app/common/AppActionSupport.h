@@ -9,6 +9,7 @@
 #include "App.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/tme/TmeApi.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -35,6 +36,12 @@ inline chrono::seconds deviceSyncRetryDelay(int consecutiveFailures) {
   int seconds = 2;
   for (int step = 1; step < consecutiveFailures && seconds < 60; ++step) seconds *= 2;
   return chrono::seconds(min(seconds, 60));
+}
+
+// The names a scan gives a part until its supplier lookup fills in the details.
+inline bool isScanPlaceholderName(const string& name) {
+  const auto trimmed = trim(name);
+  return trimmed == "Scanned DigiKey Item" || trimmed == "Scanned TME Item";
 }
 
 enum class WorkspaceScannerCredentialStatus {
@@ -150,6 +157,178 @@ inline bool upsertParameter(vector<Parameter>& parameters, const string& name, c
   return true;
 }
 
+// Field-by-field equality of two vendor records. VendorProductMetadata has no operator==, and parameter
+// order is part of the record.
+inline bool sameVendorRecord(const VendorProductMetadata& left, const VendorProductMetadata& right) {
+  if (left.provider != right.provider || left.providerProductNumber != right.providerProductNumber ||
+      left.manufacturerPartNumber != right.manufacturerPartNumber || left.categoryId != right.categoryId ||
+      left.categoryPath != right.categoryPath || left.title != right.title ||
+      left.detailedDescription != right.detailedDescription || left.productUrl != right.productUrl ||
+      left.locale != right.locale || left.parameters.size() != right.parameters.size()) {
+    return false;
+  }
+  for (size_t index = 0; index < left.parameters.size(); ++index) {
+    if (left.parameters[index].name != right.parameters[index].name ||
+        left.parameters[index].value != right.parameters[index].value) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Keeps a record from a provider other than the item's selected one, replacing that provider's earlier
+// record. Returns true when the stored records changed. A record without a provider or a product number is
+// ignored, because it cannot be looked up again.
+inline bool upsertVendorSource(InventoryItem& item, const VendorProductMetadata& record) {
+  const auto provider = toLower(trim(record.provider));
+  if (provider.empty() || trim(record.providerProductNumber).empty()) return false;
+  for (auto& existing : item.vendorSources) {
+    if (toLower(trim(existing.provider)) != provider) continue;
+    if (sameVendorRecord(existing, record)) return false;
+    existing = record;
+    return true;
+  }
+  item.vendorSources.push_back(record);
+  return true;
+}
+
+// Applies a TME product. TME becomes the selected source when the item has none or already uses TME.
+// Otherwise the TME record is kept beside the selected source, so neither provider's identity is replaced.
+inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& details) {
+  VendorProductMetadata record = details.vendorMetadata;
+  record.provider = "tme";
+  if (trim(record.providerProductNumber).empty()) return false;
+  const auto boundProvider = toLower(trim(item.vendorMetadata.provider));
+  if (!boundProvider.empty() && boundProvider != "tme") {
+    return upsertVendorSource(item, record);
+  }
+
+  bool changed = false;
+  // Fills an empty field, or a placeholder the scan or the import left behind, as the DigiKey merge does.
+  const auto assignIfUseful = [&](string& target, const string& value, bool replaceUnknown = false) {
+    const auto trimmed = trim(value);
+    if (trimmed.empty()) return;
+    if (target.empty() || (replaceUnknown && (target == "Unknown" || target == "Unsorted" ||
+                                              target == "Scanned TME Item"))) {
+      target = trimmed;
+      changed = true;
+    }
+  };
+
+  if ((item.partName.empty() || item.partName == "Scanned TME Item") && !trim(details.productDescription).empty()) {
+    item.partName = trim(details.productDescription);
+    changed = true;
+  }
+  assignIfUseful(item.manufacturer, details.manufacturerName, true);
+  assignIfUseful(item.category, details.categoryName, true);
+  assignIfUseful(item.sku, details.vendorMetadata.manufacturerPartNumber);
+  assignIfUseful(item.productUrl, details.productUrl);
+  assignIfUseful(item.datasheetUrl, details.datasheetUrl);
+
+  const auto replaceText = [&](string& target, const string& value) {
+    if (!value.empty() && target != value) {
+      target = value;
+      changed = true;
+    }
+  };
+  replaceText(item.vendorMetadata.provider, record.provider);
+  replaceText(item.vendorMetadata.providerProductNumber, record.providerProductNumber);
+  replaceText(item.vendorMetadata.manufacturerPartNumber, record.manufacturerPartNumber);
+  replaceText(item.vendorMetadata.categoryId, record.categoryId);
+  replaceText(item.vendorMetadata.title, record.title);
+  replaceText(item.vendorMetadata.productUrl, record.productUrl);
+  replaceText(item.vendorMetadata.locale, record.locale);
+  if (!record.categoryPath.empty() && item.vendorMetadata.categoryPath != record.categoryPath) {
+    item.vendorMetadata.categoryPath = record.categoryPath;
+    changed = true;
+  }
+  const auto& storedParameters = item.vendorMetadata.parameters;
+  const bool parametersDiffer =
+      storedParameters.size() != record.parameters.size() ||
+      !equal(storedParameters.begin(), storedParameters.end(), record.parameters.begin(),
+             [](const Parameter& left, const Parameter& right) {
+               return left.name == right.name && left.value == right.value;
+             });
+  if (!record.parameters.empty() && parametersDiffer) {
+    item.vendorMetadata.parameters = record.parameters;
+    changed = true;
+  }
+  // The product's parameters, and the package, stock and price TME gives, also appear on the item, as DigiKey's do.
+  for (const auto& parameter : details.parameters) {
+    if (upsertParameter(item.parameters, parameter.name, parameter.value)) changed = true;
+  }
+  if (!trim(details.packageName).empty() && upsertParameter(item.parameters, "Package", details.packageName)) {
+    changed = true;
+  }
+  if (!trim(details.quantityAvailable).empty() &&
+      upsertParameter(item.parameters, "Quantity Available", details.quantityAvailable)) {
+    changed = true;
+  }
+  if (!trim(details.unitPrice).empty() && upsertParameter(item.parameters, "Unit Price", details.unitPrice)) {
+    changed = true;
+  }
+  if (!trim(details.productStatus).empty() && upsertParameter(item.parameters, "Product Status", details.productStatus)) {
+    changed = true;
+  }
+
+  // A matched TME record completes the item's metadata, as a DigiKey record does.
+  if (item.syncStatus != "synced") {
+    item.syncStatus = "synced";
+    changed = true;
+  }
+  item.lastUpdated = time(nullptr);
+  return changed;
+}
+
+// Sets or clears the TME symbol of an item. An item with no catalogue of its own becomes a TME part. An item
+// bound to DigiKey keeps DigiKey as its selected source and holds the TME symbol beside it, as a merged record does.
+inline bool setTmeSymbol(InventoryItem& item, const string& symbol) {
+  const auto value = trim(symbol);
+  if (value.size() > 64) return false;
+  for (const char character : value) {
+    const bool allowed = isalnum(static_cast<unsigned char>(character)) || character == '-' || character == '_' ||
+                         character == '.' || character == '/' || character == '+' || character == '#';
+    if (!allowed) return false;
+  }
+  const auto bound = toLower(trim(item.vendorMetadata.provider));
+  if (value.empty()) {
+    if (bound == "tme") {
+      item.vendorMetadata.provider.clear();
+      item.vendorMetadata.providerProductNumber.clear();
+      item.vendorMetadata.productUrl.clear();
+    }
+    item.vendorSources.erase(remove_if(item.vendorSources.begin(), item.vendorSources.end(),
+                                       [](const VendorProductMetadata& source) {
+                                         return toLower(trim(source.provider)) == "tme";
+                                       }),
+                             item.vendorSources.end());
+    return true;
+  }
+  if (bound.empty() || bound == "tme") {
+    item.vendorMetadata.provider = "tme";
+    item.vendorMetadata.providerProductNumber = value;
+    item.vendorMetadata.productUrl = tmeProductPageUrl(value);
+    return true;
+  }
+  VendorProductMetadata record;
+  record.provider = "tme";
+  record.providerProductNumber = value;
+  record.productUrl = tmeProductPageUrl(value);
+  upsertVendorSource(item, record);
+  return true;
+}
+
+// What a TME refresh looks up for an item: a TME symbol the item already carries, else its manufacturer part
+// number, else its SKU. A SKU is often a supplier order number (a DigiKey code, for example) that TME does not
+// know, so the part number comes first. The result is matched exactly.
+inline TmeIdentifier tmeRefreshIdentifier(const InventoryItem& item) {
+  if (const auto symbol = tmeProductSymbol(item); !symbol.empty()) return {true, symbol};
+  if (const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber); !partNumber.empty()) {
+    return {false, partNumber};
+  }
+  return {false, trim(item.sku)};
+}
+
 inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetails& details) {
   bool changed = false;
 
@@ -189,9 +368,15 @@ inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetail
   // The retained provider record is the sole input for deterministic vendor
   // label resolution; direct item fields remain available for the UI.
   // An item already bound to another catalogue provider keeps that identity:
-  // replacing it would swap the part its provider number points at.
+  // replacing it would swap the part its provider number points at. The DigiKey
+  // record is kept beside it as a source instead.
   const auto boundProvider = toLower(trim(item.vendorMetadata.provider));
   const bool identityOwnedElsewhere = !boundProvider.empty() && boundProvider != "digikey";
+  if (identityOwnedElsewhere) {
+    VendorProductMetadata digiKeyRecord = details.vendorMetadata;
+    digiKeyRecord.provider = "digikey";
+    if (upsertVendorSource(item, digiKeyRecord)) changed = true;
+  }
   const auto mergeVendorField = [&](string& target, const string& value) {
     if (identityOwnedElsewhere) {
       return;

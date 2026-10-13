@@ -10,8 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Projects: EasyEDA BOM exports can be imported. Name, Value, Comment, Designator, Footprint and Quantity are read.
   Supplier Part and Manufacturer Part are used to find stock when the export includes them.
 - Projects: press `c` to confirm the stock part shown for a line. A line that waits for confirmation is shown as Check.
+- Settings: a TME category takes the TME token and application secret, and the storefront country, language and currency.
+  Test checks the credentials. Refresh inventory data adds TME details to stock items that have a TME symbol, or a part
+  number that TME lists exactly once.
+- Stock: TME parts show their parameters, package, datasheet, product page, stock and lowest price, as DigiKey parts do.
+  Press `l` for the TME product page of a part.
+- Stock: the item form has a TME part field.
+- History: a filter for TME commits.
+- Projects: a shortage line is also looked up on TME when DigiKey has no part for it or is not configured. A part TME
+  cannot order is never suggested.
 
 ### Changed
+- The inventory database is upgraded to format 2 the first time this version opens it. Earlier versions cannot open the
+  upgraded file.
 - Linux: the release runs on any x86-64 distribution with glibc 2.34 or newer, not only Ubuntu 24.04. It is tested on Ubuntu 22.04, Debian 12, AlmaLinux 9 and Fedora 44.
 - Linux: the installer checks that the program starts before it installs or updates it, and reports the reason when it does not.
 - Projects: a line is matched to stock without asking only when a stock part carries the line's part number, or when
@@ -20,11 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Projects: `a` moves to the next matching part without saving it. Press `c` to confirm the part shown.
 - Projects: a confirmation is saved against the stock part as it was when you confirmed it. If that part's details
   change, the line waits for you to confirm again. Projects saved by earlier versions need one confirmation per line.
-- Projects: a DigiKey suggestion that does not fit its line is marked "check before ordering", and the shopping list
-  has a Suggestion check column.
+- Projects: a suggestion that does not fit its line is marked "check before ordering". The shopping list names the
+  supplier of each suggested part, in Suggested part, Supplier and Suggestion check columns.
+- CSV export: the manufacturer part number and the TME part are added as the last two columns.
 - Import: the file picker offers CSV and text exports (.csv, .tsv, .txt).
 
 ### Fixed
+- Scan: a label for a new part prints after DigiKey or TME has supplied its details. Earlier versions printed it at once,
+  so the label showed only "Unsorted" and the scanned name. When neither supplier finds the part, no label prints.
 - Projects: a part number matches a whole word of a stock name, so LM358 no longer matches LM3585.
 - Projects: footprints named like EasyEDA's (R0402, C0402_NEW) and IPC names (CAPC1608X90N) match stock of the same package.
 - Projects: finishing a build checks the stock first. If a part changed or has fewer units than the build takes, nothing

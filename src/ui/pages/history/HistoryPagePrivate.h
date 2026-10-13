@@ -17,6 +17,7 @@ enum class HistorySourceFilter {
   Manual,
   Corrective,
   DigiKey,
+  Tme,
   Checkpoint,
   Import,
   Project,

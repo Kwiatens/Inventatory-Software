@@ -111,6 +111,7 @@ add_executable(inventatory
   src/app/scanner/AppDeviceActions.cpp
   src/app/labels/AppQuickLabelActions.cpp
   src/app/scanner/AppScanEnrichment.cpp
+  src/app/tme/AppTmeActions.cpp
   src/app/import/AppImportActions.cpp
   src/app/bom/AppBomEnrichment.cpp
   src/app/bom/AppBomActions.cpp
@@ -187,6 +188,8 @@ add_executable(inventatory
   src/platform/digikey/DigiKeyProduct.cpp
   src/platform/digikey/DigiKeyProductDetails.cpp
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
+  src/platform/tme/TmeApi.cpp
+  src/platform/tme/TmeEncoding.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
@@ -262,6 +265,8 @@ add_executable(inventatory_tests
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
+  src/platform/tme/TmeApi.cpp
+  src/platform/tme/TmeEncoding.cpp
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp
   src/platform/digikey/DigiKeyJsonParser.cpp

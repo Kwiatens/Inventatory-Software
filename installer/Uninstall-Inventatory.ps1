@@ -60,7 +60,7 @@ function Remove-InventatoryInstallLeftovers {
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# Credential Manager holds the DigiKey secret and the Scan R1 pairing token under 'Inventatory/<name>'
+# Credential Manager holds the DigiKey secret, the TME token and secret and the Scan R1 pairing token under 'Inventatory/<name>'
 # targets. They belong to the data that the user chose to delete, so they are removed with it.
 # Anything that could not be deleted is collected here and listed at the end instead of being reported as removed.
 $script:leftBehind = New-Object System.Collections.Generic.List[string]

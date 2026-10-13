@@ -9,6 +9,7 @@
 #include "App.h"
 
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/tme/TmeApi.h"
 #include "ui/shared/ActionSheetLayout.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -59,6 +60,9 @@ vector<App::Action> App::currentActions() const {
   };
   auto openProduct = [self] {
     if (const auto* item = self->selectedItem()) self->openCurrentUrl(item->productUrl, "product");
+  };
+  auto openTme = [self] {
+    if (const auto* item = self->selectedItem()) self->openCurrentUrl(tmeProductPageUrl(tmeProductSymbol(*item)), "TME");
   };
   auto openDigiKey = [self] {
     if (const auto* item = self->selectedItem()) {
@@ -123,6 +127,9 @@ vector<App::Action> App::currentActions() const {
       if (hasItem) add("datasheet", "Links", "d", chr('d'), openDatasheet);
       if (hasItem) add("product", "Links", "o", chr('o'), openProduct);
       if (hasItem) add("DigiKey", "Links", "g", chr('g'), openDigiKey);
+      if (const auto* selected = self->selectedItem(); selected != nullptr && !tmeProductSymbol(*selected).empty()) {
+        add("TME", "Links", "l", chr('l'), openTme);
+      }
       if (hasItem) add("print label", "Print", "p", chr('p'), [self] { self->printSelectedLabel(); });
       add(autoPrintScannedLabels_ ? "auto-label off" : "auto-label on", "Print", "P", chr('P'),
           [self] { self->toggleAutoPrintScannedLabels(); });
@@ -272,6 +279,18 @@ vector<App::Action> App::currentActions() const {
         } else {
           add("test credentials", "DigiKey", "t", chr('t'), [self] { self->testStagedDigiKey(); });
           add("refresh inventory data", "DigiKey", "r", chr('r'), [self] { self->beginDigiKeyRefresh(); });
+        }
+      }
+      if (settingsCategory_ == SettingsCategory::Tme) {
+        const bool refreshRunning = !self->tmeRefreshQueue_.empty() || self->tmeRefreshFuture_.valid();
+        if (refreshRunning) {
+          add("cancel TME refresh", "Sync", "c", chr('c'), [self] {
+            self->tmeRefreshQueue_.clear();
+            self->setMessage("Cancelling after the current TME request", 4);
+          });
+        } else {
+          add("test credentials", "TME", "t", chr('t'), [self] { self->testStagedTme(); });
+          add("refresh inventory data", "TME", "r", chr('r'), [self] { self->beginTmeRefresh(); });
         }
       }
       if (settingsDirty_) {

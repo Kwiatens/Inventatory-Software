@@ -31,6 +31,8 @@ HistorySourceFilter nextHistoryFilter(HistorySourceFilter filter) {
     case HistorySourceFilter::Corrective:
       return HistorySourceFilter::DigiKey;
     case HistorySourceFilter::DigiKey:
+      return HistorySourceFilter::Tme;
+    case HistorySourceFilter::Tme:
       return HistorySourceFilter::Checkpoint;
     case HistorySourceFilter::Checkpoint:
       return HistorySourceFilter::Import;
