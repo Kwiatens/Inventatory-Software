@@ -154,7 +154,7 @@ PartDescriptor integratedCircuitRule(const LabelContext& context) {
   if (hasParameter(context, {"Function"}, {"multiplexer", "demultiplexer"}) || guardedTitleHas(context, {"multiplexer", "demultiplexer"})) return resolved("Multiplexer/Demultiplexer", "Mux/Demux", PartLabelSource::VendorRule);
 
   if (hasParameter(context, {"Function"}, {"usb uart", "usb to uart"}) || guardedTitleHas(context, {"usb uart", "usb to uart"})) return resolved("USB-UART Bridge", "USB-UART Bridge", PartLabelSource::VendorRule);
-  if (hasParameter(context, {"Interface"}, {"can", "rs485", "rs 485", "rs232", "rs 232", "lin"}) ||
+  if (hasSingleBusInterface(context, {"can", "rs485", "rs 485", "rs232", "rs 232", "lin"}) ||
       hasParameter(context, {"Function"}, {"transceiver"}) || guardedTitleHas(context, {"can transceiver", "rs485 transceiver", "rs232 transceiver"})) return resolved("Transceiver", "Transceiver", PartLabelSource::VendorRule);
   if (hasParameter(context, {"Function"}, {"gate driver"}) || guardedTitleHas(context, {"gate driver"})) return resolved("Gate Driver", "Gate Driver", PartLabelSource::VendorRule);
   if (hasParameter(context, {"Output Type"}, {"h bridge"}) || guardedTitleHas(context, {"h bridge"})) return resolved("H-Bridge Motor Driver", "H-Bridge", PartLabelSource::VendorRule);
