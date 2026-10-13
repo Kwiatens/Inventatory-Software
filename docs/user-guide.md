@@ -156,6 +156,8 @@ by its manufacturer part number (or its SKU when it has none), and applies a res
 number matches exactly and one product fits. The refresh also reads each part's parameters, datasheet, stock and
 lowest price from TME, so a TME part shows the same details a DigiKey part does.
 An item that already uses DigiKey keeps DigiKey as its selected source, and the TME record is kept beside it.
+If the TME record gives a resistance, capacitance or inductance that differs from the stored value, the record is not
+merged; the refresh reports the part as an error instead.
 Lookups are requests to TME, so a large inventory takes a few minutes.
 
 Pairing maintenance stays on the Actions sheet (`Space`): re-pair after a
