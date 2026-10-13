@@ -81,9 +81,12 @@ void App::processScanDigiKeyEnrichment() {
       return;
     }
     if (result.details) {
-      if (auto* item = store_.findById(result.itemId); item != nullptr && mergeDigiKeyMetadata(*item, *result.details)) {
-        logActivity("scan", "Synced DigiKey metadata for " + item->partName);
-        saveState("digikey", result.itemId, "DigiKey enrichment");
+      if (auto* item = store_.findById(result.itemId); item != nullptr) {
+        // A label printed next must show the slot the merged part is placed in; saving would place it too late.
+        const bool merged = mergeDigiKeyMetadata(*item, *result.details);
+        const bool placed = reconcileRackAssignment(store_, *item);
+        if (merged) logActivity("scan", "Synced DigiKey metadata for " + item->partName);
+        if (merged || placed) saveState("digikey", result.itemId, "DigiKey enrichment");
       }
     } else if (!result.error.empty()) {
       // A workspace without DigiKey credentials stays silent; only a lookup that was attempted and failed is shown.
