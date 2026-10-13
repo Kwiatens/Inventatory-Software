@@ -199,12 +199,15 @@ bool App::restoreData() {
   }
   hasStoredDigiKeySecret_ =
       credentialPresence(CredentialStore::lookup("digikey-client-secret"), hasStoredDigiKeySecret_);
+  hasStoredTmeToken_ = credentialPresence(CredentialStore::lookup(kTmeTokenCredentialName), hasStoredTmeToken_);
+  hasStoredTmeSecret_ = credentialPresence(CredentialStore::lookup(kTmeSecretCredentialName), hasStoredTmeSecret_);
   applyUiAppearance(settings_.appearance);
   settingsDirty_ = false;
   restartDeviceService();
   string restoreMessage = "Backup restored. Scan R1 pairing was cleared; pair it again";
   if (!scannerTokenStored) restoreMessage += ". Scanner token storage needs attention";
   if (!hasStoredDigiKeySecret_) restoreMessage += ". DigiKey credentials need testing/re-entry";
+  if (!hasStoredTmeToken_ || !hasStoredTmeSecret_) restoreMessage += ". TME credentials need re-entry";
   setMessage(restoreMessage, 8);
   return true;
 }

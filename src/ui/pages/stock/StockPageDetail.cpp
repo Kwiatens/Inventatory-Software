@@ -209,6 +209,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       detailRowsExpanded.push_back(detailFieldLine({label + ": ", value, uiSecondaryText(), valueColor}, detailInnerWidth));
     };
     detailField("DigiKey", item->digikeyPartNumber, uiPrimaryText());
+    detailField("TME", tmeProductSymbol(*item), uiPrimaryText());
     detailField("SKU", item->sku, uiPrimaryText());
     detailField("Inventatory ID", item->inventatoryId, uiPrimaryText());
     detailField("Location", item->location, uiPrimaryText());

@@ -203,6 +203,11 @@ void App::handleStockKey(const KeyEvent& key) {
           openCurrentUrl(digiKeySearch, "DigiKey");
         }
         break;
+      case 'l':
+        if (const auto* item = selectedItem()) {
+          openCurrentUrl(tmeProductPageUrl(tmeProductSymbol(*item)), "TME");
+        }
+        break;
       case 'p':
         printSelectedLabel();
         break;

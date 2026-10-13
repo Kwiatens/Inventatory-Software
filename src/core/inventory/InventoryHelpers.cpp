@@ -79,7 +79,9 @@ string sanitizeIdPart(const string& value) {
 }
 
 bool InventoryItem::hasMissingMetadata() const {
-  return partName.empty() || manufacturer.empty() || category.empty() || digikeyPartNumber.empty() ||
+  // A part is identified by its DigiKey number or its TME symbol, whichever the item was enriched from.
+  const bool hasVendorNumber = !digikeyPartNumber.empty() || !tmeProductSymbol(*this).empty();
+  return partName.empty() || manufacturer.empty() || category.empty() || !hasVendorNumber ||
          datasheetUrl.empty() || productUrl.empty();
 }
 
@@ -90,6 +92,11 @@ string InventoryItem::searchableText() const {
       << inventatoryId << ' ' << syncStatus << ' ' << labelOverride << ' ' << vendorMetadata.provider << ' '
       << vendorMetadata.providerProductNumber << ' ' << vendorMetadata.manufacturerPartNumber << ' '
       << vendorMetadata.title << ' ' << vendorMetadata.detailedDescription;
+
+  // A TME record kept beside another source is still searchable by its symbol and part number.
+  for (const auto& source : vendorSources) {
+    out << ' ' << source.provider << ' ' << source.providerProductNumber << ' ' << source.manufacturerPartNumber;
+  }
 
   for (const auto& tag : tags) {
     out << ' ' << tag;
