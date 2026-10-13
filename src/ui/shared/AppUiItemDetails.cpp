@@ -39,12 +39,32 @@ bool categoryContains(const InventoryItem& item, initializer_list<const char*> n
   return false;
 }
 
+// The words of a parameter name, in lower case, without punctuation: "Voltage - Supply (Min/Max)" has the words voltage,
+// supply, min and max.
+vector<string> parameterNameWords(const string& name) {
+  vector<string> words;
+  string word;
+  for (const unsigned char ch : name) {
+    if (isalnum(ch)) {
+      word.push_back(static_cast<char>(tolower(ch)));
+    } else if (!word.empty()) {
+      words.push_back(word);
+      word.clear();
+    }
+  }
+  if (!word.empty()) words.push_back(word);
+  return words;
+}
+
+// Two names are one parameter when one is the leading words of the other: "Package" is "Package / Case" and "Current" is
+// "Current - Test". A name that only contains the other's words is a different parameter: "Color" is not "Lens Color".
 bool parameterLabelMatches(const string& lhs, const string& rhs) {
-  const auto normalizedLhs = normalizeKey(lhs);
-  const auto normalizedRhs = normalizeKey(rhs);
-  if (normalizedLhs.empty() || normalizedRhs.empty()) return false;
-  return normalizedLhs == normalizedRhs || normalizedLhs.find(normalizedRhs) != string::npos ||
-         normalizedRhs.find(normalizedLhs) != string::npos;
+  const auto left = parameterNameWords(lhs);
+  const auto right = parameterNameWords(rhs);
+  if (left.empty() || right.empty()) return false;
+  const auto& shorter = left.size() <= right.size() ? left : right;
+  const auto& longer = left.size() <= right.size() ? right : left;
+  return equal(shorter.begin(), shorter.end(), longer.begin());
 }
 
 bool looksLikePackagingValue(const string& value) {
@@ -82,7 +102,15 @@ optional<string> extractInductanceFromText(const string& text) {
 }
 
 const Parameter* findParameter(const vector<Parameter>& parameters, initializer_list<const char*> names) {
+  // For each wanted name, the parameter with that exact name comes before one that only starts with it, so "Current" is
+  // the "Current" parameter even when the record lists "Current - Test" first.
   for (const auto* name : names) {
+    const auto wanted = normalizeKey(name);
+    for (const auto& parameter : parameters) {
+      if (normalizeKey(parameter.name) == wanted && !wanted.empty()) {
+        return &parameter;
+      }
+    }
     for (const auto& parameter : parameters) {
       if (parameterLabelMatches(parameter.name, name)) {
         return &parameter;
