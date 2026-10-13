@@ -70,6 +70,9 @@ bool validAppSettings(const AppSettings& settings) {
          validOptionalText(settings.digiKeySite, kMaxDigiKeyLocaleFieldBytes) &&
          validOptionalText(settings.digiKeyLanguage, kMaxDigiKeyLocaleFieldBytes) &&
          validOptionalText(settings.digiKeyCurrency, kMaxDigiKeyLocaleFieldBytes) &&
+         validOptionalText(settings.tmeCountry, kMaxTmeLocaleFieldBytes) &&
+         validOptionalText(settings.tmeLanguage, kMaxTmeLocaleFieldBytes) &&
+         validOptionalText(settings.tmeCurrency, kMaxTmeLocaleFieldBytes) &&
          validQuickLabels(settings.quickLabelPresets, settings.quickLabelRevision);
 }
 
@@ -116,6 +119,11 @@ bool parseBool(const string& value, bool& result) {
     return true;
   }
   return false;
+}
+
+// TME storefront keys are optional: a settings file without them loads with the defaults.
+bool isOptionalTmeSettingsKey(const string& key) {
+  return key == "tme_country" || key == "tme_language" || key == "tme_currency";
 }
 
 bool requiredSettingsKey(const string& key) {
@@ -189,6 +197,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
 
   AppSettings loaded;
   set<string> seenRequiredKeys;
+  set<string> seenTmeKeys;
   bool legacyFormat = false;
   bool seenSymbolStandard = false;
   bool malformedLine = false;
@@ -211,10 +220,11 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       legacyFormat = true;
     } else if (key.rfind("appearance_", 0) == 0 && !requiredSettingsKey(key)) {
       return false;
-    } else if (!requiredSettingsKey(key) && key != "symbol_standard") {
+    } else if (!requiredSettingsKey(key) && key != "symbol_standard" && !isOptionalTmeSettingsKey(key)) {
       return false;
     }
     if (key == "symbol_standard" && seenSymbolStandard) return false;
+    if (isOptionalTmeSettingsKey(key) && !seenTmeKeys.insert(key).second) return false;
     string requiredKey = key == "bridge_port" ? "device_service_port" : key;
     if (requiredSettingsKey(requiredKey) && !seenRequiredKeys.insert(requiredKey).second) return false;
     istringstream value(line.substr(equals + 1));
@@ -288,6 +298,18 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
           loaded.digiKeyCurrency.size() > kMaxDigiKeyLocaleFieldBytes) {
         return false;
       }
+    } else if (key == "tme_country") {
+      if (!parseQuotedValue(value, loaded.tmeCountry) || loaded.tmeCountry.size() > kMaxTmeLocaleFieldBytes) {
+        return false;
+      }
+    } else if (key == "tme_language") {
+      if (!parseQuotedValue(value, loaded.tmeLanguage) || loaded.tmeLanguage.size() > kMaxTmeLocaleFieldBytes) {
+        return false;
+      }
+    } else if (key == "tme_currency") {
+      if (!parseQuotedValue(value, loaded.tmeCurrency) || loaded.tmeCurrency.size() > kMaxTmeLocaleFieldBytes) {
+        return false;
+      }
     } else if (key == "symbol_standard") {
       string text;
       if (!parseQuotedValue(value, text) || !parseSymbolStandard(text, loaded.symbolStandard)) return false;
@@ -331,7 +353,10 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       !validOptionalText(loaded.digiKeyAccountId, kMaxDigiKeyFieldBytes) ||
       !validOptionalText(loaded.digiKeySite, kMaxDigiKeyLocaleFieldBytes) ||
       !validOptionalText(loaded.digiKeyLanguage, kMaxDigiKeyLocaleFieldBytes) ||
-      !validOptionalText(loaded.digiKeyCurrency, kMaxDigiKeyLocaleFieldBytes)) {
+      !validOptionalText(loaded.digiKeyCurrency, kMaxDigiKeyLocaleFieldBytes) ||
+      !validOptionalText(loaded.tmeCountry, kMaxTmeLocaleFieldBytes) ||
+      !validOptionalText(loaded.tmeLanguage, kMaxTmeLocaleFieldBytes) ||
+      !validOptionalText(loaded.tmeCurrency, kMaxTmeLocaleFieldBytes)) {
     return false;
   }
   if (loaded.schemaVersion == 2) legacyFormat = true;
@@ -370,6 +395,12 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
          << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n'
          << "low_stock_threshold=" << settings.lowStockThreshold << '\n';
+  // TME keys are optional, like symbol_standard: written only when they differ from the default, so a
+  // settings file that has none of them still loads.
+  const AppSettings defaults;
+  if (settings.tmeCountry != defaults.tmeCountry) output << "tme_country=" << quoted(settings.tmeCountry) << '\n';
+  if (settings.tmeLanguage != defaults.tmeLanguage) output << "tme_language=" << quoted(settings.tmeLanguage) << '\n';
+  if (settings.tmeCurrency != defaults.tmeCurrency) output << "tme_currency=" << quoted(settings.tmeCurrency) << '\n';
   if (settings.symbolStandard != SymbolStandard::Eu) {
     output << "symbol_standard=" << quoted(symbolStandardKey(settings.symbolStandard)) << '\n';
   }

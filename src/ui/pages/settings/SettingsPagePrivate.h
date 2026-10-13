@@ -20,14 +20,15 @@ struct SettingsCategoryEntry {
   int indent = 0;
 };
 
-inline constexpr std::array<SettingsCategoryEntry, 7> settingsCategoryEntries() {
+inline constexpr std::array<SettingsCategoryEntry, 8> settingsCategoryEntries() {
   return {{{0, 0},  // General
            {1, 0},  // Appearance
            {2, 0},  // Updates
            {3, 0},  // Printer
            {4, 1},  // Quick Labels under Printer
            {5, 0},  // Inventatory Scan
-           {6, 0}}}; // DigiKey
+           {6, 0},  // DigiKey
+           {7, 0}}}; // TME
 }
 
 // Final status line after a settings save that restarted the device service.

@@ -24,6 +24,7 @@
 #include "import/digikey/DigiKeyCsvImport.h"
 #include "import/kicad/KicadBom.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/tme/TmeApi.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "platform/system/Console.h"
 #include "platform/scanner/BleProvisioningService.h"
@@ -283,6 +284,7 @@ class App {
     QuickLabels,
     InventatoryScan,
     DigiKey,
+    Tme,
   };
 
   // Surface is a non-actionable region (for example an overlay panel) that
@@ -345,6 +347,7 @@ class App {
     Notes,
     LabelOverride,
     DigiKeyPart,
+    TmeSymbol,
     DatasheetUrl,
     ProductUrl,
     Sku,
@@ -445,11 +448,26 @@ class App {
     WorkspaceGeneration generation = 0;
   };
 
+  struct TmeRefreshResult {
+    std::string itemId;
+    std::optional<TmeProductDetails> details;
+    TmeLookupOutcome outcome = TmeLookupOutcome::Failed;
+    std::string error;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  struct TmeTestResult {
+    bool ok = false;
+    std::string error;
+    WorkspaceGeneration generation = 0;
+  };
+
   // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
   // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
   // it, and only while no lookup is running.
   struct BomEnrichmentSession {
     std::unique_ptr<DigiKeyApiClient> client;
+    std::unique_ptr<TmeApiClient> tmeClient;
   };
 
   struct BomEnrichmentResult {
@@ -463,6 +481,8 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
     std::uint64_t requestSequence = 0;
     bool credentialsMissing = false;
+    // The suggestion came from TME rather than DigiKey.
+    bool fromTme = false;
   };
 
   // Printer work is always executed against a value snapshot.  The worker
@@ -658,6 +678,12 @@ class App {
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
   void processDigiKeyTest();
+  void processTmeTest();
+  void beginTmeRefresh();
+  // False when the lookup could not be queued (no TME credentials, or no workspace).
+  bool enqueueTmeScanLookup(const std::string& itemId, const std::string& symbol);
+  void processTmeRefresh();
+  void stopTmeRefresh();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -703,7 +729,10 @@ class App {
   void testQuickLabelPreset();
   bool printLabelForItem(const InventoryItem& item, const std::string& successPrefix, bool openSetupOnMissingPrinter);
   void toggleAutoPrintScannedLabels();
-  bool autoPrintScannedLabel(const std::string& itemId);
+  // A scan that creates a part prints its label only after the supplier lookup has settled, so the label carries
+  // the merged details. finishScanAutoPrint acts only on an item that queueScanAutoPrint recorded.
+  void queueScanAutoPrint(const std::string& itemId);
+  void finishScanAutoPrint(const std::string& itemId, bool detailsFound);
   void stageSelectedPrinterQueue();
   void toggleSymbolStandard();
   void openInventatoryScanSetup();
@@ -751,6 +780,10 @@ class App {
   bool stageInventatoryFolder();
   bool testStagedPrinter();
   bool testStagedDigiKey();
+  bool testStagedTme();
+  // True when the field being edited holds a secret, so its typed text is masked and wiped after editing.
+  bool settingsFieldIsSecret() const;
+  void clearStagedTmeCredentials();
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
   void resetSelectedAppearanceColor();
@@ -1051,6 +1084,8 @@ class App {
   std::uint64_t bomEnrichmentSequence_ = 0;
   std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
   std::future<ScanDigiKeyEnrichmentResult> scanDigiKeyEnrichmentFuture_;
+  // UI thread only: created scans whose automatic label waits for their supplier lookup to settle.
+  std::vector<std::string> scanAutoPrintPending_;
   // Inventory-wide DigiKey recovery runs one lookup per tick so restoring
   // lost vendor metadata never blocks the terminal or changes stock counts.
   std::deque<std::pair<std::string, std::string>> digiKeyRefreshQueue_;
@@ -1062,6 +1097,19 @@ class App {
   WorkspaceGeneration digiKeyRefreshGeneration_ = 0;
   std::string digiKeyRefreshLastError_;
   std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
+  // TME inventory refresh, run the same way as the DigiKey refresh: one lookup per tick, merged on the UI thread.
+  std::deque<std::pair<std::string, TmeIdentifier>> tmeRefreshQueue_;
+  size_t tmeRefreshTotal_ = 0;
+  size_t tmeRefreshCompleted_ = 0;
+  size_t tmeRefreshSucceeded_ = 0;
+  size_t tmeRefreshNotFound_ = 0;
+  size_t tmeRefreshAmbiguous_ = 0;
+  size_t tmeRefreshErrors_ = 0;
+  bool tmeRefreshChanged_ = false;
+  WorkspaceGeneration tmeRefreshGeneration_ = 0;
+  std::string tmeRefreshLastError_;
+  std::unique_ptr<TmeApiClient> tmeRefreshClient_;
+  std::future<TmeRefreshResult> tmeRefreshFuture_;
   std::future<DigiKeyRefreshResult> digiKeyRefreshFuture_;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
@@ -1102,6 +1150,13 @@ class App {
   std::string stagedDigiKeySecret_;
   bool stagedDigiKeySecretChanged_ = false;
   bool hasStoredDigiKeySecret_ = false;
+  // TME token and application secret, staged like the DigiKey secret until settings are saved.
+  std::string stagedTmeToken_;
+  bool stagedTmeTokenChanged_ = false;
+  std::string stagedTmeSecret_;
+  bool stagedTmeSecretChanged_ = false;
+  bool hasStoredTmeToken_ = false;
+  bool hasStoredTmeSecret_ = false;
   std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   // quickLabelMutex_ guards the quick-label presets in settings_, the print-result cache above and
@@ -1117,6 +1172,7 @@ class App {
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
   std::future<DigiKeyTestResult> digiKeyTestFuture_;
+  std::future<TmeTestResult> tmeTestFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckFailed_ = false;

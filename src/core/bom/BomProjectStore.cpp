@@ -15,13 +15,14 @@ namespace inventatory {
 
 using namespace std;
 
-optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified) {
+optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified, bool fromTme) {
   switch (outcome) {
     case BomLookupOutcome::Found: {
       const auto trimmed = trim(suggestion);
       // A part without a usable number gives the user nothing to act on.
       if (trimmed.empty() || trimmed == "-") return string(kBomEnrichmentNoMatch);
-      return verified ? string(kBomEnrichmentVerified) + trimmed : trimmed;
+      const string stored = fromTme ? string(kBomEnrichmentTme) + trimmed : trimmed;
+      return verified ? string(kBomEnrichmentVerified) + stored : stored;
     }
     case BomLookupOutcome::NoMatch:
       return string(kBomEnrichmentNoMatch);
@@ -38,11 +39,28 @@ bool bomEnrichmentCached(const map<string, string>& enrichment, const string& ke
   return !value.empty() && value != "-";
 }
 
-string bomEnrichmentPart(const string& stored) {
+namespace {
+
+// The stored suggestion without its verification prefix.
+string withoutVerification(const string& stored) {
   const string prefix = kBomEnrichmentVerified;
-  const auto value = stored.rfind(prefix, 0) == 0 ? stored.substr(prefix.size()) : stored;
+  return stored.rfind(prefix, 0) == 0 ? stored.substr(prefix.size()) : stored;
+}
+
+}  // namespace
+
+string bomEnrichmentPart(const string& stored) {
+  auto value = withoutVerification(stored);
+  const string tmePrefix = kBomEnrichmentTme;
+  if (value.rfind(tmePrefix, 0) == 0) value = value.substr(tmePrefix.size());
   const auto trimmed = trim(value);
   return trimmed == "-" || trimmed == kBomEnrichmentNoMatch ? string() : trimmed;
+}
+
+string bomEnrichmentSupplier(const string& stored) {
+  if (bomEnrichmentPart(stored).empty()) return {};
+  const string tmePrefix = kBomEnrichmentTme;
+  return withoutVerification(stored).rfind(tmePrefix, 0) == 0 ? string("TME") : string("DigiKey");
 }
 
 bool bomEnrichmentVerified(const string& stored) {
@@ -55,8 +73,8 @@ string bomEnrichmentExportText(const string& stored) {
 
 BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<string, string>& enrichment) {
   BomShortageExport result;
-  result.text =
-      "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part,Suggestion check\r\n";
+  result.text = "Designation,Footprint,Package,Designators,Needed,On hand,Suggested part,Supplier,"
+                "Suggestion check\r\n";
   for (const auto& match : analysis.matches) {
     if (match.sufficient || match.lineIndex >= analysis.lines.size()) {
       continue;
@@ -64,6 +82,7 @@ BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<str
     const auto& line = analysis.lines[match.lineIndex];
     const auto suggestion = enrichment.find(bomLineKey(line));
     const auto part = suggestion == enrichment.end() ? string() : bomEnrichmentPart(suggestion->second);
+    const auto supplier = suggestion == enrichment.end() ? string() : bomEnrichmentSupplier(suggestion->second);
     // A suggestion that did not fit the line is never presented as a verified part.
     const string check = part.empty() ? string()
                          : bomEnrichmentVerified(suggestion->second) ? string("verified")
@@ -74,7 +93,7 @@ BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<str
     result.text += csvTextCell(line.designation) + ',' + csvTextCell(line.footprint) + ',' +
                    csvTextCell(packageFromFootprint(line.footprint)) + ',' + csvTextCell(join(line.designators, ' ')) +
                    ',' + to_string(match.needed) + ',' + to_string(onHand) + ',' + csvTextCell(part) + ',' +
-                   csvTextCell(check) + "\r\n";
+                   csvTextCell(supplier) + ',' + csvTextCell(check) + "\r\n";
     ++result.rows;
   }
   return result;

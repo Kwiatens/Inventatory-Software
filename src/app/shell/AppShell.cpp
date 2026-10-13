@@ -181,8 +181,10 @@ void App::processBackgroundWork() {
   processScanFirmwareCheck();
   processBleProvisioning();
   processDigiKeyTest();
+  processTmeTest();
   processScanDigiKeyEnrichment();
   processDigiKeyRefresh();
+  processTmeRefresh();
   processImportSync();
   processBomEnrichment();
   processPrinterWork();

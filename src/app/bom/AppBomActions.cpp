@@ -59,6 +59,8 @@ string App::fieldLabel(EditField field) const {
       return "Label override";
     case EditField::DigiKeyPart:
       return "DigiKey part";
+    case EditField::TmeSymbol:
+      return "TME part";
     case EditField::DatasheetUrl:
       return "Datasheet URL";
     case EditField::ProductUrl:
@@ -108,6 +110,8 @@ string App::currentFieldValue(EditField field) const {
       return item->labelOverride;
     case EditField::DigiKeyPart:
       return item->digikeyPartNumber;
+    case EditField::TmeSymbol:
+      return tmeProductSymbol(*item);
     case EditField::DatasheetUrl:
       return item->datasheetUrl;
     case EditField::ProductUrl:
@@ -137,6 +141,7 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Notes", EditField::Notes},
       {"Label override", EditField::LabelOverride},
       {"DigiKey part", EditField::DigiKeyPart},
+      {"TME part", EditField::TmeSymbol},
       {"Datasheet URL", EditField::DatasheetUrl},
       {"Product URL", EditField::ProductUrl},
       {"SKU", EditField::Sku},

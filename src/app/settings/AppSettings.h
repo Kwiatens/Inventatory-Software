@@ -22,6 +22,9 @@ constexpr int kDefaultLowStockThreshold = 5;
 // so an edit that is accepted on screen is always accepted when settings are saved.
 inline constexpr std::size_t kMaxDigiKeyFieldBytes = 512U;
 inline constexpr std::size_t kMaxDigiKeyLocaleFieldBytes = 32U;
+// Byte limits for TME settings text, with the same accept-on-screen rule as DigiKey.
+inline constexpr std::size_t kMaxTmeFieldBytes = 512U;
+inline constexpr std::size_t kMaxTmeLocaleFieldBytes = 32U;
 
 enum class AppearanceColorRole : std::uint8_t {
   CanvasBg,
@@ -100,6 +103,11 @@ struct AppSettings {
   std::string digiKeySite = "US";
   std::string digiKeyLanguage = "en";
   std::string digiKeyCurrency = "USD";
+  // TME storefront used for product and price data. The token and application secret are not settings;
+  // they live in the secure credential store.
+  std::string tmeCountry = "PL";
+  std::string tmeLanguage = "EN";
+  std::string tmeCurrency = "EUR";
   int lowStockThreshold = kDefaultLowStockThreshold;
   // Electrical symbol set printed on rack labels. Optional in settings.conf: written only when it is not the
   // default, so files stay readable by older releases for users who never change it.

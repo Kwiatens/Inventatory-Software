@@ -53,6 +53,18 @@ string serializeRackSnapshot(const InventatoryRack& rack) {
 }
 
 namespace {
+// The provider records kept beside the selected one, shown as provider and number, so a change to any of them
+// is visible in the history.
+string vendorSourcesText(const vector<VendorProductMetadata>& sources) {
+  string text;
+  for (const auto& source : sources) {
+    if (!text.empty()) text += "; ";
+    text += source.provider + " " + source.providerProductNumber;
+    if (!source.manufacturerPartNumber.empty()) text += " (" + source.manufacturerPartNumber + ")";
+  }
+  return text;
+}
+
 vector<pair<string, string>> itemFields(const InventoryItem& item) {
   return {
       {"part name", item.partName},
@@ -87,6 +99,7 @@ vector<pair<string, string>> itemFields(const InventoryItem& item) {
       {"vendor parameters", joinParameters(item.vendorMetadata.parameters)},
       {"vendor product URL", item.vendorMetadata.productUrl},
       {"vendor locale", item.vendorMetadata.locale},
+      {"vendor sources", vendorSourcesText(item.vendorSources)},
   };
 }
 

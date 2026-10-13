@@ -41,23 +41,36 @@ void App::toggleAutoPrintScannedLabels() {
   dirty_ = true;
 }
 
-bool App::autoPrintScannedLabel(const string& itemId) {
-  if (!autoPrintScannedLabels_) {
-    return false;
-  }
+void App::queueScanAutoPrint(const string& itemId) {
+  if (!autoPrintScannedLabels_) return;
+  scanAutoPrintPending_.push_back(itemId);
+}
+
+// Runs once the lookup for a created part has finished, whether or not it found the part. A part that is still
+// a placeholder is not printed: its label would say "Unsorted" and "Scanned ... Item" and nothing else.
+void App::finishScanAutoPrint(const string& itemId, bool detailsFound) {
+  const auto pending = find(scanAutoPrintPending_.begin(), scanAutoPrintPending_.end(), itemId);
+  if (pending == scanAutoPrintPending_.end()) return;
+  scanAutoPrintPending_.erase(pending);
+  if (!autoPrintScannedLabels_) return;
 
   const auto* item = store_.findById(itemId);
-  if (item == nullptr) {
-    return false;
-  }
+  if (item == nullptr) return;
 
+  if (!detailsFound || app_actions::isScanPlaceholderName(item->partName)) {
+    const string message = "Auto label skipped: supplier details were not found for the scanned part";
+    setMessage(message, 6, UiMessageSeverity::Warning);
+    logActivity("scan", message);
+    dirty_ = true;
+    return;
+  }
   if (!printerService_.hasConfiguredPrinter()) {
     setMessage("Auto label skipped: no printer configured", 4);
-    return true;
+    dirty_ = true;
+    return;
   }
 
   printLabelForItem(*item, "Auto-printed label for ", false);
-  return true;
 }
 
 void App::processScanDigiKeyEnrichment() {
@@ -80,6 +93,7 @@ void App::processScanDigiKeyEnrichment() {
       logActivity("scan", message);
       dirty_ = true;
     }
+    finishScanAutoPrint(result.itemId, result.details.has_value());
   }
   if (scanDigiKeyEnrichmentQueue_.empty()) return;
   const auto [itemId, lookup] = scanDigiKeyEnrichmentQueue_.front();

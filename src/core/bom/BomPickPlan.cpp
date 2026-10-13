@@ -230,7 +230,7 @@ VoiceLine bomProjectSummary(const BomAnalysis& analysis, int suggestedMatches) {
   if (suggestedMatches > 0) {
     line.push_back({", "});
     line.push_back({to_string(suggestedMatches), VoiceTone::Strong});
-    line.push_back({suggestedMatches == 1 ? " has a DigiKey match." : " have a DigiKey match."});
+    line.push_back({suggestedMatches == 1 ? " has a supplier match." : " have a supplier match."});
   } else {
     line.push_back({"."});
   }

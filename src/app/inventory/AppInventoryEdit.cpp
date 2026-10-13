@@ -156,6 +156,13 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::DigiKeyPart:
       workingCopy_.item.digikeyPartNumber = trimmed;
       break;
+    case EditField::TmeSymbol:
+      if (!setTmeSymbol(workingCopy_.item, trimmed)) {
+        setMessage("A TME part number is letters, digits and - _ . / + # only, up to 64 characters", 4,
+                   UiMessageSeverity::Warning);
+        return;
+      }
+      break;
     case EditField::DatasheetUrl:
       workingCopy_.item.datasheetUrl = trimmed;
       break;

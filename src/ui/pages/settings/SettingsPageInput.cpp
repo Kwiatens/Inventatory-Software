@@ -40,7 +40,7 @@ void App::toggleSymbolStandard() {
 
 void App::selectSettingsCategory(SettingsCategory category) {
   if (settingsEditingField_) {
-    if (settingsCategory_ == SettingsCategory::DigiKey && settingsField_ == 1) {
+    if (settingsFieldIsSecret()) {
       inputBuffer_.assign(inputBuffer_.size(), '\0');
       inputBuffer_.clear();
     }
@@ -151,7 +151,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     } else if (key.type == KeyType::Enter) {
       commitSettingsFieldEdit();
     } else if (key.type == KeyType::Escape) {
-      if (settingsCategory_ == SettingsCategory::DigiKey && settingsField_ == 1) {
+      if (settingsFieldIsSecret()) {
         inputBuffer_.assign(inputBuffer_.size(), '\0');
         inputBuffer_.clear();
       }

@@ -22,7 +22,7 @@ Include what is needed to reproduce the problem:
 - the steps that trigger the problem, and what you expected to happen;
 - the impact you observed, and any logs with secrets removed.
 
-Do not include scanner tokens, Wi-Fi passwords, DigiKey credentials or real inventory data. Test only on
+Do not include scanner tokens, Wi-Fi passwords, DigiKey or TME credentials or real inventory data. Test only on
 your own computer, with your own scanner and your own data.
 
 ## Scope
@@ -31,7 +31,7 @@ In scope:
 
 - The Scan R1 device service: the local HTTP service, Bluetooth Low Energy provisioning, and the
   HMAC-authenticated request protocol with replay protection.
-- Storage of secrets. The scanner token and DigiKey credentials belong in Windows Credential Manager or the
+- Storage of secrets. The scanner token, DigiKey credentials and TME token and application secret belong in Windows Credential Manager or the
   Linux Secret Service. They must never appear in configuration files, logs, backups or the inventory
   database.
 - Backup and restore integrity, including manifest validation and any path that could lose or overwrite

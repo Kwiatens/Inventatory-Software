@@ -14,6 +14,7 @@
 #include "app/shell/AppBootstrap.h"
 #include "app/settings/AppSettings.h"
 #include "app/common/AppActionSupport.h"
+#include "platform/tme/TmeEncoding.h"
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
@@ -4724,7 +4725,7 @@ void testRackPageSlotGeometry() {
 
 void testSettingsCategoryEntries() {
   const auto categories = settings_page_detail::settingsCategoryEntries();
-  assert(categories.size() == 7);
+  assert(categories.size() == 8);
   assert(categories[0].categoryIndex == 0);
   assert(categories[1].categoryIndex == 1);
   assert(categories[2].categoryIndex == 2);
@@ -4732,6 +4733,7 @@ void testSettingsCategoryEntries() {
   assert(categories[4].categoryIndex == 4);
   assert(categories[5].categoryIndex == 5);
   assert(categories[6].categoryIndex == 6);
+  assert(categories[7].categoryIndex == 7);
   assert(categories[3].indent == 0);
   assert(categories[4].indent == 1);
   assert(categories[5].indent == 0);
@@ -5935,14 +5937,22 @@ void testDigiKeyMergeKeepsAnotherProviderIdentity() {
   details.vendorMetadata.title = "DigiKey title";
   details.vendorMetadata.categoryPath = {"Passive", "Resistors"};
   details.vendorMetadata.parameters = {{"Tolerance", "1%"}};
-  // The only difference is the refused vendor identity, so nothing is applied.
-  assert(!app_actions::mergeDigiKeyMetadata(item, details));
+  // The DigiKey record is kept beside the TME identity, which is not changed.
+  assert(app_actions::mergeDigiKeyMetadata(item, details));
   assert(item.vendorMetadata.provider == "tme");
   assert(item.vendorMetadata.providerProductNumber == "TME-SYMBOL-1");
   assert(item.vendorMetadata.manufacturerPartNumber == "MPN-1");
   assert(item.vendorMetadata.title == "TME title");
   assert(item.vendorMetadata.categoryPath.size() == 1);
   assert(item.vendorMetadata.parameters.empty());
+  assert(item.vendorSources.size() == 1);
+  assert(item.vendorSources.front().provider == "digikey");
+  assert(item.vendorSources.front().providerProductNumber == "P1-ND");
+  assert(item.vendorSources.front().title == "DigiKey title");
+  assert(item.vendorSources.front().categoryPath.size() == 2);
+  // The same response again changes nothing.
+  assert(!app_actions::mergeDigiKeyMetadata(item, details));
+  assert(item.vendorSources.size() == 1);
 
   // A provider comparison ignores case and surrounding spaces.
   InventoryItem spelledDifferently;
@@ -5961,6 +5971,586 @@ void testDigiKeyMergeKeepsAnotherProviderIdentity() {
   assert(unbound.vendorMetadata.providerProductNumber == "P1-ND");
   assert(unbound.vendorMetadata.manufacturerPartNumber == "MPN-2");
   assert(unbound.vendorMetadata.parameters.size() == 1);
+}
+
+void testTmeEncodingPrimitives() {
+  // The token request sends "token:secret" as HTTP Basic credentials.
+  assert(tme_encoding::base64Encode("tok:sec") == "dG9rOnNlYw==");
+  assert(tme_encoding::base64Encode(string("\x00\xff", 2)) == "AP8=");
+  assert(tme_encoding::base64Encode("Ma") == "TWE=");
+  // Query names and values are percent-encoded: spaces become %20 and the brackets of symbols[] are escaped.
+  assert(tme_encoding::percentEncode("a b/c~_.-") == "a%20b%2Fc~_.-");
+  assert(tme_encoding::percentEncode("symbols[]") == "symbols%5B%5D");
+}
+
+void testTmeResponseParsing() {
+  // The v2 envelope is { status, message, error_data, data }, and the products are in data.elements. The field
+  // names follow the v2 sample. This pins how they are read; a live response confirms them.
+  vector<TmeProductDetails> products;
+  string error;
+  const string found =
+      R"({"status":"OK","message":"","error_data":[],"data":{"elements":[{"symbol":"1N4148-TP",)"
+      R"("manufacturer":{"id":271,"name":"Vishay"},"manufacturer_symbols":["1N4148","1N4148-TP"],)"
+      R"("description":"Diode switching","category":{"id":42,"name":"Diodes"}}]}})";
+  assert(parseTmeProductResponse(found, products, &error));
+  assert(products.size() == 1);
+  assert(products.front().vendorMetadata.provider == "tme");
+  assert(products.front().vendorMetadata.providerProductNumber == "1N4148-TP");
+  assert(products.front().vendorMetadata.manufacturerPartNumber == "1N4148");
+  assert(products.front().manufacturerPartNumbers.size() == 2);
+  assert(products.front().manufacturerName == "Vishay");
+  assert(products.front().productDescription == "Diode switching");
+  assert(products.front().categoryName == "Diodes");
+  assert(products.front().vendorMetadata.categoryId == "42");
+
+  // The status is optional, and a list without one is read the same way.
+  assert(parseTmeProductResponse(R"({"data":{"elements":[{"symbol":"1N4148-TP"}]}})", products, &error));
+  assert(products.size() == 1);
+  // A successful answer with no products is not an error.
+  assert(parseTmeProductResponse(R"({"status":"OK","data":{"elements":[]}})", products, &error));
+  assert(products.empty());
+  // A status other than OK fails with the status and message. Authorization statuses are recognised.
+  assert(!parseTmeProductResponse(R"({"status":"E_AUTHORIZATION_FAILED","message":"Access denied.","data":[]})",
+                                  products, &error));
+  assert(error.find("E_AUTHORIZATION_FAILED") != string::npos);
+  assert(isTmeAuthorizationStatus("E_AUTHORIZATION_FAILED"));
+  assert(isTmeAuthorizationStatus("FORBIDDEN"));
+  assert(!isTmeAuthorizationStatus("E_SYMBOL_NOT_FOUND"));
+  // Data without a product list, and a body that is not JSON, both fail.
+  assert(!parseTmeProductResponse(R"({"status":"OK","data":{}})", products, &error));
+  assert(!parseTmeProductResponse(R"({"status":"OK"})", products, &error));
+  assert(!parseTmeProductResponse(R"([1,2])", products, &error));
+  assert(!parseTmeProductResponse("<html>403</html>", products, &error));
+  // Records without a symbol fail and name the fields they have, so a layout mismatch shows on the first lookup.
+  assert(!parseTmeProductResponse(R"({"status":"OK","data":{"elements":[{"Producer":"X"}]}})", products, &error));
+  assert(error.find("Producer") != string::npos);
+  // A product search nests its records one level down, under data.products.
+  assert(parseTmeProductResponse(R"({"status":"OK","data":{"products":{"elements":[{"symbol":"S1","manufacturer_symbols":["MPN1"]}]}}})",
+                                 products, &error));
+  assert(products.size() == 1 && products.front().vendorMetadata.providerProductNumber == "S1");
+  assert(products.front().vendorMetadata.manufacturerPartNumber == "MPN1");
+  // The availability flags read as words, and a part that cannot be ordered is marked so.
+  assert(parseTmeProductResponse(
+      R"({"status":"OK","data":{"elements":[{"symbol":"X1","product_status":["NOT_IN_OFFER","HARDLY_AVAILABLE"]}]}})",
+      products, &error));
+  assert(products.size() == 1 && !products.front().orderable);
+  assert(products.front().productStatus == "Not in offer; Hardly available");
+  assert(parseTmeProductResponse(R"({"status":"OK","data":{"elements":[{"symbol":"X2","product_status":[]}]}})",
+                                 products, &error));
+  assert(products.front().orderable && products.front().productStatus.empty());
+}
+
+void testTmeLookupIdentityRules() {
+  TmeProductDetails product;
+  product.vendorMetadata.manufacturerPartNumber = " 1N4148 ";
+  assert(tmePartNumberMatches("1n4148", product));
+  assert(tmePartNumberMatches(" 1N4148", product));
+  // Containment is not a match: a short part number must not select a longer product.
+  assert(!tmePartNumberMatches("1N414", product));
+  assert(!tmePartNumberMatches("1N4148X", product));
+  assert(!tmePartNumberMatches("", product));
+  // A product that lists several manufacturer part numbers matches on any of them.
+  TmeProductDetails listed;
+  listed.vendorMetadata.manufacturerPartNumber = "LM358N";
+  listed.manufacturerPartNumbers = {"LM358N", "LM358"};
+  assert(tmePartNumberMatches("lm358", listed));
+  assert(!tmePartNumberMatches("LM35", listed));
+}
+
+void testTmeMergeKeepsSelectedIdentity() {
+  TmeProductDetails tme;
+  tme.vendorMetadata.provider = "tme";
+  tme.vendorMetadata.providerProductNumber = "1N4148-TP";
+  tme.vendorMetadata.manufacturerPartNumber = "1N4148";
+  tme.vendorMetadata.title = "Diode switching";
+  tme.vendorMetadata.categoryPath = {"Diodes"};
+  tme.vendorMetadata.parameters = {{"Package", "DO-35"}};
+  tme.manufacturerName = "Vishay";
+  tme.productDescription = "Diode switching";
+
+  // An unbound item takes TME as its selected source and fills the empty name and manufacturer.
+  InventoryItem item;
+  item.sku = "1N4148";
+  assert(app_actions::mergeTmeMetadata(item, tme));
+  assert(item.vendorMetadata.provider == "tme");
+  assert(item.vendorMetadata.providerProductNumber == "1N4148-TP");
+  assert(item.partName == "Diode switching");
+  assert(item.manufacturer == "Vishay");
+  assert(item.vendorSources.empty());
+  // The same product again changes nothing.
+  assert(!app_actions::mergeTmeMetadata(item, tme));
+
+  // An item bound to DigiKey keeps DigiKey as its selected source and keeps TME beside it.
+  InventoryItem digiKeyItem;
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "1N4148-ND";
+  assert(app_actions::mergeTmeMetadata(digiKeyItem, tme));
+  assert(digiKeyItem.vendorMetadata.provider == "digikey");
+  assert(digiKeyItem.vendorMetadata.providerProductNumber == "1N4148-ND");
+  assert(digiKeyItem.vendorSources.size() == 1);
+  assert(digiKeyItem.vendorSources.front().provider == "tme");
+  assert(digiKeyItem.vendorSources.front().providerProductNumber == "1N4148-TP");
+
+  // A record without a symbol is neither applied nor stored.
+  TmeProductDetails unnamed;
+  unnamed.vendorMetadata.provider = "tme";
+  assert(!app_actions::mergeTmeMetadata(item, unnamed));
+  assert(!app_actions::mergeTmeMetadata(digiKeyItem, unnamed));
+  assert(digiKeyItem.vendorSources.size() == 1);
+
+  // An item that already holds a TME symbol is looked up by it, even when a SKU is also present.
+  assert(app_actions::tmeRefreshIdentifier(item).isSymbol);
+  assert(app_actions::tmeRefreshIdentifier(item).value == "1N4148-TP");
+  assert(app_actions::tmeRefreshIdentifier(digiKeyItem).value == "1N4148-TP");
+  // Without a symbol, an item searches by its manufacturer part number, trimmed, even when its SKU is a DigiKey
+  // order number that TME would not find.
+  InventoryItem byPartNumber;
+  byPartNumber.sku = "1N4148-ND";
+  byPartNumber.vendorMetadata.provider = "digikey";
+  byPartNumber.vendorMetadata.providerProductNumber = "1N4148-ND";
+  byPartNumber.vendorMetadata.manufacturerPartNumber = " 1N4148 ";
+  const auto searchedByPartNumber = app_actions::tmeRefreshIdentifier(byPartNumber);
+  assert(!searchedByPartNumber.isSymbol && searchedByPartNumber.value == "1N4148");
+  // An item with no part number searches by its SKU, trimmed, and an item with neither has nothing to look up.
+  InventoryItem bySku;
+  bySku.sku = " LM358 ";
+  const auto searched = app_actions::tmeRefreshIdentifier(bySku);
+  assert(!searched.isSymbol && searched.value == "LM358");
+  InventoryItem nothing;
+  assert(app_actions::tmeRefreshIdentifier(nothing).value.empty());
+}
+
+void testTmeSourceChangeIsRecorded() {
+  // A TME record kept beside a DigiKey part is a recorded change. The refresh that adds it makes a commit that the
+  // history check accepts, the commit counts the part, and a reload keeps the record.
+  const auto path = testTempRoot() / "inventatory-tme-source-history-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "tme-source-item";
+  item.partName = "CAP CER 0.47UF 10V X5R 0603";
+  item.manufacturer = "Walsin";
+  item.category = "Capacitors";
+  item.quantity = 3;
+  item.sku = "1292-1646-1-ND";
+  item.digikeyPartNumber = "1292-1646-1-ND";
+  item.vendorMetadata.provider = "digikey";
+  item.vendorMetadata.providerProductNumber = "1292-1646-1-ND";
+  item.lastUpdated = 1710000000;
+  item.createdAt = 1710000000;
+  store.items().push_back(item);
+  assert(ensureInventoryCommitHistory(path, store));
+  assert(store.save(path));
+
+  // The TME refresh of this part adds the TME record beside the DigiKey one.
+  TmeProductDetails details;
+  details.vendorMetadata.provider = "tme";
+  details.vendorMetadata.providerProductNumber = "0603X474K100CT";
+  details.vendorMetadata.manufacturerPartNumber = "0603X474K100CT";
+  details.productDescription = "MLCC SMD capacitor 0.47uF";
+  details.categoryName = "MLCC SMD capacitors";
+  InventoryStore refreshed = store;
+  assert(app_actions::mergeTmeMetadata(refreshed.items().front(), details));
+  assert(refreshed.items().front().vendorSources.size() == 1);
+
+  InventoryCommitDraft refreshDraft;
+  refreshDraft.source = "tme";
+  refreshDraft.message = "TME refresh batch";
+  InventoryCommit refreshCommit;
+  assert(refreshed.saveWithCommit(path, store, refreshDraft, {}, nullptr, &refreshCommit));
+  assert(!refreshCommit.id.empty());
+  assert(refreshCommit.changedItemCount == 1);
+
+  InventoryStore reloaded;
+  assert(reloaded.load(path));
+  assert(reloaded.items().size() == 1);
+  assert(reloaded.items().front().vendorSources.size() == 1);
+  assert(reloaded.items().front().vendorSources.front().provider == "tme");
+  assert(reloaded.items().front().vendorSources.front().providerProductNumber == "0603X474K100CT");
+  assert(reloaded.items().front().vendorMetadata.provider == "digikey");
+  filesystem::remove(path, cleanupError);
+}
+
+void testTmeLabelScan() {
+  // The QR text of a TME bag label (BEL FUSE 0ZCM0010FF2G, 5 pcs), as the scanner passes it on.
+  const string payload =
+      "QTY:5 PN:0ZCM0010FF2G PO:00000000/1 MFR:BELFUSE MPN:0ZCM0010FF2G CoO:TW RoHS "
+      "https://www.tme.eu/details/0ZCM0010FF2G";
+  const auto label = parseTmeLabelPayload(payload);
+  assert(label.has_value());
+  assert(label->symbol == "0ZCM0010FF2G");
+  assert(label->manufacturerPartNumber == "0ZCM0010FF2G");
+  assert(label->manufacturer == "BELFUSE");
+  assert(label->orderNumber == "00000000/1");
+  assert(label->productUrl == "https://www.tme.eu/details/0ZCM0010FF2G");
+  assert(label->quantity == 5);
+
+  // DigiKey codes and other text are not TME labels.
+  assert(!parseTmeLabelPayload("10-ECA-1CM101ICT-ND").has_value());
+  assert(!parseTmeLabelPayload("1P100539846390003").has_value());
+  assert(!parseTmeLabelPayload("PN:0ZCM0010FF2G").has_value());
+  assert(!parseTmeLabelPayload("QTY:x PN:0ZCM0010FF2G MPN:0ZCM0010FF2G").has_value());
+  assert(!parseTmeLabelPayload("PN:0ZCM;DROP MPN:0ZCM").has_value());
+
+  // The first scan creates one placeholder that carries the TME symbol; a second scan matches it.
+  InventoryStore store;
+  const auto created = resolveScanCode(store, payload);
+  assert(created.matched && created.created);
+  assert(store.items().size() == 1);
+  auto* placeholder = store.findById(created.itemId);
+  assert(placeholder != nullptr);
+  assert(placeholder->vendorMetadata.provider == "tme");
+  assert(placeholder->vendorMetadata.providerProductNumber == "0ZCM0010FF2G");
+  assert(placeholder->partName == "Scanned TME Item");
+  assert(tmeProductSymbol(*placeholder) == "0ZCM0010FF2G");
+  const auto again = resolveScanCode(store, payload);
+  assert(again.matched && !again.created && again.itemId == created.itemId);
+  assert(store.items().size() == 1);
+
+  // The TME record replaces the placeholder name, and the item stays bound to TME.
+  TmeProductDetails details;
+  details.vendorMetadata.provider = "tme";
+  details.vendorMetadata.providerProductNumber = "0ZCM0010FF2G";
+  details.vendorMetadata.manufacturerPartNumber = "0ZCM0010FF2G";
+  details.productDescription = "Fuse: polymer PTC; 100mA; SMD 0603";
+  details.manufacturerName = "BEL FUSE";
+  assert(app_actions::mergeTmeMetadata(*placeholder, details));
+  assert(placeholder->partName == "Fuse: polymer PTC; 100mA; SMD 0603");
+  assert(placeholder->manufacturer == "BEL FUSE");
+  assert(placeholder->vendorMetadata.provider == "tme");
+  assert(placeholder->syncStatus == "synced");
+}
+
+void testTmeDetailParsing() {
+  // Real v2 responses for one capacitor (0603X474K100CT), as TME returned them. The parameter names, the document
+  // type and the price breaks are the ones TME uses, so these pin how the detail records are read.
+  const string parameters = R"JSON({"status":"OK","data":{"elements":[{"symbol":"0603X474K100CT","parameters":{"elements":[{"id":2,"name":"Manufacturer","values":[{"id":851,"value":"WALSIN"}]},{"id":115,"name":"Type of capacitor","values":[{"id":1437230,"value":"ceramic"}]},{"id":2650,"name":"Kind of capacitor","values":[{"id":1437413,"value":"MLCC"}]},{"id":118,"name":"Capacitance","values":[{"id":1437945,"value":"0.47\u00b5F"}]},{"id":120,"name":"Operating voltage","values":[{"id":1437419,"value":"10V"}]},{"id":116,"name":"Dielectric","values":[{"id":1437420,"value":"X5R"}]},{"id":39,"name":"Tolerance","values":[{"id":1819340,"value":"\u00b110%"}]},{"id":10,"name":"Mounting","values":[{"id":1436750,"value":"SMD"}]},{"id":2932,"name":"Case - inch","values":[{"id":1620227,"value":"0603"}]},{"id":2931,"name":"Case - mm","values":[{"id":1620228,"value":"1608"}]},{"id":32,"name":"Operating temperature","values":[{"id":1819360,"value":"-55...85\u00b0C"}]}]}}]}})JSON";
+  const string files = R"JSON({"status":"OK","data":{"elements":[{"symbol":"0603X474K100CT","assets":{"primary_photo":{"prime":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=640&height=480&wat=1&wat_url=_tme-wrk_%2Ftme_new_render3d.png&wat_scale=100p&ci_sign=b581469a721118f8ca2768a949685b3548c66ba5","thumbnail":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=100&height=75&q=75&ci_sign=96eb51ef4a890459099c72c0e3754a4dadab8db2","high_resolution":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=1440&height=1080&wat=1&wat_url=_tme-wrk_%2Ftme_new_render3d.png&wat_scale=100p&ci_sign=6b8918ce4ccc9b6896f24b9aae305914453ee8eb"},"additional":{"elements":[]},"presentation":{"elements":[]}},"documents":{"elements":[{"url":"\/\/www.tme.eu\/Document\/e45476bf270793f696988c4e93ce1237\/ASC_General_Purpose.pdf","type":"DTE","size":1198234,"file_name":"ASC_General_Purpose.pdf","language":"EN"}]},"parameter_images":{"elements":[]}}]}})JSON";
+  const string data = R"JSON({"status":"OK","data":{"elements":[{"stock_quantity":0,"symbol":"0603X474K100CT","unit":{"id":"ST","short_name":"pcs","singular_translation":"Piece","plural_translation":null},"prices":{"elements":[{"amount":4000,"price":0.00638,"special":false}],"tax":{"type":"VAT","rate":23.0},"currency":"EUR","type":"GROSS"},"deliveries":null}]}})JSON";
+
+  TmeProductDetails product;
+  product.vendorMetadata.provider = "tme";
+  product.vendorMetadata.providerProductNumber = "0603X474K100CT";
+  string error;
+  assert(parseTmeParameterResponse(parameters, "0603X474K100CT", product, &error));
+  const auto parameterValue = [&](const string& name) {
+    for (const auto& parameter : product.parameters) {
+      if (parameter.name == name) return parameter.value;
+    }
+    return string();
+  };
+  assert(parameterValue("Mounting Type") == "SMD");
+  const auto tolerance = parameterValue("Tolerance");
+  assert(tolerance.size() >= 3 && tolerance.compare(tolerance.size() - 3, 3, "10%") == 0);
+  assert(parameterValue("Dielectric") == "X5R");
+  assert(parameterValue("Operating Voltage") == "10V");
+  assert(parameterValue("Package / Case") == "0603 (1608 Metric)");
+  assert(product.packageName == "0603 (1608 Metric)");
+  // The manufacturer comes from the product record, and the separate case sizes are folded into the package.
+  assert(parameterValue("Manufacturer").empty());
+  assert(parameterValue("Case - inch").empty());
+  assert(parameterValue("Case - mm").empty());
+  assert(product.vendorMetadata.parameters.size() == product.parameters.size());
+
+  // The datasheet is the PDF of type DTE, made into a full address.
+  assert(parseTmeDocumentResponse(files, "0603X474K100CT", product, &error));
+  assert(product.datasheetUrl ==
+         "https://www.tme.eu/Document/e45476bf270793f696988c4e93ce1237/ASC_General_Purpose.pdf");
+
+  // Stock is the quantity on hand, and the price is the lowest quantity break.
+  assert(parseTmeStockAndPriceResponse(data, "0603X474K100CT", product, &error));
+  assert(product.quantityAvailable == "0");
+  assert(product.unitPrice == "0.00638 EUR from 4000 pcs");
+
+  // A detail record for another symbol is never used for this product.
+  TmeProductDetails other;
+  assert(parseTmeParameterResponse(parameters, "NOT-THIS-ONE", other, &error));
+  assert(other.parameters.empty());
+  assert(parseTmeDocumentResponse(files, "NOT-THIS-ONE", other, &error));
+  assert(other.datasheetUrl.empty());
+  assert(parseTmeStockAndPriceResponse(data, "NOT-THIS-ONE", other, &error));
+  assert(other.unitPrice.empty());
+
+  // A rejected request is an error, and a body that is not JSON is an error.
+  TmeProductDetails rejected;
+  assert(!parseTmeParameterResponse(R"({"status":"E_AUTHORIZATION_FAILED","message":"Access denied.","data":[]})",
+                                    "0603X474K100CT", rejected, &error));
+  assert(error.find("E_AUTHORIZATION_FAILED") != string::npos);
+  assert(!parseTmeDocumentResponse("<html>403</html>", "0603X474K100CT", rejected, &error));
+}
+
+void testTmeMergeFillsEnrichment() {
+  // The record TME gives for a capacitor, as the product lookup assembles it from the responses.
+  TmeProductDetails details;
+  details.vendorMetadata.provider = "tme";
+  details.vendorMetadata.providerProductNumber = "0603X474K100CT";
+  details.vendorMetadata.manufacturerPartNumber = "0603X474K100CT";
+  details.vendorMetadata.categoryId = "42";
+  details.vendorMetadata.categoryPath = {"MLCC SMD capacitors"};
+  details.vendorMetadata.productUrl = "https://www.tme.eu/details/0603X474K100CT";
+  details.productDescription = "MLCC SMD capacitor 0.47uF";
+  details.manufacturerName = "WALSIN";
+  details.categoryName = "MLCC SMD capacitors";
+  details.parameters = {{"Mounting Type", "SMD"}, {"Capacitance", "0.47uF"}, {"Package / Case", "0603 (1608 Metric)"}};
+  details.vendorMetadata.parameters = details.parameters;
+  details.packageName = "0603 (1608 Metric)";
+  details.productUrl = "https://www.tme.eu/details/0603X474K100CT";
+  details.datasheetUrl = "https://www.tme.eu/Document/e45/ASC.pdf";
+  details.quantityAvailable = "0";
+  details.unitPrice = "0.00638 EUR from 4000 pcs";
+  details.productStatus = "Hardly available";
+
+  // A part scanned from a TME label starts as a placeholder that carries only its symbol.
+  InventoryItem item;
+  item.partName = "Scanned TME Item";
+  item.manufacturer = "Unknown";
+  item.category = "Unsorted";
+  item.vendorMetadata.provider = "tme";
+  item.vendorMetadata.providerProductNumber = "0603X474K100CT";
+  assert(app_actions::mergeTmeMetadata(item, details));
+  assert(item.partName == "MLCC SMD capacitor 0.47uF");
+  assert(item.manufacturer == "WALSIN");
+  assert(item.category == "MLCC SMD capacitors");
+  assert(item.sku == "0603X474K100CT");
+  assert(item.productUrl == "https://www.tme.eu/details/0603X474K100CT");
+  assert(item.datasheetUrl == "https://www.tme.eu/Document/e45/ASC.pdf");
+  assert(item.vendorMetadata.categoryId == "42");
+  assert(item.vendorMetadata.productUrl == "https://www.tme.eu/details/0603X474K100CT");
+  assert(item.vendorMetadata.categoryPath == details.vendorMetadata.categoryPath);
+  assert(item.vendorMetadata.parameters.size() == 3);
+  const auto valueOf = [](const InventoryItem& part, const string& name) {
+    for (const auto& parameter : part.parameters) {
+      if (parameter.name == name) return parameter.value;
+    }
+    return string();
+  };
+  assert(valueOf(item, "Mounting Type") == "SMD");
+  // "Package" updates the "Package / Case" entry it matches, as the DigiKey merge does, so the package is stored once.
+  assert(valueOf(item, "Package / Case") == "0603 (1608 Metric)");
+  assert(item.parameters.size() == 6);
+  assert(valueOf(item, "Quantity Available") == "0");
+  assert(valueOf(item, "Unit Price") == "0.00638 EUR from 4000 pcs");
+  assert(valueOf(item, "Product Status") == "Hardly available");
+  assert(item.syncStatus == "synced");
+  // The same record again changes nothing.
+  assert(!app_actions::mergeTmeMetadata(item, details));
+  // The item is complete with a vendor number, a category, a datasheet and a product page.
+  assert(!item.hasMissingMetadata());
+
+  // A part bound to DigiKey keeps its DigiKey data. The TME record is kept beside it, and nothing else changes.
+  InventoryItem digiKeyItem;
+  digiKeyItem.partName = "CAP CER 0.47UF 10V X5R 0603";
+  digiKeyItem.category = "Multilayer Ceramic Capacitors (MLCC) - SMD/SMT";
+  digiKeyItem.sku = "1276-1337-1-ND";
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "1276-1337-1-ND";
+  digiKeyItem.parameters = {{"Capacitance", "0.47uF"}};
+  assert(app_actions::mergeTmeMetadata(digiKeyItem, details));
+  assert(digiKeyItem.category == "Multilayer Ceramic Capacitors (MLCC) - SMD/SMT");
+  assert(digiKeyItem.sku == "1276-1337-1-ND");
+  assert(digiKeyItem.productUrl.empty());
+  assert(digiKeyItem.parameters.size() == 1);
+  assert(digiKeyItem.vendorSources.size() == 1);
+  assert(digiKeyItem.vendorSources.front().provider == "tme");
+  assert(digiKeyItem.vendorSources.front().providerProductNumber == "0603X474K100CT");
+  assert(tmeProductSymbol(digiKeyItem) == "0603X474K100CT");
+
+  // Completeness counts a TME symbol the same way as a DigiKey number.
+  InventoryItem bare;
+  bare.partName = "Part";
+  bare.manufacturer = "Maker";
+  bare.category = "Category";
+  bare.datasheetUrl = "https://example.invalid/sheet.pdf";
+  bare.productUrl = "https://example.invalid/part";
+  assert(bare.hasMissingMetadata());
+  bare.vendorMetadata.provider = "tme";
+  bare.vendorMetadata.providerProductNumber = "0603X474K100CT";
+  assert(!bare.hasMissingMetadata());
+}
+
+void testTmeItemsAutoPlaceInRacks() {
+  // A TME part goes to the rack for its type, decided from the category and parameters the TME record gives.
+  InventoryStore store;
+  InventatoryRack capacitors;
+  capacitors.id = "tme-capacitors";
+  capacitors.code = "R2";
+  capacitors.componentType = "Capacitors";
+  capacitors.rows = 5;
+  capacitors.columns = 5;
+  store.racks().push_back(capacitors);
+  InventatoryRack fuses;
+  fuses.id = "tme-fuses";
+  fuses.code = "R3";
+  fuses.componentType = "Fuses";
+  fuses.rows = 5;
+  fuses.columns = 5;
+  store.racks().push_back(fuses);
+
+  TmeProductDetails capacitor;
+  capacitor.vendorMetadata.provider = "tme";
+  capacitor.vendorMetadata.providerProductNumber = "0603X474K100CT";
+  capacitor.vendorMetadata.manufacturerPartNumber = "0603X474K100CT";
+  capacitor.productDescription = "MLCC SMD capacitor 0.47uF";
+  capacitor.manufacturerName = "WALSIN";
+  capacitor.categoryName = "MLCC SMD capacitors";
+  capacitor.parameters = {{"Mounting Type", "SMD"}, {"Capacitance", "0.47uF"}, {"Tolerance", "10%"},
+                          {"Operating Voltage", "10V"}, {"Dielectric", "X5R"}, {"Package / Case", "0603 (1608 Metric)"}};
+  capacitor.packageName = "0603 (1608 Metric)";
+  InventoryItem cap;
+  cap.id = "tme-cap";
+  cap.partName = "Scanned TME Item";
+  cap.manufacturer = "Unknown";
+  cap.category = "Unsorted";
+  cap.quantity = 5;
+  cap.location = "Scan Inbox";
+  app_actions::mergeTmeMetadata(cap, capacitor);
+  store.items().push_back(cap);
+  assert(reconcileRackAssignment(store, store.items().back()));
+  assert(store.items().back().rackId == capacitors.id);
+  assert(!store.items().back().rackSlot.empty());
+
+  TmeProductDetails fuse;
+  fuse.vendorMetadata.provider = "tme";
+  fuse.vendorMetadata.providerProductNumber = "0ZCM0010FF2G";
+  fuse.vendorMetadata.manufacturerPartNumber = "0ZCM0010FF2G";
+  fuse.productDescription = "Fuse: PTC polymer; SMD; 100mA; Imax: 40A; 0ZCM; 0603";
+  fuse.manufacturerName = "BEL FUSE";
+  fuse.categoryName = "SMD Polymer Fuses";
+  fuse.parameters = {{"Mounting Type", "SMD"}, {"Current rating", "100mA"}, {"Package / Case", "0603"}};
+  fuse.packageName = "0603";
+  InventoryItem fusePart;
+  fusePart.id = "tme-fuse";
+  fusePart.partName = "Scanned TME Item";
+  fusePart.manufacturer = "Unknown";
+  fusePart.category = "Unsorted";
+  fusePart.quantity = 5;
+  fusePart.location = "Scan Inbox";
+  app_actions::mergeTmeMetadata(fusePart, fuse);
+  store.items().push_back(fusePart);
+  assert(reconcileRackAssignment(store, store.items().back()));
+  assert(store.items().back().rackId == fuses.id);
+}
+
+void testTmeScannedPartLabelPlan() {
+  // A TME label scan creates a placeholder that prints "Unsorted" and "Scanned TME Item". The label prints only after
+  // the lookup has merged the fuse's record, so the merged part must carry the header, value, package and maker.
+  auto backend = make_unique<MockPrinterBackend>();
+  LabelPrinterService service(std::move(backend));
+  service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
+  TmeProductDetails fuse;
+  fuse.vendorMetadata.provider = "tme";
+  fuse.vendorMetadata.providerProductNumber = "0ZCM0010FF2G";
+  fuse.vendorMetadata.manufacturerPartNumber = "0ZCM0010FF2G";
+  fuse.productDescription = "Fuse: PTC polymer; SMD; 100mA; Imax: 40A; 0ZCM; 0603";
+  fuse.manufacturerName = "BEL FUSE";
+  fuse.categoryName = "SMD Polymer Fuses";
+  fuse.parameters = {{"Type of fuse", "PTC polymer"}, {"Mounting Type", "SMD"},  {"Current rating", "0.1A"},
+                     {"Maximum current", "40A"},       {"Max. voltage", "15V"},   {"Package / Case", "0603"}};
+  fuse.packageName = "0603";
+  InventoryItem part;
+  part.id = "tme-scanned-fuse";
+  part.partName = "Scanned TME Item";
+  part.manufacturer = "Unknown";
+  part.category = "Unsorted";
+  part.quantity = 5;
+  part.location = "Scan Inbox";
+  part.inventatoryId = "Inventatory:TME-0ZCM0010FF2G";
+  part.machineCode = "0100";
+  assert(service.buildLabelPlan(part).categoryHeader == "Unsorted");
+
+  assert(app_actions::mergeTmeMetadata(part, fuse));
+  const auto plan = service.buildLabelPlan(part);
+  assert(plan.categoryHeader != "Unsorted");
+  assert(plan.mainValue.find("Scanned") == string::npos);
+  assert(plan.manufacturerLine == "BEL FUSE");
+  assert(plan.packageLine == "0603");
+  assert(!plan.parameters.empty());
+  assert(plan.inventatoryId == "Inventatory:TME-0ZCM0010FF2G");
+  assert(plan.barcodeHint == "0100");
+  assert(plan.categoryHeader == "SMD Polymer Fuses");
+  assert(plan.mainValue == "Fuse: PTC polymer; SMD; 100mA; Imax: 40A; 0ZCM; 0603");
+  assert(!plan.mainIsMeasuredValue);
+  // The fuse's rating is the one tile the label shows for it.
+  assert(plan.parameters.size() == 1);
+  assert(plan.parameters.front().caption == "RATED");
+  assert(plan.parameters.front().value == "0.1A");
+}
+
+void testTmeSearchTokens() {
+  // tme: finds a part by its TME symbol, whether the symbol is the selected source or a record beside a DigiKey part.
+  InventoryItem tmeBound;
+  tmeBound.id = "tme-bound";
+  tmeBound.partName = "Fuse";
+  tmeBound.quantity = 1;
+  tmeBound.vendorMetadata.provider = "tme";
+  tmeBound.vendorMetadata.providerProductNumber = "0ZCM0010FF2G";
+  InventoryItem digiKeyBound;
+  digiKeyBound.id = "digikey-bound";
+  digiKeyBound.partName = "Capacitor";
+  digiKeyBound.quantity = 1;
+  digiKeyBound.digikeyPartNumber = "1292-1646-1-ND";
+  digiKeyBound.vendorMetadata.provider = "digikey";
+  digiKeyBound.vendorMetadata.providerProductNumber = "1292-1646-1-ND";
+  VendorProductMetadata tmeRecord;
+  tmeRecord.provider = "tme";
+  tmeRecord.providerProductNumber = "0603X474K100CT";
+  digiKeyBound.vendorSources.push_back(tmeRecord);
+  InventoryItem plain;
+  plain.id = "plain";
+  plain.partName = "Resistor";
+  plain.quantity = 1;
+  const vector<InventoryItem> items = {tmeBound, digiKeyBound, plain};
+  const vector<InventatoryRack> racks;
+  const auto idsFor = [&](const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query, racks, 5)) ids.push_back(items[index].id);
+    return ids;
+  };
+  assert((idsFor("tme:0ZCM0010FF2G") == vector<string>{"tme-bound"}));
+  assert((idsFor("tme:0603X474K100CT") == vector<string>{"digikey-bound"}));
+  // A partial symbol matches as it does for the other field tokens, such as sku:.
+  assert((idsFor("tme:0603X474K100C") == vector<string>{"digikey-bound"}));
+  assert((idsFor("tme:0603X474K100CX") == vector<string>{}));
+  // Plain text search reaches the TME record beside a DigiKey part as well.
+  assert((idsFor("0603X474K100CT") == vector<string>{"digikey-bound"}));
+}
+
+void testTmeSettingsPersistOptionalKeys() {
+  // Storefront keys are optional: a file written with the defaults has none of them, and still loads.
+  const auto path = testTempRoot() / "inventatory-tme-settings-test.conf";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  const auto readText = [](const filesystem::path& file) {
+    ifstream input(file);
+    return string((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  };
+
+  const AppSettings defaults;
+  assert(saveAppSettings(path, defaults));
+  assert(readText(path).find("tme_") == string::npos);
+  AppSettings loaded;
+  assert(loadAppSettings(path, loaded));
+  assert(loaded.tmeCountry == "PL" && loaded.tmeLanguage == "EN" && loaded.tmeCurrency == "EUR");
+
+  AppSettings changed = defaults;
+  changed.tmeCountry = "DE";
+  assert(saveAppSettings(path, changed));
+  assert(readText(path).find("tme_country=\"DE\"") != string::npos);
+  assert(readText(path).find("tme_language") == string::npos);
+  assert(loadAppSettings(path, loaded));
+  assert(loaded.tmeCountry == "DE");
+  assert(loaded.tmeLanguage == "EN");
+
+  // A repeated TME key is refused, as a repeated symbol_standard is.
+  {
+    ofstream append(path, ios::app);
+    append << "tme_country=\"US\"\n";
+  }
+  AppSettings repeated;
+  assert(!loadAppSettings(path, repeated));
+  filesystem::remove(path, cleanupError);
 }
 
 void testDigiKeyCsvPolishHeaders() {
@@ -10564,7 +11154,7 @@ void testBomPickPlanRoute() {
 
   // Project summary and finish lines.
   assert(voiceText(bomProjectSummary(analysis, 1)) ==
-         "You have 4 of 7 parts. The other 3 need ordering, 1 has a DigiKey match.");
+         "You have 4 of 7 parts. The other 3 need ordering, 1 has a supplier match.");
   BomAnalysis covered = analysis;
   covered.shortCount = 0;
   assert(voiceText(bomProjectSummary(covered, 0)) == "You have all 7 parts for 1 board.");
@@ -10751,21 +11341,37 @@ void testEnrichmentCacheRules() {
   assert(shortageCsv.rows == 3);
   // A suggestion stored before verification existed is unverified, so it is exported as "check before ordering".
   assert(shortageCsv.text ==
-         "Designation,Footprint,Package,Designators,Needed,On hand,Suggested DigiKey part,Suggestion check\r\n"
-         "\"100uF\",\"CP_Radial_D5.0mm_P2.50mm\",\"Radial 5.0mm\",\"C1\",2,0,\"493-13399-ND\",\"check before ordering\"\r\n"
-         "\"10k\",\"R_0603_1608Metric\",\"0603\",\"R1\",1,0,\"\",\"\"\r\n"
-         "\"\t=SUM(1)\",\"\",\"\",\"U1\",3,0,\"\",\"\"\r\n");
+         "Designation,Footprint,Package,Designators,Needed,On hand,Suggested part,Supplier,Suggestion check\r\n"
+         "\"100uF\",\"CP_Radial_D5.0mm_P2.50mm\",\"Radial 5.0mm\",\"C1\",2,0,\"493-13399-ND\",\"DigiKey\","
+         "\"check before ordering\"\r\n"
+         "\"10k\",\"R_0603_1608Metric\",\"0603\",\"R1\",1,0,\"\",\"\",\"\"\r\n"
+         "\"\t=SUM(1)\",\"\",\"\",\"U1\",3,0,\"\",\"\",\"\"\r\n");
   assert(shortageCsv.text.find("\"-\"") == string::npos);
 
   // A verified suggestion is exported as verified, and the prefix never reaches the part number.
   map<string, string> verifiedEnrichment;
   verifiedEnrichment[bomLineKey(shortageBom.lines[0])] = bomEnrichmentEntry(BomLookupOutcome::Found, "493-13399-ND", true).value();
   const auto verifiedCsv = buildBomShortageCsv(shortageAnalysis, verifiedEnrichment);
-  assert(verifiedCsv.text.find("\"493-13399-ND\",\"verified\"") != string::npos);
+  assert(verifiedCsv.text.find("\"493-13399-ND\",\"DigiKey\",\"verified\"") != string::npos);
   assert(verifiedCsv.text.find(kBomEnrichmentVerified) == string::npos);
   assert(bomEnrichmentPart(verifiedEnrichment[bomLineKey(shortageBom.lines[0])]) == "493-13399-ND");
   assert(bomEnrichmentVerified(verifiedEnrichment[bomLineKey(shortageBom.lines[0])]));
   assert(!bomEnrichmentVerified("493-13399-ND"));  // stored before verification existed
+  assert(bomEnrichmentSupplier("493-13399-ND") == "DigiKey");
+
+  // A suggestion from TME carries its own marker: the part reads back without it, the supplier is TME, and the
+  // shopping list names TME beside the part.
+  const auto tmeEntry = bomEnrichmentEntry(BomLookupOutcome::Found, "0ZCM0010FF2G", true, true).value();
+  assert(bomEnrichmentPart(tmeEntry) == "0ZCM0010FF2G");
+  assert(bomEnrichmentSupplier(tmeEntry) == "TME");
+  assert(bomEnrichmentVerified(tmeEntry));
+  assert(bomEnrichmentPart(bomEnrichmentEntry(BomLookupOutcome::Found, "0ZCM0010FF2G", false, true).value())
+         == "0ZCM0010FF2G");
+  assert(bomEnrichmentSupplier(kBomEnrichmentNoMatch).empty());
+  map<string, string> tmeEnrichment;
+  tmeEnrichment[bomLineKey(shortageBom.lines[0])] = tmeEntry;
+  assert(buildBomShortageCsv(shortageAnalysis, tmeEnrichment).text.find("\"0ZCM0010FF2G\",\"TME\",\"verified\"") !=
+         string::npos);
 
   // A line waiting for confirmation is on the shopping list with nothing on hand: the stock it names is not yet
   // the part the user accepted for that line.
@@ -12684,6 +13290,18 @@ const vector<TestCase>& registeredTests() {
     {"import", "DigiKeyCsvConflictLookup", testDigiKeyCsvConflictLookup},
     {"import", "DigiKeyMetadataMergeKeepsKnownFields", testDigiKeyMetadataMergeKeepsKnownFields},
     {"import", "DigiKeyMergeKeepsAnotherProviderIdentity", testDigiKeyMergeKeepsAnotherProviderIdentity},
+    {"tme", "TmeEncodingPrimitives", testTmeEncodingPrimitives},
+    {"tme", "TmeResponseParsing", testTmeResponseParsing},
+    {"tme", "TmeLookupIdentityRules", testTmeLookupIdentityRules},
+    {"tme", "TmeMergeKeepsSelectedIdentity", testTmeMergeKeepsSelectedIdentity},
+    {"tme", "TmeLabelScan", testTmeLabelScan},
+    {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},
+    {"tme", "TmeItemsAutoPlaceInRacks", testTmeItemsAutoPlaceInRacks},
+    {"tme", "TmeScannedPartLabelPlan", testTmeScannedPartLabelPlan},
+    {"tme", "TmeSearchTokens", testTmeSearchTokens},
+    {"tme", "TmeDetailParsing", testTmeDetailParsing},
+    {"tme", "TmeMergeFillsEnrichment", testTmeMergeFillsEnrichment},
+    {"tme", "TmeSettingsPersistOptionalKeys", testTmeSettingsPersistOptionalKeys},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},

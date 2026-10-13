@@ -8,6 +8,7 @@
 #include <ctime>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -333,6 +334,33 @@ void appendActivity(vector<ActivityEntry>& activities, const ActivityEntry& entr
 ActivityEntry makeActivity(string kind, string message);
 
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
+
+// The fields of a TME bag label's QR text, for example "QTY:5 PN:0ZCM0010FF2G PO:00000000/1 MFR:BELFUSE
+// MPN:0ZCM0010FF2G CoO:TW RoHS https://www.tme.eu/details/0ZCM0010FF2G".
+struct TmeLabelFields {
+  string symbol;                  // PN: the TME symbol
+  string manufacturerPartNumber;  // MPN
+  string manufacturer;            // MFR, as printed on the label
+  string orderNumber;             // PO
+  string productUrl;              // the TME product link, when the label carries one
+  int quantity = 0;               // QTY
+};
+// Reads a TME label scan. It needs PN and either MPN or MFR; any other text gives nothing.
+std::optional<TmeLabelFields> parseTmeLabelPayload(const string& rawCode);
+
+// The TME symbol an item carries, from its selected source or from a TME record kept beside it. Empty when the
+// item has none.
+inline string tmeProductSymbol(const InventoryItem& item) {
+  if (toLower(trim(item.vendorMetadata.provider)) == "tme" && !trim(item.vendorMetadata.providerProductNumber).empty()) {
+    return trim(item.vendorMetadata.providerProductNumber);
+  }
+  for (const auto& source : item.vendorSources) {
+    if (toLower(trim(source.provider)) == "tme" && !trim(source.providerProductNumber).empty()) {
+      return trim(source.providerProductNumber);
+    }
+  }
+  return {};
+}
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);

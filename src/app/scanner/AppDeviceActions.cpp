@@ -147,6 +147,7 @@ void App::processDeviceSyncEvents() {
 
   string affectedItemId;
   string enrichmentLookup;  // queued for DigiKey only after the event is durably committed
+  string tmeLookupSymbol;   // queued for TME only after the event is durably committed
   bool created = false;
   if (event.type == "inventory.adjust") {
     DeviceQuantityRequest request{{}, event.eventId, event.code, event.value};
@@ -188,8 +189,12 @@ void App::processDeviceSyncEvents() {
 
       string warning;
       const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
-                                trim(item->partName) == "Scanned DigiKey Item";
-      enrichmentLookup = shouldEnrich ? trim(event.code) : string();
+                                app_actions::isScanPlaceholderName(item->partName);
+      if (const auto tmeLabel = parseTmeLabelPayload(event.code); tmeLabel.has_value()) {
+        tmeLookupSymbol = shouldEnrich ? tmeLabel->symbol : string();
+      } else {
+        enrichmentLookup = shouldEnrich ? trim(event.code) : string();
+      }
       reconcileRackAssignment(candidate, *item);
       result.itemName = item->partName;
       result.location = rackLocation(*item, candidate.racks());
@@ -222,6 +227,9 @@ void App::processDeviceSyncEvents() {
   deviceSyncRetryAfter_ = {};
   deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
   if (!enrichmentLookup.empty()) scanDigiKeyEnrichmentQueue_.emplace_back(affectedItemId, enrichmentLookup);
+  const bool tmeLookupQueued = !tmeLookupSymbol.empty() && enqueueTmeScanLookup(affectedItemId, tmeLookupSymbol);
+  // A created part prints its label only after its lookup settles, so the label carries the merged details.
+  if (created && (!enrichmentLookup.empty() || tmeLookupQueued)) queueScanAutoPrint(affectedItemId);
   store_ = move(candidate);
   persistedStore_ = store_;
   persistedStoreValid_ = true;
@@ -235,7 +243,6 @@ void App::processDeviceSyncEvents() {
     logActivity(created ? "scan receive" : "stock receive",
                 result.itemName + " changed by " + to_string(result.appliedDelta) + " to " +
                     to_string(result.quantity));
-    if (created) autoPrintScannedLabel(affectedItemId);
   }
   saveActivitiesChecked();
   refreshDeviceEventRecords();

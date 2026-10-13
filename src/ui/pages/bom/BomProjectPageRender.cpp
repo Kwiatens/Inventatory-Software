@@ -454,13 +454,14 @@ ftxui::Element App::renderBomProjectUi() const {
       if (bomEnrichmentCached(project->enrichment, lineKey)) {
         const auto part = bomEnrichmentPart(found->second);
         const bool verified = bomEnrichmentVerified(found->second);
-        where = part.empty() ? string("No DigiKey match")
-                             : "DigiKey  " + part + (verified ? string() : string("  check before ordering"));
+        const auto supplier = bomEnrichmentSupplier(found->second);
+        where = part.empty() ? string("No supplier match")
+                             : supplier + "  " + part + (verified ? string() : string("  check before ordering"));
         whereColor = part.empty() ? uiMutedText() : uiSecondaryText();
       } else if (bomEnrichmentFuture_.valid() && lineKey == bomEnrichmentActiveKey_) {
-        where = "Looking up on DigiKey";
+        where = "Looking up on suppliers";
       } else if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), lineKey) != bomEnrichmentQueue_.end()) {
-        where = "Waiting for DigiKey lookup";
+        where = "Waiting for supplier lookup";
       }
     }
 

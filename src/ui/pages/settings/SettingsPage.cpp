@@ -92,6 +92,9 @@ bool App::settingsCategoryDirty(SettingsCategory category) const {
       return draft.digiKeyClientId != saved.digiKeyClientId || draft.digiKeyAccountId != saved.digiKeyAccountId ||
              draft.digiKeySite != saved.digiKeySite || draft.digiKeyLanguage != saved.digiKeyLanguage ||
              draft.digiKeyCurrency != saved.digiKeyCurrency || stagedDigiKeySecretChanged_;
+    case SettingsCategory::Tme:
+      return draft.tmeCountry != saved.tmeCountry || draft.tmeLanguage != saved.tmeLanguage ||
+             draft.tmeCurrency != saved.tmeCurrency || stagedTmeTokenChanged_ || stagedTmeSecretChanged_;
   }
   return false;
 }
@@ -544,6 +547,74 @@ App::SettingsPageModel App::settingsPageModel() const {
       refreshRow.targetId = "settings.digikey.refresh.row";
       if (refreshEnabled) refreshRow.activate = [self] { self->beginDigiKeyRefresh(); };
       refreshRow.buttons = {button("Refresh", "r", "settings.digikey.refresh", [self] { self->beginDigiKeyRefresh(); }, false,
+                                   false, refreshEnabled)};
+      rows.push_back(move(refreshRow));
+      break;
+    }
+
+    case SettingsCategory::Tme: {
+      const bool tokenSet = stagedTmeTokenChanged_ ? !stagedTmeToken_.empty() : hasStoredTmeToken_;
+      const bool secretSet = stagedTmeSecretChanged_ ? !stagedTmeSecret_.empty() : hasStoredTmeSecret_;
+      const bool configured = tokenSet && secretSet;
+      const bool refreshRunning = !tmeRefreshQueue_.empty() || tmeRefreshFuture_.valid();
+      if (refreshRunning) {
+        model.status = {{"Refreshing TME data: "},
+                        {to_string(tmeRefreshCompleted_) + " of " + to_string(tmeRefreshTotal_), VoiceTone::Strong},
+                        {" items done."}};
+      } else if (!tmeRefreshLastError_.empty()) {
+        model.status = {{"The last TME refresh reported: ", VoiceTone::Danger}, {tmeRefreshLastError_}};
+      } else if (!configured) {
+        model.status = {{"TME needs a token and an application secret."}};
+      } else {
+        model.status = {{"TME is set up for "}, {draft.tmeCountry + ", " + draft.tmeCurrency, VoiceTone::Strong}, {"."}};
+      }
+
+      struct Field {
+        const char* group;
+        const char* label;
+        string value;
+        string savedValue;
+      };
+      const vector<Field> fields = {
+          {"Access", "Token", tokenSet ? "Hidden" : "Not set", hasStoredTmeToken_ ? "Hidden" : "Not set"},
+          {"", "Application secret", secretSet ? "Hidden" : "Not set", hasStoredTmeSecret_ ? "Hidden" : "Not set"},
+          {"Region", "Country", draft.tmeCountry, saved.tmeCountry},
+          {"", "Language", draft.tmeLanguage, saved.tmeLanguage},
+          {"", "Currency", draft.tmeCurrency, saved.tmeCurrency},
+      };
+      for (size_t index = 0; index < fields.size(); ++index) {
+        const auto& field = fields[index];
+        const bool secretField = index < 2;
+        auto row = editRow(field.group, field.label, field.value.empty() ? "Not set" : field.value, static_cast<int>(index),
+                           "settings.tme." + to_string(index));
+        if (row.editing && secretField) row.value = string(inputBuffer_.size(), '*') + "_";
+        if (!row.editing && field.value.empty()) row.tone = VoiceTone::Muted;
+        const bool stagedSecret = index == 0 ? stagedTmeTokenChanged_ : (index == 1 && stagedTmeSecretChanged_);
+        if (!row.editing && stagedSecret) {
+          row.tone = VoiceTone::Warning;
+          row.note = "changed";
+        } else if (!row.editing && !secretField) {
+          markChange(row, field.value != field.savedValue, field.savedValue.empty() ? "Not set" : field.savedValue);
+        }
+        if (index == 0) row.buttons = {button("Test", "t", "settings.tme.test", [self] { self->testStagedTme(); })};
+        rows.push_back(move(row));
+      }
+
+      string refresh = "Not run yet";
+      auto refreshTone = VoiceTone::Muted;
+      if (refreshRunning) {
+        refresh = to_string(tmeRefreshCompleted_) + " of " + to_string(tmeRefreshTotal_) + " done";
+        refreshTone = VoiceTone::Plain;
+      } else if (tmeRefreshTotal_ > 0) {
+        refresh = to_string(tmeRefreshSucceeded_) + " updated, " + to_string(tmeRefreshNotFound_) + " not found, " +
+                  to_string(tmeRefreshAmbiguous_) + " ambiguous, " + to_string(tmeRefreshErrors_) + " errors";
+        refreshTone = tmeRefreshAmbiguous_ + tmeRefreshErrors_ > 0 ? VoiceTone::Warning : VoiceTone::Plain;
+      }
+      auto refreshRow = infoRow("Inventory", "Last refresh", refresh, refreshTone);
+      const bool refreshEnabled = configured && !refreshRunning && !settingsDirty_;
+      refreshRow.targetId = "settings.tme.refresh.row";
+      if (refreshEnabled) refreshRow.activate = [self] { self->beginTmeRefresh(); };
+      refreshRow.buttons = {button("Refresh", "r", "settings.tme.refresh", [self] { self->beginTmeRefresh(); }, false,
                                    false, refreshEnabled)};
       rows.push_back(move(refreshRow));
       break;

@@ -112,17 +112,26 @@ bool App::saveSettingsDraft() {
     if (serviceWasRunning) restartDeviceService();
   };
   const auto oldDigiKeySecret = CredentialStore::lookup(kDigiKeySecretName);
+  const auto oldTmeToken = CredentialStore::lookup(kTmeTokenCredentialName);
+  const auto oldTmeSecret = CredentialStore::lookup(kTmeSecretCredentialName);
   bool startupChanged = false;
   bool credentialChanged = false;
-  // Puts the DigiKey secret back after a later step failed. When the store could not be read the
-  // previous state is unknown, so nothing is erased: a stored secret must never be lost to a failed read.
-  const auto rollbackDigiKeySecret = [&] {
-    if (!credentialChanged) return;
-    if (oldDigiKeySecret.status == CredentialReadStatus::Found && oldDigiKeySecret.secret.has_value()) {
-      CredentialStore::write(kDigiKeySecretName, *oldDigiKeySecret.secret);
-    } else if (oldDigiKeySecret.status == CredentialReadStatus::NotFound) {
-      CredentialStore::erase(kDigiKeySecretName);
+  bool tmeTokenChanged = false;
+  bool tmeSecretChanged = false;
+  // Puts one credential back after a later step failed. When the store could not be read the previous state is
+  // unknown, so nothing is erased: a stored secret must never be lost to a failed read.
+  const auto restoreCredential = [](const char* name, const CredentialLookup& previous) {
+    if (previous.status == CredentialReadStatus::Found && previous.secret.has_value()) {
+      CredentialStore::write(name, *previous.secret);
+    } else if (previous.status == CredentialReadStatus::NotFound) {
+      CredentialStore::erase(name);
     }
+  };
+  // Puts back every credential this save has written so far.
+  const auto rollbackCredentials = [&] {
+    if (credentialChanged) restoreCredential(kDigiKeySecretName, oldDigiKeySecret);
+    if (tmeTokenChanged) restoreCredential(kTmeTokenCredentialName, oldTmeToken);
+    if (tmeSecretChanged) restoreCredential(kTmeSecretCredentialName, oldTmeSecret);
   };
 
   if (dataChanged) {
@@ -142,10 +151,28 @@ bool App::saveSettingsDraft() {
     return false;
   }
   credentialChanged = stagedDigiKeySecretChanged_;
+  if (stagedTmeTokenChanged_) {
+    if (!CredentialStore::write(kTmeTokenCredentialName, stagedTmeToken_)) {
+      rollbackCredentials();
+      restartOldService();
+      setMessage("Unable to save the TME token securely", 5, UiMessageSeverity::Error);
+      return false;
+    }
+    tmeTokenChanged = true;
+  }
+  if (stagedTmeSecretChanged_) {
+    if (!CredentialStore::write(kTmeSecretCredentialName, stagedTmeSecret_)) {
+      rollbackCredentials();
+      restartOldService();
+      setMessage("Unable to save the TME application secret securely", 5, UiMessageSeverity::Error);
+      return false;
+    }
+    tmeSecretChanged = true;
+  }
   if (backgroundChanged) {
     string startupError;
     if (!setBackgroundStartupEnabled(settingsDraft_.backgroundServiceEnabled, startupError)) {
-      rollbackDigiKeySecret();
+      rollbackCredentials();
       restartOldService();
 #ifdef _WIN32
       setMessage(startupError.empty() ? "Unable to update Windows startup" : startupError, 5, UiMessageSeverity::Error);
@@ -162,7 +189,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    rollbackDigiKeySecret();
+    rollbackCredentials();
     restartOldService();
     setMessage("Unable to save Inventatory settings", 5, UiMessageSeverity::Error);
     return false;
@@ -184,7 +211,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    rollbackDigiKeySecret();
+    rollbackCredentials();
     restartOldService();
     setMessage(rollbackSaved ? "Unable to save Quick Labels in the selected data folder"
                              : "Unable to save Quick Labels and restore previous settings; verify the settings file",
@@ -217,10 +244,11 @@ bool App::saveSettingsDraft() {
         string ignored;
         setBackgroundStartupEnabled(oldSettings.backgroundServiceEnabled, ignored);
       }
-      rollbackDigiKeySecret();
+      rollbackCredentials();
       stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
       stagedDigiKeySecret_.clear();
       stagedDigiKeySecretChanged_ = false;
+      clearStagedTmeCredentials();
       settingsDirty_ = false;
       if (oldContext != nullptr) {
         activateWorkspaceContext(oldContext->paths);
@@ -255,7 +283,7 @@ bool App::saveSettingsDraft() {
       string ignored;
       setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, ignored);
     }
-    rollbackDigiKeySecret();
+    rollbackCredentials();
     restartOldService();
     setMessage(rollbackSaved
                    ? "Unable to save quick-label settings"
@@ -270,6 +298,8 @@ bool App::saveSettingsDraft() {
   }
   applyUiAppearance(settings_.appearance);
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
+  if (stagedTmeTokenChanged_) hasStoredTmeToken_ = !stagedTmeToken_.empty();
+  if (stagedTmeSecretChanged_) hasStoredTmeSecret_ = !stagedTmeSecret_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   auto bridgeRestart = DeviceServiceRestart::Restarted;
   if (portChanged || dataChanged) bridgeRestart = restartDeviceService();
@@ -317,6 +347,7 @@ bool App::saveSettingsDraft() {
   stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
+  clearStagedTmeCredentials();
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   if (backgroundStartFailed) {

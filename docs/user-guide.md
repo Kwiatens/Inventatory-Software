@@ -53,6 +53,10 @@ save the session. `q` or Escape cancels without changing stock. Corrections are
 recorded in the stock movement history and the selected part shows its recent
 movements below the normal details.
 
+A part that a scan creates prints its label after DigiKey or TME has supplied its details, so the label carries the
+part's name, value and package. When neither supplier finds the part, no label prints and the status line says why;
+print it from the part's details once the details are added.
+
 Each part can have its own **Reorder threshold** in Edit. A positive value
 overrides the global low-stock warning; `0` uses the global setting. The active
 threshold is used by the dashboard, search, rack indicators, and stock warnings.
@@ -96,9 +100,10 @@ A BOM becomes a project on the Projects page. Each line is compared with stock:
 
 A line is chosen without asking only when a stock part carries the line's
 manufacturer part number, supplier part number or DigiKey number, or when exactly one stock part fits
-the line's value and package. Shortages are looked up on DigiKey in the background. A
+the line's value and package. Shortages are looked up on DigiKey in the background, and on TME when DigiKey has no part for the line or is not
+configured. A part TME cannot order is never suggested. A
 suggestion that does not fit the line is marked check before ordering. `o` writes
-the shopping list beside the BOM, with a Suggestion check column.
+the shopping list beside the BOM, with Suggested part, Supplier and Suggestion check columns.
 
 `+` and `-` change the board count. `f` starts the build walkthrough. It stops at
 one rack at a time, pulsing the slots holding parts this build needs, and lists
@@ -115,8 +120,8 @@ analysis against current stock with no re-upload. `d` forgets one.
 ## Settings workflow
 
 Settings has five categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
-R1 service port, auto-label behavior, and DigiKey configuration are staged until Save. Cancel
-restores the saved values. Printer and DigiKey tests use the staged values.
+R1 service port, auto-label behavior, and DigiKey and TME configuration are staged until Save. Cancel
+restores the saved values. Printer, DigiKey and TME tests use the staged values.
 
 The Quick Labels category owns up to twelve shared cable-flag texts. Add, edit, remove, reorder, test-print, then Save;
 the paired R1 receives the saved list during its next sync. Selecting a preset on the R1 prints immediately through the
@@ -125,7 +130,8 @@ Failed/offline device requests are not queued.
 
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
-next launch. DigiKey secrets are stored in Windows Credential Manager.
+next launch. DigiKey and TME secrets are stored in the operating system credential store (Windows Credential
+Manager, or the Secret Service on Linux).
 
 In **Settings -> General / Data**, **Background & startup** controls whether Inventatory remains available for Scan R1 after
 the terminal is closed. It defaults to Off. When enabled, Inventatory starts for
@@ -143,6 +149,14 @@ An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
 collects the Client ID and Client secret, stores the secret in Windows
 Credential Manager, and restores the account and regional settings after the
 credentials are saved. A live credential test remains available afterward.
+
+The TME section takes the application token and application secret, stored in the credential store, and the
+country, language and currency, stored in the settings file. **Test** requests an access token with the token and secret, then makes one product request. **Refresh inventory data** looks up each stock item by its TME symbol when the item has one, and otherwise
+by its manufacturer part number (or its SKU when it has none), and applies a result only when the manufacturer part
+number matches exactly and one product fits. The refresh also reads each part's parameters, datasheet, stock and
+lowest price from TME, so a TME part shows the same details a DigiKey part does.
+An item that already uses DigiKey keeps DigiKey as its selected source, and the TME record is kept beside it.
+Lookups are requests to TME, so a large inventory takes a few minutes.
 
 Pairing maintenance stays on the Actions sheet (`Space`): re-pair after a
 scanner firmware update, regenerate the pairing secret, or clear the device.

@@ -53,6 +53,7 @@ ftxui::Color historyTypeColor(const string& type) {
   if (type == "CORRECTIVE") return uiWarnColor();
   if (type == "CHECKPOINT") return uiLinkColor();
   if (type == "DIGIKEY") return uiInfoColor();
+  if (type == "TME") return uiInfoColor();
   if (type == "IMPORT") return uiInfoColor();
   if (type == "PROJECT") return uiSuccessColor();
   return uiAccentColor();
@@ -86,6 +87,7 @@ string compactHistoryMessage(const InventoryCommit& commit) {
   const string reversePrefix = "reversed changes from commit ";
   if (lower.rfind(reversePrefix, 0) == 0) return "Reverted " + message.substr(reversePrefix.size());
   if (lower.rfind("digikey refresh batch", 0) == 0) return "DigiKey refresh";
+  if (lower.rfind("tme refresh batch", 0) == 0) return "TME refresh";
   return message;
 }
 

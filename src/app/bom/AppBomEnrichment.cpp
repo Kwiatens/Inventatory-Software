@@ -9,6 +9,7 @@
 #include "import/csv/CsvFormat.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/tme/TmeApi.h"
 #include "platform/security/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -22,6 +23,52 @@ namespace inventatory {
 
 using namespace std;
 using namespace app_actions;
+
+namespace {
+
+// TME's answer for one BOM line: the symbol of the first candidate that fits the line, or of the first candidate
+// when none fits, which is then shown as needing a check.
+struct TmeSuggestion {
+  BomLookupOutcome outcome = BomLookupOutcome::Failed;
+  string suggestion;
+  bool verified = false;
+};
+
+TmeSuggestion lookupTmeSuggestion(TmeApiClient& client, const string& keywords, const BomLine& line) {
+  // A candidate is only known to fit once its parameters and package are read, so the first few are read in full.
+  constexpr size_t kCandidatesRead = 3;
+  TmeSuggestion answer;
+  TmeLookupOutcome searched = TmeLookupOutcome::Failed;
+  string error;
+  auto candidates = client.searchProducts(keywords, searched, &error);
+  if (searched == TmeLookupOutcome::NoMatch) {
+    answer.outcome = BomLookupOutcome::NoMatch;
+    return answer;
+  }
+  if (searched != TmeLookupOutcome::Found) return answer;  // a failure is retried later
+  for (size_t index = 0; index < candidates.size() && index < kCandidatesRead; ++index) {
+    auto& candidate = candidates[index];
+    // A part TME cannot sell is never suggested for a line, however well it fits.
+    if (!candidate.orderable) continue;
+    if (!client.fetchProductDetails(candidate, &error)) return answer;  // a failure is retried later
+    if (answer.suggestion.empty()) answer.suggestion = candidate.vendorMetadata.providerProductNumber;
+    // The record is judged the same way a stock item is: by its part number, or by its value and package.
+    InventoryItem probe;
+    probe.partName = candidate.productDescription;
+    probe.sku = candidate.vendorMetadata.manufacturerPartNumber;
+    probe.parameters = candidate.parameters;
+    if (bomSuggestionFitsLine(line, probe)) {
+      answer.suggestion = candidate.vendorMetadata.providerProductNumber;
+      answer.verified = true;
+      answer.outcome = BomLookupOutcome::Found;
+      return answer;
+    }
+  }
+  answer.outcome = answer.suggestion.empty() ? BomLookupOutcome::NoMatch : BomLookupOutcome::Found;
+  return answer;
+}
+
+}  // namespace
 
 void App::clearBomEnrichmentRun() {
   bomEnrichmentQueue_.clear();
@@ -94,7 +141,7 @@ void App::processBomEnrichment() {
       });
       if (targetProject != bomProjects_.end() && !result.key.empty()) {
         // A failed lookup stores nothing so the line is retried the next time the project opens.
-        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion, result.verified)) {
+        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion, result.verified, result.fromTme)) {
           targetProject->enrichment[result.key] = *entry;
         } else {
           // Drop a stale "-" left behind by earlier versions rather than keep showing it.
@@ -163,30 +210,49 @@ void App::processBomEnrichment() {
   const auto requestSequence = bomEnrichmentSequence_;
   bomEnrichmentFuture_ = async(launch::async, [session, key, keywords, lineSnapshot, projectId, generation,
                                                 requestSequence] {
-    string error;
-    DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
     BomEnrichmentResult result{key, {}, false, BomLookupOutcome::Failed, projectId, generation, requestSequence};
+    // Credentials are read by the worker, because the credential store can block. A supplier that is not configured
+    // is skipped; a run with neither supplier configured ends quietly.
     if (session->client == nullptr) {
       const auto config = loadDigiKeyConfig();
-      if (!config.valid()) {
-        result.credentialsMissing = true;
+      if (config.valid()) session->client = make_unique<DigiKeyApiClient>(config);
+    }
+    if (session->tmeClient == nullptr) {
+      const auto config = loadTmeConfig();
+      if (config.valid()) session->tmeClient = make_unique<TmeApiClient>(config);
+    }
+    if (session->client == nullptr && session->tmeClient == nullptr) {
+      result.credentialsMissing = true;
+      return result;
+    }
+    // DigiKey is asked first. TME is asked when DigiKey has no part for the line, or when DigiKey is not configured.
+    if (session->client != nullptr) {
+      string error;
+      DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
+      if (const auto details = session->client->lookupProductDetails(keywords, lookup, &error)) {
+        result.suggestion = details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
+        // The supplier's record is judged the same way a stock item is: by its part number, or by its value and package.
+        InventoryItem probe;
+        probe.partName = details->productDescription;
+        probe.sku = details->manufacturerPartNumber;
+        probe.parameters = details->parameters;
+        if (!details->packageName.empty()) probe.parameters.push_back({"Package / Case", details->packageName});
+        result.verified = bomSuggestionFitsLine(lineSnapshot, probe);
+        result.outcome = BomLookupOutcome::Found;
         return result;
       }
-      session->client = make_unique<DigiKeyApiClient>(config);
+      // Only a clear "no part" moves on to TME; a failed request is retried later, as it always was.
+      if (lookup != DigiKeyLookupOutcome::NoMatch) return result;
     }
-    if (const auto details = session->client->lookupProductDetails(keywords, lookup, &error)) {
-      result.suggestion = details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
-      // The supplier's record is judged the same way a stock item is: by its part number, or by its value and package.
-      InventoryItem probe;
-      probe.partName = details->productDescription;
-      probe.sku = details->manufacturerPartNumber;
-      probe.parameters = details->parameters;
-      if (!details->packageName.empty()) probe.parameters.push_back({"Package / Case", details->packageName});
-      result.verified = bomSuggestionFitsLine(lineSnapshot, probe);
-      result.outcome = BomLookupOutcome::Found;
-    } else if (lookup == DigiKeyLookupOutcome::NoMatch) {
+    if (session->tmeClient == nullptr) {
       result.outcome = BomLookupOutcome::NoMatch;
+      return result;
     }
+    const auto answer = lookupTmeSuggestion(*session->tmeClient, keywords, lineSnapshot);
+    result.suggestion = answer.suggestion;
+    result.verified = answer.verified;
+    result.outcome = answer.outcome;
+    result.fromTme = true;
     return result;
   });
   dirty_ = true;

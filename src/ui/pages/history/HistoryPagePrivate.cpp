@@ -73,6 +73,8 @@ bool filterMatches(const InventoryCommit& commit, HistorySourceFilter filter) {
       return historyCommitType(commit) == "CORRECTIVE";
     case HistorySourceFilter::DigiKey:
       return historyCommitType(commit) == "DIGIKEY";
+    case HistorySourceFilter::Tme:
+      return historyCommitType(commit) == "TME";
     case HistorySourceFilter::Checkpoint:
       return historyCommitType(commit) == "CHECKPOINT";
     case HistorySourceFilter::Import:
@@ -143,6 +145,8 @@ string historySourceFilterLabel(HistorySourceFilter filter) {
       return "Corrective";
     case HistorySourceFilter::DigiKey:
       return "DigiKey";
+    case HistorySourceFilter::Tme:
+      return "TME";
     case HistorySourceFilter::Checkpoint:
       return "Checkpoint";
     case HistorySourceFilter::Import:

@@ -361,7 +361,10 @@ CandidateScore scoreItem(const InventoryItem& item, const BomLine& line, const s
     return {100, true};
   }
   if (!line.supplierPartNumber.empty() && !isDigiKeySupplier(line)) {
+    // A TME symbol counts wherever the item keeps it: its selected source or a TME record beside another source.
+    const bool tmeLine = compactKey(line.supplier) == "tme";
     if (samePartNumber(line.supplierPartNumber, item.sku) ||
+        (tmeLine && samePartNumber(line.supplierPartNumber, tmeProductSymbol(item))) ||
         (!item.vendorMetadata.provider.empty() &&
          compactKey(item.vendorMetadata.provider) == compactKey(line.supplier) &&
          samePartNumber(line.supplierPartNumber, item.vendorMetadata.providerProductNumber))) {
