@@ -36,6 +36,7 @@ string App::settingsCategoryName(SettingsCategory category) const {
     case SettingsCategory::QuickLabels: return "Quick Labels";
     case SettingsCategory::InventatoryScan: return "Inventatory Scan";
     case SettingsCategory::DigiKey: return "DigiKey";
+    case SettingsCategory::Tme: return "TME";
   }
   return {};
 }
@@ -50,9 +51,12 @@ void App::openSettings(SettingsCategory category) {
   stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
+  clearStagedTmeCredentials();
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   hasStoredDigiKeySecret_ = credentialPresence(CredentialStore::lookup(kDigiKeySecretName), hasStoredDigiKeySecret_);
+  hasStoredTmeToken_ = credentialPresence(CredentialStore::lookup(kTmeTokenCredentialName), hasStoredTmeToken_);
+  hasStoredTmeSecret_ = credentialPresence(CredentialStore::lookup(kTmeSecretCredentialName), hasStoredTmeSecret_);
   inputBuffer_.clear();
   applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
@@ -72,6 +76,8 @@ bool App::settingsDraftHasChanges() const {
          settingsDraft_.digiKeySite != settings_.digiKeySite ||
          settingsDraft_.digiKeyLanguage != settings_.digiKeyLanguage ||
          settingsDraft_.digiKeyCurrency != settings_.digiKeyCurrency ||
+         settingsDraft_.tmeCountry != settings_.tmeCountry || settingsDraft_.tmeLanguage != settings_.tmeLanguage ||
+         settingsDraft_.tmeCurrency != settings_.tmeCurrency || stagedTmeTokenChanged_ || stagedTmeSecretChanged_ ||
          settingsDraft_.lowStockThreshold != settings_.lowStockThreshold ||
          settingsDraft_.symbolStandard != settings_.symbolStandard ||
          settingsDraft_.quickLabelPresets != settings_.quickLabelPresets ||
@@ -176,6 +182,21 @@ void App::processDigiKeyTest() {
   }
 }
 
+bool App::settingsFieldIsSecret() const {
+  if (settingsCategory_ == SettingsCategory::DigiKey) return settingsField_ == 1;
+  if (settingsCategory_ == SettingsCategory::Tme) return settingsField_ == 0 || settingsField_ == 1;
+  return false;
+}
+
+void App::clearStagedTmeCredentials() {
+  stagedTmeToken_.assign(stagedTmeToken_.size(), '\0');
+  stagedTmeToken_.clear();
+  stagedTmeTokenChanged_ = false;
+  stagedTmeSecret_.assign(stagedTmeSecret_.size(), '\0');
+  stagedTmeSecret_.clear();
+  stagedTmeSecretChanged_ = false;
+}
+
 void App::beginSettingsFieldEdit(int field) {
   if (settingsCategory_ == SettingsCategory::Appearance && appearancePickerOpen_) {
     closeAppearancePicker(true);
@@ -221,6 +242,16 @@ void App::beginSettingsFieldEdit(int field) {
         case 3: inputBuffer_ = settingsDraft_.digiKeySite; break;
         case 4: inputBuffer_ = settingsDraft_.digiKeyLanguage; break;
         case 5: inputBuffer_ = settingsDraft_.digiKeyCurrency; break;
+        default: inputBuffer_.clear(); break;
+      }
+      break;
+    case SettingsCategory::Tme:
+      switch (field) {
+        case 0:
+        case 1: inputBuffer_.clear(); break;
+        case 2: inputBuffer_ = settingsDraft_.tmeCountry; break;
+        case 3: inputBuffer_ = settingsDraft_.tmeLanguage; break;
+        case 4: inputBuffer_ = settingsDraft_.tmeCurrency; break;
         default: inputBuffer_.clear(); break;
       }
       break;
@@ -322,6 +353,53 @@ void App::commitSettingsFieldEdit() {
         break;
       default: break;
     }
+  } else if (settingsCategory_ == SettingsCategory::Tme) {
+    // Same rule as DigiKey: an over-long value keeps the editor open, because the validator would reject the save.
+    const auto tooLong = [this](const char* label, size_t limit, const string& text) {
+      if (text.size() <= limit) return false;
+      setMessage(string(label) + " must be " + to_string(limit) + " bytes or fewer", 4);
+      return true;
+    };
+    const auto value = trim(inputBuffer_);
+    switch (settingsField_) {
+      case 0:
+        if (trim(inputBuffer_).empty()) {
+          setMessage("Token cannot be empty; press Esc to keep the stored token", 4);
+          return;
+        }
+        if (tooLong("TME token", kMaxTmeFieldBytes, inputBuffer_)) return;
+        stagedTmeToken_.assign(stagedTmeToken_.size(), '\0');
+        stagedTmeToken_ = inputBuffer_;
+        stagedTmeTokenChanged_ = true;
+        inputBuffer_.assign(inputBuffer_.size(), '\0');
+        inputBuffer_.clear();
+        break;
+      case 1:
+        if (trim(inputBuffer_).empty()) {
+          setMessage("Application secret cannot be empty; press Esc to keep the stored secret", 4);
+          return;
+        }
+        if (tooLong("TME application secret", kMaxTmeFieldBytes, inputBuffer_)) return;
+        stagedTmeSecret_.assign(stagedTmeSecret_.size(), '\0');
+        stagedTmeSecret_ = inputBuffer_;
+        stagedTmeSecretChanged_ = true;
+        inputBuffer_.assign(inputBuffer_.size(), '\0');
+        inputBuffer_.clear();
+        break;
+      case 2:
+        if (tooLong("TME country", kMaxTmeLocaleFieldBytes, value)) return;
+        settingsDraft_.tmeCountry = value;
+        break;
+      case 3:
+        if (tooLong("TME language", kMaxTmeLocaleFieldBytes, value)) return;
+        settingsDraft_.tmeLanguage = value;
+        break;
+      case 4:
+        if (tooLong("TME currency", kMaxTmeLocaleFieldBytes, value)) return;
+        settingsDraft_.tmeCurrency = value;
+        break;
+      default: break;
+    }
   }
   settingsEditingField_ = false;
   settingsDirty_ = true;
@@ -410,6 +488,7 @@ void App::cancelSettingsDraft() {
   stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
+  clearStagedTmeCredentials();
   inputBuffer_.assign(inputBuffer_.size(), '\0');
   inputBuffer_.clear();
   setMessage("Settings changes discarded", 3);

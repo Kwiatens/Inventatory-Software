@@ -85,6 +85,12 @@ const FieldRule kFieldRules[] = {
     INVENTATORY_MERGE_FIELD("vendor parameters", vendorMetadata.parameters),
     INVENTATORY_MERGE_FIELD("vendor product URL", vendorMetadata.productUrl),
     INVENTATORY_MERGE_FIELD("vendor locale", vendorMetadata.locale),
+    {"vendor sources",
+     [](const InventoryItem& lhs, const InventoryItem& rhs) {
+       return serializeVendorSourcesForStorage(lhs.vendorSources) ==
+              serializeVendorSourcesForStorage(rhs.vendorSources);
+     },
+     [](InventoryItem& to, const InventoryItem& from) { to.vendorSources = from.vendorSources; }},
 };
 
 #undef INVENTATORY_MERGE_FIELD

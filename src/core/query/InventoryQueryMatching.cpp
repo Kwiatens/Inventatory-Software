@@ -382,6 +382,11 @@ QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& 
       if (tokenMatchesField(item.digikeyPartNumber, value)) continue;
       return {false, nullopt};
     }
+    if (token.rfind("tme:", 0) == 0) {
+      const auto value = token.substr(token.find(':') + 1);
+      if (tokenMatchesField(tmeProductSymbol(item), value)) continue;
+      return {false, nullopt};
+    }
     if (token.rfind("tag:", 0) == 0) {
       const auto value = token.substr(4);
       const auto matched = any_of(item.tags.begin(), item.tags.end(), [&](const string& tag) {

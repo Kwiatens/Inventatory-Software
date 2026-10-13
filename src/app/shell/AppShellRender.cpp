@@ -442,6 +442,17 @@ ftxui::Element App::renderMessageUi() const {
                            }) |
                            ftxui::bgcolor(uiPanelLeftBg()));
   }
+  const bool refreshingTme = tmeRefreshTotal_ > 0 && (!tmeRefreshQueue_.empty() || tmeRefreshFuture_.valid());
+  if (refreshingTme) {
+    const auto completed = min(tmeRefreshCompleted_, tmeRefreshTotal_);
+    return fixedMessageRow(ftxui::hbox({
+                               styledText(" Refreshing TME data: ", uiLinkColor()),
+                               uiHeaderText(to_string(completed) + " of " + to_string(tmeRefreshTotal_), uiPrimaryText()),
+                               styledText(" parts done", uiMutedColor()),
+                               ftxui::filler(),
+                           }) |
+                           ftxui::bgcolor(uiPanelLeftBg()));
+  }
   if (importSyncRunning_) {
     const auto completed = min(importSyncCompleted_, importSyncTotal_);
     return fixedMessageRow(ftxui::hbox({
@@ -457,7 +468,7 @@ ftxui::Element App::renderMessageUi() const {
   if (enrichingBom) {
     const auto dispatched = bomEnrichmentTotal_ - bomEnrichmentQueue_.size();
     return fixedMessageRow(ftxui::hbox({
-                               styledText(" Looking up missing parts on DigiKey: ", uiLinkColor()),
+                               styledText(" Looking up missing parts on suppliers: ", uiLinkColor()),
                                uiHeaderText(to_string(dispatched) + " of " + to_string(bomEnrichmentTotal_), uiPrimaryText()),
                                styledText(" done", uiMutedColor()),
                                ftxui::filler(),

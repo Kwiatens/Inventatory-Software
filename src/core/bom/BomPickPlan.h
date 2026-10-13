@@ -80,7 +80,7 @@ VoiceLine bomPickStopTitle(const BomPickStop& stop);
 // Line under the pick list: "Then Rack 2: 4 parts from 4 slots." or "That is the last stop."
 VoiceLine bomPickNextStop(const BomPickPlan& plan, size_t stopIndex);
 // Project summary under the project name: "You have 15 of 43 parts. The other 28 need ordering, 21
-// have a DigiKey match."
+// have a supplier match."
 VoiceLine bomProjectSummary(const BomAnalysis& analysis, int suggestedMatches);
 // Finish screen title: "All 40 parts are picked" or "38 of 40 parts are picked".
 VoiceLine bomPickFinishTitle(int taken, int planned);

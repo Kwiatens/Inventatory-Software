@@ -62,13 +62,20 @@ inline constexpr const char* kBomEnrichmentNoMatch = "(no match)";
 // before verification existed, and is treated as unverified: shown and exported as "check before ordering".
 inline constexpr const char* kBomEnrichmentVerified = "verified\x1e";
 
+// Prefix of a stored suggestion that came from TME. It follows the verification prefix. A suggestion without it came
+// from DigiKey, which was the only supplier before TME was asked as well.
+inline constexpr const char* kBomEnrichmentTme = "tme\x1e";
+
 // The enrichment entry a finished lookup may persist, or nullopt when nothing may be cached. A
 // failure is never cached: it is transient, and a cached value would stop the line from being retried.
-optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified = false);
+optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified = false,
+                                    bool fromTme = false);
 // The part number a stored suggestion names, without the verification prefix. Empty for markers.
 string bomEnrichmentPart(const string& stored);
 // True when a stored suggestion was verified against its BOM line.
 bool bomEnrichmentVerified(const string& stored);
+// The supplier a stored suggestion names: "DigiKey" or "TME". Empty for markers and failures.
+string bomEnrichmentSupplier(const string& stored);
 
 // True when the project already holds an answer for the line and it need not be looked up again.
 // Empty values and the "-" that earlier versions stored for every failure do not count.
@@ -78,7 +85,7 @@ bool bomEnrichmentCached(const map<string, string>& enrichment, const string& ke
 string bomEnrichmentExportText(const string& stored);
 
 // The shortage list of an analysis as spreadsheet-ready CSV text (CRLF rows, formula-safe cells). The
-// suggested DigiKey part comes from `enrichment`; markers and failures are exported as an empty cell.
+// suggested part and its supplier come from `enrichment`; markers and failures are exported as empty cells.
 struct BomShortageExport {
   string text;
   size_t rows = 0;
