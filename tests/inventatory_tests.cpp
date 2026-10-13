@@ -15,6 +15,7 @@
 #include "app/settings/AppSettings.h"
 #include "app/common/AppActionSupport.h"
 #include "platform/tme/TmeEncoding.h"
+#include "platform/tme/TmeVocabulary.h"
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
@@ -6000,7 +6001,9 @@ void testTmeResponseParsing() {
   assert(products.front().manufacturerPartNumbers.size() == 2);
   assert(products.front().manufacturerName == "Vishay");
   assert(products.front().productDescription == "Diode switching");
-  assert(products.front().categoryName == "Diodes");
+  // The part is classified under its DigiKey family; TME's own category is kept as the vendor's category path.
+  assert(products.front().categoryName == "Discrete Semiconductor Products");
+  assert(products.front().vendorMetadata.categoryPath == vector<string>{"Discrete Semiconductor Products"});
   assert(products.front().vendorMetadata.categoryId == "42");
 
   // The status is optional, and a list without one is read the same way.
@@ -6435,7 +6438,8 @@ void testTmeItemsAutoPlaceInRacks() {
 
 void testTmeScannedPartLabelPlan() {
   // A TME label scan creates a placeholder that prints "Unsorted" and "Scanned TME Item". The label prints only after
-  // the lookup has merged the fuse's record, so the merged part must carry the header, value, package and maker.
+  // the lookup has merged the fuse's record and placed the part, so the label carries the part number, header,
+  // package, maker, the rating and limits, and the rack slot.
   auto backend = make_unique<MockPrinterBackend>();
   LabelPrinterService service(std::move(backend));
   service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
@@ -6444,11 +6448,22 @@ void testTmeScannedPartLabelPlan() {
   fuse.vendorMetadata.providerProductNumber = "0ZCM0010FF2G";
   fuse.vendorMetadata.manufacturerPartNumber = "0ZCM0010FF2G";
   fuse.productDescription = "Fuse: PTC polymer; SMD; 100mA; Imax: 40A; 0ZCM; 0603";
+  // The parser keeps the description as the vendor title, as it does for DigiKey.
+  fuse.vendorMetadata.title = fuse.productDescription;
   fuse.manufacturerName = "BEL FUSE";
   fuse.categoryName = "SMD Polymer Fuses";
-  fuse.parameters = {{"Type of fuse", "PTC polymer"}, {"Mounting Type", "SMD"},  {"Current rating", "0.1A"},
-                     {"Maximum current", "40A"},       {"Max. voltage", "15V"},   {"Package / Case", "0603"}};
+  fuse.parameters = {{"Type of fuse", "PTC polymer"}, {"Mounting Type", "SMD"}, {"Current rating", "0.1A"},
+                     {"Maximum current", "40A"},       {"Max. voltage", "15V"},  {"Power", "0.5W"},
+                     {"Package / Case", "0603"}};
   fuse.packageName = "0603";
+  InventatoryRack fuses;
+  fuses.id = "tme-fuses";
+  fuses.code = "R3";
+  fuses.componentType = "Fuses";
+  fuses.rows = 5;
+  fuses.columns = 5;
+  InventoryStore store;
+  store.racks().push_back(fuses);
   InventoryItem part;
   part.id = "tme-scanned-fuse";
   part.partName = "Scanned TME Item";
@@ -6458,24 +6473,737 @@ void testTmeScannedPartLabelPlan() {
   part.location = "Scan Inbox";
   part.inventatoryId = "Inventatory:TME-0ZCM0010FF2G";
   part.machineCode = "0100";
-  assert(service.buildLabelPlan(part).categoryHeader == "Unsorted");
+  store.items().push_back(part);
+  assert(service.buildLabelPlan(store.items().back()).categoryHeader == "Unsorted");
 
-  assert(app_actions::mergeTmeMetadata(part, fuse));
-  const auto plan = service.buildLabelPlan(part);
-  assert(plan.categoryHeader != "Unsorted");
-  assert(plan.mainValue.find("Scanned") == string::npos);
+  assert(app_actions::mergeTmeMetadata(store.items().back(), fuse));
+  assert(reconcileRackAssignment(store, store.items().back()));
+  const auto& merged = store.items().back();
+  const auto placed = rackLocation(merged, store.racks());
+  assert(!placed.empty());
+  const auto plan = service.buildLabelPlan(merged, placed);
+  assert(plan.categoryHeader == "SMD Polymer Fuses");
+  // TME's own part number is the printed name; the description is too long for the label and is not a name.
+  assert(plan.mainValue == "0ZCM0010FF2G");
+  assert(!plan.mainIsMeasuredValue);
   assert(plan.manufacturerLine == "BEL FUSE");
   assert(plan.packageLine == "0603");
-  assert(!plan.parameters.empty());
   assert(plan.inventatoryId == "Inventatory:TME-0ZCM0010FF2G");
   assert(plan.barcodeHint == "0100");
-  assert(plan.categoryHeader == "SMD Polymer Fuses");
-  assert(plan.mainValue == "Fuse: PTC polymer; SMD; 100mA; Imax: 40A; 0ZCM; 0603");
-  assert(!plan.mainIsMeasuredValue);
-  // The fuse's rating is the one tile the label shows for it.
-  assert(plan.parameters.size() == 1);
-  assert(plan.parameters.front().caption == "RATED");
-  assert(plan.parameters.front().value == "0.1A");
+  assert(plan.rackCode == "R3");
+  assert(!plan.rackCell.empty());
+  // The rating and the limits fill the four tiles, as the DigiKey tiles do for a fuse.
+  assert(plan.parameters.size() == 4);
+  assert(plan.parameters[0].caption == "RATED" && plan.parameters[0].value == "100mA");
+  assert(plan.parameters[1].caption == "VMAX" && plan.parameters[1].value == "15V");
+  assert(plan.parameters[2].caption == "IMAX" && plan.parameters[2].value == "40A");
+  assert(plan.parameters[3].caption == "POWER" && plan.parameters[3].value == "500mW");
+
+  // A name the user typed is printed as it is; a supplier's description that is still the name is replaced by the
+  // part number, for TME and DigiKey parts alike.
+  InventoryItem connector;
+  connector.id = "connector";
+  connector.partName = "CONN HEADER 10POS 2.54MM";
+  connector.category = "Connectors";
+  connector.quantity = 1;
+  connector.vendorMetadata.title = "CONN HEADER 10POS 2.54MM";
+  connector.vendorMetadata.manufacturerPartNumber = "B10B-PH-K-S";
+  assert(service.buildLabelPlan(connector).mainValue == "B10B-PH-K-S");
+  connector.partName = "Panel header";
+  assert(service.buildLabelPlan(connector).mainValue == "Panel header");
+}
+
+namespace {
+
+// One part as both vendors list it, read from tests/fixtures/tme-digikey-parity.tsv.
+struct TmeDigiKeyParityPart {
+  std::string mpn;
+  TmeProductDetails tme;
+  DigiKeyProductDetails digikey;
+};
+
+// A check that TME cannot meet for a part, with the reason it is accepted.
+struct TmeDigiKeyParityExemption {
+  std::string mpn;
+  std::string check;
+  std::string reason;
+};
+
+std::vector<TmeDigiKeyParityPart> readTmeDigiKeyParityFixture(std::vector<TmeDigiKeyParityExemption>& exemptions) {
+  const auto path = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / "tme-digikey-parity.tsv";
+  std::ifstream input(path);
+  assert(input.good());
+  std::vector<TmeDigiKeyParityPart> parts;
+  std::string line;
+  while (std::getline(input, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    std::vector<std::string> fields;
+    std::string field;
+    std::istringstream stream(line);
+    while (std::getline(stream, field, '\t')) fields.push_back(field);
+    const auto value = [&](size_t index) { return index < fields.size() ? fields[index] : std::string(); };
+    const auto key = value(0);
+    if (key == "exempt") {
+      exemptions.push_back({value(1), value(2), value(3)});
+      continue;
+    }
+    if (key == "part") {
+      parts.push_back({value(1), {}, {}});
+      continue;
+    }
+    assert(!parts.empty());
+    auto& part = parts.back();
+    auto& tme = part.tme;
+    auto& dk = part.digikey;
+    if (key == "tme.symbol") {
+      tme.vendorMetadata.provider = "tme";
+      tme.vendorMetadata.providerProductNumber = value(1);
+    } else if (key == "tme.mpn") {
+      if (tme.manufacturerPartNumbers.empty()) tme.vendorMetadata.manufacturerPartNumber = value(1);
+      tme.manufacturerPartNumbers.push_back(value(1));
+    } else if (key == "tme.manufacturer") {
+      tme.manufacturerName = value(1);
+    } else if (key == "tme.description") {
+      tme.productDescription = value(1);
+      tme.vendorMetadata.title = value(1);
+    } else if (key == "tme.category") {
+      tme.categoryName = value(1);
+    } else if (key == "tme.categoryId") {
+      tme.vendorMetadata.categoryId = value(1);
+    } else if (key == "tme.package") {
+      tme.packageName = value(1);
+    } else if (key == "tme.datasheet") {
+      tme.datasheetUrl = value(1);
+    } else if (key == "tme.url") {
+      tme.productUrl = value(1);
+      tme.vendorMetadata.productUrl = value(1);
+    } else if (key == "tme.quantity") {
+      tme.quantityAvailable = value(1);
+    } else if (key == "tme.price") {
+      tme.unitPrice = value(1);
+    } else if (key == "tme.status") {
+      tme.productStatus = value(1);
+    } else if (key == "tme.orderable") {
+      tme.orderable = value(1) == "1";
+    } else if (key == "tme.param") {
+      tme.parameters.push_back({value(1), value(2)});
+    } else if (key == "dk.mpn") {
+      dk.manufacturerPartNumber = value(1);
+      dk.vendorMetadata.provider = "digikey";
+      dk.vendorMetadata.manufacturerPartNumber = value(1);
+    } else if (key == "dk.manufacturer") {
+      dk.manufacturerName = value(1);
+    } else if (key == "dk.category") {
+      dk.categoryName = value(1);
+    } else if (key == "dk.categoryId") {
+      dk.vendorMetadata.categoryId = value(1);
+    } else if (key == "dk.description") {
+      dk.productDescription = value(1);
+      dk.vendorMetadata.title = value(1);
+    } else if (key == "dk.package") {
+      dk.packageName = value(1);
+    } else if (key == "dk.datasheet") {
+      dk.datasheetUrl = value(1);
+    } else if (key == "dk.url") {
+      dk.productUrl = value(1);
+      dk.vendorMetadata.productUrl = value(1);
+    } else if (key == "dk.quantity") {
+      dk.quantityAvailable = value(1);
+    } else if (key == "dk.price") {
+      dk.unitPrice = value(1);
+    } else if (key == "dk.status") {
+      dk.productStatus = value(1);
+    } else if (key == "dk.digikeyNumber") {
+      dk.lookupKey = value(1);
+      dk.vendorMetadata.providerProductNumber = value(1);
+    } else if (key == "dk.param") {
+      dk.parameters.push_back({value(1), value(2)});
+    }
+  }
+  return parts;
+}
+
+// A new stock item as a scan leaves it, before its supplier lookup merges the details.
+InventoryItem parityPlaceholder(const std::string& partName, const std::string& id) {
+  InventoryItem item;
+  item.id = id;
+  item.partName = partName;
+  item.manufacturer = "Unknown";
+  item.category = "Unsorted";
+  item.quantity = 1;
+  item.location = "Scan Inbox";
+  item.inventatoryId = "Inventatory:" + id;
+  item.machineCode = "0001";
+  return item;
+}
+
+// One rack for each kind of part the rack rules place, so a part's rack type is the type it is classified as.
+InventoryStore parityRacks() {
+  InventoryStore store;
+  int number = 1;
+  for (const auto* type : {"Resistors", "Capacitors", "Inductors", "Diodes", "Indicators", "Timing",
+                           "Integrated Circuits", "Transistors", "Connectors", "Fuses"}) {
+    InventatoryRack rack;
+    rack.id = "parity-rack-" + std::to_string(number);
+    rack.code = "R" + std::to_string(number);
+    rack.componentType = type;
+    rack.rows = 5;
+    rack.columns = 5;
+    store.racks().push_back(rack);
+    ++number;
+  }
+  return store;
+}
+
+std::string parityRackType(const InventoryStore& store, const InventoryItem& item) {
+  for (const auto& rack : store.racks()) {
+    if (rack.id == item.rackId) return rack.componentType;
+  }
+  return {};
+}
+
+// Case, spacing and the plus-or-minus sign do not change what a label says: "100 mA" and "100mA" are the same value, and
+// a tolerance printed as "±10%" is the same as "10%" where a vendor leaves the sign out.
+std::string parityText(const std::string& text) {
+  std::string out;
+  for (size_t index = 0; index < text.size();) {
+    if (text.compare(index, 2, "\xC2\xB1") == 0) {
+      index += 2;
+      continue;
+    }
+    const auto character = static_cast<unsigned char>(text[index++]);
+    if (!isspace(character)) out += static_cast<char>(tolower(character));
+  }
+  return out;
+}
+
+// The letters and the digit groups of a package name: "SOT-23-3" is "sot" and 23, 3; "SOT23" is "sot" and 23.
+struct PackageShape {
+  std::string letters;
+  std::vector<std::string> digits;
+};
+
+PackageShape packageShape(const std::string& name) {
+  PackageShape shape;
+  std::string run;
+  for (const unsigned char character : name) {
+    if (isdigit(character)) {
+      run += static_cast<char>(character);
+      continue;
+    }
+    if (!run.empty()) shape.digits.push_back(run);
+    run.clear();
+    if (isalpha(character)) shape.letters += static_cast<char>(tolower(character));
+  }
+  if (!run.empty()) shape.digits.push_back(run);
+  return shape;
+}
+
+// One outline under two naming systems: the JEDEC name and the maker's name for the same package.
+std::string packageAliasKey(const std::string& name) {
+  static const std::map<std::string, std::string> aliases = {
+      {"do204al", "do41"}, {"do214ab", "smc"}, {"do214ac", "sma"}, {"do214aa", "smb"}, {"micro3", "sot23"},
+      {"tsot236", "tsot26"}};
+  std::string key;
+  for (const unsigned char character : name) {
+    if (isalnum(character)) key += static_cast<char>(tolower(character));
+  }
+  const auto alias = aliases.find(key);
+  return alias == aliases.end() ? key : alias->second;
+}
+
+// Vendors name one package in their own way: "SOT23" and "SOT-23-3", "SO8" and "8-SOIC", "TO220AB" and "TO-220AB". The
+// same family and the same size numbers are the same package. Different size numbers ("DO41" and "DO-204AL") are not,
+// unless the list of aliases names them as one outline.
+bool samePackage(const std::string& reference, const std::string& tme) {
+  if (parityText(reference) == parityText(tme) || packageAliasKey(reference) == packageAliasKey(tme)) return true;
+  const auto first = packageShape(reference);
+  const auto second = packageShape(tme);
+  if (first.letters.size() < 2 || second.letters.size() < 2 || first.letters.substr(0, 2) != second.letters.substr(0, 2)) {
+    return false;
+  }
+  const auto& smaller = first.digits.size() <= second.digits.size() ? first.digits : second.digits;
+  const auto& larger = first.digits.size() <= second.digits.size() ? second.digits : first.digits;
+  if (smaller.empty()) return false;
+  return all_of(smaller.begin(), smaller.end(), [&](const std::string& number) {
+    return find(larger.begin(), larger.end(), number) != larger.end();
+  });
+}
+
+// A number with a unit, in base units: "600 mV" and "0.6V" are both "0.6|v". Empty for anything else ("-40 to 85°C").
+std::string parityQuantity(const std::string& text) {
+  std::string compact;
+  for (const unsigned char character : text) {
+    if (!isspace(character)) compact += static_cast<char>(character);
+  }
+  size_t index = 0;
+  if (index < compact.size() && (compact[index] == '-' || compact[index] == '+')) ++index;
+  const auto numberStart = index;
+  while (index < compact.size() && (isdigit(static_cast<unsigned char>(compact[index])) || compact[index] == '.')) {
+    ++index;
+  }
+  if (index == numberStart) return {};
+  const double number = std::stod(compact.substr(0, index));
+  std::string unit = compact.substr(index);
+  double factor = 1.0;
+  if (unit.rfind("\xC2\xB5", 0) == 0 || unit.rfind("\xCE\xBC", 0) == 0) {  // micro sign, µ or μ (two bytes each)
+    factor = 1e-6;
+    unit = unit.substr(2);
+  } else {
+    static const std::map<char, double> prefixes = {{'p', 1e-12}, {'n', 1e-9}, {'m', 1e-3}, {'k', 1e3},
+                                                    {'M', 1e6}, {'G', 1e9}};
+    const auto prefix = prefixes.find(unit.empty() ? '\0' : unit[0]);
+    const auto unitOnly = [&](const std::string& candidate) {
+      static const std::set<std::string> units = {"V", "A", "W", "F", "H", "Hz", "\xCE\xA9", "Ohm", "Ohms", "ohm"};
+      return units.count(candidate) != 0;
+    };
+    if (!unitOnly(unit) && prefix != prefixes.end() && unitOnly(unit.substr(1))) {
+      factor = prefix->second;
+      unit = unit.substr(1);
+    }
+  }
+  static const std::map<std::string, std::string> baseUnits = {
+      {"V", "v"}, {"A", "a"}, {"W", "w"}, {"F", "f"}, {"H", "h"}, {"Hz", "hz"}, {"\xCE\xA9", "ohm"},
+      {"Ohm", "ohm"}, {"Ohms", "ohm"}, {"ohm", "ohm"}};
+  const auto base = baseUnits.find(unit);
+  if (base == baseUnits.end()) return {};
+  std::ostringstream value;
+  value << std::setprecision(9) << number * factor;
+  return value.str() + "|" + base->second;
+}
+
+// Two label values agree when they are the same text, or the same quantity written with another prefix or unit.
+bool sameParityValue(const std::string& reference, const std::string& tme) {
+  if (parityText(reference) == parityText(tme)) return true;
+  const auto quantity = parityQuantity(reference);
+  return !quantity.empty() && quantity == parityQuantity(tme);
+}
+
+}  // namespace
+
+void testTmeDigiKeyLabelParity() {
+  // The same part, from either vendor, must give the same label and the same rack. The DigiKey label is the reference:
+  // every field it prints must be printed for the TME record too, unless the fixture lists the check as exempt.
+  std::vector<TmeDigiKeyParityExemption> exemptions;
+  const auto parts = readTmeDigiKeyParityFixture(exemptions);
+  assert(parts.size() >= 100);
+
+  auto backend = make_unique<MockPrinterBackend>();
+  LabelPrinterService service(std::move(backend));
+  service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
+
+  std::vector<std::string> mismatches;  // "mpn<TAB>check<TAB>DigiKey<TAB>TME"
+  std::map<std::string, std::string> familyOf;  // the DigiKey family of each part, for family-wide exemptions
+  for (const auto& part : parts) familyOf[part.mpn] = part.digikey.categoryName;
+  const auto compare = [&](const std::string& mpn, const std::string& check, const std::string& reference,
+                           const std::string& tme) {
+    if (!sameParityValue(reference, tme)) mismatches.push_back(mpn + "\t" + check + "\t" + reference + "\t" + tme);
+  };
+  for (size_t index = 0; index < parts.size(); ++index) {
+    const auto& part = parts[index];
+    auto digiKeyItem = parityPlaceholder("Scanned DigiKey Item", "parity-dk-" + std::to_string(index));
+    app_actions::mergeDigiKeyMetadata(digiKeyItem, part.digikey);
+    // A record that disagrees with the part's stored value is not merged by the app; the check is reported as such.
+    if (const auto conflict = app_actions::tmeRecordConflict(digiKeyItem, part.tme); !conflict.empty()) {
+      mismatches.push_back(part.mpn + "\tconflict\t" + conflict + "\tTME record disagrees");
+      continue;
+    }
+    auto tmeItem = parityPlaceholder("Scanned TME Item", "parity-tme-" + std::to_string(index));
+    app_actions::mergeTmeMetadata(tmeItem, part.tme);
+
+    auto digiKeyRacks = parityRacks();
+    digiKeyRacks.items().push_back(digiKeyItem);
+    reconcileRackAssignment(digiKeyRacks, digiKeyRacks.items().back());
+    auto tmeRacks = parityRacks();
+    tmeRacks.items().push_back(tmeItem);
+    reconcileRackAssignment(tmeRacks, tmeRacks.items().back());
+
+    const auto reference = service.buildLabelPlan(digiKeyRacks.items().back());
+    const auto tme = service.buildLabelPlan(tmeRacks.items().back());
+    compare(part.mpn, "header", reference.categoryHeader, tme.categoryHeader);
+    compare(part.mpn, "main", reference.mainValue, tme.mainValue);
+    compare(part.mpn, "measured", reference.mainIsMeasuredValue ? "yes" : "no", tme.mainIsMeasuredValue ? "yes" : "no");
+    compare(part.mpn, "tolerance", reference.mainTolerance, tme.mainTolerance);
+    if (!samePackage(reference.packageLine, tme.packageLine)) {
+      mismatches.push_back(part.mpn + "\tpackage\t" + reference.packageLine + "\t" + tme.packageLine);
+    }
+    // The vendors print one maker under different names ("Panasonic Industry", "PANASONIC"); the first word names it.
+    const auto makerName = [](const std::string& name) {
+      std::string word;
+      for (const unsigned char character : name.substr(0, name.find(' '))) {
+        if (isalnum(character)) word += static_cast<char>(tolower(character));
+      }
+      return word;
+    };
+    compare(part.mpn, "manufacturer", makerName(reference.manufacturerLine), makerName(tme.manufacturerLine));
+    compare(part.mpn, "rack", parityRackType(digiKeyRacks, digiKeyRacks.items().back()),
+            parityRackType(tmeRacks, tmeRacks.items().back()));
+    for (const auto& tile : reference.parameters) {
+      const auto found = std::find_if(tme.parameters.begin(), tme.parameters.end(),
+                                      [&](const LabelParameterTile& candidate) { return candidate.caption == tile.caption; });
+      compare(part.mpn, "tile:" + tile.caption, tile.value, found == tme.parameters.end() ? std::string() : found->value);
+    }
+  }
+
+  // Every difference must be an exempt check for that part, and every exempt check must still be a difference.
+  std::vector<std::string> unexplained;
+  std::vector<bool> used(exemptions.size(), false);
+  for (const auto& mismatch : mismatches) {
+    const auto tab1 = mismatch.find('\t');
+    const auto tab2 = mismatch.find('\t', tab1 + 1);
+    const auto mpn = mismatch.substr(0, tab1);
+    const auto check = mismatch.substr(tab1 + 1, tab2 - tab1 - 1);
+    bool exempt = false;
+    const auto family = familyOf.at(mpn);
+    for (size_t index = 0; index < exemptions.size(); ++index) {
+      // "family:<name>" exempts the check for every part of that DigiKey family, for a field TME does not publish for
+      // that kind of part; "*" exempts it for every part.
+      const auto& scope = exemptions[index].mpn;
+      const bool applies = scope == "*" || scope == mpn || (scope.rfind("family:", 0) == 0 && scope.substr(7) == family);
+      if (applies && exemptions[index].check == check) {
+        used[index] = true;
+        exempt = true;
+      }
+    }
+    if (!exempt) unexplained.push_back(mismatch);
+  }
+  for (const auto& line : unexplained) std::cerr << "PARITY " << line << "\n";
+  for (size_t index = 0; index < exemptions.size(); ++index) {
+    if (!used[index]) {
+      std::cerr << "STALE EXEMPTION " << exemptions[index].mpn << " " << exemptions[index].check << "\n";
+    }
+  }
+  assert(unexplained.empty());
+  assert(std::all_of(used.begin(), used.end(), [](bool value) { return value; }));
+}
+
+void testTmeVocabularyMapsKinds() {
+  // A TME parameter whose value names the device becomes the DigiKey parameter for that kind of device.
+  const string discrete = "Discrete Semiconductor Products";
+  const auto nChannel = tmeParameters("Type of transistor", "N-MOSFET", discrete);
+  assert(nChannel.size() == 1 && nChannel[0].name == "FET Type" && nChannel[0].value == "N-Channel");
+  const auto pChannel = tmeParameters("Type of transistor", "P-MOSFET", discrete);
+  assert(pChannel.size() == 1 && pChannel[0].name == "FET Type" && pChannel[0].value == "P-Channel");
+  const auto pnp = tmeParameters("Type of transistor", "PNP", discrete);
+  assert(pnp.size() == 1 && pnp[0].name == "Transistor Type" && pnp[0].value == "PNP");
+  const auto schottky = tmeParameters("Type of diode", "Schottky rectifying", discrete);
+  assert(schottky.size() == 2 && schottky[0].name == "Diode Type" && schottky[1].name == "Technology" &&
+         schottky[1].value == "Schottky");
+  const auto universal = tmeParameters("Type of diode", "universal", discrete);
+  assert(universal.size() == 2 && universal[1].value == "Standard");
+  const auto tvs = tmeParameters("Type of diode", "TVS", "Circuit Protection");
+  assert(tvs.size() == 1 && tvs[0].value == "TVS");
+  const auto rectifier = tmeParameters("Diode Type", "rectifying", discrete);
+  assert(rectifier.size() == 2 && rectifier[1].name == "Technology" && rectifier[1].value == "Standard");
+  // A composite memory field gives the program memory and the RAM, as DigiKey's records do.
+  const auto memory = tmeParameters("Memory", "1kB EEPROM, 2kB SRAM, 32kB FLASH", "Integrated Circuits (ICs)");
+  const auto figure = [&](const string& name) {
+    for (const auto& parameter : memory) {
+      if (parameter.name == name) return parameter.value;
+    }
+    return string();
+  };
+  assert(memory.size() == 3 && figure("Program Memory Size") == "32kB" && figure("RAM Size") == "2kB" &&
+         figure("EEPROM Size") == "1kB");
+  assert(tmeParameters("Kind of core", "8-bit", "Integrated Circuits (ICs)")[0].name == "Core Size");
+  // An LED's operating voltage is its forward voltage; a diode type that only says LED adds nothing.
+  assert(tmeParameterName("Operating voltage", "Optoelectronics") == "Voltage - Forward (Vf) (Typ)");
+  assert(tmeParameterName("Operating voltage", "Integrated Circuits (ICs)") == "Operating Voltage");
+  assert(tmeParameters("Diode Type", "LED", "Optoelectronics").empty());
+
+  // Ranges and the direct-current qualifier are written as DigiKey writes them.
+  assert(tmeParameterValue("-40...85°C") == "-40 to 85°C");
+  assert(tmeParameterValue("16V DC") == "16V");
+  assert(tmeParameterValue("AC/DC") == "AC/DC");
+  assert(tmeParameterName("Max. off-state voltage", "Circuit Protection") == "Voltage - Reverse Standoff (Typ)");
+  assert(tmeParameterName("Max. off-state voltage", discrete) == "Voltage - DC Reverse (Vr) (Max)");
+  assert(tmeParameterName("Type of integrated circuit", "Integrated Circuits (ICs)") == "Function");
+  assert(tmeParameterName("Something TME-only", discrete) == "Something TME-only");
+
+  // Categories are classified as DigiKey's families. A word inside another word does not count: "handled" is not an LED.
+  assert(tmeCategoryFamily("SMD resistors") == "Resistors");
+  assert(tmeCategoryFamily("THT electrolytic capacitors") == "Capacitors");
+  assert(tmeCategoryFamily("Bidirectional TVS SMD diodes") == "Circuit Protection");
+  assert(tmeCategoryFamily("SMD Schottky diodes") == "Discrete Semiconductor Products");
+  assert(tmeCategoryFamily("LDO fixed voltage regulators") == "Integrated Circuits (ICs)");
+  assert(tmeCategoryFamily("Microswitches TACT") == "Switches");
+  assert(tmeCategoryFamily("Ferrite - beads") == "Filters");
+  assert(tmeCategoryFamily("SMD colour LEDs") == "Optoelectronics");
+  assert(tmeCategoryFamily("Handled widgets") == "");
+  assert(tmeCategoryFamily("Unknown gadgets") == "");
+}
+
+void testTmeRecordConflictGuard() {
+  // A TME record for another value of the same part number is not merged into the stored part.
+  InventoryItem stored;
+  stored.parameters = {{"Resistance", u8"4.7MΩ"}};
+  TmeProductDetails other;
+  other.parameters = {{"Resistance", u8"4.7Ω"}};
+  assert(app_actions::tmeRecordConflict(stored, other) == "Resistance");
+  TmeProductDetails same;
+  same.parameters = {{"Resistance", u8"4.7 MΩ"}};
+  assert(app_actions::tmeRecordConflict(stored, same).empty());
+  // Values that differ only in notation agree, and a record or item without the value has nothing to compare.
+  InventoryItem capacitor;
+  capacitor.parameters = {{"Capacitance", u8"100nF"}};
+  TmeProductDetails microfarads;
+  microfarads.parameters = {{"Capacitance", u8"0.1µF"}};
+  assert(app_actions::tmeRecordConflict(capacitor, microfarads).empty());
+  InventoryItem blank;
+  assert(app_actions::tmeRecordConflict(blank, other).empty());
+}
+
+void testLabelsReadTmeValues() {
+  auto backend = make_unique<MockPrinterBackend>();
+  LabelPrinterService service(std::move(backend));
+  service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
+  // A TME resistance already carries its ohm sign, which must print once.
+  InventoryItem resistor;
+  resistor.id = "tme-resistor";
+  resistor.partName = "Resistor: thick film; 1.5kΩ";
+  resistor.category = "Resistors";
+  resistor.quantity = 1;
+  resistor.parameters = {{"Resistance", u8"1.5kΩ"}, {"Tolerance", "±5%"}};
+  assert(service.buildLabelPlan(resistor).mainValue == u8"1.5kΩ");
+  // An asymmetric TME tolerance prints as its two limits, not as a truncated range.
+  InventoryItem capacitor;
+  capacitor.id = "tme-capacitor";
+  capacitor.partName = "Capacitor: ceramic; MLCC";
+  capacitor.category = "Capacitors";
+  capacitor.quantity = 1;
+  capacitor.parameters = {{"Capacitance", u8"10µF"}, {"Tolerance", "-20 to 80%"}};
+  assert(service.buildLabelPlan(capacitor).mainTolerance == "-20/+80%");
+}
+
+// The label tiles follow what each field measures, not the order a vendor lists its parameters in. Reversing a record's
+// parameters gives the same tiles for every fixture part from both vendors; no caption or value is cut short; and no
+// field that only describes the part (a lens, a size, a status) becomes a tile.
+void testLabelTilesIgnoreRecordOrder() {
+  std::vector<TmeDigiKeyParityExemption> exemptions;
+  const auto parts = readTmeDigiKeyParityFixture(exemptions);
+  auto backend = make_unique<MockPrinterBackend>();
+  LabelPrinterService service(std::move(backend));
+  service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
+  const std::vector<std::string> descriptive = {"LENS", "FEATURE", "DIMENSION", "SIZE", "MOUNTING", "PACKAGE", "PACKAGING",
+                                                "STATUS", "QUANTITY", "PRICE", "SERIES", "RATINGS"};
+  for (size_t index = 0; index < parts.size(); ++index) {
+    for (const bool isTme : {true, false}) {
+      const auto& part = parts[index];
+      auto item = parityPlaceholder(isTme ? "Scanned TME Item" : "Scanned DigiKey Item",
+                                    "order-" + std::to_string(index) + (isTme ? "-tme" : "-dk"));
+      if (isTme) {
+        app_actions::mergeTmeMetadata(item, part.tme);
+      } else {
+        app_actions::mergeDigiKeyMetadata(item, part.digikey);
+      }
+      auto reversed = item;
+      std::reverse(reversed.parameters.begin(), reversed.parameters.end());
+      const auto plan = service.buildLabelPlan(item).parameters;
+      const auto backward = service.buildLabelPlan(reversed).parameters;
+      bool same = plan.size() == backward.size();
+      for (size_t tile = 0; same && tile < plan.size(); ++tile) {
+        same = plan[tile].caption == backward[tile].caption && plan[tile].value == backward[tile].value;
+      }
+      if (!same) std::cerr << "RECORD ORDER " << part.mpn << (isTme ? " tme" : " digikey") << "\n";
+      assert(same);
+      for (const auto& tile : plan) {
+        const bool cut = tile.caption.find("...") != std::string::npos || tile.value.find("...") != std::string::npos;
+        const bool isDescriptive = std::find(descriptive.begin(), descriptive.end(), tile.caption) != descriptive.end();
+        if (cut || isDescriptive) std::cerr << "LABEL TILE " << part.mpn << (isTme ? " tme " : " digikey ") << tile.caption << " = " << tile.value << "\n";
+        assert(!cut);
+        assert(!isDescriptive);
+      }
+    }
+  }
+}
+
+void testLabelTilesFollowConcepts() {
+  auto backend = make_unique<MockPrinterBackend>();
+  LabelPrinterService service(std::move(backend));
+  service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
+  const auto tilesOf = [&](const InventoryItem& item) { return service.buildLabelPlan(item).parameters; };
+  const auto valueOf = [](const std::vector<LabelParameterTile>& tiles, const std::string& caption) {
+    for (const auto& tile : tiles) {
+      if (tile.caption == caption) return tile.value;
+    }
+    return std::string("<none>");
+  };
+
+  // An LED's colour is the colour of its light, not of its lens: DigiKey lists "Lens Color" after "Color" and the
+  // lens must not take the colour's tile, whichever order the record lists them in.
+  InventoryItem led;
+  led.id = "led";
+  led.partName = "LTST-C170KGKT";
+  led.category = "Optoelectronics";
+  led.quantity = 1;
+  led.parameters = {{"Lens Color", "Colorless"}, {"Color", "Green"}, {"Voltage - Forward (Vf) (Typ)", "2V"},
+                    {"Millicandela Rating", "35mcd"}, {"Viewing Angle", "130°"}, {"Lens Transparency", "Clear"},
+                    {"Size / Dimension", "2.00mm L x 1.25mm W"}};
+  auto reversedLed = led;
+  std::reverse(reversedLed.parameters.begin(), reversedLed.parameters.end());
+  for (const auto* item : {&led, &reversedLed}) {
+    const auto tiles = tilesOf(*item);
+    assert(valueOf(tiles, "COLOR") == "Green");
+    assert(valueOf(tiles, "VF") == "2V");
+    assert(valueOf(tiles, "INTENSITY") == "35mcd");
+    assert(valueOf(tiles, "VIEWING ANGLE") == u8"130°");
+    assert(valueOf(tiles, "LENS TRANSPARENCY") == "<none>");
+  }
+
+  // A colour starts with a capital letter whichever vendor it comes from: TME writes "green", and the label prints "Green".
+  InventoryItem tmeLed;
+  tmeLed.id = "tme-led";
+  tmeLed.partName = "LTST-C170KGKT";
+  tmeLed.category = "Optoelectronics";
+  tmeLed.quantity = 1;
+  tmeLed.parameters = {{"Color", "green"}, {"Luminous Intensity", "18 to 35mcd"}, {"Voltage - Forward (Vf) (Typ)", "2 to 2.4V"}};
+  assert(valueOf(tilesOf(tmeLed), "COLOR") == "Green");
+
+  // An impedance and a current rating get their short captions, and a tolerance in a frequency field is no frequency.
+  InventoryItem filter;
+  filter.id = "ferrite";
+  filter.partName = "Ferrite bead";
+  filter.category = "Filters";
+  filter.quantity = 1;
+  filter.parameters = {{"Impedance at 100MHz", u8"120Ω"}, {"Current Rating (Amps)", "2A"}, {"Frequency", "±20ppm"},
+                       {"Operating Temperature", "-55 to 125°C"}};
+  const auto filterTiles = tilesOf(filter);
+  assert(valueOf(filterTiles, "Z") == u8"120Ω");
+  assert(valueOf(filterTiles, "I") == "2A");
+  assert(valueOf(filterTiles, "TEMP") == u8"-55 to 125°C");
+  for (const auto& tile : filterTiles) assert(tile.value != "±20ppm");
+
+  // A supply range with a DC qualifier keeps the range and the unit on its tile.
+  InventoryItem amplifier;
+  amplifier.id = "amplifier";
+  amplifier.partName = "TL072CDR";
+  amplifier.category = "Integrated Circuits (ICs)";
+  amplifier.quantity = 1;
+  amplifier.parameters = {{"Voltage - Supply", u8"± 2.25 to 20V DC, 4.5 to 40V"}, {"Operating Temperature", "0 to 70°C"}};
+  assert(valueOf(tilesOf(amplifier), "SUPPLY") == u8"± 2.25 to 20V");
+
+  // A part whose name matches a rule that finds none of its own tiles (an oscillator's frequency is in hertz, and this one
+  // gives a tolerance) is still a timer IC: its supply and current tiles come from the IC rule.
+  InventoryItem timer;
+  timer.id = "timer";
+  timer.partName = "NE555 timer oscillator";
+  timer.category = "Integrated Circuits (ICs)";
+  timer.quantity = 1;
+  timer.parameters = {{"Voltage - Supply", "4.5V ~ 16V"}, {"Current - Supply", "10 mA"}, {"Frequency", "±20ppm"}};
+  const auto timerTiles = tilesOf(timer);
+  assert(valueOf(timerTiles, "SUPPLY") == "4.5 to 16V");
+  assert(valueOf(timerTiles, "CURRENT") == "10mA");
+  for (const auto& tile : timerTiles) assert(tile.value != "±20ppm");
+}
+
+void testParameterNamesStayApart() {
+  // "Color" and "Lens Color" are different parameters, and so are "Type" and "Mounting Type", and "Supplier Device
+  // Package" and "Package / Case". Only "Package" and "Package / Case" name the same thing.
+  assert(!parameterLabelMatches("Lens Color", "Color"));
+  assert(!parameterLabelMatches("Mounting Type", "Type"));
+  assert(!parameterLabelMatches("Supplier Device Package", "Package"));
+  assert(parameterLabelMatches("Package / Case", "Package"));
+  assert(parameterLabelMatches("Current - Test", "Current"));
+
+  // A name that is exactly the wanted one wins over a longer name that starts with it, whatever order the record lists them in.
+  InventoryItem item;
+  item.parameters = {{"Current - Test", "20mA"}, {"Current", "2A"}};
+  assert(parameterValue(item, {"Current"}) == "2A");
+
+  // A DigiKey record merged into an item keeps each of its parameters, and a second parameter does not overwrite the first.
+  InventoryItem diode;
+  diode.partName = "1N5819";
+  DigiKeyProductDetails details;
+  details.parameters = {{"Color", "Green"}, {"Lens Color", "Colorless"}, {"Type", "Schottky"},
+                        {"Mounting Type", "Surface Mount"}, {"Supplier Device Package", "SOD-123"},
+                        {"Package / Case", "SOD-123F"}};
+  app_actions::mergeDigiKeyMetadata(diode, details);
+  assert(parameterValue(diode, {"Color"}) == "Green");
+  assert(parameterValue(diode, {"Lens Color"}) == "Colorless");
+  assert(parameterValue(diode, {"Type"}) == "Schottky");
+  assert(parameterValue(diode, {"Mounting Type"}) == "Surface Mount");
+  assert(parameterValue(diode, {"Supplier Device Package"}) == "SOD-123");
+  assert(parameterValue(diode, {"Package / Case"}) == "SOD-123F");
+}
+
+// The package line never shows a clipped name: a size that is too long reads as its footprint, and a package name that is
+// too long is cut to its first word.
+void testPackageLineIsNeverClipped() {
+  auto backend = make_unique<MockPrinterBackend>();
+  LabelPrinterService service(std::move(backend));
+  service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
+  InventoryItem tactSwitch;
+  tactSwitch.id = "tact-switch";
+  tactSwitch.partName = "TL3342F160QG";
+  tactSwitch.category = "Switches";
+  tactSwitch.quantity = 1;
+  tactSwitch.parameters = {{"Size / Dimension", "6.6x5.1x1.5mm"}};
+  assert(service.buildLabelPlan(tactSwitch).packageLine == "6.6x5.1mm");
+  InventoryItem regulator;
+  regulator.id = "regulator";
+  regulator.partName = "AP63203WU-7";
+  regulator.category = "Integrated Circuits (ICs)";
+  regulator.quantity = 1;
+  regulator.parameters = {{"Package / Case", "14-VFDFN Exposed Pad"}};
+  assert(service.buildLabelPlan(regulator).packageLine == "14-VFDFN");
+  InventoryItem diode;
+  diode.id = "diode";
+  diode.partName = "BZX84C5V1-7-F";
+  diode.category = "Discrete Semiconductor Products";
+  diode.quantity = 1;
+  diode.parameters = {{"Package / Case", "SOT-23-6 Thin, TSOT-23-6"}};
+  assert(service.buildLabelPlan(diode).packageLine == "SOT-23-6");
+  InventoryItem shortName;
+  shortName.id = "short";
+  shortName.partName = "1N5819";
+  shortName.category = "Discrete Semiconductor Products";
+  shortName.quantity = 1;
+  shortName.parameters = {{"Package / Case", "DO-41"}};
+  assert(service.buildLabelPlan(shortName).packageLine == "DO-41");
+}
+
+void testTmeRackAndHeaderIgnoreSpecifications() {
+  // A specification list does not decide what a part is: "controlled parameter" is not an LED, and a microcontroller's
+  // bus list does not make it a transceiver.
+  InventoryStore store = parityRacks();
+  InventoryItem sensor;
+  sensor.id = "tme-sensor";
+  sensor.partName = "Sensor: temperature and humidity; OUT: I2C";
+  sensor.category = "Sensors, Transducers";
+  sensor.quantity = 1;
+  sensor.parameters = {{"Controlled parameter", "humidity, pressure, temperature"}, {"Output configuration", "I2C"}};
+  store.items().push_back(sensor);
+  reconcileRackAssignment(store, store.items().back());
+  assert(store.items().back().rackId.empty());
+
+  InventoryItem microcontroller;
+  microcontroller.id = "tme-mcu";
+  microcontroller.partName = "IC: STM32 ARM microcontroller; 72MHz; LQFP48";
+  microcontroller.category = "Integrated Circuits (ICs)";
+  microcontroller.quantity = 1;
+  microcontroller.parameters = {{"Function", "STM32 ARM microcontroller"},
+                                {"Interface", "CAN, I2C, SPI, USART, USB"}};
+  assert(partShortDescription(microcontroller) != "Transceiver");
+
+  // A transceiver names one bus, and an LED stays an indicator even when TME lists it as a diode type.
+  InventoryItem transceiver;
+  transceiver.id = "tme-transceiver";
+  transceiver.partName = "IC: CAN transceiver";
+  transceiver.category = "Integrated Circuits (ICs)";
+  transceiver.quantity = 1;
+  transceiver.parameters = {{"Function", "CAN transceiver"}, {"Interface", "CAN"}};
+  assert(partShortDescription(transceiver) == "Transceiver");
+
+  InventoryStore leds = parityRacks();
+  InventoryItem led;
+  led.id = "tme-led";
+  led.partName = "LED; green; SMD; 0805";
+  led.category = "Optoelectronics";
+  led.quantity = 1;
+  led.parameters = {{"Diode Type", "LED"}, {"Mounting Type", "SMD"}, {"Package / Case", "0805 (2012 Metric)"}};
+  leds.items().push_back(led);
+  reconcileRackAssignment(leds, leds.items().back());
+  assert(parityRackType(leds, leds.items().back()) == "Indicators");
 }
 
 void testTmeSearchTokens() {
@@ -6943,7 +7671,7 @@ void testCategoryHeadersAndPartDescriptors() {
   assert(plan.packageLine.empty());
   assert(plan.manufacturerLine == "Yageo");
   assert(plan.parameters.size() == 1);
-  assert(labelTile(plan, "POWER") == "0.125W");
+  assert(labelTile(plan, "POWER") == "125mW");
   assert(labelTile(plan, "RESISTANCE").empty());
   assert(plan.inventatoryId == "Inventatory:R-00123");
   assert(plan.scannerHint == "R-0002");
@@ -6960,7 +7688,7 @@ void testCategoryHeadersAndPartDescriptors() {
   assert(zpl.find(u8"^FD\u03A9^FS") != string::npos);
   assert(zpl.find("^A0N,18,18^FD1%^FS") != string::npos);
   assert(zpl.find("^FDPOWER^FS") != string::npos);
-  assert(zpl.find("^FD0.125W^FS") != string::npos);
+  assert(zpl.find("^FD125mW^FS") != string::npos);
   assert(zpl.find("^FDYageo^FS") != string::npos);
   assert(zpl.find("^FO180,18^BQN,2,3^FDLA,0002^FS") != string::npos);
   // The short ID is printed under the QR code for manual lookup.
@@ -7630,7 +8358,7 @@ void testDiodeParameterTiles() {
   assert(diodePlan.parameters.size() == 3);
   assert(diodePlan.parameters[0].caption == "VR" && diodePlan.parameters[0].value == "40V");
   assert(diodePlan.parameters[1].caption == "IO" && diodePlan.parameters[1].value == "1A");
-  assert(diodePlan.parameters[2].caption == "VF" && diodePlan.parameters[2].value == "0.38V");
+  assert(diodePlan.parameters[2].caption == "VF" && diodePlan.parameters[2].value == "380mV");
 
   InventoryItem connector;
   connector.id = "conn-1";
@@ -7693,7 +8421,8 @@ void testCapacitorValueAndTiles() {
                      {"ESR (Equivalent Series Resistance)", "N/A"}};
   const auto mlccPlan = service.buildLabelPlan(mlcc, "R118-b2");
   assert(mlccPlan.mainIsMeasuredValue);
-  assert(mlccPlan.mainValue == u8"0.1\u00B5F");
+  // The main value follows the shared unit rule: the prefix that leaves 1 to 999, so 0.1 uF is 100 nF.
+  assert(mlccPlan.mainValue == "100nF");
   assert(mlccPlan.mainTolerance == u8"\u00B110%");
   assert(mlccPlan.packageLine == "0402");
   assert(mlccPlan.manufacturerLine == "Murata Electronics");
@@ -7731,8 +8460,9 @@ void testCapacitorValueAndTiles() {
     }
   }
   assert(mlccZpl.find("GRM155R71H104KE14D") == string::npos);
-  assert(mlccZpl.find("^FDMurata Electronics^FS") != string::npos);
-  assert(mlccZpl.find("^FD0.1\u00B5^FS") != string::npos);
+  // The name is cut to its leading word, as every long manufacturer name is, rather than printed in smaller type.
+  assert(mlccZpl.find("^FDMurata^FS") != string::npos);
+  assert(mlccZpl.find("^FD100n^FS") != string::npos);
   assert(mlccZpl.find("^FDF^FS") != string::npos);
   assert(mlccZpl.find("^FDC-0014^FS") != string::npos);
   assert(mlccZpl.find("^FDLA,0014^FS") != string::npos);
@@ -7757,7 +8487,7 @@ void testCapacitorValueAndTiles() {
   assert(!mosfetPlan.mainIsMeasuredValue);
   assert(mosfetPlan.packageLine == "SOT-23-3L");
   assert(mosfetPlan.parameters.size() == 4);
-  assert(labelTile(mosfetPlan, "VDS") == "30 V");
+  assert(labelTile(mosfetPlan, "VDS") == "30V");
   assert(labelTile(mosfetPlan, "ID") == "5.7A");
   assert(labelTile(mosfetPlan, "RDS(ON)") == u8"26.5m\u03A9");
   assert(labelTile(mosfetPlan, "VGS(TH)") == "1.45V");
@@ -7803,12 +8533,12 @@ void testCapacitorValueAndTiles() {
   assert(service.buildLabelPlan(anonymous).manufacturerLine.empty());
 
   // Tile values drop vendor qualifiers and marks.
-  assert(labelTileValue("0.1W, 1/10W") == "0.1W");
+  assert(labelTileValue("0.1W, 1/10W") == "100mW");
   assert(labelTileValue(u8"ARM\u00AE Cortex\u00AE-M0+") == "Cortex-M0+");
   assert(labelTileValue("1.7V ~ 3.6V") == "1.7 to 3.6V");
   assert(labelTileValue("2.7V ~ 5.5V") == "2.7 to 5.5V");
   assert(labelTileValue("8 ~ 12") == "8 to 12");
-  assert(labelTileValue("500 mV @ 3 A") == "500 mV");
+  assert(labelTileValue("500 mV @ 3 A") == "500mV");
 
   // Width fitting steps down, then shortens; nothing exceeds the box.
   const auto fits = fitFont0Text("SS34", 166, {40, 36});
@@ -7874,6 +8604,83 @@ void testFont0TruncationMatchesSearch() {
   assert(estimateFont0Width(string(1u << 20, 'M'), 40, 40) == 32715572);
 }
 
+void testUnitsManufacturersAndPackagesAgreeAcrossVendors() {
+  // One unit form for every vendor: the prefix that leaves 1 to 999, and no space before the unit. TME's base units
+  // and DigiKey's scaled units print the same.
+  assert(labelTileValue("0.6V") == "600mV");
+  assert(labelTileValue("600 mV") == "600mV");
+  assert(labelTileValue("0.25W") == "250mW");
+  assert(labelTileValue("250 mW") == "250mW");
+  assert(labelTileValue("16 V") == "16V");
+  assert(labelTileValue("1000 mV") == "1V");
+  assert(labelTileValue("0 V") == "0V");
+  assert(labelTileValue("0.6kV") == "600V");
+  assert(labelTileValue("0.18A") == "180mA");
+  assert(labelTileValue("0.1 µF") == "100nF");
+  // Electrolytic values stay in microfarads, as they are written: 4700 uF is not 4.7 mF.
+  assert(labelTileValue("4700 µF") == "4700µF");
+  assert(labelTileValue("1000 µF") == "1000µF");
+  assert(labelTileValue("0.5 F") == "500mF");
+  assert(labelTileValue("100 to 600 mV") == "100 to 600mV");
+  assert(labelTileValue("3.8V ~ 32V") == "3.8 to 32V");
+  // A value this rule does not own is printed as it was sent.
+  assert(labelTileValue("1.5µH") == "1.5µH");
+  assert(labelTileValue("±20%") == "±20%");
+  assert(labelTileValue("2000h") == "2000h");
+  assert(labelTileValue("Ø5x11mm") == "Ø5x11mm");
+  assert(labelTileValue("-40°C ~ 85°C") == "-40 to 85°C");
+  assert(labelTileValue("± 2.25 to 20V") == "± 2.25 to 20V");
+
+  // Manufacturer: "Panasonic Industry" is "Panasonic", the leading word, and the drawn label says so.
+  const auto panasonic = label_printer_detail::manufacturerWordCandidates("Panasonic Industry");
+  assert(panasonic.size() == 2 && panasonic.front() == "Panasonic Industry" && panasonic.back() == "Panasonic");
+  LabelPrinterService service(make_unique<MockPrinterBackend>());
+  InventoryItem radialCapacitor;
+  radialCapacitor.id = "radial-capacitor";
+  radialCapacitor.partName = "ECA-1CM101I";
+  radialCapacitor.manufacturer = "Panasonic Industry";
+  radialCapacitor.category = "Capacitors";
+  radialCapacitor.quantity = 1;
+  radialCapacitor.parameters = {{"Capacitance", u8"100 µF"},
+                                {"Voltage - Rated", "16 V"},
+                                {"Height - Seated (Max)", "0.472\" (12.00mm)"},
+                                {"Package / Case", "Radial, Can"},
+                                {"Size / Dimension", "0.197\" Dia (5.00mm)"}};
+  const auto radialPlan = service.buildLabelPlan(radialCapacitor, "R1-a1");
+  assert(radialPlan.manufacturerLine == "Panasonic Industry");
+  assert(radialPlan.packageLine == u8"Ø5mm");
+  assert(labelTile(radialPlan, "VOLTAGE") == "16V");
+  assert(labelTile(radialPlan, "HEIGHT") == "12mm");
+  assert(service.buildZpl(radialCapacitor, "R1-a1").find("^FDPanasonic^FS") != string::npos);
+
+  // Package: a lead style is not a package, and a cylinder is its diameter. The same package under two names prints the
+  // one name: DigiKey's JEDEC DO-204AL and TME's DO41 are DO-41, and TME's TSOT26 is TSOT-23-6.
+  InventoryItem radial;
+  radial.parameters = {{"Package / Case", "Radial, Can"}, {"Size / Dimension", "0.197\" Dia (5.00mm)"}};
+  assert(label_printer_detail::shortPackageLine(radial) == u8"Ø5mm");
+  InventoryItem cylinder;
+  cylinder.parameters = {{"Size / Dimension", u8"Ø5x11mm"}};
+  assert(label_printer_detail::shortPackageLine(cylinder) == u8"Ø5mm");
+  InventoryItem digikeyDiode;
+  digikeyDiode.parameters = {{"Supplier Device Package", "DO-204AL (DO-41)"}};
+  InventoryItem tmeDiode;
+  tmeDiode.parameters = {{"Package / Case", "DO41"}};
+  assert(label_printer_detail::shortPackageLine(digikeyDiode) == "DO-41");
+  assert(label_printer_detail::shortPackageLine(tmeDiode) == "DO-41");
+  InventoryItem tmeTsot;
+  tmeTsot.parameters = {{"Package / Case", "TSOT26"}};
+  InventoryItem digikeyTsot;
+  digikeyTsot.parameters = {{"Supplier Device Package", "TSOT-23-6"}};
+  assert(label_printer_detail::shortPackageLine(tmeTsot) == "TSOT-23-6");
+  assert(label_printer_detail::shortPackageLine(digikeyTsot) == "TSOT-23-6");
+  InventoryItem tmeSot;
+  tmeSot.parameters = {{"Package / Case", "SOT23"}};
+  InventoryItem digikeySot;
+  digikeySot.parameters = {{"Supplier Device Package", "SOT-23 (TO-236)"}};
+  assert(label_printer_detail::shortPackageLine(tmeSot) == "SOT-23");
+  assert(label_printer_detail::shortPackageLine(digikeySot) == "SOT-23");
+}
+
 void testLabelTextScannersAreLinear() {
   // Bracketed metric in a tile value; a non-matching suffix must not match.
   assert(labelTileValue("0.472\" (12.50 mm)") == "12.5mm");
@@ -7913,7 +8720,8 @@ void testLabelTextScannersAreLinear() {
   assert(label_printer_detail::shortPackageLine(footprint).find("mm") == string::npos);
   footprint.parameters = {{"Size / Dimension", digits + " mm x 2mm"}};
   const auto longSize = label_printer_detail::shortPackageLine(footprint);
-  assert(!longSize.empty() && longSize.size() <= 12);
+  // A size too long for the line is left off rather than clipped, so the line is empty or whole.
+  assert(longSize.size() <= 12 && longSize.find("...") == string::npos);
   assert(voltageTile(digits).empty());
   assert(voltageTile("1" + string(1000000, ' ')).empty());
 }
@@ -7953,7 +8761,7 @@ void testDielectricNeverComesFromMountingType() {
                              {"Height - Seated (Max)", "0.472\" (12.00mm)"}};
   const auto electrolyticPlan = service.buildLabelPlan(electrolytic);
   assert(labelTile(electrolyticPlan, "DIELECTRIC").empty());
-  assert(labelTile(electrolyticPlan, "VOLTAGE") == "16 V");
+  assert(labelTile(electrolyticPlan, "VOLTAGE") == "16V");
   assert(labelTile(electrolyticPlan, "TEMP") == u8"-40 to 85\u00B0C");
   assert(labelTile(electrolyticPlan, "HEIGHT") == "12mm");
   assert(electrolyticPlan.parameters.size() == 3);
@@ -7991,7 +8799,7 @@ void testDielectricNeverComesFromMountingType() {
   assert(labelTile(mismatchedPlan, "VOLTAGE").empty());
   assert(labelTile(mismatchedPlan, "TEMP").empty());
   assert(labelTile(mismatchedPlan, "HEIGHT").empty());
-  assert(labelTile(mismatchedPlan, "ESR") == u8"50 m\u03A9");
+  assert(labelTile(mismatchedPlan, "ESR") == u8"50m\u03A9");
 
   // Short names match whole: "Type" never picks up "Mounting Type".
   InventoryItem regulator;
@@ -8038,9 +8846,9 @@ void testDiscreteSemiconductorKinds() {
                          {"Supplier Device Package", "DO-214AB (SMC)"}};
   const auto schottkyPlan = service.buildLabelPlan(schottky, "R3-A3");
   assert(schottkyPlan.mainValue == "CDBC560-G");
-  assert(labelTile(schottkyPlan, "VR") == "60 V");
+  assert(labelTile(schottkyPlan, "VR") == "60V");
   assert(labelTile(schottkyPlan, "IO") == "5A");
-  assert(labelTile(schottkyPlan, "VF") == "750 mV");
+  assert(labelTile(schottkyPlan, "VF") == "750mV");
   assert(labelTile(schottkyPlan, "TECH") == "Schottky");
   const auto schottkyZpl = service.buildZpl(schottky, "R3-A3");
   assert(schottkyZpl.find("641-1127") == string::npos);
@@ -8062,7 +8870,7 @@ void testDiscreteSemiconductorKinds() {
                     {"Mounting Type", "Surface Mount"}};
   const auto fetPlan = service.buildLabelPlan(fet, "R6-A2");
   assert(fetPlan.parameters.size() == 4);
-  assert(labelTile(fetPlan, "VDS") == "30 V");
+  assert(labelTile(fetPlan, "VDS") == "30V");
   assert(labelTile(fetPlan, "ID") == "5A");
   assert(labelTile(fetPlan, "RDS(ON)") == u8"29m\u03A9");
   assert(labelTile(fetPlan, "VGS(TH)") == "1.1V");
@@ -8108,7 +8916,7 @@ void testDiscreteSemiconductorKinds() {
                         {"Response Time", "Fast Blow"}};
   const auto fusePlan = service.buildLabelPlan(smdFuse);
   assert(fusePlan.parameters.size() == 4);
-  assert(labelTile(fusePlan, "VDC") == "63 V" && labelTile(fusePlan, "SPEED") == "Fast Blow");
+  assert(labelTile(fusePlan, "VDC") == "63V" && labelTile(fusePlan, "SPEED") == "Fast Blow");
 
   InventoryItem timer;
   timer.partName = "IC OSC SNGL TIMER 100KHZ 8-SOIC";
@@ -13298,6 +14106,16 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},
     {"tme", "TmeItemsAutoPlaceInRacks", testTmeItemsAutoPlaceInRacks},
     {"tme", "TmeScannedPartLabelPlan", testTmeScannedPartLabelPlan},
+    {"tme", "TmeDigiKeyLabelParity", testTmeDigiKeyLabelParity},
+    {"tme", "TmeVocabularyMapsKinds", testTmeVocabularyMapsKinds},
+    {"tme", "TmeRecordConflictGuard", testTmeRecordConflictGuard},
+    {"tme", "TmeRackAndHeaderIgnoreSpecifications", testTmeRackAndHeaderIgnoreSpecifications},
+    {"label", "LabelsReadTmeValues", testLabelsReadTmeValues},
+    {"label", "LabelTilesIgnoreRecordOrder", testLabelTilesIgnoreRecordOrder},
+    {"label", "LabelTilesFollowConcepts", testLabelTilesFollowConcepts},
+    {"label", "ParameterNamesStayApart", testParameterNamesStayApart},
+    {"label", "PackageLineIsNeverClipped", testPackageLineIsNeverClipped},
+    {"label", "UnitsManufacturersAndPackagesAgree", testUnitsManufacturersAndPackagesAgreeAcrossVendors},
     {"tme", "TmeSearchTokens", testTmeSearchTokens},
     {"tme", "TmeDetailParsing", testTmeDetailParsing},
     {"tme", "TmeMergeFillsEnrichment", testTmeMergeFillsEnrichment},
