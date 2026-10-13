@@ -336,6 +336,31 @@ and status for unrelated files or generated output.
   for bullet points, and hanging indentation for wrapped items). Keep release
   notes clean, standard Markdown without raw HTML or unbounded ASCII art.
 
+## Vendor data and label units
+
+Label text is built from supplier records (TME, DigiKey and any vendor added later), and the same part must print the
+same way whichever vendor supplied it. These rules apply to every vendor, not only the ones already supported.
+
+- Units are normalised once, in the shared label code, not in a vendor's parser. A parser passes the vendor's value
+  through with its unit, and never prints a scaled or base-unit form of its own. `normalizedUnitValue`
+  (`src/label_printer/core/LabelPrinterDetails.cpp`) gives every quantity one form:
+  - the figure has no space before its unit: `16V`, `600mV`, `1.5µH`, `26mΩ`;
+  - the SI prefix is the one that leaves a mantissa from 1 to 999, so `0.25W` and `250 mW` both print `250mW`, and
+    `0.6kV` prints `600V`;
+  - capacitance is the exception, because electrolytics are written in µF: F from 1 F, mF from 100 mF, µF below that,
+    then nF and pF (`4700µF`, `100nF`);
+  - a range has one prefix for both ends (`3.8 to 32V`, `100 to 600mV`).
+  A value the rule does not own, such as `Ø5x11mm`, `±20%`, `2000h` or `-40 to 85°C`, is printed as the vendor sent it.
+- Package names: when two vendors name one package differently, add the pair to the alias table in
+  `canonicalPackageName`, so both print the one name. A lead style (`Radial`, `Axial`) is not a package. A cylinder
+  prints its diameter (`Ø5mm`), because the vendors do not both give a body length.
+- Manufacturer names: print the full name when it fits at the largest size. Otherwise cut it to its leading word
+  (`Panasonic Industry` prints `Panasonic`) before printing any name in smaller type. The short brand names (ST, TI, ADI)
+  are tried last.
+- A new vendor is covered by adding its records to the parity fixture (`tests/fixtures/tme-digikey-parity.tsv`) and
+  checking the difference list. A difference in units or package spelling is a rule to fix here. Only a real data
+  difference, such as a different test point, may be exempted, and the exemption gives the reason.
+
 ## Generated, local, and vendor artifacts
 
 Do not edit or commit generated/local output such as `build/`, `build-*/`,

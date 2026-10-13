@@ -39,6 +39,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Scan: a label for a new part prints after DigiKey or TME has supplied its details. Earlier versions printed it at once,
   so the label showed only "Unsorted" and the scanned name. When neither supplier finds the part, no label prints.
+- Labels: a part still named by its supplier's description prints its part number instead. A new part's label shows
+  the rack slot it was placed in. A fuse label shows its maximum voltage, maximum current and power, as well as its rating.
+- Labels: a TME resistance prints its ohm sign once. An asymmetric tolerance prints as its two limits (-20/+80%).
+  A diode label shows whether it is a Schottky or a standard diode before its surge rating. A transistor label shows
+  its polarity or channel, its gain and its power. A microcontroller label shows its core, clock and memory.
+  A label caption uses the symbol a part's name gives (VF for a forward voltage), so long names no longer fill a tile.
+  An LED's operating voltage is shown as its forward voltage.
+- Labels: an LED's colour is the colour of its light. A label no longer shows the lens colour in its place, and an LED shows
+  its colour, forward voltage, intensity and viewing angle, the same from DigiKey and TME.
+- Labels: no caption is cut short. A long caption uses a short form (INTENSITY, Z, DCR), or its tile is left off.
+- Labels: a colour starts with a capital letter, so TME's "green" prints as Green.
+- Labels: a value prints the same way whichever supplier sent it. Volts, amps, watts and ohms use one scale and no
+  space before the unit (0.25W from one supplier and 250 mW from another both print 250mW). Capacitance stays in µF,
+  so 4700µF is not written as 4.7mF.
+- Labels: a long manufacturer name prints its first word (Panasonic Industry prints Panasonic), not the full name in
+  smaller type.
+- Labels: a radial or axial part shows its body diameter (Ø5mm) instead of its lead style, and the same package has the
+  same name from every supplier: DO41 and DO-204AL print DO-41, and TSOT26 prints TSOT-23-6.
+- Labels: a package or size too long for its line shows its first word or its footprint (6.6x5.1mm). It is never cut
+  off with dots.
+- Labels: a part without a specific label layout shows its figures by what they measure (colour, voltage, current,
+  power, frequency, temperature), not in the order its supplier lists them. A tolerance is never printed as a frequency.
+- Labels: a supply range marked DC (± 2.25 to 20V DC) prints without the DC, so it fits its tile. A minimum and a
+  maximum print as one range (3.8 to 32V).
+- Labels: a timer or other IC is no longer taken for a crystal because its type mentions an oscillator.
+- Stock: when a DigiKey or TME record is merged, a parameter is overwritten only by the parameter of the same name. A
+  mounting type no longer replaces a part's type, and a lens colour no longer replaces an LED's colour.
+- Racks: a sensor, a microcontroller or a part that lists its interfaces is no longer placed by those words in its
+  specification list. An LED is an indicator even when TME lists it as a diode type.
+- TME: a record whose resistance, capacitance or inductance disagrees with the stored part is not merged, and the
+  refresh reports it. A part number listed by several makers is matched to the part's own maker, and a part number is
+  matched without its punctuation, as DigiKey matches it.
 - Projects: a part number matches a whole word of a stock name, so LM358 no longer matches LM3585.
 - Projects: footprints named like EasyEDA's (R0402, C0402_NEW) and IPC names (CAPC1608X90N) match stock of the same package.
 - Projects: finishing a build checks the stock first. If a part changed or has fewer units than the build takes, nothing
