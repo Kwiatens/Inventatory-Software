@@ -54,9 +54,11 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
     return false;
   };
 
+  // The vendor's description says what the part is. A parameter's value does not: a 555 timer's "Type" reads
+  // "Timer/Oscillator", which must not make it a crystal.
   if (textMatches(item.category) || textMatches(displayCategory(item.category)) || textMatches(item.partName) ||
       textMatches(item.manufacturer) || textMatches(item.location) || textMatches(item.notes) ||
-      textMatches(item.digikeyPartNumber) || textMatches(item.sku)) {
+      textMatches(item.digikeyPartNumber) || textMatches(item.sku) || textMatches(item.vendorMetadata.title)) {
     return true;
   }
 
@@ -67,7 +69,7 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
   }
 
   for (const auto& parameter : item.parameters) {
-    if (textMatches(parameter.name) || textMatches(parameter.value)) {
+    if (textMatches(parameter.name)) {
       return true;
     }
   }

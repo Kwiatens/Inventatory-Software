@@ -34,16 +34,30 @@ string shortParameterLabel(const string& label) {
   if (key.find("capacitance") != string::npos || key == "value") {
     return "C";
   }
+  // DC resistance is the coil's DCR, not the resistance of a resistor; the rule comes before the plain resistance one.
+  if (key.find("dcresistance") != string::npos || key == "dcr") {
+    return "DCR";
+  }
   if (key.find("resistance") != string::npos) {
     return "R";
   }
   if (key.find("inductance") != string::npos) {
     return "L";
   }
+  if (key.find("impedance") != string::npos) {
+    return "Z";
+  }
+  // Luminous intensity is measured in candela, and its value already carries the unit (35mcd).
+  if (key.find("luminous") != string::npos || key.find("luminosity") != string::npos ||
+      key.find("millicandela") != string::npos || key.find("candela") != string::npos) {
+    return "INTENSITY";
+  }
   if (key.find("power") != string::npos || key.find("watts") != string::npos) {
     return "Pwr";
   }
-  if (key.find("reversevoltage") != string::npos || key == "vr") {
+  if ((key.find("reversevoltage") != string::npos ||
+       (key.find("reverse") != string::npos && key.find("voltage") != string::npos && key.find("standoff") == string::npos)) ||
+      key == "vr") {
     return "Vr";
   }
   if (key.find("operatingvoltage") != string::npos || key.find("voltagerated") != string::npos ||
@@ -59,7 +73,8 @@ string shortParameterLabel(const string& label) {
   if (key.find("voltageinput") != string::npos || key == "vin") {
     return "Vin";
   }
-  if (key.find("forwardvoltage") != string::npos || key == "vf") {
+  // The words come in either order: "Voltage - Forward (Vf)" and "Forward Voltage" are the same caption.
+  if ((key.find("forward") != string::npos && key.find("voltage") != string::npos) || key == "vf") {
     return "Vf";
   }
   if (key.find("reversestandoff") != string::npos) {
@@ -168,6 +183,17 @@ string shortParameterLabel(const string& label) {
     return "Pkg";
   }
 
+  // DigiKey names often give the symbol in brackets: "Current - Average Rectified (Io)" is Io, and "Voltage - Forward
+  // (Vf) (Typ)" is Vf. A bracket with a qualifier (Typ, Max) or a lower-case term such as "(th)" is not a symbol.
+  for (auto open = label.find('('); open != string::npos; open = label.find('(', open + 1)) {
+    const auto close = label.find(')', open);
+    if (close == string::npos) break;
+    const auto symbol = label.substr(open + 1, close - open - 1);
+    const bool isSymbol = symbol.size() <= 6 && !symbol.empty() &&
+                          all_of(symbol.begin(), symbol.end(), [](unsigned char c) { return isalnum(c) != 0; }) &&
+                          any_of(symbol.begin(), symbol.end(), [](unsigned char c) { return isupper(c) != 0; });
+    if (isSymbol && symbol != "Max" && symbol != "Min" && symbol != "Typ" && symbol != "Nom") return symbol;
+  }
   return trim(label);
 }
 
@@ -212,6 +238,13 @@ string normalizeResistanceValue(string value) {
   value = trim(value);
   if (value.empty()) {
     return {};
+  }
+  // TME writes the unit itself ("1.5k\u03A9"); a second one would print "1.5k\u03A9\u03A9".
+  const auto endsWithUnit = [&](const string& unit) {
+    return value.size() >= unit.size() && value.compare(value.size() - unit.size(), unit.size(), unit) == 0;
+  };
+  if (endsWithUnit(u8"\u03A9") || endsWithUnit(u8"\u2126")) {
+    return value;
   }
 
   return value + u8"\u03A9";
