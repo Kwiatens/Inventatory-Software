@@ -272,12 +272,20 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
     manufacturerX = kLeft + pillWidth + 6;
   }
   if (!plan.manufacturerLine.empty()) {
-    // The full name when it fits; otherwise drop corporate suffixes
-    // ("Infineon Technologies" -> "Infineon") before anything is cut.
+    // The full name when it fits at the largest size. Otherwise the name is cut to its leading words ("Infineon
+    // Technologies" -> "Infineon", "Panasonic Industry" -> "Panasonic") before any name is printed in smaller type. Only
+    // when no word cut fits is the name reduced in size, and then the short brand names are tried.
     const auto available = kLeft + kLeftColumnWidth - manufacturerX;
     const auto candidates = manufacturerCandidates(plan.manufacturerLine);
     FittedLabelText manufacturer;
+    bool whole = false;
+    for (const auto& candidate : manufacturerWordCandidates(plan.manufacturerLine)) {
+      manufacturer = fitFont0Text(candidate, available, {16});
+      whole = manufacturer.text == sanitizeLabelText(candidate);
+      if (whole) break;
+    }
     for (const auto& candidate : candidates) {
+      if (whole) break;
       manufacturer = fitFont0Text(candidate, available, {16, 15, 14, 13, 12});
       if (manufacturer.text == sanitizeLabelText(candidate)) break;
     }
