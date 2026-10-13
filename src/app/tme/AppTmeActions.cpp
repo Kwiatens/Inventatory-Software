@@ -151,7 +151,7 @@ bool App::enqueueTmeScanLookup(const string& itemId, const string& symbol) {
     tmeRefreshClient_ = make_unique<TmeApiClient>(config);
     tmeRefreshGeneration_ = context->generation;
   }
-  tmeRefreshQueue_.emplace_back(itemId, TmeIdentifier{true, symbol});
+  tmeRefreshQueue_.emplace_back(itemId, TmeIdentifier{true, symbol, {}});
   ++tmeRefreshTotal_;
   dirty_ = true;
   return true;
@@ -176,8 +176,15 @@ void App::processTmeRefresh() {
       if (item == nullptr) {
         ++tmeRefreshErrors_;
         tmeRefreshLastError_ = "An inventory item disappeared during refresh";
+      } else if (const auto conflict = app_actions::tmeRecordConflict(*item, *result.details); !conflict.empty()) {
+        // The record describes a different part than the stored one, so nothing from it is merged.
+        ++tmeRefreshErrors_;
+        tmeRefreshLastError_ = "TME's " + conflict + " for " + item->partName + " disagrees with the stored part; not merged";
+        logActivity("sync", tmeRefreshLastError_);
       } else {
         if (app_actions::mergeTmeMetadata(*item, *result.details)) tmeRefreshChanged_ = true;
+        // A label printed next must show the slot the merged part is placed in; saving would place it too late.
+        if (reconcileRackAssignment(store_, *item)) tmeRefreshChanged_ = true;
         ++tmeRefreshSucceeded_;
       }
     } else {
@@ -226,7 +233,8 @@ void App::processTmeRefresh() {
     TmeLookupOutcome outcome = TmeLookupOutcome::Failed;
     try {
       result.details = identifier.isSymbol ? client->lookupBySymbol(identifier.value, outcome, &result.error)
-                                           : client->lookupByPartNumber(identifier.value, outcome, &result.error);
+                                           : client->lookupByPartNumber(identifier.value, outcome, &result.error,
+                                                                        identifier.manufacturer);
     } catch (...) {
       result.details.reset();
       result.error = "TME lookup failed unexpectedly";

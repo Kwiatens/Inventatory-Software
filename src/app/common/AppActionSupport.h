@@ -9,6 +9,7 @@
 #include "App.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "core/parts/PhysicalValue.h"
 #include "platform/tme/TmeApi.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -136,6 +137,21 @@ inline vector<Parameter> parseParameters(const string& text) {
   return values;
 }
 
+// The names that stand for the item's package case: DigiKey lists "Package / Case" and the stored package is "Package".
+// The supplier's device package ("Supplier Device Package") is a separate parameter and is not one of them.
+inline bool isPackageParameterName(const string& name) {
+  const auto key = normalizeKey(name);
+  return key == "package" || key == "packagecase" || key == "casepackage";
+}
+
+// A vendor value replaces a stored one only for the same parameter. A longer name that starts with the same words is a
+// different parameter: a DigiKey "Lens Color" must not overwrite the LED's "Color".
+inline bool isSameParameterName(const string& stored, const string& name) {
+  const auto key = normalizeKey(name);
+  if (!key.empty() && normalizeKey(stored) == key) return true;
+  return isPackageParameterName(stored) && isPackageParameterName(name);
+}
+
 inline bool upsertParameter(vector<Parameter>& parameters, const string& name, const string& value) {
   const auto trimmedValue = trim(value);
   if (trimmedValue.empty()) {
@@ -143,7 +159,7 @@ inline bool upsertParameter(vector<Parameter>& parameters, const string& name, c
   }
 
   for (auto& parameter : parameters) {
-    if (parameterLabelMatches(parameter.name, name)) {
+    if (isSameParameterName(parameter.name, name)) {
       if (parameter.name.empty()) {
         parameter.name = name;
       }
@@ -320,13 +336,30 @@ inline bool setTmeSymbol(InventoryItem& item, const string& symbol) {
 
 // What a TME refresh looks up for an item: a TME symbol the item already carries, else its manufacturer part
 // number, else its SKU. A SKU is often a supplier order number (a DigiKey code, for example) that TME does not
-// know, so the part number comes first. The result is matched exactly.
+// know, so the part number comes first. The result is matched exactly; the item's manufacturer tells apart TME products
+// that share the part number.
 inline TmeIdentifier tmeRefreshIdentifier(const InventoryItem& item) {
-  if (const auto symbol = tmeProductSymbol(item); !symbol.empty()) return {true, symbol};
+  if (const auto symbol = tmeProductSymbol(item); !symbol.empty()) return {true, symbol, {}};
   if (const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber); !partNumber.empty()) {
-    return {false, partNumber};
+    return {false, partNumber, trim(item.manufacturer)};
   }
-  return {false, trim(item.sku)};
+  return {false, trim(item.sku), trim(item.manufacturer)};
+}
+
+// The measured value a TME record gives for a part the item already describes (resistance, capacitance, inductance)
+// must agree with the stored value. A record that clearly disagrees is a different part, perhaps listed under the same
+// part number, and merging it would put the wrong values on the item. Returns the name of the disagreeing parameter, or
+// empty when the record agrees or has nothing to compare.
+inline string tmeRecordConflict(const InventoryItem& item, const TmeProductDetails& details) {
+  for (const auto& parameter : details.parameters) {
+    if (parameter.name != "Resistance" && parameter.name != "Capacitance" && parameter.name != "Inductance") continue;
+    for (const auto& stored : item.parameters) {
+      if (stored.name != parameter.name || trim(stored.value).empty()) continue;
+      const auto comparison = comparePhysicalValues(parameter.value, stored.value);
+      if (comparison && comparison->band == PhysicalValueMatchBand::None) return parameter.name;
+    }
+  }
+  return {};
 }
 
 inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetails& details) {

@@ -50,10 +50,12 @@ struct TmeProductDetails {
 };
 
 // The identifier a TME lookup uses: a TME symbol, or a manufacturer part number that is searched and matched
-// exactly. An empty value means there is nothing to look up.
+// exactly. An empty value means there is nothing to look up. The manufacturer, when known, tells apart several TME
+// products that share a part number.
 struct TmeIdentifier {
   bool isSymbol = false;
   std::string value;
+  std::string manufacturer;
 };
 
 // Why a lookup produced no details. NoMatch and Ambiguous are answers from TME; Failed covers transport,
@@ -85,9 +87,14 @@ bool parseTmeStockAndPriceResponse(const std::string& body, const std::string& s
 std::string tmeProductPageUrl(const std::string& symbol);
 // True for the TME statuses that mean the token or the credentials were rejected.
 bool isTmeAuthorizationStatus(const std::string& status);
-// True when one of the product's manufacturer part numbers equals the given one (case and surrounding spaces
-// ignored).
+// True when one of the product's manufacturer part numbers is the given one. Letter case and punctuation are ignored, so
+// "ERJ-6ENF2002V" and "ERJ6ENF2002V" are the same part number.
 bool tmePartNumberMatches(const std::string& partNumber, const TmeProductDetails& product);
+// Picks the product a part number means when TME lists several products under it. The manufacturer, when given, keeps
+// only the products of that manufacturer; then the one whose TME symbol is the part number is taken. Returns the index
+// of the chosen product, or matches.size() when no single product can be told apart: the answer is then ambiguous.
+std::size_t chooseTmeCandidate(const std::vector<TmeProductDetails>& matches, const std::string& partNumber,
+                               const std::string& manufacturer);
 
 // TME API v2 client. It requests an access token with the token and application secret (OAuth 2.0 client
 // credentials, HTTP Basic), then makes bearer-authenticated product requests.
@@ -109,10 +116,12 @@ class TmeApiClient {
 
   std::optional<TmeProductDetails> lookupBySymbol(const std::string& symbol, TmeLookupOutcome& outcome,
                                                   std::string* error = nullptr);
-  // Looks the part number up by manufacturer part number, then accepts only a single product whose part numbers
-  // include it exactly. Several matches are reported as Ambiguous and change nothing.
+  // Looks the part number up by manufacturer part number, then accepts a single product whose part numbers include
+  // it, or the one chooseTmeCandidate picks. A product that still cannot be told apart is reported as Ambiguous and
+  // changes nothing.
   std::optional<TmeProductDetails> lookupByPartNumber(const std::string& partNumber, TmeLookupOutcome& outcome,
-                                                      std::string* error = nullptr);
+                                                      std::string* error = nullptr,
+                                                      const std::string& manufacturer = std::string());
 
  private:
   // The cached access token, or a new one when there is none or it is about to expire.
