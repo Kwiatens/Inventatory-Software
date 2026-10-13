@@ -19,6 +19,7 @@
 #include "platform/security/CredentialStore.h"
 #include "platform/system/Environment.h"
 #include "platform/tme/TmeEncoding.h"
+#include "platform/tme/TmeVocabulary.h"
 
 #include <algorithm>
 #include <cctype>
@@ -176,16 +177,6 @@ string productStatusText(const string& flag) {
   return flag;
 }
 
-// Parameter names that the rest of the app reads under the name DigiKey uses. Other TME names are kept as sent.
-string appParameterName(const string& name) {
-  if (name == "Mounting") return "Mounting Type";
-  if (name == "Kind of package") return "Packaging";
-  if (name == "Manufacturer series") return "Series";
-  if (name == "Operating voltage") return "Operating Voltage";
-  if (name == "Operating temperature") return "Operating Temperature";
-  return name;
-}
-
 // The text of a parameter's values. TME lists each value with an id; several values are joined.
 string parameterValueText(const JsonPtr& parameter) {
   const auto* values = memberArray(parameter, "values");
@@ -248,12 +239,76 @@ bool isTmeAuthorizationStatus(const string& status) {
          upper.find("FORBIDDEN") != string::npos;
 }
 
+// A part number with its letter case and punctuation removed: the form in which TME and the distributors agree.
+string partNumberKey(const string& partNumber) {
+  string key;
+  for (const unsigned char character : partNumber) {
+    if (isalnum(character)) key += static_cast<char>(toupper(character));
+  }
+  return key;
+}
+
+// The manufacturer's name without the company suffixes, in the form the two catalogues agree on ("Littelfuse Inc." and
+// "LITTELFUSE" are one maker). Empty for a placeholder such as "Unknown".
+string manufacturerKey(const string& manufacturer) {
+  static const char* const suffixes[] = {"inc", "incorporated", "corp", "corporation", "co", "ltd", "limited", "llc",
+                                         "gmbh", "sa", "plc", "the"};
+  string words;
+  string word;
+  const auto flush = [&]() {
+    if (!word.empty() && find(begin(suffixes), end(suffixes), word) == end(suffixes)) words += word + " ";
+    word.clear();
+  };
+  for (const unsigned char character : manufacturer) {
+    if (isalnum(character)) {
+      word += static_cast<char>(tolower(character));
+    } else {
+      flush();
+    }
+  }
+  flush();
+  if (words.empty() || words == "unknown ") return {};
+  return words;
+}
+
 bool tmePartNumberMatches(const string& partNumber, const TmeProductDetails& product) {
-  const auto wanted = upperCase(trim(partNumber));
+  const auto wanted = partNumberKey(partNumber);
   if (wanted.empty()) return false;
-  const auto equalsWanted = [&](const string& stored) { return upperCase(trim(stored)) == wanted; };
+  const auto equalsWanted = [&](const string& stored) { return partNumberKey(stored) == wanted; };
   if (equalsWanted(product.vendorMetadata.manufacturerPartNumber)) return true;
   return any_of(product.manufacturerPartNumbers.begin(), product.manufacturerPartNumbers.end(), equalsWanted);
+}
+
+size_t chooseTmeCandidate(const vector<TmeProductDetails>& matches, const string& partNumber,
+                          const string& manufacturer) {
+  vector<size_t> candidates;
+  for (size_t index = 0; index < matches.size(); ++index) candidates.push_back(index);
+  // The part is the one the item's manufacturer makes. When no candidate is from that manufacturer, none can be
+  // chosen: the product TME means is not in its list.
+  if (const auto wanted = manufacturerKey(manufacturer); !wanted.empty()) {
+    vector<size_t> sameMaker;
+    for (const auto index : candidates) {
+      if (manufacturerKey(matches[index].manufacturerName) == wanted) sameMaker.push_back(index);
+    }
+    if (sameMaker.empty()) return matches.size();
+    candidates = sameMaker;
+    if (candidates.size() == 1) return candidates.front();
+  }
+  // Among one maker's products, the one that carries the part number as its own symbol is the part itself; the others
+  // are alternative symbols and packagings of the same MPN. The exact symbol is preferred over one that matches only
+  // without punctuation.
+  const auto wanted = upperCase(trim(partNumber));
+  const auto symbolKey = partNumberKey(partNumber);
+  for (const bool exact : {true, false}) {
+    vector<size_t> bySymbol;
+    for (const auto index : candidates) {
+      const auto& symbol = matches[index].vendorMetadata.providerProductNumber;
+      if (exact ? upperCase(trim(symbol)) == wanted : partNumberKey(symbol) == symbolKey) bySymbol.push_back(index);
+    }
+    if (bySymbol.size() == 1) return bySymbol.front();
+    if (!bySymbol.empty()) break;
+  }
+  return matches.size();
 }
 
 bool parseTmeProductResponse(const string& body, vector<TmeProductDetails>& products, string* error) {
@@ -305,8 +360,13 @@ bool parseTmeProductResponse(const string& body, vector<TmeProductDetails>& prod
       product.manufacturerName = firstText(record, {"manufacturer", "producer", "Producer"});
     }
     product.productDescription = firstText(record, {"description", "Description"});
-    product.categoryName = trim(readStringPath(record, {"category", "name"}).value_or(""));
-    if (product.categoryName.empty()) product.categoryName = firstText(record, {"category", "Category"});
+    // TME names the leaf category ("SMD resistors"); the part is classified under the DigiKey family it belongs to.
+    auto leafCategory = trim(readStringPath(record, {"category", "name"}).value_or(""));
+    if (leafCategory.empty()) leafCategory = firstText(record, {"category", "Category"});
+    product.categoryName = tmeCategoryFamily(leafCategory);
+    if (product.categoryName.empty()) product.categoryName = leafCategory;
+    // The vendor's category path holds the same family DigiKey's does, which the label and rack rules read.
+    product.vendorMetadata.categoryPath = product.categoryName.empty() ? vector<string>() : vector<string>{product.categoryName};
     // product_status lists the flags that apply; the part cannot be ordered when TME says so.
     if (const auto* flags = memberArray(record, "product_status"); flags != nullptr) {
       string joined;
@@ -323,7 +383,6 @@ bool parseTmeProductResponse(const string& body, vector<TmeProductDetails>& prod
       product.vendorMetadata.categoryId = firstText(*category, {"id"});
     }
     product.vendorMetadata.title = product.productDescription;
-    if (!product.categoryName.empty()) product.vendorMetadata.categoryPath = {product.categoryName};
     products.push_back(move(product));
   }
   if (products.empty() && !firstRecordFields.empty()) {
@@ -364,13 +423,16 @@ bool parseTmeParameterResponse(const string& body, const string& symbol, TmeProd
     } else if (name == "Case") {
       caseName = value;
     } else if (name != "Manufacturer") {  // the manufacturer comes from the product record
-      product.parameters.push_back({appParameterName(name), value});
+      for (auto& parameter : tmeParameters(name, value, product.categoryName)) {
+        product.parameters.push_back(move(parameter));
+      }
     }
   }
   // The package reads as DigiKey prints it: the inch size with the metric size, or the case name when TME gives one.
   string package = caseInch;
   if (!caseInch.empty() && !caseMillimetre.empty()) package += " (" + caseMillimetre + " Metric)";
-  if (package.empty()) package = caseName;
+  // A one-letter case code is TME's internal code (for example "F"), not a package name.
+  if (package.empty() && caseName.size() >= 2) package = caseName;
   if (!package.empty()) {
     product.packageName = package;
     product.parameters.push_back({"Package / Case", package});
@@ -614,36 +676,52 @@ optional<TmeProductDetails> TmeApiClient::lookupBySymbol(const string& symbol, T
 }
 
 optional<TmeProductDetails> TmeApiClient::lookupByPartNumber(const string& partNumber, TmeLookupOutcome& outcome,
-                                                             string* error) {
+                                                             string* error, const string& manufacturer) {
   outcome = TmeLookupOutcome::Failed;
   const auto identifier = trim(partNumber);
   if (identifier.empty() || identifier.size() > kMaximumTmeIdentifierBytes) {
     setError(error, "TME part number is empty or too long");
     return nullopt;
   }
-  string body;
-  if (!getProducts({{"mpns[]", identifier}}, body, error)) return nullopt;
-  vector<TmeProductDetails> products;
-  if (!parseTmeProductResponse(body, products, error)) return nullopt;
+  // Asks TME for the products under a part number, keeping those whose part numbers match it.
+  const auto queryMatches = [&](const string& query, vector<TmeProductDetails>& matches) {
+    string body;
+    if (!getProducts({{"mpns[]", query}}, body, error)) return false;
+    vector<TmeProductDetails> products;
+    if (!parseTmeProductResponse(body, products, error)) return false;
+    for (auto& product : products) {
+      if (tmePartNumberMatches(identifier, product)) matches.push_back(move(product));
+    }
+    return true;
+  };
 
   vector<TmeProductDetails> matches;
-  for (auto& product : products) {
-    if (tmePartNumberMatches(identifier, product)) matches.push_back(move(product));
+  if (!queryMatches(identifier, matches)) return nullopt;
+  // TME keeps some part numbers without their punctuation (ERJ6ENF2002V, for ERJ-6ENF2002V), which DigiKey's lookup
+  // ignores. The same part is asked for in that form when TME has nothing under the number as written.
+  const auto compact = partNumberKey(identifier);
+  if (matches.empty() && !compact.empty() && compact != identifier) {
+    if (!queryMatches(compact, matches)) return nullopt;
   }
   if (matches.empty()) {
     outcome = TmeLookupOutcome::NoMatch;
     setError(error, "TME has no product with part number " + identifier);
     return nullopt;
   }
+  size_t chosen = 0;
   if (matches.size() > 1) {
-    outcome = TmeLookupOutcome::Ambiguous;
-    setError(error, "TME has several products with part number " + identifier);
-    return nullopt;
+    chosen = chooseTmeCandidate(matches, identifier, manufacturer);
+    if (chosen == matches.size()) {
+      outcome = TmeLookupOutcome::Ambiguous;
+      setError(error, "TME has several products with part number " + identifier);
+      return nullopt;
+    }
   }
-  matches.front().vendorMetadata.locale = config_.language;
-  if (!fetchProductDetails(matches.front(), error)) return nullopt;
+  TmeProductDetails product = move(matches[chosen]);
+  product.vendorMetadata.locale = config_.language;
+  if (!fetchProductDetails(product, error)) return nullopt;
   outcome = TmeLookupOutcome::Found;
-  return move(matches.front());
+  return product;
 }
 
 }  // namespace inventatory
