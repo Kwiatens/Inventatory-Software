@@ -133,6 +133,21 @@ bool hasParameter(const LabelContext& context, initializer_list<const char*> nam
   return false;
 }
 
+// True when the part's interface names one bus, as a transceiver does. A list of several buses ("CAN, I2C, SPI, LIN")
+// describes a controller that has them all, and is not a transceiver.
+bool hasSingleBusInterface(const LabelContext& context, initializer_list<const char*> buses) {
+  for (const auto& parameter : context.parameters) {
+    if (normalizedKey(parameter.name) != normalizedKey("Interface") || parameter.value.find(',') != string::npos) {
+      continue;
+    }
+    const auto value = normalizedKey(parameter.value);
+    for (const auto* bus : buses) {
+      if (value == normalizedKey(bus)) return true;
+    }
+  }
+  return false;
+}
+
 bool guardedTitleHas(const LabelContext& context, initializer_list<const char*> fragments) {
   const auto titleKey = normalizedKey(context.title);
   for (const auto* fragment : fragments) {
