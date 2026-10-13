@@ -26,6 +26,7 @@ bool hasExactCategory(const LabelContext& context, std::initializer_list<const c
 bool hasCategoryPhrase(const LabelContext& context, std::initializer_list<const char*> phrases);
 bool hasParameter(const LabelContext& context, std::initializer_list<const char*> names,
                   std::initializer_list<const char*> valueFragments = {});
+bool hasSingleBusInterface(const LabelContext& context, std::initializer_list<const char*> buses);
 bool guardedTitleHas(const LabelContext& context, std::initializer_list<const char*> fragments);
 std::string printAlias(std::string label);
 PartDescriptor resolved(std::string purposeLabel, std::string printLabel, PartLabelSource source);

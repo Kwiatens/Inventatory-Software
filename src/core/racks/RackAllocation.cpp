@@ -32,18 +32,43 @@ bool sameRackType(const string& lhs, const string& rhs) {
   return normalizedRackType(lhs) == normalizedRackType(rhs);
 }
 
+// True when the word stands alone in the text, so "led" is an LED and not the end of "controlled".
+bool containsWord(const string& text, const string& word) {
+  for (auto at = text.find(word); at != string::npos; at = text.find(word, at + 1)) {
+    const bool startsWord = at == 0 || !isalnum(static_cast<unsigned char>(text[at - 1]));
+    const auto end = at + word.size();
+    const bool endsWord = end >= text.size() || !isalnum(static_cast<unsigned char>(text[end]));
+    if (startsWord && endsWord) return true;
+  }
+  return false;
+}
+
+// The text that says what kind of part an item is: its category, name, notes and tags, and the parameters that name a
+// type, a function, a package or a mounting. A long list of specifications (interfaces, features, memory sizes) says
+// what a part can do, not what it is, so it is left out: "Interface: CAN, I2C" would make a microcontroller a bus part.
 string classificationText(const InventoryItem& item) {
+  static const vector<string> identityParameters = {
+      "mounting type", "package", "package / case", "supplier device package", "size / dimension", "type", "function",
+      "technology", "topology", "transistor type", "fet type", "diode type", "sensor type", "connector type",
+      "core processor", "output type", "channel type", "logic type", "amplifier type", "memory type", "reference type",
+      "filter type"};
   string text = item.category + " " + item.partName + " " + item.notes;
   for (const auto& tag : item.tags) text += " " + tag;
-  for (const auto& parameter : item.parameters) text += " " + parameter.name + " " + parameter.value;
+  for (const auto& parameter : item.parameters) {
+    const auto name = toLower(trim(parameter.name));
+    if (find(identityParameters.begin(), identityParameters.end(), name) != identityParameters.end()) {
+      text += " " + parameter.name + " " + parameter.value;
+    }
+  }
   return toLower(text);
 }
 
 bool isBulky(const string& text) {
+  // A cylinder with a diameter ("Ø8x10.2mm") is a can, which the rack does not hold, as DigiKey's "Radial, Can" is not.
   return containsAny(text, {"module", "development board", "dev board", "dev kit", "breakout", "evaluation board",
                             "esp32", "esp8266", "to-220", "to220", "to-247", "to247", "to-3 ", "to-3,",
                             "to-126", "to126", "to-218", "to218", "to-262", "to262", "to-263", "to263",
-                            "d2pak", "d-pak", "dpak", "power module"});
+                            "d2pak", "d-pak", "dpak", "power module", u8"ø", u8"Ø"});
 }
 
 bool hasThroughHoleEvidence(const string& text) {
@@ -101,8 +126,12 @@ optional<string> componentTypeFor(const InventoryItem& item) {
   if (containsAny(text, {"resistor", "resistors"})) return "Resistors";
   if (containsAny(text, {"capacitor", "capacitors"})) return "Capacitors";
   if (containsAny(text, {"inductor", "inductors", "choke", "coil"})) return "Inductors";
+  // An LED is checked before the diodes: a TME LED is listed as a "Diode Type" of LED.
+  if (containsAny(text, {"indicator", "indicators", "light emitting"}) || containsWord(text, "led") ||
+      containsWord(text, "leds")) {
+    return "Indicators";
+  }
   if (containsAny(text, {"diode", "diodes", "rectifier", "schottky", "zener", "tvs"})) return "Diodes";
-  if (containsAny(text, {"indicator", "indicators", " led", "led ", "light emitting"})) return "Indicators";
   if (containsAny(text, {"crystal", "oscillator", "resonator"})) {
     return "Timing";
   }
