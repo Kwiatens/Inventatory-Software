@@ -49,7 +49,56 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
 
   ftxui::Elements detailRows;
   auto self = const_cast<App*>(this);
-  if (editing) {
+  if (inputMode_ == InputMode::VendorPick) {
+    // The vendors that answered for the part, one block each. Each block shows what the vendor gives, and the
+    // highlighted vendor's preview lists what it would fill in.
+    const auto width = static_cast<size_t>(max(detailInnerWidth, 8));
+    detailRows.push_back(fullLine(ellipsize("Vendor for " + vendorLookupQuery_, width), uiTitleColor(), uiRowSelectedBg()));
+    detailRows.push_back(uiDivider());
+    for (size_t index = 0; index < vendorCandidates_.size(); ++index) {
+      const auto& candidate = vendorCandidates_[index];
+      const bool selected = index == vendorCandidateIndex_;
+      const string vendorName = candidate.provider == "digikey" ? "DigiKey" : "TME";
+      string facts;
+      for (const auto& fact : {candidate.manufacturer, candidate.packageName, candidate.stock, candidate.price}) {
+        if (trim(fact).empty()) continue;
+        facts += (facts.empty() ? "" : ", ") + trim(fact);
+      }
+      auto row = ftxui::vbox({
+                     styledText(ellipsize(vendorName + "  " + candidate.partNumber, width),
+                                selected ? uiTitleColor() : uiPrimaryText()),
+                     styledText(ellipsize(facts, width), uiMutedColor()),
+                 }) |
+                 ftxui::bgcolor(selected ? uiSelectionBg() : uiSurfaceBg());
+      if (selected) {
+        row = row | ftxui::select;
+      }
+      detailRows.push_back(target(row, "stock.vendor." + to_string(index), UiTargetKind::Button,
+                                  [self, index] { self->chooseVendorCandidate(index); }));
+    }
+    if (!vendorCandidates_.empty()) {
+      const auto& highlighted = vendorCandidates_[min(vendorCandidateIndex_, vendorCandidates_.size() - 1)];
+      vector<string> fills;
+      if (trim(workingCopy_.item.partName).empty() || workingCopy_.item.partName == "New Part") fills.push_back("part name");
+      if (trim(workingCopy_.item.manufacturer).empty() || workingCopy_.item.manufacturer == "Unknown") {
+        fills.push_back("manufacturer");
+      }
+      if (!highlighted.packageName.empty()) fills.push_back("package");
+      if (highlighted.parameterCount > 0) fills.push_back(to_string(highlighted.parameterCount) + " parameters");
+      if (highlighted.hasDatasheet) fills.push_back("datasheet");
+      if (!highlighted.price.empty()) fills.push_back("price");
+      string fillLine = "Fills in: ";
+      for (size_t index = 0; index < fills.size(); ++index) {
+        fillLine += (index == 0 ? "" : ", ") + fills[index];
+      }
+      if (fills.empty()) fillLine += "nothing new";
+      detailRows.push_back(styledText(ellipsize(fillLine, width), uiSecondaryText()));
+    }
+    for (const auto& note : vendorLookupNotes_) {
+      detailRows.push_back(styledText(ellipsize(note, width), uiSecondaryText()));
+    }
+    detailRows.push_back(styledText(ellipsize("Up/Down choose   Enter use this vendor   Esc back", width), uiMutedColor()));
+  } else if (editing) {
     const auto titleText = workingCopy_.isNew ? string("New part") : workingCopy_.item.partName;
     detailRows.push_back(fullLine(titleText, uiTitleColor(), uiRowSelectedBg()));
     detailRows.push_back(uiDivider());
@@ -75,6 +124,10 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       detailRows.push_back(target(row, "stock.field." + to_string(index), UiTargetKind::Field,
                                   [self, index] {
                                     self->fieldMenuIndex_ = static_cast<int>(index);
+                                    if (self->menuOptions_[index].field == EditField::VendorSource) {
+                                      self->beginVendorLookup();
+                                      return;
+                                    }
                                     self->inputBuffer_ = self->currentFieldValue(self->menuOptions_[index].field);
                                     self->inputMode_ = InputMode::EditValue;
                                     self->dirty_ = true;

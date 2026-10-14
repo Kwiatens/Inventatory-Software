@@ -65,6 +65,9 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::EditValue:
       handleEditValueKey(key);
       return;
+    case InputMode::VendorPick:
+      handleVendorPickKey(key);
+      return;
     case InputMode::RackRename:
     case InputMode::RackType:
     case InputMode::RackCreate:

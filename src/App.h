@@ -307,6 +307,7 @@ class App {
     ClosestSearch,
     EditFieldMenu,
     EditValue,
+    VendorPick,
     RackRename,
     RackType,
     RackCreate,
@@ -352,6 +353,7 @@ class App {
     ProductUrl,
     Sku,
     RackLocation,
+    VendorSource,
   };
 
   struct FieldOption {
@@ -536,6 +538,29 @@ class App {
     std::vector<std::string> failedItemIds;
     WorkspaceGeneration workspaceGeneration = 0;
     std::string unavailableReason;  // set when the worker could not start (no DigiKey credentials)
+  };
+
+  // A vendor lookup for a part added by hand: each configured vendor's answer for the part number. The user picks one
+  // vendor, which becomes the part's origin.
+  struct VendorLookupCandidate {
+    std::string provider;  // "digikey" or "tme"
+    std::string partNumber;
+    std::string manufacturer;
+    std::string packageName;
+    std::string description;
+    std::string stock;
+    std::string price;
+    size_t parameterCount = 0;
+    bool hasDatasheet = false;
+    std::optional<DigiKeyProductDetails> digiKey;
+    std::optional<TmeProductDetails> tme;
+  };
+
+  struct VendorLookupBatch {
+    std::string query;
+    std::vector<VendorLookupCandidate> candidates;
+    std::vector<std::string> notes;  // what a vendor did not answer, in words
+    WorkspaceGeneration workspaceGeneration = 0;
   };
 
   void loadState();
@@ -865,6 +890,10 @@ class App {
   void finishCsvImport(bool syncWithDigiKey);
   void beginImportSync(bool retryFailed = false);
   void processImportSync();
+  void beginVendorLookup();
+  void processVendorLookup();
+  void chooseVendorCandidate(size_t index);
+  void handleVendorPickKey(const KeyEvent& key);
   void retryImportSync();
   CsvImportCandidate* currentImportCandidate();
   const CsvImportCandidate* currentImportCandidate() const;
@@ -1036,6 +1065,11 @@ class App {
   int importSyncedCount_ = 0;
   int importSyncFailedCount_ = 0;
   std::future<ImportSyncBatchResult> importSyncFuture_;
+  std::future<VendorLookupBatch> vendorLookupFuture_;
+  std::vector<VendorLookupCandidate> vendorCandidates_;
+  std::vector<std::string> vendorLookupNotes_;
+  std::string vendorLookupQuery_;
+  size_t vendorCandidateIndex_ = 0;
   std::shared_ptr<std::atomic<bool>> importSyncCancelFlag_;
   std::vector<std::string> importSyncFailedItemIds_;
   size_t importSyncTotal_ = 0;
