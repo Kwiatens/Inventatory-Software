@@ -69,6 +69,8 @@ string App::fieldLabel(EditField field) const {
       return "SKU";
     case EditField::RackLocation:
       return "Rack location";
+    case EditField::VendorSource:
+      return "Vendor";
   }
   return "Field";
 }
@@ -118,6 +120,12 @@ string App::currentFieldValue(EditField field) const {
       return item->productUrl;
     case EditField::Sku:
       return item->sku;
+    case EditField::VendorSource: {
+      const auto origin = originProvider(*item);
+      if (origin == "digikey") return "DigiKey";
+      if (origin == "tme") return "TME";
+      return "Not set";
+    }
     case EditField::RackLocation: {
       const auto location = rackLocation(*item, store_.racks());
       return location.empty() ? (item->rackAssignment == RackAssignmentMode::Automatic ? "AUTO" : "") : location;
@@ -129,6 +137,7 @@ string App::currentFieldValue(EditField field) const {
 
 vector<App::FieldOption> App::fieldOptions() const {
   return {
+      {"Vendor", EditField::VendorSource},
       {"Part name", EditField::PartName},
       {"Manufacturer", EditField::Manufacturer},
       {"Category", EditField::Category},

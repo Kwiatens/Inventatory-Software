@@ -420,6 +420,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   allFinished = finishWorker(digiKeyRefreshFuture_, deadline) && allFinished;
   allFinished = finishWorker(tmeRefreshFuture_, deadline) && allFinished;
   allFinished = finishWorker(importSyncFuture_, deadline) && allFinished;
+  allFinished = finishWorker(vendorLookupFuture_, deadline) && allFinished;
   allFinished = finishWorker(scanDigiKeyEnrichmentFuture_, deadline) && allFinished;
   allFinished = finishWorker(bomEnrichmentFuture_, deadline) && allFinished;
   if (!allFinished) {
@@ -429,6 +430,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
     stopTmeRefresh();
 
     importSyncFuture_ = {};
+    vendorLookupFuture_ = {};
     importSyncCancelFlag_.reset();
     importSyncRunning_ = false;
     importSyncCancelRequested_ = false;

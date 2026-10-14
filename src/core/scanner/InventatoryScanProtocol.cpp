@@ -7,6 +7,7 @@
 #include "core/scanner/InventatoryScanProtocol.h"
 #include "core/scanner/InventatoryScanProtocolPrivate.h"
 #include "core/inventory/InventoryInternals.h"
+#include "core/inventory/VendorBagCode.h"
 
 #include <algorithm>
 #include <cctype>
@@ -133,7 +134,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
     const auto code = jsonString(object, "code");
     const auto value = jsonInt(object, "value");
     if (!eventId || trim(*eventId).empty() || !type || trim(*type).empty() || !code || trim(*code).empty() ||
-        !value || eventId->size() > 96 || type->size() > 48 || code->size() > 128) {
+        !value || eventId->size() > 96 || type->size() > 48 || code->size() > kMaximumVendorBagCodeBytes) {
       error = "Invalid sync event";
       return false;
     }

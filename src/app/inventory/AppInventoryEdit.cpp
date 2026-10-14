@@ -172,6 +172,8 @@ void App::commitEditField(EditField field, const string& value) {
     case EditField::Sku:
       workingCopy_.item.sku = trimmed;
       break;
+    case EditField::VendorSource:
+      return;  // chosen from the vendor lookup, not typed
     case EditField::RackLocation: {
       string error;
       if (!setManualRackLocation(store_, workingCopy_.item, value, error)) {

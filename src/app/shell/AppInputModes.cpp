@@ -78,7 +78,10 @@ void App::handleEditMenuKey(const KeyEvent& key) {
     fieldMenuIndex_ = min(fieldMenuIndex_ + 1, static_cast<int>(menuOptions_.size()) - 1);
     dirty_ = true;
   } else if (key.type == KeyType::Enter) {
-    if (fieldMenuIndex_ >= 0 && fieldMenuIndex_ < static_cast<int>(menuOptions_.size())) {
+    if (fieldMenuIndex_ >= 0 && fieldMenuIndex_ < static_cast<int>(menuOptions_.size()) &&
+        menuOptions_[fieldMenuIndex_].field == EditField::VendorSource) {
+      beginVendorLookup();
+    } else if (fieldMenuIndex_ >= 0 && fieldMenuIndex_ < static_cast<int>(menuOptions_.size())) {
       inputBuffer_ = currentFieldValue(menuOptions_[fieldMenuIndex_].field);
       inputMode_ = InputMode::EditValue;
       setMessage("Editing " + fieldLabel(menuOptions_[fieldMenuIndex_].field), 2);

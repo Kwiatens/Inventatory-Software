@@ -27,6 +27,7 @@
 #include "core/inventory/InventoryInternals.h"
 #include "core/history/InventoryVersionInternal.h"
 #include "core/inventory/InventoryMerge.h"
+#include "core/inventory/VendorBagCode.h"
 #include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/InventoryTransfer.h"
@@ -298,6 +299,15 @@ class ScopedEnvironment final {
 string readTextFile(const filesystem::path& path) {
   ifstream stream(path, ios::binary);
   return string((istreambuf_iterator<char>(stream)), istreambuf_iterator<char>());
+}
+
+// The main code of a DigiKey bag as the scanner forwards it: an ISO/IEC 15434 Macro 06 envelope, with the fields
+// separated by group separators and the code ended by a record separator and end-of-transmission.
+string digiKeyBagCode(const string& partNumber, const string& manufacturerPartNumber) {
+  const string rs(1, '\x1e');
+  const string gs(1, '\x1d');
+  const string eot(1, '\x04');
+  return "[)>" + rs + "06" + gs + "P" + partNumber + gs + "1P" + manufacturerPartNumber + gs + "Q1" + rs + eot;
 }
 
 void writeTextFile(const filesystem::path& path, const string& text, bool executable = false) {
@@ -4609,7 +4619,7 @@ void testInventoryMerge() {
     request.requestId = "e2e-sync";
     request.deviceId = "device-a";
     request.events = {{"e2e-event-1", "inventory.receive", persisted.items()[0].machineCode, 4, ""},
-                      {"e2e-event-2", "inventory.receive", "NEW-SCANNED-CODE", 2, ""}};
+                      {"e2e-event-2", "inventory.receive", digiKeyBagCode("445-15749-1-ND", "MLZ2012M3R3HT000"), 2, ""}};
     DeviceSyncResponse response;
     string error;
     assert(acceptDeviceSyncEvents(path, request, response, error));
@@ -5227,10 +5237,11 @@ void testScanCodeResolution() {
   InventoryStore store;
   store.items() = items;
 
-  const auto resolution = resolveScanCode(store, "311-10.0KHRCT-ND");
-  assert(resolution.matched);
-  assert(!resolution.created);
-  assert(resolution.itemId == "res-0603-10k");
+  // A plain part number is not a vendor bag: the scanner adds or finds parts only from a bag's main code.
+  const char* refusedMessage = "This code is not from a supported vendor bag. Add the part manually";
+  const auto plainNumber = resolveScanCode(store, "311-10.0KHRCT-ND");
+  assert(!plainNumber.matched && !plainNumber.created);
+  assert(plainNumber.message == refusedMessage);
 
   const auto machineResolution = resolveScanCode(store, "0002");
   assert(machineResolution.matched);
@@ -5245,23 +5256,25 @@ void testScanCodeResolution() {
   assert(!unknownMachine.matched);
   assert(unknownMachine.message == "Unknown machine code");
 
-  const auto created = resolveScanCode(store, "new-digikey-code");
-  assert(created.matched);
-  assert(created.created);
-  assert(store.findById(created.itemId) != nullptr);
+  // A bag of a part the store holds matches that part, by its DigiKey number.
+  const auto matchedBag = resolveScanCode(store, digiKeyBagCode("311-10.0KHRCT-ND", "RC0603FR-0710KL"));
+  assert(matchedBag.matched && !matchedBag.created);
+  assert(matchedBag.itemId == "res-0603-10k");
 
-  // Short or generic codes never match as a substring of a product/datasheet URL.
-  store.items()[0].productUrl = "https://www.digikey.com/en/products/detail/te-connectivity/12345";
-  store.items()[0].datasheetUrl = "https://example.com/datasheet/smd-part.pdf";
-  for (const char* generic : {"te", "SMD", "datasheet", "products"}) {
-    const auto genericResolution = resolveScanCode(store, generic);
-    assert(genericResolution.created);
-    assert(genericResolution.itemId != store.items()[0].id);
+  // A bag of a new part creates it; a bag of a part that is not in the store creates one part only.
+  const auto created = resolveScanCode(store, digiKeyBagCode("311-22KHRCT-ND", "RC0603FR-0722KL"));
+  assert(created.matched && created.created);
+  assert(store.findById(created.itemId) != nullptr);
+  const auto sizeAfterCreate = store.items().size();
+
+  // Codes from no supported vendor never create a part, however they look.
+  for (const char* generic : {"new-digikey-code", "te", "SMD", "datasheet", "products",
+                              "HTTPS://www.digikey.com/en/products/detail/te-connectivity/12345/"}) {
+    const auto refused = resolveScanCode(store, generic);
+    assert(!refused.matched && !refused.created);
+    assert(refused.message == refusedMessage);
   }
-  // A complete URL still identifies the part (case and trailing slash do not matter).
-  const auto urlResolution = resolveScanCode(store, "HTTPS://www.digikey.com/en/products/detail/te-connectivity/12345/");
-  assert(urlResolution.matched && !urlResolution.created);
-  assert(urlResolution.itemId == store.items()[0].id);
+  assert(store.items().size() == sizeAfterCreate);
 }
 
 void testInventoryIdentifierAssignment() {
@@ -5614,7 +5627,7 @@ void testScanPlaceholderStaysPendingForRacking() {
   resistorRack.componentType = "Resistors";
   scanStore.racks().push_back(resistorRack);
 
-  const auto created = resolveScanCode(scanStore, "311-10KHRCT-ND");
+  const auto created = resolveScanCode(scanStore, digiKeyBagCode("311-10KHRCT-ND", "RC0603FR-0710KL"));
   assert(created.created);
   auto* placeholder = scanStore.findById(created.itemId);
   assert(placeholder != nullptr);
@@ -5630,7 +5643,7 @@ void testScanPlaceholderStaysPendingForRacking() {
   assert(rackLocation(*placeholder, scanStore.racks()) == "R1-A1");
 
   // The user opted out of racking for another placeholder: enrichment must not override it.
-  const auto second = resolveScanCode(scanStore, "311-22KHRCT-ND");
+  const auto second = resolveScanCode(scanStore, digiKeyBagCode("311-22KHRCT-ND", "RC0603FR-0722KL"));
   auto* optedOut = scanStore.findById(second.itemId);
   assert(optedOut != nullptr);
   string unassignError;
@@ -6101,24 +6114,27 @@ void testTmeMergeKeepsSelectedIdentity() {
   assert(!app_actions::mergeTmeMetadata(digiKeyItem, unnamed));
   assert(digiKeyItem.vendorSources.size() == 1);
 
-  // An item that already holds a TME symbol is looked up by it, even when a SKU is also present.
+  // Only a part that came from TME is looked up at TME: by its symbol.
   assert(app_actions::tmeRefreshIdentifier(item).isSymbol);
   assert(app_actions::tmeRefreshIdentifier(item).value == "1N4148-TP");
-  assert(app_actions::tmeRefreshIdentifier(digiKeyItem).value == "1N4148-TP");
-  // Without a symbol, an item searches by its manufacturer part number, trimmed, even when its SKU is a DigiKey
-  // order number that TME would not find.
+  // A DigiKey part keeps DigiKey as its origin and is never looked up at TME, even with a TME record beside it.
+  assert(app_actions::tmeRefreshIdentifier(digiKeyItem).value.empty());
   InventoryItem byPartNumber;
   byPartNumber.sku = "1N4148-ND";
   byPartNumber.vendorMetadata.provider = "digikey";
   byPartNumber.vendorMetadata.providerProductNumber = "1N4148-ND";
   byPartNumber.vendorMetadata.manufacturerPartNumber = " 1N4148 ";
-  const auto searchedByPartNumber = app_actions::tmeRefreshIdentifier(byPartNumber);
+  assert(app_actions::tmeRefreshIdentifier(byPartNumber).value.empty());
+  // A TME part without a symbol searches by its manufacturer part number, trimmed.
+  InventoryItem tmeByPartNumber;
+  tmeByPartNumber.vendorMetadata.provider = "tme";
+  tmeByPartNumber.vendorMetadata.manufacturerPartNumber = " 1N4148 ";
+  const auto searchedByPartNumber = app_actions::tmeRefreshIdentifier(tmeByPartNumber);
   assert(!searchedByPartNumber.isSymbol && searchedByPartNumber.value == "1N4148");
-  // An item with no part number searches by its SKU, trimmed, and an item with neither has nothing to look up.
+  // A part with no recorded origin is not looked up at TME at all, even when it has a SKU.
   InventoryItem bySku;
   bySku.sku = " LM358 ";
-  const auto searched = app_actions::tmeRefreshIdentifier(bySku);
-  assert(!searched.isSymbol && searched.value == "LM358");
+  assert(app_actions::tmeRefreshIdentifier(bySku).value.empty());
   InventoryItem nothing;
   assert(app_actions::tmeRefreshIdentifier(nothing).value.empty());
 }
@@ -13923,7 +13939,140 @@ void testWriteFileAtomicallyFailureKeepsPriorFile() {
 }
 
 // Every test is registered here, in execution order, under the area it covers. `--list` prints
-// "area/name" and `--filter` matches a substring of that label.
+// "area/name" and `--filter` matches a substring of that label.// The main code of the DigiKey bag in the photo, with its 20Z padding, as the scanner forwards it.
+void testVendorBagCodeRecognition() {
+  const string gs(1, '\x1d');
+  const string rs(1, '\x1e');
+  const string eot(1, '\x04');
+  const string photoBag = "[)>" + rs + "06" + gs + "P445-15749-1-ND" + gs + "1PMLZ2012M3R3HT000" + gs + "30P445-15749-1-ND" +
+                          gs + "K" + gs + "1K92776734" + gs + "10K112974125" + gs + "9D2515" + gs + "1TU025C70321" + gs +
+                          "11K1" + gs + "4LJP" + gs + "Q3" + gs + "11ZPICK" + gs + "12Z4328045" + gs + "13Z999999" + gs +
+                          "20Z" + string(80, '0') + rs + eot;
+  const auto digiKey = recognizeVendorBagCode(photoBag);
+  assert(digiKey.has_value());
+  assert(digiKey->provider == "digikey");
+  assert(digiKey->providerProductNumber == "445-15749-1-ND");
+  assert(digiKey->manufacturerPartNumber == "MLZ2012M3R3HT000");
+  assert(digiKey->productUrl.empty());
+
+  // The TME bag's large QR text.
+  const auto tme = recognizeVendorBagCode(
+      "QTY:5 PN:0ZCM0010FF2G PO:34115735/9 MFR:BELFUSE MPN:0ZCM0010FF2G CoO:TW RoHS https://www.tme.eu/details/0ZCM0010FF2G");
+  assert(tme.has_value());
+  assert(tme->provider == "tme");
+  assert(tme->providerProductNumber == "0ZCM0010FF2G");
+  assert(tme->manufacturerPartNumber == "0ZCM0010FF2G");
+  assert(tme->productUrl == "https://www.tme.eu/details/0ZCM0010FF2G");
+
+  // Not a bag's main code: the TME bag's bottom Data Matrix has no envelope, and neither do machine codes, part numbers,
+  // URLs or nothing at all.
+  for (const char* other : {"P0ZCM0010FF2G1P0ZCM0010FF2GQ54LTWK34115735/9", "0002", "Inventatory:R-0002",
+                            "311-10.0KHRCT-ND", "MLZ2012M3R3HT000",
+                            "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604", ""}) {
+    assert(!recognizeVendorBagCode(other).has_value());
+  }
+  // The P field must be a DigiKey part number ending in -ND, and must be read as a whole field: "30P" is not "P".
+  assert(!recognizeVendorBagCode(digiKeyBagCode("445-15749-1", "MLZ2012M3R3HT000")).has_value());
+  assert(!recognizeVendorBagCode(digiKeyBagCode("", "MLZ2012M3R3HT000")).has_value());
+  assert(!recognizeVendorBagCode("[)>" + rs + "06" + gs + "30P445-15749-1-ND" + gs + "1PMLZ2012M3R3HT000" + rs + eot)
+              .has_value());
+  // A manufacturer part number with characters a bag does not print is refused.
+  assert(!recognizeVendorBagCode(digiKeyBagCode("445-15749-1-ND", "ML<script>")).has_value());
+  // The envelope keeps its separators: a scanner profile that drops them is not recognised.
+  assert(!recognizeVendorBagCode("[)>06P445-15749-1-ND1PMLZ2012M3R3HT000").has_value());
+  // A code past the device limit is refused.
+  assert(!recognizeVendorBagCode(string(kMaximumVendorBagCodeBytes + 1, 'A')).has_value());
+
+  // The origin of an item is its recorded vendor; an item stored before origins were recorded takes DigiKey from its
+  // DigiKey part number, and an item with neither has no origin.
+  InventoryItem tmeItem;
+  tmeItem.vendorMetadata.provider = "TME";
+  assert(originProvider(tmeItem) == "tme");
+  InventoryItem legacy;
+  legacy.digikeyPartNumber = "445-15749-1-ND";
+  assert(originProvider(legacy) == "digikey");
+  InventoryItem unbound;
+  unbound.sku = "MLZ2012M3R3HT000";
+  assert(originProvider(unbound).empty());
+}
+
+// A scanned bag creates a part whose origin is the bag's vendor, and refresh looks it up at that vendor only.
+void testBagScanRecordsOrigin() {
+  InventoryStore store;
+  const auto code = digiKeyBagCode("445-15749-1-ND", "MLZ2012M3R3HT000");
+  const auto created = resolveScanCode(store, code);
+  assert(created.matched && created.created);
+  const auto* item = store.findById(created.itemId);
+  assert(item != nullptr);
+  assert(originProvider(*item) == "digikey");
+  assert(item->vendorMetadata.provider == "digikey");
+  assert(item->vendorMetadata.providerProductNumber == "445-15749-1-ND");
+  assert(item->vendorMetadata.manufacturerPartNumber == "MLZ2012M3R3HT000");
+  assert(item->digikeyPartNumber == "445-15749-1-ND");
+  assert(item->partName == "Scanned DigiKey Item");
+  assert(app_actions::digiKeyRefreshLookup(*item) == "445-15749-1-ND");
+  assert(app_actions::tmeRefreshIdentifier(*item).value.empty());
+
+  // The same bag again matches the part it created.
+  const auto again = resolveScanCode(store, code);
+  assert(again.matched && !again.created && again.itemId == created.itemId);
+  assert(store.items().size() == 1);
+
+  // A TME bag of another part creates a TME part, which refresh looks up at TME and not at DigiKey.
+  const auto tme = resolveScanCode(store, "QTY:5 PN:0ZCM0010FF2G MPN:0ZCM0010FF2G https://www.tme.eu/details/0ZCM0010FF2G");
+  assert(tme.matched && tme.created);
+  const auto* tmePart = store.findById(tme.itemId);
+  assert(tmePart != nullptr);
+  assert(originProvider(*tmePart) == "tme");
+  assert(app_actions::digiKeyRefreshLookup(*tmePart).empty());
+  assert(app_actions::tmeRefreshIdentifier(*tmePart).value == "0ZCM0010FF2G");
+
+  // A TME label of a DigiKey part that already holds that TME symbol matches the part instead of duplicating it.
+  InventoryStore withSymbol;
+  const auto digiKeyPart = resolveScanCode(withSymbol, code);
+  auto* holder = withSymbol.findById(digiKeyPart.itemId);
+  assert(holder != nullptr);
+  assert(app_actions::setTmeSymbol(*holder, "0ZCM0010FF2G"));
+  const auto matched = resolveScanCode(withSymbol, "QTY:5 PN:0ZCM0010FF2G MPN:0ZCM0010FF2G https://www.tme.eu/details/0ZCM0010FF2G");
+  assert(matched.matched && !matched.created && matched.itemId == digiKeyPart.itemId);
+  assert(withSymbol.items().size() == 1);
+  assert(originProvider(*holder) == "digikey");
+}
+
+// The device sends a bag's main code in full. The control characters of the envelope travel as JSON escapes.
+void testDeviceSyncEventCarriesBagCode() {
+  const auto escapeControls = [](const string& code) {
+    string escaped;
+    for (const char character : code) {
+      if (static_cast<unsigned char>(character) < 0x20) {
+        char buffer[8];
+        snprintf(buffer, sizeof buffer, "\\u%04x", static_cast<unsigned int>(static_cast<unsigned char>(character)));
+        escaped += buffer;
+      } else {
+        escaped += character;
+      }
+    }
+    return escaped;
+  };
+  const auto bagBody = [&](const string& code) {
+    return R"({"protocolVersion":1,"requestId":"sync-2","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"capabilities":["lcd.128x64"],"events":[{"eventId":"r1-a-90","type":"inventory.receive","code":")" +
+           escapeControls(code) + R"(","value":1}],"resultAcks":["r1-a-89-result"]})";
+  };
+
+  DeviceSyncRequest request;
+  string error;
+  const auto bag = digiKeyBagCode("445-15749-1-ND", "MLZ2012M3R3HT000");
+  assert(parseDeviceSyncRequestJson(bagBody(bag), request, error));
+  assert(request.events.size() == 1);
+  assert(request.events.front().code == bag);
+  assert(recognizeVendorBagCode(request.events.front().code).has_value());
+
+  // A code past the limit is still refused.
+  DeviceSyncRequest oversized;
+  assert(!parseDeviceSyncRequestJson(bagBody(string(kMaximumVendorBagCodeBytes + 1, 'A')), oversized, error));
+}
+
+
 struct TestCase {
   const char* area;
   const char* name;
@@ -14103,6 +14252,9 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeLookupIdentityRules", testTmeLookupIdentityRules},
     {"tme", "TmeMergeKeepsSelectedIdentity", testTmeMergeKeepsSelectedIdentity},
     {"tme", "TmeLabelScan", testTmeLabelScan},
+    {"scan", "VendorBagCodeRecognition", testVendorBagCodeRecognition},
+    {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
+    {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
     {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},
     {"tme", "TmeItemsAutoPlaceInRacks", testTmeItemsAutoPlaceInRacks},
     {"tme", "TmeScannedPartLabelPlan", testTmeScannedPartLabelPlan},

@@ -246,7 +246,8 @@ ftxui::Element App::renderSearchBarUi() const {
   // Stock item editing renders inline in the Detail panel (see StockPage.cpp),
   // so this context line stays a plain search row instead of duplicating it.
   const bool stockEditing =
-      page_ == Page::Stock && (inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue);
+      page_ == Page::Stock && (inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue ||
+                               inputMode_ == InputMode::VendorPick);
   const bool showsPrompt = !stockEditing &&
                             (inputMode_ == InputMode::EditValue || inputMode_ == InputMode::RackRename ||
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||

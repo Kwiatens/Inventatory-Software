@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Scan code resolution for local, DigiKey and TME label flows.
+// Scan code resolution for vendor bags (DigiKey and TME), machine codes and TME label payloads.
 
 #include "core/inventory/InventoryInternals.h"
+#include "core/inventory/VendorBagCode.h"
 
 #include <algorithm>
 #include <cctype>
@@ -19,6 +20,8 @@ namespace {
 
 constexpr size_t kMaximumTmeLabelBytes = 512;
 constexpr size_t kMaximumTmeLabelFieldBytes = 64;
+
+const char kUnrecognizedBagMessage[] = "This code is not from a supported vendor bag. Add the part manually";
 
 // Symbols and part numbers use letters, digits and the separators that appear in TME and manufacturer codes.
 bool isTmeLabelIdentifier(const string& value) {
@@ -39,15 +42,34 @@ bool parseTmeQuantity(const string& value, int& quantity) {
   return true;
 }
 
-// A TME label is matched by its symbol. A new label creates a placeholder that carries the symbol, so the TME
-// lookup can run after the scan is committed.
-ScanResolution resolveTmeLabel(InventoryStore& store, const TmeLabelFields& label) {
-  for (const auto& existing : store.items()) {
-    if (tmeProductSymbol(existing) == label.symbol) return {true, false, existing.id, "Matched existing item"};
+// The part a vendor identity names, found by the vendor's own part number whatever vendor the part came from. A TME
+// symbol kept beside a DigiKey part still identifies that part, so a TME label of it matches rather than duplicates.
+InventoryItem* findVendorPart(InventoryStore& store, const VendorBagIdentity& identity) {
+  const auto number = toLower(trim(identity.providerProductNumber));
+  if (number.empty()) return nullptr;
+  for (auto& item : store.items()) {
+    if (identity.provider == "tme") {
+      if (toLower(trim(tmeProductSymbol(item))) == number) return &item;
+      continue;
+    }
+    if (toLower(trim(item.digikeyPartNumber)) == number ||
+        (toLower(trim(item.vendorMetadata.provider)) == "digikey" &&
+         toLower(trim(item.vendorMetadata.providerProductNumber)) == number)) {
+      return &item;
+    }
+  }
+  return nullptr;
+}
+
+// A TME label creates a placeholder whose origin is TME and that carries the symbol, so the TME lookup can run after
+// the scan is committed.
+ScanResolution resolveTmeLabel(InventoryStore& store, const VendorBagIdentity& identity) {
+  if (auto* existing = findVendorPart(store, identity)) {
+    return {true, false, existing->id, "Matched existing item"};
   }
 
   InventoryItem item;
-  item.id = sanitizeIdPart(label.symbol) + "-" + makeId().substr(0, 8);
+  item.id = sanitizeIdPart(identity.providerProductNumber) + "-" + makeId().substr(0, 8);
   item.partName = "Scanned TME Item";
   item.manufacturer = "Unknown";
   item.category = "Unsorted";
@@ -56,16 +78,45 @@ ScanResolution resolveTmeLabel(InventoryStore& store, const TmeLabelFields& labe
   item.location = "Scan Inbox";
   item.tags = {"scanned"};
   item.notes = "Created from a TME label scan.";
-  item.sku = label.symbol;
+  item.sku = identity.providerProductNumber;
   item.syncStatus = "needs_metadata";
   item.vendorMetadata.provider = "tme";
-  item.vendorMetadata.providerProductNumber = label.symbol;
-  item.vendorMetadata.manufacturerPartNumber = label.manufacturerPartNumber;
-  item.vendorMetadata.productUrl = label.productUrl;
+  item.vendorMetadata.providerProductNumber = identity.providerProductNumber;
+  item.vendorMetadata.manufacturerPartNumber = identity.manufacturerPartNumber;
+  item.vendorMetadata.productUrl = identity.productUrl;
   item.lastUpdated = nowEpoch();
   item.createdAt = item.lastUpdated;
   store.items().push_back(move(item));
   return {true, true, store.items().back().id, "Created a placeholder item from the TME label"};
+}
+
+// A DigiKey bag creates a placeholder whose origin is DigiKey and that carries the DigiKey part number, so the DigiKey
+// lookup can run after the scan is committed.
+ScanResolution resolveDigiKeyBag(InventoryStore& store, const VendorBagIdentity& identity) {
+  if (auto* existing = findVendorPart(store, identity)) {
+    return {true, false, existing->id, "Matched existing item"};
+  }
+
+  InventoryItem item;
+  item.id = sanitizeIdPart(identity.providerProductNumber) + "-" + makeId().substr(0, 8);
+  item.partName = "Scanned DigiKey Item";
+  item.manufacturer = "Unknown";
+  item.category = "Unsorted";
+  item.quantity = 0;
+  item.reorderThreshold = 0;
+  item.location = "Scan Inbox";
+  item.tags = {"scanned"};
+  item.notes = "Created from a DigiKey bag scan.";
+  item.digikeyPartNumber = identity.providerProductNumber;
+  item.sku = identity.providerProductNumber;
+  item.syncStatus = "needs_metadata";
+  item.vendorMetadata.provider = "digikey";
+  item.vendorMetadata.providerProductNumber = identity.providerProductNumber;
+  item.vendorMetadata.manufacturerPartNumber = identity.manufacturerPartNumber;
+  item.lastUpdated = nowEpoch();
+  item.createdAt = item.lastUpdated;
+  store.items().push_back(move(item));
+  return {true, true, store.items().back().id, "Created a placeholder item from the DigiKey bag"};
 }
 
 }  // namespace
@@ -110,6 +161,9 @@ optional<TmeLabelFields> parseTmeLabelPayload(const string& rawCode) {
   return label;
 }
 
+// Resolves a code from the scanner. A scan adds or finds a part only when the code is the main code of a supported
+// vendor bag; every other code is refused, so no part is created from a code whose vendor is unknown. Inventatory
+// machine codes find the part they label.
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode) {
   const auto code = trim(rawCode);
   if (code.empty()) {
@@ -123,35 +177,16 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode) {
     return {false, false, {}, "Unknown machine code"};
   }
 
-  if (const auto label = parseTmeLabelPayload(code); label.has_value()) {
-    return resolveTmeLabel(store, *label);
-  }
-
   if (toLower(code).rfind("inventatory:", 0) == 0) {
     return {false, false, {}, "Unknown Inventatory ID"};
   }
 
-  if (auto* existing = store.findByCode(code)) {
-    return {true, false, existing->id, "Matched existing item"};
+  const auto identity = recognizeVendorBagCode(code);
+  if (!identity) {
+    return {false, false, {}, kUnrecognizedBagMessage};
   }
-
-  InventoryItem item;
-  item.id = sanitizeIdPart(code) + "-" + makeId().substr(0, 8);
-  item.partName = "Scanned DigiKey Item";
-  item.manufacturer = "Unknown";
-  item.category = "Unsorted";
-  item.quantity = 0;
-  item.reorderThreshold = 0;
-  item.location = "Scan Inbox";
-  item.tags = {"scanned"};
-  item.notes = "Created from a DigiKey code scan.";
-  item.digikeyPartNumber = code;
-  item.syncStatus = "needs_metadata";
-  item.sku = code;
-  item.lastUpdated = nowEpoch();
-  item.createdAt = item.lastUpdated;
-  store.items().push_back(move(item));
-  return {true, true, store.items().back().id, "Created a placeholder item from the scanned code"};
+  if (identity->provider == "tme") return resolveTmeLabel(store, *identity);
+  return resolveDigiKeyBag(store, *identity);
 }
 
 }  // namespace inventatory

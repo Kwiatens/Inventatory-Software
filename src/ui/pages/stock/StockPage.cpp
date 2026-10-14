@@ -71,7 +71,8 @@ ftxui::Element App::renderStockUi() const {
   auto listRows = renderStockListRows(searchMatches, filtered, rankedView, activeSelection, qtyWidth,
                                     partWidth, categoryWidth, matchWidth, groupByCategory);
   auto detailRows = renderStockDetailRows(searchMatches, rankedView, activeSelection, detailInnerWidth);
-  const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue;
+  const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue ||
+                       inputMode_ == InputMode::VendorPick;
   auto self = const_cast<App*>(this);
   const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
   const auto filterSummary = stockFilterSummary(stockSortOrder_, stockDateFilter_);

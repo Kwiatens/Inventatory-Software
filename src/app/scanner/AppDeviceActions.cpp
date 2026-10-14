@@ -8,6 +8,7 @@
 
 #include "import/csv/CsvFormat.h"
 #include "core/storage/InventorySqlite.h"
+#include "core/inventory/VendorBagCode.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
@@ -190,10 +191,14 @@ void App::processDeviceSyncEvents() {
       string warning;
       const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
                                 app_actions::isScanPlaceholderName(item->partName);
-      if (const auto tmeLabel = parseTmeLabelPayload(event.code); tmeLabel.has_value()) {
-        tmeLookupSymbol = shouldEnrich ? tmeLabel->symbol : string();
-      } else {
-        enrichmentLookup = shouldEnrich ? trim(event.code) : string();
+      // A part is looked up only at the vendor it came from, by the vendor's own part number that the bag names.
+      if (const auto identity = recognizeVendorBagCode(event.code);
+          identity.has_value() && shouldEnrich && originProvider(*item) == identity->provider) {
+        if (identity->provider == "tme") {
+          tmeLookupSymbol = identity->providerProductNumber;
+        } else {
+          enrichmentLookup = identity->providerProductNumber;
+        }
       }
       reconcileRackAssignment(candidate, *item);
       result.itemName = item->partName;

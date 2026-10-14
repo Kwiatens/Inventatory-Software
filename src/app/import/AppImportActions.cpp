@@ -303,6 +303,13 @@ void App::beginImportSync(bool retryFailed) {
       ++importSyncFailedCount_;
       continue;
     }
+    // A part that came from another vendor is never synced with DigiKey.
+    const auto origin = originProvider(*item);
+    if (!origin.empty() && origin != "digikey") {
+      importSyncFailedItemIds_.push_back(itemId);
+      ++importSyncFailedCount_;
+      continue;
+    }
     const auto lookup = !trim(item->digikeyPartNumber).empty() ? item->digikeyPartNumber : item->sku;
     if (trim(lookup).empty()) {
       importSyncFailedItemIds_.push_back(itemId);

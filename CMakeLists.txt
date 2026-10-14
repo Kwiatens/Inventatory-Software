@@ -104,6 +104,7 @@ add_executable(inventatory
   src/app/persistence/AppBackupRestore.cpp
   src/app/workspace/AppWorkspace.cpp
   src/app/inventory/AppInventoryEdit.cpp
+  src/app/inventory/AppVendorLookup.cpp
   src/app/inventory/AppInventorySelection.cpp
   src/app/racks/AppRackActions.cpp
   src/app/racks/AppRackPrintingActions.cpp
@@ -148,6 +149,7 @@ add_executable(inventatory
   src/core/transfer/InventoryTransferRecovery.cpp
   src/core/transfer/InventoryTransferValidation.cpp
   src/core/inventory/InventoryScan.cpp
+  src/core/inventory/VendorBagCode.cpp
   src/core/storage/InventorySqlite.cpp
   src/core/storage/InventorySqliteSchema.cpp
   src/core/scanner/InventatoryScanProtocol.cpp
@@ -317,6 +319,7 @@ add_executable(inventatory_tests
   src/core/transfer/InventoryTransferRecovery.cpp
   src/core/transfer/InventoryTransferValidation.cpp
   src/core/inventory/InventoryScan.cpp
+  src/core/inventory/VendorBagCode.cpp
   src/core/storage/InventorySqlite.cpp
   src/core/storage/InventorySqliteSchema.cpp
   src/core/scanner/InventatoryScanProtocol.cpp
