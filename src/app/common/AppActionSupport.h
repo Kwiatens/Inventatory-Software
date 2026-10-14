@@ -7,6 +7,7 @@
 // header is not part of the public application interface.
 
 #include "App.h"
+#include "core/inventory/VendorBagCode.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "core/parts/PhysicalValue.h"
@@ -339,6 +340,8 @@ inline bool setTmeSymbol(InventoryItem& item, const string& symbol) {
 // know, so the part number comes first. The result is matched exactly; the item's manufacturer tells apart TME products
 // that share the part number.
 inline TmeIdentifier tmeRefreshIdentifier(const InventoryItem& item) {
+  // Only a part that came from TME is refreshed from TME; a part that came from another vendor is never looked up here.
+  if (originProvider(item) != "tme") return {};
   if (const auto symbol = tmeProductSymbol(item); !symbol.empty()) return {true, symbol, {}};
   if (const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber); !partNumber.empty()) {
     return {false, partNumber, trim(item.manufacturer)};
@@ -530,20 +533,17 @@ inline DigiKeyApiHandle createDigiKeyApi() {
 }
 
 inline string digiKeyRefreshLookup(const InventoryItem& item) {
+  // Only a part that came from DigiKey is refreshed from DigiKey.
+  if (originProvider(item) != "digikey") return {};
   const auto provider = toLower(trim(item.vendorMetadata.provider));
-  const bool taggedDigiKey = any_of(item.tags.begin(), item.tags.end(), [](const string& tag) {
-    return toLower(trim(tag)) == "digikey";
-  });
-
   if (!trim(item.digikeyPartNumber).empty()) {
     return trim(item.digikeyPartNumber);
   }
   if (provider == "digikey" && !trim(item.vendorMetadata.providerProductNumber).empty()) {
     return trim(item.vendorMetadata.providerProductNumber);
   }
-  // Older imports may retain only the manufacturer/SKU field.  Use that as a
-  // keyword lookup only when the item still carries an explicit DigiKey hint.
-  if ((provider == "digikey" || taggedDigiKey) && !trim(item.sku).empty()) {
+  // Older imports may retain only the SKU, which is the DigiKey number of a part DigiKey supplied.
+  if (provider == "digikey" && !trim(item.sku).empty()) {
     return trim(item.sku);
   }
   return {};

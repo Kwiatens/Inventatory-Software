@@ -45,6 +45,11 @@ commands are available through Actions.
 Editing happens in the detail side of Stock. Choose a field, type its value, and
 save the working copy with `s`. Escape cancels the active field or the edit.
 
+A part added by hand can take its details from DigiKey or TME. Enter the part number in **SKU**, then choose
+**Vendor** in the form (Enter, or click it). Inventatory asks each vendor that is set up, and shows the answers
+side by side with what each one would fill in. Choose the vendor the part came from; the part keeps that vendor
+for its refreshes. A vendor is chosen once per part.
+
 Use **Start stocktake** from Actions (`Space`, then the action, or `t`) for a
 guided physical count. Inventatory clears the stock filter, keeps each count in
 memory, and requires every part to be counted before Finish is enabled. Enter a
@@ -52,6 +57,10 @@ count for the selected part, use `j`/`k` or Up/Down to move, then press `s` to
 save the session. `q` or Escape cancels without changing stock. Corrections are
 recorded in the stock movement history and the selected part shows its recent
 movements below the normal details.
+
+A scan adds or finds a part only from the main code of a bag: the large Data Matrix on a DigiKey bag, or the large
+QR code on a TME bag. Scan one code per bag. Inventatory reads the vendor from that code and records it as the
+part's origin. A code from no supported vendor is refused with a message, and that part is added by hand.
 
 A part that a scan creates prints its label after DigiKey or TME has supplied its details, so the label carries the
 part's name, value and package. When neither supplier finds the part, no label prints and the status line says why;
@@ -151,11 +160,12 @@ Credential Manager, and restores the account and regional settings after the
 credentials are saved. A live credential test remains available afterward.
 
 The TME section takes the application token and application secret, stored in the credential store, and the
-country, language and currency, stored in the settings file. **Test** requests an access token with the token and secret, then makes one product request. **Refresh inventory data** looks up each stock item by its TME symbol when the item has one, and otherwise
+country, language and currency, stored in the settings file. **Test** requests an access token with the token and secret, then makes one product request. **Refresh inventory data** looks up each TME-sourced stock item by its TME symbol when the item has one, and otherwise
 by its manufacturer part number (or its SKU when it has none), and applies a result only when the manufacturer part
 number matches exactly and one product fits. The refresh also reads each part's parameters, datasheet, stock and
 lowest price from TME, so a TME part shows the same details a DigiKey part does.
-An item that already uses DigiKey keeps DigiKey as its selected source, and the TME record is kept beside it.
+Refresh looks up only the parts that came from TME. A part that came from DigiKey is never looked up at TME. A TME
+part number typed on a DigiKey part is kept beside it and still identifies that part when its TME label is scanned.
 If the TME record gives a resistance, capacitance or inductance that differs from the stored value, the record is not
 merged; the refresh reports the part as an error instead.
 Lookups are requests to TME, so a large inventory takes a few minutes.
