@@ -306,6 +306,11 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
   candidate.item.tags = {"digikey", "csv-import"};
   candidate.item.notes = "Imported from DigiKey CSV row " + to_string(sourceRow) + ".";
   candidate.item.digikeyPartNumber = digikeyPart;
+  if (!digikeyPart.empty()) {
+    // A DigiKey order row records DigiKey as the part's origin, so refreshes look it up there.
+    candidate.item.vendorMetadata.provider = "digikey";
+    candidate.item.vendorMetadata.providerProductNumber = digikeyPart;
+  }
   candidate.item.productUrl = productSearchUrl(digikeyPart);
   candidate.item.syncStatus = "needs_metadata";
   candidate.item.sku = manufacturerPart;
@@ -414,6 +419,8 @@ void mergeImportedMetadata(InventoryItem& target, const InventoryItem& source) {
   assignIfBlank(target.category, source.category);
   assignIfBlank(target.location, source.location);
   assignIfBlank(target.digikeyPartNumber, source.digikeyPartNumber);
+  assignIfBlank(target.vendorMetadata.provider, source.vendorMetadata.provider);
+  assignIfBlank(target.vendorMetadata.providerProductNumber, source.vendorMetadata.providerProductNumber);
   assignIfBlank(target.productUrl, source.productUrl);
   assignIfBlank(target.sku, source.sku);
   assignIfBlank(target.inventatoryId, source.inventatoryId);

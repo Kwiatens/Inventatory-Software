@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Stock: a part added by hand can take its details from DigiKey or TME. Enter the part number in SKU, then choose
+  Vendor in the form. The vendors that answer are shown side by side, and the part keeps the vendor you choose.
 - Projects: EasyEDA BOM exports can be imported. Name, Value, Comment, Designator, Footprint and Quantity are read.
   Supplier Part and Manufacturer Part are used to find stock when the export includes them.
 - Projects: press `c` to confirm the stock part shown for a line. A line that waits for confirmation is shown as Check.
@@ -21,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot order is never suggested.
 
 ### Changed
+- Scanner: a scan adds or finds a part only from the main code of a DigiKey bag or a TME bag. Any other code is refused
+  with a message, and the part is added by hand. DigiKey and TME bags need the Scan R1 firmware that sends their
+  identifiers; a scan from older firmware is refused.
+- Refresh: each part is refreshed only from the vendor it came from. A part from DigiKey is not looked up at TME, and
+  a part from TME is not looked up at DigiKey.
 - The inventory database is upgraded to format 2 the first time this version opens it. Earlier versions cannot open the
   upgraded file.
 - Linux: the release runs on any x86-64 distribution with glibc 2.34 or newer, not only Ubuntu 24.04. It is tested on Ubuntu 22.04, Debian 12, AlmaLinux 9 and Fedora 44.
@@ -37,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Import: the file picker offers CSV and text exports (.csv, .tsv, .txt).
 
 ### Fixed
+- Scan: a DigiKey bag creates a part with its DigiKey part number. Earlier versions stored the manufacturer part number
+  in its place.
+- Scan: a DigiKey or TME part is looked up only at the vendor it came from, so its details are not overwritten by
+  another vendor's record.
 - Scan: a label for a new part prints after DigiKey or TME has supplied its details. Earlier versions printed it at once,
   so the label showed only "Unsorted" and the scanned name. When neither supplier finds the part, no label prints.
 - Labels: a part still named by its supplier's description prints its part number instead. A new part's label shows
