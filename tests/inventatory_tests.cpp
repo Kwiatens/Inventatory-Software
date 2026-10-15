@@ -301,15 +301,6 @@ string readTextFile(const filesystem::path& path) {
   return string((istreambuf_iterator<char>(stream)), istreambuf_iterator<char>());
 }
 
-// The main code of a DigiKey bag as the scanner forwards it: an ISO/IEC 15434 Macro 06 envelope, with the fields
-// separated by group separators and the code ended by a record separator and end-of-transmission.
-string digiKeyBagCode(const string& partNumber, const string& manufacturerPartNumber) {
-  const string rs(1, '\x1e');
-  const string gs(1, '\x1d');
-  const string eot(1, '\x04');
-  return "[)>" + rs + "06" + gs + "P" + partNumber + gs + "1P" + manufacturerPartNumber + gs + "Q1" + rs + eot;
-}
-
 void writeTextFile(const filesystem::path& path, const string& text, bool executable = false) {
   filesystem::create_directories(path.parent_path());
   {
@@ -332,6 +323,16 @@ bool processIsGone(pid_t process) {
   return paren != string::npos && paren + 2U < line.size() && line[paren + 2U] == 'Z';
 }
 #endif
+
+// The main code of a DigiKey bag as the scanner forwards it: an ISO/IEC 15434 Macro 06 envelope, with the fields
+// separated by group separators and the code ended by a record separator and end-of-transmission.
+// Outside the POSIX-only block above, because the tests use it on every platform.
+string digiKeyBagCode(const string& partNumber, const string& manufacturerPartNumber) {
+  const string rs(1, '\x1e');
+  const string gs(1, '\x1d');
+  const string eot(1, '\x04');
+  return "[)>" + rs + "06" + gs + "P" + partNumber + gs + "1P" + manufacturerPartNumber + gs + "Q1" + rs + eot;
+}
 
 time_t localTime(int year, int month, int day, int hour = 12, int minute = 0) {
   tm value{};
