@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(InventatorySoftware VERSION 0.1.5 LANGUAGES C CXX)
+project(InventatorySoftware VERSION 0.1.6 LANGUAGES C CXX)
 
 option(INVENTATORY_PARALLEL_MSVC "Enable MSVC parallel compilation" ON)
 
