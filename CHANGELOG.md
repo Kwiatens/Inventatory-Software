@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.1.6] - 2026-10-16
 
+**Highlights**
+
+- **TME is a second supplier.** Add a part from TME, refresh TME details on stock, and look up shortage lines on TME. Set up TME in Settings.
+- **EasyEDA BOM import.** Import an EasyEDA export in Projects, then press `c` to confirm each stock match.
+- **Labels print the same text whichever supplier sent the part.**
+- **Before you upgrade:** the first time this version opens a database, it upgrades the database. Earlier versions cannot open the upgraded file.
+
 ### Added
 - Stock: a part added by hand can take its details from DigiKey or TME. Enter the part number in SKU, then choose
   Vendor in the form. The vendors that answer are shown side by side, and the part keeps the vendor you choose.
