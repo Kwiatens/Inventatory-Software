@@ -325,6 +325,18 @@ and status for unrelated files or generated output.
   corresponding version section in `CHANGELOG.md` using standard subsections
   (`### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`,
   `### Security`).
+- A release with a meaningful change opens with a `**Highlights**` block, placed
+  directly under the version heading and above the subsections. A change is
+  meaningful when it adds a major feature or supplier, changes a workflow people
+  use every day, or needs users to act, such as a one-way database upgrade.
+  Patch releases with only small fixes have no block. Write two to five bullets:
+  each has a bold lead-in and one plain sentence, and the first names the change
+  people will notice most. Put an upgrade warning in its own bullet that starts
+  with `**Before you upgrade:**`. The block summarises the subsections below it
+  and does not replace them, so every highlighted change also appears in its
+  subsection. While a release is open, keep the block under `## [Unreleased]`
+  and move it with the other entries. The GitHub release and the update wizard
+  both show it, so use plain Markdown only: bold, code spans and bullets.
 - The release workflow (`.github/workflows/release.yml`) automatically extracts
   the section matching the release tag (`vX.Y.Z`) to populate the GitHub Release
   body and update asset metadata. A tag-specific override can also be provided
