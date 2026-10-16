@@ -250,11 +250,11 @@ void App::processBomEnrichment() {
       const auto config = loadTmeConfig();
       if (config.valid()) session->tmeClient = make_unique<TmeApiClient>(config);
     }
-    if (session->mouserClient == nullptr) {
-      const auto config = loadMouserConfig();
-      if (config.valid()) session->mouserClient = make_unique<MouserApiClient>(config);
-    }
-    if (session->client == nullptr && session->tmeClient == nullptr && session->mouserClient == nullptr) {
+    // Mouser's key is read for every lookup and a fresh client is built from it, so a key saved during the run applies
+    // from the next line. That is safe because the request spacing is shared by every Mouser client in the process.
+    const auto mouserConfig = loadMouserConfig();
+    const bool mouserConfigured = mouserConfig.valid();
+    if (session->client == nullptr && session->tmeClient == nullptr && !mouserConfigured) {
       result.credentialsMissing = true;
       return result;
     }
@@ -291,15 +291,16 @@ void App::processBomEnrichment() {
     }
     // Mouser is asked by part number only, so a line without one has no part there either.
     const auto mouserPartNumber = bomMouserQuery(lineSnapshot);
-    if (session->mouserClient == nullptr || mouserPartNumber.empty()) {
+    if (!mouserConfigured || mouserPartNumber.empty()) {
       result.outcome = BomLookupOutcome::NoMatch;
       return result;
     }
     // Once Mouser's request limit is reached, the lines only Mouser could answer stay unanswered (a failure, which
     // stores nothing) and are asked again in a later run, rather than spending more of the quota now.
     if (session->mouserLimitReached) return result;
+    MouserApiClient mouserClient(mouserConfig);
     const auto answer =
-        lookupMouserSuggestion(*session->mouserClient, mouserPartNumber, lineSnapshot, session->mouserLimitReached);
+        lookupMouserSuggestion(mouserClient, mouserPartNumber, lineSnapshot, session->mouserLimitReached);
     result.suggestion = answer.suggestion;
     result.verified = answer.verified;
     result.outcome = answer.outcome;
