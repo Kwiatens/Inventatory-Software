@@ -488,12 +488,17 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
-  // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
+  // The supplier clients shared by the lookups of one enrichment run. The worker builds them on its first
   // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
-  // it, and only while no lookup is running.
+  // them, and only while no lookup is running. One Mouser client serves the whole run, because it spaces
+  // its own requests to stay under Mouser's per-minute limit.
   struct BomEnrichmentSession {
     std::unique_ptr<DigiKeyApiClient> client;
     std::unique_ptr<TmeApiClient> tmeClient;
+    std::unique_ptr<MouserApiClient> mouserClient;
+    // Mouser said its request limit was reached, so it is not asked again in this run. Read and written by the
+    // worker only; one lookup runs at a time and is joined before the next starts.
+    bool mouserLimitReached = false;
   };
 
   struct BomEnrichmentResult {
@@ -509,6 +514,8 @@ class App {
     bool credentialsMissing = false;
     // The suggestion came from TME rather than DigiKey.
     bool fromTme = false;
+    // The suggestion came from Mouser rather than DigiKey or TME.
+    bool fromMouser = false;
   };
 
   // Printer work is always executed against a value snapshot.  The worker

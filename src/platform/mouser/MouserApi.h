@@ -66,6 +66,10 @@ std::size_t chooseMouserCandidate(const std::vector<MouserProductDetails>& match
 // Replaces every occurrence of the key in text with "[key]". Used on every error string before it leaves this layer.
 std::string redactMouserKey(std::string text, const std::string& apiKey);
 
+// True when an error from this client says Mouser's request limit was reached: HTTP 429, or an Errors entry about a
+// limit or quota. Further requests would only spend more of the quota, so a caller stops asking until later.
+bool mouserLimitReached(const std::string& error);
+
 // Mouser Search API v1 client. Each request is a POST authenticated by the API key in the query string. The client is
 // used from one worker thread at a time, so its request clock needs no lock.
 class MouserApiClient {

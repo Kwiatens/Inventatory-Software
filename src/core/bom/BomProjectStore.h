@@ -39,7 +39,7 @@ struct BomProject {
   time_t lastBuilt = 0;
   string bomText;
   map<string, string> overrides;   // bomLineKey -> chosen item id
-  map<string, string> enrichment;  // bomLineKey -> suggested DigiKey part
+  map<string, string> enrichment;  // bomLineKey -> suggested supplier part, stored as bomEnrichmentEntry writes it
 };
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects);
@@ -48,33 +48,38 @@ bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProje
 // Backup validation uses this read-only seam before a bundle can be activated.
 bool validateBomProjects(SqliteConnection& connection, string* error = nullptr);
 
-// How a DigiKey suggestion lookup for one BOM line ended.
+// How a supplier suggestion lookup for one BOM line ended.
 enum class BomLookupOutcome {
-  Found,    // DigiKey returned a part
-  NoMatch,  // DigiKey answered and has nothing for this line
+  Found,    // a supplier returned a part
+  NoMatch,  // the suppliers answered and have nothing for this line
   Failed,   // transport, credential, rate-limit or parse failure
 };
 
-// Stored in a project's enrichment map for a line DigiKey answered "no match" for.
+// Stored in a project's enrichment map for a line the suppliers answered "no match" for.
 inline constexpr const char* kBomEnrichmentNoMatch = "(no match)";
 
 // Prefix of a stored suggestion whose supplier record fits its BOM line. A suggestion without the prefix was stored
 // before verification existed, and is treated as unverified: shown and exported as "check before ordering".
 inline constexpr const char* kBomEnrichmentVerified = "verified\x1e";
 
-// Prefix of a stored suggestion that came from TME. It follows the verification prefix. A suggestion without it came
-// from DigiKey, which was the only supplier before TME was asked as well.
+// Prefix of a stored suggestion that came from TME. It follows the verification prefix. A suggestion without it or the
+// Mouser prefix came from DigiKey, which was the only supplier before TME was asked as well.
 inline constexpr const char* kBomEnrichmentTme = "tme\x1e";
+
+// Prefix of a stored suggestion that came from Mouser. It takes the place of the TME prefix, after the verification
+// prefix. Part numbers do not hold the record separator, so a stored DigiKey part is never read as a Mouser one.
+inline constexpr const char* kBomEnrichmentMouser = "mouser\x1e";
 
 // The enrichment entry a finished lookup may persist, or nullopt when nothing may be cached. A
 // failure is never cached: it is transient, and a cached value would stop the line from being retried.
+// A caller sets at most one of fromTme and fromMouser; with neither, the suggestion came from DigiKey.
 optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified = false,
-                                    bool fromTme = false);
-// The part number a stored suggestion names, without the verification prefix. Empty for markers.
+                                    bool fromTme = false, bool fromMouser = false);
+// The part number a stored suggestion names, without the verification and supplier prefixes. Empty for markers.
 string bomEnrichmentPart(const string& stored);
 // True when a stored suggestion was verified against its BOM line.
 bool bomEnrichmentVerified(const string& stored);
-// The supplier a stored suggestion names: "DigiKey" or "TME". Empty for markers and failures.
+// The supplier a stored suggestion names: "DigiKey", "TME" or "Mouser". Empty for markers and failures.
 string bomEnrichmentSupplier(const string& stored);
 
 // True when the project already holds an answer for the line and it need not be looked up again.
