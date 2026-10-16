@@ -14953,6 +14953,13 @@ void testMouserKeyAcceptedChecksTheAnswer() {
   assert(error == "Mouser rejected the API key (HTTP 401)");
   assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
   assert(error == "Mouser rejected the API key (HTTP 403)");
+  // A reached limit can come with a failing status. Its Errors entry names the limit, so the key is not blamed.
+  assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", &error));
+  assert(mouserLimitReached(error) && !mouserKeyRejected(error));
+  assert(!mouserKeyAccepted(401, R"({"Errors":[{"Message":"Maximum calls per day exceeded"}]})", &error));
+  assert(mouserLimitReached(error) && !mouserKeyRejected(error));
+  assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(mouserKeyRejected(error) && !mouserLimitReached(error));
   // Errors about the key on a failing status read as a rejected key.
   assert(!mouserKeyAccepted(400, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
   assert(mouserKeyRejected(error));

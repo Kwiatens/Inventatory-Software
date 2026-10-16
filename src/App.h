@@ -1246,6 +1246,8 @@ class App {
   std::string stagedMouserKey_;
   bool stagedMouserKeyChanged_ = false;
   bool hasStoredMouserKey_ = false;
+  // MOUSER_API_KEY is set, so lookups use it in place of the stored key. Read once at startup.
+  bool mouserKeyFromEnvironment_ = false;
   std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   // quickLabelMutex_ guards the quick-label presets in settings_, the print-result cache above and

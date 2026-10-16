@@ -623,7 +623,9 @@ App::SettingsPageModel App::settingsPageModel() const {
     }
 
     case SettingsCategory::Mouser: {
-      const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty() : hasStoredMouserKey_;
+      // A key from MOUSER_API_KEY counts as set: lookups and refresh use it when it is there.
+      const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty()
+                                                   : (hasStoredMouserKey_ || mouserKeyFromEnvironment_);
       const bool refreshRunning = !mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid();
       if (refreshRunning) {
         model.status = {{"Refreshing Mouser data: "},
@@ -643,7 +645,9 @@ App::SettingsPageModel App::settingsPageModel() const {
         row.tone = VoiceTone::Warning;
         row.note = "changed";
       }
-      row.buttons = {button("Test", "t", "settings.mouser.test", [self] { self->testStagedMouser(); })};
+      // Disabled while a refresh runs, as the key test action is then not offered from the keyboard either.
+      row.buttons = {button("Test", "t", "settings.mouser.test", [self] { self->testStagedMouser(); }, false, false,
+                            !refreshRunning)};
       rows.push_back(move(row));
 
       string refresh = "Not run yet";

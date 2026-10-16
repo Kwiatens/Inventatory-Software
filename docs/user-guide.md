@@ -200,7 +200,7 @@ MOUSER_API_KEY can supply the key instead: when it is set and not blank, Inventa
 key, a failed answer or no connection to Mouser fails the test.
 
 **Refresh** looks up each part that came from Mouser by its Mouser part number, or else its manufacturer part number, or
-else its SKU. It needs a saved Mouser key. It makes one Mouser request per part, spaced about two seconds apart, so a large
+else its SKU. It needs a Mouser key, saved in Settings or set in MOUSER_API_KEY. It makes one Mouser request per part, spaced about two seconds apart, so a large
 inventory takes several minutes. A Mouser record with a manufacturer part number different from the part's is not
 applied, and the part is counted as an error. When Mouser lists several products for a part number and the manufacturer
 does not tell them apart, the part is counted as ambiguous and is left unchanged. The **Last refresh** row shows how

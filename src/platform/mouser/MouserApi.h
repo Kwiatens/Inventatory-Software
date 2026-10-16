@@ -27,6 +27,9 @@ struct MouserConfig {
 // Environment variable MOUSER_API_KEY first, then the secure credential store entry above. The key is never read from
 // settings.conf.
 MouserConfig loadMouserConfig();
+// True when MOUSER_API_KEY is set to a non-blank value. That value is used in place of the stored key, so Settings
+// must count it as a key that is set.
+bool mouserKeyFromEnvironment();
 
 // One Mouser catalogue entry, read from one keyword-search result.
 struct MouserProductDetails {

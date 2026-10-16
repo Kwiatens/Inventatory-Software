@@ -114,10 +114,18 @@ void App::beginVendorLookup() {
     }
 
     if (mouserConfig.valid()) {
-      MouserApiClient client(mouserConfig);
       MouserLookupOutcome outcome = MouserLookupOutcome::Failed;
       string error;
-      if (auto details = client.lookupByPartNumber(query, outcome, &error, manufacturer)) {
+      optional<MouserProductDetails> details;
+      try {
+        MouserApiClient client(mouserConfig);
+        details = client.lookupByPartNumber(query, outcome, &error, manufacturer);
+      } catch (...) {
+        // The key travels in the request URL, so no exception text is shown.
+        outcome = MouserLookupOutcome::Failed;
+        error = "unexpected error";
+      }
+      if (details) {
         App::VendorLookupCandidate candidate;
         candidate.provider = kVendorProviderMouser;
         candidate.partNumber = trim(details->vendorMetadata.providerProductNumber);
