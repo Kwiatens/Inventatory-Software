@@ -22,8 +22,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <initializer_list>
+#include <mutex>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -57,12 +59,16 @@ constexpr size_t kMinimumKeywordBytes = 2;
 constexpr size_t kMaximumKeywordBytes = 100;
 constexpr int kSearchRecords = 50;
 constexpr size_t kMaximumMouserProducts = 50;
-// Mouser allows 30 calls per minute. 2.1 s between requests keeps one client under that with a margin.
+// Mouser allows 30 calls per minute. 2.1 s between requests keeps the whole process under that with a margin.
 constexpr chrono::milliseconds kMinimumRequestSpacing{2100};
+// The earliest time the next request may be sent. Every client in the process reserves its slot here under the lock,
+// because Mouser counts calls per key, not per client.
+mutex requestClockMutex;
+chrono::steady_clock::time_point nextFreeRequestAt{};
 // A stock count or price-break quantity above this is not a real count.
 constexpr unsigned long long kMaximumCount = 1000000000000ULL;
 
-// What a failed answer means. The key test tells a rejected key apart from every other failure.
+// What a failed answer means. A rejected key and a reached limit are told apart from every other failure.
 enum class MouserFailure { None, KeyRejected, LimitReached, Other };
 
 bool setError(string* error, string message) {
@@ -80,9 +86,17 @@ string unparsableMessage() { return "Unable to parse the " + mouserName() + " re
 string limitReachedPrefix() { return mouserName() + " request limit reached"; }
 string limitReachedMessage() { return limitReachedPrefix() + "; try again later"; }
 
+// The rejected-key message starts with this, which is how mouserKeyRejected recognises it.
+string keyRejectedPrefix() { return mouserName() + " rejected the API key"; }
+
 // The rejected-key message, with the HTTP status when the answer had a failing one.
 string keyRejectedMessage(uint32_t status) {
-  return mouserName() + " rejected the API key" + (status >= 400 ? " (HTTP " + to_string(status) + ")" : string());
+  return keyRejectedPrefix() + (status >= 400 ? " (HTTP " + to_string(status) + ")" : string());
+}
+
+// The message for a status that is neither a success nor a rejected key or a reached limit.
+string requestFailedMessage(uint32_t status) {
+  return mouserName() + " request failed (HTTP " + to_string(status) + ")";
 }
 
 // Text of a string or number value. Objects, arrays, booleans and null give nothing.
@@ -340,7 +354,7 @@ MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetai
       setError(error, limitReachedMessage());
       return failure;
     }
-    setError(error, mouserName() + " request failed (HTTP " + to_string(status) + ")");
+    setError(error, requestFailedMessage(status));
     return MouserFailure::Other;
   }
   if (failure != MouserFailure::None) setError(error, move(bodyError));
@@ -394,6 +408,16 @@ bool mouserPartNumberMatches(const string& partNumber, const MouserProductDetail
          partNumberKey(product.vendorMetadata.providerProductNumber) == wanted;
 }
 
+vector<MouserProductDetails> keepMouserMatches(const vector<MouserProductDetails>& products, const string& partNumber) {
+  vector<MouserProductDetails> matches;
+  for (const auto& product : products) {
+    if (!product.vendorMetadata.providerProductNumber.empty() && mouserPartNumberMatches(partNumber, product)) {
+      matches.push_back(product);
+    }
+  }
+  return matches;
+}
+
 size_t chooseMouserCandidate(const vector<MouserProductDetails>& matches, const string& /*partNumber*/,
                              const string& manufacturer) {
   // The matches are the exact matches for the part number already, so only the manufacturer can tell them apart.
@@ -420,15 +444,36 @@ string redactMouserKey(string text, const string& apiKey) {
 
 bool mouserLimitReached(const string& error) { return error.rfind(limitReachedPrefix(), 0) == 0; }
 
+bool mouserKeyRejected(const string& error) { return error.rfind(keyRejectedPrefix(), 0) == 0; }
+
+bool mouserKeyAccepted(uint32_t statusCode, const string& body, string* error) {
+  // The key was accepted and the limit is reached: the key is valid.
+  if (statusCode == 429) return true;
+  // Below 200 and 3xx are not answers to the search; the body is not read.
+  if (statusCode < 200 || (statusCode >= 300 && statusCode < 400)) {
+    return setError(error, requestFailedMessage(statusCode));
+  }
+  HttpResponse response;
+  response.statusCode = statusCode;
+  response.body = body;
+  vector<MouserProductDetails> products;
+  string answerError;
+  // A 2xx answer passes only when the body is a JSON object without Errors entries. A failing status is never a pass.
+  if (readAnswer(response, products, &answerError) == MouserFailure::None) return true;
+  return setError(error, move(answerError));
+}
+
 MouserApiClient::MouserApiClient(MouserConfig config) : config_(move(config)) {}
 
 void MouserApiClient::waitForRequestSlot() {
-  if (lastRequestAt_ != chrono::steady_clock::time_point{}) {
-    const auto readyAt = lastRequestAt_ + kMinimumRequestSpacing;
-    const auto now = chrono::steady_clock::now();
-    if (now < readyAt) this_thread::sleep_for(readyAt - now);
+  chrono::steady_clock::time_point slot;
+  {
+    // Reserve the next free slot under the lock; the sleep happens after it is released.
+    const lock_guard<mutex> lock(requestClockMutex);
+    slot = max(chrono::steady_clock::now(), nextFreeRequestAt);
+    nextFreeRequestAt = slot + kMinimumRequestSpacing;
   }
-  lastRequestAt_ = chrono::steady_clock::now();
+  if (slot > chrono::steady_clock::now()) this_thread::sleep_until(slot);
 }
 
 bool MouserApiClient::searchKeyword(const string& keyword, vector<MouserProductDetails>& products,
@@ -452,14 +497,10 @@ bool MouserApiClient::testConnection(string* error) {
   waitForRequestSlot();
   HttpResponse response;
   if (!postKeywordSearch(config_.apiKey, kCredentialTestKeyword, response, error)) return false;
-  vector<MouserProductDetails> products;
   string answerError;
-  // Only a rejected key fails the test. Any other answer, a reached limit or a failed search included, means Mouser
-  // accepted the key.
-  if (readAnswer(response, products, &answerError) == MouserFailure::KeyRejected) {
-    return setError(error, redactMouserKey(answerError, config_.apiKey));
-  }
-  return true;
+  // The key passes only when Mouser answered the search; a reached limit also shows the key was accepted.
+  if (mouserKeyAccepted(response.statusCode, response.body, &answerError)) return true;
+  return setError(error, redactMouserKey(answerError, config_.apiKey));
 }
 
 optional<MouserProductDetails> MouserApiClient::lookupByPartNumber(const string& partNumber,
@@ -475,11 +516,9 @@ optional<MouserProductDetails> MouserApiClient::lookupByPartNumber(const string&
   vector<MouserProductDetails> products;
   if (!searchKeyword(keyword, products, outcome, error)) return nullopt;
   // A keyword search also lists loose matches (longer part numbers, parts that mention the term). Only the products
-  // whose part number is the one asked for are kept; a part is never guessed from the others.
-  vector<MouserProductDetails> matches;
-  for (auto& product : products) {
-    if (mouserPartNumberMatches(keyword, product)) matches.push_back(move(product));
-  }
+  // whose part number is the one asked for, and that have a Mouser part number, are kept; a part is never guessed from
+  // the others.
+  auto matches = keepMouserMatches(products, keyword);
   if (matches.empty()) {
     outcome = MouserLookupOutcome::NoMatch;
     setError(error, redactMouserKey(mouserName() + " has no product with part number " + keyword, config_.apiKey));

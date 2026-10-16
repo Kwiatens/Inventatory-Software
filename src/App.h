@@ -490,12 +490,11 @@ class App {
 
   // The supplier clients shared by the lookups of one enrichment run. The worker builds them on its first
   // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
-  // them, and only while no lookup is running. One Mouser client serves the whole run, because it spaces
-  // its own requests to stay under Mouser's per-minute limit.
+  // them, and only while no lookup is running. Mouser has no client here: each Mouser lookup builds one from
+  // the saved key, because the request spacing is shared by every Mouser client in the process.
   struct BomEnrichmentSession {
     std::unique_ptr<DigiKeyApiClient> client;
     std::unique_ptr<TmeApiClient> tmeClient;
-    std::unique_ptr<MouserApiClient> mouserClient;
     // Mouser said its request limit was reached, so it is not asked again in this run. Read and written by the
     // worker only; one lookup runs at a time and is joined before the next starts.
     bool mouserLimitReached = false;
