@@ -103,6 +103,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   hasStoredTmeToken_ = credentialPresence(CredentialStore::lookup(kTmeTokenCredentialName), hasStoredTmeToken_);
   hasStoredTmeSecret_ = credentialPresence(CredentialStore::lookup(kTmeSecretCredentialName), hasStoredTmeSecret_);
   hasStoredMouserKey_ = credentialPresence(CredentialStore::lookup(kMouserApiKeyCredentialName), hasStoredMouserKey_);
+  mouserKeyFromEnvironment_ = mouserKeyFromEnvironment();
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   if (!inventoryRecoveryRequired_) {
     loadState();
