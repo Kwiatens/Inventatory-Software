@@ -417,17 +417,23 @@ void App::commitSettingsFieldEdit() {
     }
   } else if (settingsCategory_ == SettingsCategory::Mouser) {
     if (settingsField_ == 0) {
-      if (trim(inputBuffer_).empty()) {
+      auto key = trim(inputBuffer_);
+      if (key.empty()) {
         setMessage("API key cannot be empty; press Esc to keep the stored key", 4);
         return;
       }
       // Same rule as TME: an over-long key keeps the editor open.
-      if (inputBuffer_.size() > kMaxMouserKeyBytes) {
+      if (key.size() > kMaxMouserKeyBytes) {
         setMessage("Mouser API key must be " + to_string(kMaxMouserKeyBytes) + " bytes or fewer", 4);
         return;
       }
+      // Every call rejects a key that holds spaces or control characters, so such a key is never staged.
+      if (!MouserConfig{key}.valid()) {
+        setMessage("Mouser API key cannot contain spaces or control characters", 4);
+        return;
+      }
       stagedMouserKey_.assign(stagedMouserKey_.size(), '\0');
-      stagedMouserKey_ = inputBuffer_;
+      stagedMouserKey_ = move(key);
       stagedMouserKeyChanged_ = true;
       inputBuffer_.assign(inputBuffer_.size(), '\0');
       inputBuffer_.clear();
