@@ -64,7 +64,9 @@ void App::beginCsvImport() {
     return;
   }
   if (format == CsvFormat::BomMissingValue) {
-    setMessage("BOM import failed: no value column. Export it with Name (EasyEDA) or Value (KiCad) included.", 8);
+    setMessage("BOM import failed: no value column. Export it with Name (EasyEDA), Value (KiCad) or Comment (Altium) "
+               "included.",
+               8);
     return;
   }
 
