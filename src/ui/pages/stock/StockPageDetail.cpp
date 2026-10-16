@@ -264,6 +264,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     };
     detailField("DigiKey", item->digikeyPartNumber, uiPrimaryText());
     detailField("TME", tmeProductSymbol(*item), uiPrimaryText());
+    detailField("Mouser", mouserPartNumberOf(*item), uiPrimaryText());
     detailField("SKU", item->sku, uiPrimaryText());
     detailField("Inventatory ID", item->inventatoryId, uiPrimaryText());
     detailField("Location", item->location, uiPrimaryText());
