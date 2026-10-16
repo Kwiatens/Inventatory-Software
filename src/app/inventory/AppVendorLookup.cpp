@@ -8,6 +8,7 @@
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 #include "core/inventory/VendorBagCode.h"
+#include "core/inventory/VendorProvider.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/tme/TmeApi.h"
 
@@ -176,7 +177,7 @@ void App::chooseVendorCandidate(size_t index) {
     item.vendorMetadata.providerProductNumber = candidate.partNumber;
   }
 
-  const string vendorName = candidate.provider == "digikey" ? "DigiKey" : "TME";
+  const string vendorName = vendorDisplayName(candidate.provider);
   vendorCandidates_.clear();
   vendorLookupNotes_.clear();
   vendorCandidateIndex_ = 0;

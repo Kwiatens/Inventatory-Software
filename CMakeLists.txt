@@ -150,6 +150,7 @@ add_executable(inventatory
   src/core/transfer/InventoryTransferValidation.cpp
   src/core/inventory/InventoryScan.cpp
   src/core/inventory/VendorBagCode.cpp
+  src/core/inventory/VendorProvider.cpp
   src/core/storage/InventorySqlite.cpp
   src/core/storage/InventorySqliteSchema.cpp
   src/core/scanner/InventatoryScanProtocol.cpp
@@ -320,6 +321,7 @@ add_executable(inventatory_tests
   src/core/transfer/InventoryTransferValidation.cpp
   src/core/inventory/InventoryScan.cpp
   src/core/inventory/VendorBagCode.cpp
+  src/core/inventory/VendorProvider.cpp
   src/core/storage/InventorySqlite.cpp
   src/core/storage/InventorySqliteSchema.cpp
   src/core/scanner/InventatoryScanProtocol.cpp

@@ -6,6 +6,7 @@
 
 #include "core/bom/BomProjectStore.h"
 
+#include "core/inventory/VendorProvider.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/CsvExport.h"
 
@@ -60,7 +61,8 @@ string bomEnrichmentPart(const string& stored) {
 string bomEnrichmentSupplier(const string& stored) {
   if (bomEnrichmentPart(stored).empty()) return {};
   const string tmePrefix = kBomEnrichmentTme;
-  return withoutVerification(stored).rfind(tmePrefix, 0) == 0 ? string("TME") : string("DigiKey");
+  const bool fromTme = withoutVerification(stored).rfind(tmePrefix, 0) == 0;
+  return vendorDisplayName(fromTme ? kVendorProviderTme : kVendorProviderDigiKey);
 }
 
 bool bomEnrichmentVerified(const string& stored) {
