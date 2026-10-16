@@ -16,6 +16,7 @@
 #include "app/common/AppActionSupport.h"
 #include "platform/tme/TmeEncoding.h"
 #include "platform/tme/TmeVocabulary.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
@@ -14094,6 +14095,271 @@ void testDeviceSyncEventCarriesBagCode() {
   assert(!parseDeviceSyncRequestJson(bagBody(string(kMaximumVendorBagCodeBytes + 1, 'A')), oversized, error));
 }
 
+// Mouser fixtures. All of this data is synthetic: the key, part numbers, manufacturers, prices and stock are made up
+// for these tests. None of it came from a live catalogue, a real key or a real inventory. The field names follow
+// Mouser's published v1 search response, which these tests pin; a live response confirms them.
+constexpr const char* kSyntheticMouserKey = "synthetic0000mouser0000value";
+
+// Parses a search response with one synthetic part made of a Mouser part number and the given fields (each starting
+// with a comma), and returns that part.
+MouserProductDetails parseSyntheticMouserPart(const string& fields) {
+  vector<MouserProductDetails> products;
+  string error;
+  const string body =
+      R"({"Errors":[],"SearchResults":{"NumberOfResult":1,"Parts":[{"MouserPartNumber":"999-SYN-0001")" + fields +
+      "}]}}";
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(products.size() == 1);
+  return products.front();
+}
+
+void testMouserResponseParsing() {
+  const string body =
+      R"({"Errors":[],"SearchResults":{"NumberOfResult":2,"Parts":[)"
+      R"({"MouserPartNumber":"999-SYN-RES-0001","ManufacturerPartNumber":"SYN-RES-0001",)"
+      R"("Manufacturer":"Synthetic Parts Co","Description":"Synthetic thick film resistor",)"
+      R"("Category":"Synthetic Resistors","DataSheetUrl":"https://example.invalid/syn-res-0001.pdf",)"
+      R"("ProductDetailUrl":"https://example.invalid/999-SYN-RES-0001",)"
+      R"("AvailabilityInStock":"12,345","Availability":"12,345 In Stock",)"
+      R"("PriceBreaks":[{"Quantity":10,"Price":"$0.05","Currency":"USD"},)"
+      R"({"Quantity":1,"Price":"$0.10","Currency":"USD"}],)"
+      R"("ProductAttributes":[{"AttributeName":"Resistance","AttributeValue":"10 kOhms"},)"
+      R"({"AttributeName":"package / case","AttributeValue":" 0603 (1608 metric) "},)"
+      R"({"AttributeName":"","AttributeValue":"no name"}],"LifecycleStatus":null,"IsDiscontinued":"false"},)"
+      R"({"MouserPartNumber":"999-SYN-CAP-0002","ManufacturerPartNumber":"SYN-CAP-0002",)"
+      R"("Manufacturer":"Example Components",)"
+      R"("PriceBreaks":[{"Quantity":"100","Price":"0.02 EUR","Currency":"EUR"},{"Quantity":0,"Price":"0.01"},)"
+      R"({"Quantity":5,"Price":""}]}]}})";
+  vector<MouserProductDetails> products;
+  string error;
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(products.size() == 2);
+
+  const auto& resistor = products[0];
+  assert(resistor.vendorMetadata.provider == kVendorProviderMouser);
+  assert(resistor.vendorMetadata.providerProductNumber == "999-SYN-RES-0001");
+  assert(resistor.vendorMetadata.manufacturerPartNumber == "SYN-RES-0001");
+  assert(resistor.manufacturerName == "Synthetic Parts Co");
+  assert(resistor.productDescription == "Synthetic thick film resistor");
+  assert(resistor.vendorMetadata.title == "Synthetic thick film resistor");
+  assert(resistor.categoryName == "Synthetic Resistors");
+  assert(resistor.vendorMetadata.categoryPath == vector<string>{"Synthetic Resistors"});
+  assert(resistor.datasheetUrl == "https://example.invalid/syn-res-0001.pdf");
+  assert(resistor.productUrl == "https://example.invalid/999-SYN-RES-0001");
+  assert(resistor.vendorMetadata.productUrl == resistor.productUrl);
+  assert(resistor.vendorMetadata.locale.empty());
+  // The stock is digits only, and the price is the smallest quantity break, printed as Mouser sent it.
+  assert(resistor.quantityAvailable == "12345");
+  assert(resistor.unitPrice == "$0.10 USD");
+  // Attributes pass through as sent (trimmed); one without a name is dropped, and the package is read by name.
+  assert(resistor.packageName == "0603 (1608 metric)");
+  assert(resistor.parameters.size() == 2);
+  assert(resistor.parameters[0].name == "Resistance" && resistor.parameters[0].value == "10 kOhms");
+  assert(resistor.parameters[1].name == "package / case" && resistor.parameters[1].value == "0603 (1608 metric)");
+  assert(resistor.vendorMetadata.parameters.size() == 2);
+  assert(resistor.orderable && resistor.productStatus.empty());
+
+  // A break without a quantity or a price is skipped. A currency already in the price is not repeated, and a first
+  // break above one piece says where it starts.
+  const auto& capacitor = products[1];
+  assert(capacitor.vendorMetadata.providerProductNumber == "999-SYN-CAP-0002");
+  assert(capacitor.manufacturerName == "Example Components");
+  assert(capacitor.unitPrice == "0.02 EUR from 100 pcs");
+  assert(capacitor.quantityAvailable.empty());
+  assert(capacitor.packageName.empty() && capacitor.parameters.empty());
+  assert(capacitor.vendorMetadata.categoryPath.empty());
+}
+
+void testMouserEmptyPartsIsSuccess() {
+  vector<MouserProductDetails> products(1);
+  string error = "unchanged";
+  assert(parseMouserSearchResponse(R"({"Errors":[],"SearchResults":{"NumberOfResult":0,"Parts":[]}})", products,
+                                   &error));
+  assert(products.empty());
+  assert(error == "unchanged");
+  // Absent lists are absent data, not an error.
+  assert(parseMouserSearchResponse(R"({"Errors":null,"SearchResults":null})", products, &error));
+  assert(products.empty());
+  assert(parseMouserSearchResponse("{}", products, &error));
+  assert(products.empty());
+  // A record without either part number cannot be matched and is left out.
+  assert(parseMouserSearchResponse(R"({"SearchResults":{"Parts":[{"Description":"Synthetic part"},"text"]}})", products,
+                                   &error));
+  assert(products.empty());
+  assert(error == "unchanged");
+}
+
+void testMouserErrorsListFails() {
+  vector<MouserProductDetails> products;
+  string error;
+  // The message is shown with the vendor's name; the client redacts the key from it, which this test does the same way.
+  const string key = kSyntheticMouserKey;
+  const string echoed = R"({"Errors":[{"Id":0,"Code":"Invalid","Message":"Request refused for )" + key +
+                        R"(","PropertyName":""}],"SearchResults":null})";
+  assert(!parseMouserSearchResponse(echoed, products, &error));
+  assert(error.rfind("Mouser: Request refused for", 0) == 0);
+  const auto shown = redactMouserKey(error, key);
+  assert(shown.find(key) == string::npos);
+  assert(shown == "Mouser: Request refused for [key]");
+  assert(shown.find("DigiKey") == string::npos);
+
+  // An error about the key reads as a rejected key, and one about the limit as the limit; neither echoes the key.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"Invalid","Message":"The API key )" + key +
+                                        R"( is not valid."}]})",
+                                    products, &error));
+  assert(error == "Mouser rejected the API key");
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", products,
+                                    &error));
+  assert(error == "Mouser request limit reached; try again later");
+  // The request's keyword field is not the key.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Keyword is required"}]})", products, &error));
+  assert(error == "Mouser: Keyword is required");
+
+  // Errors fail the response even when it also lists parts.
+  assert(!parseMouserSearchResponse(
+      R"({"Errors":[{"Message":"Synthetic failure"}],"SearchResults":{"Parts":[{"MouserPartNumber":"999-SYN-0001"}]}})",
+      products, &error));
+  assert(products.empty());
+  assert(error == "Mouser: Synthetic failure");
+  // An entry without a message still fails.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{}]})", products, &error));
+  assert(error == "Mouser returned an error");
+}
+
+void testMouserNonObjectBodyFails() {
+  vector<MouserProductDetails> products(1);
+  string error;
+  for (const char* body : {"<html>Service unavailable</html>", "[1,2]", R"([{"MouserPartNumber":"999-SYN-0001"}])",
+                           R"("text")", "", "{\"Errors\":"}) {
+    error.clear();
+    assert(!parseMouserSearchResponse(body, products, &error));
+    assert(products.empty());
+    assert(error == "Unable to parse the Mouser response");
+  }
+}
+
+void testMouserStockForms() {
+  // AvailabilityInStock may be a JSON number or a string, with or without thousands separators.
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":1234)").quantityAvailable == "1234");
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":"1234")").quantityAvailable == "1234");
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":"1,234")").quantityAvailable == "1234");
+  // Without it, the count is the leading number of Availability.
+  assert(parseSyntheticMouserPart(R"(,"Availability":"1,234 In Stock")").quantityAvailable == "1234");
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":null,"Availability":"7 In Stock")").quantityAvailable ==
+         "7");
+  // Text that holds no count leaves the stock unknown.
+  assert(parseSyntheticMouserPart(R"(,"Availability":"On Order")").quantityAvailable.empty());
+  assert(parseSyntheticMouserPart(R"(,"Availability":"12.5k Available")").quantityAvailable.empty());
+  assert(parseSyntheticMouserPart("").quantityAvailable.empty());
+}
+
+void testMouserOrderableStatus() {
+  const auto discontinued = parseSyntheticMouserPart(R"(,"IsDiscontinued":"true")");
+  assert(!discontinued.orderable);
+  assert(discontinued.productStatus == "Discontinued");
+  assert(!parseSyntheticMouserPart(R"(,"IsDiscontinued":"TRUE")").orderable);
+  assert(!parseSyntheticMouserPart(R"(,"IsDiscontinued":true)").orderable);
+
+  const auto obsolete = parseSyntheticMouserPart(R"(,"LifecycleStatus":"Obsolete")");
+  assert(!obsolete.orderable);
+  assert(obsolete.productStatus == "Obsolete");
+
+  const auto active = parseSyntheticMouserPart(R"(,"LifecycleStatus":"New Product","IsDiscontinued":"false")");
+  assert(active.orderable);
+  assert(active.productStatus == "New Product");
+  const auto plain = parseSyntheticMouserPart(R"(,"ManufacturerPartNumber":"SYN-0001")");
+  assert(plain.orderable);
+  assert(plain.productStatus.empty());
+}
+
+void testMouserPartNumberMatching() {
+  MouserProductDetails product;
+  product.vendorMetadata.manufacturerPartNumber = "SYN-MCU-0103C8";
+  product.vendorMetadata.providerProductNumber = "999-SYN-MCU-0103C8";
+  // Letter case and punctuation are ignored.
+  assert(mouserPartNumberMatches("syn-mcu-0103c8", product));
+  assert(mouserPartNumberMatches("SYNMCU0103C8", product));
+  assert(mouserPartNumberMatches(" syn mcu/0103c8 ", product));
+  // The Mouser part number matches as well.
+  assert(mouserPartNumberMatches("999-SYN-MCU-0103C8", product));
+  assert(mouserPartNumberMatches("999synmcu0103c8", product));
+  // Containment is not a match.
+  assert(!mouserPartNumberMatches("SYN-MCU-0103", product));
+  assert(!mouserPartNumberMatches("SYN-MCU-0103C8X", product));
+  assert(!mouserPartNumberMatches("", product));
+  assert(!mouserPartNumberMatches("--", product));
+  MouserProductDetails empty;
+  assert(!mouserPartNumberMatches("SYN-MCU-0103C8", empty));
+}
+
+void testMouserCandidateChoice() {
+  MouserProductDetails first;
+  first.vendorMetadata.manufacturerPartNumber = "SYN-0001";
+  first.vendorMetadata.providerProductNumber = "999-SYN-0001";
+  first.manufacturerName = "Synthetic Parts Co";
+  MouserProductDetails second = first;
+  second.vendorMetadata.providerProductNumber = "998-SYN-0001";
+  second.manufacturerName = "Example Components";
+
+  // One candidate is the answer.
+  assert(chooseMouserCandidate({first}, "SYN-0001", "") == 0);
+  assert(chooseMouserCandidate({first}, "SYN-0001", "synthetic parts co") == 0);
+  // Two are told apart by the manufacturer, in any letter case.
+  const vector<MouserProductDetails> both = {first, second};
+  assert(chooseMouserCandidate(both, "SYN-0001", "EXAMPLE COMPONENTS") == 1);
+  assert(chooseMouserCandidate(both, "SYN-0001", " Synthetic Parts Co ") == 0);
+  // Without a manufacturer, or with one that keeps none or both, no product is chosen.
+  assert(chooseMouserCandidate(both, "SYN-0001", "") == both.size());
+  assert(chooseMouserCandidate(both, "SYN-0001", "Another Maker") == both.size());
+  const vector<MouserProductDetails> sameMaker = {first, first};
+  assert(chooseMouserCandidate(sameMaker, "SYN-0001", "Synthetic Parts Co") == sameMaker.size());
+  assert(chooseMouserCandidate({}, "SYN-0001", "") == 0);
+}
+
+void testMouserKeyRedaction() {
+  const string key = kSyntheticMouserKey;
+  assert(redactMouserKey("start " + key + " middle " + key + key + " end", key) ==
+         "start [key] middle [key][key] end");
+  assert(redactMouserKey("no secret here", key) == "no secret here");
+  assert(redactMouserKey("Mouser request failed (HTTP 500)", key) == "Mouser request failed (HTTP 500)");
+  // An empty key redacts nothing, and a key that reads like the marker still ends.
+  assert(redactMouserKey("text", "") == "text");
+  assert(redactMouserKey("a [key] b", "[key]") == "a [key] b");
+}
+
+void testMouserConfigValidity() {
+  assert(!MouserConfig{}.valid());
+  assert(!MouserConfig{"synthetic key"}.valid());
+  assert(!MouserConfig{"synthetic\tkey"}.valid());
+  assert(!MouserConfig{" synthetic"}.valid());
+  assert(!MouserConfig{string("synthetic\x01key")}.valid());
+  assert(!MouserConfig{string("synthetic\x7fkey")}.valid());
+  assert(MouserConfig{kSyntheticMouserKey}.valid());
+  assert(MouserConfig{string(256, 'a')}.valid());
+  assert(!MouserConfig{string(257, 'a')}.valid());
+}
+
+// The guards that answer before any request: these calls make no network traffic.
+void testMouserLookupGuardsMakeNoRequest() {
+  MouserApiClient client(MouserConfig{kSyntheticMouserKey});
+  MouserLookupOutcome outcome = MouserLookupOutcome::Found;
+  string error;
+  // A part number shorter than 2 bytes or longer than 100 cannot be asked for.
+  for (const string& partNumber : {string("A"), string("  B  "), string(), string(101, 'A')}) {
+    outcome = MouserLookupOutcome::Found;
+    assert(!client.lookupByPartNumber(partNumber, outcome, &error).has_value());
+    assert(outcome == MouserLookupOutcome::NoMatch);
+  }
+  // Without a valid key nothing is sent, and the message names Mouser only.
+  MouserApiClient unconfigured(MouserConfig{});
+  assert(!unconfigured.lookupByPartNumber("SYN-0001", outcome, &error).has_value());
+  assert(outcome == MouserLookupOutcome::Failed);
+  assert(error.find("Mouser") != string::npos && error.find("DigiKey") == string::npos);
+  error.clear();
+  assert(!unconfigured.testConnection(&error));
+  assert(error.find("Mouser") != string::npos && error.find("DigiKey") == string::npos);
+}
+
 
 struct TestCase {
   const char* area;
@@ -14295,6 +14561,17 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeDetailParsing", testTmeDetailParsing},
     {"tme", "TmeMergeFillsEnrichment", testTmeMergeFillsEnrichment},
     {"tme", "TmeSettingsPersistOptionalKeys", testTmeSettingsPersistOptionalKeys},
+    {"mouser", "MouserResponseParsing", testMouserResponseParsing},
+    {"mouser", "MouserEmptyPartsIsSuccess", testMouserEmptyPartsIsSuccess},
+    {"mouser", "MouserErrorsListFails", testMouserErrorsListFails},
+    {"mouser", "MouserNonObjectBodyFails", testMouserNonObjectBodyFails},
+    {"mouser", "MouserStockForms", testMouserStockForms},
+    {"mouser", "MouserOrderableStatus", testMouserOrderableStatus},
+    {"mouser", "MouserPartNumberMatching", testMouserPartNumberMatching},
+    {"mouser", "MouserCandidateChoice", testMouserCandidateChoice},
+    {"mouser", "MouserKeyRedaction", testMouserKeyRedaction},
+    {"mouser", "MouserConfigValidity", testMouserConfigValidity},
+    {"mouser", "MouserLookupGuardsMakeNoRequest", testMouserLookupGuardsMakeNoRequest},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
