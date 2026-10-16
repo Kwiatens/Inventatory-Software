@@ -7,8 +7,10 @@
 #include "app/common/AppActionSupport.h"
 
 #include "import/csv/CsvFormat.h"
+#include "core/bom/BomMouserSuggestion.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/tme/TmeApi.h"
 #include "platform/security/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
@@ -65,6 +67,32 @@ TmeSuggestion lookupTmeSuggestion(TmeApiClient& client, const string& keywords, 
     }
   }
   answer.outcome = answer.suggestion.empty() ? BomLookupOutcome::NoMatch : BomLookupOutcome::Found;
+  return answer;
+}
+
+// Mouser's answer for one BOM line: the Mouser part number of the one record the line's part number names, when Mouser
+// can sell it. limitReached is set when Mouser refused the request because its request limit was reached.
+BomMouserSuggestion lookupMouserSuggestion(MouserApiClient& client, const string& partNumber, const BomLine& line,
+                                           bool& limitReached) {
+  BomMouserSuggestion answer;
+  MouserLookupOutcome lookup = MouserLookupOutcome::Failed;
+  string error;
+  // A BOM line names no manufacturer, so none is passed to tell apart products that share the part number.
+  const auto product = client.lookupByPartNumber(partNumber, lookup, &error);
+  switch (lookup) {
+    case MouserLookupOutcome::Found:
+      if (product.has_value()) return bomMouserSuggestion(line, *product);
+      break;
+    case MouserLookupOutcome::NoMatch:
+    case MouserLookupOutcome::Ambiguous:
+      // Several products with the part number are never guessed between, and asking again would get the same answer.
+      answer.outcome = BomLookupOutcome::NoMatch;
+      break;
+    case MouserLookupOutcome::Failed:
+      // A failure is retried later. A reached request limit also ends Mouser's part of this run.
+      limitReached = mouserLimitReached(error);
+      break;
+  }
   return answer;
 }
 
@@ -141,7 +169,8 @@ void App::processBomEnrichment() {
       });
       if (targetProject != bomProjects_.end() && !result.key.empty()) {
         // A failed lookup stores nothing so the line is retried the next time the project opens.
-        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion, result.verified, result.fromTme)) {
+        if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion, result.verified, result.fromTme,
+                                                  result.fromMouser)) {
           targetProject->enrichment[result.key] = *entry;
         } else {
           // Drop a stale "-" left behind by earlier versions rather than keep showing it.
@@ -212,7 +241,7 @@ void App::processBomEnrichment() {
                                                 requestSequence] {
     BomEnrichmentResult result{key, {}, false, BomLookupOutcome::Failed, projectId, generation, requestSequence};
     // Credentials are read by the worker, because the credential store can block. A supplier that is not configured
-    // is skipped; a run with neither supplier configured ends quietly.
+    // is skipped; a run with no supplier configured ends quietly.
     if (session->client == nullptr) {
       const auto config = loadDigiKeyConfig();
       if (config.valid()) session->client = make_unique<DigiKeyApiClient>(config);
@@ -221,11 +250,16 @@ void App::processBomEnrichment() {
       const auto config = loadTmeConfig();
       if (config.valid()) session->tmeClient = make_unique<TmeApiClient>(config);
     }
-    if (session->client == nullptr && session->tmeClient == nullptr) {
+    if (session->mouserClient == nullptr) {
+      const auto config = loadMouserConfig();
+      if (config.valid()) session->mouserClient = make_unique<MouserApiClient>(config);
+    }
+    if (session->client == nullptr && session->tmeClient == nullptr && session->mouserClient == nullptr) {
       result.credentialsMissing = true;
       return result;
     }
     // DigiKey is asked first. TME is asked when DigiKey has no part for the line, or when DigiKey is not configured.
+    // Mouser is asked last, when neither DigiKey nor TME has a part for the line or is configured.
     if (session->client != nullptr) {
       string error;
       DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
@@ -244,15 +278,32 @@ void App::processBomEnrichment() {
       // Only a clear "no part" moves on to TME; a failed request is retried later, as it always was.
       if (lookup != DigiKeyLookupOutcome::NoMatch) return result;
     }
-    if (session->tmeClient == nullptr) {
+    if (session->tmeClient != nullptr) {
+      const auto answer = lookupTmeSuggestion(*session->tmeClient, keywords, lineSnapshot);
+      // Only a clear "no part" moves on to Mouser; a failed request is retried later.
+      if (answer.outcome != BomLookupOutcome::NoMatch) {
+        result.suggestion = answer.suggestion;
+        result.verified = answer.verified;
+        result.outcome = answer.outcome;
+        result.fromTme = true;
+        return result;
+      }
+    }
+    // Mouser is asked by part number only, so a line without one has no part there either.
+    const auto mouserPartNumber = bomMouserQuery(lineSnapshot);
+    if (session->mouserClient == nullptr || mouserPartNumber.empty()) {
       result.outcome = BomLookupOutcome::NoMatch;
       return result;
     }
-    const auto answer = lookupTmeSuggestion(*session->tmeClient, keywords, lineSnapshot);
+    // Once Mouser's request limit is reached, the lines only Mouser could answer stay unanswered (a failure, which
+    // stores nothing) and are asked again in a later run, rather than spending more of the quota now.
+    if (session->mouserLimitReached) return result;
+    const auto answer =
+        lookupMouserSuggestion(*session->mouserClient, mouserPartNumber, lineSnapshot, session->mouserLimitReached);
     result.suggestion = answer.suggestion;
     result.verified = answer.verified;
     result.outcome = answer.outcome;
-    result.fromTme = true;
+    result.fromMouser = true;
     return result;
   });
   dirty_ = true;

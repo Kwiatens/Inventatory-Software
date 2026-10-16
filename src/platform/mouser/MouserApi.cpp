@@ -76,7 +76,9 @@ string mouserName() { return vendorDisplayName(kVendorProviderMouser); }
 string missingKeyMessage() { return mouserName() + " API key is missing or not valid"; }
 string unreachableMessage() { return "Unable to reach " + mouserName(); }
 string unparsableMessage() { return "Unable to parse the " + mouserName() + " response"; }
-string limitReachedMessage() { return mouserName() + " request limit reached; try again later"; }
+// The limit message starts with this, which is how mouserLimitReached recognises it.
+string limitReachedPrefix() { return mouserName() + " request limit reached"; }
+string limitReachedMessage() { return limitReachedPrefix() + "; try again later"; }
 
 // The rejected-key message, with the HTTP status when the answer had a failing one.
 string keyRejectedMessage(uint32_t status) {
@@ -415,6 +417,8 @@ string redactMouserKey(string text, const string& apiKey) {
   }
   return text;
 }
+
+bool mouserLimitReached(const string& error) { return error.rfind(limitReachedPrefix(), 0) == 0; }
 
 MouserApiClient::MouserApiClient(MouserConfig config) : config_(move(config)) {}
 

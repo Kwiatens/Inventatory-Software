@@ -53,6 +53,7 @@
 #include "import/easyeda/EasyEdaBom.h"
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomPickPlan.h"
+#include "core/bom/BomMouserSuggestion.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
@@ -14623,6 +14624,226 @@ void testMouserCommitIsRecorded() {
   filesystem::remove(path, cleanupError);
 }
 
+// A reached request limit is told apart from every other Mouser failure, so a BOM run stops asking Mouser only then.
+void testMouserLimitReachedWording() {
+  vector<MouserProductDetails> products;
+  string error;
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", products,
+                                    &error));
+  assert(mouserLimitReached(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"TooManyRequests","Message":"Daily quota used"}]})",
+                                    products, &error));
+  assert(mouserLimitReached(error));
+
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"The API key is not valid."}]})", products, &error));
+  assert(!mouserLimitReached(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Synthetic failure"}]})", products, &error));
+  assert(!mouserLimitReached(error));
+  assert(!parseMouserSearchResponse("<html>Service unavailable</html>", products, &error));
+  assert(!mouserLimitReached(error));
+  assert(!mouserLimitReached("Unable to reach Mouser"));
+  assert(!mouserLimitReached("Mouser has no product with part number 999-SYN-OPA-0001"));
+  assert(!mouserLimitReached(""));
+}
+
+// A suggestion from Mouser is stored with its own marker, and DigiKey and TME suggestions are stored exactly as before.
+void testBomMouserSuggestionStorage() {
+  // The stored forms are a compatibility contract: a DigiKey part is bare, and a TME or Mouser part carries its
+  // supplier marker after the verification marker.
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND") == string("SYN-0001-ND"));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND", true) == string("verified\x1eSYN-0001-ND"));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-TME-0001", false, true) == string("tme\x1eSYN-TME-0001"));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-TME-0001", true, true) ==
+         string("verified\x1etme\x1eSYN-TME-0001"));
+  const auto mouserEntry =
+      bomEnrichmentEntry(BomLookupOutcome::Found, " 999-SYN-OPA-0001 ", false, false, true).value();
+  const auto verifiedMouserEntry =
+      bomEnrichmentEntry(BomLookupOutcome::Found, "999-SYN-OPA-0001", true, false, true).value();
+  assert(mouserEntry == string("mouser\x1e" "999-SYN-OPA-0001"));
+  assert(verifiedMouserEntry == string("verified\x1emouser\x1e" "999-SYN-OPA-0001"));
+  // A Mouser answer with no part is stored as the plain marker, and a failure is never stored.
+  assert(bomEnrichmentEntry(BomLookupOutcome::NoMatch, "", false, false, true) == string(kBomEnrichmentNoMatch));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, " ", true, false, true) == string(kBomEnrichmentNoMatch));
+  assert(!bomEnrichmentEntry(BomLookupOutcome::Failed, "999-SYN-OPA-0001", true, false, true).has_value());
+  // The Mouser marker is not the start of any other marker, and none of them is the start of it.
+  for (const char* other : {kBomEnrichmentTme, kBomEnrichmentVerified, kBomEnrichmentNoMatch}) {
+    assert(string(other).rfind(kBomEnrichmentMouser, 0) != 0);
+    assert(string(kBomEnrichmentMouser).rfind(other, 0) != 0);
+  }
+
+  // The stored suggestion reads back as its part number, with its verification and its supplier.
+  assert(bomEnrichmentPart(mouserEntry) == "999-SYN-OPA-0001");
+  assert(bomEnrichmentPart(verifiedMouserEntry) == "999-SYN-OPA-0001");
+  assert(!bomEnrichmentVerified(mouserEntry));
+  assert(bomEnrichmentVerified(verifiedMouserEntry));
+  assert(bomEnrichmentExportText(mouserEntry) == "999-SYN-OPA-0001");
+  assert(bomEnrichmentExportText(verifiedMouserEntry) == "999-SYN-OPA-0001");
+  assert(bomEnrichmentCached({{"line", mouserEntry}}, "line"));
+  assert(bomEnrichmentPart(kBomEnrichmentMouser).empty());
+
+  assert(bomEnrichmentSupplier(mouserEntry) == "Mouser");
+  assert(bomEnrichmentSupplier(verifiedMouserEntry) == "Mouser");
+  assert(bomEnrichmentSupplier("tme\x1eSYN-TME-0001") == "TME");
+  assert(bomEnrichmentSupplier("verified\x1etme\x1eSYN-TME-0001") == "TME");
+  assert(bomEnrichmentSupplier("SYN-0001-ND") == "DigiKey");
+  assert(bomEnrichmentSupplier("verified\x1eSYN-0001-ND") == "DigiKey");
+  assert(bomEnrichmentSupplier("").empty());
+  assert(bomEnrichmentSupplier("-").empty());
+  assert(bomEnrichmentSupplier(kBomEnrichmentNoMatch).empty());
+  assert(bomEnrichmentSupplier(kBomEnrichmentMouser).empty());  // a marker alone names no part
+
+  // Each supplier's entry survives a save and a reload unchanged.
+  const auto path = testTempRoot() / "inventatory-bom-mouser-suggestion-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  BomProject project;
+  project.id = "bom-mouser";
+  project.name = "Synthetic Mouser project";
+  project.createdAt = 1710000000;
+  project.lastOpened = 1710000100;
+  project.bomText = kicadBom;
+  project.enrichment = {{"digikey", "verified\x1eSYN-0001-ND"},
+                        {"tme", "tme\x1eSYN-TME-0001"},
+                        {"mouser", verifiedMouserEntry},
+                        {"mouser-check", mouserEntry},
+                        {"none", kBomEnrichmentNoMatch}};
+  assert(saveBomProjects(path, {project}));
+  vector<BomProject> loaded;
+  assert(loadBomProjects(path, loaded));
+  assert(loaded.size() == 1);
+  assert(loaded.front().enrichment == project.enrichment);
+  assert(bomEnrichmentSupplier(loaded.front().enrichment.at("mouser")) == "Mouser");
+  assert(bomEnrichmentSupplier(loaded.front().enrichment.at("tme")) == "TME");
+  assert(bomEnrichmentSupplier(loaded.front().enrichment.at("digikey")) == "DigiKey");
+  filesystem::remove(path, cleanupError);
+
+  // The shopping list names Mouser beside the part, and the markers never reach it.
+  const auto shortageBom = bomTestFile({bomTestLine("SYN-OPA-0001", "SOIC-8_3.9x4.9mm_P1.27mm", 2)});
+  const auto shortage = analyzeBom(shortageBom, {}, 1, {});
+  map<string, string> enrichment = {{bomLineKey(shortageBom.lines[0]), verifiedMouserEntry}};
+  const auto verifiedCsv = buildBomShortageCsv(shortage, enrichment);
+  assert(verifiedCsv.rows == 1);
+  assert(verifiedCsv.text.find("\"999-SYN-OPA-0001\",\"Mouser\",\"verified\"\r\n") != string::npos);
+  assert(verifiedCsv.text.find(kBomEnrichmentMouser) == string::npos);
+  enrichment[bomLineKey(shortageBom.lines[0])] = mouserEntry;
+  assert(buildBomShortageCsv(shortage, enrichment).text.find(
+             "\"999-SYN-OPA-0001\",\"Mouser\",\"check before ordering\"\r\n") != string::npos);
+}
+
+// A BOM line that names a Mouser part number matches the stock part that carries that number, and never a DigiKey part
+// whose number has the same text.
+void testBomMouserLineMatching() {
+  InventoryItem mouserItem;
+  mouserItem.id = "opa-mouser";
+  mouserItem.partName = "Synthetic dual amplifier";
+  mouserItem.quantity = 10;
+  mouserItem.vendorMetadata.provider = kVendorProviderMouser;
+  mouserItem.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+  InventoryItem digiKeyItem;
+  digiKeyItem.id = "opa-digikey";
+  digiKeyItem.partName = "Synthetic dual amplifier";
+  digiKeyItem.quantity = 10;
+  digiKeyItem.digikeyPartNumber = "999-SYN-OPA-0001";
+  digiKeyItem.vendorMetadata.provider = kVendorProviderDigiKey;
+  digiKeyItem.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+
+  const auto mouserLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "Mouser", "999-SYN-OPA-0001");
+  const auto matched = analyzeBom(bomTestFile({mouserLine}), {digiKeyItem, mouserItem}, 1, {}).matches.front();
+  assert(matched.confirmed && matched.chosenItemId() == "opa-mouser");
+  assert(matched.candidates.size() == 1 && matched.candidates.front().identity);
+
+  // The DigiKey part alone is not the part the line names.
+  const auto digiKeyOnly = analyzeBom(bomTestFile({mouserLine}), {digiKeyItem}, 1, {}).matches.front();
+  assert(digiKeyOnly.candidates.empty() && !digiKeyOnly.confirmed);
+
+  // A DigiKey line with the same text matches the DigiKey part, never the Mouser part.
+  const auto digiKeyLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "DigiKey", "999-SYN-OPA-0001");
+  const auto digiKeyMatch = analyzeBom(bomTestFile({digiKeyLine}), {mouserItem, digiKeyItem}, 1, {}).matches.front();
+  assert(digiKeyMatch.confirmed && digiKeyMatch.chosenItemId() == "opa-digikey");
+  assert(digiKeyMatch.candidates.size() == 1);
+  assert(analyzeBom(bomTestFile({digiKeyLine}), {mouserItem}, 1, {}).matches.front().candidates.empty());
+
+  // A Mouser record kept beside a DigiKey source counts as well, as a TME record does.
+  InventoryItem beside;
+  beside.id = "opa-beside";
+  beside.partName = "Synthetic dual amplifier";
+  beside.quantity = 4;
+  beside.digikeyPartNumber = "SYN-OPA-0001-ND";
+  beside.vendorMetadata.provider = kVendorProviderDigiKey;
+  beside.vendorMetadata.providerProductNumber = "SYN-OPA-0001-ND";
+  VendorProductMetadata mouserRecord;
+  mouserRecord.provider = kVendorProviderMouser;
+  mouserRecord.providerProductNumber = "999-SYN-OPA-0001";
+  beside.vendorSources = {mouserRecord};
+  const auto besideMatch = analyzeBom(bomTestFile({mouserLine}), {digiKeyItem, beside}, 1, {}).matches.front();
+  assert(besideMatch.confirmed && besideMatch.chosenItemId() == "opa-beside");
+}
+
+// Mouser is asked by the line's part number only, and its record is suggested only when Mouser can sell it.
+void testBomMouserSuggestionChoice() {
+  // The query: the Mouser number on a Mouser line, else the manufacturer part number, else a designation that reads as
+  // a part number. A line with only a value, or with another supplier's number, is never sent.
+  assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "Mouser", " 999-SYN-OPA-0001 ", "SYN-OPA-0001")) ==
+         "999-SYN-OPA-0001");
+  assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "LCSC", "C99999", "SYN-OPA-0001")) ==
+         "SYN-OPA-0001");
+  assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "DigiKey", "SYN-OPA-0001-ND")).empty());
+  assert(bomMouserQuery(bomTestLine("SYN-OPA-0001", "SOIC-8", 1)) == "SYN-OPA-0001");
+  assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4)).empty());
+  assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4, "LCSC", "C60474")).empty());
+
+  // A part that fits the line is chosen and verified, by its manufacturer part number or by its Mouser number.
+  const auto product = syntheticMouserProduct();
+  const auto mpnLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "", "", "SYN-OPA-0001");
+  auto chosen = bomMouserSuggestion(mpnLine, product);
+  assert(chosen.outcome == BomLookupOutcome::Found);
+  assert(chosen.suggestion == "999-SYN-OPA-0001" && chosen.verified);
+  const auto mouserLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "Mouser", "999-SYN-OPA-0001");
+  chosen = bomMouserSuggestion(mouserLine, product);
+  assert(chosen.outcome == BomLookupOutcome::Found && chosen.verified);
+
+  // A line with no part number is verified by value and package, as stock is.
+  MouserProductDetails capacitor = product;
+  capacitor.vendorMetadata.providerProductNumber = "999-SYN-CAP-0001";
+  capacitor.vendorMetadata.manufacturerPartNumber = "SYN-CAP-0001";
+  capacitor.productDescription = "Synthetic capacitor 100nF 0402";
+  capacitor.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0402 (1005 Metric)"}};
+  capacitor.packageName = "0402 (1005 Metric)";
+  chosen = bomMouserSuggestion(bomTestLine("100nF", "C0402", 4), capacitor);
+  assert(chosen.outcome == BomLookupOutcome::Found && chosen.suggestion == "999-SYN-CAP-0001" && chosen.verified);
+  chosen = bomMouserSuggestion(bomTestLine("100nF", "C0603", 4), capacitor);
+  assert(chosen.outcome == BomLookupOutcome::Found && !chosen.verified);
+
+  // A part that does not fit the line is offered only to be checked before ordering.
+  chosen = bomMouserSuggestion(bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "", "", "SYN-OPA-0002"),
+                               product);
+  assert(chosen.outcome == BomLookupOutcome::Found && chosen.suggestion == "999-SYN-OPA-0001" && !chosen.verified);
+
+  // A discontinued or obsolete part is never chosen, however well it fits, and is stored as no match.
+  auto discontinued = product;
+  discontinued.orderable = false;
+  discontinued.productStatus = "Obsolete";
+  chosen = bomMouserSuggestion(mpnLine, discontinued);
+  assert(chosen.outcome == BomLookupOutcome::NoMatch && chosen.suggestion.empty() && !chosen.verified);
+  assert(bomEnrichmentEntry(chosen.outcome, chosen.suggestion, chosen.verified, false, true) ==
+         string(kBomEnrichmentNoMatch));
+  vector<MouserProductDetails> parsed;
+  string error;
+  assert(parseMouserSearchResponse(
+      R"({"Errors":[],"SearchResults":{"Parts":[{"MouserPartNumber":"999-SYN-OPA-0002",)"
+      R"("ManufacturerPartNumber":"SYN-OPA-0002","IsDiscontinued":"true"}]}})",
+      parsed, &error));
+  assert(parsed.size() == 1 && !parsed.front().orderable);
+  assert(bomMouserSuggestion(bomTestLine("SYN-OPA-0002", "SOIC-8", 1), parsed.front()).outcome ==
+         BomLookupOutcome::NoMatch);
+
+  // A record without a Mouser part number has nothing to order.
+  auto unnamed = product;
+  unnamed.vendorMetadata.providerProductNumber.clear();
+  chosen = bomMouserSuggestion(mpnLine, unnamed);
+  assert(chosen.outcome == BomLookupOutcome::NoMatch && chosen.suggestion.empty());
+}
+
 
 struct TestCase {
   const char* area;
@@ -14841,6 +15062,7 @@ const vector<TestCase>& registeredTests() {
     {"mouser", "MouserRefreshUsesOriginOnly", testMouserRefreshUsesOriginOnly},
     {"mouser", "MouserHistoryFilter", testMouserHistoryFilter},
     {"mouser", "MouserCommitIsRecorded", testMouserCommitIsRecorded},
+    {"mouser", "MouserLimitReachedWording", testMouserLimitReachedWording},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
@@ -14866,6 +15088,9 @@ const vector<TestCase>& registeredTests() {
     {"bom", "PickPlanRoute", testBomPickPlanRoute},
     {"bom", "ProjectStorePersistence", testProjectStorePersistence},
     {"bom", "EnrichmentCacheRules", testEnrichmentCacheRules},
+    {"bom", "BomMouserSuggestionStorage", testBomMouserSuggestionStorage},
+    {"bom", "BomMouserLineMatching", testBomMouserLineMatching},
+    {"bom", "BomMouserSuggestionChoice", testBomMouserSuggestionChoice},
     {"transfer", "BackupExportAndRestoreWorkflow", testBackupExportAndRestoreWorkflow},
     {"transfer", "BackupEmptyWorkspaceAndInvalidSources", testBackupEmptyWorkspaceAndInvalidSources},
     {"transfer", "BackupBundleEnumerationFailure", testBackupBundleEnumerationFailure},

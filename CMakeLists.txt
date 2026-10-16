@@ -164,6 +164,7 @@ add_executable(inventatory
   src/core/bom/BomPickPlan.cpp
   src/core/bom/BomMatchHelpers.cpp
   src/core/bom/BomProjectStore.cpp
+  src/core/bom/BomMouserSuggestion.cpp
   src/import/csv/CsvReader.cpp
   src/import/csv/CsvFormat.cpp
   src/import/kicad/KicadBom.cpp
@@ -292,6 +293,7 @@ add_executable(inventatory_tests
   src/core/bom/BomPickPlan.cpp
   src/core/bom/BomMatchHelpers.cpp
   src/core/bom/BomProjectStore.cpp
+  src/core/bom/BomMouserSuggestion.cpp
   src/ui/shared/AppUiShared.cpp
   src/ui/shared/AppUiItemDetails.cpp
   src/core/inventory/Inventory.cpp
