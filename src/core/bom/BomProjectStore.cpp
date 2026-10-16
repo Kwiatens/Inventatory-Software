@@ -16,13 +16,17 @@ namespace inventatory {
 
 using namespace std;
 
-optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified, bool fromTme) {
+optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified, bool fromTme,
+                                    bool fromMouser) {
   switch (outcome) {
     case BomLookupOutcome::Found: {
       const auto trimmed = trim(suggestion);
       // A part without a usable number gives the user nothing to act on.
       if (trimmed.empty() || trimmed == "-") return string(kBomEnrichmentNoMatch);
-      const string stored = fromTme ? string(kBomEnrichmentTme) + trimmed : trimmed;
+      // A DigiKey part is stored bare, as it was before the other suppliers were asked.
+      const string stored = fromTme      ? string(kBomEnrichmentTme) + trimmed
+                            : fromMouser ? string(kBomEnrichmentMouser) + trimmed
+                                         : trimmed;
       return verified ? string(kBomEnrichmentVerified) + stored : stored;
     }
     case BomLookupOutcome::NoMatch:
@@ -48,21 +52,37 @@ string withoutVerification(const string& stored) {
   return stored.rfind(prefix, 0) == 0 ? stored.substr(prefix.size()) : stored;
 }
 
+// A supplier prefix of a stored suggestion and the vendor it names. A suggestion without one came from DigiKey.
+struct SupplierPrefix {
+  const char* prefix;
+  const char* provider;
+};
+constexpr SupplierPrefix kSupplierPrefixes[] = {
+    {kBomEnrichmentTme, kVendorProviderTme},
+    {kBomEnrichmentMouser, kVendorProviderMouser},
+};
+
+// The supplier prefix a suggestion starts with, once its verification prefix is removed; nullptr for none.
+const SupplierPrefix* supplierPrefixOf(const string& value) {
+  for (const auto& entry : kSupplierPrefixes) {
+    if (value.rfind(entry.prefix, 0) == 0) return &entry;
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 string bomEnrichmentPart(const string& stored) {
   auto value = withoutVerification(stored);
-  const string tmePrefix = kBomEnrichmentTme;
-  if (value.rfind(tmePrefix, 0) == 0) value = value.substr(tmePrefix.size());
+  if (const auto* supplier = supplierPrefixOf(value)) value = value.substr(string(supplier->prefix).size());
   const auto trimmed = trim(value);
   return trimmed == "-" || trimmed == kBomEnrichmentNoMatch ? string() : trimmed;
 }
 
 string bomEnrichmentSupplier(const string& stored) {
   if (bomEnrichmentPart(stored).empty()) return {};
-  const string tmePrefix = kBomEnrichmentTme;
-  const bool fromTme = withoutVerification(stored).rfind(tmePrefix, 0) == 0;
-  return vendorDisplayName(fromTme ? kVendorProviderTme : kVendorProviderDigiKey);
+  const auto* supplier = supplierPrefixOf(withoutVerification(stored));
+  return vendorDisplayName(supplier == nullptr ? kVendorProviderDigiKey : supplier->provider);
 }
 
 bool bomEnrichmentVerified(const string& stored) {
