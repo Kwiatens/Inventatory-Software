@@ -95,6 +95,8 @@ bool App::settingsCategoryDirty(SettingsCategory category) const {
     case SettingsCategory::Tme:
       return draft.tmeCountry != saved.tmeCountry || draft.tmeLanguage != saved.tmeLanguage ||
              draft.tmeCurrency != saved.tmeCurrency || stagedTmeTokenChanged_ || stagedTmeSecretChanged_;
+    case SettingsCategory::Mouser:
+      return stagedMouserKeyChanged_;
   }
   return false;
 }
@@ -617,6 +619,25 @@ App::SettingsPageModel App::settingsPageModel() const {
       refreshRow.buttons = {button("Refresh", "r", "settings.tme.refresh", [self] { self->beginTmeRefresh(); }, false,
                                    false, refreshEnabled)};
       rows.push_back(move(refreshRow));
+      break;
+    }
+
+    case SettingsCategory::Mouser: {
+      const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty() : hasStoredMouserKey_;
+      if (!keySet) {
+        model.status = {{"Mouser needs an API key."}};
+      } else {
+        model.status = {{"Mouser is set up."}};
+      }
+
+      auto row = editRow("Access", "API key", keySet ? "Hidden" : "Not set", 0, "settings.mouser.0");
+      if (row.editing) row.value = string(inputBuffer_.size(), '*') + "_";
+      if (!row.editing && stagedMouserKeyChanged_) {
+        row.tone = VoiceTone::Warning;
+        row.note = "changed";
+      }
+      row.buttons = {button("Test", "t", "settings.mouser.test", [self] { self->testStagedMouser(); })};
+      rows.push_back(move(row));
       break;
     }
   }

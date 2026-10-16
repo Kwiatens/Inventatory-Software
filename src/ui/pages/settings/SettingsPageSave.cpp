@@ -8,6 +8,7 @@
 
 #include "platform/security/CredentialStore.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/system/StartupRegistration.h"
 #include "core/storage/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
@@ -114,10 +115,12 @@ bool App::saveSettingsDraft() {
   const auto oldDigiKeySecret = CredentialStore::lookup(kDigiKeySecretName);
   const auto oldTmeToken = CredentialStore::lookup(kTmeTokenCredentialName);
   const auto oldTmeSecret = CredentialStore::lookup(kTmeSecretCredentialName);
+  const auto oldMouserKey = CredentialStore::lookup(kMouserApiKeyCredentialName);
   bool startupChanged = false;
   bool credentialChanged = false;
   bool tmeTokenChanged = false;
   bool tmeSecretChanged = false;
+  bool mouserKeyChanged = false;
   // Puts one credential back after a later step failed. When the store could not be read the previous state is
   // unknown, so nothing is erased: a stored secret must never be lost to a failed read.
   const auto restoreCredential = [](const char* name, const CredentialLookup& previous) {
@@ -132,6 +135,7 @@ bool App::saveSettingsDraft() {
     if (credentialChanged) restoreCredential(kDigiKeySecretName, oldDigiKeySecret);
     if (tmeTokenChanged) restoreCredential(kTmeTokenCredentialName, oldTmeToken);
     if (tmeSecretChanged) restoreCredential(kTmeSecretCredentialName, oldTmeSecret);
+    if (mouserKeyChanged) restoreCredential(kMouserApiKeyCredentialName, oldMouserKey);
   };
 
   if (dataChanged) {
@@ -168,6 +172,18 @@ bool App::saveSettingsDraft() {
       return false;
     }
     tmeSecretChanged = true;
+  }
+  if (stagedMouserKeyChanged_) {
+    // An empty staged key means the key was cleared, so the stored one is erased.
+    const bool stored = stagedMouserKey_.empty() ? CredentialStore::erase(kMouserApiKeyCredentialName)
+                                                 : CredentialStore::write(kMouserApiKeyCredentialName, stagedMouserKey_);
+    if (!stored) {
+      rollbackCredentials();
+      restartOldService();
+      setMessage("Unable to save the Mouser API key securely", 5, UiMessageSeverity::Error);
+      return false;
+    }
+    mouserKeyChanged = true;
   }
   if (backgroundChanged) {
     string startupError;
@@ -249,6 +265,7 @@ bool App::saveSettingsDraft() {
       stagedDigiKeySecret_.clear();
       stagedDigiKeySecretChanged_ = false;
       clearStagedTmeCredentials();
+      clearStagedMouserCredentials();
       settingsDirty_ = false;
       if (oldContext != nullptr) {
         activateWorkspaceContext(oldContext->paths);
@@ -300,6 +317,7 @@ bool App::saveSettingsDraft() {
   if (stagedDigiKeySecretChanged_) hasStoredDigiKeySecret_ = !stagedDigiKeySecret_.empty();
   if (stagedTmeTokenChanged_) hasStoredTmeToken_ = !stagedTmeToken_.empty();
   if (stagedTmeSecretChanged_) hasStoredTmeSecret_ = !stagedTmeSecret_.empty();
+  if (stagedMouserKeyChanged_) hasStoredMouserKey_ = !stagedMouserKey_.empty();
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   auto bridgeRestart = DeviceServiceRestart::Restarted;
   if (portChanged || dataChanged) bridgeRestart = restartDeviceService();
@@ -348,6 +366,7 @@ bool App::saveSettingsDraft() {
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   clearStagedTmeCredentials();
+  clearStagedMouserCredentials();
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   if (backgroundStartFailed) {

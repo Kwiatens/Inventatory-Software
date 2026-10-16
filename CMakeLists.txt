@@ -113,6 +113,7 @@ add_executable(inventatory
   src/app/labels/AppQuickLabelActions.cpp
   src/app/scanner/AppScanEnrichment.cpp
   src/app/tme/AppTmeActions.cpp
+  src/app/mouser/AppMouserActions.cpp
   src/app/import/AppImportActions.cpp
   src/app/bom/AppBomEnrichment.cpp
   src/app/bom/AppBomActions.cpp

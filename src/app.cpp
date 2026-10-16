@@ -6,6 +6,7 @@
 #include "App.h"
 
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/StartupRegistration.h"
 #include "platform/system/UpdateService.h"
@@ -101,6 +102,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       credentialPresence(CredentialStore::lookup("digikey-client-secret"), hasStoredDigiKeySecret_);
   hasStoredTmeToken_ = credentialPresence(CredentialStore::lookup(kTmeTokenCredentialName), hasStoredTmeToken_);
   hasStoredTmeSecret_ = credentialPresence(CredentialStore::lookup(kTmeSecretCredentialName), hasStoredTmeSecret_);
+  hasStoredMouserKey_ = credentialPresence(CredentialStore::lookup(kMouserApiKeyCredentialName), hasStoredMouserKey_);
   loadInventatoryScanConfig(inventatoryScanConfigPath_, inventatoryScanConfig_);
   if (!inventoryRecoveryRequired_) {
     loadState();

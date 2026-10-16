@@ -293,6 +293,9 @@ vector<App::Action> App::currentActions() const {
           add("refresh inventory data", "TME", "r", chr('r'), [self] { self->beginTmeRefresh(); });
         }
       }
+      if (settingsCategory_ == SettingsCategory::Mouser) {
+        add("test credentials", "Mouser", "t", chr('t'), [self] { self->testStagedMouser(); });
+      }
       if (settingsDirty_) {
         add("save settings", "Changes", "s", chr('s'), [self] { self->saveSettingsDraft(); });
         add("discard changes", "Changes", "Esc", special(KeyType::Escape), [self] { self->requestSettingsDiscard(); });

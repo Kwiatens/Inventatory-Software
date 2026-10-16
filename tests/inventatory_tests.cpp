@@ -4739,7 +4739,7 @@ void testRackPageSlotGeometry() {
 
 void testSettingsCategoryEntries() {
   const auto categories = settings_page_detail::settingsCategoryEntries();
-  assert(categories.size() == 8);
+  assert(categories.size() == 9);
   assert(categories[0].categoryIndex == 0);
   assert(categories[1].categoryIndex == 1);
   assert(categories[2].categoryIndex == 2);
@@ -4748,9 +4748,11 @@ void testSettingsCategoryEntries() {
   assert(categories[5].categoryIndex == 5);
   assert(categories[6].categoryIndex == 6);
   assert(categories[7].categoryIndex == 7);
+  assert(categories[8].categoryIndex == 8);
   assert(categories[3].indent == 0);
   assert(categories[4].indent == 1);
   assert(categories[5].indent == 0);
+  assert(categories[8].indent == 0);
 }
 
 void testWorkspaceGenerationAndQuickLabelCache() {

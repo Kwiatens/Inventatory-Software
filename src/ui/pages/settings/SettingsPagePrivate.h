@@ -20,7 +20,7 @@ struct SettingsCategoryEntry {
   int indent = 0;
 };
 
-inline constexpr std::array<SettingsCategoryEntry, 8> settingsCategoryEntries() {
+inline constexpr std::array<SettingsCategoryEntry, 9> settingsCategoryEntries() {
   return {{{0, 0},  // General
            {1, 0},  // Appearance
            {2, 0},  // Updates
@@ -28,7 +28,8 @@ inline constexpr std::array<SettingsCategoryEntry, 8> settingsCategoryEntries() 
            {4, 1},  // Quick Labels under Printer
            {5, 0},  // Inventatory Scan
            {6, 0},  // DigiKey
-           {7, 0}}}; // TME
+           {7, 0},  // TME
+           {8, 0}}}; // Mouser
 }
 
 // Final status line after a settings save that restarted the device service.
@@ -51,6 +52,8 @@ inline SettingsBridgeNotice settingsBridgeNotice(DeviceServiceRestart restart) {
 }
 
 inline constexpr const char* kDigiKeySecretName = "digikey-client-secret";
+// Byte limit for the Mouser API key in the Settings editor, the same limit MouserConfig::valid() applies.
+inline constexpr std::size_t kMaxMouserKeyBytes = 256U;
 inline constexpr int kAppearancePickerHueSteps = 12;
 inline constexpr int kAppearancePickerValueSteps = 6;
 
