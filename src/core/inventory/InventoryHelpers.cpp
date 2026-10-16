@@ -79,8 +79,10 @@ string sanitizeIdPart(const string& value) {
 }
 
 bool InventoryItem::hasMissingMetadata() const {
-  // A part is identified by its DigiKey number or its TME symbol, whichever the item was enriched from.
-  const bool hasVendorNumber = !digikeyPartNumber.empty() || !tmeProductSymbol(*this).empty();
+  // A part is identified by its DigiKey number, its TME symbol or its Mouser part number, whichever the item was
+  // enriched from.
+  const bool hasVendorNumber =
+      !digikeyPartNumber.empty() || !tmeProductSymbol(*this).empty() || !mouserPartNumberOf(*this).empty();
   return partName.empty() || manufacturer.empty() || category.empty() || !hasVendorNumber ||
          datasheetUrl.empty() || productUrl.empty();
 }
