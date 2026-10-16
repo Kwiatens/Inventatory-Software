@@ -1,0 +1,5 @@
+# SYNTHETIC: written from the supplier and manufacturer names in src/import/altium/AltiumBom.cpp, not copied from an Altium export. Every part number is invented.
+Comment,Description,Designator,Footprint,Quantity,Supplier 1,Supplier Part Number 1,Manufacturer Part Number 1
+"10k, 1%",Synthetic resistor,"R1,R2",R0402,2,Mouser,999-SYN-RES-10K,SYN-RES-10K
+100nF,Synthetic capacitor,C1,C0402,1,DigiKey,1000-SYN-CAP-100N,SYN-CAP-100N
+Synthetic microcontroller,Synthetic MCU,U1,SYN-QFN-32,1,,,SYN-MCU-0001

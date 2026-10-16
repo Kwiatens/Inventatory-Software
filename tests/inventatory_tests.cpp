@@ -51,6 +51,7 @@
 #include "import/kicad/KicadBom.h"
 #include "import/bom/BomImport.h"
 #include "import/easyeda/EasyEdaBom.h"
+#include "import/altium/AltiumBom.h"
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomPickPlan.h"
 #include "core/bom/BomMouserSuggestion.h"
@@ -11806,6 +11807,173 @@ void testBomConfirmationLifecycle() {
   assert(bomItemFingerprint(loose).size() == 16);
 }
 
+// Reads one of the synthetic Altium fixtures in tests/fixtures. The first line is a SYNTHETIC notice for whoever opens
+// the file; the CSV reader has no comments, so that line is dropped before parsing.
+string readAltiumFixture(const string& name) {
+  const auto path = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / name;
+  ifstream input(path);
+  assert(input.good());
+  string line;
+  const bool notice = static_cast<bool>(getline(input, line));
+  assert(notice && line.rfind("# SYNTHETIC", 0) == 0);
+  string text;
+  while (getline(input, line)) text += line + "\n";
+  return text;
+}
+
+bool altiumWarningContains(const vector<string>& warnings, const string& text) {
+  return any_of(warnings.begin(), warnings.end(), [&](const string& warning) {
+    return warning.find(text) != string::npos;
+  });
+}
+
+void testAltiumDefaultFixtureParses() {
+  const auto text = readAltiumFixture("altium-default.csv");
+  // The Import screen sends an Altium export to the BOM flow, as it does a KiCad BOM.
+  assert(detectCsvFormat(text) == CsvFormat::KicadBom);
+  const auto bom = parseBomText(text, "Altium sample");
+  assert(bom.ok);
+  assert(bom.projectName == "Altium sample");
+  assert(bom.lines.size() == 3);
+
+  // A quoted Comment keeps its comma, and the quoted designators split into one designator each.
+  const auto& resistors = bom.lines[0];
+  assert(resistors.designation == "10k, 1%");
+  assert(resistors.designators == (vector<string>{"R1", "R2"}));
+  assert(resistors.footprint == "R0402");
+  assert(resistors.quantityPerBoard == 2);
+  assert(!resistors.quantityConflict);
+
+  const auto& capacitors = bom.lines[1];
+  assert(capacitors.designation == "100nF");
+  assert(capacitors.designators == (vector<string>{"C1", "C3", "C4"}));
+  assert(capacitors.quantityPerBoard == 3);
+
+  // A blank Quantity counts the designators placed.
+  const auto& led = bom.lines[2];
+  assert(led.designation == "LED" && led.designators == (vector<string>{"D1"}));
+  assert(led.quantityPerBoard == 1 && !led.quantityConflict);
+
+  // Test point, mounting hole and fiducial rows are never bought: each is left out with a warning.
+  assert(bom.warnings.size() == 3);
+  assert(altiumWarningContains(bom.warnings, "(TP1) is not orderable"));
+  assert(altiumWarningContains(bom.warnings, "(MH1) is not orderable"));
+  assert(altiumWarningContains(bom.warnings, "(FID1) is not orderable"));
+}
+
+void testAltiumSupplierFixtureFillsSupplierColumns() {
+  const auto bom = parseBomText(readAltiumFixture("altium-supplier.csv"), "Altium supplier");
+  assert(bom.ok);
+  assert(bom.lines.size() == 3);
+
+  // The supplier, its part number and the manufacturer part number come from the named columns. A supplier line
+  // keeps its supplier name as the file gives it.
+  const auto& resistors = bom.lines[0];
+  assert(resistors.supplier == "Mouser");
+  assert(resistors.supplierPartNumber == "999-SYN-RES-10K");
+  assert(resistors.manufacturerPartNumber == "SYN-RES-10K");
+  assert(bom.lines[1].supplier == "DigiKey");
+  assert(bom.lines[1].supplierPartNumber == "1000-SYN-CAP-100N");
+
+  // A row whose supplier columns are blank leaves them empty.
+  const auto& mcu = bom.lines[2];
+  assert(mcu.designation == "Synthetic microcontroller");
+  assert(mcu.supplier.empty() && mcu.supplierPartNumber.empty());
+  assert(mcu.manufacturerPartNumber == "SYN-MCU-0001");
+}
+
+void testAltiumQuotedCellsKeepCommas() {
+  const auto bom = parseAltiumBomText("Comment,Designator,Footprint,LibRef\n\"10k, 1%\",\"R1,R2\",R0402,SYN_RES\n",
+                                      "quoted");
+  assert(bom.ok && bom.lines.size() == 1);
+  assert(bom.lines.front().designation == "10k, 1%");
+  assert(bom.lines.front().designators == (vector<string>{"R1", "R2"}));
+  assert(bom.lines.front().quantityPerBoard == 2);
+}
+
+void testAltiumRefusesAmbiguousRows() {
+  const string header = "Comment,Designator,Footprint,Quantity\n";
+
+  // A repeated designator would count one physical part twice, so the whole file is refused and the message names it.
+  const auto duplicate = parseAltiumBomText(header + "100nF,\"C1,C2\",C0402,2\n10k,C2,R0402,1\n", "duplicate");
+  assert(!duplicate.ok);
+  assert(duplicate.error.find("Designator C2 appears on rows 2 and 3") != string::npos);
+
+  // A row with no designator cannot be placed, so it is refused rather than dropped.
+  const auto noDesignator = parseAltiumBomText(header + "10k,,R0402,1\n", "no designator");
+  assert(!noDesignator.ok && noDesignator.error.find("has no designator") != string::npos);
+
+  // A row with no value cannot be priced or matched, so it is refused too.
+  const auto noValue = parseAltiumBomText(header + ",R1,R0402,1\n", "no value");
+  assert(!noValue.ok && noValue.error.find("has no Comment or Description") != string::npos);
+
+  // A quantity that is not a whole number means the export is damaged.
+  const auto badQuantity = parseAltiumBomText(header + "10k,R1,R0402,two\n", "bad quantity");
+  assert(!badQuantity.ok && badQuantity.error.find("is not a whole number") != string::npos);
+}
+
+void testAltiumHeaderErrors() {
+  const auto noDesignatorColumn =
+      parseAltiumBomText("Comment,Footprint,Quantity\n10k,R0402,1\n", "no designator column");
+  assert(!noDesignatorColumn.ok && noDesignatorColumn.error.find("missing the Designator column") != string::npos);
+
+  const auto noValueColumn = parseAltiumBomText("Designator,Footprint,Quantity\nR1,R0402,1\n", "no value column");
+  assert(!noValueColumn.ok && noValueColumn.error.find("both the Comment and Description") != string::npos);
+
+  // Description stands in for Comment when a report has no Comment column.
+  const auto described =
+      parseAltiumBomText("Description,Designator,Footprint\nSynthetic resistor,R1,R0402\n", "described");
+  assert(described.ok && described.lines.size() == 1);
+  assert(described.lines.front().designation == "Synthetic resistor");
+}
+
+void testAltiumQuantityConflictIsKept() {
+  const string header = "Comment,Designator,Footprint,Quantity\n";
+
+  // A Quantity that disagrees with the designators is kept visible. The row cannot match on its own, and demand is
+  // never less than the designators placed.
+  const auto mismatch = parseAltiumBomText(header + "10k,\"R1,R2,R3\",R0402,2\n", "mismatch");
+  assert(mismatch.ok && mismatch.lines.size() == 1);
+  assert(mismatch.lines.front().quantityConflict);
+  assert(mismatch.lines.front().quantityPerBoard == 3);
+  assert(mismatch.warnings.size() == 1);
+
+  const auto matching = parseAltiumBomText(header + "10k,\"R1,R2\",R0402,2\n", "matching");
+  assert(matching.ok && !matching.lines.front().quantityConflict && matching.lines.front().quantityPerBoard == 2);
+}
+
+void testAltiumDetectionKeepsOtherDialects() {
+  // An Altium export reaches the Altium parser: only that parser reads the Supplier 1 columns.
+  const auto altium = readAltiumFixture("altium-supplier.csv");
+  const auto altiumBom = parseBomText(altium, "dispatch");
+  assert(altiumBom.ok && altiumBom.lines.front().supplierPartNumber == "999-SYN-RES-10K");
+  const auto kicadReading = parseKicadBomText(altium, "dispatch");
+  assert(kicadReading.ok && kicadReading.lines.front().supplierPartNumber.empty());
+
+  // A KiCad BOM stays on the KiCad parser, with the same lines and warnings as the KiCad parser gives.
+  const auto viaDispatch = parseBomText(kicadBom, "kicad");
+  const auto direct = parseKicadBomText(kicadBom, "kicad");
+  assert(viaDispatch.ok == direct.ok && viaDispatch.lines.size() == direct.lines.size());
+  for (size_t index = 0; index < direct.lines.size(); ++index) {
+    const auto& got = viaDispatch.lines[index];
+    const auto& want = direct.lines[index];
+    assert(got.designators == want.designators && got.designation == want.designation);
+    assert(got.footprint == want.footprint && got.quantityPerBoard == want.quantityPerBoard);
+    assert(got.supplier == want.supplier && got.supplierPartNumber == want.supplierPartNumber);
+  }
+  assert(viaDispatch.warnings == direct.warnings);
+
+  // An EasyEDA export still goes to the EasyEDA parser.
+  assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
+  assert(parseBomText(easyedaBom, "easyeda").lines.size() == 3);
+
+  // A file with a KiCad-only Qty column is not Altium, even with the Altium-shaped columns beside it.
+  const string withQty = "Comment,Designator,Footprint,Description,Qty,Supplier 1\n10k,R1,R0402,Synthetic,1,Mouser\n";
+  const auto kicadShaped = parseBomText(withQty, "qty");
+  assert(kicadShaped.ok && kicadShaped.lines.size() == 1);
+  assert(kicadShaped.lines.front().supplier.empty());
+}
+
 void testBomLineKeysSeparateEasyEdaParts() {
   // Two rows with the same name and footprint but different LCSC numbers are different parts and get different keys.
   const auto first = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25744");
@@ -15239,6 +15407,13 @@ const vector<TestCase>& registeredTests() {
     {"bom", "BomLcscPartNumberMatching", testBomLcscPartNumberMatching},
     {"bom", "BomConfirmationLifecycle", testBomConfirmationLifecycle},
     {"bom", "BomLineKeysSeparateEasyEdaParts", testBomLineKeysSeparateEasyEdaParts},
+    {"bom", "AltiumDefaultFixtureParses", testAltiumDefaultFixtureParses},
+    {"bom", "AltiumSupplierFixtureFillsSupplierColumns", testAltiumSupplierFixtureFillsSupplierColumns},
+    {"bom", "AltiumQuotedCellsKeepCommas", testAltiumQuotedCellsKeepCommas},
+    {"bom", "AltiumRefusesAmbiguousRows", testAltiumRefusesAmbiguousRows},
+    {"bom", "AltiumHeaderErrors", testAltiumHeaderErrors},
+    {"bom", "AltiumQuantityConflictIsKept", testAltiumQuantityConflictIsKept},
+    {"bom", "AltiumDetectionKeepsOtherDialects", testAltiumDetectionKeepsOtherDialects},
     {"bom", "BomPickCommitsAndProblems", testBomPickCommitsAndProblems},
     {"bom", "BomUnconfirmedLinesAreNeverPicked", testBomUnconfirmedLinesAreNeverPicked},
     {"bom", "BomSuggestionVerification", testBomSuggestionVerification},

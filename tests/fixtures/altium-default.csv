@@ -1,0 +1,8 @@
+# SYNTHETIC: written from the default column names in src/import/altium/AltiumBom.cpp, not copied from an Altium export. Every designator and part name is invented.
+Comment,Description,Designator,Footprint,LibRef,Quantity
+"10k, 1%",Synthetic resistor,"R1,R2",R0402,SYN_RES_10K,2
+100nF,Synthetic capacitor,"C1,C3,C4",C0402,SYN_CAP_100N,3
+LED,Synthetic indicator,D1,LED0603,SYN_LED,
+Test point,Synthetic test point,TP1,TestPoint_Pad_D1.0mm,SYN_TP,1
+Mounting hole,Synthetic standoff,MH1,MountingHole_3.2mm,SYN_MH,1
+Fiducial,Synthetic fiducial,FID1,Fiducial_1mm,SYN_FID,1
