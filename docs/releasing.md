@@ -12,7 +12,9 @@ rules for changelog entries and versions are in
 2. Set the version in `project(InventatorySoftware VERSION x.y.z)` in
    `CMakeLists.txt`.
 3. In `CHANGELOG.md`, move the `[Unreleased]` entries under a new
-   `## [x.y.z] - YYYY-MM-DD` heading, using the standard subsections.
+   `## [x.y.z] - YYYY-MM-DD` heading, using the standard subsections. A
+   `**Highlights**` block, when the release has one, moves with them and stays
+   directly under the heading (see [AGENTS.md](../AGENTS.md)).
 4. Create the tag `vX.Y.Z` on that commit and push it. Release candidates use
    `vX.Y.Z-rc.N`. The release workflow rejects any other tag format.
 5. The `Public beta release` workflow (`.github/workflows/release.yml`) runs on
