@@ -333,16 +333,22 @@ MouserFailure readSearchResponse(const string& body, vector<MouserProductDetails
 MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetails>& products, string* error) {
   products.clear();
   const auto status = response.statusCode;
-  if (status == 401 || status == 403) {
-    setError(error, keyRejectedMessage(status));
-    return MouserFailure::KeyRejected;
-  }
   if (status == 429) {
     setError(error, limitReachedMessage());
     return MouserFailure::LimitReached;
   }
   string bodyError;
   const auto failure = readSearchResponse(response.body, products, &bodyError);
+  if (status == 401 || status == 403) {
+    products.clear();
+    // A reached limit can come with a failing status. Its Errors entry says so, and the key is not the problem.
+    if (failure == MouserFailure::LimitReached) {
+      setError(error, limitReachedMessage());
+      return failure;
+    }
+    setError(error, keyRejectedMessage(status));
+    return MouserFailure::KeyRejected;
+  }
   if (status >= 400) {
     products.clear();
     // A failing status may still carry an Errors list. One about the key or the limit is reported as such.
@@ -382,6 +388,11 @@ bool MouserConfig::valid() const {
   return none_of(apiKey.begin(), apiKey.end(), [](unsigned char character) {
     return character <= 0x20U || character == 0x7fU;
   });
+}
+
+bool mouserKeyFromEnvironment() {
+  const auto value = environmentValue("MOUSER_API_KEY");
+  return value.has_value() && !trim(*value).empty();
 }
 
 MouserConfig loadMouserConfig() {
