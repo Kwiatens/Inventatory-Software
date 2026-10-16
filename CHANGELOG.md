@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Projects: a shortage line that DigiKey and TME do not match is looked up on Mouser when Mouser is set up. A part Mouser
   cannot order is never suggested.
 - History: a filter for Mouser commits.
+- Projects: an Altium Designer Bill of Materials report (CSV) can be imported. Its supplier and manufacturer part numbers
+  help match stock when the report has those columns.
 
 ### Changed
 - Projects: a shortage line is looked up on DigiKey, then TME, then Mouser. Mouser is asked only when DigiKey and TME have no
