@@ -26,7 +26,7 @@ bool App::testStagedMouser() {
   // A key staged in this editor is tested; otherwise the saved key is read the way lookups read it.
   MouserConfig config;
   if (stagedMouserKeyChanged_) {
-    config.apiKey = stagedMouserKey_;
+    config.apiKey = trim(stagedMouserKey_);
   } else {
     config = loadMouserConfig();
     if (!config.valid() &&
@@ -167,6 +167,9 @@ void App::processMouserRefresh() {
           break;
       }
       mouserRefreshLastError_ = result.error.empty() ? "Mouser returned no product details" : result.error;
+      // A reached limit or a rejected key would only be answered the same way again, so the rest of the run is dropped
+      // and the run ends with its summary.
+      if (mouserLimitReached(result.error) || mouserKeyRejected(result.error)) mouserRefreshQueue_.clear();
     }
 
     if (mouserRefreshQueue_.empty()) {

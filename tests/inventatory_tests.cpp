@@ -14646,6 +14646,160 @@ void testMouserLimitReachedWording() {
   assert(!mouserLimitReached(""));
 }
 
+// A record without a Mouser part number is never a match, however its manufacturer part number reads, because nothing
+// could be merged from it or ordered by it.
+void testMouserKeepMatchesNeedMouserNumber() {
+  const auto orderable = syntheticMouserProduct();
+  auto noMouserNumber = orderable;
+  noMouserNumber.vendorMetadata.providerProductNumber.clear();
+  auto other = orderable;
+  other.vendorMetadata.providerProductNumber = "999-SYN-OPA-0002";
+  other.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0002";
+
+  // The part number matches the manufacturer part number, in any letter case; the record without a Mouser number goes.
+  auto kept = keepMouserMatches({orderable, noMouserNumber, other}, "syn-opa-0001");
+  assert(kept.size() == 1);
+  assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
+  // The part number may also be the Mouser part number.
+  kept = keepMouserMatches({noMouserNumber, orderable, other}, "999-SYN-OPA-0002");
+  assert(kept.size() == 1);
+  assert(kept.front().vendorMetadata.manufacturerPartNumber == "SYN-OPA-0002");
+  // Two records that match and have a Mouser number are both kept, in their order.
+  auto twin = orderable;
+  twin.vendorMetadata.providerProductNumber = "998-SYN-OPA-0001";
+  kept = keepMouserMatches({orderable, noMouserNumber, twin}, "SYN-OPA-0001");
+  assert(kept.size() == 2);
+  assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
+  assert(kept.back().vendorMetadata.providerProductNumber == "998-SYN-OPA-0001");
+  // Nothing is kept when the only match has no Mouser number, when the list is empty or the part number is empty.
+  assert(keepMouserMatches({noMouserNumber, other}, "SYN-OPA-0001").empty());
+  assert(keepMouserMatches({}, "SYN-OPA-0001").empty());
+  assert(keepMouserMatches({orderable}, "").empty());
+  assert(keepMouserMatches({orderable}, "SYN-OPA-000").empty());
+
+  // Parsed records: a Mouser number that is absent or a placeholder leaves the record out of the matches.
+  vector<MouserProductDetails> parsed;
+  string error;
+  assert(parseMouserSearchResponse(
+      R"({"Errors":[],"SearchResults":{"Parts":[{"MouserPartNumber":"N/A","ManufacturerPartNumber":"SYN-OPA-0003"},)"
+      R"({"ManufacturerPartNumber":"SYN-OPA-0003","Manufacturer":"Synthetic Parts Co"}]}})",
+      parsed, &error));
+  assert(parsed.size() == 2);
+  assert(keepMouserMatches(parsed, "SYN-OPA-0003").empty());
+}
+
+// A rejected key is told apart from every other Mouser failure, so a refresh stops asking Mouser only then.
+void testMouserKeyRejectedWording() {
+  vector<MouserProductDetails> products;
+  string error;
+  // An Errors entry about the key reads as a rejected key, and not as the limit.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"The API key is not valid."}]})", products, &error));
+  assert(mouserKeyRejected(error));
+  assert(!mouserLimitReached(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"Invalid","Message":"Invalid unique identifier."}]})",
+                                    products, &error));
+  assert(mouserKeyRejected(error));
+  // HTTP 401 and 403 read as a rejected key, with their status.
+  for (const uint32_t status : {401U, 403U}) {
+    error.clear();
+    assert(!mouserKeyAccepted(status, "", &error));
+    assert(mouserKeyRejected(error));
+    assert(error == "Mouser rejected the API key (HTTP " + to_string(status) + ")");
+  }
+  assert(mouserKeyRejected("Mouser rejected the API key"));
+  assert(mouserKeyRejected("Mouser rejected the API key (HTTP 403)"));
+
+  // The limit, other Errors entries, an unreadable body and failed requests are not a rejected key.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", products,
+                                    &error));
+  assert(!mouserKeyRejected(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Synthetic failure"}]})", products, &error));
+  assert(!mouserKeyRejected(error));
+  assert(!parseMouserSearchResponse("<html>Service unavailable</html>", products, &error));
+  assert(!mouserKeyRejected(error));
+  assert(!mouserKeyRejected("Mouser request failed (HTTP 500)"));
+  assert(!mouserKeyRejected("Mouser request limit reached; try again later"));
+  assert(!mouserKeyRejected("Unable to reach Mouser"));
+  assert(!mouserKeyRejected("Mouser has no product with part number 999-SYN-OPA-0001"));
+  assert(!mouserKeyRejected(""));
+  // The wording must open the text: a message that only mentions it is not a rejected key.
+  assert(!mouserKeyRejected("Request failed after Mouser rejected the API key"));
+  assert(!mouserKeyRejected("mouser rejected the api key"));
+}
+
+// The key test passes only on an answer it checked: a 2xx JSON object with no Errors, or the limit (HTTP 429).
+void testMouserKeyAcceptedChecksTheAnswer() {
+  string error;
+  // A search answer without Errors passes, with results, without results or as a bare object.
+  assert(mouserKeyAccepted(200, R"({"Errors":[],"SearchResults":{"NumberOfResult":0,"Parts":[]}})", &error));
+  assert(mouserKeyAccepted(200, R"({"Errors":[],"SearchResults":{"Parts":[{"MouserPartNumber":"999-SYN-0001"}]}})",
+                           &error));
+  assert(mouserKeyAccepted(200, "{}", &error));
+  assert(mouserKeyAccepted(200, R"({"Errors":null,"SearchResults":null})", &error));
+  assert(error.empty());
+  // A reached limit shows the key was accepted, whatever the body holds.
+  assert(mouserKeyAccepted(429, "", &error));
+  assert(mouserKeyAccepted(429, "<html>Too many requests</html>", &error));
+  assert(mouserKeyAccepted(429, R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", &error));
+  assert(error.empty());
+
+  // A server error is not a pass, with or without a JSON body, and its message is the status.
+  for (const uint32_t status : {500U, 502U, 503U}) {
+    for (const char* body : {"", "<html>Service unavailable</html>", R"({"Errors":[],"SearchResults":{"Parts":[]}})"}) {
+      error.clear();
+      assert(!mouserKeyAccepted(status, body, &error));
+      assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
+    }
+  }
+  // A client error other than 401, 403 and 429 is not a pass either.
+  for (const uint32_t status : {400U, 404U, 408U}) {
+    error.clear();
+    assert(!mouserKeyAccepted(status, "{}", &error));
+    assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
+  }
+  // A redirect or an informational status is not an answer to the search, even with a clean JSON body.
+  for (const uint32_t status : {100U, 301U, 302U, 307U}) {
+    error.clear();
+    assert(!mouserKeyAccepted(status, "{}", &error));
+    assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
+  }
+
+  // A 2xx answer that is not a JSON object is not a pass.
+  for (const char* body : {"<html>Service unavailable</html>", "[1,2]", R"("text")", "", "{\"Errors\":"}) {
+    error.clear();
+    assert(!mouserKeyAccepted(200, body, &error));
+    assert(error == "Unable to parse the Mouser response");
+  }
+  assert(!mouserKeyAccepted(204, "", &error));
+  // A 2xx answer with an Errors entry is not a pass; an entry about the key reads as a rejected key.
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Synthetic failure"}],"SearchResults":{"Parts":[]}})",
+                            &error));
+  assert(error == "Mouser: Synthetic failure");
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(mouserKeyRejected(error));
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{}]})", &error));
+  assert(error == "Mouser returned an error");
+
+  // A rejected key fails with the rejected-key wording, with or without a body.
+  assert(!mouserKeyAccepted(401, "", &error));
+  assert(error == "Mouser rejected the API key (HTTP 401)");
+  assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(error == "Mouser rejected the API key (HTTP 403)");
+  // Errors about the key on a failing status read as a rejected key.
+  assert(!mouserKeyAccepted(400, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(mouserKeyRejected(error));
+
+  // No message names another vendor or carries the key, once the client has redacted it as testConnection does.
+  const string key = kSyntheticMouserKey;
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Request refused for )" + key + R"("}]})", &error));
+  const auto shown = redactMouserKey(error, key);
+  assert(shown == "Mouser: Request refused for [key]");
+  assert(shown.find("DigiKey") == string::npos);
+  // A caller that wants no message can pass none.
+  assert(!mouserKeyAccepted(500, "", nullptr));
+  assert(mouserKeyAccepted(200, "{}", nullptr));
+}
+
 // A suggestion from Mouser is stored with its own marker, and DigiKey and TME suggestions are stored exactly as before.
 void testBomMouserSuggestionStorage() {
   // The stored forms are a compatibility contract: a DigiKey part is bare, and a TME or Mouser part carries its
@@ -15063,6 +15217,9 @@ const vector<TestCase>& registeredTests() {
     {"mouser", "MouserHistoryFilter", testMouserHistoryFilter},
     {"mouser", "MouserCommitIsRecorded", testMouserCommitIsRecorded},
     {"mouser", "MouserLimitReachedWording", testMouserLimitReachedWording},
+    {"mouser", "MouserKeepMatchesNeedMouserNumber", testMouserKeepMatchesNeedMouserNumber},
+    {"mouser", "MouserKeyRejectedWording", testMouserKeyRejectedWording},
+    {"mouser", "MouserKeyAcceptedChecksTheAnswer", testMouserKeyAcceptedChecksTheAnswer},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
