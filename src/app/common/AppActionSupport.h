@@ -8,9 +8,11 @@
 
 #include "App.h"
 #include "core/inventory/VendorBagCode.h"
+#include "core/inventory/VendorProvider.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "core/parts/PhysicalValue.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/tme/TmeApi.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -340,7 +342,8 @@ inline bool setTmeSymbol(InventoryItem& item, const string& symbol) {
 // know, so the part number comes first. The result is matched exactly; the item's manufacturer tells apart TME products
 // that share the part number.
 inline TmeIdentifier tmeRefreshIdentifier(const InventoryItem& item) {
-  // Only a part that came from TME is refreshed from TME; a part that came from another vendor is never looked up here.
+  // Only a part that came from TME is refreshed from TME; a part that came from another vendor (DigiKey or Mouser) is
+  // never looked up here.
   if (originProvider(item) != "tme") return {};
   if (const auto symbol = tmeProductSymbol(item); !symbol.empty()) return {true, symbol, {}};
   if (const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber); !partNumber.empty()) {
@@ -363,6 +366,116 @@ inline string tmeRecordConflict(const InventoryItem& item, const TmeProductDetai
     }
   }
   return {};
+}
+
+// Applies a Mouser product. Mouser becomes the selected source when the item has none or already uses Mouser.
+// Otherwise the Mouser record is kept beside the selected source, so neither provider's identity is replaced.
+inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails& details) {
+  VendorProductMetadata record = details.vendorMetadata;
+  record.provider = kVendorProviderMouser;
+  if (trim(record.providerProductNumber).empty()) return false;
+  const auto boundProvider = toLower(trim(item.vendorMetadata.provider));
+  if (!boundProvider.empty() && boundProvider != kVendorProviderMouser) {
+    return upsertVendorSource(item, record);
+  }
+
+  bool changed = false;
+  // Fills an empty field, or a placeholder an import left behind, as the TME merge does.
+  const auto assignIfUseful = [&](string& target, const string& value, bool replaceUnknown = false) {
+    const auto trimmed = trim(value);
+    if (trimmed.empty()) return;
+    if (target.empty() || (replaceUnknown && (target == "Unknown" || target == "Unsorted"))) {
+      target = trimmed;
+      changed = true;
+    }
+  };
+
+  if (item.partName.empty() && !trim(details.productDescription).empty()) {
+    item.partName = trim(details.productDescription);
+    changed = true;
+  }
+  assignIfUseful(item.manufacturer, details.manufacturerName, true);
+  assignIfUseful(item.category, details.categoryName, true);
+  assignIfUseful(item.sku, details.vendorMetadata.manufacturerPartNumber);
+  assignIfUseful(item.productUrl, details.productUrl);
+  assignIfUseful(item.datasheetUrl, details.datasheetUrl);
+
+  const auto replaceText = [&](string& target, const string& value) {
+    if (!value.empty() && target != value) {
+      target = value;
+      changed = true;
+    }
+  };
+  replaceText(item.vendorMetadata.provider, record.provider);
+  replaceText(item.vendorMetadata.providerProductNumber, record.providerProductNumber);
+  replaceText(item.vendorMetadata.manufacturerPartNumber, record.manufacturerPartNumber);
+  replaceText(item.vendorMetadata.categoryId, record.categoryId);
+  replaceText(item.vendorMetadata.title, record.title);
+  replaceText(item.vendorMetadata.productUrl, record.productUrl);
+  replaceText(item.vendorMetadata.locale, record.locale);
+  if (!record.categoryPath.empty() && item.vendorMetadata.categoryPath != record.categoryPath) {
+    item.vendorMetadata.categoryPath = record.categoryPath;
+    changed = true;
+  }
+  const auto& storedParameters = item.vendorMetadata.parameters;
+  const bool parametersDiffer =
+      storedParameters.size() != record.parameters.size() ||
+      !equal(storedParameters.begin(), storedParameters.end(), record.parameters.begin(),
+             [](const Parameter& left, const Parameter& right) {
+               return left.name == right.name && left.value == right.value;
+             });
+  if (!record.parameters.empty() && parametersDiffer) {
+    item.vendorMetadata.parameters = record.parameters;
+    changed = true;
+  }
+  // The product's attributes, and the package, stock and price Mouser gives, also appear on the item, as TME's do.
+  for (const auto& parameter : details.parameters) {
+    if (upsertParameter(item.parameters, parameter.name, parameter.value)) changed = true;
+  }
+  if (!trim(details.packageName).empty() && upsertParameter(item.parameters, "Package", details.packageName)) {
+    changed = true;
+  }
+  if (!trim(details.quantityAvailable).empty() &&
+      upsertParameter(item.parameters, "Quantity Available", details.quantityAvailable)) {
+    changed = true;
+  }
+  if (!trim(details.unitPrice).empty() && upsertParameter(item.parameters, "Unit Price", details.unitPrice)) {
+    changed = true;
+  }
+  if (!trim(details.productStatus).empty() && upsertParameter(item.parameters, "Product Status", details.productStatus)) {
+    changed = true;
+  }
+
+  // A matched Mouser record completes the item's metadata, as a TME record does.
+  if (item.syncStatus != "synced") {
+    item.syncStatus = "synced";
+    changed = true;
+  }
+  item.lastUpdated = time(nullptr);
+  return changed;
+}
+
+// What a Mouser refresh looks up for an item: the Mouser part number the item carries, else its manufacturer part
+// number, else its SKU. Mouser's search matches either number exactly, and the caller passes the item's manufacturer
+// to tell apart products that share the number.
+inline string mouserRefreshLookup(const InventoryItem& item) {
+  // Only a part that came from Mouser is refreshed from Mouser; a DigiKey or TME part that holds a Mouser record
+  // beside its own is never looked up here.
+  if (originProvider(item) != kVendorProviderMouser) return {};
+  if (const auto partNumber = mouserPartNumberOf(item); !partNumber.empty()) return partNumber;
+  if (const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber); !partNumber.empty()) return partNumber;
+  return trim(item.sku);
+}
+
+// The manufacturer part number a Mouser record gives must be the one the item already stores. A record with another
+// number is a different part, and merging it would put the wrong details on the item. Letter case and punctuation are
+// ignored, as mouserPartNumberMatches ignores them. Returns the name of the disagreeing field, or empty when the
+// numbers agree or either side has none to compare.
+inline string mouserRecordConflict(const InventoryItem& item, const MouserProductDetails& details) {
+  const auto stored = normalizeKey(item.vendorMetadata.manufacturerPartNumber);
+  const auto incoming = normalizeKey(details.vendorMetadata.manufacturerPartNumber);
+  if (stored.empty() || incoming.empty() || stored == incoming) return {};
+  return "manufacturer part number";
 }
 
 inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetails& details) {
@@ -533,7 +646,7 @@ inline DigiKeyApiHandle createDigiKeyApi() {
 }
 
 inline string digiKeyRefreshLookup(const InventoryItem& item) {
-  // Only a part that came from DigiKey is refreshed from DigiKey.
+  // Only a part that came from DigiKey is refreshed from DigiKey; a TME or Mouser part is never looked up here.
   if (originProvider(item) != "digikey") return {};
   const auto provider = toLower(trim(item.vendorMetadata.provider));
   if (!trim(item.digikeyPartNumber).empty()) {

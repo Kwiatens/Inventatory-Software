@@ -362,6 +362,36 @@ inline string tmeProductSymbol(const InventoryItem& item) {
   return {};
 }
 
+// The Mouser part number an item carries, from its selected source or from a Mouser record kept beside it. Empty when
+// the item has none.
+inline string mouserPartNumberOf(const InventoryItem& item) {
+  if (toLower(trim(item.vendorMetadata.provider)) == "mouser" &&
+      !trim(item.vendorMetadata.providerProductNumber).empty()) {
+    return trim(item.vendorMetadata.providerProductNumber);
+  }
+  for (const auto& source : item.vendorSources) {
+    if (toLower(trim(source.provider)) == "mouser" && !trim(source.providerProductNumber).empty()) {
+      return trim(source.providerProductNumber);
+    }
+  }
+  return {};
+}
+
+// The Mouser product page of the record mouserPartNumberOf reads, as Mouser gave it (ProductDetailUrl). Empty when the
+// item has no Mouser record or the record has no page.
+inline string mouserProductUrlOf(const InventoryItem& item) {
+  if (toLower(trim(item.vendorMetadata.provider)) == "mouser" &&
+      !trim(item.vendorMetadata.providerProductNumber).empty()) {
+    return trim(item.vendorMetadata.productUrl);
+  }
+  for (const auto& source : item.vendorSources) {
+    if (toLower(trim(source.provider)) == "mouser" && !trim(source.providerProductNumber).empty()) {
+      return trim(source.productUrl);
+    }
+  }
+  return {};
+}
+
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);
 // Historical commit snapshots use a complete item record.  The strict form

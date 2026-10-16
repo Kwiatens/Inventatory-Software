@@ -25,6 +25,7 @@
 #include "import/kicad/KicadBom.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/tme/TmeApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "platform/system/Console.h"
 #include "platform/scanner/BleProvisioningService.h"
@@ -471,6 +472,22 @@ class App {
     WorkspaceGeneration generation = 0;
   };
 
+  // One queued Mouser refresh lookup: the part number to search for, and the item's manufacturer when it is known,
+  // which tells apart Mouser products that share the number.
+  struct MouserRefreshRequest {
+    std::string itemId;
+    std::string partNumber;
+    std::string manufacturer;
+  };
+
+  struct MouserRefreshResult {
+    std::string itemId;
+    std::optional<MouserProductDetails> details;
+    MouserLookupOutcome outcome = MouserLookupOutcome::Failed;
+    std::string error;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
   // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
   // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
   // it, and only while no lookup is running.
@@ -550,7 +567,7 @@ class App {
   // A vendor lookup for a part added by hand: each configured vendor's answer for the part number. The user picks one
   // vendor, which becomes the part's origin.
   struct VendorLookupCandidate {
-    std::string provider;  // "digikey" or "tme"
+    std::string provider;  // "digikey", "tme" or "mouser"
     std::string partNumber;
     std::string manufacturer;
     std::string packageName;
@@ -561,6 +578,7 @@ class App {
     bool hasDatasheet = false;
     std::optional<DigiKeyProductDetails> digiKey;
     std::optional<TmeProductDetails> tme;
+    std::optional<MouserProductDetails> mouser;
   };
 
   struct VendorLookupBatch {
@@ -717,6 +735,9 @@ class App {
   void processTmeRefresh();
   void stopTmeRefresh();
   void processMouserTest();
+  void beginMouserRefresh();
+  void processMouserRefresh();
+  void stopMouserRefresh();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -1154,6 +1175,20 @@ class App {
   std::string tmeRefreshLastError_;
   std::unique_ptr<TmeApiClient> tmeRefreshClient_;
   std::future<TmeRefreshResult> tmeRefreshFuture_;
+  // Mouser inventory refresh, run the same way as the TME refresh: one lookup per tick, merged on the UI thread. The
+  // client is declared before the future so the future, which joins its task, is destroyed first.
+  std::deque<MouserRefreshRequest> mouserRefreshQueue_;
+  size_t mouserRefreshTotal_ = 0;
+  size_t mouserRefreshCompleted_ = 0;
+  size_t mouserRefreshSucceeded_ = 0;
+  size_t mouserRefreshNotFound_ = 0;
+  size_t mouserRefreshAmbiguous_ = 0;
+  size_t mouserRefreshErrors_ = 0;
+  bool mouserRefreshChanged_ = false;
+  WorkspaceGeneration mouserRefreshGeneration_ = 0;
+  std::string mouserRefreshLastError_;
+  std::unique_ptr<MouserApiClient> mouserRefreshClient_;
+  std::future<MouserRefreshResult> mouserRefreshFuture_;
   std::future<DigiKeyRefreshResult> digiKeyRefreshFuture_;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;

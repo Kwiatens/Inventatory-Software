@@ -54,6 +54,7 @@ ftxui::Color historyTypeColor(const string& type) {
   if (type == "CHECKPOINT") return uiLinkColor();
   if (type == "DIGIKEY") return uiInfoColor();
   if (type == "TME") return uiInfoColor();
+  if (type == "MOUSER") return uiInfoColor();
   if (type == "IMPORT") return uiInfoColor();
   if (type == "PROJECT") return uiSuccessColor();
   return uiAccentColor();
@@ -88,6 +89,7 @@ string compactHistoryMessage(const InventoryCommit& commit) {
   if (lower.rfind(reversePrefix, 0) == 0) return "Reverted " + message.substr(reversePrefix.size());
   if (lower.rfind("digikey refresh batch", 0) == 0) return "DigiKey refresh";
   if (lower.rfind("tme refresh batch", 0) == 0) return "TME refresh";
+  if (lower.rfind("mouser refresh batch", 0) == 0) return "Mouser refresh";
   return message;
 }
 

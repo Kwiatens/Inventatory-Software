@@ -208,6 +208,11 @@ void App::handleStockKey(const KeyEvent& key) {
           openCurrentUrl(tmeProductPageUrl(tmeProductSymbol(*item)), "TME");
         }
         break;
+      case 's':
+        if (const auto* item = selectedItem()) {
+          openCurrentUrl(mouserProductUrlOf(*item), "Mouser");
+        }
+        break;
       case 'p':
         printSelectedLabel();
         break;

@@ -624,7 +624,14 @@ App::SettingsPageModel App::settingsPageModel() const {
 
     case SettingsCategory::Mouser: {
       const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty() : hasStoredMouserKey_;
-      if (!keySet) {
+      const bool refreshRunning = !mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid();
+      if (refreshRunning) {
+        model.status = {{"Refreshing Mouser data: "},
+                        {to_string(mouserRefreshCompleted_) + " of " + to_string(mouserRefreshTotal_), VoiceTone::Strong},
+                        {" items done."}};
+      } else if (!mouserRefreshLastError_.empty()) {
+        model.status = {{"The last Mouser refresh reported: ", VoiceTone::Danger}, {mouserRefreshLastError_}};
+      } else if (!keySet) {
         model.status = {{"Mouser needs an API key."}};
       } else {
         model.status = {{"Mouser is set up."}};
@@ -638,6 +645,25 @@ App::SettingsPageModel App::settingsPageModel() const {
       }
       row.buttons = {button("Test", "t", "settings.mouser.test", [self] { self->testStagedMouser(); })};
       rows.push_back(move(row));
+
+      string refresh = "Not run yet";
+      auto refreshTone = VoiceTone::Muted;
+      if (refreshRunning) {
+        refresh = to_string(mouserRefreshCompleted_) + " of " + to_string(mouserRefreshTotal_) + " done";
+        refreshTone = VoiceTone::Plain;
+      } else if (mouserRefreshTotal_ > 0) {
+        refresh = to_string(mouserRefreshSucceeded_) + " updated, " + to_string(mouserRefreshNotFound_) +
+                  " not found, " + to_string(mouserRefreshAmbiguous_) + " ambiguous, " +
+                  to_string(mouserRefreshErrors_) + " errors";
+        refreshTone = mouserRefreshAmbiguous_ + mouserRefreshErrors_ > 0 ? VoiceTone::Warning : VoiceTone::Plain;
+      }
+      auto refreshRow = infoRow("Inventory", "Last refresh", refresh, refreshTone);
+      const bool refreshEnabled = keySet && !refreshRunning && !settingsDirty_;
+      refreshRow.targetId = "settings.mouser.refresh.row";
+      if (refreshEnabled) refreshRow.activate = [self] { self->beginMouserRefresh(); };
+      refreshRow.buttons = {button("Refresh", "r", "settings.mouser.refresh", [self] { self->beginMouserRefresh(); },
+                                   false, false, refreshEnabled)};
+      rows.push_back(move(refreshRow));
       break;
     }
   }

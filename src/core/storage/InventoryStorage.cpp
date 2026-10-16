@@ -133,6 +133,7 @@ bool InventoryStore::saveWithCommit(const filesystem::path& path, const Inventor
     else if (enriched.source == "scanner") operation = "Recorded scanner event";
     else if (enriched.source == "digikey") operation = "Applied DigiKey enrichment";
     else if (enriched.source == "tme") operation = "Applied TME enrichment";
+    else if (enriched.source == "mouser") operation = "Applied Mouser enrichment";
     else if (enriched.source == "undo") operation = "Undid inventory commit";
     else if (enriched.source == "revert") operation = "Corrected inventory history";
     else if (enriched.source == "checkpoint") operation = "Inventory checkpoint";

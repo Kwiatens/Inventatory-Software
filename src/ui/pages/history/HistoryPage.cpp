@@ -33,6 +33,8 @@ HistorySourceFilter nextHistoryFilter(HistorySourceFilter filter) {
     case HistorySourceFilter::DigiKey:
       return HistorySourceFilter::Tme;
     case HistorySourceFilter::Tme:
+      return HistorySourceFilter::Mouser;
+    case HistorySourceFilter::Mouser:
       return HistorySourceFilter::Checkpoint;
     case HistorySourceFilter::Checkpoint:
       return HistorySourceFilter::Import;
