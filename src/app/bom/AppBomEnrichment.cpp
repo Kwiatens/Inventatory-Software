@@ -298,9 +298,15 @@ void App::processBomEnrichment() {
     // Once Mouser's request limit is reached, the lines only Mouser could answer stay unanswered (a failure, which
     // stores nothing) and are asked again in a later run, rather than spending more of the quota now.
     if (session->mouserLimitReached) return result;
-    MouserApiClient mouserClient(mouserConfig);
-    const auto answer =
-        lookupMouserSuggestion(mouserClient, mouserPartNumber, lineSnapshot, session->mouserLimitReached);
+    BomMouserSuggestion answer;
+    try {
+      MouserApiClient mouserClient(mouserConfig);
+      answer = lookupMouserSuggestion(mouserClient, mouserPartNumber, lineSnapshot, session->mouserLimitReached);
+    } catch (...) {
+      // A failure stores nothing and the line is asked again later. The key travels in the request URL, so no
+      // exception text is kept.
+      return result;
+    }
     result.suggestion = answer.suggestion;
     result.verified = answer.verified;
     result.outcome = answer.outcome;
