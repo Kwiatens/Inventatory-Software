@@ -285,6 +285,7 @@ class App {
     InventatoryScan,
     DigiKey,
     Tme,
+    Mouser,
   };
 
   // Surface is a non-actionable region (for example an overlay panel) that
@@ -459,6 +460,12 @@ class App {
   };
 
   struct TmeTestResult {
+    bool ok = false;
+    std::string error;
+    WorkspaceGeneration generation = 0;
+  };
+
+  struct MouserTestResult {
     bool ok = false;
     std::string error;
     WorkspaceGeneration generation = 0;
@@ -709,6 +716,7 @@ class App {
   bool enqueueTmeScanLookup(const std::string& itemId, const std::string& symbol);
   void processTmeRefresh();
   void stopTmeRefresh();
+  void processMouserTest();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -806,9 +814,11 @@ class App {
   bool testStagedPrinter();
   bool testStagedDigiKey();
   bool testStagedTme();
+  bool testStagedMouser();
   // True when the field being edited holds a secret, so its typed text is masked and wiped after editing.
   bool settingsFieldIsSecret() const;
   void clearStagedTmeCredentials();
+  void clearStagedMouserCredentials();
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
   void resetSelectedAppearanceColor();
@@ -1191,6 +1201,10 @@ class App {
   bool stagedTmeSecretChanged_ = false;
   bool hasStoredTmeToken_ = false;
   bool hasStoredTmeSecret_ = false;
+  // Mouser API key, staged the same way until settings are saved.
+  std::string stagedMouserKey_;
+  bool stagedMouserKeyChanged_ = false;
+  bool hasStoredMouserKey_ = false;
   std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   // quickLabelMutex_ guards the quick-label presets in settings_, the print-result cache above and
@@ -1207,6 +1221,7 @@ class App {
   std::future<UpdateCheckResult> scanFirmwareFuture_;
   std::future<DigiKeyTestResult> digiKeyTestFuture_;
   std::future<TmeTestResult> tmeTestFuture_;
+  std::future<MouserTestResult> mouserTestFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckFailed_ = false;

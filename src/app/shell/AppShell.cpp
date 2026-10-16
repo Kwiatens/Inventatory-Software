@@ -182,6 +182,7 @@ void App::processBackgroundWork() {
   processBleProvisioning();
   processDigiKeyTest();
   processTmeTest();
+  processMouserTest();
   processScanDigiKeyEnrichment();
   processDigiKeyRefresh();
   processTmeRefresh();
