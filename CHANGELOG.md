@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.6] - 2026-10-16
+
 ### Added
 - Stock: a part added by hand can take its details from DigiKey or TME. Enter the part number in SKU, then choose
   Vendor in the form. The vendors that answer are shown side by side, and the part keeps the vendor you choose.
@@ -89,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Projects: the amounts taken during a build stay with their lines when the list is re-sorted.
 - Projects: a restock never adds units to a part the line has not confirmed.
 - Projects: a BOM without a value column reports a BOM problem, not a DigiKey one.
+- Update wizard: the release notes panel is sized to its text instead of always filling the width of the screen.
 
 ## [v0.1.5] - 2026-10-11
 
@@ -283,7 +286,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial beta release start.
 
-[Unreleased]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.6...HEAD
+[v0.1.6]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.5...v0.1.6
 [v0.1.5]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.4...v0.1.5
 [v0.1.4]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.3...v0.1.4
 [v0.1.3]: https://github.com/Kwiatens/Inventatory-Software/compare/v0.1.2...v0.1.3
