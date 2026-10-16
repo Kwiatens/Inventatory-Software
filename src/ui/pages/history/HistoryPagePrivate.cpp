@@ -76,6 +76,8 @@ bool filterMatches(const InventoryCommit& commit, HistorySourceFilter filter) {
       return historyCommitType(commit) == "DIGIKEY";
     case HistorySourceFilter::Tme:
       return historyCommitType(commit) == "TME";
+    case HistorySourceFilter::Mouser:
+      return historyCommitType(commit) == "MOUSER";
     case HistorySourceFilter::Checkpoint:
       return historyCommitType(commit) == "CHECKPOINT";
     case HistorySourceFilter::Import:
@@ -148,6 +150,8 @@ string historySourceFilterLabel(HistorySourceFilter filter) {
       return vendorDisplayName(kVendorProviderDigiKey);
     case HistorySourceFilter::Tme:
       return vendorDisplayName(kVendorProviderTme);
+    case HistorySourceFilter::Mouser:
+      return vendorDisplayName(kVendorProviderMouser);
     case HistorySourceFilter::Checkpoint:
       return "Checkpoint";
     case HistorySourceFilter::Import:

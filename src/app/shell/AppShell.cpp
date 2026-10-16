@@ -186,6 +186,7 @@ void App::processBackgroundWork() {
   processScanDigiKeyEnrichment();
   processDigiKeyRefresh();
   processTmeRefresh();
+  processMouserRefresh();
   processImportSync();
   processVendorLookup();
   processBomEnrichment();

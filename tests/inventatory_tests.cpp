@@ -14019,6 +14019,7 @@ void testVendorDisplayNames() {
   using history_page_detail::HistorySourceFilter;
   assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::DigiKey) == "DigiKey");
   assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::Tme) == "TME");
+  assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::Mouser) == "Mouser");
 }
 
 // A scanned bag creates a part whose origin is the bag's vendor, and refresh looks it up at that vendor only.
@@ -14362,6 +14363,266 @@ void testMouserLookupGuardsMakeNoRequest() {
   assert(error.find("Mouser") != string::npos && error.find("DigiKey") == string::npos);
 }
 
+// One synthetic Mouser product, as a lookup returns it. Every value is made up.
+MouserProductDetails syntheticMouserProduct() {
+  MouserProductDetails details;
+  details.vendorMetadata.provider = kVendorProviderMouser;
+  details.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+  details.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0001";
+  details.vendorMetadata.title = "Synthetic dual amplifier";
+  details.vendorMetadata.categoryPath = {"Synthetic Amplifiers"};
+  details.vendorMetadata.productUrl = "https://example.invalid/mouser/999-SYN-OPA-0001";
+  details.manufacturerName = "Synthetic Parts Co";
+  details.productDescription = "Synthetic dual amplifier";
+  details.categoryName = "Synthetic Amplifiers";
+  details.parameters = {{"Package / Case", "SOIC-8"}, {"Number of Channels", "2 Channel"}};
+  details.packageName = "SOIC-8";
+  details.datasheetUrl = "https://example.invalid/mouser/syn-opa-0001.pdf";
+  details.productUrl = details.vendorMetadata.productUrl;
+  details.quantityAvailable = "1234";
+  details.unitPrice = "$0.42";
+  return details;
+}
+
+void testMouserMergeKeepsSelectedIdentity() {
+  const auto mouser = syntheticMouserProduct();
+
+  // An empty item takes Mouser as its selected source and is filled from the record.
+  InventoryItem item;
+  assert(app_actions::mergeMouserMetadata(item, mouser));
+  assert(item.vendorMetadata.provider == "mouser");
+  assert(item.vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
+  assert(item.vendorMetadata.manufacturerPartNumber == "SYN-OPA-0001");
+  assert(item.vendorMetadata.productUrl == "https://example.invalid/mouser/999-SYN-OPA-0001");
+  assert(item.partName == "Synthetic dual amplifier");
+  assert(item.manufacturer == "Synthetic Parts Co");
+  assert(item.category == "Synthetic Amplifiers");
+  assert(item.sku == "SYN-OPA-0001");
+  assert(item.datasheetUrl == "https://example.invalid/mouser/syn-opa-0001.pdf");
+  assert(item.productUrl == "https://example.invalid/mouser/999-SYN-OPA-0001");
+  assert(item.syncStatus == "synced");
+  assert(item.vendorSources.empty());
+  const auto parameterValue = [&](const string& name) {
+    for (const auto& parameter : item.parameters) {
+      if (parameter.name == name) return parameter.value;
+    }
+    return string();
+  };
+  assert(parameterValue("Number of Channels") == "2 Channel");
+  assert(parameterValue("Quantity Available") == "1234");
+  assert(parameterValue("Unit Price") == "$0.42");
+  assert(originProvider(item) == "mouser");
+  // The same product again changes nothing.
+  assert(!app_actions::mergeMouserMetadata(item, mouser));
+
+  // An item bound to DigiKey keeps DigiKey as its selected source and keeps Mouser beside it.
+  InventoryItem digiKeyItem;
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "SYN-0001-ND";
+  assert(app_actions::mergeMouserMetadata(digiKeyItem, mouser));
+  assert(digiKeyItem.vendorMetadata.provider == "digikey");
+  assert(digiKeyItem.vendorMetadata.providerProductNumber == "SYN-0001-ND");
+  assert(digiKeyItem.vendorSources.size() == 1);
+  assert(digiKeyItem.vendorSources.front().provider == "mouser");
+  assert(digiKeyItem.vendorSources.front().providerProductNumber == "999-SYN-OPA-0001");
+  assert(!app_actions::mergeMouserMetadata(digiKeyItem, mouser));
+
+  // A record without a Mouser part number is neither applied nor stored.
+  MouserProductDetails unnamed;
+  unnamed.vendorMetadata.provider = kVendorProviderMouser;
+  unnamed.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0001";
+  InventoryItem empty;
+  assert(!app_actions::mergeMouserMetadata(empty, unnamed));
+  assert(empty.vendorMetadata.provider.empty());
+  assert(!app_actions::mergeMouserMetadata(digiKeyItem, unnamed));
+  assert(digiKeyItem.vendorSources.size() == 1);
+}
+
+void testMouserRecordConflictGuard() {
+  const auto mouser = syntheticMouserProduct();
+  InventoryItem stored;
+  stored.vendorMetadata.provider = "mouser";
+  stored.vendorMetadata.manufacturerPartNumber = "syn opa/0001";
+  // The same number, written with another letter case and punctuation, agrees.
+  assert(app_actions::mouserRecordConflict(stored, mouser).empty());
+  // Another number is a different part.
+  stored.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0002";
+  assert(app_actions::mouserRecordConflict(stored, mouser) == "manufacturer part number");
+  // Nothing to compare on either side is no conflict.
+  InventoryItem blank;
+  assert(app_actions::mouserRecordConflict(blank, mouser).empty());
+  MouserProductDetails withoutNumber = mouser;
+  withoutNumber.vendorMetadata.manufacturerPartNumber.clear();
+  assert(app_actions::mouserRecordConflict(stored, withoutNumber).empty());
+}
+
+void testMouserPartNumberOf() {
+  // From a part that came from Mouser.
+  InventoryItem mouserItem;
+  mouserItem.vendorMetadata.provider = "Mouser";
+  mouserItem.vendorMetadata.providerProductNumber = " 999-SYN-0001 ";
+  mouserItem.vendorMetadata.productUrl = "https://example.invalid/mouser/999-SYN-0001";
+  assert(mouserPartNumberOf(mouserItem) == "999-SYN-0001");
+  assert(mouserProductUrlOf(mouserItem) == "https://example.invalid/mouser/999-SYN-0001");
+
+  // From a Mouser record kept beside a DigiKey part.
+  InventoryItem digiKeyItem;
+  digiKeyItem.digikeyPartNumber = "SYN-0001-ND";
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "SYN-0001-ND";
+  digiKeyItem.vendorMetadata.productUrl = "https://example.invalid/digikey/SYN-0001-ND";
+  assert(mouserPartNumberOf(digiKeyItem).empty());
+  assert(mouserProductUrlOf(digiKeyItem).empty());
+  VendorProductMetadata mouserRecord;
+  mouserRecord.provider = "mouser";
+  mouserRecord.providerProductNumber = "999-SYN-0002";
+  mouserRecord.productUrl = "https://example.invalid/mouser/999-SYN-0002";
+  digiKeyItem.vendorSources.push_back(mouserRecord);
+  assert(mouserPartNumberOf(digiKeyItem) == "999-SYN-0002");
+  assert(mouserProductUrlOf(digiKeyItem) == "https://example.invalid/mouser/999-SYN-0002");
+
+  // Empty for a part with no Mouser record.
+  InventoryItem tmeItem;
+  tmeItem.vendorMetadata.provider = "tme";
+  tmeItem.vendorMetadata.providerProductNumber = "SYN-TME-0001";
+  assert(mouserPartNumberOf(tmeItem).empty());
+  InventoryItem unbound;
+  unbound.sku = "SYN-0001";
+  assert(mouserPartNumberOf(unbound).empty());
+  InventoryItem noNumber;
+  noNumber.vendorMetadata.provider = "mouser";
+  assert(mouserPartNumberOf(noNumber).empty());
+
+  // Completeness counts a Mouser part number the same way as a DigiKey number or a TME symbol.
+  InventoryItem bare;
+  bare.partName = "Part";
+  bare.manufacturer = "Maker";
+  bare.category = "Category";
+  bare.datasheetUrl = "https://example.invalid/sheet.pdf";
+  bare.productUrl = "https://example.invalid/part";
+  assert(bare.hasMissingMetadata());
+  bare.vendorMetadata.provider = "mouser";
+  bare.vendorMetadata.providerProductNumber = "999-SYN-0001";
+  assert(!bare.hasMissingMetadata());
+
+  // mouser: finds a part by its Mouser part number, whether it is the selected source or a record beside another.
+  mouserItem.id = "mouser-bound";
+  mouserItem.partName = "Amplifier";
+  mouserItem.quantity = 1;
+  digiKeyItem.id = "digikey-bound";
+  digiKeyItem.partName = "Capacitor";
+  digiKeyItem.quantity = 1;
+  tmeItem.id = "tme-bound";
+  tmeItem.partName = "Fuse";
+  tmeItem.quantity = 1;
+  const vector<InventoryItem> items = {mouserItem, digiKeyItem, tmeItem};
+  const vector<InventatoryRack> racks;
+  const auto idsFor = [&](const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query, racks, 5)) ids.push_back(items[index].id);
+    return ids;
+  };
+  assert((idsFor("mouser:999-SYN-0001") == vector<string>{"mouser-bound"}));
+  assert((idsFor("mouser:999-SYN-0002") == vector<string>{"digikey-bound"}));
+  assert((idsFor("mouser:SYN-TME-0001") == vector<string>{}));
+}
+
+// A part is refreshed only from the vendor it came from: a Mouser part from Mouser, and never from DigiKey or TME.
+void testMouserRefreshUsesOriginOnly() {
+  InventoryItem mouserItem;
+  mouserItem.sku = "SYN-OPA-0001";
+  mouserItem.vendorMetadata.provider = "mouser";
+  mouserItem.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+  mouserItem.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0001";
+  assert(app_actions::mouserRefreshLookup(mouserItem) == "999-SYN-OPA-0001");
+  assert(app_actions::digiKeyRefreshLookup(mouserItem).empty());
+  assert(app_actions::tmeRefreshIdentifier(mouserItem).value.empty());
+
+  // A Mouser part without its Mouser number is searched by its manufacturer part number, then by its SKU.
+  InventoryItem byPartNumber;
+  byPartNumber.vendorMetadata.provider = "mouser";
+  byPartNumber.vendorMetadata.manufacturerPartNumber = " SYN-OPA-0001 ";
+  assert(app_actions::mouserRefreshLookup(byPartNumber) == "SYN-OPA-0001");
+  InventoryItem bySku;
+  bySku.sku = " SYN-OPA-0001 ";
+  bySku.vendorMetadata.provider = "mouser";
+  assert(app_actions::mouserRefreshLookup(bySku) == "SYN-OPA-0001");
+
+  // A DigiKey part with a Mouser record beside it is refreshed from DigiKey only.
+  InventoryItem digiKeyItem;
+  digiKeyItem.digikeyPartNumber = "SYN-0001-ND";
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "SYN-0001-ND";
+  VendorProductMetadata mouserRecord;
+  mouserRecord.provider = "mouser";
+  mouserRecord.providerProductNumber = "999-SYN-0001";
+  digiKeyItem.vendorSources.push_back(mouserRecord);
+  assert(app_actions::mouserRefreshLookup(digiKeyItem).empty());
+  assert(app_actions::digiKeyRefreshLookup(digiKeyItem) == "SYN-0001-ND");
+
+  // A TME part, and a part with no recorded origin, are not looked up at Mouser.
+  InventoryItem tmeItem;
+  tmeItem.vendorMetadata.provider = "tme";
+  tmeItem.vendorMetadata.providerProductNumber = "SYN-TME-0001";
+  tmeItem.vendorSources.push_back(mouserRecord);
+  assert(app_actions::mouserRefreshLookup(tmeItem).empty());
+  InventoryItem unbound;
+  unbound.sku = "SYN-OPA-0001";
+  assert(app_actions::mouserRefreshLookup(unbound).empty());
+}
+
+// History names Mouser commits and filters them apart from the other vendors.
+void testMouserHistoryFilter() {
+  using history_page_detail::HistorySourceFilter;
+  InventoryCommit tme;
+  tme.id = "tme-id";
+  tme.source = "tme";
+  tme.message = "TME refresh batch";
+  InventoryCommit mouser;
+  mouser.id = "mouser-id";
+  mouser.source = "mouser";
+  mouser.message = "Mouser refresh batch";
+  const vector<InventoryCommit> commits = {tme, mouser};
+  assert(history_page_detail::historyCommitType(mouser) == "MOUSER");
+  assert((history_page_detail::filteredHistoryIndices(commits, {}, HistorySourceFilter::Mouser) ==
+          vector<size_t>{1}));
+  assert((history_page_detail::filteredHistoryIndices(commits, {}, HistorySourceFilter::Tme) == vector<size_t>{0}));
+}
+
+// A Mouser commit with no message of its own is saved with the Mouser wording, and the Mouser record survives a reload.
+void testMouserCommitIsRecorded() {
+  const auto path = testTempRoot() / "inventatory-mouser-commit-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "mouser-commit-item";
+  item.partName = "Synthetic part";
+  item.quantity = 2;
+  item.lastUpdated = 1710000000;
+  item.createdAt = 1710000000;
+  store.items().push_back(item);
+  assert(ensureInventoryCommitHistory(path, store));
+  assert(store.save(path));
+
+  InventoryStore refreshed = store;
+  assert(app_actions::mergeMouserMetadata(refreshed.items().front(), syntheticMouserProduct()));
+  InventoryCommitDraft draft;
+  draft.source = "mouser";
+  InventoryCommit committed;
+  assert(refreshed.saveWithCommit(path, store, draft, {}, nullptr, &committed));
+  assert(committed.message.rfind("Applied Mouser enrichment", 0) == 0);
+  assert(committed.changedItemCount == 1);
+
+  InventoryStore reloaded;
+  assert(reloaded.load(path));
+  assert(reloaded.items().size() == 1);
+  assert(reloaded.items().front().vendorMetadata.provider == "mouser");
+  assert(mouserPartNumberOf(reloaded.items().front()) == "999-SYN-OPA-0001");
+  filesystem::remove(path, cleanupError);
+}
+
 
 struct TestCase {
   const char* area;
@@ -14574,6 +14835,12 @@ const vector<TestCase>& registeredTests() {
     {"mouser", "MouserKeyRedaction", testMouserKeyRedaction},
     {"mouser", "MouserConfigValidity", testMouserConfigValidity},
     {"mouser", "MouserLookupGuardsMakeNoRequest", testMouserLookupGuardsMakeNoRequest},
+    {"mouser", "MouserMergeKeepsSelectedIdentity", testMouserMergeKeepsSelectedIdentity},
+    {"mouser", "MouserRecordConflictGuard", testMouserRecordConflictGuard},
+    {"mouser", "MouserPartNumberOf", testMouserPartNumberOf},
+    {"mouser", "MouserRefreshUsesOriginOnly", testMouserRefreshUsesOriginOnly},
+    {"mouser", "MouserHistoryFilter", testMouserHistoryFilter},
+    {"mouser", "MouserCommitIsRecorded", testMouserCommitIsRecorded},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
