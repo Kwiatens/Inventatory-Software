@@ -28,6 +28,7 @@
 #include "core/history/InventoryVersionInternal.h"
 #include "core/inventory/InventoryMerge.h"
 #include "core/inventory/VendorBagCode.h"
+#include "core/inventory/VendorProvider.h"
 #include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/InventoryTransfer.h"
@@ -13997,6 +13998,26 @@ void testVendorBagCodeRecognition() {
   assert(originProvider(unbound).empty());
 }
 
+// Each vendor key names its vendor whatever its case and surrounding spaces; an empty or unknown key names none.
+void testVendorDisplayNames() {
+  assert(vendorDisplayName(kVendorProviderDigiKey) == "DigiKey");
+  assert(vendorDisplayName(kVendorProviderTme) == "TME");
+  assert(vendorDisplayName(kVendorProviderMouser) == "Mouser");
+  assert(vendorDisplayName("digikey") == "DigiKey");
+  assert(vendorDisplayName("tme") == "TME");
+  assert(vendorDisplayName("mouser") == "Mouser");
+  assert(vendorDisplayName(" TME ") == "TME");
+  assert(vendorDisplayName("DigiKey") == "DigiKey");
+  assert(vendorDisplayName("").empty());
+  assert(vendorDisplayName("   ").empty());
+  assert(vendorDisplayName("lcsc").empty());
+
+  // The History filter keeps its vendor labels.
+  using history_page_detail::HistorySourceFilter;
+  assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::DigiKey) == "DigiKey");
+  assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::Tme) == "TME");
+}
+
 // A scanned bag creates a part whose origin is the bag's vendor, and refresh looks it up at that vendor only.
 void testBagScanRecordsOrigin() {
   InventoryStore store;
@@ -14254,6 +14275,7 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeMergeKeepsSelectedIdentity", testTmeMergeKeepsSelectedIdentity},
     {"tme", "TmeLabelScan", testTmeLabelScan},
     {"scan", "VendorBagCodeRecognition", testVendorBagCodeRecognition},
+    {"inventory", "VendorDisplayNames", testVendorDisplayNames},
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
     {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},

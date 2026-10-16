@@ -5,6 +5,7 @@
 
 #include "HistoryPagePrivate.h"
 
+#include "core/inventory/VendorProvider.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -144,9 +145,9 @@ string historySourceFilterLabel(HistorySourceFilter filter) {
     case HistorySourceFilter::Corrective:
       return "Corrective";
     case HistorySourceFilter::DigiKey:
-      return "DigiKey";
+      return vendorDisplayName(kVendorProviderDigiKey);
     case HistorySourceFilter::Tme:
-      return "TME";
+      return vendorDisplayName(kVendorProviderTme);
     case HistorySourceFilter::Checkpoint:
       return "Checkpoint";
     case HistorySourceFilter::Import:
