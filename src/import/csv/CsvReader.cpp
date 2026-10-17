@@ -196,7 +196,11 @@ char sniffDelimiter(const string& text) {
   return ',';
 }
 
-vector<vector<string>> parseCsv(const string& text, char delimiter, string& error, size_t maxRows) {
+namespace {
+
+// The scanner behind parseCsv and parseCsvBackslashQuotes. With backslashQuotes, \" inside a quoted cell is one quote.
+vector<vector<string>> scanCsv(const string& text, char delimiter, string& error, size_t maxRows,
+                               bool backslashQuotes) {
   error.clear();
   if (maxRows == 0) {
     return {};
@@ -224,6 +228,12 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
     const char ch = text[index];
 
     if (inQuotes) {
+      if (backslashQuotes && ch == '\\' && index + 1 < text.size() && text[index + 1] == '"') {
+        field.push_back('"');
+        ++index;
+        if (fieldTooLarge()) return {};
+        continue;
+      }
       if (ch == '"') {
         // Spaces and tabs after a closing quote are padding when the delimiter, a line break or the end
         // of text follows them. A tab is never padding when it is the delimiter itself.
@@ -325,6 +335,16 @@ vector<vector<string>> parseCsv(const string& text, char delimiter, string& erro
   }
 
   return rows;
+}
+
+}  // namespace
+
+vector<vector<string>> parseCsv(const string& text, char delimiter, string& error, size_t maxRows) {
+  return scanCsv(text, delimiter, error, maxRows, false);
+}
+
+vector<vector<string>> parseCsvBackslashQuotes(const string& text, char delimiter, string& error) {
+  return scanCsv(text, delimiter, error, (numeric_limits<size_t>::max)(), true);
 }
 
 string normalizeHeader(string value) {
