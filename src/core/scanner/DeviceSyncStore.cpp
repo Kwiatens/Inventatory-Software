@@ -298,7 +298,7 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
 
   SqliteStatement statement;
   constexpr char kLookupSql[] =
-      "SELECT part_name FROM inventatory_items "
+      "SELECT id, part_name FROM inventatory_items "
       "WHERE machine_code=? COLLATE NOCASE OR digikey_part_number=? COLLATE NOCASE "
       "OR sku=? COLLATE NOCASE LIMIT 1";
   if (sqliteApi().prepare_v2(connection.db, kLookupSql, -1, &statement.stmt, nullptr) != SQLITE_OK) {
@@ -310,7 +310,15 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
   sqliteApi().bind_text(statement.stmt, 3, code.c_str(), -1, SQLITE_TRANSIENT);
   if (sqliteApi().step(statement.stmt) == SQLITE_ROW) {
     result.status = "found";
-    result.itemName = sqliteText(statement.stmt, 0);
+    const auto itemId = sqliteText(statement.stmt, 0);
+    result.itemName = sqliteText(statement.stmt, 1);
+    // Release the read before the full item is loaded through its own connection.
+    sqliteApi().reset(statement.stmt);
+    if (result.itemName.size() > kDeviceItemNameLimit) {
+      InventoryStore store;
+      const auto* item = store.load(databasePath) ? store.findById(itemId) : nullptr;
+      if (item != nullptr) result.itemName = deviceItemName(*item);
+    }
     return result;
   }
   result.status = "not_found";

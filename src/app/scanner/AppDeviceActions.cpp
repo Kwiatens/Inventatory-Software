@@ -201,7 +201,7 @@ void App::processDeviceSyncEvents() {
         }
       }
       reconcileRackAssignment(candidate, *item);
-      result.itemName = item->partName;
+      result.itemName = deviceItemName(*item);
       result.location = rackLocation(*item, candidate.racks());
       if (result.location.empty()) result.location = item->location.empty() ? "UNASSIGNED" : item->location;
       result.status = warning.empty() ? "completed" : "completed_with_warning";
