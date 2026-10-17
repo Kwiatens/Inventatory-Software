@@ -75,14 +75,14 @@ bool sameBomPickCommits(const std::vector<BomPickCommit>& lhs, const std::vector
 std::vector<std::string> bomPickProblems(const std::vector<BomPickCommit>& commits, const std::vector<int>& taken,
                                          const InventoryStore& store);
 
-// Page header of a stop: "Rack 1: take 26 parts from 7 slots".
+// Page header of a stop: "Rack 1: take 26 pieces from 7 slots".
 VoiceLine bomPickStopTitle(const BomPickStop& stop);
-// Line under the pick list: "Then Rack 2: 4 parts from 4 slots." or "That is the last stop."
+// Line under the pick list: "Then Rack 2: 4 pieces from 4 slots." or "That is the last stop."
 VoiceLine bomPickNextStop(const BomPickPlan& plan, size_t stopIndex);
 // Project summary under the project name: "You have 15 of 43 parts. The other 28 need ordering, 21
 // have a supplier match."
 VoiceLine bomProjectSummary(const BomAnalysis& analysis, int suggestedMatches);
-// Finish screen title: "All 40 parts are picked" or "38 of 40 parts are picked".
+// Finish screen title: "All 40 pieces are picked" or "38 of 40 pieces are picked".
 VoiceLine bomPickFinishTitle(int taken, int planned);
 // Finish screen line 2: "Deducting leaves 1uF and 10nF low. 28 lines are still on the shopping list."
 VoiceLine bomPickFinishGuide(const std::vector<std::string>& lowAfter, size_t shortLines);

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Plain-sentence header lines ("Rack 1: take 26 parts from 7 slots").
+// Plain-sentence header lines ("Rack 1: take 26 pieces from 7 slots").
 //
 // A voice line is built from fixed templates filled with live data, so the same state always reads
 // the same way and every template can be tested as plain text. The tone of each span is semantic;

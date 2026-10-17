@@ -208,7 +208,7 @@ Rules:
 Picking parts from racks, setup wizards, and imports guide the user through physical or multi-step work.
 
 - Lead with one plain instruction that holds the numbers that matter:
-  `Take 26 parts from 7 slots in Rack 1`.
+  `Take 26 pieces from 7 slots in Rack 1`.
 - Confirm work in natural units. In Pick parts, that unit is a rack, not a slot: everything
   to take from the current rack is shown at once, and one key confirms the rack.
 - Highlighted targets show what to do there (`Take 10`), not stock levels.
@@ -232,7 +232,7 @@ Inventatory speaks like a calm colleague standing next to the rack. It is not a 
 chat. The second line of each page header is one or two plain sentences about the situation
 right now:
 
-- `Rack 1: take 26 parts from 7 slots`
+- `Rack 1: take 26 pieces from 7 slots`
 - `You have 15 of 43 parts. The other 28 need ordering, 21 have a DigiKey match.`
 - `The R1 is online, but 2 scans could not be saved. Retry them or discard them.`
 - `Everything is saved. 94 parts in 9 racks.`

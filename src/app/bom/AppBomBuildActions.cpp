@@ -194,7 +194,7 @@ void App::finishBomBuild(bool subtractFromStock) {
     setMessage("Build stock was saved, but the project timestamp was not; press R to retry", 7);
     return;
   }
-  string message = subtractFromStock ? voiceCount(pieces, "part", "parts") + " taken out of stock. Ctrl+Z puts them back."
+  string message = subtractFromStock ? voiceCount(pieces, "piece", "pieces") + " taken out of stock. Ctrl+Z puts them back."
                                      : string("Stock was left as it was.");
   if (shortLines > 0) {
     message += " " + voiceCount(static_cast<int>(shortLines), "line is", "lines are") + " still on the shopping list.";
