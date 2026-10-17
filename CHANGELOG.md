@@ -29,11 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refresh: each part is refreshed only from the vendor it came from, Mouser included. A Mouser record with a different
   manufacturer part number is not applied.
 - Projects: a Mouser suggestion saved by this version shows as a DigiKey part in an earlier version.
+- Projects: Find in racks counts pieces, not parts, on its stop and finish screens.
 
 ### Fixed
 - A TME label whose manufacturer part number contains a `*`, such as `DS1023-1*40S21`, is read when the Scan R1 sends it, instead of being refused.
 - A Scan R1 event whose number the desktop already holds for a different scan is refused with a message, instead of being acknowledged and dropped. After five refusals the Scan R1 shows the sync problem `SYN-01` until the stuck scan is discarded from its menu.
 - History: Ctrl+Z steps back one change per press. A second press no longer re-applies the change it undid, and the Projects comparison refreshes after an undo.
+- Racks: Escape cancels a move that is in progress and stays on the Racks page, instead of leaving it.
 
 ## [v0.1.6] - 2026-10-16
 
