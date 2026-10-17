@@ -8,6 +8,7 @@
 
 #include "platform/security/CredentialStore.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/system/StartupRegistration.h"
 #include "core/storage/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
@@ -37,6 +38,7 @@ string App::settingsCategoryName(SettingsCategory category) const {
     case SettingsCategory::InventatoryScan: return "Inventatory Scan";
     case SettingsCategory::DigiKey: return "DigiKey";
     case SettingsCategory::Tme: return "TME";
+    case SettingsCategory::Mouser: return "Mouser";
   }
   return {};
 }
@@ -52,11 +54,13 @@ void App::openSettings(SettingsCategory category) {
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   clearStagedTmeCredentials();
+  clearStagedMouserCredentials();
   bleWifiPassword_.assign(bleWifiPassword_.size(), '\0');
   bleWifiPassword_.clear();
   hasStoredDigiKeySecret_ = credentialPresence(CredentialStore::lookup(kDigiKeySecretName), hasStoredDigiKeySecret_);
   hasStoredTmeToken_ = credentialPresence(CredentialStore::lookup(kTmeTokenCredentialName), hasStoredTmeToken_);
   hasStoredTmeSecret_ = credentialPresence(CredentialStore::lookup(kTmeSecretCredentialName), hasStoredTmeSecret_);
+  hasStoredMouserKey_ = credentialPresence(CredentialStore::lookup(kMouserApiKeyCredentialName), hasStoredMouserKey_);
   inputBuffer_.clear();
   applyUiAppearance(settings_.appearance);
   changePage(Page::Settings);
@@ -78,6 +82,7 @@ bool App::settingsDraftHasChanges() const {
          settingsDraft_.digiKeyCurrency != settings_.digiKeyCurrency ||
          settingsDraft_.tmeCountry != settings_.tmeCountry || settingsDraft_.tmeLanguage != settings_.tmeLanguage ||
          settingsDraft_.tmeCurrency != settings_.tmeCurrency || stagedTmeTokenChanged_ || stagedTmeSecretChanged_ ||
+         stagedMouserKeyChanged_ ||
          settingsDraft_.lowStockThreshold != settings_.lowStockThreshold ||
          settingsDraft_.symbolStandard != settings_.symbolStandard ||
          settingsDraft_.quickLabelPresets != settings_.quickLabelPresets ||
@@ -185,6 +190,7 @@ void App::processDigiKeyTest() {
 bool App::settingsFieldIsSecret() const {
   if (settingsCategory_ == SettingsCategory::DigiKey) return settingsField_ == 1;
   if (settingsCategory_ == SettingsCategory::Tme) return settingsField_ == 0 || settingsField_ == 1;
+  if (settingsCategory_ == SettingsCategory::Mouser) return settingsField_ == 0;
   return false;
 }
 
@@ -195,6 +201,12 @@ void App::clearStagedTmeCredentials() {
   stagedTmeSecret_.assign(stagedTmeSecret_.size(), '\0');
   stagedTmeSecret_.clear();
   stagedTmeSecretChanged_ = false;
+}
+
+void App::clearStagedMouserCredentials() {
+  stagedMouserKey_.assign(stagedMouserKey_.size(), '\0');
+  stagedMouserKey_.clear();
+  stagedMouserKeyChanged_ = false;
 }
 
 void App::beginSettingsFieldEdit(int field) {
@@ -254,6 +266,9 @@ void App::beginSettingsFieldEdit(int field) {
         case 4: inputBuffer_ = settingsDraft_.tmeCurrency; break;
         default: inputBuffer_.clear(); break;
       }
+      break;
+    case SettingsCategory::Mouser:
+      inputBuffer_.clear();
       break;
   }
   dirty_ = true;
@@ -400,6 +415,29 @@ void App::commitSettingsFieldEdit() {
         break;
       default: break;
     }
+  } else if (settingsCategory_ == SettingsCategory::Mouser) {
+    if (settingsField_ == 0) {
+      auto key = trim(inputBuffer_);
+      if (key.empty()) {
+        setMessage("API key cannot be empty; press Esc to keep the stored key", 4);
+        return;
+      }
+      // Same rule as TME: an over-long key keeps the editor open.
+      if (key.size() > kMaxMouserKeyBytes) {
+        setMessage("Mouser API key must be " + to_string(kMaxMouserKeyBytes) + " bytes or fewer", 4);
+        return;
+      }
+      // Every call rejects a key that holds spaces or control characters, so such a key is never staged.
+      if (!MouserConfig{key}.valid()) {
+        setMessage("Mouser API key cannot contain spaces or control characters", 4);
+        return;
+      }
+      stagedMouserKey_.assign(stagedMouserKey_.size(), '\0');
+      stagedMouserKey_ = move(key);
+      stagedMouserKeyChanged_ = true;
+      inputBuffer_.assign(inputBuffer_.size(), '\0');
+      inputBuffer_.clear();
+    }
   }
   settingsEditingField_ = false;
   settingsDirty_ = true;
@@ -489,6 +527,7 @@ void App::cancelSettingsDraft() {
   stagedDigiKeySecret_.clear();
   stagedDigiKeySecretChanged_ = false;
   clearStagedTmeCredentials();
+  clearStagedMouserCredentials();
   inputBuffer_.assign(inputBuffer_.size(), '\0');
   inputBuffer_.clear();
   setMessage("Settings changes discarded", 3);

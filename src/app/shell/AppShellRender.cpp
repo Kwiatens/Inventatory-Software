@@ -454,6 +454,19 @@ ftxui::Element App::renderMessageUi() const {
                            }) |
                            ftxui::bgcolor(uiPanelLeftBg()));
   }
+  const bool refreshingMouser =
+      mouserRefreshTotal_ > 0 && (!mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid());
+  if (refreshingMouser) {
+    const auto completed = min(mouserRefreshCompleted_, mouserRefreshTotal_);
+    return fixedMessageRow(ftxui::hbox({
+                               styledText(" Refreshing Mouser data: ", uiLinkColor()),
+                               uiHeaderText(to_string(completed) + " of " + to_string(mouserRefreshTotal_),
+                                            uiPrimaryText()),
+                               styledText(" parts done", uiMutedColor()),
+                               ftxui::filler(),
+                           }) |
+                           ftxui::bgcolor(uiPanelLeftBg()));
+  }
   if (importSyncRunning_) {
     const auto completed = min(importSyncCompleted_, importSyncTotal_);
     return fixedMessageRow(ftxui::hbox({

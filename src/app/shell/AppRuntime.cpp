@@ -407,6 +407,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   stopPrinterWork();
   digiKeyRefreshQueue_.clear();
   tmeRefreshQueue_.clear();
+  mouserRefreshQueue_.clear();
   scanDigiKeyEnrichmentQueue_.clear();
   scanAutoPrintPending_.clear();  // their lookups are dropped here, so their labels would never be settled
   bomEnrichmentQueue_.clear();
@@ -419,6 +420,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   bool allFinished = true;
   allFinished = finishWorker(digiKeyRefreshFuture_, deadline) && allFinished;
   allFinished = finishWorker(tmeRefreshFuture_, deadline) && allFinished;
+  allFinished = finishWorker(mouserRefreshFuture_, deadline) && allFinished;
   allFinished = finishWorker(importSyncFuture_, deadline) && allFinished;
   allFinished = finishWorker(vendorLookupFuture_, deadline) && allFinished;
   allFinished = finishWorker(scanDigiKeyEnrichmentFuture_, deadline) && allFinished;
@@ -428,6 +430,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   } else {
     stopDigiKeyRefresh();  // the worker has finished, so this only resets its state
     stopTmeRefresh();
+    stopMouserRefresh();
 
     importSyncFuture_ = {};
     vendorLookupFuture_ = {};
@@ -462,6 +465,7 @@ bool App::stopUpdateWorkUntil(chrono::steady_clock::time_point deadline) {
   finished = finishWorker(bleProvisionFuture_, deadline) && finished;
   finished = finishWorker(digiKeyTestFuture_, deadline) && finished;
   finished = finishWorker(tmeTestFuture_, deadline) && finished;
+  finished = finishWorker(mouserTestFuture_, deadline) && finished;
   if (!finished) {
     workAbandoned_ = true;
     return false;

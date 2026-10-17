@@ -95,6 +95,8 @@ bool App::settingsCategoryDirty(SettingsCategory category) const {
     case SettingsCategory::Tme:
       return draft.tmeCountry != saved.tmeCountry || draft.tmeLanguage != saved.tmeLanguage ||
              draft.tmeCurrency != saved.tmeCurrency || stagedTmeTokenChanged_ || stagedTmeSecretChanged_;
+    case SettingsCategory::Mouser:
+      return stagedMouserKeyChanged_;
   }
   return false;
 }
@@ -616,6 +618,55 @@ App::SettingsPageModel App::settingsPageModel() const {
       if (refreshEnabled) refreshRow.activate = [self] { self->beginTmeRefresh(); };
       refreshRow.buttons = {button("Refresh", "r", "settings.tme.refresh", [self] { self->beginTmeRefresh(); }, false,
                                    false, refreshEnabled)};
+      rows.push_back(move(refreshRow));
+      break;
+    }
+
+    case SettingsCategory::Mouser: {
+      // A key from MOUSER_API_KEY counts as set: lookups and refresh use it when it is there.
+      const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty()
+                                                   : (hasStoredMouserKey_ || mouserKeyFromEnvironment_);
+      const bool refreshRunning = !mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid();
+      if (refreshRunning) {
+        model.status = {{"Refreshing Mouser data: "},
+                        {to_string(mouserRefreshCompleted_) + " of " + to_string(mouserRefreshTotal_), VoiceTone::Strong},
+                        {" items done."}};
+      } else if (!mouserRefreshLastError_.empty()) {
+        model.status = {{"The last Mouser refresh reported: ", VoiceTone::Danger}, {mouserRefreshLastError_}};
+      } else if (!keySet) {
+        model.status = {{"Mouser needs an API key."}};
+      } else {
+        model.status = {{"Mouser is set up."}};
+      }
+
+      auto row = editRow("Access", "API key", keySet ? "Hidden" : "Not set", 0, "settings.mouser.0");
+      if (row.editing) row.value = string(inputBuffer_.size(), '*') + "_";
+      if (!row.editing && stagedMouserKeyChanged_) {
+        row.tone = VoiceTone::Warning;
+        row.note = "changed";
+      }
+      // Disabled while a refresh runs, as the key test action is then not offered from the keyboard either.
+      row.buttons = {button("Test", "t", "settings.mouser.test", [self] { self->testStagedMouser(); }, false, false,
+                            !refreshRunning)};
+      rows.push_back(move(row));
+
+      string refresh = "Not run yet";
+      auto refreshTone = VoiceTone::Muted;
+      if (refreshRunning) {
+        refresh = to_string(mouserRefreshCompleted_) + " of " + to_string(mouserRefreshTotal_) + " done";
+        refreshTone = VoiceTone::Plain;
+      } else if (mouserRefreshTotal_ > 0) {
+        refresh = to_string(mouserRefreshSucceeded_) + " updated, " + to_string(mouserRefreshNotFound_) +
+                  " not found, " + to_string(mouserRefreshAmbiguous_) + " ambiguous, " +
+                  to_string(mouserRefreshErrors_) + " errors";
+        refreshTone = mouserRefreshAmbiguous_ + mouserRefreshErrors_ > 0 ? VoiceTone::Warning : VoiceTone::Plain;
+      }
+      auto refreshRow = infoRow("Inventory", "Last refresh", refresh, refreshTone);
+      const bool refreshEnabled = keySet && !refreshRunning && !settingsDirty_;
+      refreshRow.targetId = "settings.mouser.refresh.row";
+      if (refreshEnabled) refreshRow.activate = [self] { self->beginMouserRefresh(); };
+      refreshRow.buttons = {button("Refresh", "r", "settings.mouser.refresh", [self] { self->beginMouserRefresh(); },
+                                   false, false, refreshEnabled)};
       rows.push_back(move(refreshRow));
       break;
     }

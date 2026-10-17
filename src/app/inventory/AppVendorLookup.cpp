@@ -8,7 +8,9 @@
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 #include "core/inventory/VendorBagCode.h"
+#include "core/inventory/VendorProvider.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/tme/TmeApi.h"
 
 #include <future>
@@ -36,8 +38,10 @@ void App::beginVendorLookup() {
   }
   const auto digiKeyConfig = loadDigiKeyConfig();
   const auto tmeConfig = loadTmeConfig();
-  if (!digiKeyConfig.valid() && !tmeConfig.valid()) {
-    setMessage("No vendor is set up: add DigiKey or TME credentials in Settings", 5, UiMessageSeverity::Warning);
+  const auto mouserConfig = loadMouserConfig();
+  if (!digiKeyConfig.valid() && !tmeConfig.valid() && !mouserConfig.valid()) {
+    setMessage("No vendor is set up: add DigiKey, TME or Mouser credentials in Settings", 5,
+               UiMessageSeverity::Warning);
     return;
   }
   const auto context = currentWorkspaceContext();
@@ -47,7 +51,7 @@ void App::beginVendorLookup() {
   }
   const auto manufacturer = trim(workingCopy_.item.manufacturer) == "Unknown" ? string() : trim(workingCopy_.item.manufacturer);
 
-  vendorLookupFuture_ = async(launch::async, [query, manufacturer, digiKeyConfig, tmeConfig,
+  vendorLookupFuture_ = async(launch::async, [query, manufacturer, digiKeyConfig, tmeConfig, mouserConfig,
                                               generation = context->generation] {
     App::VendorLookupBatch batch;
     batch.query = query;
@@ -107,6 +111,42 @@ void App::beginVendorLookup() {
       }
     } else {
       batch.notes.push_back("TME is not set up.");
+    }
+
+    if (mouserConfig.valid()) {
+      MouserLookupOutcome outcome = MouserLookupOutcome::Failed;
+      string error;
+      optional<MouserProductDetails> details;
+      try {
+        MouserApiClient client(mouserConfig);
+        details = client.lookupByPartNumber(query, outcome, &error, manufacturer);
+      } catch (...) {
+        // The key travels in the request URL, so no exception text is shown.
+        outcome = MouserLookupOutcome::Failed;
+        error = "unexpected error";
+      }
+      if (details) {
+        App::VendorLookupCandidate candidate;
+        candidate.provider = kVendorProviderMouser;
+        candidate.partNumber = trim(details->vendorMetadata.providerProductNumber);
+        candidate.manufacturer = trim(details->manufacturerName);
+        candidate.packageName = trim(details->packageName);
+        candidate.description = trim(details->productDescription);
+        candidate.stock = trim(details->quantityAvailable);
+        candidate.price = trim(details->unitPrice);
+        candidate.parameterCount = details->parameters.size();
+        candidate.hasDatasheet = !trim(details->datasheetUrl).empty();
+        candidate.mouser = *details;
+        batch.candidates.push_back(move(candidate));
+      } else if (outcome == MouserLookupOutcome::Ambiguous) {
+        batch.notes.push_back("Mouser lists more than one product for this part number.");
+      } else if (outcome == MouserLookupOutcome::NoMatch) {
+        batch.notes.push_back("Mouser lists no product for this part number.");
+      } else {
+        batch.notes.push_back("Mouser did not answer: " + (error.empty() ? string("request failed") : error));
+      }
+    } else {
+      batch.notes.push_back("Mouser is not set up.");
     }
     return batch;
   });
@@ -170,13 +210,15 @@ void App::chooseVendorCandidate(size_t index) {
     app_actions::mergeDigiKeyMetadata(item, *candidate.digiKey);
   } else if (candidate.provider == "tme" && candidate.tme) {
     app_actions::mergeTmeMetadata(item, *candidate.tme);
+  } else if (candidate.provider == kVendorProviderMouser && candidate.mouser) {
+    app_actions::mergeMouserMetadata(item, *candidate.mouser);
   }
   item.vendorMetadata.provider = candidate.provider;
   if (trim(item.vendorMetadata.providerProductNumber).empty()) {
     item.vendorMetadata.providerProductNumber = candidate.partNumber;
   }
 
-  const string vendorName = candidate.provider == "digikey" ? "DigiKey" : "TME";
+  const string vendorName = vendorDisplayName(candidate.provider);
   vendorCandidates_.clear();
   vendorLookupNotes_.clear();
   vendorCandidateIndex_ = 0;

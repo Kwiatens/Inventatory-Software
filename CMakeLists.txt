@@ -113,6 +113,7 @@ add_executable(inventatory
   src/app/labels/AppQuickLabelActions.cpp
   src/app/scanner/AppScanEnrichment.cpp
   src/app/tme/AppTmeActions.cpp
+  src/app/mouser/AppMouserActions.cpp
   src/app/import/AppImportActions.cpp
   src/app/bom/AppBomEnrichment.cpp
   src/app/bom/AppBomActions.cpp
@@ -150,6 +151,7 @@ add_executable(inventatory
   src/core/transfer/InventoryTransferValidation.cpp
   src/core/inventory/InventoryScan.cpp
   src/core/inventory/VendorBagCode.cpp
+  src/core/inventory/VendorProvider.cpp
   src/core/storage/InventorySqlite.cpp
   src/core/storage/InventorySqliteSchema.cpp
   src/core/scanner/InventatoryScanProtocol.cpp
@@ -162,12 +164,14 @@ add_executable(inventatory
   src/core/bom/BomPickPlan.cpp
   src/core/bom/BomMatchHelpers.cpp
   src/core/bom/BomProjectStore.cpp
+  src/core/bom/BomMouserSuggestion.cpp
   src/import/csv/CsvReader.cpp
   src/import/csv/CsvFormat.cpp
   src/import/kicad/KicadBom.cpp
   src/import/bom/BomRows.cpp
   src/import/bom/BomImport.cpp
   src/import/easyeda/EasyEdaBom.cpp
+  src/import/altium/AltiumBom.cpp
   src/import/digikey/DigiKeyCsvImport.cpp
   src/label_printer/core/LabelPrinter.cpp
   src/label_printer/core/LabelPrinterContext.cpp
@@ -193,6 +197,7 @@ add_executable(inventatory
   src/platform/tme/TmeApi.cpp
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
+  src/platform/mouser/MouserApi.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
@@ -271,6 +276,7 @@ add_executable(inventatory_tests
   src/platform/tme/TmeApi.cpp
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
+  src/platform/mouser/MouserApi.cpp
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp
   src/platform/digikey/DigiKeyJsonParser.cpp
@@ -283,11 +289,13 @@ add_executable(inventatory_tests
   src/import/bom/BomRows.cpp
   src/import/bom/BomImport.cpp
   src/import/easyeda/EasyEdaBom.cpp
+  src/import/altium/AltiumBom.cpp
   src/import/digikey/DigiKeyCsvImport.cpp
   src/core/bom/BomMatch.cpp
   src/core/bom/BomPickPlan.cpp
   src/core/bom/BomMatchHelpers.cpp
   src/core/bom/BomProjectStore.cpp
+  src/core/bom/BomMouserSuggestion.cpp
   src/ui/shared/AppUiShared.cpp
   src/ui/shared/AppUiItemDetails.cpp
   src/core/inventory/Inventory.cpp
@@ -320,6 +328,7 @@ add_executable(inventatory_tests
   src/core/transfer/InventoryTransferValidation.cpp
   src/core/inventory/InventoryScan.cpp
   src/core/inventory/VendorBagCode.cpp
+  src/core/inventory/VendorProvider.cpp
   src/core/storage/InventorySqlite.cpp
   src/core/storage/InventorySqliteSchema.cpp
   src/core/scanner/InventatoryScanProtocol.cpp

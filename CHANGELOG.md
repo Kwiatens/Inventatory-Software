@@ -6,9 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Highlights**
+
+- **Mouser is a supplier.** Set up Mouser in Settings, then look up stock parts and project shortage lines on it.
+- **Shortage lines check three suppliers.** A line that DigiKey and TME do not match is looked up on Mouser when Mouser is set up.
+- **Going back to an earlier version:** a project that holds a Mouser suggestion from this version shows that suggestion as a DigiKey part there.
+
+### Added
+- Settings: a Mouser category takes the Mouser API key. Test checks the key, and Refresh inventory data adds Mouser details to
+  stock items that came from Mouser.
+- Stock: a part added by hand can take its details from Mouser, beside DigiKey and TME. Press `s` on a part with a Mouser
+  part number to open its Mouser product page.
+- Projects: a shortage line that DigiKey and TME do not match is looked up on Mouser when Mouser is set up. A part Mouser
+  cannot order is never suggested.
+- History: a filter for Mouser commits.
+- Projects: an Altium Designer Bill of Materials report (CSV) can be imported. Its supplier and manufacturer part numbers
+  help match stock when the report has those columns.
+
+### Changed
+- Projects: a shortage line is looked up on DigiKey, then TME, then Mouser. Mouser is asked only when DigiKey and TME have no
+  part for the line or are not set up.
+- Refresh: each part is refreshed only from the vendor it came from, Mouser included. A Mouser record with a different
+  manufacturer part number is not applied.
+- Projects: a Mouser suggestion saved by this version shows as a DigiKey part in an earlier version.
+
 ### Fixed
 - A TME label whose manufacturer part number contains a `*`, such as `DS1023-1*40S21`, is read when the Scan R1 sends it, instead of being refused.
 - A Scan R1 event whose number the desktop already holds for a different scan is refused with a message, instead of being acknowledged and dropped. After five refusals the Scan R1 shows the sync problem `SYN-01` until the stuck scan is discarded from its menu.
+- History: Ctrl+Z steps back one change per press. A second press no longer re-applies the change it undid, and the Projects comparison refreshes after an undo.
 
 ## [v0.1.6] - 2026-10-16
 

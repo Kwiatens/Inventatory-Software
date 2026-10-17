@@ -46,10 +46,13 @@ commands are available through Actions.
 Editing happens in the detail side of Stock. Choose a field, type its value, and
 save the working copy with `s`. Escape cancels the active field or the edit.
 
-A part added by hand can take its details from DigiKey or TME. Enter the part number in **SKU**, then choose
+A part added by hand can take its details from DigiKey, TME or Mouser. Enter the part number in **SKU**, then choose
 **Vendor** in the form (Enter, or click it). Inventatory asks each vendor that is set up, and shows the answers
 side by side with what each one would fill in. Choose the vendor the part came from; the part keeps that vendor
 for its refreshes. A vendor is chosen once per part.
+
+A Mouser part shows its Mouser part number as **Mouser** in its details. Press `s` on a part with a Mouser part number to
+open its Mouser product page. Refresh for Mouser parts is in the Mouser section of Settings (see Settings workflow).
 
 Use **Start stocktake** from Actions (`Space`, then the action, or `t`) for a
 guided physical count. Inventatory clears the stock filter, keeps each count in
@@ -61,7 +64,8 @@ movements below the normal details.
 
 A scan adds or finds a part only from the main code of a bag: the large Data Matrix on a DigiKey bag, or the large
 QR code on a TME bag. Scan one code per bag. Inventatory reads the vendor from that code and records it as the
-part's origin. A code from no supported vendor is refused with a message, and that part is added by hand.
+part's origin. A code from no supported vendor is refused with a message, and that part is added by hand. Scanning a
+Mouser bag is not supported yet: its code is refused in the same way, and the part is added by hand.
 
 A part that a scan creates prints its label after DigiKey or TME has supplied its details, so the label carries the
 part's name, value and package. When neither supplier finds the part, no label prints and the status line says why;
@@ -80,9 +84,10 @@ assignment, unassignment, filtering, and rack administration are in Actions.
 ## Import workflow
 
 Open Import and choose a CSV file. The format is detected from its header: a
-DigiKey order CSV goes to the review list, and a KiCad BOM or an EasyEDA BOM export
-goes to Projects. A BOM needs a Designator column, a Footprint column, and a value
-column: Designation or Value for KiCad, Name, Value or Comment for EasyEDA.
+DigiKey order CSV goes to the review list, and a KiCad BOM, an EasyEDA BOM export or
+an Altium Designer BOM report goes to Projects. A BOM needs a Designator column, a
+Footprint column, and a value column: Designation or Value for KiCad, Name, Value or
+Comment for EasyEDA, Comment or Description for Altium.
 
 For a DigiKey order, review each candidate, correct it if needed, then Accept or
 Skip. After the final row, choose whether to enrich accepted parts with DigiKey
@@ -97,6 +102,17 @@ designator, or a quantity is not a whole number. EasyEDA Pro CSV exports use the
 same reader, but they have not been tested against a real Pro export yet. XLSX exports
 are not read.
 
+Altium Designer: export the Bill of Materials report as CSV, choosing the columns
+Comment (or Description, in an Altium 365 export), Designator, Footprint and Quantity,
+and add Supplier 1, Supplier Part Number 1 and Manufacturer Part Number 1 when the parts
+have them. Inventatory finds each column by its header name, so the order of the columns
+does not matter. A row with no Comment or Description uses its Name. The Designator,
+Description, Quantity, supplier and manufacturer names match Altium 365 exports. Comment, Footprint and LibRef have not been checked against an
+Altium desktop export yet. When the Designator or the value column cannot be found, the
+message names it. A report is refused with the same rules as an EasyEDA export, and a
+total row at its foot is skipped. A report that has a Qty column is read as a KiCad BOM,
+so its supplier columns are not read.
+
 ## Project workflow
 
 A BOM becomes a project on the Projects page. Each line is compared with stock:
@@ -110,10 +126,19 @@ A BOM becomes a project on the Projects page. Each line is compared with stock:
 
 A line is chosen without asking only when a stock part carries the line's
 manufacturer part number, supplier part number or DigiKey number, or when exactly one stock part fits
-the line's value and package. Shortages are looked up on DigiKey in the background, and on TME when DigiKey has no part for the line or is not
-configured. A part TME cannot order is never suggested. A
+the line's value and package. Shortages are looked up on DigiKey in the background. TME is asked when DigiKey has no part for the line or is not
+set up. Mouser is asked only when DigiKey and TME have no part for the line, or are not set up, and only by part
+number, so a line without one is not looked up there. A part TME or Mouser cannot order is never suggested, and a part
+Mouser lists under several products is not suggested either. A
 suggestion that does not fit the line is marked check before ordering. `o` writes
 the shopping list beside the BOM, with Suggested part, Supplier and Suggestion check columns.
+
+Mouser allows 30 requests a minute and 1,000 a day. Inventatory spaces all its Mouser requests together so that they stay under the
+per-minute limit. A large shortage run can use up the daily allowance. When Mouser reports that its limit is reached,
+the run stops asking Mouser, and the lines that only Mouser could answer are looked up again on a later run.
+
+Known limit: a line that was answered "no match" before Mouser was set up keeps that answer, and Inventatory does not
+ask Mouser about it.
 
 `+` and `-` change the board count. `f` starts the build walkthrough. It stops at
 one rack at a time, pulsing the slots holding parts this build needs, and lists
@@ -130,9 +155,9 @@ analysis against current stock with no re-upload. `d` forgets one.
 
 ## Settings workflow
 
-Settings has five categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
-R1 service port, auto-label behavior, and DigiKey and TME configuration are staged until Save. Cancel
-restores the saved values. Printer, DigiKey and TME tests use the staged values.
+Settings has nine categories. Changes to data location, printer, Quick Labels, the Inventatory Scan
+R1 service port, auto-label behavior, and DigiKey, TME and Mouser configuration are staged until Save. Cancel
+restores the saved values. Printer, DigiKey, TME and Mouser tests use the staged values.
 
 The Quick Labels category owns up to twelve shared cable-flag texts. Add, edit, remove, reorder, test-print, then Save;
 the paired R1 receives the saved list during its next sync. Selecting a preset on the R1 prints immediately through the
@@ -141,7 +166,7 @@ Failed/offline device requests are not queued.
 
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
-next launch. DigiKey and TME secrets are stored in the operating system credential store (Windows Credential
+next launch. DigiKey, TME and Mouser secrets are stored in the operating system credential store (Windows Credential
 Manager, or the Secret Service on Linux).
 
 In **Settings -> General / Data**, **Background & startup** controls whether Inventatory remains available for Scan R1 after
@@ -171,6 +196,20 @@ part number typed on a DigiKey part is kept beside it and still identifies that 
 If the TME record gives a resistance, capacitance or inductance that differs from the stored value, the record is not
 merged; the refresh reports the part as an error instead.
 Lookups are requests to TME, so a large inventory takes a few minutes.
+
+The Mouser section takes the Mouser API key. The key is hidden on screen and is saved to the credential store with
+Save. A key that contains spaces or control characters is refused when it is entered, and it can be at most 256 bytes. The environment variable
+MOUSER_API_KEY can supply the key instead: when it is set and not blank, Inventatory uses it in place of the stored key.
+**Test** sends one search to Mouser. The key passes when Mouser answers that search without an error, and a reached request limit also shows the key was accepted. A rejected
+key, a failed answer or no connection to Mouser fails the test.
+
+**Refresh** looks up each part that came from Mouser by its Mouser part number, or else its manufacturer part number, or
+else its SKU. It needs a Mouser key, saved in Settings or set in MOUSER_API_KEY. It makes one Mouser request per part, spaced about two seconds apart, so a large
+inventory takes several minutes. A Mouser record with a manufacturer part number different from the part's is not
+applied, and the part is counted as an error. When Mouser lists several products for a part number and the manufacturer
+does not tell them apart, the part is counted as ambiguous and is left unchanged. The **Last refresh** row shows how
+many parts were updated, not found, ambiguous and in error. A refresh stops early when Mouser reports its request limit
+or rejects the key; the parts it has not reached are left unchanged.
 
 Pairing maintenance stays on the Actions sheet (`Space`): re-pair after a
 scanner firmware update, regenerate the pairing secret, or clear the device.

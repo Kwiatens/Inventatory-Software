@@ -201,6 +201,7 @@ bool App::restoreData() {
       credentialPresence(CredentialStore::lookup("digikey-client-secret"), hasStoredDigiKeySecret_);
   hasStoredTmeToken_ = credentialPresence(CredentialStore::lookup(kTmeTokenCredentialName), hasStoredTmeToken_);
   hasStoredTmeSecret_ = credentialPresence(CredentialStore::lookup(kTmeSecretCredentialName), hasStoredTmeSecret_);
+  hasStoredMouserKey_ = credentialPresence(CredentialStore::lookup(kMouserApiKeyCredentialName), hasStoredMouserKey_);
   applyUiAppearance(settings_.appearance);
   settingsDirty_ = false;
   restartDeviceService();
@@ -208,6 +209,7 @@ bool App::restoreData() {
   if (!scannerTokenStored) restoreMessage += ". Scanner token storage needs attention";
   if (!hasStoredDigiKeySecret_) restoreMessage += ". DigiKey credentials need testing/re-entry";
   if (!hasStoredTmeToken_ || !hasStoredTmeSecret_) restoreMessage += ". TME credentials need re-entry";
+  if (!hasStoredMouserKey_ && !mouserKeyFromEnvironment_) restoreMessage += ". Mouser API key needs re-entry";
   setMessage(restoreMessage, 8);
   return true;
 }

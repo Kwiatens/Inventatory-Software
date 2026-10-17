@@ -7,6 +7,7 @@
 #include "app/common/AppActionSupport.h"
 
 #include "import/csv/CsvFormat.h"
+#include "core/inventory/VendorProvider.h"
 #include "core/storage/InventorySqlite.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
@@ -121,10 +122,8 @@ string App::currentFieldValue(EditField field) const {
     case EditField::Sku:
       return item->sku;
     case EditField::VendorSource: {
-      const auto origin = originProvider(*item);
-      if (origin == "digikey") return "DigiKey";
-      if (origin == "tme") return "TME";
-      return "Not set";
+      const auto vendorName = vendorDisplayName(originProvider(*item));
+      return vendorName.empty() ? string("Not set") : vendorName;
     }
     case EditField::RackLocation: {
       const auto location = rackLocation(*item, store_.racks());
