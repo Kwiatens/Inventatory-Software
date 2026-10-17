@@ -16,6 +16,7 @@
 #include "app/common/AppActionSupport.h"
 #include "platform/tme/TmeEncoding.h"
 #include "platform/tme/TmeVocabulary.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
@@ -28,6 +29,7 @@
 #include "core/history/InventoryVersionInternal.h"
 #include "core/inventory/InventoryMerge.h"
 #include "core/inventory/VendorBagCode.h"
+#include "core/inventory/VendorProvider.h"
 #include "core/storage/AtomicFile.h"
 #include "core/storage/InventorySqlite.h"
 #include "core/transfer/InventoryTransfer.h"
@@ -49,8 +51,10 @@
 #include "import/kicad/KicadBom.h"
 #include "import/bom/BomImport.h"
 #include "import/easyeda/EasyEdaBom.h"
+#include "import/altium/AltiumBom.h"
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomPickPlan.h"
+#include "core/bom/BomMouserSuggestion.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/bom/BomProjectStore.h"
 #include "label_printer/core/LabelPrinter.h"
@@ -4777,7 +4781,7 @@ void testRackPageSlotGeometry() {
 
 void testSettingsCategoryEntries() {
   const auto categories = settings_page_detail::settingsCategoryEntries();
-  assert(categories.size() == 8);
+  assert(categories.size() == 9);
   assert(categories[0].categoryIndex == 0);
   assert(categories[1].categoryIndex == 1);
   assert(categories[2].categoryIndex == 2);
@@ -4786,9 +4790,11 @@ void testSettingsCategoryEntries() {
   assert(categories[5].categoryIndex == 5);
   assert(categories[6].categoryIndex == 6);
   assert(categories[7].categoryIndex == 7);
+  assert(categories[8].categoryIndex == 8);
   assert(categories[3].indent == 0);
   assert(categories[4].indent == 1);
   assert(categories[5].indent == 0);
+  assert(categories[8].indent == 0);
 }
 
 void testWorkspaceGenerationAndQuickLabelCache() {
@@ -11931,6 +11937,235 @@ void testBomConfirmationLifecycle() {
   assert(bomItemFingerprint(loose).size() == 16);
 }
 
+// Reads one of the synthetic Altium fixtures in tests/fixtures. The first line is a SYNTHETIC notice for whoever opens
+// the file; the CSV reader has no comments, so that line is dropped before parsing.
+string readAltiumFixture(const string& name) {
+  const auto path = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / name;
+  ifstream input(path);
+  assert(input.good());
+  string line;
+  const bool notice = static_cast<bool>(getline(input, line));
+  assert(notice && line.rfind("# SYNTHETIC", 0) == 0);
+  string text;
+  while (getline(input, line)) text += line + "\n";
+  return text;
+}
+
+bool altiumWarningContains(const vector<string>& warnings, const string& text) {
+  return any_of(warnings.begin(), warnings.end(), [&](const string& warning) {
+    return warning.find(text) != string::npos;
+  });
+}
+
+void testAltiumDefaultFixtureParses() {
+  const auto text = readAltiumFixture("altium-default.csv");
+  // The Import screen sends an Altium export to the BOM flow, as it does a KiCad BOM.
+  assert(detectCsvFormat(text) == CsvFormat::KicadBom);
+  const auto bom = parseBomText(text, "Altium sample");
+  assert(bom.ok);
+  assert(bom.projectName == "Altium sample");
+  assert(bom.lines.size() == 3);
+
+  // A quoted Comment keeps its comma, and the quoted designators split into one designator each.
+  const auto& resistors = bom.lines[0];
+  assert(resistors.designation == "10k, 1%");
+  assert(resistors.designators == (vector<string>{"R1", "R2"}));
+  assert(resistors.footprint == "R0402");
+  assert(resistors.quantityPerBoard == 2);
+  assert(!resistors.quantityConflict);
+
+  const auto& capacitors = bom.lines[1];
+  assert(capacitors.designation == "100nF");
+  assert(capacitors.designators == (vector<string>{"C1", "C3", "C4"}));
+  assert(capacitors.quantityPerBoard == 3);
+
+  // A blank Quantity counts the designators placed.
+  const auto& led = bom.lines[2];
+  assert(led.designation == "LED" && led.designators == (vector<string>{"D1"}));
+  assert(led.quantityPerBoard == 1 && !led.quantityConflict);
+
+  // Test point, mounting hole and fiducial rows are never bought: each is left out with a warning.
+  assert(bom.warnings.size() == 3);
+  assert(altiumWarningContains(bom.warnings, "(TP1) is not orderable"));
+  assert(altiumWarningContains(bom.warnings, "(MH1) is not orderable"));
+  assert(altiumWarningContains(bom.warnings, "(FID1) is not orderable"));
+}
+
+void testAltiumSupplierFixtureFillsSupplierColumns() {
+  const auto bom = parseBomText(readAltiumFixture("altium-supplier.csv"), "Altium supplier");
+  assert(bom.ok);
+  assert(bom.lines.size() == 3);
+
+  // The supplier, its part number and the manufacturer part number come from the named columns. A supplier line
+  // keeps its supplier name as the file gives it.
+  const auto& resistors = bom.lines[0];
+  assert(resistors.supplier == "Mouser");
+  assert(resistors.supplierPartNumber == "999-SYN-RES-10K");
+  assert(resistors.manufacturerPartNumber == "SYN-RES-10K");
+  assert(bom.lines[1].supplier == "DigiKey");
+  assert(bom.lines[1].supplierPartNumber == "1000-SYN-CAP-100N");
+
+  // A row whose supplier columns are blank leaves them empty.
+  const auto& mcu = bom.lines[2];
+  assert(mcu.designation == "Synthetic microcontroller");
+  assert(mcu.supplier.empty() && mcu.supplierPartNumber.empty());
+  assert(mcu.manufacturerPartNumber == "SYN-MCU-0001");
+}
+
+void testAltiumQuotedCellsKeepCommas() {
+  const auto bom = parseAltiumBomText("Comment,Designator,Footprint,LibRef\n\"10k, 1%\",\"R1,R2\",R0402,SYN_RES\n",
+                                      "quoted");
+  assert(bom.ok && bom.lines.size() == 1);
+  assert(bom.lines.front().designation == "10k, 1%");
+  assert(bom.lines.front().designators == (vector<string>{"R1", "R2"}));
+  assert(bom.lines.front().quantityPerBoard == 2);
+}
+
+void testAltiumRefusesAmbiguousRows() {
+  const string header = "Comment,Designator,Footprint,Quantity\n";
+
+  // A repeated designator would count one physical part twice, so the whole file is refused and the message names it.
+  const auto duplicate = parseAltiumBomText(header + "100nF,\"C1,C2\",C0402,2\n10k,C2,R0402,1\n", "duplicate");
+  assert(!duplicate.ok);
+  assert(duplicate.error.find("Designator C2 appears on rows 2 and 3") != string::npos);
+
+  // A row with no designator cannot be placed, so it is refused rather than dropped.
+  const auto noDesignator = parseAltiumBomText(header + "10k,,R0402,1\n", "no designator");
+  assert(!noDesignator.ok && noDesignator.error.find("has no designator") != string::npos);
+
+  // A row with no value cannot be priced or matched, so it is refused too.
+  const auto noValue = parseAltiumBomText(header + ",R1,R0402,1\n", "no value");
+  assert(!noValue.ok && noValue.error.find("has no Comment, Description or Name") != string::npos);
+  const auto emptyName = parseAltiumBomText("Comment,Description,Designator,Name,Quantity\n,,R1,,1\n", "empty name");
+  assert(!emptyName.ok && emptyName.error.find("has no Comment, Description or Name") != string::npos);
+
+  // A quantity that is not a whole number means the export is damaged.
+  const auto badQuantity = parseAltiumBomText(header + "10k,R1,R0402,two\n", "bad quantity");
+  assert(!badQuantity.ok && badQuantity.error.find("is not a whole number") != string::npos);
+
+  // A cell past the last column means a quote was misread, so the row is refused. Empty cells past it are harmless.
+  const auto shifted = parseAltiumBomText(header + "10k,R1,R0402,1,extra\n", "shifted");
+  assert(!shifted.ok && shifted.error.find("has a cell past the last column") != string::npos);
+  const auto trailingCommas = parseAltiumBomText(header + "10k,R1,R0402,1,,\n", "trailing commas");
+  assert(trailingCommas.ok && trailingCommas.lines.size() == 1);
+
+  // A part with a part number but no designator is still refused, so a total row can never hide a part.
+  const auto partWithoutDesignator =
+      parseAltiumBomText("Comment,Designator,Manufacturer Part Number 1\n,,SYN-PART-1\n", "part without designator");
+  assert(!partWithoutDesignator.ok && partWithoutDesignator.error.find("has no designator") != string::npos);
+}
+
+void testAltiumHeaderErrors() {
+  const auto noDesignatorColumn =
+      parseAltiumBomText("Comment,Footprint,Quantity\n10k,R0402,1\n", "no designator column");
+  assert(!noDesignatorColumn.ok && noDesignatorColumn.error.find("missing the Designator column") != string::npos);
+
+  const auto noValueColumn = parseAltiumBomText("Designator,Footprint,Quantity\nR1,R0402,1\n", "no value column");
+  assert(!noValueColumn.ok && noValueColumn.error.find("both the Comment and Description") != string::npos);
+
+  // Description stands in for Comment when a report has no Comment column.
+  const auto described =
+      parseAltiumBomText("Description,Designator,Footprint\nSynthetic resistor,R1,R0402\n", "described");
+  assert(described.ok && described.lines.size() == 1);
+  assert(described.lines.front().designation == "Synthetic resistor");
+}
+
+void testAltiumQuantityConflictIsKept() {
+  const string header = "Comment,Designator,Footprint,Quantity\n";
+
+  // A Quantity that disagrees with the designators is kept visible. The row cannot match on its own, and demand is
+  // never less than the designators placed.
+  const auto mismatch = parseAltiumBomText(header + "10k,\"R1,R2,R3\",R0402,2\n", "mismatch");
+  assert(mismatch.ok && mismatch.lines.size() == 1);
+  assert(mismatch.lines.front().quantityConflict);
+  assert(mismatch.lines.front().quantityPerBoard == 3);
+  assert(mismatch.warnings.size() == 1);
+
+  const auto matching = parseAltiumBomText(header + "10k,\"R1,R2\",R0402,2\n", "matching");
+  assert(matching.ok && !matching.lines.front().quantityConflict && matching.lines.front().quantityPerBoard == 2);
+}
+
+void testAltium365ExportReachesAltiumParser() {
+  // An Altium 365 export has no Comment column and reads its value from Description. It reaches the Altium parser,
+  // which reads its supplier columns. The KiCad parser reads neither, so it would refuse the file.
+  const auto text = readAltiumFixture("altium-365.csv");
+  assert(detectCsvFormat(text) == CsvFormat::KicadBom);
+  assert(!parseKicadBomText(text, "Altium 365").ok);
+  const auto bom = parseBomText(text, "Altium 365");
+  assert(bom.ok && bom.lines.size() == 4);
+
+  // The resistors have two designators and the Mouser supplier columns.
+  const auto& resistors = bom.lines[0];
+  assert(resistors.designation == "Synthetic resistor, 10k 1%");
+  assert(resistors.designators == (vector<string>{"R1", "R2"}));
+  assert(resistors.quantityPerBoard == 2 && !resistors.quantityConflict);
+  assert(resistors.supplier == "Mouser" && resistors.supplierPartNumber == "999-SYN-RES-10K");
+
+  // A quote written as \" inside a quoted cell stays a quote, and the cells after it stay in their own columns.
+  const auto& header = bom.lines[1];
+  assert(header.designation == "10 Pin Shrouded Header, 0.050\", Key Pin 7");
+  assert(header.designators == (vector<string>{"J4"}) && header.quantityPerBoard == 1);
+  assert(header.supplier == "Digikey" && header.supplierPartNumber == "SYN-HDR-1000-ND");
+  assert(header.manufacturerPartNumber == "SYN-HDR-10");
+
+  // The microcontroller has no supplier, so its supplier columns stay empty.
+  const auto& mcu = bom.lines[2];
+  assert(mcu.designators == (vector<string>{"U1"}) && mcu.supplier.empty());
+
+  // A row with an empty Description takes its Name as the part name, as an EasyEDA row does.
+  const auto& connector = bom.lines[3];
+  assert(connector.designation == "SYN-CONN-0001" && connector.designators == (vector<string>{"P7"}));
+  assert(connector.supplier == "Digikey" && connector.supplierPartNumber == "SYN-CONN-1000-ND");
+
+  // The total at the foot holds a price and no part, so it is neither a line nor a warning.
+  assert(bom.warnings.empty());
+}
+
+void testAltiumBackslashQuotes() {
+  // In the backslash reader, \" inside a quoted cell is one quote, and the cell goes on to its real closing quote.
+  string error;
+  const auto escaped = parseCsvBackslashQuotes("\"0.050\\\", key\",x\n", ',', error);
+  assert(error.empty() && escaped.size() == 1 && escaped.front().size() == 2);
+  assert(escaped.front()[0] == "0.050\", key" && escaped.front()[1] == "x");
+
+  // The shared reader is unchanged: the same text ends the cell at the backslash, as it always has.
+  const auto shared = parseCsv("\"0.050\\\", key\",x\n", ',', error);
+  assert(error.empty() && shared.size() == 1 && shared.front().size() == 3);
+  assert(shared.front()[0] == "0.050\\");
+}
+
+void testAltiumDetectionKeepsOtherDialects() {
+  // An Altium export reaches the Altium parser: only that parser reads the Supplier 1 columns.
+  const auto altium = readAltiumFixture("altium-supplier.csv");
+  const auto altiumBom = parseBomText(altium, "dispatch");
+  assert(altiumBom.ok && altiumBom.lines.front().supplierPartNumber == "999-SYN-RES-10K");
+  const auto kicadReading = parseKicadBomText(altium, "dispatch");
+  assert(kicadReading.ok && kicadReading.lines.front().supplierPartNumber.empty());
+
+  // A KiCad BOM stays on the KiCad parser, with the same lines and warnings as the KiCad parser gives.
+  const auto viaDispatch = parseBomText(kicadBom, "kicad");
+  const auto direct = parseKicadBomText(kicadBom, "kicad");
+  assert(viaDispatch.ok == direct.ok && viaDispatch.lines.size() == direct.lines.size());
+  for (size_t index = 0; index < direct.lines.size(); ++index) {
+    const auto& got = viaDispatch.lines[index];
+    const auto& want = direct.lines[index];
+    assert(got.designators == want.designators && got.designation == want.designation);
+    assert(got.footprint == want.footprint && got.quantityPerBoard == want.quantityPerBoard);
+    assert(got.supplier == want.supplier && got.supplierPartNumber == want.supplierPartNumber);
+  }
+  assert(viaDispatch.warnings == direct.warnings);
+
+  // An EasyEDA export still goes to the EasyEDA parser.
+  assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
+  assert(parseBomText(easyedaBom, "easyeda").lines.size() == 3);
+
+  // A file with a KiCad-only Qty column is not Altium, even with the Altium-shaped columns beside it.
+  const string withQty = "Comment,Designator,Footprint,Description,Qty,Supplier 1\n10k,R1,R0402,Synthetic,1,Mouser\n";
+  const auto kicadShaped = parseBomText(withQty, "qty");
+  assert(kicadShaped.ok && kicadShaped.lines.size() == 1);
+  assert(kicadShaped.lines.front().supplier.empty());
+}
+
 void testBomLineKeysSeparateEasyEdaParts() {
   // Two rows with the same name and footprint but different LCSC numbers are different parts and get different keys.
   const auto first = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25744");
@@ -14133,6 +14368,27 @@ void testVendorBagCodeRecognition() {
   assert(originProvider(unbound).empty());
 }
 
+// Each vendor key names its vendor whatever its case and surrounding spaces; an empty or unknown key names none.
+void testVendorDisplayNames() {
+  assert(vendorDisplayName(kVendorProviderDigiKey) == "DigiKey");
+  assert(vendorDisplayName(kVendorProviderTme) == "TME");
+  assert(vendorDisplayName(kVendorProviderMouser) == "Mouser");
+  assert(vendorDisplayName("digikey") == "DigiKey");
+  assert(vendorDisplayName("tme") == "TME");
+  assert(vendorDisplayName("mouser") == "Mouser");
+  assert(vendorDisplayName(" TME ") == "TME");
+  assert(vendorDisplayName("DigiKey") == "DigiKey");
+  assert(vendorDisplayName("").empty());
+  assert(vendorDisplayName("   ").empty());
+  assert(vendorDisplayName("lcsc").empty());
+
+  // The History filter keeps its vendor labels.
+  using history_page_detail::HistorySourceFilter;
+  assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::DigiKey) == "DigiKey");
+  assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::Tme) == "TME");
+  assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::Mouser) == "Mouser");
+}
+
 // A scanned bag creates a part whose origin is the bag's vendor, and refresh looks it up at that vendor only.
 void testBagScanRecordsOrigin() {
   InventoryStore store;
@@ -14268,6 +14524,912 @@ void testDeviceSyncEventCarriesBagCode() {
   // A code past the limit is still refused.
   DeviceSyncRequest oversized;
   assert(!parseDeviceSyncRequestJson(bagBody(string(kMaximumVendorBagCodeBytes + 1, 'A')), oversized, error));
+}
+
+// Mouser fixtures. All of this data is synthetic: the key, part numbers, manufacturers, prices and stock are made up
+// for these tests. None of it came from a live catalogue, a real key or a real inventory. The field names follow
+// Mouser's published v1 search response, which these tests pin; a live response confirms them.
+constexpr const char* kSyntheticMouserKey = "synthetic0000mouser0000value";
+
+// Parses a search response with one synthetic part made of a Mouser part number and the given fields (each starting
+// with a comma), and returns that part.
+MouserProductDetails parseSyntheticMouserPart(const string& fields) {
+  vector<MouserProductDetails> products;
+  string error;
+  const string body =
+      R"({"Errors":[],"SearchResults":{"NumberOfResult":1,"Parts":[{"MouserPartNumber":"999-SYN-0001")" + fields +
+      "}]}}";
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(products.size() == 1);
+  return products.front();
+}
+
+void testMouserResponseParsing() {
+  const string body =
+      R"({"Errors":[],"SearchResults":{"NumberOfResult":2,"Parts":[)"
+      R"({"MouserPartNumber":"999-SYN-RES-0001","ManufacturerPartNumber":"SYN-RES-0001",)"
+      R"("Manufacturer":"Synthetic Parts Co","Description":"Synthetic thick film resistor",)"
+      R"("Category":"Synthetic Resistors","DataSheetUrl":"https://example.invalid/syn-res-0001.pdf",)"
+      R"("ProductDetailUrl":"https://example.invalid/999-SYN-RES-0001",)"
+      R"("AvailabilityInStock":"12,345","Availability":"12,345 In Stock",)"
+      R"("PriceBreaks":[{"Quantity":10,"Price":"$0.05","Currency":"USD"},)"
+      R"({"Quantity":1,"Price":"$0.10","Currency":"USD"}],)"
+      R"("ProductAttributes":[{"AttributeName":"Resistance","AttributeValue":"10 kOhms"},)"
+      R"({"AttributeName":"package / case","AttributeValue":" 0603 (1608 metric) "},)"
+      R"({"AttributeName":"","AttributeValue":"no name"}],"LifecycleStatus":null,"IsDiscontinued":"false"},)"
+      R"({"MouserPartNumber":"999-SYN-CAP-0002","ManufacturerPartNumber":"SYN-CAP-0002",)"
+      R"("Manufacturer":"Example Components",)"
+      R"("PriceBreaks":[{"Quantity":"100","Price":"0.02 EUR","Currency":"EUR"},{"Quantity":0,"Price":"0.01"},)"
+      R"({"Quantity":5,"Price":""}]}]}})";
+  vector<MouserProductDetails> products;
+  string error;
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(products.size() == 2);
+
+  const auto& resistor = products[0];
+  assert(resistor.vendorMetadata.provider == kVendorProviderMouser);
+  assert(resistor.vendorMetadata.providerProductNumber == "999-SYN-RES-0001");
+  assert(resistor.vendorMetadata.manufacturerPartNumber == "SYN-RES-0001");
+  assert(resistor.manufacturerName == "Synthetic Parts Co");
+  assert(resistor.productDescription == "Synthetic thick film resistor");
+  assert(resistor.vendorMetadata.title == "Synthetic thick film resistor");
+  assert(resistor.categoryName == "Synthetic Resistors");
+  assert(resistor.vendorMetadata.categoryPath == vector<string>{"Synthetic Resistors"});
+  assert(resistor.datasheetUrl == "https://example.invalid/syn-res-0001.pdf");
+  assert(resistor.productUrl == "https://example.invalid/999-SYN-RES-0001");
+  assert(resistor.vendorMetadata.productUrl == resistor.productUrl);
+  assert(resistor.vendorMetadata.locale.empty());
+  // The stock is digits only, and the price is the smallest quantity break, printed as Mouser sent it.
+  assert(resistor.quantityAvailable == "12345");
+  assert(resistor.unitPrice == "$0.10 USD");
+  // Attributes pass through as sent (trimmed); one without a name is dropped, and the package is read by name.
+  assert(resistor.packageName == "0603 (1608 metric)");
+  assert(resistor.parameters.size() == 2);
+  assert(resistor.parameters[0].name == "Resistance" && resistor.parameters[0].value == "10 kOhms");
+  assert(resistor.parameters[1].name == "package / case" && resistor.parameters[1].value == "0603 (1608 metric)");
+  assert(resistor.vendorMetadata.parameters.size() == 2);
+  assert(resistor.orderable && resistor.productStatus.empty());
+
+  // A break without a quantity or a price is skipped. A currency already in the price is not repeated, and a first
+  // break above one piece says where it starts.
+  const auto& capacitor = products[1];
+  assert(capacitor.vendorMetadata.providerProductNumber == "999-SYN-CAP-0002");
+  assert(capacitor.manufacturerName == "Example Components");
+  assert(capacitor.unitPrice == "0.02 EUR from 100 pcs");
+  assert(capacitor.quantityAvailable.empty());
+  assert(capacitor.packageName.empty() && capacitor.parameters.empty());
+  assert(capacitor.vendorMetadata.categoryPath.empty());
+}
+
+void testMouserEmptyPartsIsSuccess() {
+  vector<MouserProductDetails> products(1);
+  string error = "unchanged";
+  assert(parseMouserSearchResponse(R"({"Errors":[],"SearchResults":{"NumberOfResult":0,"Parts":[]}})", products,
+                                   &error));
+  assert(products.empty());
+  assert(error == "unchanged");
+  // Absent lists are absent data, not an error.
+  assert(parseMouserSearchResponse(R"({"Errors":null,"SearchResults":null})", products, &error));
+  assert(products.empty());
+  assert(parseMouserSearchResponse("{}", products, &error));
+  assert(products.empty());
+  // A record without either part number cannot be matched and is left out.
+  assert(parseMouserSearchResponse(R"({"SearchResults":{"Parts":[{"Description":"Synthetic part"},"text"]}})", products,
+                                   &error));
+  assert(products.empty());
+  assert(error == "unchanged");
+}
+
+void testMouserErrorsListFails() {
+  vector<MouserProductDetails> products;
+  string error;
+  // The message is shown with the vendor's name; the client redacts the key from it, which this test does the same way.
+  const string key = kSyntheticMouserKey;
+  const string echoed = R"({"Errors":[{"Id":0,"Code":"Invalid","Message":"Request refused for )" + key +
+                        R"(","PropertyName":""}],"SearchResults":null})";
+  assert(!parseMouserSearchResponse(echoed, products, &error));
+  assert(error.rfind("Mouser: Request refused for", 0) == 0);
+  const auto shown = redactMouserKey(error, key);
+  assert(shown.find(key) == string::npos);
+  assert(shown == "Mouser: Request refused for [key]");
+  assert(shown.find("DigiKey") == string::npos);
+
+  // An error about the key reads as a rejected key, and one about the limit as the limit; neither echoes the key.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"Invalid","Message":"The API key )" + key +
+                                        R"( is not valid."}]})",
+                                    products, &error));
+  assert(error == "Mouser rejected the API key");
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", products,
+                                    &error));
+  assert(error == "Mouser request limit reached; try again later");
+  // The request's keyword field is not the key.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Keyword is required"}]})", products, &error));
+  assert(error == "Mouser: Keyword is required");
+
+  // Errors fail the response even when it also lists parts.
+  assert(!parseMouserSearchResponse(
+      R"({"Errors":[{"Message":"Synthetic failure"}],"SearchResults":{"Parts":[{"MouserPartNumber":"999-SYN-0001"}]}})",
+      products, &error));
+  assert(products.empty());
+  assert(error == "Mouser: Synthetic failure");
+  // An entry without a message still fails.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{}]})", products, &error));
+  assert(error == "Mouser returned an error");
+}
+
+void testMouserNonObjectBodyFails() {
+  vector<MouserProductDetails> products(1);
+  string error;
+  for (const char* body : {"<html>Service unavailable</html>", "[1,2]", R"([{"MouserPartNumber":"999-SYN-0001"}])",
+                           R"("text")", "", "{\"Errors\":"}) {
+    error.clear();
+    assert(!parseMouserSearchResponse(body, products, &error));
+    assert(products.empty());
+    assert(error == "Unable to parse the Mouser response");
+  }
+}
+
+void testMouserStockForms() {
+  // AvailabilityInStock may be a JSON number or a string, with or without thousands separators.
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":1234)").quantityAvailable == "1234");
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":"1234")").quantityAvailable == "1234");
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":"1,234")").quantityAvailable == "1234");
+  // Without it, the count is the leading number of Availability.
+  assert(parseSyntheticMouserPart(R"(,"Availability":"1,234 In Stock")").quantityAvailable == "1234");
+  assert(parseSyntheticMouserPart(R"(,"AvailabilityInStock":null,"Availability":"7 In Stock")").quantityAvailable ==
+         "7");
+  // Text that holds no count leaves the stock unknown.
+  assert(parseSyntheticMouserPart(R"(,"Availability":"On Order")").quantityAvailable.empty());
+  assert(parseSyntheticMouserPart(R"(,"Availability":"12.5k Available")").quantityAvailable.empty());
+  assert(parseSyntheticMouserPart("").quantityAvailable.empty());
+}
+
+void testMouserOrderableStatus() {
+  const auto discontinued = parseSyntheticMouserPart(R"(,"IsDiscontinued":"true")");
+  assert(!discontinued.orderable);
+  assert(discontinued.productStatus == "Discontinued");
+  assert(!parseSyntheticMouserPart(R"(,"IsDiscontinued":"TRUE")").orderable);
+  assert(!parseSyntheticMouserPart(R"(,"IsDiscontinued":true)").orderable);
+
+  const auto obsolete = parseSyntheticMouserPart(R"(,"LifecycleStatus":"Obsolete")");
+  assert(!obsolete.orderable);
+  assert(obsolete.productStatus == "Obsolete");
+
+  const auto active = parseSyntheticMouserPart(R"(,"LifecycleStatus":"New Product","IsDiscontinued":"false")");
+  assert(active.orderable);
+  assert(active.productStatus == "New Product");
+  const auto plain = parseSyntheticMouserPart(R"(,"ManufacturerPartNumber":"SYN-0001")");
+  assert(plain.orderable);
+  assert(plain.productStatus.empty());
+}
+
+void testMouserPartNumberMatching() {
+  MouserProductDetails product;
+  product.vendorMetadata.manufacturerPartNumber = "SYN-MCU-0103C8";
+  product.vendorMetadata.providerProductNumber = "999-SYN-MCU-0103C8";
+  // Letter case and punctuation are ignored.
+  assert(mouserPartNumberMatches("syn-mcu-0103c8", product));
+  assert(mouserPartNumberMatches("SYNMCU0103C8", product));
+  assert(mouserPartNumberMatches(" syn mcu/0103c8 ", product));
+  // The Mouser part number matches as well.
+  assert(mouserPartNumberMatches("999-SYN-MCU-0103C8", product));
+  assert(mouserPartNumberMatches("999synmcu0103c8", product));
+  // Containment is not a match.
+  assert(!mouserPartNumberMatches("SYN-MCU-0103", product));
+  assert(!mouserPartNumberMatches("SYN-MCU-0103C8X", product));
+  assert(!mouserPartNumberMatches("", product));
+  assert(!mouserPartNumberMatches("--", product));
+  MouserProductDetails empty;
+  assert(!mouserPartNumberMatches("SYN-MCU-0103C8", empty));
+}
+
+void testMouserCandidateChoice() {
+  MouserProductDetails first;
+  first.vendorMetadata.manufacturerPartNumber = "SYN-0001";
+  first.vendorMetadata.providerProductNumber = "999-SYN-0001";
+  first.manufacturerName = "Synthetic Parts Co";
+  MouserProductDetails second = first;
+  second.vendorMetadata.providerProductNumber = "998-SYN-0001";
+  second.manufacturerName = "Example Components";
+
+  // One candidate is the answer.
+  assert(chooseMouserCandidate({first}, "SYN-0001", "") == 0);
+  assert(chooseMouserCandidate({first}, "SYN-0001", "synthetic parts co") == 0);
+  // Two are told apart by the manufacturer, in any letter case.
+  const vector<MouserProductDetails> both = {first, second};
+  assert(chooseMouserCandidate(both, "SYN-0001", "EXAMPLE COMPONENTS") == 1);
+  assert(chooseMouserCandidate(both, "SYN-0001", " Synthetic Parts Co ") == 0);
+  // Without a manufacturer, or with one that keeps none or both, no product is chosen.
+  assert(chooseMouserCandidate(both, "SYN-0001", "") == both.size());
+  assert(chooseMouserCandidate(both, "SYN-0001", "Another Maker") == both.size());
+  const vector<MouserProductDetails> sameMaker = {first, first};
+  assert(chooseMouserCandidate(sameMaker, "SYN-0001", "Synthetic Parts Co") == sameMaker.size());
+  assert(chooseMouserCandidate({}, "SYN-0001", "") == 0);
+}
+
+void testMouserKeyRedaction() {
+  const string key = kSyntheticMouserKey;
+  assert(redactMouserKey("start " + key + " middle " + key + key + " end", key) ==
+         "start [key] middle [key][key] end");
+  assert(redactMouserKey("no secret here", key) == "no secret here");
+  assert(redactMouserKey("Mouser request failed (HTTP 500)", key) == "Mouser request failed (HTTP 500)");
+  // An empty key redacts nothing, and a key that reads like the marker still ends.
+  assert(redactMouserKey("text", "") == "text");
+  assert(redactMouserKey("a [key] b", "[key]") == "a [key] b");
+}
+
+void testMouserConfigValidity() {
+  assert(!MouserConfig{}.valid());
+  assert(!MouserConfig{"synthetic key"}.valid());
+  assert(!MouserConfig{"synthetic\tkey"}.valid());
+  assert(!MouserConfig{" synthetic"}.valid());
+  assert(!MouserConfig{string("synthetic\x01key")}.valid());
+  assert(!MouserConfig{string("synthetic\x7fkey")}.valid());
+  assert(MouserConfig{kSyntheticMouserKey}.valid());
+  assert(MouserConfig{string(256, 'a')}.valid());
+  assert(!MouserConfig{string(257, 'a')}.valid());
+}
+
+// The guards that answer before any request: these calls make no network traffic.
+void testMouserLookupGuardsMakeNoRequest() {
+  MouserApiClient client(MouserConfig{kSyntheticMouserKey});
+  MouserLookupOutcome outcome = MouserLookupOutcome::Found;
+  string error;
+  // A part number shorter than 2 bytes or longer than 100 cannot be asked for.
+  for (const string& partNumber : {string("A"), string("  B  "), string(), string(101, 'A')}) {
+    outcome = MouserLookupOutcome::Found;
+    assert(!client.lookupByPartNumber(partNumber, outcome, &error).has_value());
+    assert(outcome == MouserLookupOutcome::NoMatch);
+  }
+  // Without a valid key nothing is sent, and the message names Mouser only.
+  MouserApiClient unconfigured(MouserConfig{});
+  assert(!unconfigured.lookupByPartNumber("SYN-0001", outcome, &error).has_value());
+  assert(outcome == MouserLookupOutcome::Failed);
+  assert(error.find("Mouser") != string::npos && error.find("DigiKey") == string::npos);
+  error.clear();
+  assert(!unconfigured.testConnection(&error));
+  assert(error.find("Mouser") != string::npos && error.find("DigiKey") == string::npos);
+}
+
+// One synthetic Mouser product, as a lookup returns it. Every value is made up.
+MouserProductDetails syntheticMouserProduct() {
+  MouserProductDetails details;
+  details.vendorMetadata.provider = kVendorProviderMouser;
+  details.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+  details.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0001";
+  details.vendorMetadata.title = "Synthetic dual amplifier";
+  details.vendorMetadata.categoryPath = {"Synthetic Amplifiers"};
+  details.vendorMetadata.productUrl = "https://example.invalid/mouser/999-SYN-OPA-0001";
+  details.manufacturerName = "Synthetic Parts Co";
+  details.productDescription = "Synthetic dual amplifier";
+  details.categoryName = "Synthetic Amplifiers";
+  details.parameters = {{"Package / Case", "SOIC-8"}, {"Number of Channels", "2 Channel"}};
+  details.packageName = "SOIC-8";
+  details.datasheetUrl = "https://example.invalid/mouser/syn-opa-0001.pdf";
+  details.productUrl = details.vendorMetadata.productUrl;
+  details.quantityAvailable = "1234";
+  details.unitPrice = "$0.42";
+  return details;
+}
+
+void testMouserMergeKeepsSelectedIdentity() {
+  const auto mouser = syntheticMouserProduct();
+
+  // An empty item takes Mouser as its selected source and is filled from the record.
+  InventoryItem item;
+  assert(app_actions::mergeMouserMetadata(item, mouser));
+  assert(item.vendorMetadata.provider == "mouser");
+  assert(item.vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
+  assert(item.vendorMetadata.manufacturerPartNumber == "SYN-OPA-0001");
+  assert(item.vendorMetadata.productUrl == "https://example.invalid/mouser/999-SYN-OPA-0001");
+  assert(item.partName == "Synthetic dual amplifier");
+  assert(item.manufacturer == "Synthetic Parts Co");
+  assert(item.category == "Synthetic Amplifiers");
+  assert(item.sku == "SYN-OPA-0001");
+  assert(item.datasheetUrl == "https://example.invalid/mouser/syn-opa-0001.pdf");
+  assert(item.productUrl == "https://example.invalid/mouser/999-SYN-OPA-0001");
+  assert(item.syncStatus == "synced");
+  assert(item.vendorSources.empty());
+  const auto parameterValue = [&](const string& name) {
+    for (const auto& parameter : item.parameters) {
+      if (parameter.name == name) return parameter.value;
+    }
+    return string();
+  };
+  assert(parameterValue("Number of Channels") == "2 Channel");
+  assert(parameterValue("Quantity Available") == "1234");
+  assert(parameterValue("Unit Price") == "$0.42");
+  assert(originProvider(item) == "mouser");
+  // The same product again changes nothing.
+  assert(!app_actions::mergeMouserMetadata(item, mouser));
+
+  // An item bound to DigiKey keeps DigiKey as its selected source and keeps Mouser beside it.
+  InventoryItem digiKeyItem;
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "SYN-0001-ND";
+  assert(app_actions::mergeMouserMetadata(digiKeyItem, mouser));
+  assert(digiKeyItem.vendorMetadata.provider == "digikey");
+  assert(digiKeyItem.vendorMetadata.providerProductNumber == "SYN-0001-ND");
+  assert(digiKeyItem.vendorSources.size() == 1);
+  assert(digiKeyItem.vendorSources.front().provider == "mouser");
+  assert(digiKeyItem.vendorSources.front().providerProductNumber == "999-SYN-OPA-0001");
+  assert(!app_actions::mergeMouserMetadata(digiKeyItem, mouser));
+
+  // A record without a Mouser part number is neither applied nor stored.
+  MouserProductDetails unnamed;
+  unnamed.vendorMetadata.provider = kVendorProviderMouser;
+  unnamed.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0001";
+  InventoryItem empty;
+  assert(!app_actions::mergeMouserMetadata(empty, unnamed));
+  assert(empty.vendorMetadata.provider.empty());
+  assert(!app_actions::mergeMouserMetadata(digiKeyItem, unnamed));
+  assert(digiKeyItem.vendorSources.size() == 1);
+}
+
+void testMouserRecordConflictGuard() {
+  const auto mouser = syntheticMouserProduct();
+  InventoryItem stored;
+  stored.vendorMetadata.provider = "mouser";
+  stored.vendorMetadata.manufacturerPartNumber = "syn opa/0001";
+  // The same number, written with another letter case and punctuation, agrees.
+  assert(app_actions::mouserRecordConflict(stored, mouser).empty());
+  // Another number is a different part.
+  stored.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0002";
+  assert(app_actions::mouserRecordConflict(stored, mouser) == "manufacturer part number");
+  // Nothing to compare on either side is no conflict.
+  InventoryItem blank;
+  assert(app_actions::mouserRecordConflict(blank, mouser).empty());
+  MouserProductDetails withoutNumber = mouser;
+  withoutNumber.vendorMetadata.manufacturerPartNumber.clear();
+  assert(app_actions::mouserRecordConflict(stored, withoutNumber).empty());
+}
+
+void testMouserPartNumberOf() {
+  // From a part that came from Mouser.
+  InventoryItem mouserItem;
+  mouserItem.vendorMetadata.provider = "Mouser";
+  mouserItem.vendorMetadata.providerProductNumber = " 999-SYN-0001 ";
+  mouserItem.vendorMetadata.productUrl = "https://example.invalid/mouser/999-SYN-0001";
+  assert(mouserPartNumberOf(mouserItem) == "999-SYN-0001");
+  assert(mouserProductUrlOf(mouserItem) == "https://example.invalid/mouser/999-SYN-0001");
+
+  // From a Mouser record kept beside a DigiKey part.
+  InventoryItem digiKeyItem;
+  digiKeyItem.digikeyPartNumber = "SYN-0001-ND";
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "SYN-0001-ND";
+  digiKeyItem.vendorMetadata.productUrl = "https://example.invalid/digikey/SYN-0001-ND";
+  assert(mouserPartNumberOf(digiKeyItem).empty());
+  assert(mouserProductUrlOf(digiKeyItem).empty());
+  VendorProductMetadata mouserRecord;
+  mouserRecord.provider = "mouser";
+  mouserRecord.providerProductNumber = "999-SYN-0002";
+  mouserRecord.productUrl = "https://example.invalid/mouser/999-SYN-0002";
+  digiKeyItem.vendorSources.push_back(mouserRecord);
+  assert(mouserPartNumberOf(digiKeyItem) == "999-SYN-0002");
+  assert(mouserProductUrlOf(digiKeyItem) == "https://example.invalid/mouser/999-SYN-0002");
+
+  // Empty for a part with no Mouser record.
+  InventoryItem tmeItem;
+  tmeItem.vendorMetadata.provider = "tme";
+  tmeItem.vendorMetadata.providerProductNumber = "SYN-TME-0001";
+  assert(mouserPartNumberOf(tmeItem).empty());
+  InventoryItem unbound;
+  unbound.sku = "SYN-0001";
+  assert(mouserPartNumberOf(unbound).empty());
+  InventoryItem noNumber;
+  noNumber.vendorMetadata.provider = "mouser";
+  assert(mouserPartNumberOf(noNumber).empty());
+
+  // Completeness counts a Mouser part number the same way as a DigiKey number or a TME symbol.
+  InventoryItem bare;
+  bare.partName = "Part";
+  bare.manufacturer = "Maker";
+  bare.category = "Category";
+  bare.datasheetUrl = "https://example.invalid/sheet.pdf";
+  bare.productUrl = "https://example.invalid/part";
+  assert(bare.hasMissingMetadata());
+  bare.vendorMetadata.provider = "mouser";
+  bare.vendorMetadata.providerProductNumber = "999-SYN-0001";
+  assert(!bare.hasMissingMetadata());
+
+  // mouser: finds a part by its Mouser part number, whether it is the selected source or a record beside another.
+  mouserItem.id = "mouser-bound";
+  mouserItem.partName = "Amplifier";
+  mouserItem.quantity = 1;
+  digiKeyItem.id = "digikey-bound";
+  digiKeyItem.partName = "Capacitor";
+  digiKeyItem.quantity = 1;
+  tmeItem.id = "tme-bound";
+  tmeItem.partName = "Fuse";
+  tmeItem.quantity = 1;
+  const vector<InventoryItem> items = {mouserItem, digiKeyItem, tmeItem};
+  const vector<InventatoryRack> racks;
+  const auto idsFor = [&](const char* query) {
+    vector<string> ids;
+    for (size_t index : filterItems(items, query, racks, 5)) ids.push_back(items[index].id);
+    return ids;
+  };
+  assert((idsFor("mouser:999-SYN-0001") == vector<string>{"mouser-bound"}));
+  assert((idsFor("mouser:999-SYN-0002") == vector<string>{"digikey-bound"}));
+  assert((idsFor("mouser:SYN-TME-0001") == vector<string>{}));
+}
+
+// A part is refreshed only from the vendor it came from: a Mouser part from Mouser, and never from DigiKey or TME.
+void testMouserRefreshUsesOriginOnly() {
+  InventoryItem mouserItem;
+  mouserItem.sku = "SYN-OPA-0001";
+  mouserItem.vendorMetadata.provider = "mouser";
+  mouserItem.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+  mouserItem.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0001";
+  assert(app_actions::mouserRefreshLookup(mouserItem) == "999-SYN-OPA-0001");
+  assert(app_actions::digiKeyRefreshLookup(mouserItem).empty());
+  assert(app_actions::tmeRefreshIdentifier(mouserItem).value.empty());
+
+  // A Mouser part without its Mouser number is searched by its manufacturer part number, then by its SKU.
+  InventoryItem byPartNumber;
+  byPartNumber.vendorMetadata.provider = "mouser";
+  byPartNumber.vendorMetadata.manufacturerPartNumber = " SYN-OPA-0001 ";
+  assert(app_actions::mouserRefreshLookup(byPartNumber) == "SYN-OPA-0001");
+  InventoryItem bySku;
+  bySku.sku = " SYN-OPA-0001 ";
+  bySku.vendorMetadata.provider = "mouser";
+  assert(app_actions::mouserRefreshLookup(bySku) == "SYN-OPA-0001");
+
+  // A DigiKey part with a Mouser record beside it is refreshed from DigiKey only.
+  InventoryItem digiKeyItem;
+  digiKeyItem.digikeyPartNumber = "SYN-0001-ND";
+  digiKeyItem.vendorMetadata.provider = "digikey";
+  digiKeyItem.vendorMetadata.providerProductNumber = "SYN-0001-ND";
+  VendorProductMetadata mouserRecord;
+  mouserRecord.provider = "mouser";
+  mouserRecord.providerProductNumber = "999-SYN-0001";
+  digiKeyItem.vendorSources.push_back(mouserRecord);
+  assert(app_actions::mouserRefreshLookup(digiKeyItem).empty());
+  assert(app_actions::digiKeyRefreshLookup(digiKeyItem) == "SYN-0001-ND");
+
+  // A TME part, and a part with no recorded origin, are not looked up at Mouser.
+  InventoryItem tmeItem;
+  tmeItem.vendorMetadata.provider = "tme";
+  tmeItem.vendorMetadata.providerProductNumber = "SYN-TME-0001";
+  tmeItem.vendorSources.push_back(mouserRecord);
+  assert(app_actions::mouserRefreshLookup(tmeItem).empty());
+  InventoryItem unbound;
+  unbound.sku = "SYN-OPA-0001";
+  assert(app_actions::mouserRefreshLookup(unbound).empty());
+}
+
+// History names Mouser commits and filters them apart from the other vendors.
+void testMouserHistoryFilter() {
+  using history_page_detail::HistorySourceFilter;
+  InventoryCommit tme;
+  tme.id = "tme-id";
+  tme.source = "tme";
+  tme.message = "TME refresh batch";
+  InventoryCommit mouser;
+  mouser.id = "mouser-id";
+  mouser.source = "mouser";
+  mouser.message = "Mouser refresh batch";
+  const vector<InventoryCommit> commits = {tme, mouser};
+  assert(history_page_detail::historyCommitType(mouser) == "MOUSER");
+  assert((history_page_detail::filteredHistoryIndices(commits, {}, HistorySourceFilter::Mouser) ==
+          vector<size_t>{1}));
+  assert((history_page_detail::filteredHistoryIndices(commits, {}, HistorySourceFilter::Tme) == vector<size_t>{0}));
+}
+
+// A Mouser commit with no message of its own is saved with the Mouser wording, and the Mouser record survives a reload.
+void testMouserCommitIsRecorded() {
+  const auto path = testTempRoot() / "inventatory-mouser-commit-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  InventoryStore store;
+  InventoryItem item;
+  item.id = "mouser-commit-item";
+  item.partName = "Synthetic part";
+  item.quantity = 2;
+  item.lastUpdated = 1710000000;
+  item.createdAt = 1710000000;
+  store.items().push_back(item);
+  assert(ensureInventoryCommitHistory(path, store));
+  assert(store.save(path));
+
+  InventoryStore refreshed = store;
+  assert(app_actions::mergeMouserMetadata(refreshed.items().front(), syntheticMouserProduct()));
+  InventoryCommitDraft draft;
+  draft.source = "mouser";
+  InventoryCommit committed;
+  assert(refreshed.saveWithCommit(path, store, draft, {}, nullptr, &committed));
+  assert(committed.message.rfind("Applied Mouser enrichment", 0) == 0);
+  assert(committed.changedItemCount == 1);
+
+  InventoryStore reloaded;
+  assert(reloaded.load(path));
+  assert(reloaded.items().size() == 1);
+  assert(reloaded.items().front().vendorMetadata.provider == "mouser");
+  assert(mouserPartNumberOf(reloaded.items().front()) == "999-SYN-OPA-0001");
+  filesystem::remove(path, cleanupError);
+}
+
+// A reached request limit is told apart from every other Mouser failure, so a BOM run stops asking Mouser only then.
+void testMouserLimitReachedWording() {
+  vector<MouserProductDetails> products;
+  string error;
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", products,
+                                    &error));
+  assert(mouserLimitReached(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"TooManyRequests","Message":"Daily quota used"}]})",
+                                    products, &error));
+  assert(mouserLimitReached(error));
+
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"The API key is not valid."}]})", products, &error));
+  assert(!mouserLimitReached(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Synthetic failure"}]})", products, &error));
+  assert(!mouserLimitReached(error));
+  assert(!parseMouserSearchResponse("<html>Service unavailable</html>", products, &error));
+  assert(!mouserLimitReached(error));
+  assert(!mouserLimitReached("Unable to reach Mouser"));
+  assert(!mouserLimitReached("Mouser has no product with part number 999-SYN-OPA-0001"));
+  assert(!mouserLimitReached(""));
+}
+
+// A record without a Mouser part number is never a match, however its manufacturer part number reads, because nothing
+// could be merged from it or ordered by it.
+void testMouserKeepMatchesNeedMouserNumber() {
+  const auto orderable = syntheticMouserProduct();
+  auto noMouserNumber = orderable;
+  noMouserNumber.vendorMetadata.providerProductNumber.clear();
+  auto other = orderable;
+  other.vendorMetadata.providerProductNumber = "999-SYN-OPA-0002";
+  other.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0002";
+
+  // The part number matches the manufacturer part number, in any letter case; the record without a Mouser number goes.
+  auto kept = keepMouserMatches({orderable, noMouserNumber, other}, "syn-opa-0001");
+  assert(kept.size() == 1);
+  assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
+  // The part number may also be the Mouser part number.
+  kept = keepMouserMatches({noMouserNumber, orderable, other}, "999-SYN-OPA-0002");
+  assert(kept.size() == 1);
+  assert(kept.front().vendorMetadata.manufacturerPartNumber == "SYN-OPA-0002");
+  // Two records that match and have a Mouser number are both kept, in their order.
+  auto twin = orderable;
+  twin.vendorMetadata.providerProductNumber = "998-SYN-OPA-0001";
+  kept = keepMouserMatches({orderable, noMouserNumber, twin}, "SYN-OPA-0001");
+  assert(kept.size() == 2);
+  assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
+  assert(kept.back().vendorMetadata.providerProductNumber == "998-SYN-OPA-0001");
+  // Nothing is kept when the only match has no Mouser number, when the list is empty or the part number is empty.
+  assert(keepMouserMatches({noMouserNumber, other}, "SYN-OPA-0001").empty());
+  assert(keepMouserMatches({}, "SYN-OPA-0001").empty());
+  assert(keepMouserMatches({orderable}, "").empty());
+  assert(keepMouserMatches({orderable}, "SYN-OPA-000").empty());
+
+  // Parsed records: a Mouser number that is absent or a placeholder leaves the record out of the matches.
+  vector<MouserProductDetails> parsed;
+  string error;
+  assert(parseMouserSearchResponse(
+      R"({"Errors":[],"SearchResults":{"Parts":[{"MouserPartNumber":"N/A","ManufacturerPartNumber":"SYN-OPA-0003"},)"
+      R"({"ManufacturerPartNumber":"SYN-OPA-0003","Manufacturer":"Synthetic Parts Co"}]}})",
+      parsed, &error));
+  assert(parsed.size() == 2);
+  assert(keepMouserMatches(parsed, "SYN-OPA-0003").empty());
+}
+
+// A rejected key is told apart from every other Mouser failure, so a refresh stops asking Mouser only then.
+void testMouserKeyRejectedWording() {
+  vector<MouserProductDetails> products;
+  string error;
+  // An Errors entry about the key reads as a rejected key, and not as the limit.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"The API key is not valid."}]})", products, &error));
+  assert(mouserKeyRejected(error));
+  assert(!mouserLimitReached(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"Invalid","Message":"Invalid unique identifier."}]})",
+                                    products, &error));
+  assert(mouserKeyRejected(error));
+  // HTTP 401 and 403 read as a rejected key, with their status.
+  for (const uint32_t status : {401U, 403U}) {
+    error.clear();
+    assert(!mouserKeyAccepted(status, "", &error));
+    assert(mouserKeyRejected(error));
+    assert(error == "Mouser rejected the API key (HTTP " + to_string(status) + ")");
+  }
+  assert(mouserKeyRejected("Mouser rejected the API key"));
+  assert(mouserKeyRejected("Mouser rejected the API key (HTTP 403)"));
+
+  // The limit, other Errors entries, an unreadable body and failed requests are not a rejected key.
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", products,
+                                    &error));
+  assert(!mouserKeyRejected(error));
+  assert(!parseMouserSearchResponse(R"({"Errors":[{"Message":"Synthetic failure"}]})", products, &error));
+  assert(!mouserKeyRejected(error));
+  assert(!parseMouserSearchResponse("<html>Service unavailable</html>", products, &error));
+  assert(!mouserKeyRejected(error));
+  assert(!mouserKeyRejected("Mouser request failed (HTTP 500)"));
+  assert(!mouserKeyRejected("Mouser request limit reached; try again later"));
+  assert(!mouserKeyRejected("Unable to reach Mouser"));
+  assert(!mouserKeyRejected("Mouser has no product with part number 999-SYN-OPA-0001"));
+  assert(!mouserKeyRejected(""));
+  // The wording must open the text: a message that only mentions it is not a rejected key.
+  assert(!mouserKeyRejected("Request failed after Mouser rejected the API key"));
+  assert(!mouserKeyRejected("mouser rejected the api key"));
+}
+
+// The key test passes only on an answer it checked: a 2xx JSON object with no Errors, or the limit (HTTP 429).
+void testMouserKeyAcceptedChecksTheAnswer() {
+  string error;
+  // A search answer without Errors passes, with results, without results or as a bare object.
+  assert(mouserKeyAccepted(200, R"({"Errors":[],"SearchResults":{"NumberOfResult":0,"Parts":[]}})", &error));
+  assert(mouserKeyAccepted(200, R"({"Errors":[],"SearchResults":{"Parts":[{"MouserPartNumber":"999-SYN-0001"}]}})",
+                           &error));
+  assert(mouserKeyAccepted(200, "{}", &error));
+  assert(mouserKeyAccepted(200, R"({"Errors":null,"SearchResults":null})", &error));
+  assert(error.empty());
+  // A reached limit shows the key was accepted, whatever the body holds.
+  assert(mouserKeyAccepted(429, "", &error));
+  assert(mouserKeyAccepted(429, "<html>Too many requests</html>", &error));
+  assert(mouserKeyAccepted(429, R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", &error));
+  assert(error.empty());
+
+  // A server error is not a pass, with or without a JSON body, and its message is the status.
+  for (const uint32_t status : {500U, 502U, 503U}) {
+    for (const char* body : {"", "<html>Service unavailable</html>", R"({"Errors":[],"SearchResults":{"Parts":[]}})"}) {
+      error.clear();
+      assert(!mouserKeyAccepted(status, body, &error));
+      assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
+    }
+  }
+  // A client error other than 401, 403 and 429 is not a pass either.
+  for (const uint32_t status : {400U, 404U, 408U}) {
+    error.clear();
+    assert(!mouserKeyAccepted(status, "{}", &error));
+    assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
+  }
+  // A redirect or an informational status is not an answer to the search, even with a clean JSON body.
+  for (const uint32_t status : {100U, 301U, 302U, 307U}) {
+    error.clear();
+    assert(!mouserKeyAccepted(status, "{}", &error));
+    assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
+  }
+
+  // A 2xx answer that is not a JSON object is not a pass.
+  for (const char* body : {"<html>Service unavailable</html>", "[1,2]", R"("text")", "", "{\"Errors\":"}) {
+    error.clear();
+    assert(!mouserKeyAccepted(200, body, &error));
+    assert(error == "Unable to parse the Mouser response");
+  }
+  assert(!mouserKeyAccepted(204, "", &error));
+  // A 2xx answer with an Errors entry is not a pass; an entry about the key reads as a rejected key.
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Synthetic failure"}],"SearchResults":{"Parts":[]}})",
+                            &error));
+  assert(error == "Mouser: Synthetic failure");
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(mouserKeyRejected(error));
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{}]})", &error));
+  assert(error == "Mouser returned an error");
+
+  // A rejected key fails with the rejected-key wording, with or without a body.
+  assert(!mouserKeyAccepted(401, "", &error));
+  assert(error == "Mouser rejected the API key (HTTP 401)");
+  assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(error == "Mouser rejected the API key (HTTP 403)");
+  // A reached limit can come with a failing status. Its Errors entry names the limit, so the key is not blamed.
+  assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", &error));
+  assert(mouserLimitReached(error) && !mouserKeyRejected(error));
+  assert(!mouserKeyAccepted(401, R"({"Errors":[{"Message":"Maximum calls per day exceeded"}]})", &error));
+  assert(mouserLimitReached(error) && !mouserKeyRejected(error));
+  assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(mouserKeyRejected(error) && !mouserLimitReached(error));
+  // Errors about the key on a failing status read as a rejected key.
+  assert(!mouserKeyAccepted(400, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
+  assert(mouserKeyRejected(error));
+
+  // No message names another vendor or carries the key, once the client has redacted it as testConnection does.
+  const string key = kSyntheticMouserKey;
+  assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Request refused for )" + key + R"("}]})", &error));
+  const auto shown = redactMouserKey(error, key);
+  assert(shown == "Mouser: Request refused for [key]");
+  assert(shown.find("DigiKey") == string::npos);
+  // A caller that wants no message can pass none.
+  assert(!mouserKeyAccepted(500, "", nullptr));
+  assert(mouserKeyAccepted(200, "{}", nullptr));
+}
+
+// A suggestion from Mouser is stored with its own marker, and DigiKey and TME suggestions are stored exactly as before.
+void testBomMouserSuggestionStorage() {
+  // The stored forms are a compatibility contract: a DigiKey part is bare, and a TME or Mouser part carries its
+  // supplier marker after the verification marker.
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND") == string("SYN-0001-ND"));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND", true) == string("verified\x1eSYN-0001-ND"));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-TME-0001", false, true) == string("tme\x1eSYN-TME-0001"));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-TME-0001", true, true) ==
+         string("verified\x1etme\x1eSYN-TME-0001"));
+  const auto mouserEntry =
+      bomEnrichmentEntry(BomLookupOutcome::Found, " 999-SYN-OPA-0001 ", false, false, true).value();
+  const auto verifiedMouserEntry =
+      bomEnrichmentEntry(BomLookupOutcome::Found, "999-SYN-OPA-0001", true, false, true).value();
+  assert(mouserEntry == string("mouser\x1e" "999-SYN-OPA-0001"));
+  assert(verifiedMouserEntry == string("verified\x1emouser\x1e" "999-SYN-OPA-0001"));
+  // A Mouser answer with no part is stored as the plain marker, and a failure is never stored.
+  assert(bomEnrichmentEntry(BomLookupOutcome::NoMatch, "", false, false, true) == string(kBomEnrichmentNoMatch));
+  assert(bomEnrichmentEntry(BomLookupOutcome::Found, " ", true, false, true) == string(kBomEnrichmentNoMatch));
+  assert(!bomEnrichmentEntry(BomLookupOutcome::Failed, "999-SYN-OPA-0001", true, false, true).has_value());
+  // The Mouser marker is not the start of any other marker, and none of them is the start of it.
+  for (const char* other : {kBomEnrichmentTme, kBomEnrichmentVerified, kBomEnrichmentNoMatch}) {
+    assert(string(other).rfind(kBomEnrichmentMouser, 0) != 0);
+    assert(string(kBomEnrichmentMouser).rfind(other, 0) != 0);
+  }
+
+  // The stored suggestion reads back as its part number, with its verification and its supplier.
+  assert(bomEnrichmentPart(mouserEntry) == "999-SYN-OPA-0001");
+  assert(bomEnrichmentPart(verifiedMouserEntry) == "999-SYN-OPA-0001");
+  assert(!bomEnrichmentVerified(mouserEntry));
+  assert(bomEnrichmentVerified(verifiedMouserEntry));
+  assert(bomEnrichmentExportText(mouserEntry) == "999-SYN-OPA-0001");
+  assert(bomEnrichmentExportText(verifiedMouserEntry) == "999-SYN-OPA-0001");
+  assert(bomEnrichmentCached({{"line", mouserEntry}}, "line"));
+  assert(bomEnrichmentPart(kBomEnrichmentMouser).empty());
+
+  assert(bomEnrichmentSupplier(mouserEntry) == "Mouser");
+  assert(bomEnrichmentSupplier(verifiedMouserEntry) == "Mouser");
+  assert(bomEnrichmentSupplier("tme\x1eSYN-TME-0001") == "TME");
+  assert(bomEnrichmentSupplier("verified\x1etme\x1eSYN-TME-0001") == "TME");
+  assert(bomEnrichmentSupplier("SYN-0001-ND") == "DigiKey");
+  assert(bomEnrichmentSupplier("verified\x1eSYN-0001-ND") == "DigiKey");
+  assert(bomEnrichmentSupplier("").empty());
+  assert(bomEnrichmentSupplier("-").empty());
+  assert(bomEnrichmentSupplier(kBomEnrichmentNoMatch).empty());
+  assert(bomEnrichmentSupplier(kBomEnrichmentMouser).empty());  // a marker alone names no part
+
+  // Each supplier's entry survives a save and a reload unchanged.
+  const auto path = testTempRoot() / "inventatory-bom-mouser-suggestion-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  BomProject project;
+  project.id = "bom-mouser";
+  project.name = "Synthetic Mouser project";
+  project.createdAt = 1710000000;
+  project.lastOpened = 1710000100;
+  project.bomText = kicadBom;
+  project.enrichment = {{"digikey", "verified\x1eSYN-0001-ND"},
+                        {"tme", "tme\x1eSYN-TME-0001"},
+                        {"mouser", verifiedMouserEntry},
+                        {"mouser-check", mouserEntry},
+                        {"none", kBomEnrichmentNoMatch}};
+  assert(saveBomProjects(path, {project}));
+  vector<BomProject> loaded;
+  assert(loadBomProjects(path, loaded));
+  assert(loaded.size() == 1);
+  assert(loaded.front().enrichment == project.enrichment);
+  assert(bomEnrichmentSupplier(loaded.front().enrichment.at("mouser")) == "Mouser");
+  assert(bomEnrichmentSupplier(loaded.front().enrichment.at("tme")) == "TME");
+  assert(bomEnrichmentSupplier(loaded.front().enrichment.at("digikey")) == "DigiKey");
+  filesystem::remove(path, cleanupError);
+
+  // The shopping list names Mouser beside the part, and the markers never reach it.
+  const auto shortageBom = bomTestFile({bomTestLine("SYN-OPA-0001", "SOIC-8_3.9x4.9mm_P1.27mm", 2)});
+  const auto shortage = analyzeBom(shortageBom, {}, 1, {});
+  map<string, string> enrichment = {{bomLineKey(shortageBom.lines[0]), verifiedMouserEntry}};
+  const auto verifiedCsv = buildBomShortageCsv(shortage, enrichment);
+  assert(verifiedCsv.rows == 1);
+  assert(verifiedCsv.text.find("\"999-SYN-OPA-0001\",\"Mouser\",\"verified\"\r\n") != string::npos);
+  assert(verifiedCsv.text.find(kBomEnrichmentMouser) == string::npos);
+  enrichment[bomLineKey(shortageBom.lines[0])] = mouserEntry;
+  assert(buildBomShortageCsv(shortage, enrichment).text.find(
+             "\"999-SYN-OPA-0001\",\"Mouser\",\"check before ordering\"\r\n") != string::npos);
+}
+
+// A BOM line that names a Mouser part number matches the stock part that carries that number, and never a DigiKey part
+// whose number has the same text.
+void testBomMouserLineMatching() {
+  InventoryItem mouserItem;
+  mouserItem.id = "opa-mouser";
+  mouserItem.partName = "Synthetic dual amplifier";
+  mouserItem.quantity = 10;
+  mouserItem.vendorMetadata.provider = kVendorProviderMouser;
+  mouserItem.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+  InventoryItem digiKeyItem;
+  digiKeyItem.id = "opa-digikey";
+  digiKeyItem.partName = "Synthetic dual amplifier";
+  digiKeyItem.quantity = 10;
+  digiKeyItem.digikeyPartNumber = "999-SYN-OPA-0001";
+  digiKeyItem.vendorMetadata.provider = kVendorProviderDigiKey;
+  digiKeyItem.vendorMetadata.providerProductNumber = "999-SYN-OPA-0001";
+
+  const auto mouserLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "Mouser", "999-SYN-OPA-0001");
+  const auto matched = analyzeBom(bomTestFile({mouserLine}), {digiKeyItem, mouserItem}, 1, {}).matches.front();
+  assert(matched.confirmed && matched.chosenItemId() == "opa-mouser");
+  assert(matched.candidates.size() == 1 && matched.candidates.front().identity);
+
+  // The DigiKey part alone is not the part the line names.
+  const auto digiKeyOnly = analyzeBom(bomTestFile({mouserLine}), {digiKeyItem}, 1, {}).matches.front();
+  assert(digiKeyOnly.candidates.empty() && !digiKeyOnly.confirmed);
+
+  // A DigiKey line with the same text matches the DigiKey part, never the Mouser part.
+  const auto digiKeyLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "DigiKey", "999-SYN-OPA-0001");
+  const auto digiKeyMatch = analyzeBom(bomTestFile({digiKeyLine}), {mouserItem, digiKeyItem}, 1, {}).matches.front();
+  assert(digiKeyMatch.confirmed && digiKeyMatch.chosenItemId() == "opa-digikey");
+  assert(digiKeyMatch.candidates.size() == 1);
+  assert(analyzeBom(bomTestFile({digiKeyLine}), {mouserItem}, 1, {}).matches.front().candidates.empty());
+
+  // A Mouser record kept beside a DigiKey source counts as well, as a TME record does.
+  InventoryItem beside;
+  beside.id = "opa-beside";
+  beside.partName = "Synthetic dual amplifier";
+  beside.quantity = 4;
+  beside.digikeyPartNumber = "SYN-OPA-0001-ND";
+  beside.vendorMetadata.provider = kVendorProviderDigiKey;
+  beside.vendorMetadata.providerProductNumber = "SYN-OPA-0001-ND";
+  VendorProductMetadata mouserRecord;
+  mouserRecord.provider = kVendorProviderMouser;
+  mouserRecord.providerProductNumber = "999-SYN-OPA-0001";
+  beside.vendorSources = {mouserRecord};
+  const auto besideMatch = analyzeBom(bomTestFile({mouserLine}), {digiKeyItem, beside}, 1, {}).matches.front();
+  assert(besideMatch.confirmed && besideMatch.chosenItemId() == "opa-beside");
+}
+
+// Mouser is asked by the line's part number only, and its record is suggested only when Mouser can sell it.
+void testBomMouserSuggestionChoice() {
+  // The query: the Mouser number on a Mouser line, else the manufacturer part number, else a designation that reads as
+  // a part number. A line with only a value, or with another supplier's number, is never sent.
+  assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "Mouser", " 999-SYN-OPA-0001 ", "SYN-OPA-0001")) ==
+         "999-SYN-OPA-0001");
+  assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "LCSC", "C99999", "SYN-OPA-0001")) ==
+         "SYN-OPA-0001");
+  assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "DigiKey", "SYN-OPA-0001-ND")).empty());
+  assert(bomMouserQuery(bomTestLine("SYN-OPA-0001", "SOIC-8", 1)) == "SYN-OPA-0001");
+  assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4)).empty());
+  assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4, "LCSC", "C60474")).empty());
+
+  // A part that fits the line is chosen and verified, by its manufacturer part number or by its Mouser number.
+  const auto product = syntheticMouserProduct();
+  const auto mpnLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "", "", "SYN-OPA-0001");
+  auto chosen = bomMouserSuggestion(mpnLine, product);
+  assert(chosen.outcome == BomLookupOutcome::Found);
+  assert(chosen.suggestion == "999-SYN-OPA-0001" && chosen.verified);
+  const auto mouserLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "Mouser", "999-SYN-OPA-0001");
+  chosen = bomMouserSuggestion(mouserLine, product);
+  assert(chosen.outcome == BomLookupOutcome::Found && chosen.verified);
+
+  // A line with no part number is verified by value and package, as stock is.
+  MouserProductDetails capacitor = product;
+  capacitor.vendorMetadata.providerProductNumber = "999-SYN-CAP-0001";
+  capacitor.vendorMetadata.manufacturerPartNumber = "SYN-CAP-0001";
+  capacitor.productDescription = "Synthetic capacitor 100nF 0402";
+  capacitor.parameters = {{"Capacitance", "100 nF"}, {"Package / Case", "0402 (1005 Metric)"}};
+  capacitor.packageName = "0402 (1005 Metric)";
+  chosen = bomMouserSuggestion(bomTestLine("100nF", "C0402", 4), capacitor);
+  assert(chosen.outcome == BomLookupOutcome::Found && chosen.suggestion == "999-SYN-CAP-0001" && chosen.verified);
+  chosen = bomMouserSuggestion(bomTestLine("100nF", "C0603", 4), capacitor);
+  assert(chosen.outcome == BomLookupOutcome::Found && !chosen.verified);
+
+  // A part that does not fit the line is offered only to be checked before ordering.
+  chosen = bomMouserSuggestion(bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "", "", "SYN-OPA-0002"),
+                               product);
+  assert(chosen.outcome == BomLookupOutcome::Found && chosen.suggestion == "999-SYN-OPA-0001" && !chosen.verified);
+
+  // A discontinued or obsolete part is never chosen, however well it fits, and is stored as no match.
+  auto discontinued = product;
+  discontinued.orderable = false;
+  discontinued.productStatus = "Obsolete";
+  chosen = bomMouserSuggestion(mpnLine, discontinued);
+  assert(chosen.outcome == BomLookupOutcome::NoMatch && chosen.suggestion.empty() && !chosen.verified);
+  assert(bomEnrichmentEntry(chosen.outcome, chosen.suggestion, chosen.verified, false, true) ==
+         string(kBomEnrichmentNoMatch));
+  vector<MouserProductDetails> parsed;
+  string error;
+  assert(parseMouserSearchResponse(
+      R"({"Errors":[],"SearchResults":{"Parts":[{"MouserPartNumber":"999-SYN-OPA-0002",)"
+      R"("ManufacturerPartNumber":"SYN-OPA-0002","IsDiscontinued":"true"}]}})",
+      parsed, &error));
+  assert(parsed.size() == 1 && !parsed.front().orderable);
+  assert(bomMouserSuggestion(bomTestLine("SYN-OPA-0002", "SOIC-8", 1), parsed.front()).outcome ==
+         BomLookupOutcome::NoMatch);
+
+  // A record without a Mouser part number has nothing to order.
+  auto unnamed = product;
+  unnamed.vendorMetadata.providerProductNumber.clear();
+  chosen = bomMouserSuggestion(mpnLine, unnamed);
+  assert(chosen.outcome == BomLookupOutcome::NoMatch && chosen.suggestion.empty());
 }
 
 
@@ -14452,6 +15614,7 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeMergeKeepsSelectedIdentity", testTmeMergeKeepsSelectedIdentity},
     {"tme", "TmeLabelScan", testTmeLabelScan},
     {"scan", "VendorBagCodeRecognition", testVendorBagCodeRecognition},
+    {"inventory", "VendorDisplayNames", testVendorDisplayNames},
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
     {"scan", "DeviceEventIdConflictIsRefused", testDeviceEventIdConflictIsRefused},
@@ -14473,6 +15636,27 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeDetailParsing", testTmeDetailParsing},
     {"tme", "TmeMergeFillsEnrichment", testTmeMergeFillsEnrichment},
     {"tme", "TmeSettingsPersistOptionalKeys", testTmeSettingsPersistOptionalKeys},
+    {"mouser", "MouserResponseParsing", testMouserResponseParsing},
+    {"mouser", "MouserEmptyPartsIsSuccess", testMouserEmptyPartsIsSuccess},
+    {"mouser", "MouserErrorsListFails", testMouserErrorsListFails},
+    {"mouser", "MouserNonObjectBodyFails", testMouserNonObjectBodyFails},
+    {"mouser", "MouserStockForms", testMouserStockForms},
+    {"mouser", "MouserOrderableStatus", testMouserOrderableStatus},
+    {"mouser", "MouserPartNumberMatching", testMouserPartNumberMatching},
+    {"mouser", "MouserCandidateChoice", testMouserCandidateChoice},
+    {"mouser", "MouserKeyRedaction", testMouserKeyRedaction},
+    {"mouser", "MouserConfigValidity", testMouserConfigValidity},
+    {"mouser", "MouserLookupGuardsMakeNoRequest", testMouserLookupGuardsMakeNoRequest},
+    {"mouser", "MouserMergeKeepsSelectedIdentity", testMouserMergeKeepsSelectedIdentity},
+    {"mouser", "MouserRecordConflictGuard", testMouserRecordConflictGuard},
+    {"mouser", "MouserPartNumberOf", testMouserPartNumberOf},
+    {"mouser", "MouserRefreshUsesOriginOnly", testMouserRefreshUsesOriginOnly},
+    {"mouser", "MouserHistoryFilter", testMouserHistoryFilter},
+    {"mouser", "MouserCommitIsRecorded", testMouserCommitIsRecorded},
+    {"mouser", "MouserLimitReachedWording", testMouserLimitReachedWording},
+    {"mouser", "MouserKeepMatchesNeedMouserNumber", testMouserKeepMatchesNeedMouserNumber},
+    {"mouser", "MouserKeyRejectedWording", testMouserKeyRejectedWording},
+    {"mouser", "MouserKeyAcceptedChecksTheAnswer", testMouserKeyAcceptedChecksTheAnswer},
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
@@ -14492,12 +15676,24 @@ const vector<TestCase>& registeredTests() {
     {"bom", "BomLcscPartNumberMatching", testBomLcscPartNumberMatching},
     {"bom", "BomConfirmationLifecycle", testBomConfirmationLifecycle},
     {"bom", "BomLineKeysSeparateEasyEdaParts", testBomLineKeysSeparateEasyEdaParts},
+    {"bom", "AltiumDefaultFixtureParses", testAltiumDefaultFixtureParses},
+    {"bom", "AltiumSupplierFixtureFillsSupplierColumns", testAltiumSupplierFixtureFillsSupplierColumns},
+    {"bom", "AltiumQuotedCellsKeepCommas", testAltiumQuotedCellsKeepCommas},
+    {"bom", "AltiumRefusesAmbiguousRows", testAltiumRefusesAmbiguousRows},
+    {"bom", "AltiumHeaderErrors", testAltiumHeaderErrors},
+    {"bom", "AltiumQuantityConflictIsKept", testAltiumQuantityConflictIsKept},
+    {"bom", "AltiumDetectionKeepsOtherDialects", testAltiumDetectionKeepsOtherDialects},
+    {"bom", "Altium365ExportReachesAltiumParser", testAltium365ExportReachesAltiumParser},
+    {"bom", "AltiumBackslashQuotes", testAltiumBackslashQuotes},
     {"bom", "BomPickCommitsAndProblems", testBomPickCommitsAndProblems},
     {"bom", "BomUnconfirmedLinesAreNeverPicked", testBomUnconfirmedLinesAreNeverPicked},
     {"bom", "BomSuggestionVerification", testBomSuggestionVerification},
     {"bom", "PickPlanRoute", testBomPickPlanRoute},
     {"bom", "ProjectStorePersistence", testProjectStorePersistence},
     {"bom", "EnrichmentCacheRules", testEnrichmentCacheRules},
+    {"bom", "BomMouserSuggestionStorage", testBomMouserSuggestionStorage},
+    {"bom", "BomMouserLineMatching", testBomMouserLineMatching},
+    {"bom", "BomMouserSuggestionChoice", testBomMouserSuggestionChoice},
     {"transfer", "BackupExportAndRestoreWorkflow", testBackupExportAndRestoreWorkflow},
     {"transfer", "BackupEmptyWorkspaceAndInvalidSources", testBackupEmptyWorkspaceAndInvalidSources},
     {"transfer", "BackupBundleEnumerationFailure", testBackupBundleEnumerationFailure},

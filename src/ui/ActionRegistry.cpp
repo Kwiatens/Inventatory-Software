@@ -64,6 +64,9 @@ vector<App::Action> App::currentActions() const {
   auto openTme = [self] {
     if (const auto* item = self->selectedItem()) self->openCurrentUrl(tmeProductPageUrl(tmeProductSymbol(*item)), "TME");
   };
+  auto openMouser = [self] {
+    if (const auto* item = self->selectedItem()) self->openCurrentUrl(mouserProductUrlOf(*item), "Mouser");
+  };
   auto openDigiKey = [self] {
     if (const auto* item = self->selectedItem()) {
       const auto url = item->digikeyPartNumber.empty()
@@ -129,6 +132,10 @@ vector<App::Action> App::currentActions() const {
       if (hasItem) add("DigiKey", "Links", "g", chr('g'), openDigiKey);
       if (const auto* selected = self->selectedItem(); selected != nullptr && !tmeProductSymbol(*selected).empty()) {
         add("TME", "Links", "l", chr('l'), openTme);
+      }
+      // 'm' opens the racks on this page, so the Mouser product page takes 's', the free letter in the vendor's name.
+      if (const auto* selected = self->selectedItem(); selected != nullptr && !mouserPartNumberOf(*selected).empty()) {
+        add("Mouser", "Links", "s", chr('s'), openMouser);
       }
       if (hasItem) add("print label", "Print", "p", chr('p'), [self] { self->printSelectedLabel(); });
       add(autoPrintScannedLabels_ ? "auto-label off" : "auto-label on", "Print", "P", chr('P'),
@@ -291,6 +298,18 @@ vector<App::Action> App::currentActions() const {
         } else {
           add("test credentials", "TME", "t", chr('t'), [self] { self->testStagedTme(); });
           add("refresh inventory data", "TME", "r", chr('r'), [self] { self->beginTmeRefresh(); });
+        }
+      }
+      if (settingsCategory_ == SettingsCategory::Mouser) {
+        const bool refreshRunning = !self->mouserRefreshQueue_.empty() || self->mouserRefreshFuture_.valid();
+        if (refreshRunning) {
+          add("cancel Mouser refresh", "Sync", "c", chr('c'), [self] {
+            self->mouserRefreshQueue_.clear();
+            self->setMessage("Cancelling after the current Mouser request", 4);
+          });
+        } else {
+          add("test credentials", "Mouser", "t", chr('t'), [self] { self->testStagedMouser(); });
+          add("refresh inventory data", "Mouser", "r", chr('r'), [self] { self->beginMouserRefresh(); });
         }
       }
       if (settingsDirty_) {
