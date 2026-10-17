@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A TME label whose manufacturer part number contains a `*`, such as `DS1023-1*40S21`, is read when the Scan R1 sends it, instead of being refused.
+
 ## [v0.1.6] - 2026-10-16
 
 **Highlights**
