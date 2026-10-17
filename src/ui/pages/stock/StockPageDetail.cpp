@@ -5,6 +5,7 @@
 
 #include "App.h"
 
+#include "core/inventory/VendorProvider.h"
 #include "core/parts/PartDescriptor.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -58,7 +59,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     for (size_t index = 0; index < vendorCandidates_.size(); ++index) {
       const auto& candidate = vendorCandidates_[index];
       const bool selected = index == vendorCandidateIndex_;
-      const string vendorName = candidate.provider == "digikey" ? "DigiKey" : "TME";
+      const string vendorName = vendorDisplayName(candidate.provider);
       string facts;
       for (const auto& fact : {candidate.manufacturer, candidate.packageName, candidate.stock, candidate.price}) {
         if (trim(fact).empty()) continue;
@@ -263,6 +264,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     };
     detailField("DigiKey", item->digikeyPartNumber, uiPrimaryText());
     detailField("TME", tmeProductSymbol(*item), uiPrimaryText());
+    detailField("Mouser", mouserPartNumberOf(*item), uiPrimaryText());
     detailField("SKU", item->sku, uiPrimaryText());
     detailField("Inventatory ID", item->inventatoryId, uiPrimaryText());
     detailField("Location", item->location, uiPrimaryText());

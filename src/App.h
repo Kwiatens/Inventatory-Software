@@ -25,6 +25,7 @@
 #include "import/kicad/KicadBom.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/tme/TmeApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "platform/system/Console.h"
 #include "platform/scanner/BleProvisioningService.h"
@@ -285,6 +286,7 @@ class App {
     InventatoryScan,
     DigiKey,
     Tme,
+    Mouser,
   };
 
   // Surface is a non-actionable region (for example an overlay panel) that
@@ -464,12 +466,38 @@ class App {
     WorkspaceGeneration generation = 0;
   };
 
-  // The DigiKey client shared by the lookups of one enrichment run. The worker builds it on its first
+  struct MouserTestResult {
+    bool ok = false;
+    std::string error;
+    WorkspaceGeneration generation = 0;
+  };
+
+  // One queued Mouser refresh lookup: the part number to search for, and the item's manufacturer when it is known,
+  // which tells apart Mouser products that share the number.
+  struct MouserRefreshRequest {
+    std::string itemId;
+    std::string partNumber;
+    std::string manufacturer;
+  };
+
+  struct MouserRefreshResult {
+    std::string itemId;
+    std::optional<MouserProductDetails> details;
+    MouserLookupOutcome outcome = MouserLookupOutcome::Failed;
+    std::string error;
+    WorkspaceGeneration workspaceGeneration = 0;
+  };
+
+  // The supplier clients shared by the lookups of one enrichment run. The worker builds them on its first
   // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
-  // it, and only while no lookup is running.
+  // them, and only while no lookup is running. Mouser has no client here: each Mouser lookup builds one from
+  // the saved key, because the request spacing is shared by every Mouser client in the process.
   struct BomEnrichmentSession {
     std::unique_ptr<DigiKeyApiClient> client;
     std::unique_ptr<TmeApiClient> tmeClient;
+    // Mouser said its request limit was reached, so it is not asked again in this run. Read and written by the
+    // worker only; one lookup runs at a time and is joined before the next starts.
+    bool mouserLimitReached = false;
   };
 
   struct BomEnrichmentResult {
@@ -485,6 +513,8 @@ class App {
     bool credentialsMissing = false;
     // The suggestion came from TME rather than DigiKey.
     bool fromTme = false;
+    // The suggestion came from Mouser rather than DigiKey or TME.
+    bool fromMouser = false;
   };
 
   // Printer work is always executed against a value snapshot.  The worker
@@ -543,7 +573,7 @@ class App {
   // A vendor lookup for a part added by hand: each configured vendor's answer for the part number. The user picks one
   // vendor, which becomes the part's origin.
   struct VendorLookupCandidate {
-    std::string provider;  // "digikey" or "tme"
+    std::string provider;  // "digikey", "tme" or "mouser"
     std::string partNumber;
     std::string manufacturer;
     std::string packageName;
@@ -554,6 +584,7 @@ class App {
     bool hasDatasheet = false;
     std::optional<DigiKeyProductDetails> digiKey;
     std::optional<TmeProductDetails> tme;
+    std::optional<MouserProductDetails> mouser;
   };
 
   struct VendorLookupBatch {
@@ -709,6 +740,10 @@ class App {
   bool enqueueTmeScanLookup(const std::string& itemId, const std::string& symbol);
   void processTmeRefresh();
   void stopTmeRefresh();
+  void processMouserTest();
+  void beginMouserRefresh();
+  void processMouserRefresh();
+  void stopMouserRefresh();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -806,9 +841,11 @@ class App {
   bool testStagedPrinter();
   bool testStagedDigiKey();
   bool testStagedTme();
+  bool testStagedMouser();
   // True when the field being edited holds a secret, so its typed text is masked and wiped after editing.
   bool settingsFieldIsSecret() const;
   void clearStagedTmeCredentials();
+  void clearStagedMouserCredentials();
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
   void resetSelectedAppearanceColor();
@@ -1144,6 +1181,20 @@ class App {
   std::string tmeRefreshLastError_;
   std::unique_ptr<TmeApiClient> tmeRefreshClient_;
   std::future<TmeRefreshResult> tmeRefreshFuture_;
+  // Mouser inventory refresh, run the same way as the TME refresh: one lookup per tick, merged on the UI thread. The
+  // client is declared before the future so the future, which joins its task, is destroyed first.
+  std::deque<MouserRefreshRequest> mouserRefreshQueue_;
+  size_t mouserRefreshTotal_ = 0;
+  size_t mouserRefreshCompleted_ = 0;
+  size_t mouserRefreshSucceeded_ = 0;
+  size_t mouserRefreshNotFound_ = 0;
+  size_t mouserRefreshAmbiguous_ = 0;
+  size_t mouserRefreshErrors_ = 0;
+  bool mouserRefreshChanged_ = false;
+  WorkspaceGeneration mouserRefreshGeneration_ = 0;
+  std::string mouserRefreshLastError_;
+  std::unique_ptr<MouserApiClient> mouserRefreshClient_;
+  std::future<MouserRefreshResult> mouserRefreshFuture_;
   std::future<DigiKeyRefreshResult> digiKeyRefreshFuture_;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
@@ -1191,6 +1242,12 @@ class App {
   bool stagedTmeSecretChanged_ = false;
   bool hasStoredTmeToken_ = false;
   bool hasStoredTmeSecret_ = false;
+  // Mouser API key, staged the same way until settings are saved.
+  std::string stagedMouserKey_;
+  bool stagedMouserKeyChanged_ = false;
+  bool hasStoredMouserKey_ = false;
+  // MOUSER_API_KEY is set, so lookups use it in place of the stored key. Read once at startup.
+  bool mouserKeyFromEnvironment_ = false;
   std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
   // quickLabelMutex_ guards the quick-label presets in settings_, the print-result cache above and
@@ -1207,6 +1264,7 @@ class App {
   std::future<UpdateCheckResult> scanFirmwareFuture_;
   std::future<DigiKeyTestResult> digiKeyTestFuture_;
   std::future<TmeTestResult> tmeTestFuture_;
+  std::future<MouserTestResult> mouserTestFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckFailed_ = false;
