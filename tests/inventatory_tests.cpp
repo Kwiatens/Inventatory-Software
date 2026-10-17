@@ -14137,6 +14137,67 @@ void testBagScanRecordsOrigin() {
 }
 
 // The device sends a bag's main code in full. The control characters of the envelope travel as JSON escapes.
+void testDeviceEventIdConflictIsRefused() {
+  // The device numbers its events. An id the desktop already holds for a different scan must not be acknowledged, or
+  // the scan is dropped without a message; an identical retransmission is still the same scan.
+  const auto path = testTempRoot() / "inventatory-device-event-conflict-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  InventoryStore store;
+  ensureInventoryIdentifiers(store.items());
+  assert(store.save(path));
+  assert(ensureInventoryCommitHistory(path, store));
+
+  const string tmeCode = "PN:ZL262-40SG MPN:DS1023-1*40S21";
+  DeviceSyncRequest first;
+  first.protocolVersion = 1;
+  first.requestId = "conflict-1";
+  first.deviceId = "device-a";
+  first.events = {{"conflict-event-1", "inventory.receive", tmeCode, 5, ""}};
+  DeviceSyncResponse response;
+  string error;
+  assert(acceptDeviceSyncEvents(path, first, response, error));
+  assert(response.acceptedEventIds.size() == 1);
+
+  response = {};
+  assert(acceptDeviceSyncEvents(path, first, response, error));
+  assert(response.acceptedEventIds.size() == 1);
+  assert(loadPendingDeviceSyncEvents(path, 8).size() == 1);
+
+  // The same id with another scan is refused, and the stored scan is left as it was.
+  DeviceSyncRequest clash = first;
+  clash.requestId = "conflict-2";
+  clash.events = {{"conflict-event-1", "inventory.receive", "PN:ZL262-40SG MPN:OTHER", 5, ""}};
+  response = {};
+  assert(!acceptDeviceSyncEvents(path, clash, response, error));
+  assert(error == "Device event id is already used by a different scan");
+  assert(response.acceptedEventIds.empty());
+  const auto pending = loadPendingDeviceSyncEvents(path, 8);
+  assert(pending.size() == 1);
+  assert(pending.front().code == tmeCode);
+  assert(pending.front().value == 5);
+
+  // A clash behind a new scan in the same request: the new scan is accepted and the clash is left out.
+  DeviceSyncRequest mixed = first;
+  mixed.requestId = "conflict-3";
+  mixed.events = {{"conflict-event-2", "inventory.receive", "0002", 1, ""},
+                  {"conflict-event-1", "inventory.receive", "PN:ZL262-40SG MPN:OTHER", 5, ""}};
+  response = {};
+  assert(acceptDeviceSyncEvents(path, mixed, response, error));
+  assert(response.acceptedEventIds.size() == 1);
+  assert(response.acceptedEventIds.front() == "conflict-event-2");
+  assert(loadPendingDeviceSyncEvents(path, 8).size() == 2);
+
+  // The same id from another device is a different scan too.
+  DeviceSyncRequest otherDevice = first;
+  otherDevice.requestId = "conflict-4";
+  otherDevice.deviceId = "device-b";
+  response = {};
+  assert(!acceptDeviceSyncEvents(path, otherDevice, response, error));
+  assert(loadPendingDeviceSyncEvents(path, 8).size() == 2);
+  filesystem::remove(path, cleanupError);
+}
+
 void testDeviceSyncEventCarriesBagCode() {
   const auto escapeControls = [](const string& code) {
     string escaped;
@@ -14352,6 +14413,7 @@ const vector<TestCase>& registeredTests() {
     {"scan", "VendorBagCodeRecognition", testVendorBagCodeRecognition},
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
+    {"scan", "DeviceEventIdConflictIsRefused", testDeviceEventIdConflictIsRefused},
     {"scan", "TmeScanEventCommitsAndLooksUp", testTmeScanEventCommitsAndLooksUp},
     {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},
     {"tme", "TmeItemsAutoPlaceInRacks", testTmeItemsAutoPlaceInRacks},

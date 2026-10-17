@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - A TME label whose manufacturer part number contains a `*`, such as `DS1023-1*40S21`, is read when the Scan R1 sends it, instead of being refused.
+- A Scan R1 event whose number the desktop already holds for a different scan is refused with a message, instead of being acknowledged and dropped. After five refusals the Scan R1 shows the sync problem `SYN-01` until the stuck scan is discarded from its menu.
 
 ## [v0.1.6] - 2026-10-16
 

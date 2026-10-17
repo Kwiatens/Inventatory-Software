@@ -23,23 +23,28 @@ int boundedSqliteLimit(size_t limit) {
   return static_cast<int>(min(limit, static_cast<size_t>(numeric_limits<int>::max())));
 }
 
-bool eventIdentityMatches(SqliteConnection& connection, const string& eventId, const string& deviceId,
-                          bool& exists) {
+enum class StoredEventIdentity { Unused, Same, Different, Failed };
+
+// Compares an incoming event with the stored row that has its id. A retransmitted event is the same scan and is
+// accepted again. A different scan under a stored id is not accepted: the device numbers its events, so a number the
+// desktop already holds would otherwise be acknowledged and never processed, and the scan would be lost.
+StoredEventIdentity storedEventIdentity(SqliteConnection& connection, const string& deviceId,
+                                        const DeviceSyncEvent& event) {
   SqliteStatement statement;
   if (sqliteApi().prepare_v2(connection.db,
-      "SELECT device_id FROM inventatory_device_events WHERE event_id=? LIMIT 1", -1, &statement.stmt,
-      nullptr) != SQLITE_OK) {
-    return false;
+      "SELECT device_id, event_type, event_code, event_value FROM inventatory_device_events WHERE event_id=? LIMIT 1",
+      -1, &statement.stmt, nullptr) != SQLITE_OK) {
+    return StoredEventIdentity::Failed;
   }
-  sqliteApi().bind_text(statement.stmt, 1, eventId.c_str(), -1, SQLITE_TRANSIENT);
+  sqliteApi().bind_text(statement.stmt, 1, event.eventId.c_str(), -1, SQLITE_TRANSIENT);
   const auto step = sqliteApi().step(statement.stmt);
-  if (step == SQLITE_DONE) {
-    exists = false;
-    return true;
-  }
-  if (step != SQLITE_ROW || sqliteApi().column_type(statement.stmt, 0) != SQLITE_TEXT) return false;
-  exists = true;
-  return sqliteText(statement.stmt, 0) == deviceId;
+  if (step == SQLITE_DONE) return StoredEventIdentity::Unused;
+  if (step != SQLITE_ROW || sqliteApi().column_type(statement.stmt, 0) != SQLITE_TEXT) return StoredEventIdentity::Failed;
+  int storedValue = 0;
+  if (!sqliteInt32(statement.stmt, 3, storedValue)) return StoredEventIdentity::Failed;
+  const bool same = sqliteText(statement.stmt, 0) == deviceId && sqliteText(statement.stmt, 1) == event.type &&
+                    sqliteText(statement.stmt, 2) == event.code && storedValue == event.value;
+  return same ? StoredEventIdentity::Same : StoredEventIdentity::Different;
 }
 
 bool insertEvent(SqliteConnection& connection, const string& deviceId, const DeviceSyncEvent& event) {
@@ -173,15 +178,23 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
   bool ok = true;
   for (const auto& resultId : request.resultAcks) ok = acknowledgeResult(connection, request.deviceId, resultId) && ok;
   ok = pruneAcknowledgedResults(connection, request.deviceId) && ok;
-  for (const auto& event : request.events) {
-    bool alreadyStored = false;
-    if (!eventIdentityMatches(connection, event.eventId, request.deviceId, alreadyStored)) ok = false;
-    if (!alreadyStored) ok = insertEvent(connection, request.deviceId, event) && ok;
+  bool headConflict = false;
+  for (size_t index = 0; index < request.events.size(); ++index) {
+    const auto& event = request.events[index];
+    const auto identity = storedEventIdentity(connection, request.deviceId, event);
+    if (identity == StoredEventIdentity::Different) {
+      // The first event is the head of the device's outbox, so the whole request is refused: nothing behind it may be
+      // accepted before it. A clash further back is left out, and the device raises it as its next head.
+      if (index == 0) headConflict = true;
+      continue;
+    }
+    if (identity == StoredEventIdentity::Failed) ok = false;
+    if (identity == StoredEventIdentity::Unused) ok = insertEvent(connection, request.deviceId, event) && ok;
     if (ok) response.acceptedEventIds.push_back(event.eventId);
   }
-  if (!ok || !execSql(connection, "COMMIT")) {
+  if (headConflict || !ok || !execSql(connection, "COMMIT")) {
     execSql(connection, "ROLLBACK");
-    error = "Unable to persist device events";
+    error = headConflict ? "Device event id is already used by a different scan" : "Unable to persist device events";
     return false;
   }
   response.results = loadResults(connection, request.deviceId, 4);
