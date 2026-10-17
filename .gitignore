@@ -36,3 +36,6 @@ data/*.tsv
 .idea/
 cmake-build-*/
 compile_commands.json
+
+# Local open items for this repository (not shared)
+OPEN-ITEMS.md
