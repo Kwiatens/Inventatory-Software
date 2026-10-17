@@ -1,0 +1,7 @@
+# SYNTHETIC: written to the Altium 365 BOM layout from the column names in src/import/altium/AltiumBom.cpp, not copied from an Altium export. Every name and number is invented.
+"","Line #","Name","Description","Designator","Quantity","Manufacturer 1","Manufacturer Part Number 1","Manufacturer Lifecycle 1","Supplier 1","Supplier Part Number 1","Supplier Unit Price 1","Supplier Subtotal 1"
+,"1","SYN-RES-10K","Synthetic resistor, 10k 1%","R1, R2","2","Synthetic Maker","SYN-RES-10K","Volume Production","Mouser","999-SYN-RES-10K","0.10","0.20"
+,"2","SYN-HDR-10","10 Pin Shrouded Header, 0.050\", Key Pin 7","J4","1","Synthetic Maker","SYN-HDR-10","Volume Production","Digikey","SYN-HDR-1000-ND","3.18","3.18"
+,"3","SYN-MCU-0001","Synthetic microcontroller","U1","1","Synthetic Maker","SYN-MCU-0001","Volume Production","","","4.50","4.50"
+,"4","SYN-CONN-0001","","P7","1","Synthetic Maker","SYN-CONN-0001","Volume Production","Digikey","SYN-CONN-1000-ND","0.48","0.48"
+,,,,,,,,,,,,"$7.88"

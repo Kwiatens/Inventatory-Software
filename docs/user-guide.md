@@ -86,7 +86,7 @@ Open Import and choose a CSV file. The format is detected from its header: a
 DigiKey order CSV goes to the review list, and a KiCad BOM, an EasyEDA BOM export or
 an Altium Designer BOM report goes to Projects. A BOM needs a Designator column, a
 Footprint column, and a value column: Designation or Value for KiCad, Name, Value or
-Comment for EasyEDA, Comment for Altium.
+Comment for EasyEDA, Comment or Description for Altium.
 
 For a DigiKey order, review each candidate, correct it if needed, then Accept or
 Skip. After the final row, choose whether to enrich accepted parts with DigiKey
@@ -102,13 +102,15 @@ same reader, but they have not been tested against a real Pro export yet. XLSX e
 are not read.
 
 Altium Designer: export the Bill of Materials report as CSV, choosing the columns
-Comment, Designator, Footprint and Quantity, and add Supplier 1, Supplier Part Number 1
-and Manufacturer Part Number 1 when the parts have them. Inventatory finds each column
-by its header name, so the order of the columns does not matter. The header names it
-looks for are not yet checked against a real Altium export. When the Designator or the
-Comment column cannot be found, the message names it. A report is refused with the same
-rules as an EasyEDA export. A report that has a Qty column is read as a KiCad BOM, so its
-supplier columns are not read.
+Comment (or Description, in an Altium 365 export), Designator, Footprint and Quantity,
+and add Supplier 1, Supplier Part Number 1 and Manufacturer Part Number 1 when the parts
+have them. Inventatory finds each column by its header name, so the order of the columns
+does not matter. A row with no Comment or Description uses its Name. The Designator,
+Description, Quantity, supplier and manufacturer names match Altium 365 exports. Comment, Footprint and LibRef have not been checked against an
+Altium desktop export yet. When the Designator or the value column cannot be found, the
+message names it. A report is refused with the same rules as an EasyEDA export, and a
+total row at its foot is skipped. A report that has a Qty column is read as a KiCad BOM,
+so its supplier columns are not read.
 
 ## Project workflow
 
