@@ -306,6 +306,11 @@ bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>&
                           bool validateHistory = true);
 bool loadInventoryCommit(const filesystem::path& path, const string& id, InventoryCommitDetail& detail);
 
+// The commit Ctrl+Z restores the parent of: the newest change that no later corrective commit has undone. `commits`
+// is newest first. A corrective commit names the commit it undid, so that commit is skipped, and so is the undo
+// itself. Returns nullptr when every change has been undone, or only the first commit is left.
+const InventoryCommit* latestUndoableInventoryCommit(const vector<InventoryCommit>& commits);
+
 vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, const InventoryStore& after,
                                                const string& source, const string& reference = {},
                                                time_t occurredAt = 0);

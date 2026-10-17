@@ -374,12 +374,8 @@ vector<App::Action> App::currentActions() const {
         add("retry project save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });
       }
       if (!bomDeductPrompt_ && bomView_ != BomView::Build) {
-        // A finished build is an ordinary inventory commit, so the shared undo reverts its
-        // stock deduction. Re-run the BOM comparison against the restored stock.
-        add("undo", "System", "Ctrl+Z", special(KeyType::CtrlZ), [self] {
-          self->undoLastInventoryChange();
-          if (self->bomAnalysisValid_) self->refreshBomAnalysis();
-        });
+        // A finished build is an ordinary inventory commit, so the shared undo reverts its stock deduction.
+        add("undo", "System", "Ctrl+Z", special(KeyType::CtrlZ), [self] { self->undoLastInventoryChange(); });
       }
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
