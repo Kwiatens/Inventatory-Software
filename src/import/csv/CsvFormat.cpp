@@ -57,6 +57,30 @@ bool hasDigiKeyHeaders(const vector<string>& headers) {
 
 }  // namespace
 
+// An Altium Designer Bill of Materials names its reference column "Designator" and its value column "Comment"
+// (or "Description" in an Altium 365 export). KiCad BOMs can carry those names too, so the two headers alone prove
+// nothing. A file is Altium only when it also has a header that KiCad does not write (LibRef, or Description beside
+// a supplier or manufacturer part column) and none of the headers only KiCad writes. Anything in doubt stays on the
+// KiCad parser, which is what stored projects were always read with.
+//
+// The supplier and manufacturer names below are the aliases AltiumBom.cpp reads, and they are NOT verified against
+// a real Altium export. Keep them in step with AltiumBom.cpp; "Qty" and "Supplier Part" are left out on purpose (see
+// AltiumBom.cpp).
+bool hasAltiumBomHeaders(const vector<string>& headers) {
+  if (findColumn(headers, {"Designator"}) < 0 || findColumn(headers, {"Comment", "Description"}) < 0) {
+    return false;
+  }
+  if (findColumn(headers, {"Ref", "Reference", "Value", "Qty", "Cmp name"}) >= 0) {
+    return false;
+  }
+  if (findColumn(headers, {"LibRef"}) >= 0) {
+    return true;
+  }
+  return findColumn(headers, {"Description"}) >= 0 &&
+         findColumn(headers, {"Supplier 1", "Supplier Name 1", "Supplier", "Supplier Part Number 1",
+                              "Supplier Part Number", "Manufacturer Part Number 1", "Manufacturer Part Number"}) >= 0;
+}
+
 CsvFormat detectCsvFormat(const string& text) {
   const auto cleaned = stripByteOrderMark(text);
   string error;
@@ -75,6 +99,10 @@ CsvFormat detectCsvFormat(const string& text) {
   }
   if (hasEasyEdaHeaders(rows.front())) {
     return CsvFormat::EasyEdaBom;
+  }
+  // An Altium 365 export has no Footprint column, so none of the checks above matches it.
+  if (hasAltiumBomHeaders(rows.front())) {
+    return CsvFormat::KicadBom;
   }
   if (hasBomHeadersWithoutValue(rows.front())) {
     return CsvFormat::BomMissingValue;
