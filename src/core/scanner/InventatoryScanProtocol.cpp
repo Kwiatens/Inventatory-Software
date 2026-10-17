@@ -48,9 +48,9 @@ bool looksLikeSupportedInventatoryScanCode(const string& code) {
          all_of(trimmed.begin(), trimmed.end(), [](unsigned char ch) { return isdigit(ch) != 0; });
 }
 
-// Mirrors isStandardManufacturerPartNumber() in the R1 firmware. A component
-// Data Matrix carries the manufacturer part number, which is what the Scan R1
-// puts in `code`, so the desktop must accept the same shape the device does.
+// Mirrors isStandardManufacturerPartNumber() in the R1 firmware, plus the '*' that a TME manufacturer part number can
+// carry (DS1023-1*40S21). A component Data Matrix carries the manufacturer part number, which is what the Scan R1 puts
+// in `code`, so the desktop must accept the same shape the device does.
 bool looksLikeManufacturerPartNumber(const string& code) {
   const auto trimmed = trim(code);
   if (trimmed.size() < 2 || trimmed.size() > 64) return false;
@@ -60,7 +60,7 @@ bool looksLikeManufacturerPartNumber(const string& code) {
       hasAlphanumeric = true;
       continue;
     }
-    if (strchr("-._/+#&,() ", ch) == nullptr) return false;
+    if (strchr("-._/+#&,()* ", ch) == nullptr) return false;
   }
   return hasAlphanumeric;
 }

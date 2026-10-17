@@ -23,11 +23,13 @@ constexpr size_t kMaximumTmeLabelFieldBytes = 64;
 
 const char kUnrecognizedBagMessage[] = "This code is not from a supported vendor bag. Add the part manually";
 
-// Symbols and part numbers use letters, digits and the separators that appear in TME and manufacturer codes.
-bool isTmeLabelIdentifier(const string& value) {
+// Symbols and part numbers use letters, digits and the separators that appear in TME and manufacturer codes. A
+// manufacturer part number may also carry '*' (CONNFLY's DS1023-1*40S21); a TME symbol may not.
+bool isTmeLabelIdentifier(const string& value, bool allowAsterisk) {
   if (value.empty() || value.size() > kMaximumTmeLabelFieldBytes) return false;
-  return all_of(value.begin(), value.end(), [](char character) {
+  return all_of(value.begin(), value.end(), [allowAsterisk](char character) {
     if (isalnum(static_cast<unsigned char>(character))) return true;
+    if (allowAsterisk && character == '*') return true;
     return character == '-' || character == '_' || character == '.' || character == '/' || character == '+' ||
            character == '#';
   });
@@ -153,9 +155,9 @@ optional<TmeLabelFields> parseTmeLabelPayload(const string& rawCode) {
     }
   }
 
-  if (!isTmeLabelIdentifier(label.symbol)) return nullopt;
+  if (!isTmeLabelIdentifier(label.symbol, false)) return nullopt;
   if (label.manufacturerPartNumber.empty() && !hasManufacturer) return nullopt;
-  if (!label.manufacturerPartNumber.empty() && !isTmeLabelIdentifier(label.manufacturerPartNumber)) {
+  if (!label.manufacturerPartNumber.empty() && !isTmeLabelIdentifier(label.manufacturerPartNumber, true)) {
     return nullopt;
   }
   return label;

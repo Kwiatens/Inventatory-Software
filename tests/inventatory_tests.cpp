@@ -6214,6 +6214,14 @@ void testTmeLabelScan() {
   assert(!parseTmeLabelPayload("QTY:x PN:0ZCM0010FF2G MPN:0ZCM0010FF2G").has_value());
   assert(!parseTmeLabelPayload("PN:0ZCM;DROP MPN:0ZCM").has_value());
 
+  // A manufacturer part number may carry a '*' (CONNFLY DS1023-1*40S21). A TME symbol may not.
+  const auto asterisk = parseTmeLabelPayload("QTY:2 PN:ZL262-40SG MFR:CONNFLY MPN:DS1023-1*40S21 RoHS");
+  assert(asterisk.has_value());
+  assert(asterisk->symbol == "ZL262-40SG");
+  assert(asterisk->manufacturerPartNumber == "DS1023-1*40S21");
+  assert(!parseTmeLabelPayload("PN:ZL262*40SG MPN:DS1023").has_value());
+  assert(!parseTmeLabelPayload("PN:ZL262-40SG MPN:DS*1023;DROP").has_value());
+
   // The first scan creates one placeholder that carries the TME symbol; a second scan matches it.
   InventoryStore store;
   const auto created = resolveScanCode(store, payload);
@@ -6241,6 +6249,82 @@ void testTmeLabelScan() {
   assert(placeholder->manufacturer == "BEL FUSE");
   assert(placeholder->vendorMetadata.provider == "tme");
   assert(placeholder->syncStatus == "synced");
+}
+
+void testTmeScanEventCommitsAndLooksUp() {
+  // The event a TME label scan sends: the R1 builds its code from the symbol and the manufacturer part number.
+  const string code = "PN:ZL262-40SG MPN:DS1023-1*40S21";
+  const auto path = testTempRoot() / "inventatory-tme-scan-event-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  InventoryStore persisted;
+  ensureInventoryIdentifiers(persisted.items());
+  assert(persisted.save(path));
+  assert(ensureInventoryCommitHistory(path, persisted));
+
+  DeviceSyncRequest request;
+  request.protocolVersion = 1;
+  request.requestId = "tme-scan-sync";
+  request.deviceId = "device-a";
+  request.events = {{"tme-scan-event-1", "inventory.receive", code, 5, ""}};
+  DeviceSyncResponse response;
+  string error;
+  assert(acceptDeviceSyncEvents(path, request, response, error));
+
+  const auto pending = loadPendingDeviceSyncEvents(path, 1);
+  assert(pending.size() == 1);
+  auto candidate = persisted;
+  const auto resolution = resolveScanCode(candidate, pending.front().code);
+  assert(resolution.matched && resolution.created);
+  auto* item = candidate.findById(resolution.itemId);
+  assert(item != nullptr);
+  item->quantity += pending.front().value;
+  DeviceSyncResult result;
+  result.resultId = pending.front().eventId + "-result";
+  result.eventId = pending.front().eventId;
+  result.deviceId = pending.front().deviceId;
+  result.status = "completed";
+  result.itemName = item->partName;
+  result.requestedDelta = pending.front().value;
+  result.appliedDelta = pending.front().value;
+  result.quantity = item->quantity;
+  assert(completeDeviceSyncEvent(candidate, path, result, &persisted));
+
+  InventoryStore reloaded;
+  assert(reloaded.load(path));
+  assert(reloaded.items().size() == 1);
+  assert(reloaded.items()[0].sku == "ZL262-40SG");
+  assert(reloaded.items()[0].quantity == 5);
+
+  // The R1 looks the code up once the part exists; the TME symbol finds it, which the manufacturer part number never did.
+  const auto found = lookupDeviceItem(path, {"tme-lookup-1", "ZL262-40SG"});
+  assert(found.status == "found");
+  assert(!found.itemName.empty());
+
+  // The TME lookup that follows the scan merges the TME record into the placeholder and saves it. The device waits
+  // for the scan's result, and the desktop holds the next event while the save is pending, so the save must succeed.
+  TmeProductDetails details;
+  details.vendorMetadata.provider = "tme";
+  details.vendorMetadata.providerProductNumber = "ZL262-40SG";
+  details.vendorMetadata.manufacturerPartNumber = "DS1023-1*40S21";
+  details.manufacturerPartNumbers = {"DS1023-1*40S21"};
+  details.manufacturerName = "CONNFLY";
+  details.productDescription = "Connector: wire-board; pin header; 2.54mm";
+  details.categoryName = "Connectors";
+  details.productUrl = "https://www.tme.eu/details/ZL262-40SG";
+  InventoryStore refreshed = reloaded;
+  auto* placeholder = refreshed.findById(resolution.itemId);
+  assert(placeholder != nullptr);
+  assert(app_actions::mergeTmeMetadata(*placeholder, details));
+  InventoryCommitDraft refreshDraft;
+  refreshDraft.source = "tme";
+  refreshDraft.reference = "TME refresh batch";
+  refreshDraft.message = "TME refresh batch";
+  assert(refreshed.saveWithCommit(path, reloaded, refreshDraft));
+  InventoryStore afterRefresh;
+  assert(afterRefresh.load(path));
+  assert(afterRefresh.findById(resolution.itemId)->vendorMetadata.manufacturerPartNumber == "DS1023-1*40S21");
 }
 
 void testTmeDetailParsing() {
@@ -9677,6 +9761,12 @@ void testDeviceSyncRequestParsing() {
       request, error));
   assert(request.hasLookup);
   assert(request.lookup.code == "C1F 500");
+  // A TME manufacturer part number with a '*' is a lookup code too.
+  assert(parseDeviceSyncRequestJson(
+      R"({"protocolVersion":1,"requestId":"sync-star-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"lookup":{"lookupId":"lookup-star-1","code":"DS1023-1*40S21"}})",
+      request, error));
+  assert(request.hasLookup);
+  assert(request.lookup.code == "DS1023-1*40S21");
   assert(parseDeviceSyncRequestJson(
       R"({"protocolVersion":1,"requestId":"sync-label","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"label_print","rssi":-48,"queueDepth":0,"events":[],"resultAcks":[],"quickLabelPrint":{"requestId":"r1-a-label-1","presetIndex":2,"revision":3}})",
       request, error));
@@ -9712,7 +9802,7 @@ void testDeviceSyncRequestParsing() {
   // An unresolvable lookup code is dropped so the events it travels with are
   // still delivered; only a structurally broken lookup rejects the envelope.
   assert(parseDeviceSyncRequestJson(
-      R"({"protocolVersion":1,"requestId":"sync-odd-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[{"eventId":"r1-a-7","type":"inventory.receive","code":"C1F 500","value":5}],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"AB*C"}})",
+      R"({"protocolVersion":1,"requestId":"sync-odd-lookup","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"await_quantity","rssi":-48,"queueDepth":0,"events":[{"eventId":"r1-a-7","type":"inventory.receive","code":"C1F 500","value":5}],"resultAcks":[],"lookup":{"lookupId":"lookup-10","code":"AB;C"}})",
       request, error));
   assert(!request.hasLookup);
   assert(request.events.size() == 1);
@@ -13962,6 +14052,12 @@ void testVendorBagCodeRecognition() {
   assert(tme.has_value());
   assert(tme->provider == "tme");
   assert(tme->providerProductNumber == "0ZCM0010FF2G");
+  // The firmware's event code for a TME label whose manufacturer part number carries a '*'.
+  const auto tmeStar = recognizeVendorBagCode("PN:ZL262-40SG MPN:DS1023-1*40S21");
+  assert(tmeStar.has_value());
+  assert(tmeStar->provider == "tme");
+  assert(tmeStar->providerProductNumber == "ZL262-40SG");
+  assert(tmeStar->manufacturerPartNumber == "DS1023-1*40S21");
   assert(tme->manufacturerPartNumber == "0ZCM0010FF2G");
   assert(tme->productUrl == "https://www.tme.eu/details/0ZCM0010FF2G");
 
@@ -14256,6 +14352,7 @@ const vector<TestCase>& registeredTests() {
     {"scan", "VendorBagCodeRecognition", testVendorBagCodeRecognition},
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
+    {"scan", "TmeScanEventCommitsAndLooksUp", testTmeScanEventCommitsAndLooksUp},
     {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},
     {"tme", "TmeItemsAutoPlaceInRacks", testTmeItemsAutoPlaceInRacks},
     {"tme", "TmeScannedPartLabelPlan", testTmeScannedPartLabelPlan},
