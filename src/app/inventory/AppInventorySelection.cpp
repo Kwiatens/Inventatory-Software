@@ -33,32 +33,34 @@ bool App::undoLastInventoryChange() {
     return false;
   }
   if (inventoryCommits_.empty()) refreshInventoryCommits();
-  const auto latest = find_if(inventoryCommits_.begin(), inventoryCommits_.end(), [](const InventoryCommit& commit) {
-    return !commit.checkpoint && (commit.changedItemCount > 0 || commit.changedRackCount > 0) &&
-           !commit.parentId.empty();
-  });
-  if (latest == inventoryCommits_.end()) {
+  const auto* latest = latestUndoableInventoryCommit(inventoryCommits_);
+  if (latest == nullptr) {
     setMessage("Nothing to undo", 3, UiMessageSeverity::Warning);
     return false;
   }
+  // Copied before saving: saving reloads the commit list, which would leave a pointer into it dangling.
+  const auto targetId = latest->id;
+  const auto targetSequence = latest->sequence;
 
   InventoryCommitDetail detail;
-  if (!loadInventoryCommit(inventoryPath_, latest->id, detail) || !detail.hasParent) {
+  if (!loadInventoryCommit(inventoryPath_, targetId, detail) || !detail.hasParent) {
     setMessage("The latest inventory commit could not be loaded", 5, UiMessageSeverity::Error);
     return false;
   }
   store_ = detail.parentSnapshot;
   InventoryCommitDraft draft;
   draft.source = "undo";
-  draft.reference = latest->id;
+  draft.reference = targetId;
   draft.corrective = true;
-  draft.revertedCommitId = latest->id;
-  draft.message = "Undid commit #" + to_string(latest->sequence);
+  draft.revertedCommitId = targetId;
+  draft.message = "Undid commit #" + to_string(targetSequence);
   const bool saved = saveInventoryState(draft);
   syncSelectionToFilter();
   syncRackSelection();
+  // The stock on hand has changed, so the open BOM project is compared again, whichever page pressed Ctrl+Z.
+  if (bomAnalysisValid_) refreshBomAnalysis();
   if (saved) {
-    setMessage("Undid commit #" + to_string(latest->sequence), 4, UiMessageSeverity::Success);
+    setMessage("Undid commit #" + to_string(targetSequence), 4, UiMessageSeverity::Success);
   }
   return saved;
 }

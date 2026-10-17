@@ -379,4 +379,21 @@ bool loadInventoryCommit(const filesystem::path& path, const string& id, Invento
          commitInconsistency(detail.commit, detail.hasParent, detail.changes) == nullptr;
 }
 
+const InventoryCommit* latestUndoableInventoryCommit(const vector<InventoryCommit>& commits) {
+  // Newest first. An undo is itself a commit that changes the inventory, so it must not be undone again: undoing
+  // it would re-apply the change it reverted. Each commit an undo names is skipped instead, so a second Ctrl+Z
+  // steps back to the change before.
+  unordered_set<string> undone;
+  for (const auto& commit : commits) {
+    if (!commit.revertedCommitId.empty()) {
+      undone.insert(commit.revertedCommitId);
+      continue;
+    }
+    if (commit.checkpoint || commit.parentId.empty() || undone.count(commit.id) != 0) continue;
+    if (commit.changedItemCount == 0 && commit.changedRackCount == 0) continue;
+    return &commit;
+  }
+  return nullptr;
+}
+
 }  // namespace inventatory
