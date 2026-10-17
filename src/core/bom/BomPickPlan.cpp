@@ -182,7 +182,7 @@ vector<string> bomPickProblems(const vector<BomPickCommit>& commits, const vecto
 }
 
 VoiceLine bomPickStopTitle(const BomPickStop& stop) {
-  const auto parts = voiceCount(stop.pieces(), "part", "parts");
+  const auto parts = voiceCount(stop.pieces(), "piece", "pieces");
   const auto slots = voiceCount(static_cast<int>(stop.picks.size()), stop.rackId.empty() ? "place" : "slot",
                                 stop.rackId.empty() ? "places" : "slots");
   if (stop.rackId.empty()) return {{"Collect "}, {parts, VoiceTone::Strong}, {" kept outside racks"}};
@@ -193,7 +193,7 @@ VoiceLine bomPickStopTitle(const BomPickStop& stop) {
 VoiceLine bomPickNextStop(const BomPickPlan& plan, size_t stopIndex) {
   if (stopIndex + 1 >= plan.stops.size()) return {{"This is the last stop."}};
   const auto& next = plan.stops[stopIndex + 1];
-  const auto parts = voiceCount(next.pieces(), "part", "parts");
+  const auto parts = voiceCount(next.pieces(), "piece", "pieces");
   if (next.rackId.empty()) return {{"Then "}, {parts, VoiceTone::Strong}, {" kept outside racks."}};
   return {{"Then "},
           {next.title, VoiceTone::Slot},
@@ -238,8 +238,8 @@ VoiceLine bomProjectSummary(const BomAnalysis& analysis, int suggestedMatches) {
 }
 
 VoiceLine bomPickFinishTitle(int taken, int planned) {
-  if (taken == planned) return {{"All "}, {voiceCount(planned, "part is", "parts are"), VoiceTone::Strong}, {" picked"}};
-  return {{to_string(taken) + " of " + voiceCount(planned, "part is", "parts are"), VoiceTone::Strong}, {" picked"}};
+  if (taken == planned) return {{"All "}, {voiceCount(planned, "piece is", "pieces are"), VoiceTone::Strong}, {" picked"}};
+  return {{to_string(taken) + " of " + voiceCount(planned, "piece is", "pieces are"), VoiceTone::Strong}, {" picked"}};
 }
 
 VoiceLine bomPickFinishGuide(const vector<string>& lowAfter, size_t shortLines) {

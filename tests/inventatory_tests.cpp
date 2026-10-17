@@ -12336,10 +12336,10 @@ void testBomPickPlanRoute() {
   assert(plan.shortMatches.size() == 3);
 
   // The guiding sentences read as plain text.
-  assert(voiceText(bomPickStopTitle(rack)) == "Rack 1: take 19 parts from 3 slots");
-  assert(voiceText(bomPickStopTitle(plan.stops[2])) == "Collect 2 parts kept outside racks");
-  assert(voiceText(bomPickNextStop(plan, 0)) == "Then Rack 4: 6 parts from 1 slot.");
-  assert(voiceText(bomPickNextStop(plan, 1)) == "Then 2 parts kept outside racks.");
+  assert(voiceText(bomPickStopTitle(rack)) == "Rack 1: take 19 pieces from 3 slots");
+  assert(voiceText(bomPickStopTitle(plan.stops[2])) == "Collect 2 pieces kept outside racks");
+  assert(voiceText(bomPickNextStop(plan, 0)) == "Then Rack 4: 6 pieces from 1 slot.");
+  assert(voiceText(bomPickNextStop(plan, 1)) == "Then 2 pieces kept outside racks.");
   assert(voiceText(bomPickNextStop(plan, 2)) == "This is the last stop.");
 
   // Project summary and finish lines.
@@ -12351,8 +12351,8 @@ void testBomPickPlanRoute() {
   BomAnalysis none = analysis;
   none.readyCount = 0;
   assert(voiceText(bomProjectSummary(none, 0)) == "None of the 7 parts are in stock.");
-  assert(voiceText(bomPickFinishTitle(27, 27)) == "All 27 parts are picked");
-  assert(voiceText(bomPickFinishTitle(25, 27)) == "25 of 27 parts are picked");
+  assert(voiceText(bomPickFinishTitle(27, 27)) == "All 27 pieces are picked");
+  assert(voiceText(bomPickFinishTitle(25, 27)) == "25 of 27 pieces are picked");
   assert(voiceText(bomPickFinishGuide({"1uF", "10nF"}, 3)) ==
          "Deducting leaves 1uF and 10nF low. 3 lines are still on the shopping list.");
   assert(voiceText(bomPickFinishGuide({}, 0)) == "Nothing runs low after deducting.");
