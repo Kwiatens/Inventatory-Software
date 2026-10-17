@@ -31,9 +31,10 @@ Restore snapshot replaces the current items and racks with the selected commit
 exactly. Reverse changes applies only the selected commit's inverse fields and
 keeps unrelated later edits; it stops if the affected part or rack changed
 afterward. Both operations ask for confirmation and create a new corrective
-commit, leaving existing history untouched. `Ctrl+Z` performs the same kind of
-durable parent restore for the latest inventory-changing commit, even after a
-restart. Save pending inventory changes before using History actions.
+commit, leaving existing history untouched. `Ctrl+Z` undoes the newest change that
+has not been undone yet, even after a restart. Each press steps back one change, so
+pressing it again undoes the change before, and it never re-applies a change it
+undid. Save pending inventory changes before using History actions.
 
 ## Stock workflow
 
@@ -121,7 +122,8 @@ Backspace goes back. Parts that live outside a rack come last, grouped by locati
 At the end, answer whether to subtract the picked parts from stock. Stock is checked
 again before anything is subtracted. If a part changed, or has fewer units than the
 walkthrough takes, nothing is subtracted and the message names the part. Ctrl+Z
-undoes a deduction.
+undoes a deduction when it is the newest change. After other changes, press Ctrl+Z
+once for each of them, then once more for the deduction (see Inventory history).
 
 Projects persist in the inventory database, so reopening the app restores the
 analysis against current stock with no re-upload. `d` forgets one.
