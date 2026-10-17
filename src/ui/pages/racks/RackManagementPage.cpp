@@ -589,6 +589,15 @@ void App::handleRackManagementKey(const KeyEvent& key) {
     return;
   }
 
+  // Escape first cancels a pending move, and stays on the page. Leaving the page would cancel it too, silently.
+  if (key.type == KeyType::Escape && !movingRackItemId_.empty()) {
+    movingRackItemId_.clear();
+    movingRackSource_.clear();
+    setMessage("Move cancelled", 2);
+    dirty_ = true;
+    return;
+  }
+
   if (key.type == KeyType::Tab || key.type == KeyType::Escape) {
     changePage(Page::Stock);
     return;
