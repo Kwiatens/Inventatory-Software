@@ -8,6 +8,7 @@
 #include "core/scanner/InventatoryScanProtocolPrivate.h"
 #include "core/inventory/InventoryInternals.h"
 #include "core/inventory/VendorBagCode.h"
+#include "core/parts/PartDescriptor.h"
 
 #include <algorithm>
 #include <cctype>
@@ -237,6 +238,11 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
   return out.str();
 }
 
+string deviceItemName(const InventoryItem& item) {
+  if (item.partName.size() <= kDeviceItemNameLimit) return item.partName;
+  return partShortDescription(item);
+}
+
 DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuantityRequest& request) {
   DeviceQuantityResult result;
   result.requestedDelta = request.delta;
@@ -266,7 +272,7 @@ DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuan
   item->lastUpdated = time(nullptr);
   result.httpStatus = 200;
   result.ok = true;
-  result.item = item->partName;
+  result.item = deviceItemName(*item);
   result.appliedDelta = newQuantity - oldQuantity;
   result.quantity = newQuantity;
   return result;

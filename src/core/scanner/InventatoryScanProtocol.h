@@ -205,6 +205,10 @@ bool retryFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std:
 bool discardFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std::size_t& discardedCount);
 bool completeDeviceSyncEvent(InventoryStore& store, const std::filesystem::path& databasePath,
                               const DeviceSyncResult& result, const InventoryStore* previousStore = nullptr);
+// The Scan R1 shows an item name on two lines of about 22 characters, so a longer name is cut off. The
+// device gets the part's short label instead of a name longer than this.
+constexpr std::size_t kDeviceItemNameLimit = 40U;
+std::string deviceItemName(const InventoryItem& item);
 DeviceLookupResult lookupDeviceItem(const std::filesystem::path& databasePath,
                                     const DeviceLookupRequest& request);
 DeviceQuantityResult applyDeviceQuantity(InventoryStore& store, const DeviceQuantityRequest& request);

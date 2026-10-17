@@ -6297,6 +6297,40 @@ void testTmeLabelScan() {
   assert(placeholder->syncStatus == "synced");
 }
 
+void testDeviceItemNameFitsTheScanR1Screen() {
+  // A TME title is longer than the Scan R1 screen can show, so the device gets the part's short label.
+  InventoryItem tme;
+  tme.id = "device-name-tme";
+  tme.partName = "Connector: pin strips; socket; female; data; PIN: 40; THT; straight";
+  tme.category = "Connectors, Interconnects";
+  tme.manufacturer = "CONNFLY";
+  tme.sku = "ZL262-40SG";
+  tme.machineCode = "0095";
+  tme.vendorMetadata.provider = "tme";
+  tme.vendorMetadata.providerProductNumber = "ZL262-40SG";
+  tme.vendorMetadata.manufacturerPartNumber = "DS1023-1*40S21";
+  tme.vendorMetadata.categoryPath = {"Connectors, Interconnects"};
+  tme.vendorMetadata.title = tme.partName;
+  assert(deviceItemName(tme) == partShortDescription(tme));
+  assert(deviceItemName(tme) == "Connector");
+
+  // A name that fits the screen is sent unchanged.
+  InventoryItem resistor;
+  resistor.partName = "10k resistor";
+  assert(deviceItemName(resistor) == "10k resistor");
+
+  // The lookup for a stored long title sends the same short label.
+  const auto path = testTempRoot() / "inventatory-device-item-name-test.db";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+  InventoryStore store;
+  store.items().push_back(tme);
+  assert(store.save(path));
+  const auto found = lookupDeviceItem(path, {"device-name-lookup-1", "ZL262-40SG"});
+  assert(found.status == "found");
+  assert(found.itemName == "Connector");
+}
+
 void testTmeScanEventCommitsAndLooksUp() {
   // The event a TME label scan sends: the R1 builds its code from the symbol and the manufacturer part number.
   const string code = "PN:ZL262-40SG MPN:DS1023-1*40S21";
@@ -15618,6 +15652,7 @@ const vector<TestCase>& registeredTests() {
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
     {"scan", "DeviceEventIdConflictIsRefused", testDeviceEventIdConflictIsRefused},
+    {"scan", "DeviceItemNameFitsTheScanR1Screen", testDeviceItemNameFitsTheScanR1Screen},
     {"scan", "TmeScanEventCommitsAndLooksUp", testTmeScanEventCommitsAndLooksUp},
     {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},
     {"tme", "TmeItemsAutoPlaceInRacks", testTmeItemsAutoPlaceInRacks},
