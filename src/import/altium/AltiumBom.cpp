@@ -22,6 +22,7 @@ namespace {
 struct AltiumColumns {
   int designator = -1;
   int value = -1;
+  int name = -1;
   int footprint = -1;
   int quantity = -1;
   int supplier = -1;
@@ -52,6 +53,8 @@ AltiumColumns mapAltiumColumns(const vector<string>& headers) {
   // Comment is Altium's value column. Description is the fallback when the report has no Comment.
   // To be checked against a real Altium export.
   columns.value = findColumnByPriority(headers, {"Comment", "Description"});
+  // Name is the last choice for a row that has neither. EasyEDA reads its Name column as the part name the same way.
+  columns.name = findColumnByPriority(headers, {"Name"});
   // To be checked against a real Altium export.
   columns.footprint = findColumnByPriority(headers, {"Footprint", "Pattern"});
   // To be checked against a real Altium export. "Qty" is not an alias: KiCad writes that header, and BomImport.cpp
@@ -77,10 +80,11 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     return bom;
   }
 
-  // Quoted cells are read by the shared CSV scanner, which keeps a delimiter inside quotes as part of the cell.
+  // Quoted cells are read by the shared CSV scanner, which keeps a delimiter inside quotes as part of the cell. Some
+  // Altium 365 exports write an inch mark inside a quoted cell as \", so there the backslash must not end the cell.
   const auto cleaned = stripByteOrderMark(text);
   string parseError;
-  const auto rows = parseCsv(cleaned, sniffDelimiter(cleaned), parseError);
+  const auto rows = parseCsvBackslashQuotes(cleaned, sniffDelimiter(cleaned), parseError);
   if (!parseError.empty()) {
     bom.error = parseError;
     return bom;
@@ -99,6 +103,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
   // Each reference designator may appear once across the whole export. A repeated reference would count one
   // physical part twice, so the whole file is refused and the message names the reference.
   unordered_map<string, size_t> designatorRows;
+  const auto columnCount = rows.front().size();
   for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
     const auto& row = rows[rowIndex];
     // A row of delimiters with nothing in any cell (a spreadsheet leaves these at the end of a file) holds no part.
@@ -107,6 +112,25 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     }
     const auto sourceRow = rowIndex + 1;
     const auto rowLabel = "Row " + to_string(sourceRow) + ": ";
+
+    // A cell past the last column means a quote was misread and the cells after it are read from the wrong columns.
+    // Empty cells past the last column are harmless, and are ignored.
+    for (size_t cell = columnCount; cell < row.size(); ++cell) {
+      if (!row[cell].empty()) {
+        bom.error = rowLabel +
+                    "has a cell past the last column, so a quote is probably misread. Fix the BOM export and import it "
+                    "again.";
+        return bom;
+      }
+    }
+
+    // A total at the foot of a report has a price and no part: none of the part columns is filled. It holds no part,
+    // so it is skipped. A row with a supplier or part number but no designator is still refused below.
+    const auto partColumns = {columns.designator, columns.value, columns.footprint, columns.quantity,
+                              columns.supplier, columns.supplierPart, columns.manufacturerPart};
+    if (all_of(partColumns.begin(), partColumns.end(), [&](int column) { return csvCell(row, column).empty(); })) {
+      continue;
+    }
 
     BomLine line;
     line.sourceRow = sourceRow;
@@ -121,7 +145,10 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     }
     line.designation = csvCell(row, columns.value);
     if (line.designation.empty()) {
-      bom.error = rowLabel + "has no Comment or Description for " + join(line.designators, ',') +
+      line.designation = csvCell(row, columns.name);
+    }
+    if (line.designation.empty()) {
+      bom.error = rowLabel + "has no Comment, Description or Name for " + join(line.designators, ',') +
                   ". Fix the BOM export and import it again.";
       return bom;
     }

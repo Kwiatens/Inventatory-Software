@@ -55,6 +55,10 @@ char sniffDelimiter(const string& text);
 vector<vector<string>> parseCsv(const string& text, char delimiter, string& error,
                                 size_t maxRows = (std::numeric_limits<size_t>::max)());
 
+// parseCsv for an export that writes a quote inside a quoted cell as \" (an Altium 365 export does, for an inch mark).
+// Inside quotes, \" is one quote and does not end the cell. Everything else is read exactly as parseCsv reads it.
+vector<vector<string>> parseCsvBackslashQuotes(const string& text, char delimiter, string& error);
+
 // Lowercases and strips every non-alphanumeric character, so "Digi-Key Part #"
 // and "digikey part number" collapse onto comparable keys.
 string normalizeHeader(string value);

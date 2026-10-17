@@ -11905,11 +11905,24 @@ void testAltiumRefusesAmbiguousRows() {
 
   // A row with no value cannot be priced or matched, so it is refused too.
   const auto noValue = parseAltiumBomText(header + ",R1,R0402,1\n", "no value");
-  assert(!noValue.ok && noValue.error.find("has no Comment or Description") != string::npos);
+  assert(!noValue.ok && noValue.error.find("has no Comment, Description or Name") != string::npos);
+  const auto emptyName = parseAltiumBomText("Comment,Description,Designator,Name,Quantity\n,,R1,,1\n", "empty name");
+  assert(!emptyName.ok && emptyName.error.find("has no Comment, Description or Name") != string::npos);
 
   // A quantity that is not a whole number means the export is damaged.
   const auto badQuantity = parseAltiumBomText(header + "10k,R1,R0402,two\n", "bad quantity");
   assert(!badQuantity.ok && badQuantity.error.find("is not a whole number") != string::npos);
+
+  // A cell past the last column means a quote was misread, so the row is refused. Empty cells past it are harmless.
+  const auto shifted = parseAltiumBomText(header + "10k,R1,R0402,1,extra\n", "shifted");
+  assert(!shifted.ok && shifted.error.find("has a cell past the last column") != string::npos);
+  const auto trailingCommas = parseAltiumBomText(header + "10k,R1,R0402,1,,\n", "trailing commas");
+  assert(trailingCommas.ok && trailingCommas.lines.size() == 1);
+
+  // A part with a part number but no designator is still refused, so a total row can never hide a part.
+  const auto partWithoutDesignator =
+      parseAltiumBomText("Comment,Designator,Manufacturer Part Number 1\n,,SYN-PART-1\n", "part without designator");
+  assert(!partWithoutDesignator.ok && partWithoutDesignator.error.find("has no designator") != string::npos);
 }
 
 void testAltiumHeaderErrors() {
@@ -11940,6 +11953,55 @@ void testAltiumQuantityConflictIsKept() {
 
   const auto matching = parseAltiumBomText(header + "10k,\"R1,R2\",R0402,2\n", "matching");
   assert(matching.ok && !matching.lines.front().quantityConflict && matching.lines.front().quantityPerBoard == 2);
+}
+
+void testAltium365ExportReachesAltiumParser() {
+  // An Altium 365 export has no Comment column and reads its value from Description. It reaches the Altium parser,
+  // which reads its supplier columns. The KiCad parser reads neither, so it would refuse the file.
+  const auto text = readAltiumFixture("altium-365.csv");
+  assert(detectCsvFormat(text) == CsvFormat::KicadBom);
+  assert(!parseKicadBomText(text, "Altium 365").ok);
+  const auto bom = parseBomText(text, "Altium 365");
+  assert(bom.ok && bom.lines.size() == 4);
+
+  // The resistors have two designators and the Mouser supplier columns.
+  const auto& resistors = bom.lines[0];
+  assert(resistors.designation == "Synthetic resistor, 10k 1%");
+  assert(resistors.designators == (vector<string>{"R1", "R2"}));
+  assert(resistors.quantityPerBoard == 2 && !resistors.quantityConflict);
+  assert(resistors.supplier == "Mouser" && resistors.supplierPartNumber == "999-SYN-RES-10K");
+
+  // A quote written as \" inside a quoted cell stays a quote, and the cells after it stay in their own columns.
+  const auto& header = bom.lines[1];
+  assert(header.designation == "10 Pin Shrouded Header, 0.050\", Key Pin 7");
+  assert(header.designators == (vector<string>{"J4"}) && header.quantityPerBoard == 1);
+  assert(header.supplier == "Digikey" && header.supplierPartNumber == "SYN-HDR-1000-ND");
+  assert(header.manufacturerPartNumber == "SYN-HDR-10");
+
+  // The microcontroller has no supplier, so its supplier columns stay empty.
+  const auto& mcu = bom.lines[2];
+  assert(mcu.designators == (vector<string>{"U1"}) && mcu.supplier.empty());
+
+  // A row with an empty Description takes its Name as the part name, as an EasyEDA row does.
+  const auto& connector = bom.lines[3];
+  assert(connector.designation == "SYN-CONN-0001" && connector.designators == (vector<string>{"P7"}));
+  assert(connector.supplier == "Digikey" && connector.supplierPartNumber == "SYN-CONN-1000-ND");
+
+  // The total at the foot holds a price and no part, so it is neither a line nor a warning.
+  assert(bom.warnings.empty());
+}
+
+void testAltiumBackslashQuotes() {
+  // In the backslash reader, \" inside a quoted cell is one quote, and the cell goes on to its real closing quote.
+  string error;
+  const auto escaped = parseCsvBackslashQuotes("\"0.050\\\", key\",x\n", ',', error);
+  assert(error.empty() && escaped.size() == 1 && escaped.front().size() == 2);
+  assert(escaped.front()[0] == "0.050\", key" && escaped.front()[1] == "x");
+
+  // The shared reader is unchanged: the same text ends the cell at the backslash, as it always has.
+  const auto shared = parseCsv("\"0.050\\\", key\",x\n", ',', error);
+  assert(error.empty() && shared.size() == 1 && shared.front().size() == 3);
+  assert(shared.front()[0] == "0.050\\");
 }
 
 void testAltiumDetectionKeepsOtherDialects() {
@@ -15421,6 +15483,8 @@ const vector<TestCase>& registeredTests() {
     {"bom", "AltiumHeaderErrors", testAltiumHeaderErrors},
     {"bom", "AltiumQuantityConflictIsKept", testAltiumQuantityConflictIsKept},
     {"bom", "AltiumDetectionKeepsOtherDialects", testAltiumDetectionKeepsOtherDialects},
+    {"bom", "Altium365ExportReachesAltiumParser", testAltium365ExportReachesAltiumParser},
+    {"bom", "AltiumBackslashQuotes", testAltiumBackslashQuotes},
     {"bom", "BomPickCommitsAndProblems", testBomPickCommitsAndProblems},
     {"bom", "BomUnconfirmedLinesAreNeverPicked", testBomUnconfirmedLinesAreNeverPicked},
     {"bom", "BomSuggestionVerification", testBomSuggestionVerification},
