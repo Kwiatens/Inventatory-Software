@@ -2511,6 +2511,46 @@ void testInventoryHistoryValidation() {
 
 // A reversal must never produce, and the commit writer must never store, a snapshot that history
 // validation would later reject: that would make the whole database unloadable.
+void testLatestUndoableInventoryCommit() {
+  // Commits are newest first, as the history lists them. Commit 1 is the initial inventory and has no parent.
+  const auto commit = [](const string& id, const string& parent, uint64_t sequence, const string& reverted = {},
+                         size_t changed = 1) {
+    InventoryCommit result;
+    result.id = id;
+    result.parentId = parent;
+    result.sequence = sequence;
+    result.revertedCommitId = reverted;
+    result.corrective = !reverted.empty();
+    result.changedItemCount = changed;
+    return result;
+  };
+  const auto initial = commit("c1", "", 1, {}, 0);
+
+  // A build (c2), a move (c3), and the first undo, which reverted the move (c4). The next undo must reverse the build,
+  // not the undo: undoing c4 would put the move back.
+  const vector<InventoryCommit> afterFirstUndo = {commit("c4", "c3", 4, "c3"), commit("c3", "c2", 3),
+                                                  commit("c2", "c1", 2, {}, 4), initial};
+  const auto* target = latestUndoableInventoryCommit(afterFirstUndo);
+  assert(target != nullptr && target->id == "c2");
+
+  // After the build is undone too there is nothing left: the initial inventory has no parent to restore.
+  const vector<InventoryCommit> afterSecondUndo = {commit("c5", "c4", 5, "c2"), commit("c4", "c3", 4, "c3"),
+                                                   commit("c3", "c2", 3), commit("c2", "c1", 2, {}, 4), initial};
+  assert(latestUndoableInventoryCommit(afterSecondUndo) == nullptr);
+
+  // A change made after an undo is the next thing to undo, and the undone history stays skipped below it.
+  const vector<InventoryCommit> newChange = {commit("c6", "c5", 6), commit("c5", "c4", 5, "c2"),
+                                             commit("c4", "c3", 4, "c3"), commit("c3", "c2", 3),
+                                             commit("c2", "c1", 2, {}, 4), initial};
+  target = latestUndoableInventoryCommit(newChange);
+  assert(target != nullptr && target->id == "c6");
+
+  // A commit that changed nothing is not an undo target, and an empty history has nothing to undo.
+  const vector<InventoryCommit> noChanges = {commit("c2", "c1", 2, {}, 0), initial};
+  assert(latestUndoableInventoryCommit(noChanges) == nullptr);
+  assert(latestUndoableInventoryCommit({}) == nullptr);
+}
+
 void testInventoryCommitSnapshotsStayValid() {
   const auto path = testTempRoot() / "inventatory-commit-snapshot-validity-test.db";
   error_code cleanupError;
@@ -15301,6 +15341,7 @@ const vector<TestCase>& registeredTests() {
     {"history", "InventoryHistoryValidation", testInventoryHistoryValidation},
     {"history", "InventoryCommitSnapshotsStayValid", testInventoryCommitSnapshotsStayValid},
     {"history", "InventoryCommitDiffSeparatesAmbiguousValues", testInventoryCommitDiffSeparatesAmbiguousValues},
+    {"history", "LatestUndoableInventoryCommit", testLatestUndoableInventoryCommit},
     {"history", "SnapshotSemanticsRejectInvalidSnapshots", testSnapshotSemanticsRejectInvalidSnapshots},
     {"import", "DigiKeyOversizedJsonStrings", testDigiKeyOversizedJsonStrings},
     {"import", "DigiKeyParsingRobustness", testDigiKeyParsingRobustness},
