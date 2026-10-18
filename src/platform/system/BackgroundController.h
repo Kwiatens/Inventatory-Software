@@ -49,6 +49,12 @@ class BackgroundController {
   bool signalExistingInstance() const;
   bool backgroundServiceRunning() const;
   bool interactiveInstanceRunning() const;
+#ifndef _WIN32
+  // Blocks while a terminal session or another background process holds the workspace, then returns
+  // without taking it. The service waits here rather than exiting, because systemd restarts it after
+  // any exit other than `systemctl stop`, which would loop for as long as the session stays open.
+  void waitForWorkspaceRelease() const;
+#endif
   bool requestBackgroundServiceQuit() const;
   bool waitForBackgroundServiceToStop(int timeoutMs) const;
   // Terminates a background service that ignored the quit request. Only a process verified to be
