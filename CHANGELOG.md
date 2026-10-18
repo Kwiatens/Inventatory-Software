@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - History: Ctrl+Z steps back one change per press. A second press no longer re-applies the change it undid, and the Projects comparison refreshes after an undo.
 - Racks: Escape cancels a move that is in progress and stays on the Racks page, instead of leaving it.
 - A part whose name is too long for the Scan R1 screen shows its short label, such as `Connector`, instead of a name cut off on the screen.
+- Linux: the background service restarts after a stop it did not ask for, such as `pkill -x inventatory`, and takes over when the terminal app closes unexpectedly. The Scan R1 keeps connecting without opening Inventatory.
 
 ## [v0.1.6] - 2026-10-16
 

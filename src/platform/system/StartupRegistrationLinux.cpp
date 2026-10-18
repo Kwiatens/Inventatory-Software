@@ -222,9 +222,12 @@ filesystem::path registeredExecutable() {
 }
 
 std::string backgroundUnitContents(const filesystem::path& executable) {
+  // Restart=always: a SIGTERM from outside systemd (for example `pkill -x inventatory`) is a clean exit,
+  // and Restart=on-failure never restarts a clean exit, which left the service down. `systemctl --user
+  // stop` still stops it for good.
   return "[Unit]\nDescription=Inventatory Scan R1 background service\n\n" +
          std::string("[Service]\nType=simple\nExecStart=") + systemdQuoted(executable.u8string()) +
-         " --background\nRestart=on-failure\nTimeoutStopSec=15\n\n[Install]\nWantedBy=default.target\n";
+         " --background\nRestart=always\nRestartSec=5\nTimeoutStopSec=15\n\n[Install]\nWantedBy=default.target\n";
 }
 
 }  // namespace

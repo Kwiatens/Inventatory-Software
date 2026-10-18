@@ -63,7 +63,13 @@ bool takeOverFromBackgroundService(inventatory::BackgroundController& controller
 
 int runInventatory(bool startInBackground, std::filesystem::path& updateMarkerPath) {
   inventatory::BackgroundController backgroundController;
+#ifndef _WIN32
+  // While a terminal session owns the workspace, the service waits here rather than exiting; it takes the
+  // workspace as soon as the session closes, or when the session dies without restoring it.
+  if (startInBackground) backgroundController.waitForWorkspaceRelease();
+#else
   if (startInBackground && backgroundController.interactiveInstanceRunning()) return 0;
+#endif
   if (!backgroundController.acquireSingleInstance(startInBackground)) {
     if (startInBackground) return 0;
     const bool existingWindowNotified = backgroundController.signalExistingInstance();

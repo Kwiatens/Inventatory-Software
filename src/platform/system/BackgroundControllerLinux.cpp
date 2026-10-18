@@ -271,6 +271,12 @@ bool BackgroundController::interactiveInstanceRunning() const {
   return running;
 }
 
+void BackgroundController::waitForWorkspaceRelease() const {
+  while (interactiveInstanceRunning() || backgroundServiceRunning()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+}
+
 bool BackgroundController::requestBackgroundServiceQuit() const {
   return sendProcessSignal(lockedProcessId(true), SIGTERM);
 }

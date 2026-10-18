@@ -13710,6 +13710,32 @@ void testSignalExistingInstanceOpensWindow() {
   filesystem::remove_all(runtimeRoot, signalCleanupError);
 }
 
+void testBackgroundServiceWaitsForWorkspace() {
+  // A background service started while a terminal session owns the workspace waits for it instead of
+  // exiting, and takes the workspace as soon as the session lets go.
+  const auto runtimeRoot = testTempRoot() / ("inventatory-wait-test-" + to_string(getpid()));
+  filesystem::create_directories(runtimeRoot);
+  filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
+  const ScopedEnvironment runtimeDirectory("XDG_RUNTIME_DIR", runtimeRoot.string());
+
+  BackgroundController terminal;
+  assert(terminal.acquireSingleInstance(false));
+  thread releaser([&terminal] {
+    this_thread::sleep_for(chrono::milliseconds(400));
+    terminal.stop();
+  });
+  const auto waitBegan = chrono::steady_clock::now();
+  BackgroundController service;
+  service.waitForWorkspaceRelease();
+  assert(chrono::steady_clock::now() - waitBegan >= chrono::milliseconds(300));
+  releaser.join();
+  assert(!service.interactiveInstanceRunning());
+  assert(service.acquireSingleInstance(true));
+  service.stop();
+  error_code cleanupError;
+  filesystem::remove_all(runtimeRoot, cleanupError);
+}
+
 void testBackgroundServiceTakeover() {
   // Background-service takeover, in a private runtime directory so no real service is touched.
   const auto runtimeRoot = testTempRoot() / ("inventatory-takeover-test-" + to_string(getpid()));
@@ -13939,6 +13965,10 @@ void testSystemdUnitRegistration() {
   assert(unitText.find("After=network-online.target") == string::npos);
   assert(unitText.find("TimeoutStopSec=15") != string::npos);
   assert(unitText.find("--background") != string::npos);
+  // A clean exit, such as the SIGTERM from `pkill -x inventatory`, is never restarted under on-failure.
+  assert(unitText.find("\nRestart=always\n") != string::npos);
+  assert(unitText.find("Restart=on-failure") == string::npos);
+  assert(unitText.find("\nRestartSec=5\n") != string::npos);
 
   // An existing registration that still resolves keeps its executable.
   {
@@ -15742,6 +15772,7 @@ const vector<TestCase>& registeredTests() {
 #ifndef _WIN32
     {"platform", "SignalExistingInstanceOpensWindow", testSignalExistingInstanceOpensWindow},
     {"platform", "BackgroundServiceTakeover", testBackgroundServiceTakeover},
+    {"platform", "BackgroundServiceWaitsForWorkspace", testBackgroundServiceWaitsForWorkspace},
     {"platform", "SystemdUnitRegistration", testSystemdUnitRegistration},
 #endif
     {"scanner", "ScannerHttpNegativeCases", testScannerHttpNegativeCases},
