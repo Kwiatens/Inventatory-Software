@@ -53,7 +53,7 @@ class BleProvisioningService {
 
   mutable std::mutex mutex_;
   std::vector<BleSetupDevice> devices_;
-  // Last-seen time per device, to evict the stalest when the list is full. Guarded by mutex_.
+  // Last-seen time per device. Linux evicts the stalest entry when full; Windows does not. Guarded by mutex_.
   std::unordered_map<std::uint64_t, std::chrono::steady_clock::time_point> lastSeen_;
   std::thread worker_;
   bool discovering_ = false;
