@@ -34,8 +34,7 @@ enum class BleProvisioningOutcome {
   Indeterminate,
 };
 
-// Windows BLE transport. Credentials are passed only to an authenticated,
-// encrypted GATT characteristic and never written to files or diagnostic logs.
+// Windows BLE transport. Credentials go only to an authenticated, encrypted GATT characteristic.
 class BleProvisioningService {
  public:
   BleProvisioningService();
@@ -54,7 +53,7 @@ class BleProvisioningService {
 
   mutable std::mutex mutex_;
   std::vector<BleSetupDevice> devices_;
-  // When each listed device was last seen, so a full list can evict the stalest entry. Guarded by mutex_.
+  // Last-seen time per device, to evict the stalest when the list is full. Guarded by mutex_.
   std::unordered_map<std::uint64_t, std::chrono::steady_clock::time_point> lastSeen_;
   std::thread worker_;
   bool discovering_ = false;

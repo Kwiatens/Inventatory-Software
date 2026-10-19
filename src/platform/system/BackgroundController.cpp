@@ -38,8 +38,7 @@ UINT taskbarCreatedMessage() {
   return message;
 }
 
-// Explorer may not have created the taskbar yet when the service starts at sign-in, and it
-// re-creates it after a shell restart; the icon is added again whenever that happens.
+// The taskbar may not exist yet at sign-in, and Explorer re-creates it after a shell restart.
 bool addTrayIcon(HWND window) {
   NOTIFYICONDATAW icon{};
   icon.cbSize = sizeof(icon);
@@ -217,8 +216,7 @@ bool BackgroundController::waitForBackgroundServiceToStop(int timeoutMs) const {
 bool BackgroundController::forceStopBackgroundService() const {
   const auto own = currentExecutablePath();
   if (own.empty()) return false;
-  // The single-instance mutexes are per logon session, so only a process of this session can be the
-  // background service this launch is waiting for.
+  // The single-instance mutexes are per logon session, so only this session's processes can match.
   DWORD ownSession = 0;
   if (ProcessIdToSessionId(GetCurrentProcessId(), &ownSession) == 0) return false;
   const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -238,8 +236,7 @@ bool BackgroundController::forceStopBackgroundService() const {
     std::wstring image(32768, L'\0');
     DWORD length = static_cast<DWORD>(image.size());
     FILETIME created{};
-    // Only an older process running this very executable can be the background service the
-    // interactive launch is waiting for; this launch already owns the interactive mutex.
+    // Only an older process running this executable can be the service being replaced.
     if (QueryFullProcessImageNameW(process, 0, image.data(), &length) != 0) {
       image.resize(length);
       if (_wcsicmp(image.c_str(), own.c_str()) == 0 &&

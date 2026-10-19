@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Inventatory Rack management page rendering and keyboard handling.
+// Rack management page rendering and keyboard handling.
 
 #include "App.h"
 
@@ -64,8 +63,7 @@ string packageSummary(const InventoryItem& item) {
   return "-";
 }
 
-// A part mid-move gets a distinct blue-gray active highlight: brighter on its grid
-// cell, dimmer on the informational banner in the slot detail panel.
+// The moving part's grid cell and its detail banner use different active fills.
 ftxui::Color rackMovingSourceBg() {
   return uiActiveBg();
 }
@@ -88,11 +86,11 @@ string shortComponentType(const string& componentType) {
 
 namespace rack_page_detail {
 
-// One slot's contents: the part name split into dim type, bold value and dim specification (as many lines as the
-// cell height allows), and a bold quantity line colored by stock state. Out of stock also says so in words.
+// One slot's contents: type, bold value and specification as the cell height allows,
+// then the quantity. Out of stock also says OUT.
 ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowStockThreshold, int cellWidth,
                             int rowHeight) {
-  // Narrow cells (the 100-column terminal) give up their padding so a value such as 0.47UF stays whole.
+  // Narrow cells drop their padding so a value such as 0.47UF stays whole.
   const bool narrow = cellWidth < 10;
   const int textWidth = max(1, narrow ? cellWidth : cellWidth - 2);
   const int areaLines = max(1, rowHeight - 1);
@@ -104,7 +102,7 @@ ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowSto
            ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth);
   };
   ftxui::Elements area;
-  // The text block floats in the middle of tall cells; the quantity stays pinned to the bottom edge.
+  // Centre the text in tall cells; the quantity stays at the bottom.
   area.push_back(ftxui::filler());
   if (parts.type.empty() || areaLines == 1) {
     // No recognizable value, or no room to split: the whole name in bold, wrapped to the cell.
@@ -119,8 +117,7 @@ ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowSto
       for (const auto& text : lines) area.push_back(line(uiHeaderText(text, strong)));
     }
   } else if (static_cast<int>(ftxui::string_width(parts.type)) > textWidth) {
-    // Too narrow for the type, which the rack's own type already implies: value first, then the specification
-    // wrapped over the remaining lines.
+    // Too narrow for the type, which the rack already implies: value first, then the spec wrapped.
     area.push_back(line(uiHeaderText(ellipsize(parts.value, static_cast<size_t>(textWidth)), strong)));
     auto specLines = wrapText(parts.spec, textWidth);
     const int specRoom = areaLines - 1;
@@ -133,7 +130,7 @@ ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowSto
     for (const auto& text : specLines) area.push_back(line(styledText(text, dim)));
   } else if (areaLines == 2) {
     area.push_back(line(uiHeaderText(ellipsize(parts.value, static_cast<size_t>(textWidth)), strong)));
-    // Two lines leave room for one more fact: the specification, since the rack's type already implies the kind.
+    // Two lines: the value, then the specification (the rack type already implies the kind).
     const auto& secondLine = parts.spec.empty() ? parts.type : parts.spec;
     string secondText = ellipsize(secondLine, static_cast<size_t>(textWidth));
     if (narrow) {
@@ -169,14 +166,12 @@ ftxui::Element App::renderRackManagementUi() const {
   const auto* rack = selectedRack();
   const auto selectedSlot = selectedRackSlot();
   const auto* selectedSlotItem = selectedRackItem();
-  // The supported 100-column terminal still keeps the rack matrix beside its
-  // context panels. Stacking would make the 5x5 grid taller than the viewport.
+  // Even at 100 columns the matrix stays beside the panels.
+  // Stacking would make the 5x5 grid too tall.
   const bool compact = screenWidth < 100;
   const int listWidth = screenWidth < 118 ? 26 : 31;
   int detailWidth = screenWidth < 118 ? 29 : (screenWidth < 160 ? 34 : 40);
-  // In the horizontal layout, account for its two one-column separators. The
-  // compact layout stacks the grid below the side panels, so it uses the full
-  // screen width instead.
+  // Horizontal layout reserves the two separator columns. Compact uses the full width.
   int gridWidth = compact ? screenWidth : max(42, screenWidth - listWidth - detailWidth - 2);
   constexpr int rowDesignatorWidth = 3;
   const int colCount = rack != nullptr && rackRowCount(*rack) > 0 ? rackRowCount(*rack) : 5;
@@ -189,14 +184,10 @@ ftxui::Element App::renderRackManagementUi() const {
     gridWidth = fittedGridWidth;
   }
 
-  // Rack code, type, and a right-aligned occupancy column that ends one cell
-  // short of the panel edge. Type absorbs the remaining width so the numbers
-  // sit flush right instead of floating in the middle of the panel.
+  // Code, type, then a right-aligned occupancy column. Type takes the remaining width.
   constexpr int rackCodeWidth = 5;
   constexpr int rackUsedWidth = 12;
-  // The scroll indicator owns the final column of the rack-list body. Keep
-  // the table itself one column narrower so its fixed columns remain intact
-  // at the supported 100-column layout.
+  // The scroll indicator takes the last column, so the table is one column narrower.
   const int rackContentWidth = listWidth - 1;
   const int rackTypeWidth = max(1, rackContentWidth - rackCodeWidth - rackUsedWidth - 1);
 
@@ -252,23 +243,17 @@ ftxui::Element App::renderRackManagementUi() const {
     if (rackGridRows == 0 || rackGridColumns == 0) {
       gridRows.push_back(fullLine("Rack dimensions are unavailable.", uiWarnColor(), uiPanelRightBg()));
     } else {
-      // The left header cell labels the physical row numbers; the header cells
-      // above them label the lettered rack columns. Both dimensions come from
-      // the selected rack instead of assuming the default five-by-five size.
+      // Row numbers down the left, column letters across the top, both from the selected rack.
       constexpr int rowHeaderWidth = 3;
       const int designatorWidth = rowHeaderWidth;
-      // Fixed vertical chrome across the whole application window:
-      // Shell: Header (1) + Top Divider (1) + Bottom Divider (1) + Search/Context (1) + Message (1) = 5 rows
-      // Grid: Letter Header (1) + Header Divider (1) + (rackGridColumns - 1) row dividers + optional filter banner (1)
+      // Rows outside the slots: the shell (5), the grid header and row dividers,
+      // the optional filter banner, and the footer (a divider and a summary band).
       const int shellChromeRows = 5;
-      // Footer: one divider plus a summary band of at least one row.
       const int gridChromeRows = 2 + (rackGridColumns - 1) + 2 + (!rackFilter_.empty() ? 1 : 0);
       const int totalNonSlotRows = shellChromeRows + gridChromeRows;
       const int slotRowsSpace = max(rackGridColumns * 3, screenHeight - totalNonSlotRows);
       const int slotHeight = rack_page_detail::equalRackSlotHeight(slotRowsSpace, rackGridColumns);
-      // Identical slots cannot absorb a remainder, and the letter header and row-number column never change size,
-      // so the rows left over by the floor division go to the summary band under the matrix. The matrix then
-      // ends exactly on the bottom edge instead of leaving a gap.
+      // Leftover rows go to the summary band, so the matrix ends on the bottom edge.
       const int footerBandRows = 1 + rack_page_detail::rackSlotRemainderRows(slotRowsSpace, rackGridColumns, slotHeight);
       ftxui::Elements columnHeaders;
       columnHeaders.push_back(rackCenteredCell("", designatorWidth, uiDimColor()));
@@ -282,13 +267,9 @@ ftxui::Element App::renderRackManagementUi() const {
       }
       gridRows.push_back(ftxui::hbox(move(columnHeaders)) | ftxui::bgcolor(uiPanelRightBg()));
       gridRows.push_back(uiDivider());
-      // Display the rack like the physical unit: slot numbers run downward
-      // within each lettered column, while letters advance from left to right.
-      // Keep the existing rackRow_/rackColumn_ state and slot lookup untouched
-      // by translating the visual coordinates back to storage coordinates here.
+      // Numbers run down each lettered column, as on the rack. Storage coordinates are unchanged.
       for (int displayRow = 0; displayRow < rackGridColumns; ++displayRow) {
-        // Keep every physical slot row identical. Floor division ensures that
-        // the matrix fits strictly within the available vertical space.
+        // Every slot row has the same height.
         const int rowHeight = slotHeight;
         ftxui::Elements rowCells;
         auto rowDesignator = ftxui::vbox({
@@ -318,8 +299,7 @@ ftxui::Element App::renderRackManagementUi() const {
           } else {
             cellRows.push_back(rack_page_detail::rackCellBody(*item, selected, settings_.lowStockThreshold, cellWidth, rowHeight));
           }
-          // Apply the fill after the fixed geometry so every slot, including
-          // the selected one, paints its complete equal-sized rectangle.
+          // Fill after the fixed size so every slot paints its full rectangle.
           auto cell = ftxui::vbox(move(cellRows)) |
                       ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth) |
                       ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rowHeight) |
@@ -342,7 +322,7 @@ ftxui::Element App::renderRackManagementUi() const {
           gridRows.push_back(uiDivider());
         }
       }
-      // Footer band: rack summary, vertically centered in the rows the slots could not use.
+      // Summary band, centred in the rows the slots could not use.
       size_t lowSlots = 0;
       size_t outSlots = 0;
       for (const auto& candidate : store_.items()) {
@@ -389,7 +369,6 @@ ftxui::Element App::renderRackManagementUi() const {
                                                                                                       : uiAccentColor())}));
     } else {
       const auto& slotItem = *selectedSlotItem;
-      // The part is the subject: full name in bold, then who makes it.
       detailRows.push_back(ftxui::hbox({ftxui::text(" "), ftxui::paragraphAlignLeft(slotItem.partName) | ftxui::bold |
                                                               ftxui::color(uiPrimaryText())}));
       detailRows.push_back(styledText(" " + ellipsize(trim(slotItem.manufacturer).empty() ? string("Unknown manufacturer")
@@ -412,7 +391,7 @@ ftxui::Element App::renderRackManagementUi() const {
       detailRows.push_back(ftxui::hbox(move(strip)) | ftxui::bgcolor(uiRaisedSurfaceBg()));
       detailRows.push_back(ftxui::text(""));
 
-      // The same specifications the Stock page leads with, then the package.
+      // Same specifications as the Stock page, then the package.
       size_t shown = 0;
       for (const auto& field : electricalFieldsForItem(slotItem)) {
         if (shown >= 3) break;
@@ -435,7 +414,6 @@ ftxui::Element App::renderRackManagementUi() const {
       detailRows.push_back(styledText(" From " + movingRackSource_, uiMutedColor()));
     }
 
-    // Controls and the rack summary sit at the bottom edge of the panel.
     detailRows.push_back(ftxui::filler());
     ftxui::Elements quantityControls;
     if (selectedSlotItem != nullptr) {
@@ -572,8 +550,7 @@ ftxui::Element App::renderRackManagementUi() const {
 }
 
 void App::handleRackManagementKey(const KeyEvent& key) {
-  // Rack delete confirmation is modal, mirroring the stock item flow: Enter
-  // confirms once unlocked, anything else cancels.
+  // Delete confirmation is modal: Enter confirms once unlocked, anything else cancels.
   if (rackDeleteConfirmationActive()) {
     if (key.type == KeyType::Enter) {
       confirmRackDeletion();
@@ -589,7 +566,7 @@ void App::handleRackManagementKey(const KeyEvent& key) {
     return;
   }
 
-  // Escape first cancels a pending move, and stays on the page. Leaving the page would cancel it too, silently.
+  // Esc first cancels a pending move; leaving the page would cancel it silently.
   if (key.type == KeyType::Escape && !movingRackItemId_.empty()) {
     movingRackItemId_.clear();
     movingRackSource_.clear();
@@ -622,10 +599,7 @@ void App::handleRackManagementKey(const KeyEvent& key) {
   } else if (key.type == KeyType::Right) {
     moveRackSlot(1, 0);
   } else if (key.type == KeyType::Character) {
-    // Every other command on this screen (jump, filter, move/place, print,
-    // rename, create/delete rack, quit, ...) is a registered action in
-    // ActionRegistry.cpp and is dispatched before this handler ever runs;
-    // only vim-style slot movement lives here.
+    // Other commands are registered actions dispatched first; only slot movement is here.
     switch (tolower(static_cast<unsigned char>(key.ch))) {
       case 'h':
         moveRackSlot(-1, 0);

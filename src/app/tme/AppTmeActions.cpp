@@ -27,7 +27,6 @@ bool App::testStagedTme() {
   config.country = settingsDraft_.tmeCountry;
   config.language = settingsDraft_.tmeLanguage;
   config.currency = settingsDraft_.tmeCurrency;
-  // A value staged in this editor is tested; otherwise the saved value is read from the credential store.
   if (stagedTmeTokenChanged_) {
     config.token = stagedTmeToken_;
   } else {
@@ -110,7 +109,7 @@ void App::beginTmeRefresh() {
     return;
   }
 
-  stopTmeRefresh();  // no refresh is running here, so this only resets the previous run's state
+  stopTmeRefresh();  // Clear the previous run's state; nothing is running here.
   tmeRefreshClient_ = make_unique<TmeApiClient>(config);
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
@@ -136,8 +135,7 @@ void App::beginTmeRefresh() {
   dirty_ = true;
 }
 
-// Queues the TME symbol lookup for a part that a TME label scan created or matched. It shares the refresh queue,
-// so the lookups run one at a time and merge on the UI thread like a manual refresh.
+// Shares the refresh queue, so lookups run one at a time and merge on the UI thread.
 bool App::enqueueTmeScanLookup(const string& itemId, const string& symbol) {
   if (tmeRefreshClient_ == nullptr) {
     const auto config = loadTmeConfig();
@@ -147,7 +145,7 @@ bool App::enqueueTmeScanLookup(const string& itemId, const string& symbol) {
     }
     const auto context = currentWorkspaceContext();
     if (context == nullptr) return false;
-    stopTmeRefresh();  // no client is running here, so this only clears the previous run's counters
+    stopTmeRefresh();  // Clear the previous run's counters; no client is running here.
     tmeRefreshClient_ = make_unique<TmeApiClient>(config);
     tmeRefreshGeneration_ = context->generation;
   }
@@ -177,13 +175,13 @@ void App::processTmeRefresh() {
         ++tmeRefreshErrors_;
         tmeRefreshLastError_ = "An inventory item disappeared during refresh";
       } else if (const auto conflict = app_actions::tmeRecordConflict(*item, *result.details); !conflict.empty()) {
-        // The record describes a different part than the stored one, so nothing from it is merged.
+        // Record describes a different part; merge nothing from it.
         ++tmeRefreshErrors_;
         tmeRefreshLastError_ = "TME's " + conflict + " for " + item->partName + " disagrees with the stored part; not merged";
         logActivity("sync", tmeRefreshLastError_);
       } else {
         if (app_actions::mergeTmeMetadata(*item, *result.details)) tmeRefreshChanged_ = true;
-        // A label printed next must show the slot the merged part is placed in; saving would place it too late.
+        // Reconcile now so a label printed next shows the merged part's slot.
         if (reconcileRackAssignment(store_, *item)) tmeRefreshChanged_ = true;
         ++tmeRefreshSucceeded_;
       }

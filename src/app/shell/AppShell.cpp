@@ -67,9 +67,8 @@ KeyEvent translateEvent(const ftxui::Event& event) {
 
 int App::run() {
 #if defined(_WIN32)
-  // Windows Terminal does not advertise truecolor through TERM/COLORTERM.
-  // Select it before any semantic palette helper constructs an RGB color;
-  // otherwise FTXUI collapses the graphite/cyan palette to ANSI colors.
+  // Windows Terminal does not advertise truecolor, so set it before any RGB color is built.
+  // Otherwise FTXUI falls back to ANSI and collapses the palette.
   ftxui::Terminal::SetColorSupport(ftxui::Terminal::Color::TrueColor);
 #endif
   if (!startInBackground_) {
@@ -85,32 +84,28 @@ int App::run() {
   if (startInBackground_ && backgroundController_.interactiveInstanceRunning()) {
     running_ = false;
   }
-  // Rewrite the per-user startup entry after setup has recorded a background
-  // choice, so a fresh install never removes an existing entry prematurely.
+  // Rewrite the startup entry only once a background choice is recorded, so a fresh
+  // install never removes an existing one.
   if (settings_.backgroundConsentAsked || settings_.backgroundServiceEnabled) {
     string startupError;
     if (!setBackgroundStartupEnabled(settings_.backgroundServiceEnabled, startupError)) {
       setMessage("Unable to update the background startup service: " + startupError, 5);
     }
   }
-  // Windows sign-in launches this process with --background. Keep that path
-  // free of FTXUI so only the Scan R1 bridge and notification-area handler run.
+  // Windows sign-in launches with --background: no FTXUI, only the Scan R1 bridge and tray.
   const bool backgroundStarted = backgroundController_.start(
       startInBackground_ || settings_.backgroundServiceEnabled, startInBackground_, [this] {
         backgroundQuitRequested_.store(true);
       }, [this] { foregroundRequested_.store(true); });
   bool backgroundServiceUnavailable = false;
   if (!backgroundStarted && startInBackground_) {
-    // A background process that cannot be reached through its controller can never be asked to
-    // quit by a later launch, so it must not keep running. The saved preference is left alone: the
-    // failure may be transient (for example the shell was not ready yet at sign-in) and the next
-    // sign-in should try again.
+    // A background process its controller cannot reach can never be told to quit, so it exits.
+    // The saved preference stays: the failure may be transient (e.g. not ready at sign-in).
     cerr << "Inventatory background service could not start its controller; exiting.\n";
     running_ = false;
     backgroundServiceUnavailable = true;
   } else if (!backgroundStarted && settings_.backgroundServiceEnabled) {
-    // A tray/controller startup failure must not leave the persisted setting
-    // claiming that the background bridge is available on the next launch.
+    // The saved setting must not claim a background bridge that failed to start.
     settings_.backgroundServiceEnabled = false;
     settingsDraft_.backgroundServiceEnabled = false;
     string startupError;
@@ -122,30 +117,25 @@ int App::run() {
   }
 
   if (backgroundServiceUnavailable) {
-    // Skip the loop; the shutdown below still stops the services and saves.
+    // Skip the loop; shutdown below still stops services and saves.
   } else if (startInBackground_) {
     runBackgroundLoop();
   } else {
     runInteractiveLoop();
   }
 
-  // Stop producers before the final save.  LocalHttpServer joins all request
-  // workers, and the workspace-bound futures are joined here as well, so no
-  // late callback can mutate the store after the final snapshot was written.
-  //
-  // Device reports parked for the (now stopped) application loop are dropped first.
+  // Stop producers before the final save, so no late callback mutates the store after the snapshot.
+  // Drop parked device reports first.
   cancelPendingDeviceRequests();
   mdnsService_.stop();
   server_.stop();
-  // An update download or release check is cancelled rather than waited for, within the same deadline.
+  // Update work is cancelled rather than waited for, within the same deadline.
   const auto shutdownDeadline = chrono::steady_clock::now() + chrono::seconds(3);
   stopUpdateWorkUntil(shutdownDeadline);
   stopWorkspaceBoundWorkUntil(shutdownDeadline);
   const bool finalSaveSucceeded = saveState();
   if (!finalSaveSucceeded) {
-    // There is no interactive frame left to display this error.  Keep the
-    // process result and stderr actionable for launchers, and retain the
-    // in-memory state until App destruction for the caller's recovery path.
+    // No frame is left to show this, so report on stderr and keep the state until App destruction.
     cerr << "Inventatory shutdown save failed: "
          << (persistenceError_.empty() ? "unknown persistence error" : persistenceError_) << '\n';
   }
@@ -221,7 +211,7 @@ void App::runInteractiveLoop() {
   auto component = ftxui::CatchEvent(renderer, [this, &screen](ftxui::Event event) {
     if (event == ftxui::Event::Custom) {
       if (foregroundRequested_.exchange(false)) {
-        // Another launch found this window already open; flag it so the desktop can draw attention.
+        // Another launch found this window open; ask the desktop to draw attention.
         requestTerminalAttention();
       }
       if (backgroundQuitRequested_.exchange(false)) {
@@ -256,7 +246,7 @@ void App::runInteractiveLoop() {
   thread ticker([this, &screen] {
     while (running_) {
       screen.PostEvent(ftxui::Event::Custom);
-      // Tick faster only while the post-update wordmark colour reveal is animating.
+      // Tick faster only while the wordmark reveal animates.
       this_thread::sleep_for(chrono::milliseconds(wordmarkRevealRunning() ? 33 : 100));
     }
   });

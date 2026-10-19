@@ -28,9 +28,8 @@ struct Parameter {
   string value;
 };
 
-// Provider-neutral catalog metadata retained with an inventory item.  Provider
-// adapters populate this shape; label resolution never depends on vendor prose
-// outside the provider category and structured parameters.
+// Provider-neutral catalog metadata. Labels use only the category and structured parameters,
+// never vendor prose.
 struct VendorProductMetadata {
   string provider;
   string providerProductNumber;
@@ -86,9 +85,7 @@ struct InventoryItem {
   RackAssignmentMode rackAssignment = RackAssignmentMode::Automatic;
   string labelOverride;
   VendorProductMetadata vendorMetadata;
-  // Catalogue records from providers other than vendorMetadata's. The selected
-  // source stays in vendorMetadata; a second provider is kept here rather than
-  // replacing it.
+  // Records from other providers. The selected source stays in vendorMetadata.
   vector<VendorProductMetadata> vendorSources;
 
   bool hasMissingMetadata() const;
@@ -126,10 +123,8 @@ struct InventoryHistoryPoint {
   size_t dataErrorCount = 0;
 };
 
-// Durable quantity movement retained separately from the current stock
-// snapshot. The application records only quantity deltas; descriptive item
-// fields are copied into the row so history remains useful after an item is
-// renamed or deleted.
+// Quantity deltas kept apart from the stock snapshot. Item fields are copied in, so history
+// survives renames and deletes.
 struct InventoryMovement {
   string id;
   string itemId;
@@ -182,13 +177,11 @@ struct InventoryFieldChange {
   string after;
 };
 
-// A completed device event is persisted in the same SQLite transaction as the
-// inventory snapshot so retrying a sync event can never repeat its stock effect.
+// Saved in the same transaction as the snapshot, so a retried sync event
+// cannot repeat its stock effect.
 struct DeviceEventCommit {
   string eventId;
-  // Identity of the scanner that owns the inbox row.  Callers processing an
-  // event should carry this through so completion cannot finalize another
-  // device's event if storage is ever copied or repaired incorrectly.
+  // Scanner that owns the inbox row. Completion must check it.
   string deviceId;
   string resultId;
   string status;
@@ -261,8 +254,8 @@ class InventoryStore {
   vector<InventatoryRack>& racks();
   const vector<InventatoryRack>& racks() const;
 
-  // `normalized`, when given, reports whether loading had to repair the stored rows (missing
-  // identifiers, rack placement) so that the caller knows the database no longer matches memory.
+  // `normalized` reports whether loading repaired stored rows (identifiers, rack placement),
+  // so the caller knows the database no longer matches memory.
   bool load(const filesystem::path& path, bool* normalized = nullptr);
   bool save(const filesystem::path& path) const;
   bool saveWithMovements(const filesystem::path& path, const vector<InventoryMovement>& movements) const;
@@ -291,24 +284,20 @@ struct InventoryCommitDetail {
 };
 
 vector<InventoryFieldChange> inventoryCommitDiff(const InventoryStore& before, const InventoryStore& after);
-// Counts the distinct items and racks that `changes` touch. Returns false when a change names any
-// other entity type; the counts still cover the item and rack changes.
+// Counts distinct items and racks in `changes`. False if a change names another entity type.
 bool countChangedEntities(const vector<InventoryFieldChange>& changes, size_t& itemCount, size_t& rackCount);
-// True when `after` differs from `before` in any item or rack field the commit history tracks.
 bool inventoryHasChanges(const InventoryStore& before, const InventoryStore& after);
 bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const InventoryStore& current,
                                    InventoryStore& reversed, string& conflict);
 bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryStore& current);
-// Lists the commits newest first. The whole history is validated first unless `validateHistory` is
-// false, which is only for a caller that has just appended a commit through this API and checks that
-// commit itself; load, restore and backup validation always use the default.
+// Lists commits newest first. Validates the whole history unless `validateHistory` is false, which
+// is only for a caller that has just appended a commit and checks it itself.
 bool loadInventoryCommits(const filesystem::path& path, vector<InventoryCommit>& commits,
                           bool validateHistory = true);
 bool loadInventoryCommit(const filesystem::path& path, const string& id, InventoryCommitDetail& detail);
 
-// The commit Ctrl+Z restores the parent of: the newest change that no later corrective commit has undone. `commits`
-// is newest first. A corrective commit names the commit it undid, so that commit is skipped, and so is the undo
-// itself. Returns nullptr when every change has been undone, or only the first commit is left.
+// Ctrl+Z restores the parent of the newest change that no later corrective commit has undone.
+// `commits` is newest first. Returns nullptr when nothing is left to undo.
 const InventoryCommit* latestUndoableInventoryCommit(const vector<InventoryCommit>& commits);
 
 vector<InventoryMovement> inventoryMovementDiff(const InventoryStore& before, const InventoryStore& after,
@@ -340,8 +329,7 @@ ActivityEntry makeActivity(string kind, string message);
 
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode);
 
-// The fields of a TME bag label's QR text, for example "QTY:5 PN:0ZCM0010FF2G PO:00000000/1 MFR:BELFUSE
-// MPN:0ZCM0010FF2G CoO:TW RoHS https://www.tme.eu/details/0ZCM0010FF2G".
+// Fields of a TME bag label's QR text (PN, MPN, MFR, PO, QTY, product URL).
 struct TmeLabelFields {
   string symbol;                  // PN: the TME symbol
   string manufacturerPartNumber;  // MPN
@@ -350,11 +338,10 @@ struct TmeLabelFields {
   string productUrl;              // the TME product link, when the label carries one
   int quantity = 0;               // QTY
 };
-// Reads a TME label scan. It needs PN and either MPN or MFR; any other text gives nothing.
+// Needs PN and either MPN or MFR; other text gives nullopt.
 std::optional<TmeLabelFields> parseTmeLabelPayload(const string& rawCode);
 
-// The TME symbol an item carries, from its selected source or from a TME record kept beside it. Empty when the
-// item has none.
+// TME symbol from the selected source or a TME record beside it; empty if none.
 inline string tmeProductSymbol(const InventoryItem& item) {
   if (toLower(trim(item.vendorMetadata.provider)) == "tme" && !trim(item.vendorMetadata.providerProductNumber).empty()) {
     return trim(item.vendorMetadata.providerProductNumber);
@@ -367,8 +354,7 @@ inline string tmeProductSymbol(const InventoryItem& item) {
   return {};
 }
 
-// The Mouser part number an item carries, from its selected source or from a Mouser record kept beside it. Empty when
-// the item has none.
+// Mouser part number from the selected source or a Mouser record beside it; empty if none.
 inline string mouserPartNumberOf(const InventoryItem& item) {
   if (toLower(trim(item.vendorMetadata.provider)) == "mouser" &&
       !trim(item.vendorMetadata.providerProductNumber).empty()) {
@@ -382,8 +368,7 @@ inline string mouserPartNumberOf(const InventoryItem& item) {
   return {};
 }
 
-// The Mouser product page of the record mouserPartNumberOf reads, as Mouser gave it (ProductDetailUrl). Empty when the
-// item has no Mouser record or the record has no page.
+// Mouser product page (ProductDetailUrl) of the record mouserPartNumberOf reads; empty if none.
 inline string mouserProductUrlOf(const InventoryItem& item) {
   if (toLower(trim(item.vendorMetadata.provider)) == "mouser" &&
       !trim(item.vendorMetadata.providerProductNumber).empty()) {
@@ -399,10 +384,8 @@ inline string mouserProductUrlOf(const InventoryItem& item) {
 
 string serializeItem(const InventoryItem& item);
 bool deserializeItem(const string& line, InventoryItem& item);
-// Historical commit snapshots use a complete item record.  The strict form
-// rejects truncated records, unknown trailing fields, and malformed structured
-// values instead of silently dropping data.  A record written before vendor
-// sources existed has no trailing source field and is read as having none.
+// Strict read for commit snapshots: rejects truncated records, unknown trailing fields and
+// malformed values. Records written before vendor sources existed read as having none.
 bool deserializeItemStrict(const string& line, InventoryItem& item);
 string serializeVendorSourcesForStorage(const vector<VendorProductMetadata>& sources);
 vector<VendorProductMetadata> deserializeVendorSourcesFromStorage(const string& value);

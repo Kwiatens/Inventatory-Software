@@ -66,9 +66,7 @@ ftxui::Element semanticMessageRow(const string& text, UiMessageSeverity severity
 
 }  // namespace
 
-// The application frame: header, content, context/search-or-actions, message.
-// Only the content region varies per screen. There is no persistent action
-// bar; press space to open the full action sheet for the current screen.
+// Frame: header, content, context line or action sheet, message. Space opens the action sheet.
 ftxui::Element App::renderUi() const {
   uiTargets_.clear();
   if (inventoryRecoveryRequired_) {
@@ -82,8 +80,7 @@ ftxui::Element App::renderUi() const {
         ftxui::filler(),
     }) | ftxui::border | ftxui::bgcolor(uiCanvasBg());
   }
-  // Fresh setup is intentionally a dedicated terminal surface. It must not
-  // inherit any workspace navigation, operational state, or search chrome.
+  // Setup is a dedicated surface and must not inherit workspace navigation or chrome.
   if (page_ == Page::Update) {
     return renderUpdateUi() | ftxui::flex | ftxui::bgcolor(uiCanvasBg());
   }
@@ -111,19 +108,15 @@ ftxui::Element App::renderUi() const {
   body.push_back(uiDivider());
   body.push_back(renderPageUi() | ftxui::flex);
   body.push_back(uiDivider());
-  // Bottom sheet takes the place of the search/context line while open; the
-  // content region above it flexes up to make room.
+  // The sheet replaces the context line while open.
   if (inputMode_ == InputMode::ActionSheet) body.push_back(renderActionSheetUi());
   else body.push_back(renderSearchBarUi());
   body.push_back(renderMessageUi());
-  // FTXUI sizes a root element from its natural content unless it is made
-  // flexible. Keep the application background and every full-width chrome row
-  // attached to the actual terminal width so no right-edge strip is exposed.
+  // xflex keeps the background full width; without it FTXUI sizes the root to its content.
   return ftxui::vbox(move(body)) | ftxui::xflex | ftxui::bgcolor(uiCanvasBg());
 }
 
-// True while the normal workspace is replaced by the resize notice. Recovery, the update wizard
-// and the first-run wizard have their own full-window layouts and are exempt (see renderUi).
+// True while the resize notice replaces the workspace. Recovery and the wizards are exempt.
 bool App::workspaceBlockedByTerminalSize() const {
   if (inventoryRecoveryRequired_ || page_ == Page::Update || page_ == Page::Onboarding ||
       (page_ == Page::ScanSetup && returnToOnboardingAfterScan_)) {
@@ -133,7 +126,6 @@ bool App::workspaceBlockedByTerminalSize() const {
   return active != nullptr && app_navigation::terminalTooSmall(active->dimx(), active->dimy());
 }
 
-// Human-readable name of the active screen, used in the header breadcrumb.
 std::string App::pageName() const {
   switch (page_) {
     case Page::Stock:
@@ -160,8 +152,7 @@ std::string App::pageName() const {
   return "";
 }
 
-// Header region: brand, navigation, the Actions control and (width permitting)
-// the clock. The sheet opens from the Actions control or from Space.
+// The Actions control and Space both open the action sheet.
 ftxui::Element App::renderHeaderUi() const {
   auto self = const_cast<App*>(this);
   const auto nav = [&](Page page, const string& id, const string& label) {
@@ -180,8 +171,7 @@ ftxui::Element App::renderHeaderUi() const {
                              string(1, entry.shortcut) + " " + entry.label));
   }
 
-  // The always-visible, clickable route to the action sheet. Space remains the
-  // keyboard route; both go through openActionSheet().
+  // Clickable route to the action sheet; Space is the keyboard route.
   const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::DigiKeySetup;
   const string actionsLabel = " Actions ";
   auto actions = uiBodyText(actionsLabel, inputMode_ == InputMode::ActionSheet ? uiFocusColor() : uiInteractiveColor(),
@@ -190,7 +180,7 @@ ftxui::Element App::renderHeaderUi() const {
   const auto* active = ftxui::ScreenInteractive::Active();
   const int screenWidth = active != nullptr ? active->dimx() : 120;
   const auto stringWidth = [](const string& text) { return static_cast<int>(ftxui::string_width(text)); };
-  // Brand plus the six destinations ("  1 Stock " and so on) plus the Actions control.
+  // Columns used by the brand, the destinations and the Actions control.
   int fixedColumns = stringWidth(" Inventatory ") + stringWidth(actionsLabel);
   for (const auto& entry : app_navigation::primaryNavigationEntries()) {
     fixedColumns += stringWidth(" " + string(1, entry.shortcut) + " " + entry.label + " ");
@@ -243,8 +233,7 @@ ftxui::Element App::renderPageUi() const {
 }
 
 ftxui::Element App::renderSearchBarUi() const {
-  // Stock item editing renders inline in the Detail panel (see StockPage.cpp),
-  // so this context line stays a plain search row instead of duplicating it.
+  // Stock editing renders inline in the Detail panel, so this line stays a plain search row.
   const bool stockEditing =
       page_ == Page::Stock && (inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue ||
                                inputMode_ == InputMode::VendorPick);
@@ -359,7 +348,7 @@ ftxui::Element App::renderSearchBarUi() const {
   ftxui::Elements rows;
   auto context = footerField(contextTitle, contextText, uiSecondaryText(), bodyColor, activeBg);
   if (inputMode_ == InputMode::ExitConfirmation) {
-    // The prompt has a mouse route as well as S / D / Esc, so a mouse-only user can answer it.
+    // Mouse route to the prompt, as well as S, D and Esc.
     auto self = const_cast<App*>(this);
     const auto answer = [self](KeyType type, char ch) {
       return [self, type, ch] {
@@ -409,8 +398,7 @@ ftxui::Element App::renderSearchBarUi() const {
     rows.push_back(context);
   }
 
-  // The field-name list here is only for the CSV import review flow; Stock
-  // item editing shows the same information inline in the Detail panel.
+  // Field list for the CSV import review only; Stock shows fields inline in its Detail panel.
   if (inputMode_ == InputMode::EditFieldMenu && !stockEditing) {
     ftxui::Elements options;
     options.push_back(footerField("Edit fields", "Up/Down field   Enter edit   s save   Esc cancel",
@@ -493,9 +481,7 @@ ftxui::Element App::renderMessageUi() const {
     return semanticMessageRow(persistenceError_, UiMessageSeverity::Error, false);
   }
   if (message_.empty()) {
-    // Keep the notification row in the layout even while it is quiet. A
-    // zero-height element here makes the whole application jump when a
-    // message arrives.
+    // Keep the row even when quiet: zero height would make the layout jump on each message.
     return fixedMessageRow(fullLine("", uiMutedColor(), uiPanelLeftBg()));
   }
 

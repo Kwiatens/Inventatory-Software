@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Guided DigiKey credential setup.
-
 #include "App.h"
 
 #include "ui/shared/AppUiShared.h"
@@ -16,8 +13,8 @@ using namespace std;
 
 void App::openDigiKeySetup() {
   digiKeySetupStep_ = DigiKeySetupStep::Introduction;
-  // Navigate first: with staged Settings edits changePage opens the save/discard prompt instead of
-  // leaving, and the draft must survive until that prompt is answered.
+  // Navigate first: with staged Settings edits, changePage opens the save/discard prompt, and the
+  // draft must survive it.
   changePage(Page::DigiKeySetup);
   if (page_ != Page::DigiKeySetup) return;
   settingsDraft_ = settings_;

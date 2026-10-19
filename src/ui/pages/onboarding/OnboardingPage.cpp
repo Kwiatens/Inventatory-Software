@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Focused first-run terminal setup for fresh installs.
-
 #include "App.h"
 
 #include "platform/system/StartupRegistration.h"
@@ -39,12 +37,10 @@ ftxui::Element onboardingChoicePrompt(char selectedOption, const string& first, 
                       styledText("N " + second, secondColor)});
 }
 
-// The ›i lockup, drawn on the website's pixel grid: one letter pixel is two
-// characters wide and one row tall, with a drop shadow one character right
-// and half a row down. The rows are the desktop wordmark's solid blocks with
-// its box-drawing shadow removed, after the chevron and a one-pixel gap.
+// The lockup as a pixel grid: a letter pixel is two cells wide and one row tall.
+// The shadow falls one cell right and half a row down.
 constexpr int kLetterRows = 5;
-constexpr int kLockupColumns = 100;  // the widest row plus its shadow column
+constexpr int kLockupColumns = 100;  // widest row plus its shadow column
 constexpr array<const char*, kLetterRows> kLockupPixels = {
     "##      ## ###    ## ##    ## ####### ###    ## ########  #####  ########  ######  ######  ##    ##",
     "  ##    ## ####   ## ##    ## ##      ####   ##    ##    ##   ##    ##    ##    ## ##   ##  ##  ##",
@@ -77,8 +73,7 @@ bool lockupPixel(int row, int column) {
   return static_cast<size_t>(column) < strlen(pixels) && pixels[column] == '#';
 }
 
-// One terminal row of the lockup. Each cell shows its top and bottom half
-// separately so the half-row drop shadow lines up with the pixels above it.
+// One terminal row. Each cell colours its top and bottom half so the half-row shadow lines up.
 ftxui::Element lockupRow(int row) {
   const auto canvas = appearanceRgb(AppearanceColorRole::CanvasBg);
   const auto face = appearanceRgb(AppearanceColorRole::Divider);
@@ -160,8 +155,7 @@ void App::finishOnboarding() {
     return;
   }
 #ifdef _WIN32
-  // The installer owns the Windows shortcuts and only creates the desktop one when asked to, so the
-  // wizard must not add it back after the installer user declined it.
+  // The installer owns the Windows shortcuts; do not re-add the desktop one the user declined.
   changePage(Page::Stock);
   setMessage("Setup complete.", 5);
 #else
@@ -360,8 +354,7 @@ void App::beginUpdateCheckIfDue() {
 void App::beginUpdateChecks() {
   bool started = false;
   if (!updateCheckFuture_.valid()) {
-    // A manual check is always allowed, even when the daily background check
-    // preference is disabled.
+    // Manual checks run even when the daily background check is off.
     settings_.lastUpdateCheckUnixSeconds = 0;
     updateCheckFailed_ = false;
     updateCheckFuture_ = async(launch::async, [version = softwareVersion()] { return checkLatestRelease(version); });
@@ -380,8 +373,7 @@ void App::processUpdateCheck() {
     settings_.lastUpdateCheckUnixSeconds = static_cast<int64_t>(time(nullptr));
     settings_.latestAvailableVersion = result.updateAvailable ? result.latestVersion : string();
     settings_.latestReleaseUrl = result.updateAvailable ? result.releaseUrl : string();
-    // Keep staged settings edits intact while refreshing the cached release
-    // result that is shown on the Updates page.
+    // Refresh the cached release result without touching staged settings edits.
     settingsDraft_.lastUpdateCheckUnixSeconds = settings_.lastUpdateCheckUnixSeconds;
     settingsDraft_.latestAvailableVersion = settings_.latestAvailableVersion;
     settingsDraft_.latestReleaseUrl = settings_.latestReleaseUrl;

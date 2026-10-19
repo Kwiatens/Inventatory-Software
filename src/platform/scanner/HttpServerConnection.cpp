@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Authenticated HTTP connection request handling.
+// Request handling for the authenticated device API.
 
 #define NOMINMAX
 
@@ -21,7 +21,6 @@ using namespace std;
 using namespace http_server_detail;
 
 bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestText) {
-  // Parse the first request line and route only the tiny local API surface.
   const auto headerEnd = requestText.find("\r\n\r\n");
   if (headerEnd == string::npos) {
     return false;
@@ -58,12 +57,9 @@ bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestT
   }
 
   if (method == "POST" && target == "/api/v1/device/sync") {
-    // Capture credentials, reserve the counter, and acquire callback
-    // serialization as one operation. Holding callbackSerialMutex_ while the
-    // credential lock is released prevents rotation from crossing the gap
-    // between reservation and callback. The callback/replay path then runs
-    // without the credential lock, so an application callback can issue a
-    // nested duplicate request and have it rejected by the reservation check.
+    // Take the credential lock, reserve the counter and take callback serialization as one step, so
+    // rotation cannot slip between them. The callback runs without the credential lock; a nested
+    // duplicate request is rejected by the reservation.
     unique_lock<mutex> credentialLock(credentialOperationMutex_);
     const auto credentialEpoch = credentialEpoch_;
     string expectedDevice;
@@ -89,8 +85,7 @@ bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestT
       return false;
     }
     const auto reject = [&](int status, const string& error) {
-      // Error text can originate from a callback. Keep authenticated fallback
-      // bodies bounded even when the successful response path is not used.
+      // Error text can come from the callback, so bound it.
       const auto boundedError = error.size() > 256U ? error.substr(0, 256U) : error;
       const auto response = authenticatedResponseText(status, *counter, expectedToken,
                                                        statusResultJson(false, boundedError));
@@ -117,18 +112,14 @@ bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestT
       callback = onSync_;
     }
     {
-      // Callback serialization covers the callback only. Replay commit, response serialization and the
-      // socket send run without it (the reservation still admits one request at a time and the epoch
-      // check guards rotation), so a slow client cannot keep rotation, which waits for the credential
-      // lock held by the next request queued here, blocked for the length of a send.
+      // Serialization covers only the callback. The reservation admits one request at a time and
+      // the epoch guards rotation, so a slow client cannot block rotation during a send.
       unique_lock<mutex> callbackLock(callbackSerialMutex_);
       credentialLock.unlock();
       try {
         syncSucceeded = callback && callback(request, syncResponse, error);
       } catch (...) {
-        // A malformed or unavailable application callback must become a
-        // retryable transport failure; a worker exception must never terminate
-        // the service process while a replay reservation is held.
+        // A throwing callback must become a retryable failure, not terminate the service.
         syncSucceeded = false;
         error = "Device sync service failed";
       }
@@ -138,17 +129,14 @@ bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestT
       if (error.empty()) error = "Device sync service unavailable";
       return reject(503, error);
     }
-    // Commit the replay marker only after the durable application callback has
-    // succeeded. A callback failure releases the reservation so the R1 can retry;
-    // marker persistence failure instead disables sync to avoid replaying a side effect.
+    // Commit the replay marker only after the callback succeeds. If saving it fails, sync is
+    // disabled rather than risk replaying the side effect.
     if (!advanceReplayCounter(*counter, credentialEpoch)) {
       return reject(409, "Request completed but its replay marker could not be saved");
     }
     const auto responseBody = deviceSyncResponseJson(syncResponse);
     if (responseBody.size() > kInventatoryScanResponseBodyLimit) {
-      // The callback produced a response outside the shared Scan R1 contract.
-      // Return an authenticated error with the same counter; the device keeps
-      // its outbox event and retries after the desktop callback is corrected.
+      // Response outside the Scan R1 contract: the device keeps its outbox event and retries.
       return reject(500, "Device sync response exceeds the scanner limit");
     }
     const auto response = authenticatedResponseText(200, *counter, expectedToken, responseBody);

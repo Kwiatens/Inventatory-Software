@@ -72,8 +72,8 @@ bool LabelPrinterService::loadConfig(const filesystem::path& path) {
   persistedPath_ = path;
   persistedPrinter_.clear();
   printerChosenSinceLoad_ = false;
-  // Anything but a clean read leaves the file as it is: a missing file is simply "no printer", while one
-  // that exists but cannot be read or parsed is kept for the user to repair rather than overwritten.
+  // Any read failure leaves the file alone. A missing file means "no printer"; an unreadable one
+  // is kept for the user to repair.
   configFileState_ = ConfigFileState::Unreadable;
   try {
     error_code sizeError;

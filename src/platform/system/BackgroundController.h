@@ -29,10 +29,8 @@ enum class BackgroundStopResult {
 };
 
 #ifndef _WIN32
-// Directory that holds the single-instance locks. Prefers an absolute XDG_RUNTIME_DIR, then the
-// per-user <userRunRoot>/<uid> directory (so a launch without the variable, such as from cron or a
-// plain su, still shares the locks of the systemd unit), then <fallbackRoot>/inventatory-<uid>. Only a
-// directory owned by the user and closed to others is used; empty when none qualifies.
+// Directory for the single-instance locks: absolute XDG_RUNTIME_DIR, else <userRunRoot>/<uid>, else
+// <fallbackRoot>/inventatory-<uid>. Must be private to the user; empty if none qualifies.
 std::filesystem::path backgroundRuntimeDirectory(const std::optional<std::string>& xdgRuntimeDir,
                                                  const std::filesystem::path& userRunRoot,
                                                  const std::filesystem::path& fallbackRoot);
@@ -50,9 +48,8 @@ class BackgroundController {
   bool backgroundServiceRunning() const;
   bool interactiveInstanceRunning() const;
 #ifndef _WIN32
-  // Blocks while a terminal session or another background process holds the workspace, then returns
-  // without taking it. The service waits here rather than exiting, because systemd restarts it after
-  // any exit other than `systemctl stop`, which would loop for as long as the session stays open.
+  // Blocks while a terminal session or another process holds the workspace, without taking it. Waits
+  // instead of exiting: systemd restarts the service after any exit except `systemctl stop`.
   void waitForWorkspaceRelease() const;
 #endif
   bool requestBackgroundServiceQuit() const;
@@ -60,18 +57,16 @@ class BackgroundController {
   // Terminates a background service that ignored the quit request. Only a process verified to be
   // this application is signalled.
   bool forceStopBackgroundService() const;
-  // Asks the background service to quit and waits up to gracefulTimeoutMs for it to release its
-  // lock; if it does not, terminates it and waits up to forcedTimeoutMs. onWaiting (optional) is
-  // called about once a second with the seconds waited so far.
+  // Asks the service to quit and waits gracefulTimeoutMs for its lock; then terminates it and waits
+  // forcedTimeoutMs. onWaiting is called about once a second with the seconds waited.
   BackgroundStopResult stopBackgroundService(int gracefulTimeoutMs, int forcedTimeoutMs,
                                              const std::function<void(int)>& onWaiting = {}) const;
   bool restartAsBackgroundService();
-  // Linux keeps any callback it already holds when an empty one is passed, so enabling background
-  // mode later in a session does not drop the callbacks the application installed at startup.
+  // Linux keeps the existing callbacks when an empty one is passed, so enabling background mode later
+  // does not drop the callbacks installed at startup.
   bool start(bool enabled, bool hideInitially, Callback onQuit, Callback onOpen = {});
-  // Ends background mode only (the "run in background" setting turned off while the process keeps
-  // running). Windows removes the notification-area icon. Linux keeps the single-instance lock, the
-  // signal handling and the callbacks, because the interactive process still owns the workspace.
+  // Ends background mode only, while the process keeps running. Windows removes the tray icon. Linux
+  // keeps the lock, signal handling and callbacks, because the process still owns the workspace.
   void disableBackgroundMode();
   // Full teardown at process shutdown; releases the single-instance ownership.
   void stop();

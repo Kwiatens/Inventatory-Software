@@ -49,22 +49,17 @@ ftxui::Element App::renderStockUi() const {
     }
     longestCategory = max(longestCategory, displayWidth(displayCategory(item.category)));
   }
-  // The separators are positioned from the complete inventory, not just the
-  // current filter result, so columns do not jump or truncate a later row.
+  // Column widths come from the whole inventory, so filtering does not move columns.
   const int qtyWidth = max(7, static_cast<int>(longestQuantity) + 4);
-  // Name sorting yields one contiguous run per category, so the category is
-  // stated once in a group header and the part column takes the width the
-  // repeated column used to waste. Quantity sorting interleaves categories, so
-  // it keeps a per-row column instead.
+  // Name sorting gives one run per category, so the category is a group header.
+  // Quantity sorting interleaves categories, so it keeps a per-row column.
   const bool groupByCategory = !rankedView && stockSortOrder_ != StockSortOrder::Quantity;
   const int matchWidth = rankedView ? 14 : 0;
   const int minCategoryWidth = 12;
   const int maxPartWidth = groupByCategory ? max(18, listInnerWidth - qtyWidth - 1)
                                            : max(18, listInnerWidth - qtyWidth - matchWidth - minCategoryWidth - 2);
   const int partWidth = groupByCategory ? maxPartWidth : clamp(static_cast<int>(longestPartName) + 3, 18, maxPartWidth);
-  // The fallback column is sized to its longest value and sits beside the part
-  // name; the leftover width becomes one gutter before the right-anchored
-  // quantity, rather than padding out the category cell.
+  // Size the category column to its longest value; leftover width becomes the gutter before quantity.
   const int categoryWidth = clamp(static_cast<int>(longestCategory) + 2, minCategoryWidth,
                                   max(minCategoryWidth, listInnerWidth - partWidth - qtyWidth - matchWidth - 2));
 
@@ -76,8 +71,7 @@ ftxui::Element App::renderStockUi() const {
   auto self = const_cast<App*>(this);
   const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
   const auto filterSummary = stockFilterSummary(stockSortOrder_, stockDateFilter_);
-  // The ranked header shortens its wording, and drops the summary, before the
-  // Filter button would be pushed out of the list panel.
+  // The ranked header shortens, then drops the summary, before the Filter button is pushed out.
   const bool rankedMatchesHeader = rankedView && filtersEnabled;
   const auto rankedHeader = stockRankedHeaderFor(filtered.size(), filterSummary, listOuterWidth);
   const auto stockHeader = stocktakeActive_
@@ -88,7 +82,7 @@ ftxui::Element App::renderStockUi() const {
                                            ", " + to_string(filtered.size()) + " candidates"
                                      : rankedView ? rankedHeader.label
                                                   : groupByCategory ? string("Component Category") : string();
-  // The summary states the sort and date filter in use, so they show while the panel is closed.
+  // Applied filters show while the panel is closed.
   const bool showFilterSummary = filtersEnabled && (!rankedMatchesHeader || rankedHeader.showSummary);
   const auto filterSummaryText = showFilterSummary ? styledText(filterSummary, uiMutedText()) : ftxui::text("");
   const auto filterButtonBg = filtersEnabled ? uiRaisedSurfaceBg() : uiSurfaceBg();
@@ -138,9 +132,7 @@ ftxui::Element App::renderStockUi() const {
                              ftxui::flex;
   const bool filterOpen = inputMode_ == InputMode::StockFilter && !closestSearchActive_;
   if (filterOpen) {
-    // Clear only the panel footprint, then draw it over the list. This keeps
-    // the stock rows in place while preventing their text from bleeding
-    // through the floating panel.
+    // Clear only the panel footprint so list text does not bleed through the panel.
     const int panelWidth = min(kStockFilterPanelWidth, listOuterWidth);
     auto filterOverlay = ftxui::vbox({
         ftxui::text(""),
@@ -152,8 +144,7 @@ ftxui::Element App::renderStockUi() const {
                 ftxui::bgcolor(uiSurfaceBg()) |
                 ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listOuterWidth);
   }
-  // The header and the action footer sit outside the scrolling frame so the
-  // controls stay reachable no matter how long the selected part's detail is.
+  // Header and footer sit outside the scrolling detail, so the controls stay reachable.
   ftxui::Element detailFooter;
   if (editing) {
     detailFooter = styledText(" Up/Down field   Enter edit   s save   Esc cancel", uiMutedColor());
@@ -200,9 +191,7 @@ ftxui::Element App::renderStockUi() const {
                }, hasItem),
     };
     ftxui::Elements outputRow = {
-        // Peer actions share the ordinary raised-button role rather than
-        // competing for a single primary; Delete alone carries the danger
-        // role because it removes database records.
+        // Peer actions use the raised role; only Delete is danger, since it removes records.
         target(uiSecondaryButton("Print", nullopt, hasItem), "stock.print", UiTargetKind::Button,
                [self] { self->printSelectedLabel(); }, hasItem),
         ftxui::text(" "),
@@ -211,8 +200,7 @@ ftxui::Element App::renderStockUi() const {
                [self] { self->armDeleteConfirmation(); }, hasItem),
         ftxui::filler(),
     };
-    // The full button strip needs 46 columns. Narrower panels (the 100x30 and 120x30 terminals) wrap it onto two
-    // rows rather than clipping the Delete button.
+    // The button strip needs 46 columns; narrower panels wrap it rather than clip Delete.
     const bool wrap = detailOuterWidth < 47;
     if (wrap) {
       editRow.push_back(ftxui::filler());
@@ -279,14 +267,10 @@ ftxui::Element App::renderStockUi() const {
   });
 }
 
-// The Sort / Filter panel is borderless and sits on the raised surface. Each choice
-// row is a segmented control: the applied option is primary text, the others
-// are muted, and the keyboard-focused option takes the selection colour. Every
-// choice applies at once and the panel stays open.
+// Borderless panel on the raised surface. Each row is a segmented control; every choice applies at once.
 ftxui::Element App::renderStockFilterPanel(int width, int shownCount) const {
   auto self = const_cast<App*>(this);
-  // Reserve the whole panel before its option targets register, so a click on a
-  // blank cell is consumed here instead of selecting the stock row beneath it.
+  // Reserve the panel before its targets register, so blank clicks do not reach the rows below.
   ftxui::Box& panelBounds = reserveSurfaceTarget("stock.filter.panel");
   const auto rowBg = uiRaisedSurfaceBg();
   const int totalCount = static_cast<int>(store_.items().size());

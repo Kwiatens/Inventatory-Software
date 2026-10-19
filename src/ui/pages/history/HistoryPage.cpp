@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Inventory commit history page.
-// Handles history navigation and actions.
-
 #include "App.h"
 
 #include "HistoryPagePrivate.h"

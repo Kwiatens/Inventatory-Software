@@ -52,8 +52,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   }
   applyUiAppearance(settings_.appearance);
   if (loadedSettings && !settings_.dataDirectory.empty()) {
-    // A relative folder would resolve against whatever directory the process was started from, so the
-    // interactive app and the background service could open different workspaces.
+    // Relative paths resolve against the working directory, so the app and service could differ.
     if (!settings_.dataDirectory.is_absolute()) {
       inventoryRecoveryRequired_ = true;
 #ifdef _WIN32
@@ -130,12 +129,11 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
   } else if (!settings_.printerQueue.empty()) {
     printerService_.setConfiguredPrinter(settings_.printerQueue);
     publishConfiguredPrinter();
-    // Queue the potentially slow Windows spooler probe.  Startup must remain
-    // responsive even when a disconnected queue takes seconds to answer.
+    // Queue the slow spooler probe so startup stays responsive.
     refreshPrinterState();
   }
   loadUpdateCompletionMarker();
-  // Update folders abandoned by an earlier run (closed mid-download, crash, installer never started).
+  // Remove update folders left behind by an interrupted run.
   removeStaleUpdateDownloadDirectories();
   if (onboardingRequired(startInBackground_, loadedSettings, settings_.completedOnboardingVersion) &&
       !inventoryRecoveryRequired_) {

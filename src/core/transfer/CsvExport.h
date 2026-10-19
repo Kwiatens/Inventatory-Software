@@ -16,17 +16,15 @@ inline bool formulaPrefixAt(const std::string& value, std::size_t offset) {
   const char ch = value[offset];
   if (ch == '=' || ch == '+' || ch == '-' || ch == '@') return true;
 
-  // Full-width equals, plus, minus, and at signs can start formulas in some
-  // spreadsheet locales. Compare their UTF-8 encodings without locale APIs.
+  // Full-width = + - @ start formulas in some locales. Compare UTF-8 bytes, no locale APIs.
   return value.compare(offset, 3, "\xEF\xBC\x9D") == 0 || value.compare(offset, 3, "\xEF\xBC\x8B") == 0 ||
          value.compare(offset, 3, "\xEF\xBC\x8D") == 0 || value.compare(offset, 3, "\xEF\xBC\xA0") == 0;
 }
 
 }  // namespace csv_export_detail
 
-// Prefix spreadsheet formulas with a tab inside the quoted cell. The tab is
-// retained in the CSV value, so this formatter is intended for human-facing
-// spreadsheet exports rather than lossless programmatic interchange.
+// Adds a leading tab inside the quotes for formula-like values. The tab is kept,
+// so this is for spreadsheet exports, not lossless interchange.
 inline std::string csvTextCell(const std::string& value) {
   std::size_t firstText = 0;
   while (firstText < value.size() && static_cast<unsigned char>(value[firstText]) <= 0x20U) ++firstText;

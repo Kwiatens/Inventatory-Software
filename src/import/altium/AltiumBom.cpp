@@ -30,8 +30,7 @@ struct AltiumColumns {
   int manufacturerPart = -1;
 };
 
-// The index of the column that the first alias in the list names. An earlier alias beats a later one whatever the
-// order of the columns, which findColumn alone does not do: it returns the leftmost header that matches any alias.
+// The first alias listed wins regardless of column order (findColumn takes the leftmost).
 int findColumnByPriority(const vector<string>& headers, initializer_list<const char*> aliases) {
   for (const auto* alias : aliases) {
     const auto index = findColumn(headers, {alias});
@@ -40,32 +39,22 @@ int findColumnByPriority(const vector<string>& headers, initializer_list<const c
   return -1;
 }
 
-// An Altium Bill of Materials report has the columns the user chose, so the header row varies and every column is
-// found by its name, never by its position. The default column names are NOT verified: every alias list below is
-// a set of plausible names, to be checked against a real Altium export. Supplier and manufacturer columns come
-// from the part choices in the Altium library, and Altium numbers them (Supplier 1, Supplier Part Number 1), so
-// only the first choice is read.
+// Columns are found by name, not position, as the user chooses them. The aliases are unverified
+// against a real Altium export. Only the first supplier and manufacturer choice is read.
 AltiumColumns mapAltiumColumns(const vector<string>& headers) {
   AltiumColumns columns;
-  // To be checked against a real Altium export. Only "Designator" is read: BomImport.cpp recognises an Altium report by
-  // that header, so a file with another name would never reach this parser.
+  // Only "Designator" is read: BomImport.cpp detects Altium reports by that header.
   columns.designator = findColumnByPriority(headers, {"Designator"});
-  // Comment is Altium's value column. Description is the fallback when the report has no Comment.
-  // To be checked against a real Altium export.
+  // Comment is Altium's value column; Description is the fallback.
   columns.value = findColumnByPriority(headers, {"Comment", "Description"});
-  // Name is the last choice for a row that has neither. EasyEDA reads its Name column as the part name the same way.
+  // Name is the last choice when a row has neither.
   columns.name = findColumnByPriority(headers, {"Name"});
-  // To be checked against a real Altium export.
   columns.footprint = findColumnByPriority(headers, {"Footprint", "Pattern"});
-  // To be checked against a real Altium export. "Qty" is not an alias: KiCad writes that header, and BomImport.cpp
-  // never sends a file with it to this parser, so the alias could not be reached.
+  // "Qty" is not an alias: KiCad writes that header, and BomImport.cpp never routes it here.
   columns.quantity = findColumnByPriority(headers, {"Quantity"});
-  // To be checked against a real Altium export.
   columns.supplier = findColumnByPriority(headers, {"Supplier 1", "Supplier Name 1", "Supplier"});
-  // To be checked against a real Altium export. "Supplier Part" is not an alias: an exact "Supplier Part" header marks
-  // an EasyEDA Pro export, which BomImport.cpp checks first, so such a file would never reach this parser.
+  // "Supplier Part" is not an alias: BomImport.cpp sends that EasyEDA Pro header elsewhere.
   columns.supplierPart = findColumnByPriority(headers, {"Supplier Part Number 1", "Supplier Part Number"});
-  // To be checked against a real Altium export.
   columns.manufacturerPart = findColumnByPriority(headers, {"Manufacturer Part Number 1", "Manufacturer Part Number"});
   return columns;
 }
@@ -80,8 +69,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     return bom;
   }
 
-  // Quoted cells are read by the shared CSV scanner, which keeps a delimiter inside quotes as part of the cell. Some
-  // Altium 365 exports write an inch mark inside a quoted cell as \", so there the backslash must not end the cell.
+  // Some Altium 365 exports write inch marks as \" in quotes; a backslash must not end the cell.
   const auto cleaned = stripByteOrderMark(text);
   string parseError;
   const auto rows = parseCsvBackslashQuotes(cleaned, sniffDelimiter(cleaned), parseError);
@@ -100,21 +88,19 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     return bom;
   }
 
-  // Each reference designator may appear once across the whole export. A repeated reference would count one
-  // physical part twice, so the whole file is refused and the message names the reference.
+  // A designator may appear once per export; a repeat would count one part twice.
   unordered_map<string, size_t> designatorRows;
   const auto columnCount = rows.front().size();
   for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
     const auto& row = rows[rowIndex];
-    // A row of delimiters with nothing in any cell (a spreadsheet leaves these at the end of a file) holds no part.
+    // Blank rows (spreadsheets leave these at the end) hold no part.
     if (all_of(row.begin(), row.end(), [](const string& cell) { return trim(cell).empty(); })) {
       continue;
     }
     const auto sourceRow = rowIndex + 1;
     const auto rowLabel = "Row " + to_string(sourceRow) + ": ";
 
-    // A cell past the last column means a quote was misread and the cells after it are read from the wrong columns.
-    // Empty cells past the last column are harmless, and are ignored.
+    // A non-empty cell past the last column means a quote was misread. Empty ones are harmless.
     for (size_t cell = columnCount; cell < row.size(); ++cell) {
       if (!row[cell].empty()) {
         bom.error = rowLabel +
@@ -124,8 +110,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
       }
     }
 
-    // A total at the foot of a report has a price and no part: none of the part columns is filled. It holds no part,
-    // so it is skipped. A row with a supplier or part number but no designator is still refused below.
+    // A total fills no part column, so skip it. A part number without a designator is refused.
     const auto partColumns = {columns.designator, columns.value, columns.footprint, columns.quantity,
                               columns.supplier, columns.supplierPart, columns.manufacturerPart};
     if (all_of(partColumns.begin(), partColumns.end(), [&](int column) { return csvCell(row, column).empty(); })) {
@@ -166,8 +151,8 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
       }
     }
 
-    // Test points, mounting holes and fiducials are real rows that are never bought. Unlike the EasyEDA import,
-    // a part number on the row does not keep it: the designators and the footprint decide, as they do for KiCad.
+    // Test points, mounting holes and fiducials are never bought. Unlike EasyEDA, a part number
+    // does not keep them; the designator and footprint decide, as for KiCad.
     const bool excluded = all_of(line.designators.begin(), line.designators.end(), [&](const string& ref) {
       return isNonOrderableDesignator(ref, line.footprint);
     });
@@ -176,8 +161,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
       continue;
     }
 
-    // Demand is never less than the designators placed. A Quantity that disagrees is kept visible and the
-    // row cannot match on its own until the user confirms it.
+    // Demand is at least the designator count. A Quantity that disagrees needs confirmation.
     const int designatorCount = static_cast<int>(line.designators.size());
     int requested = 0;
     const auto quantityText = csvCell(row, columns.quantity);

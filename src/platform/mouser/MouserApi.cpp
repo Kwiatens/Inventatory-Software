@@ -1,14 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Mouser catalogue client (Search API v1).
-//
-// A lookup is one keyword search: a POST to search/keyword with the API key in the query string and the keyword in a
-// JSON body. The part record (part numbers, manufacturer, stock, price breaks, attributes, lifecycle) comes from that
-// one search result, so no second request is made. All knowledge of Mouser's response field names lives in
-// parseMouserSearchResponse and the readers it calls. The field names follow Mouser's published v1 search response;
-// they have not been read from a live response and must be checked against one before release. An absent field is
-// absent data, never an error, and a number may arrive as a JSON number or as a string.
+// Mouser catalogue client (Search API v1). A lookup is one keyword search; no second request.
+// Field names follow Mouser's published v1 response, not a live one; check them before release.
+// Absent fields are absent data, not errors; numbers may arrive as JSON numbers or strings.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -50,25 +45,23 @@ namespace {
 
 constexpr const char* kMouserKeywordSearchUrl = "https://api.mouser.com/api/v1/search/keyword?apiKey=";
 constexpr const char* kMouserRequestHeaders = "Content-Type: application/json\r\nAccept: application/json\r\n";
-// Term used by the key test. Mouser only has to answer the search; a term with no results still counts as a pass,
-// because the key has been accepted.
+// Key-test term. Any answer to the search counts, even zero results, because the key was accepted.
 constexpr const char* kCredentialTestKeyword = "1N4148";
 constexpr size_t kMaximumMouserApiKeyBytes = 256;
-// Mouser is asked for keywords of 2 to 100 bytes; anything outside that cannot be a part number.
+// Keywords outside this length cannot be part numbers.
 constexpr size_t kMinimumKeywordBytes = 2;
 constexpr size_t kMaximumKeywordBytes = 100;
 constexpr int kSearchRecords = 50;
 constexpr size_t kMaximumMouserProducts = 50;
-// Mouser allows 30 calls per minute. 2.1 s between requests keeps the whole process under that with a margin.
+// 30 calls per minute are allowed; 2.1 s spacing leaves a margin.
 constexpr chrono::milliseconds kMinimumRequestSpacing{2100};
-// The earliest time the next request may be sent. Every client in the process reserves its slot here under the lock,
-// because Mouser counts calls per key, not per client.
+// Next free request time, guarded by requestClockMutex. Mouser counts calls per key, not client.
 mutex requestClockMutex;
 chrono::steady_clock::time_point nextFreeRequestAt{};
-// A stock count or price-break quantity above this is not a real count.
+// Stock counts and quantities above this are rejected.
 constexpr unsigned long long kMaximumCount = 1000000000000ULL;
 
-// What a failed answer means. A rejected key and a reached limit are told apart from every other failure.
+// A rejected key and a reached limit are reported apart from other failures.
 enum class MouserFailure { None, KeyRejected, LimitReached, Other };
 
 bool setError(string* error, string message) {
@@ -76,30 +69,28 @@ bool setError(string* error, string message) {
   return false;
 }
 
-// The vendor's name as the app shows it. Every message from this client names Mouser and never another vendor.
+// Messages name the vendor as the app shows it, never another vendor.
 string mouserName() { return vendorDisplayName(kVendorProviderMouser); }
 
 string missingKeyMessage() { return mouserName() + " API key is missing or not valid"; }
 string unreachableMessage() { return "Unable to reach " + mouserName(); }
 string unparsableMessage() { return "Unable to parse the " + mouserName() + " response"; }
-// The limit message starts with this, which is how mouserLimitReached recognises it.
+// mouserLimitReached matches this prefix.
 string limitReachedPrefix() { return mouserName() + " request limit reached"; }
 string limitReachedMessage() { return limitReachedPrefix() + "; try again later"; }
 
-// The rejected-key message starts with this, which is how mouserKeyRejected recognises it.
+// mouserKeyRejected matches this prefix.
 string keyRejectedPrefix() { return mouserName() + " rejected the API key"; }
 
-// The rejected-key message, with the HTTP status when the answer had a failing one.
 string keyRejectedMessage(uint32_t status) {
   return keyRejectedPrefix() + (status >= 400 ? " (HTTP " + to_string(status) + ")" : string());
 }
 
-// The message for a status that is neither a success nor a rejected key or a reached limit.
 string requestFailedMessage(uint32_t status) {
   return mouserName() + " request failed (HTTP " + to_string(status) + ")";
 }
 
-// Text of a string or number value. Objects, arrays, booleans and null give nothing.
+// Text of a string or number; other JSON values give an empty string.
 string scalarText(const JsonPtr& value) {
   const auto* node = asValue(value);
   if (node == nullptr) return {};
@@ -108,7 +99,7 @@ string scalarText(const JsonPtr& value) {
   return {};
 }
 
-// The trimmed text of one member; empty when the member is absent or is not a string or number.
+// Trimmed text of a member; empty if absent or not a string or number.
 string fieldText(const JsonPtr& node, const char* key) {
   const auto* member = findMember(node, key);
   return member == nullptr ? string() : trim(scalarText(*member));
@@ -160,8 +151,8 @@ bool mentionsLimit(const string& text) {
   return false;
 }
 
-// True when the text is about the API key. "keyword" is a field of the request, not the key. Mouser calls the key a
-// unique identifier in some answers.
+// True when the text is about the key; "keyword" does not count. Some answers say
+// "unique identifier" instead.
 bool mentionsKey(const string& text) {
   const auto lower = toLower(text);
   for (auto position = lower.find("key"); position != string::npos; position = lower.find("key", position + 1)) {
@@ -170,7 +161,7 @@ bool mentionsKey(const string& text) {
   return lower.find("unique identifier") != string::npos;
 }
 
-// Reads the Errors list. None when it is absent or empty; otherwise the failure it describes, with its message.
+// Failure described by the Errors list, or None when it is absent or empty.
 MouserFailure readErrors(const JsonPtr& root, string& message) {
   const auto* errors = memberArray(root, "Errors");
   if (errors == nullptr || errors->empty()) return MouserFailure::None;
@@ -178,7 +169,7 @@ MouserFailure readErrors(const JsonPtr& root, string& message) {
   bool key = false;
   string first;
   for (const auto& entry : *errors) {
-    // An entry is an object with Code, Message and PropertyName; a bare string is read as its message.
+    // Entries are objects with Code, Message and PropertyName; a bare string is its message.
     const auto text = asObject(entry) != nullptr ? fieldText(entry, "Message") : trim(scalarText(entry));
     const auto code = fieldText(entry, "Code");
     const auto property = fieldText(entry, "PropertyName");
@@ -200,8 +191,7 @@ MouserFailure readErrors(const JsonPtr& root, string& message) {
   return MouserFailure::Other;
 }
 
-// The stock count as digits. AvailabilityInStock is the count itself; Availability is a sentence that starts with it
-// ("1,234 In Stock").
+// AvailabilityInStock is the count; Availability is a sentence starting with it ("1,234 In Stock").
 string stockCount(const JsonPtr& record) {
   const auto inStock = withoutSeparators(fieldText(record, "AvailabilityInStock"));
   if (isUnsignedDecimal(inStock, kMaximumCount)) return inStock;
@@ -222,8 +212,7 @@ string stockCount(const JsonPtr& record) {
   return isUnsignedDecimal(digits, kMaximumCount) ? digits : string();
 }
 
-// The price of the smallest quantity break that has a price, as Mouser printed it, with its currency and the quantity
-// it applies from: "$0.10 USD", "0.05 EUR from 10 pcs". The number is never converted.
+// Lowest-quantity price as Mouser printed it, e.g. "0.05 EUR from 10 pcs". Never converted.
 string lowestQuantityPrice(const JsonPtr& record) {
   const auto* breaks = memberArray(record, "PriceBreaks");
   if (breaks == nullptr) return {};
@@ -247,7 +236,7 @@ string lowestQuantityPrice(const JsonPtr& record) {
   return price;
 }
 
-// The attributes as name/value pairs, exactly as Mouser sent them. The package is the "Package / Case" attribute.
+// Attributes as name/value pairs; the package is the "Package / Case" attribute.
 void readAttributes(const JsonPtr& record, MouserProductDetails& product) {
   const auto* attributes = memberArray(record, "ProductAttributes");
   if (attributes == nullptr) return;
@@ -261,7 +250,6 @@ void readAttributes(const JsonPtr& record, MouserProductDetails& product) {
   product.vendorMetadata.parameters = product.parameters;
 }
 
-// The lifecycle in words, and whether the part can still be ordered.
 void readLifecycle(const JsonPtr& record, MouserProductDetails& product) {
   const auto lifecycle = fieldText(record, "LifecycleStatus");
   const bool discontinued = memberIsTrue(record, "IsDiscontinued");
@@ -298,8 +286,7 @@ MouserProductDetails readPart(const JsonPtr& record) {
   return product;
 }
 
-// The parser behind parseMouserSearchResponse. It also says what kind of failure the body reports, so a caller can
-// tell a rejected key or a reached limit from other failures.
+// Parser behind parseMouserSearchResponse; also reports the failure kind.
 MouserFailure readSearchResponse(const string& body, vector<MouserProductDetails>& products, string* error) {
   products.clear();
   string parseError;
@@ -329,7 +316,7 @@ MouserFailure readSearchResponse(const string& body, vector<MouserProductDetails
   return MouserFailure::None;
 }
 
-// Reads one keyword-search answer: the HTTP status first, then the body.
+// Reads a keyword-search answer: HTTP status first, then the body.
 MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetails>& products, string* error) {
   products.clear();
   const auto status = response.statusCode;
@@ -341,7 +328,7 @@ MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetai
   const auto failure = readSearchResponse(response.body, products, &bodyError);
   if (status == 401 || status == 403) {
     products.clear();
-    // A reached limit can come with a failing status. Its Errors entry says so, and the key is not the problem.
+    // A limit can come with a 401 or 403; the key is not the problem.
     if (failure == MouserFailure::LimitReached) {
       setError(error, limitReachedMessage());
       return failure;
@@ -351,7 +338,7 @@ MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetai
   }
   if (status >= 400) {
     products.clear();
-    // A failing status may still carry an Errors list. One about the key or the limit is reported as such.
+    // Errors on a failing status are reported as key or limit problems when they say so.
     if (failure == MouserFailure::KeyRejected) {
       setError(error, keyRejectedMessage(status));
       return failure;
@@ -367,9 +354,9 @@ MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetai
   return failure;
 }
 
-// Sends one keyword search. Only a transport failure is false; the caller reads the status and the body. The shared
-// transport words its own errors for DigiKey, so they are replaced: a Mouser error never names another vendor. A POST
-// is never repeated by the transport, so a failed call costs at most one request of the quota.
+// Sends one search. Only a transport failure is false; the caller reads the status and body.
+// The DigiKey-worded transport error is replaced. POSTs are never retried, so a failure costs one
+// request.
 bool postKeywordSearch(const string& apiKey, const string& keyword, HttpResponse& response, string* error) {
   const auto url = string(kMouserKeywordSearchUrl) + encodeComponent(apiKey, false);
   const auto body = string(R"({"SearchByKeywordRequest":{"keyword":")") + escapeJsonString(keyword) +
@@ -431,7 +418,7 @@ vector<MouserProductDetails> keepMouserMatches(const vector<MouserProductDetails
 
 size_t chooseMouserCandidate(const vector<MouserProductDetails>& matches, const string& /*partNumber*/,
                              const string& manufacturer) {
-  // The matches are the exact matches for the part number already, so only the manufacturer can tell them apart.
+  // Matches already share the part number, so only the manufacturer can separate them.
   const auto wanted = toLower(trim(manufacturer));
   size_t chosen = matches.size();
   size_t remaining = 0;
@@ -458,9 +445,9 @@ bool mouserLimitReached(const string& error) { return error.rfind(limitReachedPr
 bool mouserKeyRejected(const string& error) { return error.rfind(keyRejectedPrefix(), 0) == 0; }
 
 bool mouserKeyAccepted(uint32_t statusCode, const string& body, string* error) {
-  // The key was accepted and the limit is reached: the key is valid.
+  // 429: the key was accepted, but the limit is reached.
   if (statusCode == 429) return true;
-  // Below 200 and 3xx are not answers to the search; the body is not read.
+  // 1xx and 3xx are not answers to the search.
   if (statusCode < 200 || (statusCode >= 300 && statusCode < 400)) {
     return setError(error, requestFailedMessage(statusCode));
   }
@@ -469,7 +456,7 @@ bool mouserKeyAccepted(uint32_t statusCode, const string& body, string* error) {
   response.body = body;
   vector<MouserProductDetails> products;
   string answerError;
-  // A 2xx answer passes only when the body is a JSON object without Errors entries. A failing status is never a pass.
+  // A 2xx passes only with a JSON object body and no Errors; a failing status never passes.
   if (readAnswer(response, products, &answerError) == MouserFailure::None) return true;
   return setError(error, move(answerError));
 }
@@ -479,7 +466,7 @@ MouserApiClient::MouserApiClient(MouserConfig config) : config_(move(config)) {}
 void MouserApiClient::waitForRequestSlot() {
   chrono::steady_clock::time_point slot;
   {
-    // Reserve the next free slot under the lock; the sleep happens after it is released.
+    // Reserve the slot under the lock; sleep after releasing it.
     const lock_guard<mutex> lock(requestClockMutex);
     slot = max(chrono::steady_clock::now(), nextFreeRequestAt);
     nextFreeRequestAt = slot + kMinimumRequestSpacing;
@@ -509,7 +496,7 @@ bool MouserApiClient::testConnection(string* error) {
   HttpResponse response;
   if (!postKeywordSearch(config_.apiKey, kCredentialTestKeyword, response, error)) return false;
   string answerError;
-  // The key passes only when Mouser answered the search; a reached limit also shows the key was accepted.
+  // The key passes only if Mouser answers the search; a reached limit also counts.
   if (mouserKeyAccepted(response.statusCode, response.body, &answerError)) return true;
   return setError(error, redactMouserKey(answerError, config_.apiKey));
 }
@@ -526,9 +513,7 @@ optional<MouserProductDetails> MouserApiClient::lookupByPartNumber(const string&
   }
   vector<MouserProductDetails> products;
   if (!searchKeyword(keyword, products, outcome, error)) return nullopt;
-  // A keyword search also lists loose matches (longer part numbers, parts that mention the term). Only the products
-  // whose part number is the one asked for, and that have a Mouser part number, are kept; a part is never guessed from
-  // the others.
+  // Keyword search also returns loose matches; keep only exact part numbers, never guess.
   auto matches = keepMouserMatches(products, keyword);
   if (matches.empty()) {
     outcome = MouserLookupOutcome::NoMatch;

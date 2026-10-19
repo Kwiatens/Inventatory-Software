@@ -18,8 +18,7 @@ namespace {
 
 constexpr size_t kMaximumIdentifierBytes = 64;
 
-// The ISO/IEC 15434 Macro 06 envelope: "[)>", a record separator, "06" and a group separator. The separators are split
-// into their own literals so the hexadecimal escapes do not run into the digits that follow.
+// ISO/IEC 15434 Macro 06 envelope. Split so the hex escapes do not absorb the digits after them.
 constexpr char kDigiKeyEnvelope[] = "[)>\x1e"
                                     "06\x1d";
 
@@ -32,14 +31,14 @@ bool isDigiKeyNumberCharacter(char character) {
          character == '/' || character == '+';
 }
 
-// A DigiKey part number is written "445-15749-1-ND": letters, digits and separators, always ending in "-ND".
+// A DigiKey part number such as "445-15749-1-ND": letters, digits and separators, ending in "-ND".
 bool isDigiKeyPartNumber(const string& value) {
   if (value.size() <= 3 || value.size() > kMaximumIdentifierBytes) return false;
   if (value.compare(value.size() - 3, 3, "-ND") != 0) return false;
   return all_of(value.begin(), value.end(), isDigiKeyNumberCharacter);
 }
 
-// A manufacturer part number as a bag prints it. Accepts the characters manufacturers use in their numbers.
+// Manufacturer part number as a bag prints it.
 bool isManufacturerPartNumber(const string& value) {
   if (value.size() < 2 || value.size() > kMaximumIdentifierBytes) return false;
   return all_of(value.begin(), value.end(), [](char character) {
@@ -47,8 +46,7 @@ bool isManufacturerPartNumber(const string& value) {
   });
 }
 
-// DigiKey bags carry their part number in the P identifier and the manufacturer part number in 1P. The P identifier
-// must be read as a whole field: "30P" and "1P" are other identifiers.
+// P holds the part number and 1P the manufacturer part number. Match whole fields: "30P" is not P.
 optional<VendorBagIdentity> recognizeDigiKeyBag(const string& code) {
   const size_t envelopeSize = sizeof(kDigiKeyEnvelope) - 1;
   if (code.size() <= envelopeSize || code.compare(0, envelopeSize, kDigiKeyEnvelope) != 0) return nullopt;

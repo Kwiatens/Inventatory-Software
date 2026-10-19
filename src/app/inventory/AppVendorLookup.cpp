@@ -1,9 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Vendor lookup for a part added by hand: asks each configured vendor for the part number, then lets the user choose the
-// vendor the part came from. The chosen vendor becomes the part's origin, which is where its refreshes look.
+// Inventatory - vendor lookup for a hand-added part. The chosen vendor is its refresh origin.
 
 #include "App.h"
 #include "app/common/AppActionSupport.h"
@@ -19,8 +17,7 @@ namespace inventatory {
 
 using namespace std;
 
-// Asks every configured vendor for the part number typed into the form's SKU. The lookups run in the background, and the
-// answers reach the form through processVendorLookup.
+// Asks each configured vendor in the background. Answers arrive via processVendorLookup.
 void App::beginVendorLookup() {
   if (!originProvider(workingCopy_.item).empty()) {
     setMessage("This part already has a vendor; it keeps the vendor it came from", 4, UiMessageSeverity::Warning);
@@ -121,7 +118,7 @@ void App::beginVendorLookup() {
         MouserApiClient client(mouserConfig);
         details = client.lookupByPartNumber(query, outcome, &error, manufacturer);
       } catch (...) {
-        // The key travels in the request URL, so no exception text is shown.
+        // Exception text could include the key from the request URL, so it is not shown.
         outcome = MouserLookupOutcome::Failed;
         error = "unexpected error";
       }
@@ -155,7 +152,7 @@ void App::beginVendorLookup() {
   dirty_ = true;
 }
 
-// Shows the answers once they arrive. A result for a form that was closed, or for another workspace, changes nothing.
+// Ignores results for a closed form or another workspace.
 void App::processVendorLookup() {
   if (!vendorLookupFuture_.valid()) return;
   if (vendorLookupFuture_.wait_for(chrono::seconds(0)) != future_status::ready) return;
@@ -194,8 +191,7 @@ void App::processVendorLookup() {
   dirty_ = true;
 }
 
-// The vendor a part came from is fixed by this choice: its details fill the part, and the vendor is the origin that
-// refreshes look up. A part keeps that vendor, so it can be chosen only once.
+// Fixes the part's vendor, which refreshes use as its origin. A part can be chosen only once.
 void App::chooseVendorCandidate(size_t index) {
   if (index >= vendorCandidates_.size()) return;
   if (!originProvider(workingCopy_.item).empty()) {
@@ -204,7 +200,7 @@ void App::chooseVendorCandidate(size_t index) {
   }
   const auto candidate = vendorCandidates_[index];
   auto& item = workingCopy_.item;
-  // A part added by hand carries "New Part" until it has a name, so the vendor's description may name it.
+  // A hand-added part is named "New Part" until a vendor supplies a name.
   if (trim(item.partName) == "New Part") item.partName.clear();
   if (candidate.provider == "digikey" && candidate.digiKey) {
     app_actions::mergeDigiKeyMetadata(item, *candidate.digiKey);

@@ -177,10 +177,8 @@ class JsonParser {
     }
   }
 
-  // Parses one string completely, so every escape and control character is validated. When `oversized` is
-  // non-null (a value, not an object key), a string longer than the field limit is not an error: it is
-  // reported through `oversized` and its text is discarded, which keeps memory bounded. Object keys pass
-  // nullptr and still fail on the limit.
+  // Validates the whole string. An over-long value sets `oversized` and is dropped to bound memory.
+  // Object keys pass nullptr and still fail on the limit.
   bool parseString(string& out, string* error, bool* oversized = nullptr) {
     if (!consume('"')) {
       if (error != nullptr) {
@@ -272,7 +270,7 @@ class JsonParser {
           }
           unsigned codePoint = codeUnit;
           if (codePoint == 0U) {
-            // A NUL would cut the string short wherever it is later stored or compared as C text.
+            // A NUL would truncate the string wherever C text is used.
             if (error != nullptr) *error = "JSON string contains a NUL character";
             return false;
           }
@@ -293,8 +291,7 @@ class JsonParser {
             return false;
           }
 
-          // Escaped control characters (including the C1 range) are shown as spaces so a vendor string can
-          // never carry terminal control sequences into the inventory.
+          // Escaped control characters (C1 too) become spaces, so no terminal sequence gets through.
           if (codePoint < 0x20U || (codePoint >= 0x7FU && codePoint <= 0x9FU)) codePoint = 0x20U;
 
           if (codePoint <= 0x7FU) {

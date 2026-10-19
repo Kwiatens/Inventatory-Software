@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Checks a Linux release binary on the machine it runs on: its shared libraries resolve, it reports its
-# version, the release installer accepts and installs it, and the installed program draws its terminal
-# interface and keeps running. Runs in an isolated home, so no inventory or settings are touched.
+# Smoke-tests a release binary: libraries resolve, it reports its version, the installer
+# installs it, and the interface draws and keeps running. Uses an isolated HOME.
 set -euo pipefail
 
 binary=${1:?usage: check-linux-runtime.sh <inventatory-binary>}

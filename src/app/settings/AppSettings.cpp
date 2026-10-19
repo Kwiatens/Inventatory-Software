@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Versioned user-level application settings, stored outside inventory data.
 
 #include "app/settings/AppSettings.h"
 
@@ -215,8 +214,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
     if (key == "bridge_port") {
       legacyFormat = true;
     } else if (key == "quick_label" || key == "quick_label_revision" || key.rfind("tolerance_", 0) == 0) {
-      // These keys were written by older schema-1 settings and are kept as
-      // ignorable migration inputs. Quick labels now have their own file.
+      // Keys from older schema-1 files, accepted and ignored. Quick labels now have their own file.
       legacyFormat = true;
     } else if (key.rfind("appearance_", 0) == 0 && !requiredSettingsKey(key)) {
       return false;
@@ -395,8 +393,7 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
          << "digikey_language=" << quoted(settings.digiKeyLanguage) << '\n'
          << "digikey_currency=" << quoted(settings.digiKeyCurrency) << '\n'
          << "low_stock_threshold=" << settings.lowStockThreshold << '\n';
-  // TME keys are optional, like symbol_standard: written only when they differ from the default, so a
-  // settings file that has none of them still loads.
+  // Optional like symbol_standard: written only when not the default, so older files still load.
   const AppSettings defaults;
   if (settings.tmeCountry != defaults.tmeCountry) output << "tme_country=" << quoted(settings.tmeCountry) << '\n';
   if (settings.tmeLanguage != defaults.tmeLanguage) output << "tme_language=" << quoted(settings.tmeLanguage) << '\n';

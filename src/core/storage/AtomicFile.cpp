@@ -115,8 +115,8 @@ bool fsyncDescriptor(int descriptor) {
   return true;
 }
 
-// A symbolic link at the destination is followed to the file it names, so replacing the content does
-// not replace the link. Returns the destination itself when it is not a link or the chain is cyclic.
+// Follows a symlink chain to the file it names, so the link survives. Returns `destination`
+// when it is not a link, or on error or a cycle.
 filesystem::path resolveLinkedDestination(const filesystem::path& destination) {
   filesystem::path current = destination;
   for (int depth = 0; depth < 16; ++depth) {
@@ -148,7 +148,7 @@ bool writePosixFile(const filesystem::path& temporary, string_view contents, str
   size_t offset = 0;
   while (offset < contents.size()) {
     const ssize_t written = write(descriptor, contents.data() + offset, contents.size() - offset);
-    // A signal (the background service uses several) can interrupt a write; that is not a failure.
+    // Signals can interrupt a write (the background service gets several); retry.
     if (written < 0 && errno == EINTR) continue;
     if (written <= 0) {
       setError(error, systemErrorText("Unable to write temporary file",
@@ -332,7 +332,7 @@ bool syncDirectory(const filesystem::path& directory, string* error) {
   const bool flushed = fsyncDescriptor(descriptor);
   const int flushError = errno;
   close(descriptor);
-  // Some filesystems cannot flush a directory at all; there is nothing more to do for them.
+  // Some filesystems cannot flush directories; nothing more can be done there.
   if (!flushed && flushError != EINVAL && flushError != ENOTSUP && flushError != EROFS) {
     setError(error, systemErrorText("Unable to flush directory", error_code(flushError, generic_category())));
     return false;

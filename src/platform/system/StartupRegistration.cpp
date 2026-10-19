@@ -36,7 +36,7 @@ std::string systemError(DWORD code) {
   if (count == 0 || buffer == nullptr) return fallback;
   std::wstring wide(buffer, count);
   LocalFree(buffer);
-  // The system text ends with "\r\n"; keep it on one line and return it as UTF-8.
+  // The system text ends with CRLF; flatten it to one line.
   for (wchar_t& character : wide) {
     if (character == L'\r' || character == L'\n') character = L' ';
   }

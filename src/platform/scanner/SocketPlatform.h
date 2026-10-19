@@ -19,7 +19,7 @@ inline constexpr int kSocketShutdownBoth = SD_BOTH;
 inline constexpr int kSocketSendFlags = 0;
 
 inline int closeSocket(NativeSocket socket) { return closesocket(socket); }
-// IPv4 TCP stream socket and accepted connection.  Windows sockets are not inherited by default.
+// Windows sockets are not inherited by default, so no close-on-exec step is needed.
 inline NativeSocket createStreamSocket() { return ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP); }
 inline NativeSocket acceptConnection(NativeSocket listener, sockaddr* address, SocketLength* length) {
   return ::accept(listener, address, length);
@@ -28,9 +28,8 @@ inline int setSocketNonBlocking(NativeSocket socket, bool enabled) {
   u_long value = enabled ? 1UL : 0UL;
   return ioctlsocket(socket, FIONBIO, &value);
 }
-// Listener port policy. On Windows SO_REUSEADDR would let another socket bind the same address and
-// port while this one listens, so the exclusive option is used and a port that is taken is reported
-// as taken. Closing the listener frees the port again without a TIME_WAIT delay.
+// Exclusive use: on Windows SO_REUSEADDR would let another socket bind the port while this one
+// listens.
 inline int setListenerAddressPolicy(NativeSocket socket) {
   const BOOL exclusive = TRUE;
   return setsockopt(socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive),
@@ -38,9 +37,8 @@ inline int setListenerAddressPolicy(NativeSocket socket) {
 }
 inline int socketLastError() { return WSAGetLastError(); }
 inline bool socketWouldBlock(int error) { return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS; }
-// A blocking call that was interrupted and should simply be repeated.
 inline bool socketInterrupted(int error) { return error == WSAEINTR; }
-// accept() failures that concern one aborted connection, not the listener; retry without a pause.
+// accept() errors for one aborted connection, not the listener; retry at once.
 inline bool socketAcceptRetryable(int error) { return error == WSAEINTR || error == WSAECONNRESET; }
 }  // namespace inventatory
 #else
@@ -59,9 +57,8 @@ inline constexpr int kSocketShutdownBoth = SHUT_RDWR;
 inline constexpr int kSocketSendFlags = MSG_NOSIGNAL;
 
 inline int closeSocket(NativeSocket socket) { return close(socket); }
-// IPv4 TCP stream socket and accepted connection.  Both are created close-on-exec atomically so a
-// helper process forked by another thread (xdg-open, avahi-publish-service, the updater) can never
-// inherit the Scan R1 listener or a client connection and keep the port bound after it is closed.
+// Created close-on-exec so a process forked elsewhere (xdg-open, the updater) cannot inherit the
+// listener or a client socket and keep the port bound.
 inline NativeSocket createStreamSocket() { return ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP); }
 inline NativeSocket acceptConnection(NativeSocket listener, sockaddr* address, SocketLength* length) {
   return ::accept4(listener, address, length, SOCK_CLOEXEC);
@@ -71,17 +68,15 @@ inline int setSocketNonBlocking(NativeSocket socket, bool enabled) {
   if (flags < 0) return -1;
   return fcntl(socket, F_SETFL, enabled ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK));
 }
-// Listener port policy. SO_REUSEADDR only allows a rebind while old connections are in TIME_WAIT;
-// a port with an active listener still reports "in use".
+// SO_REUSEADDR only permits rebinding over TIME_WAIT; an active listener still blocks the port.
 inline int setListenerAddressPolicy(NativeSocket socket) {
   const int reuse = 1;
   return setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 }
 inline int socketLastError() { return errno; }
 inline bool socketWouldBlock(int error) { return error == EWOULDBLOCK || error == EAGAIN || error == EINPROGRESS; }
-// A blocking call that was interrupted by a signal and should simply be repeated.
 inline bool socketInterrupted(int error) { return error == EINTR; }
-// accept() failures that concern one aborted connection, not the listener; retry without a pause.
+// accept() errors for one aborted connection, not the listener; retry at once.
 inline bool socketAcceptRetryable(int error) { return error == EINTR || error == ECONNABORTED; }
 }  // namespace inventatory
 #endif

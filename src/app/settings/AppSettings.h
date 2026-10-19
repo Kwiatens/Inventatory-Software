@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Versioned user-level application settings, stored outside inventory data.
 
 #pragma once
 
@@ -18,11 +17,10 @@ namespace inventatory {
 
 constexpr int kDefaultLowStockThreshold = 5;
 
-// Byte limits for DigiKey settings text. The settings validator and the Settings editor both use these,
-// so an edit that is accepted on screen is always accepted when settings are saved.
+// Byte limits shared by the Settings editor and the validator, so accepted edits always save.
 inline constexpr std::size_t kMaxDigiKeyFieldBytes = 512U;
 inline constexpr std::size_t kMaxDigiKeyLocaleFieldBytes = 32U;
-// Byte limits for TME settings text, with the same accept-on-screen rule as DigiKey.
+// TME byte limits, shared with the editor like the DigiKey limits.
 inline constexpr std::size_t kMaxTmeFieldBytes = 512U;
 inline constexpr std::size_t kMaxTmeLocaleFieldBytes = 32U;
 
@@ -65,10 +63,10 @@ struct AppearanceSettings {
       0x8C9690,  // MutedText
       0xB9E7DD,  // FocusText
       0x58B9B0,  // Interactive
-      0xA0D0C0,  // Success (sea glass)
+      0xA0D0C0,  // Success
       0x8FCBC5,  // Link
-      0xDBCDA9,  // WarningText (sand)
-      0xCC8BA4,  // DangerText (muted rose)
+      0xDBCDA9,  // WarningText
+      0xCC8BA4,  // DangerText
       0x315A55,  // ActiveBg
       0x243A37,  // ActiveSoftBg
       0x2A261C,  // WarningBg
@@ -81,8 +79,8 @@ const char* appearanceColorKey(AppearanceColorRole role);
 const char* appearanceColorLabel(AppearanceColorRole role);
 std::string appearanceColorHex(std::uint32_t rgb);
 bool parseAppearanceColorHex(const std::string& text, std::uint32_t& rgb);
-// Moves warning/danger colors that still hold the pre-apricot/rose defaults to the current defaults. Colors the
-// user customized are left untouched. Returns true when any color changed.
+// Moves unchanged legacy default colors to the current ones; customized colors stay.
+// Returns true if any color changed.
 bool upgradeLegacyAppearanceDefaults(AppearanceSettings& appearance);
 
 struct AppSettings {
@@ -103,14 +101,12 @@ struct AppSettings {
   std::string digiKeySite = "US";
   std::string digiKeyLanguage = "en";
   std::string digiKeyCurrency = "USD";
-  // TME storefront used for product and price data. The token and application secret are not settings;
-  // they live in the secure credential store.
+  // Storefront for TME price data. The token and secret live in the credential store, not here.
   std::string tmeCountry = "PL";
   std::string tmeLanguage = "EN";
   std::string tmeCurrency = "EUR";
   int lowStockThreshold = kDefaultLowStockThreshold;
-  // Electrical symbol set printed on rack labels. Optional in settings.conf: written only when it is not the
-  // default, so files stay readable by older releases for users who never change it.
+  // Written to settings.conf only when not the default, so older releases can still read the file.
   SymbolStandard symbolStandard = SymbolStandard::Eu;
   AppearanceSettings appearance;
   // Shared wire-label shortcuts published to the paired Scan R1.
@@ -123,9 +119,7 @@ std::filesystem::path appSettingsPath();
 bool loadAppSettings(const std::filesystem::path& path, AppSettings& settings);
 bool saveAppSettings(const std::filesystem::path& path, const AppSettings& settings);
 
-// Quick label presets travel with the Inventatory data folder (so they follow
-// the user's data when it is backed up or moved) rather than living in the
-// machine-local settings file.
+// Quick label presets live with the data folder, so backups and moves carry them.
 std::filesystem::path quickLabelsPath(const std::filesystem::path& dataDirectory);
 bool loadQuickLabels(const std::filesystem::path& path, std::vector<std::string>& presets, std::uint32_t& revision);
 bool saveQuickLabels(const std::filesystem::path& path, const std::vector<std::string>& presets,
