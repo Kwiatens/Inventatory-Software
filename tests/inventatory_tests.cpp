@@ -1863,7 +1863,7 @@ struct StartupTestEnvironment {
 
 void testSystemctlOutputStaysOffTheTerminal() {
   StartupTestEnvironment environment("systemctl-stderr");
-  // The helper's stderr must not reach the terminal. fd 2 is redirected to a file that must stay empty.
+  // The helper's stderr must not reach the terminal; fd 2 goes to a file that must stay empty.
   const auto stderrFile = environment.root / "stderr.txt";
   fflush(stderr);
   const int savedError = dup(STDERR_FILENO);
@@ -2302,8 +2302,8 @@ void testDesktopLauncherExecQuoting() {
   const auto applications = environment.launcher();
   const auto special = environment.root / "sp $dollar `tick` \\slash \"quote\" 100%" / "inventatory";
   writeTextFile(special, "#!/bin/sh\n", true);
-  // The same path as the key-file text of a spec-conformant Exec value: backslash-escaped \" ` $ and
-  // backslash, every backslash doubled, and % written as %%.
+  // Key-file text of a spec-conformant Exec value: \" ` $ are backslash-escaped, and
+  // every backslash is doubled, and % is written as %%.
   const string quoted = "Exec=\"" +
                         (environment.root / "sp \\\\$dollar \\\\`tick\\\\` \\\\\\\\slash \\\\\"quote\\\\\" 100%%").string() +
                         "/inventatory\"\n";
@@ -2682,7 +2682,7 @@ void testDigiKeyOversizedJsonStrings() {
   }
 
   {
-    // Escapes inside an oversized string are still decoded and validated, so valid ones are accepted.
+    // Escapes inside an oversized string are still decoded and validated; valid ones pass.
     string error;
     assert(validateDigiKeyJsonPayload(R"({"d":")" + oversized + R"(\né😀"})", &error));
     assert(error.empty());
@@ -2724,7 +2724,7 @@ void testDigiKeyOversizedJsonStrings() {
   }
 
   {
-    // Many oversized values stay within the payload limit, and the whole payload limit still applies.
+    // Many oversized values fit the payload limit, which still applies to the whole body.
     string error;
     string many = "[";
     for (int index = 0; index < 200; ++index) {
@@ -2869,7 +2869,7 @@ void testInventoryItemVendorSourcesRoundTrip() {
   assert(legacyParsed.vendorSources.empty());
   assert(legacyParsed.vendorMetadata.provider == "digikey");
 
-  // Unknown trailing data still fails the strict reader, and the lenient reader ignores a damaged record.
+  // Unknown trailing data fails the strict reader; the lenient reader ignores a damaged record.
   InventoryItem rejected;
   assert(!deserializeItemStrict(legacy + "\t\"junk\"", rejected));
   assert(deserializeVendorSourcesFromStorage("\"not a record\" ").empty());
@@ -5084,7 +5084,7 @@ void testRackQueryMatchesWholeRackCode() {
 }
 
 // A bare free-text token that names a rack follows the same rule as rack:. "r1" finds R1-A1 but not
-// R10-A1, a dashed token still finds its exact location, and a part name such as "10k" still matches.
+// R10-A1, a dashed token still finds its location, and a part name such as "10k" still matches.
 void testBareFreeTextRackTokenMatchesWholeRackCode() {
   vector<InventatoryRack> racks;
   for (const char* code : {"R1", "R2", "R10"}) {
@@ -5121,7 +5121,7 @@ void testBareFreeTextRackTokenMatchesWholeRackCode() {
   assert((idsFor("10k") == vector<string>{"r2-a1"}));
 }
 
-// param: values on a physical parameter are compared by value. "1uF" must not find "11uF", and a bare
+// param: values on a physical parameter compare by value. "1uF" must not find "11uF", and a bare
 // number must not find a longer number, while non-numeric needles keep the substring match.
 void testParameterQueryMatchesValuesNotSubstrings() {
   const auto withParameter = [](const char* id, const char* name, const char* value) {
@@ -5301,7 +5301,7 @@ void testDuplicateMachineCodesAreReassigned() {
   items.push_back(second);
 
   ensureInventoryIdentifiers(items);
-  // The first holder keeps its code (its printed label stays valid); only the later duplicate changes.
+  // The first holder keeps its code, so its printed label stays valid; only the duplicate changes.
   assert(items[0].machineCode == "0002");
   assert(items[1].machineCode != "0002" && !items[1].machineCode.empty());
   const auto settled = items;
@@ -5954,7 +5954,7 @@ void testTmeEncodingPrimitives() {
   assert(tme_encoding::base64Encode("tok:sec") == "dG9rOnNlYw==");
   assert(tme_encoding::base64Encode(string("\x00\xff", 2)) == "AP8=");
   assert(tme_encoding::base64Encode("Ma") == "TWE=");
-  // Query names and values are percent-encoded: spaces become %20 and the brackets of symbols[] are escaped.
+  // Percent-encoding: spaces become %20, and the brackets of symbols[] are escaped.
   assert(tme_encoding::percentEncode("a b/c~_.-") == "a%20b%2Fc~_.-");
   assert(tme_encoding::percentEncode("symbols[]") == "symbols%5B%5D");
 }
@@ -5987,7 +5987,7 @@ void testTmeResponseParsing() {
   // A successful answer with no products is not an error.
   assert(parseTmeProductResponse(R"({"status":"OK","data":{"elements":[]}})", products, &error));
   assert(products.empty());
-  // A status other than OK fails with the status and message. Authorization statuses are recognised.
+  // A status other than OK fails with its message. Authorization statuses are recognised.
   assert(!parseTmeProductResponse(R"({"status":"E_AUTHORIZATION_FAILED","message":"Access denied.","data":[]})",
                                   products, &error));
   assert(error.find("E_AUTHORIZATION_FAILED") != string::npos);
@@ -6212,7 +6212,7 @@ void testTmeLabelScan() {
 }
 
 void testDeviceItemNameFitsTheScanR1Screen() {
-  // A TME title is longer than the Scan R1 screen can show, so the device gets the part's short label.
+  // A TME title is too long for the Scan R1 screen, so the device gets the short label.
   InventoryItem tme;
   tme.id = "device-name-tme";
   tme.partName = "Connector: pin strips; socket; female; data; PIN: 40; THT; straight";
@@ -6321,7 +6321,7 @@ void testTmeScanEventCommitsAndLooksUp() {
 }
 
 void testTmeDetailParsing() {
-  // Real v2 responses for one capacitor, pinning how the parameter, document and price records are read.
+  // Real v2 responses for one capacitor, pinning how its records are read.
   const string parameters = R"JSON({"status":"OK","data":{"elements":[{"symbol":"0603X474K100CT","parameters":{"elements":[{"id":2,"name":"Manufacturer","values":[{"id":851,"value":"WALSIN"}]},{"id":115,"name":"Type of capacitor","values":[{"id":1437230,"value":"ceramic"}]},{"id":2650,"name":"Kind of capacitor","values":[{"id":1437413,"value":"MLCC"}]},{"id":118,"name":"Capacitance","values":[{"id":1437945,"value":"0.47\u00b5F"}]},{"id":120,"name":"Operating voltage","values":[{"id":1437419,"value":"10V"}]},{"id":116,"name":"Dielectric","values":[{"id":1437420,"value":"X5R"}]},{"id":39,"name":"Tolerance","values":[{"id":1819340,"value":"\u00b110%"}]},{"id":10,"name":"Mounting","values":[{"id":1436750,"value":"SMD"}]},{"id":2932,"name":"Case - inch","values":[{"id":1620227,"value":"0603"}]},{"id":2931,"name":"Case - mm","values":[{"id":1620228,"value":"1608"}]},{"id":32,"name":"Operating temperature","values":[{"id":1819360,"value":"-55...85\u00b0C"}]}]}}]}})JSON";
   const string files = R"JSON({"status":"OK","data":{"elements":[{"symbol":"0603X474K100CT","assets":{"primary_photo":{"prime":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=640&height=480&wat=1&wat_url=_tme-wrk_%2Ftme_new_render3d.png&wat_scale=100p&ci_sign=b581469a721118f8ca2768a949685b3548c66ba5","thumbnail":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=100&height=75&q=75&ci_sign=96eb51ef4a890459099c72c0e3754a4dadab8db2","high_resolution":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=1440&height=1080&wat=1&wat_url=_tme-wrk_%2Ftme_new_render3d.png&wat_scale=100p&ci_sign=6b8918ce4ccc9b6896f24b9aae305914453ee8eb"},"additional":{"elements":[]},"presentation":{"elements":[]}},"documents":{"elements":[{"url":"\/\/www.tme.eu\/Document\/e45476bf270793f696988c4e93ce1237\/ASC_General_Purpose.pdf","type":"DTE","size":1198234,"file_name":"ASC_General_Purpose.pdf","language":"EN"}]},"parameter_images":{"elements":[]}}]}})JSON";
   const string data = R"JSON({"status":"OK","data":{"elements":[{"stock_quantity":0,"symbol":"0603X474K100CT","unit":{"id":"ST","short_name":"pcs","singular_translation":"Piece","plural_translation":null},"prices":{"elements":[{"amount":4000,"price":0.00638,"special":false}],"tax":{"type":"VAT","rate":23.0},"currency":"EUR","type":"GROSS"},"deliveries":null}]}})JSON";
@@ -6766,7 +6766,7 @@ std::string parityText(const std::string& text) {
   return out;
 }
 
-// The letters and the digit groups of a package name: "SOT-23-3" is "sot" and 23, 3; "SOT23" is "sot" and 23.
+// Letters and digit groups of a package name: "SOT-23-3" is "sot", 23, 3; "SOT23" is "sot", 23.
 struct PackageShape {
   std::string letters;
   std::vector<std::string> digits;
@@ -6818,7 +6818,7 @@ bool samePackage(const std::string& reference, const std::string& tme) {
   });
 }
 
-// A number with a unit, in base units: "600 mV" and "0.6V" are both "0.6|v". Empty for anything else ("-40 to 85°C").
+// Base-unit form: "600 mV" and "0.6V" are both "0.6|v". Empty for anything else ("-40 to 85°C").
 std::string parityQuantity(const std::string& text) {
   std::string compact;
   for (const unsigned char character : text) {
@@ -6860,7 +6860,7 @@ std::string parityQuantity(const std::string& text) {
   return value.str() + "|" + base->second;
 }
 
-// Two label values agree when they are the same text, or the same quantity written with another prefix or unit.
+// Values agree if they are the same text, or the same quantity with another prefix or unit.
 bool sameParityValue(const std::string& reference, const std::string& tme) {
   if (parityText(reference) == parityText(tme)) return true;
   const auto quantity = parityQuantity(reference);
@@ -6915,7 +6915,7 @@ void testTmeDigiKeyLabelParity() {
     if (!samePackage(reference.packageLine, tme.packageLine)) {
       mismatches.push_back(part.mpn + "\tpackage\t" + reference.packageLine + "\t" + tme.packageLine);
     }
-    // Vendors print one maker differently ("Panasonic Industry", "PANASONIC"); compare the first word.
+    // Vendors print one maker in different ways; compare the first word ("Panasonic").
     const auto makerName = [](const std::string& name) {
       std::string word;
       for (const unsigned char character : name.substr(0, name.find(' '))) {
@@ -6933,7 +6933,7 @@ void testTmeDigiKeyLabelParity() {
     }
   }
 
-  // Every difference must be an exempt check for that part, and every exempt check must still be a difference.
+  // Each difference must be an exempt check for its part, and each exemption must still apply.
   std::vector<std::string> unexplained;
   std::vector<bool> used(exemptions.size(), false);
   for (const auto& mismatch : mismatches) {
@@ -6965,7 +6965,7 @@ void testTmeDigiKeyLabelParity() {
 }
 
 void testTmeVocabularyMapsKinds() {
-  // A TME parameter whose value names the device becomes the DigiKey parameter for that kind of device.
+  // A TME parameter that names the device becomes the matching DigiKey parameter.
   const string discrete = "Discrete Semiconductor Products";
   const auto nChannel = tmeParameters("Type of transistor", "N-MOSFET", discrete);
   assert(nChannel.size() == 1 && nChannel[0].name == "FET Type" && nChannel[0].value == "N-Channel");
@@ -6993,7 +6993,7 @@ void testTmeVocabularyMapsKinds() {
   assert(memory.size() == 3 && figure("Program Memory Size") == "32kB" && figure("RAM Size") == "2kB" &&
          figure("EEPROM Size") == "1kB");
   assert(tmeParameters("Kind of core", "8-bit", "Integrated Circuits (ICs)")[0].name == "Core Size");
-  // An LED's operating voltage is its forward voltage; a diode type that only says LED adds nothing.
+  // An LED's operating voltage is its forward voltage; a diode type of LED adds nothing.
   assert(tmeParameterName("Operating voltage", "Optoelectronics") == "Voltage - Forward (Vf) (Typ)");
   assert(tmeParameterName("Operating voltage", "Integrated Circuits (ICs)") == "Operating Voltage");
   assert(tmeParameters("Diode Type", "LED", "Optoelectronics").empty());
@@ -7007,7 +7007,7 @@ void testTmeVocabularyMapsKinds() {
   assert(tmeParameterName("Type of integrated circuit", "Integrated Circuits (ICs)") == "Function");
   assert(tmeParameterName("Something TME-only", discrete) == "Something TME-only");
 
-  // Categories are classified as DigiKey's families. A word inside another word does not count: "handled" is not an LED.
+  // Categories map to DigiKey families by whole word: "handled" is not an LED.
   assert(tmeCategoryFamily("SMD resistors") == "Resistors");
   assert(tmeCategoryFamily("THT electrolytic capacitors") == "Capacitors");
   assert(tmeCategoryFamily("Bidirectional TVS SMD diodes") == "Circuit Protection");
@@ -7030,7 +7030,7 @@ void testTmeRecordConflictGuard() {
   TmeProductDetails same;
   same.parameters = {{"Resistance", u8"4.7 MΩ"}};
   assert(app_actions::tmeRecordConflict(stored, same).empty());
-  // Values that differ only in notation agree, and a record or item without the value has nothing to compare.
+  // Values that differ only in notation agree; a missing value has nothing to compare.
   InventoryItem capacitor;
   capacitor.parameters = {{"Capacitance", u8"100nF"}};
   TmeProductDetails microfarads;
@@ -7144,7 +7144,7 @@ void testLabelTilesFollowConcepts() {
   tmeLed.parameters = {{"Color", "green"}, {"Luminous Intensity", "18 to 35mcd"}, {"Voltage - Forward (Vf) (Typ)", "2 to 2.4V"}};
   assert(valueOf(tilesOf(tmeLed), "COLOR") == "Green");
 
-  // An impedance and a current rating get their short captions, and a tolerance in a frequency field is no frequency.
+  // Impedance and current get short captions; a tolerance in a frequency field is no frequency.
   InventoryItem filter;
   filter.id = "ferrite";
   filter.partName = "Ferrite bead";
@@ -7167,7 +7167,7 @@ void testLabelTilesFollowConcepts() {
   amplifier.parameters = {{"Voltage - Supply", u8"± 2.25 to 20V DC, 4.5 to 40V"}, {"Operating Temperature", "0 to 70°C"}};
   assert(valueOf(tilesOf(amplifier), "SUPPLY") == u8"± 2.25 to 20V");
 
-  // A timer whose frequency field holds a tolerance is still an IC: its tiles come from the IC rule.
+  // A timer whose frequency field holds a tolerance is still an IC for its tiles.
   InventoryItem timer;
   timer.id = "timer";
   timer.partName = "NE555 timer oscillator";
@@ -7245,7 +7245,7 @@ void testPackageLineIsNeverClipped() {
 }
 
 void testTmeRackAndHeaderIgnoreSpecifications() {
-  // A specification list does not decide what a part is: "controlled parameter" is not an LED, and a microcontroller's
+  // A spec list does not set the part type: "controlled parameter" is not an LED, and an MCU's
   // bus list does not make it a transceiver.
   InventoryStore store = parityRacks();
   InventoryItem sensor;
@@ -7267,7 +7267,7 @@ void testTmeRackAndHeaderIgnoreSpecifications() {
                                 {"Interface", "CAN, I2C, SPI, USART, USB"}};
   assert(partShortDescription(microcontroller) != "Transceiver");
 
-  // A transceiver names one bus, and an LED stays an indicator even when TME lists it as a diode type.
+  // A transceiver names one bus; an LED stays an indicator even if TME lists a diode type.
   InventoryItem transceiver;
   transceiver.id = "tme-transceiver";
   transceiver.partName = "IC: CAN transceiver";
@@ -7328,7 +7328,7 @@ void testTmeSearchTokens() {
 }
 
 void testTmeSettingsPersistOptionalKeys() {
-  // Storefront keys are optional: a file written with the defaults has none of them, and still loads.
+  // Storefront keys are optional: a file written with defaults has none, and still loads.
   const auto path = testTempRoot() / "inventatory-tme-settings-test.conf";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -7873,7 +7873,7 @@ void testCategoryHeadersAndPartDescriptors() {
   assert(customRackPlan.rackNumber == "12");
   assert(customRackPlan.symbolKey == "grid");
   const auto customRackZpl = service.buildRackLabelZpl(customRack);
-  // A custom type has no electrical symbol: it gets the 5 x 5 grid, and its name splits rather than shrinks.
+  // A custom type has no electrical symbol: it gets the 5 x 5 grid, and its name splits.
   assert(customRackZpl.find("^GFA,594,594,9,") != string::npos);
   assert(customRackZpl.find("^FDSMD^FS") != string::npos);
   assert(customRackZpl.find("^FDWIDGETS^FS") != string::npos);
@@ -7987,7 +7987,7 @@ void testCategoryHeadersAndPartDescriptors() {
       assert(anyBlack);
     }
   }
-  // The connector's pin array sits centred in its outline, and the transistor is centred on its circle
+  // The connector's pin array is centred in its outline; the transistor is centred on its circle
   // rather than on a bounding box that also holds the long base lead.
   const auto symbolBitmap = [&](const string& key) -> const RackSymbolBitmap& {
     for (size_t index = 0; index < kRackSymbolSetCount; ++index) {
@@ -8624,7 +8624,7 @@ void testCapacitorValueAndTiles() {
   assert(shortened.width <= 60);
   assert(shortened.text.size() > 3 && shortened.text.compare(shortened.text.size() - 3, 3, "...") == 0);
   const auto utf8 = fitFont0Text(u8"\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9", 20, {12});
-  // At size 12 one omega plus the ellipsis (18 dots) fits in 20. A cut inside the two-byte omega must fail.
+  // At size 12, one omega plus the ellipsis (18 dots) fits in 20. A cut inside omega must fail.
   assert(utf8.size == 12);
   assert(utf8.width == 18);
   assert(utf8.text == u8"\u03A9...");
@@ -8643,7 +8643,7 @@ void testFont0TruncationMatchesSearch() {
   assert(part.text == "Texas Instrumen..." && part.size == 12 && part.width == 95);
   const auto rack = fitFont0Text("R1234567890ABCDEF", 30, {17, 16, 15, 14, 13});
   assert(rack.text == "R1..." && rack.size == 13 && rack.width == 25);
-  // A cut that ends in a space is measured without that space ("Wa Wb..." fits, "Wa Wb ..." would not).
+  // A cut ending in a space is measured without it ("Wa Wb..." fits, "Wa Wb ..." would not).
   const auto spaced = fitFont0Text("Wa Wb Wc Wd", 50, {12});
   assert(spaced.text == "Wa Wb..." && spaced.size == 12 && spaced.width == 43);
   const auto spacedWide = fitFont0Text("MMM MMMM", 45, {12});
@@ -8672,7 +8672,7 @@ void testFont0TruncationMatchesSearch() {
   assert(longOmegas.text.compare(longOmegas.text.size() - 3, 3, "...") == 0);
   assert((longOmegas.text.size() - 3) % 2 == 0);
 
-  // The estimate of a 1 MiB string is computed without overflowing: 78 hundredths per "M" at size 40.
+  // A 1 MiB string's estimate must not overflow: 78 hundredths per "M" at size 40.
   assert(estimateFont0Width(string(1u << 20, 'M'), 40, 40) == 32715572);
 }
 
@@ -9367,7 +9367,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
     const uint16_t inheritPort = inheritServer.port();
     assert(inheritPort == reusedPort);
     const NativeSocket inheritClient = connectSlowLocalClient(inheritPort);
-    // Wait for the accepted connection: the listener and the accepted socket must both be close-on-exec.
+    // Wait for the accepted connection; the listener and that socket must both be close-on-exec.
     size_t socketsOnPort = 0;
     bool allCloexec = false;
     for (int tick = 0; tick < 500 && socketsOnPort < 2; ++tick) {
@@ -9859,7 +9859,7 @@ void testDeviceSyncRequestParsing() {
   deeplyNested += '}';
   assert(!parseDeviceSyncRequestJson(deeplyNested, request, error));
 
-  // Escapes are decoded, keys of nested objects are ignored, and ambiguous or truncated bodies are rejected.
+  // Escapes decode, nested keys are ignored, and ambiguous or truncated bodies are rejected.
   const string syncEnvelope =
       R"({"protocolVersion":1,"requestId":"sync-json","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"resultAcks":[],"events":[)";
   assert(parseDeviceSyncRequestJson(
@@ -10497,7 +10497,7 @@ void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
   const auto at = [&](AppearanceColorRole role) -> uint32_t& { return appearance.colors[static_cast<size_t>(role)]; };
   const AppearanceSettings defaults;
   const auto current = [&](AppearanceColorRole role) { return defaults.colors[static_cast<size_t>(role)]; };
-  // Pre-apricot/rose installs persisted the old defaults; one color was customized by the user.
+  // Old defaults upgrade, but a colour the user customised (DangerBg) is kept.
   at(AppearanceColorRole::WarningText) = 0xD8B56B;
   at(AppearanceColorRole::DangerText) = 0xE08C83;
   at(AppearanceColorRole::WarningBg) = 0x3A3327;
@@ -10511,8 +10511,7 @@ void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
   assert(at(AppearanceColorRole::DangerBg) == 0x112233);
   assert(!upgradeLegacyAppearanceDefaults(appearance));
 
-  // The apricot/rose defaults and the warm ivory text that preceded the Slate palette upgrade too,
-  // and a colour the user customised is never touched.
+  // Earlier palettes upgrade too; a customised colour is never touched.
   AppearanceSettings apricot;
   const auto role = [&](AppearanceColorRole r) -> uint32_t& { return apricot.colors[static_cast<size_t>(r)]; };
   role(AppearanceColorRole::PrimaryText) = 0xF1EEE5;
@@ -10560,7 +10559,7 @@ void testInvalidLowStockThresholdIsRejected() {
 }
 
 void testDigiKeySettingsFieldLimits() {
-  // The Settings editor and the settings validator share these limits; a value accepted on screen must save.
+  // Editor and validator share these limits, so any value accepted on screen saves.
   const auto path = testTempRoot() / "inventatory-digikey-field-limits-test.conf";
   AppSettings limits;
   limits.digiKeyClientId = string(kMaxDigiKeyFieldBytes, 'c');
@@ -10595,7 +10594,7 @@ void testDigiKeySettingsFieldLimits() {
 }
 
 void testSymbolStandardPersistence() {
-  // The EU default is not written, so the file stays readable by releases that predate the setting.
+  // The EU default is not written, so older releases can still read the file.
   const auto path = testTempRoot() / "inventatory-symbol-standard-settings-test.conf";
   AppSettings defaults;
   defaults.dataDirectory = "data";
@@ -10701,15 +10700,14 @@ void testUpdatePreviewPresentation() {
   assert(updateNotesLineWidth(formatted[0]) == 2 + static_cast<int>(displayWidth("Highlights")) + 2);
   assert(updateNotesLineWidth(formatted[1]) == 4 + static_cast<int>(displayWidth("Added brand new application icon.")) + 2);
 
-  // Panel width computed across all note lines remains stable regardless of scroll offset.
+  // Panel width is stable across repeated calls.
   const auto scroll0 = updateNotesPanelWidth(formatted, 60);
   const auto scroll5 = updateNotesPanelWidth(formatted, 60);
   assert(scroll0 == scroll5);
 }
 
 void testUtf8TextInputEditing() {
-  // Typed characters keep their full UTF-8 sequence and Backspace removes
-  // whole characters, so Polish letters and unit symbols never corrupt text.
+  // Typed characters keep their UTF-8 sequence, and Backspace removes whole characters.
   string buffer;
   appendKeyText(buffer, KeyEvent{KeyType::Character, 'a', ""});
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC5\x82"});      // ł
@@ -10891,9 +10889,7 @@ void testReleaseMetadataParsing() {
   assert(!removeError);
 }
 
-// --- KiCad BOM integration -----------------------------------------------
-// A trimmed copy of a real KiCad grouped export: semicolon delimited, a
-// non-orderable REF** row, and an unescaped inch mark in "2.13" ePaper".
+// Trimmed KiCad grouped export: semicolons, a non-orderable REF** row, and an unescaped inch mark.
 const string kicadBom =
     "\"Id\";\"Designator\";\"Footprint\";\"Quantity\";\"Designation\";\"Supplier and ref\";\n"
     "1;\"C1, C15, C16, C22, C23, C25\";\"C_0603_1608Metric\";6;\"1uF\";;;\n"
@@ -10928,7 +10924,7 @@ void testCsvInchMarkInUnquotedField() {
   const auto multi = parseCsv("a,5\" x 7\",c\nd,e,f\n", ',', csvError);
   assert(csvError.empty() && multi.size() == 2);
   assert(multi[0].size() == 3 && multi[0][1] == "5\" x 7\"" && multi[0][2] == "c");
-  // Quoting at the start of a field (also after a blank) still works, including embedded delimiters.
+  // Quoting at the start of a field (also after a blank) still works, with embedded delimiters.
   const auto quoted = parseCsv("x; \"a;b\";\"c\"\"d\"\n", ';', csvError);
   assert(csvError.empty() && quoted.size() == 1);
   assert(quoted[0].size() == 3 && quoted[0][1] == "a;b" && quoted[0][2] == "c\"d");
@@ -10977,12 +10973,12 @@ void testCsvEncodingValidation() {
   assert(!decodeCsvBytes(utf16("abc", false, {0xD83DU}), utf8, encodingError));
   assert(!decodeCsvBytes(string("\xFF\xFE\x00\x00x\x00\x00\x00", 8), utf8, encodingError));
   assert(encodingError.find("UTF-32") != string::npos);
-  // A U+0000 unit would become an embedded NUL byte; the UTF-8 route refuses those, so UTF-16 must too.
+  // A U+0000 unit would make an embedded NUL byte, so UTF-16 must be refused like UTF-8.
   for (const bool littleEndian : {true, false}) {
     assert(!decodeCsvBytes(utf16("R1;a", littleEndian, {0x0000U, 'b'}), utf8, encodingError));
     assert(encodingError.find("NUL") != string::npos && utf8.empty());
   }
-  // Windows-1250 (0xB5 micro sign, 0xB3 for l-stroke), overlong or truncated UTF-8 and NULs without a BOM.
+  // Windows-1250 (0xB5 micro, 0xB3 l-stroke), overlong or truncated UTF-8, and NULs without a BOM.
   for (const string& bad : {string("Description\n10\xB5" "F\n"), string("Ilo\xB3\xE6\n"), string("a\xC0\x80" "b"),
                            string("a\xE2\x82"), string("a\xED\xA0\x80" "b"), string("a\xF5\x80\x80\x80"),
                            string("R\0e\0f\0", 6)}) {
@@ -11054,8 +11050,7 @@ void testKicadBomParsing() {
   assert(bom.lines.front().quantityPerBoard == 6);
   assert(bom.lines.front().designation == "1uF");
   assert(bom.lines.front().footprint == "C_0603_1608Metric");
-  // Lenient quote recovery keeps the display row intact instead of swallowing
-  // the rest of the file.
+  // Lenient quote recovery keeps this row from swallowing the rest of the file.
   const auto epaper = find_if(bom.lines.begin(), bom.lines.end(), [](const BomLine& line) {
     return !line.designators.empty() && line.designators.front() == "U2";
   });
@@ -11277,8 +11272,7 @@ void testMatchingPrefersValueAndPackage() {
     return size_t{0};
   };
 
-  // Value plus package ranks the 0603 part first, ahead of a far larger 0805 reel. The 0603 part is only the
-  // suggestion: the package-less part fits the line as well, so the user confirms one of them.
+  // Value plus package ranks the 0603 part first; the package-less part also fits, so confirm.
   const auto capIndex = lineIndexOf("100nF");
   assert(analysis.matches[capIndex].chosenItemId() == "cap-100nf-0603");
   assert(analysis.matches[capIndex].needed == 2);
@@ -11298,7 +11292,7 @@ void testMatchingPrefersValueAndPackage() {
   const auto radialIndex = lineIndexOf("100uF");
   assert(analysis.matches[radialIndex].candidates.empty());
   assert(!analysis.matches[radialIndex].sufficient);
-  assert(analysis.shortCount == 5);  // five of the eight KiCad lines are not sufficiently covered by this stock
+  assert(analysis.shortCount == 5);  // five of the seven orderable lines are not covered by this stock
   assert(analysis.confirmCount == 1);  // the 100nF line waits for the user to pick its part
   assert(analysis.readyCount == 1);    // only the exact module match is authorised on identity alone
   assert(!bomBuildReady(analysis));
@@ -11307,7 +11301,7 @@ void testMatchingPrefersValueAndPackage() {
   const auto oneMicroIndex = lineIndexOf("1uF");
   assert(!analysis.matches[oneMicroIndex].sufficient);
 
-  // A confirmation pins the chosen part across a re-analysis, for as long as that part is unchanged.
+  // A confirmation pins the chosen part across re-analysis, while that part is unchanged.
   const auto& noPackageItem = items[2];
   map<string, string> confirmations;
   confirmations[bomLineKey(analysis.lines[capIndex])] =
@@ -11318,7 +11312,7 @@ void testMatchingPrefersValueAndPackage() {
   assert(pinned.matches[capIndex].sufficient);
   assert(pinned.matches[capIndex].check == BomCheckReason::None);
 
-  // A bare item id, as earlier versions stored it, is not a confirmation. The top suggestion is shown, unconfirmed.
+  // A bare item id from earlier versions is not a confirmation.
   map<string, string> bareId;
   bareId[bomLineKey(analysis.lines[capIndex])] = "cap-100nf-unknown";
   const auto unpinned = analyzeBom(bom, items, 1, bareId);
@@ -11360,7 +11354,7 @@ BomAnalysis pickPlanAnalysis(const vector<tuple<string, string, int, vector<stri
     BomMatch match;
     match.lineIndex = analysis.lines.size();
     if (!itemId.empty()) match.candidates.push_back({itemId, 100});
-    // The walkthrough only ever picks confirmed matches, so the helper models lines the user has confirmed.
+    // The pick walkthrough only uses confirmed matches, so model confirmed lines.
     match.confirmed = !itemId.empty();
     match.needed = needed;
     analysis.lines.push_back(line);
@@ -11369,7 +11363,7 @@ BomAnalysis pickPlanAnalysis(const vector<tuple<string, string, int, vector<stri
   return analysis;
 }
 
-// Stock used to characterise the KiCad matching path: value, package and part-number cases in one set.
+// Stock covering the KiCad matching cases: value, package and part number.
 vector<InventoryItem> characterisationStock() {
   InventoryItem cap;
   cap.id = "cap-100nf-0603";
@@ -11430,11 +11424,9 @@ string describeBomAnalysis(const BomAnalysis& analysis) {
 }
 
 void testKicadBomCharacterisation() {
-  // Captured before the EasyEDA work. KiCad lines carry no supplier identity, so their keys, quantities and
-  // candidate lists must stay byte-identical. Two intended changes are recorded here:
-  //  - the 100nF line has two equally good stock parts, so it is no longer sufficient on its own (confirm first);
-  //  - "esp32-module" is no longer a candidate: its name holds ESP32-S3-WROOM-1 only as part of "...-N16R8",
-  //    and a part number matches a whole word, not a substring.
+  // KiCad lines have no supplier identity, so this snapshot must stay byte-identical.
+  // Intended changes: the 100nF line now needs confirmation (two equal parts), and "esp32-module"
+  // is not a candidate, since a part number matches a whole word, not a substring of "...-N16R8".
   const auto bom = parseKicadBomText(kicadBom, "Astro Arrow");
   const auto analysis = analyzeBom(bom, characterisationStock(), 1, {});
   const string expected = R"SNAP(1uf|c06031608metric | needed 6 | available 1 | sufficient no | chosen cap-1uf-0603 | cap-1uf-0603:90
@@ -11453,8 +11445,8 @@ ready 1 short 5 pieces 14
   }
 }
 
-// Synthetic export in the layout of an EasyEDA Standard BOM: UTF-8 with a byte order mark, tab delimited, quoted
-// cells. The Ohm sign is U+03A9 (bytes CE A9), as EasyEDA writes it.
+// Synthetic EasyEDA Standard BOM: UTF-8 with a byte order mark, tab delimited, quoted cells.
+// The Ohm sign is U+03A9 (bytes CE A9), as EasyEDA writes it.
 const string easyedaBom =
     "\xEF\xBB\xBF"
     "ID\tName\tDesignator\tFootprint\tQuantity\tSupplier\tSupplier Part\tPrice\n"
@@ -11489,7 +11481,7 @@ void testEasyEdaBomParsing() {
   const auto bom = parseBomText(easyedaBom, "Rydful");
   assert(bom.ok);
   assert(bom.projectName == "Rydful");
-  // Three orderable rows. The castellated pads have no supplier part and are excluded, with a warning that names them.
+  // Three orderable rows; the castellated pads lack a supplier part, so a warning names them.
   assert(bom.lines.size() == 3);
   assert(bom.warnings.size() == 1);
   assert(bom.warnings.front().find("Castellated_Pad x1 is not orderable") != string::npos);
@@ -11525,7 +11517,7 @@ void testEasyEdaBomRefusesAmbiguousRows() {
   assert(!duplicate.ok);
   assert(duplicate.error.find("Designator C2 appears on rows 2 and 3") != string::npos);
 
-  // A row without a name or a designator cannot be placed or priced, so it is refused rather than dropped.
+  // A row without a name or designator cannot be placed or priced, so it is refused, not dropped.
   const auto noName = parseEasyEdaBomText(header + "\tR1\tR0402\t1\tC25744\n", "no name");
   assert(!noName.ok && noName.error.find("has no Name for R1") != string::npos);
   const auto noDesignator = parseEasyEdaBomText(header + "10k\t\tR0402\t1\tC25744\n", "no designator");
@@ -11538,8 +11530,7 @@ void testEasyEdaBomRefusesAmbiguousRows() {
   const auto noNameColumn = parseEasyEdaBomText("Designator\tFootprint\tQuantity\nR1\tR0402\t1\n", "no column");
   assert(!noNameColumn.ok && noNameColumn.error.find("missing the Name") != string::npos);
 
-  // A Quantity that disagrees with the designators is kept visible. The row never matches on its own, and demand is
-  // never less than the designators placed.
+  // A mismatched Quantity stays visible; demand is never less than the designators placed.
   const auto mismatch = parseEasyEdaBomText(header + "10k\tR1,R2,R3\tR0402\t2\tC25744\n", "mismatch");
   assert(mismatch.ok);
   assert(mismatch.lines.size() == 1);
@@ -11553,7 +11544,7 @@ void testEasyEdaBomRefusesAmbiguousRows() {
 
 void testEasyEdaRowWithPartNumberKept() {
   const string header = "Name\tDesignator\tFootprint\tQuantity\tSupplier\tSupplier Part\n";
-  // (a) EasyEDA row H1 with an LCSC part number is kept, same row without part numbers is skipped with a warning.
+  // A row with an LCSC part number is kept; the same row without one is skipped with a warning.
   const string rowWithPart = header + "Standoff M3\tH1\tMountingHole_3.2mm\t1\tLCSC\tC12345\n";
   const auto bomKept = parseEasyEdaBomText(rowWithPart, "kept");
   assert(bomKept.ok);
@@ -11570,7 +11561,7 @@ void testEasyEdaRowWithPartNumberKept() {
   assert(bomSkipped.warnings.size() == 1);
   assert(bomSkipped.warnings.front().find("Standoff M3 is not orderable") != string::npos);
 
-  // When another orderable row is present, the BOM succeeds and keeps only the orderable row with a warning.
+  // With another orderable row, the BOM succeeds, keeps that row, and warns.
   const string mixed = rowWithoutPart + "10k\tR1\tR0402\t1\tLCSC\tC25744\n";
   const auto bomMixed = parseEasyEdaBomText(mixed, "mixed");
   assert(bomMixed.ok);
@@ -11630,7 +11621,7 @@ void testEasyEdaProDialectDetectionAndParsing() {
 void testBomDialectDetection() {
   assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);
   assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
-  // Designator and footprint, but no value column the importer can read: a BOM problem, not a DigiKey one.
+  // Designator and footprint but no readable value column: a BOM problem, not a DigiKey one.
   assert(detectCsvFormat("Designator\tFootprint\tQuantity\nR1\tR0402\t1\n") == CsvFormat::BomMissingValue);
   assert(detectCsvFormat("alpha,beta\n1,2\n") == CsvFormat::Unknown);
   // Each dialect is parsed by its own reader, and the KiCad path is unchanged.
@@ -11655,18 +11646,18 @@ void testBomIdentityMatching() {
   assert(identified.confirmed && identified.check == BomCheckReason::None);
   assert(identified.chosenItemId() == "cap-100n-mpn" && identified.sufficient);
 
-  // The same line with only the plain part in stock: the value fits, but the named part is not there. The user decides.
+  // The named part is not in stock, so the user decides, even though the value fits.
   const auto notInStock = analyzeBom(bomTestFile({mpnLine}), {plain}, 1, {}).matches.front();
   assert(!notInStock.confirmed && !notInStock.sufficient);
   assert(notInStock.check == BomCheckReason::IdentityNotInStock);
   assert(notInStock.needsConfirmation());
 
-  // An LCSC number the stock cannot identify never matches on value alone, whatever the Supplier says.
+  // An LCSC number the stock cannot identify never matches on value alone.
   const auto lcscLine = bomTestLine("100nF", "C0402", 4, "LCSC", "C60474");
   const auto lcsc = analyzeBom(bomTestFile({lcscLine}), {plain}, 1, {}).matches.front();
   assert(!lcsc.confirmed && lcsc.check == BomCheckReason::IdentityNotInStock);
 
-  // A DigiKey part number identifies the item that carries that number, even when another item fits by value.
+  // A DigiKey part number identifies its item, even when another item fits by value.
   InventoryItem digiKeyResistor;
   digiKeyResistor.id = "res-dk";
   digiKeyResistor.partName = "RES 10K 1% 0402";
@@ -11680,7 +11671,7 @@ void testBomIdentityMatching() {
   const auto dk = analyzeBom(bomTestFile({dkLine}), {otherResistor, digiKeyResistor}, 1, {}).matches.front();
   assert(dk.confirmed && dk.chosenItemId() == "res-dk");
 
-  // A part number is a whole word of the name. LM3585 is not LM358, and LM358 is a whole word of its own name.
+  // Part numbers match whole words: LM3585 is not LM358.
   InventoryItem lm3585 = plain;
   lm3585.id = "opamp-lm3585";
   lm3585.partName = "LM3585 OPAMP SOIC-8";
@@ -11695,7 +11686,7 @@ void testBomIdentityMatching() {
   assert(opampFound.confirmed && opampFound.chosenItemId() == "opamp-lm358");
   assert(opampFound.candidates.size() == 1 && opampFound.candidates.front().identity);
 
-  // Two equally good parts and no identifier: the match waits for the user, and the best candidate is only suggested.
+  // Two equally good parts and no identifier: the user decides; the best is only suggested.
   InventoryItem tight = otherResistor;
   tight.id = "res-01pct";
   tight.partName = "RES 10K 0.1% 0402";
@@ -11711,8 +11702,7 @@ void testBomIdentityMatching() {
   assert(ambiguous.check == BomCheckReason::Ambiguous);
   assert(ambiguous.chosenItemId() == "res-01pct");  // the suggestion is the larger reel, never the authority
 
-  // One part with the right value but no package on either side is offered, not accepted. With a matching package
-  // the same kind of part is accepted.
+  // A part with a matching value but no package on either side is offered, not accepted.
   InventoryItem noPackage = plain;
   noPackage.id = "cap-no-package";
   noPackage.partName = "CAP CER 100NF 16V X7R";
@@ -11745,7 +11735,7 @@ void testBomLcscPartNumberMatching() {
   differentSkuItem.sku = "C99999";
   differentSkuItem.quantity = 50;
 
-  // An LCSC-supplier line whose supplier part equals a stock item's sku is an identity match and auto-confirms when unique.
+  // An LCSC line whose supplier part equals a stock sku is an identity match.
   const auto lcscLine = bomTestLine("100nF", "C0402", 4, "LCSC", "C60474");
   const auto matched = analyzeBom(bomTestFile({lcscLine}), {lcscItem}, 1, {}).matches.front();
   assert(matched.confirmed);
@@ -11762,8 +11752,7 @@ void testBomLcscPartNumberMatching() {
   const auto metaMatched = analyzeBom(bomTestFile({lcscLine}), {metaItem}, 1, {}).matches.front();
   assert(metaMatched.confirmed && metaMatched.chosenItemId() == "cap-100n-meta");
 
-  // A different SKU does not match via the supplier part number; since the line has a supplier part number,
-  // it is not confirmed on value alone (IdentityNotInStock).
+  // A different SKU does not match, and the line is not confirmed on value alone.
   const auto unmatched = analyzeBom(bomTestFile({lcscLine}), {differentSkuItem}, 1, {}).matches.front();
   assert(!unmatched.confirmed);
   assert(unmatched.check == BomCheckReason::IdentityNotInStock);
@@ -11802,7 +11791,7 @@ void testBomConfirmationLifecycle() {
   moved[0].quantity = 3;
   assert(analyzeBom(bom, moved, 1, confirmations).matches.front().confirmed);
 
-  // Changing what the matcher reads does invalidate it. The line is unconfirmed, and nothing is swapped in silently.
+  // Changing what the matcher reads invalidates it; nothing is swapped in silently.
   auto edited = items;
   edited[0].partName = "RES 10K 1% 0402 reel replaced";
   const auto lost = analyzeBom(bom, edited, 1, confirmations).matches.front();
@@ -11818,8 +11807,8 @@ void testBomConfirmationLifecycle() {
   assert(!suggested.confirmed && suggested.chosenItemId() == "res-1pct");
   assert(suggested.check == BomCheckReason::Ambiguous);
 
-  // A bare item id, as earlier versions stored it, is not a confirmation.
-  const auto bare = analyzeBom(bom, items, 1, {{key, loose.id}}).matches.front();
+  // A bare item id from earlier versions is not a confirmation.
+  const auto bare =analyzeBom(bom, items, 1, {{key, loose.id}}).matches.front();
   assert(!bare.confirmed && bare.check == BomCheckReason::OverrideLost);
 
   // Only a complete, well-formed confirmation decodes.
@@ -11837,8 +11826,7 @@ void testBomConfirmationLifecycle() {
   assert(bomItemFingerprint(loose).size() == 16);
 }
 
-// Reads one of the synthetic Altium fixtures in tests/fixtures. The first line is a SYNTHETIC notice for whoever opens
-// the file; the CSV reader has no comments, so that line is dropped before parsing.
+// Reads a synthetic Altium fixture; its SYNTHETIC notice line is dropped before parsing.
 string readAltiumFixture(const string& name) {
   const auto path = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / name;
   ifstream input(path);
@@ -11896,8 +11884,7 @@ void testAltiumSupplierFixtureFillsSupplierColumns() {
   assert(bom.ok);
   assert(bom.lines.size() == 3);
 
-  // The supplier, its part number and the manufacturer part number come from the named columns. A supplier line
-  // keeps its supplier name as the file gives it.
+  // Supplier columns are read by name, and the supplier name is kept as the file gives it.
   const auto& resistors = bom.lines[0];
   assert(resistors.supplier == "Mouser");
   assert(resistors.supplierPartNumber == "999-SYN-RES-10K");
@@ -11924,7 +11911,7 @@ void testAltiumQuotedCellsKeepCommas() {
 void testAltiumRefusesAmbiguousRows() {
   const string header = "Comment,Designator,Footprint,Quantity\n";
 
-  // A repeated designator would count one physical part twice, so the whole file is refused and the message names it.
+  // A repeated designator would count one part twice, so the whole file is refused.
   const auto duplicate = parseAltiumBomText(header + "100nF,\"C1,C2\",C0402,2\n10k,C2,R0402,1\n", "duplicate");
   assert(!duplicate.ok);
   assert(duplicate.error.find("Designator C2 appears on rows 2 and 3") != string::npos);
@@ -11943,13 +11930,13 @@ void testAltiumRefusesAmbiguousRows() {
   const auto badQuantity = parseAltiumBomText(header + "10k,R1,R0402,two\n", "bad quantity");
   assert(!badQuantity.ok && badQuantity.error.find("is not a whole number") != string::npos);
 
-  // A cell past the last column means a quote was misread, so the row is refused. Empty cells past it are harmless.
+  // A cell past the last column means a misread quote: the row is refused. Empty ones are fine.
   const auto shifted = parseAltiumBomText(header + "10k,R1,R0402,1,extra\n", "shifted");
   assert(!shifted.ok && shifted.error.find("has a cell past the last column") != string::npos);
   const auto trailingCommas = parseAltiumBomText(header + "10k,R1,R0402,1,,\n", "trailing commas");
   assert(trailingCommas.ok && trailingCommas.lines.size() == 1);
 
-  // A part with a part number but no designator is still refused, so a total row can never hide a part.
+  // A part with a part number but no designator is still refused, so a total row cannot hide it.
   const auto partWithoutDesignator =
       parseAltiumBomText("Comment,Designator,Manufacturer Part Number 1\n,,SYN-PART-1\n", "part without designator");
   assert(!partWithoutDesignator.ok && partWithoutDesignator.error.find("has no designator") != string::npos);
@@ -11973,8 +11960,7 @@ void testAltiumHeaderErrors() {
 void testAltiumQuantityConflictIsKept() {
   const string header = "Comment,Designator,Footprint,Quantity\n";
 
-  // A Quantity that disagrees with the designators is kept visible. The row cannot match on its own, and demand is
-  // never less than the designators placed.
+  // A mismatched Quantity stays visible; demand is never less than the designators placed.
   const auto mismatch = parseAltiumBomText(header + "10k,\"R1,R2,R3\",R0402,2\n", "mismatch");
   assert(mismatch.ok && mismatch.lines.size() == 1);
   assert(mismatch.lines.front().quantityConflict);
@@ -11986,8 +11972,7 @@ void testAltiumQuantityConflictIsKept() {
 }
 
 void testAltium365ExportReachesAltiumParser() {
-  // An Altium 365 export has no Comment column and reads its value from Description. It reaches the Altium parser,
-  // which reads its supplier columns. The KiCad parser reads neither, so it would refuse the file.
+  // An Altium 365 export has no Comment column, so its value comes from Description.
   const auto text = readAltiumFixture("altium-365.csv");
   assert(detectCsvFormat(text) == CsvFormat::KicadBom);
   assert(!parseKicadBomText(text, "Altium 365").ok);
@@ -12001,7 +11986,7 @@ void testAltium365ExportReachesAltiumParser() {
   assert(resistors.quantityPerBoard == 2 && !resistors.quantityConflict);
   assert(resistors.supplier == "Mouser" && resistors.supplierPartNumber == "999-SYN-RES-10K");
 
-  // A quote written as \" inside a quoted cell stays a quote, and the cells after it stay in their own columns.
+  // A \" inside a quoted cell stays a quote, and later cells keep their own columns.
   const auto& header = bom.lines[1];
   assert(header.designation == "10 Pin Shrouded Header, 0.050\", Key Pin 7");
   assert(header.designators == (vector<string>{"J4"}) && header.quantityPerBoard == 1);
@@ -12022,13 +12007,13 @@ void testAltium365ExportReachesAltiumParser() {
 }
 
 void testAltiumBackslashQuotes() {
-  // In the backslash reader, \" inside a quoted cell is one quote, and the cell goes on to its real closing quote.
+  // In the backslash reader, \" is one quote, and the cell ends at its real closing quote.
   string error;
   const auto escaped = parseCsvBackslashQuotes("\"0.050\\\", key\",x\n", ',', error);
   assert(error.empty() && escaped.size() == 1 && escaped.front().size() == 2);
   assert(escaped.front()[0] == "0.050\", key" && escaped.front()[1] == "x");
 
-  // The shared reader is unchanged: the same text ends the cell at the backslash, as it always has.
+  // The shared reader still ends the cell at the backslash.
   const auto shared = parseCsv("\"0.050\\\", key\",x\n", ',', error);
   assert(error.empty() && shared.size() == 1 && shared.front().size() == 3);
   assert(shared.front()[0] == "0.050\\");
@@ -12042,7 +12027,7 @@ void testAltiumDetectionKeepsOtherDialects() {
   const auto kicadReading = parseKicadBomText(altium, "dispatch");
   assert(kicadReading.ok && kicadReading.lines.front().supplierPartNumber.empty());
 
-  // A KiCad BOM stays on the KiCad parser, with the same lines and warnings as the KiCad parser gives.
+  // A KiCad BOM stays on the KiCad parser, with the same lines and warnings.
   const auto viaDispatch = parseBomText(kicadBom, "kicad");
   const auto direct = parseKicadBomText(kicadBom, "kicad");
   assert(viaDispatch.ok == direct.ok && viaDispatch.lines.size() == direct.lines.size());
@@ -12059,7 +12044,7 @@ void testAltiumDetectionKeepsOtherDialects() {
   assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
   assert(parseBomText(easyedaBom, "easyeda").lines.size() == 3);
 
-  // A file with a KiCad-only Qty column is not Altium, even with the Altium-shaped columns beside it.
+  // A file with a KiCad-only Qty column is not Altium, even with Altium-shaped columns.
   const string withQty = "Comment,Designator,Footprint,Description,Qty,Supplier 1\n10k,R1,R0402,Synthetic,1,Mouser\n";
   const auto kicadShaped = parseBomText(withQty, "qty");
   assert(kicadShaped.ok && kicadShaped.lines.size() == 1);
@@ -12067,11 +12052,11 @@ void testAltiumDetectionKeepsOtherDialects() {
 }
 
 void testBomLineKeysSeparateEasyEdaParts() {
-  // Two rows with the same name and footprint but different LCSC numbers are different parts and get different keys.
+  // Rows differing only by LCSC number are different parts, with different keys.
   const auto first = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25744");
   const auto second = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25745");
   assert(bomLineKey(first) != bomLineKey(second));
-  // A KiCad line carries no supplier identity, so its key is the same as it was before identity columns existed.
+  // A KiCad line has no supplier identity, so its key stays as it was.
   assert(bomLineKey(bomTestLine("10k", "R_0402_1005Metric", 1)) == "10k|r04021005metric");
 
   // A confirmation for one row never applies to the other.
@@ -12097,7 +12082,7 @@ void testBomPickCommitsAndProblems() {
   dk.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
   store.items().push_back(dk);
 
-  // Two lines draw on the same item. Both are identified by the same DigiKey number, so both are confirmed.
+  // Two lines draw on one item. Both are identified by the same DigiKey number, so both confirm.
   const auto bom = bomTestFile({bomTestLine("10k", "R0402", 5, "DigiKey", "311-10.0KLRCT-ND"),
                                 bomTestLine("10k", "R0402", 7, "DigiKey", "311-10.0KLRCT-ND")});
   const auto analysis = analyzeBom(bom, store.items(), 1, {});
@@ -12108,7 +12093,7 @@ void testBomPickCommitsAndProblems() {
   assert(sameBomPickCommits(commits, commits));
   assert(bomPickProblems(commits, {5, 7}, store).empty());
 
-  // Stock that fell below the walkthrough's take is reported, with the units involved. Nothing is clamped.
+  // Stock below the walkthrough's take is reported with its units. Nothing is clamped.
   store.items()[0].quantity = 10;
   const auto shortage = bomPickProblems(commits, {5, 7}, store);
   assert(shortage.size() == 1);
@@ -12126,7 +12111,7 @@ void testBomPickCommitsAndProblems() {
   assert(!gone.empty() && gone.front().find("is no longer in stock") != string::npos);
   assert(bomPickProblems(commits, {0, 0}, store).empty());
 
-  // The commit list differs when the plan differs, so a deduction against a changed plan is refused.
+  // The commit list differs when the plan does, so a deduction against a changed plan is refused.
   auto other = commits;
   other[1].quantity = 6;
   assert(!sameBomPickCommits(commits, other));
@@ -12399,8 +12384,7 @@ void testEnrichmentCacheRules() {
   assert(bomEnrichmentExportText(kBomEnrichmentNoMatch).empty());
   assert(bomEnrichmentExportText("").empty());
 
-  // The shortage export is built as text first: markers never reach it, cells stay formula-safe, and a
-  // line that is in stock is left out.
+  // The shortage export keeps markers out, cells formula-safe, and in-stock lines out.
   KicadBomFile shortageBom;
   shortageBom.ok = true;
   const auto addShortageLine = [&](const string& designation, const string& footprint, const string& designator,
@@ -12429,7 +12413,7 @@ void testEnrichmentCacheRules() {
   shortageEnrichment[bomLineKey(shortageBom.lines[2])] = kBomEnrichmentNoMatch;
   const auto shortageCsv = buildBomShortageCsv(shortageAnalysis, shortageEnrichment);
   assert(shortageCsv.rows == 3);
-  // A suggestion stored before verification existed is unverified, so it is exported as "check before ordering".
+  // A suggestion stored before verification existed is exported as "check before ordering".
   assert(shortageCsv.text ==
          "Designation,Footprint,Package,Designators,Needed,On hand,Suggested part,Supplier,Suggestion check\r\n"
          "\"100uF\",\"CP_Radial_D5.0mm_P2.50mm\",\"Radial 5.0mm\",\"C1\",2,0,\"493-13399-ND\",\"DigiKey\","
@@ -12449,8 +12433,7 @@ void testEnrichmentCacheRules() {
   assert(!bomEnrichmentVerified("493-13399-ND"));  // stored before verification existed
   assert(bomEnrichmentSupplier("493-13399-ND") == "DigiKey");
 
-  // A suggestion from TME carries its own marker: the part reads back without it, the supplier is TME, and the
-  // shopping list names TME beside the part.
+  // A TME suggestion has its own marker: the part reads back without it, and the supplier is TME.
   const auto tmeEntry = bomEnrichmentEntry(BomLookupOutcome::Found, "0ZCM0010FF2G", true, true).value();
   assert(bomEnrichmentPart(tmeEntry) == "0ZCM0010FF2G");
   assert(bomEnrichmentSupplier(tmeEntry) == "TME");
@@ -12463,8 +12446,7 @@ void testEnrichmentCacheRules() {
   assert(buildBomShortageCsv(shortageAnalysis, tmeEnrichment).text.find("\"0ZCM0010FF2G\",\"TME\",\"verified\"") !=
          string::npos);
 
-  // A line waiting for confirmation is on the shopping list with nothing on hand: the stock it names is not yet
-  // the part the user accepted for that line.
+  // A line awaiting confirmation is listed with nothing on hand; its stock is not yet accepted.
   InventoryItem candidate;
   candidate.id = "res-1pct";
   candidate.partName = "RES 10K 1% 0402";
@@ -12534,8 +12516,7 @@ void testBackupExportAndRestoreWorkflow() {
   assert(exportedText.find("Transfer resistor") != string::npos);
   assert(exportedText.find("Quantity") != string::npos);
   assert(exportedText.find("\"\t =HYPERLINK(\"\"https://example.invalid\"\")\"") != string::npos);
-  // Exporting over an existing file replaces it whole and leaves no temporary file behind; an export
-  // that cannot be written reports an error and leaves the destination as it was.
+  // An export replaces the file whole, leaves no temp file, and reports a failed write.
   {
     error_code ignoredExportError;
     exported.close();  // Windows cannot replace a file that is still open
@@ -12717,8 +12698,7 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
   }
   {
-    // cleanup_pending is the restore commit point. Recovery must tolerate a
-    // crash after old data was deleted but before the settings backup.
+    // cleanup_pending is the commit point; recovery must survive a crash after old data is gone.
     InventoryStore cleanupOldStore;
     InventoryItem cleanupOldItem;
     cleanupOldItem.id = "cleanup-old-item";
@@ -12750,8 +12730,7 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoveredStore.items().front().id == "transfer-item");
   }
   {
-    // A crash after every rollback artifact is gone but before journal
-    // removal must also leave the committed workspace recoverable.
+    // A crash after rollback artifacts are gone, but before journal removal, must stay recoverable.
     InventoryStore cleanupOldStore;
     InventoryItem cleanupOldItem;
     cleanupOldItem.id = "journal-cleanup-old-item";
@@ -12786,8 +12765,7 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoveredStore.items().front().id == "transfer-item");
   }
   {
-    // A failure after the settings backup has been created must clean that
-    // owned artifact along with staging, without touching the active data.
+    // A failure after the settings backup is created must clean that artifact, not the active data.
     InventoryTransferTestHooks hooks;
     bool settingsBackupCreated = false;
     hooks.copyFile = [&targetSettingsPath, &settingsBackupCreated](const filesystem::path& sourcePath,
@@ -12833,10 +12811,8 @@ void testBackupExportAndRestoreWorkflow() {
   assert(!filesystem::exists(restoreTarget / "settings.conf"));
 
   {
-    // Restore replaces only Inventatory's managed files. Everything else in
-    // the chosen data folder is user data and must survive every outcome:
-    // success, refusal before activation, a failed move, and a crash at any
-    // step followed by startup recovery.
+    // Restore replaces only managed files; other data-folder entries must survive every outcome:
+    // success, refusal, a failed move, and a crash followed by recovery.
     const auto tempRoot = testTempRoot();
     const auto keepTarget = tempRoot / "inventatory-transfer-preserve-target";
     const auto keepSettings = tempRoot / "inventatory-transfer-preserve-settings.conf";
@@ -12938,8 +12914,7 @@ void testBackupExportAndRestoreWorkflow() {
       assert(loaded.items().size() == 1);
       return loaded.items().front().id;
     };
-    // Real operations that can be interleaved with injected crashes. Every
-    // hook is counted so a crash can be placed before or after any step.
+    // Real operations with injected crashes; each hook is counted so a crash can land at any step.
     struct CrashPlan {
       size_t operations = 0;
       size_t crashAt = 0;  // 1-based; 0 never crashes
@@ -13093,8 +13068,7 @@ void testBackupExportAndRestoreWorkflow() {
         assert(recovered);
         expectUnmanagedIntact();
         if (crashAt == 1 && !crashAfter) {
-          // Crashing before the journal exists leaves only the empty staging
-          // directory, which holds no data and has nothing to recover.
+          // Before the journal exists only the empty staging directory remains.
           for (const auto& name : restoreArtifacts()) {
             assert(name.find(".restore-staging-") != string::npos);
             assert(filesystem::is_empty(tempRoot / filesystem::u8path(name)));
@@ -13116,14 +13090,11 @@ void testBackupExportAndRestoreWorkflow() {
         }
       }
     }
-    // Crash points before the commit point must roll back and later ones must complete the restore, so both
-    // outcomes have to occur; their split depends on the number of steps and is not pinned.
+    // Crashes before the commit point roll back, later ones complete; both outcomes must occur.
     assert(committedRecoveries > 0 && rolledBackRecoveries > 0);
 
-    // 5. Committed cleanup never deletes an unmanaged entry that is still in
-    //    the protected old data (for example, from an interrupted older
-    //    release): it is moved into the active workspace first, and a name
-    //    clash leaves the protected data in place instead of deleting it.
+    // 5. Cleanup moves leftover unmanaged entries into the workspace before deleting old data.
+    //    On a name clash the protected data stays in place.
     const auto crashAtCleanupCommit = [&](const string& leftoverName) {
       resetWorkspace();
       InventoryTransferTestHooks hooks;
@@ -13173,8 +13144,7 @@ void testBackupExportAndRestoreWorkflow() {
     for (const auto& name : restoreArtifacts()) filesystem::remove_all(tempRoot / filesystem::u8path(name), keepCleanupError);
   }
 
-  // If the protected old directory disappears before rollback, the active
-  // destination must remain intact rather than being deleted blindly.
+  // If the protected old directory vanishes before rollback, the active destination stays intact.
   const auto missingOldTarget = testTempRoot() / "inventatory-transfer-missing-old-target";
   const auto missingOldSettings = testTempRoot() / "inventatory-transfer-missing-old-settings.conf";
   filesystem::remove_all(missingOldTarget, cleanupError);
@@ -13253,8 +13223,7 @@ void testBackupExportAndRestoreWorkflow() {
   filesystem::remove_all(preparedTarget, cleanupError);
   filesystem::remove(preparedSettings, cleanupError);
 
-  // Online backup must capture the last committed WAL state without waiting
-  // for or including a writer's uncommitted transaction.
+  // Online backup captures the last committed WAL state, not an open writer's transaction.
   const auto liveBundle = testTempRoot() / "inventatory-transfer-live-bundle";
   filesystem::remove_all(liveBundle, cleanupError);
   SqliteConnection liveConnection;
@@ -13313,8 +13282,7 @@ void testBackupEmptyWorkspaceAndInvalidSources() {
   assert(validateInventatoryBackup(emptyBundle, error));
   assert(!restoreInventatoryBackup(emptyBundle, emptyBundle, emptySettingsPath, error));
 
-  // A readable SQLite file without the Inventatory schema is rejected by
-  // the staged public backup workflow, and the source is not modified.
+  // A SQLite file without the Inventatory schema is refused, and the source is not modified.
   filesystem::create_directories(noSchemaSource);
   {
     SqliteConnection noSchemaConnection;
@@ -13559,7 +13527,7 @@ void testOpenDatabaseCreatesParentDirectories() {
 
 #ifndef _WIN32
 void testSignalExistingInstanceOpensWindow() {
-  // Private runtime directory: a UI or service the developer has open must not hold these locks.
+  // Private runtime directory, so an open UI or service cannot hold these locks.
   const auto runtimeRoot = testTempRoot() / ("inventatory-signal-test-" + to_string(getpid()));
   filesystem::create_directories(runtimeRoot);
   filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
@@ -13577,8 +13545,7 @@ void testSignalExistingInstanceOpensWindow() {
 }
 
 void testBackgroundServiceWaitsForWorkspace() {
-  // A background service started while a terminal session owns the workspace waits for it instead of
-  // exiting, and takes the workspace as soon as the session lets go.
+  // A service started while a terminal owns the workspace waits, then takes it on release.
   const auto runtimeRoot = testTempRoot() / ("inventatory-wait-test-" + to_string(getpid()));
   filesystem::create_directories(runtimeRoot);
   filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
@@ -13615,8 +13582,7 @@ void testBackgroundServiceTakeover() {
     assert(none.stopBackgroundService(200, 200) == BackgroundStopResult::NotRunning);
   }
 
-  // Starts a child that owns the background lock. A cooperative child quits on SIGTERM; a stubborn
-  // one ignores it, standing in for a service stuck in its shutdown.
+  // A child owns the background lock; a stubborn one ignores SIGTERM, like a stuck service.
   const auto spawnService = [&](bool stubborn) {
     int ready[2]{};
     assert(pipe(ready) == 0);
@@ -13698,8 +13664,7 @@ void testBackgroundServiceTakeover() {
     close(descriptor);
   }
   {
-    // Closing the terminal sends SIGHUP; it must reach the quit callback instead of killing the
-    // process before its final save.
+    // SIGHUP from a closed terminal must reach the quit callback, not kill the process first.
     BackgroundController controller;
     assert(controller.acquireSingleInstance(false));
     atomic<bool> quit{false};
@@ -13710,16 +13675,14 @@ void testBackgroundServiceTakeover() {
     controller.stop();
   }
   {
-    // Turning "run in background" off in Settings only ends background mode: the running TUI keeps
-    // its single-instance lock and its graceful-shutdown signal handling until the process exits.
+    // Turning background mode off keeps the running TUI's lock and shutdown handling until exit.
     const auto handlerOf = [](int signalNumber) {
       struct sigaction current{};
       assert(sigaction(signalNumber, nullptr, &current) == 0);
       return current.sa_handler;
     };
-    // A second launch is another process: it must still find the interactive instance and be
-    // refused the workspace. (A forked child stands in for it and exits without running any
-    // controller teardown, which would reset this process's signal handlers.)
+    // A second launch must find the running instance and be refused the workspace.
+    // A forked child stands in for it, so no teardown resets our signal handlers.
     const auto secondLaunchBlocked = [] {
       const pid_t child = fork();
       assert(child >= 0);
@@ -13761,8 +13724,7 @@ void testBackgroundServiceTakeover() {
     for (int tick = 0; tick < 100 && quits.load() == 1; ++tick) this_thread::sleep_for(chrono::milliseconds(10));
     assert(quits.load() == 2);
 
-    // Re-enabling in the same session (as Settings does, without an open callback) keeps the open
-    // callback and the instance lock, and does not start a second signal thread.
+    // Re-enabling in the same session keeps the open callback, the lock, and one signal thread.
     atomic<int> laterQuits{0};
     assert(controller.start(true, false, [&laterQuits] { ++laterQuits; }));
     assert(controller.enabled());
@@ -13792,8 +13754,7 @@ void testBackgroundServiceTakeover() {
 }
 
 void testSystemdUnitRegistration() {
-  // The per-user unit is rewritten and reloaded only when it changes, and keeps pointing at the
-  // executable it was registered with.
+  // The unit is rewritten and reloaded only on change, and keeps its registered executable.
   const auto root = testTempRoot() / ("inventatory-unit-test-" + to_string(getpid()));
   filesystem::create_directories(root / "bin");
   filesystem::create_directories(root / "config");
@@ -13831,7 +13792,7 @@ void testSystemdUnitRegistration() {
   assert(unitText.find("After=network-online.target") == string::npos);
   assert(unitText.find("TimeoutStopSec=15") != string::npos);
   assert(unitText.find("--background") != string::npos);
-  // A clean exit, such as the SIGTERM from `pkill -x inventatory`, is never restarted under on-failure.
+  // A clean exit, such as SIGTERM from `pkill -x inventatory`, is never restarted on-failure.
   assert(unitText.find("\nRestart=always\n") != string::npos);
   assert(unitText.find("Restart=on-failure") == string::npos);
   assert(unitText.find("\nRestartSec=5\n") != string::npos);
@@ -13860,8 +13821,7 @@ void testSystemdUnitRegistration() {
 
 #endif
 
-// Every way a stored or reversed snapshot can be semantically invalid is refused with its own message, so a
-// corrupt commit is reported precisely instead of making the whole history unloadable.
+// Each invalid snapshot is refused with its own message, so a corrupt commit is reported precisely.
 void testSnapshotSemanticsRejectInvalidSnapshots() {
   const auto makeStore = [] {
     InventoryStore store;
@@ -13924,7 +13884,7 @@ void testSnapshotSemanticsRejectInvalidSnapshots() {
   auto missingRack = makeStore();
   missingRack.items()[0].rackId = "deleted-rack";
   rejected(missingRack, "invalid rack assignment");
-  // The rack is 2 rows by 2 columns, so only A1..B2 exist and a slot is a letter followed by a number.
+  // The rack is 2 by 2, so only A1..B2 exist; a slot is a letter then a number.
   for (const char* slot : {"C1", "A3", "A0", "1A", "A", "AA", "A-1", "B99999999999999999999999"}) {
     auto outOfRange = makeStore();
     outOfRange.items()[0].rackSlot = slot;
@@ -13943,8 +13903,7 @@ void testSnapshotSemanticsRejectInvalidSnapshots() {
   assert(validateSnapshotSemantics(sameSlotTwice, &error));
 }
 
-// The lenient recovery for an unescaped inch mark has one failure mode that the importers rely on being an
-// error rather than silent data loss: a quote followed by text swallows the rest of the file.
+// Lenient inch-mark recovery must fail loudly: a quote followed by text must not swallow the file.
 void testCsvQuotedFieldRecovery() {
   string error;
   // The inch mark inside a quoted field is content; only the quote before the delimiter closes it.
@@ -13958,8 +13917,7 @@ void testCsvQuotedFieldRecovery() {
   assert(error.empty());
   assert(closed.size() == 2 && closed[0] == vector<string>{"a"} && closed[1] == vector<string>{"b"});
 
-  // A quote followed by text cannot close the field, so the field runs on to the end of the file; that is
-  // reported as an unterminated field and no partial rows are returned.
+  // A quote followed by text runs the field to the end of the file: an error, with no partial rows.
   const auto swallowed = parseCsv("\"abc\"def,ghi\nnext,row\n", ',', error);
   assert(swallowed.empty());
   assert(error.find("unterminated quoted field") != string::npos);
@@ -14004,7 +13962,7 @@ void testCsvClosingQuotePadding() {
   assert(error.empty());
   assert(tabDelimited.size() == 1 && tabDelimited[0] == (vector<string>{"abc", "x"}));
 
-  // The KiCad inch mark keeps its content when a space follows the quote and ordinary text follows it.
+  // An inch mark keeps its content even when spaces follow the closing quote.
   const auto inch = parseCsv("\"2.13\" ePaper\"  ,x\n", ',', error);
   assert(error.empty());
   assert(inch.size() == 1 && inch[0] == (vector<string>{"2.13\" ePaper", "x"}));
@@ -14016,8 +13974,7 @@ void testScannerCredentialResolutionOrSkip() {
   else skipMissingCredentialStore("scanner credential resolution");
 }
 
-// Inventory history lives in its own table. Each save replaces the table, and loading returns the points
-// oldest first, so every field has to survive the round trip exactly.
+// Each save replaces the history table; loading returns points oldest first, field for field.
 void testInventoryHistoryPersistenceRoundTrip() {
   const auto database = testTempRoot() / "inventatory-history-persistence.db";
   error_code cleanupError;
@@ -14089,8 +14046,7 @@ bool createSmallBackupBundle(const filesystem::path& root, const filesystem::pat
   return createInventatoryBackup(root / "source", root / "settings.conf", bundle, "1.0.0", error);
 }
 
-// The manifest records a size and a SHA-256 digest for each bundled file. A change that keeps the size is
-// caught only by the digest, so this changes one letter without changing the file's length.
+// The manifest's SHA-256 digest must catch a same-size change, so this edits one letter only.
 void testBackupBundleDetectsSameSizeCorruption() {
   const auto root = testTempRoot() / "inventatory-bundle-digest";
   const auto bundle = root / "bundle";
@@ -14125,8 +14081,7 @@ void testBackupBundleDetectsSameSizeCorruption() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// A bundle holds only the documented files. Scanner pairing data and any token, secret or password must
-// stay out of it, including the sanitized settings file.
+// A bundle holds only documented files: no scanner pairing data, token or secret.
 void testBackupBundleHoldsOnlyDocumentedFiles() {
   const auto root = testTempRoot() / "inventatory-bundle-contents";
   const auto bundle = root / "bundle";
@@ -14157,8 +14112,7 @@ void testBackupBundleHoldsOnlyDocumentedFiles() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// A restore journal that cannot be parsed must stop startup recovery before any workspace file changes,
-// and the journal must stay on disk so it can be inspected.
+// An unparsable restore journal stops recovery before any file changes, and stays on disk.
 void testCorruptRestoreJournalLeavesWorkspaceAlone() {
   const auto root = testTempRoot() / "inventatory-corrupt-journal";
   const auto workspace = root / "workspace";
@@ -14190,8 +14144,7 @@ void testCorruptRestoreJournalLeavesWorkspaceAlone() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// writeFileAtomically either replaces the destination completely or leaves it as it was. A failed write
-// reports an error and leaves no temporary file in the destination folder.
+// A failed atomic write keeps the prior file and leaves no temporary file behind.
 void testWriteFileAtomicallyFailureKeepsPriorFile() {
   const auto root = testTempRoot() / "inventatory-atomic-failure";
   error_code cleanupError;
@@ -14216,7 +14169,7 @@ void testWriteFileAtomicallyFailureKeepsPriorFile() {
   assert(!error.empty());
   assert(readWhole(blocking) == "not a folder");
 
-  // A folder cannot be replaced by a file, and the failed replacement must not leave its temporary file.
+  // A folder cannot be replaced by a file, and the failed replace must leave no temp file.
   const auto folder = root / "folder";
   filesystem::create_directories(folder);
   error.clear();
@@ -14234,8 +14187,7 @@ void testWriteFileAtomicallyFailureKeepsPriorFile() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// Every test is registered here, in execution order, under the area it covers. `--list` prints
-// "area/name" and `--filter` matches a substring of that label.// The main code of the DigiKey bag in the photo, with its 20Z padding, as the scanner forwards it.
+// The main code of the DigiKey bag in the photo, with its 20Z padding, as the scanner forwards it.
 void testVendorBagCodeRecognition() {
   const string gs(1, '\x1d');
   const string rs(1, '\x1e');
@@ -14266,14 +14218,13 @@ void testVendorBagCodeRecognition() {
   assert(tme->manufacturerPartNumber == "0ZCM0010FF2G");
   assert(tme->productUrl == "https://www.tme.eu/details/0ZCM0010FF2G");
 
-  // Not a bag's main code: the TME bag's bottom Data Matrix has no envelope, and neither do machine codes, part numbers,
-  // URLs or nothing at all.
+  // Not a main code: no envelope on the TME bottom matrix, machine codes, part numbers or URLs.
   for (const char* other : {"P0ZCM0010FF2G1P0ZCM0010FF2GQ54LTWK34115735/9", "0002", "Inventatory:R-0002",
                             "311-10.0KHRCT-ND", "MLZ2012M3R3HT000",
                             "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604", ""}) {
     assert(!recognizeVendorBagCode(other).has_value());
   }
-  // The P field must be a DigiKey part number ending in -ND, and must be read as a whole field: "30P" is not "P".
+  // The P field must be a DigiKey number ending in -ND, read as a whole field: "30P" is not "P".
   assert(!recognizeVendorBagCode(digiKeyBagCode("445-15749-1", "MLZ2012M3R3HT000")).has_value());
   assert(!recognizeVendorBagCode(digiKeyBagCode("", "MLZ2012M3R3HT000")).has_value());
   assert(!recognizeVendorBagCode("[)>" + rs + "06" + gs + "30P445-15749-1-ND" + gs + "1PMLZ2012M3R3HT000" + rs + eot)
@@ -14285,8 +14236,7 @@ void testVendorBagCodeRecognition() {
   // A code past the device limit is refused.
   assert(!recognizeVendorBagCode(string(kMaximumVendorBagCodeBytes + 1, 'A')).has_value());
 
-  // The origin of an item is its recorded vendor; an item stored before origins were recorded takes DigiKey from its
-  // DigiKey part number, and an item with neither has no origin.
+  // An item's origin is its recorded vendor; older items fall back to their DigiKey number.
   InventoryItem tmeItem;
   tmeItem.vendorMetadata.provider = "TME";
   assert(originProvider(tmeItem) == "tme");
@@ -14298,7 +14248,7 @@ void testVendorBagCodeRecognition() {
   assert(originProvider(unbound).empty());
 }
 
-// Each vendor key names its vendor whatever its case and surrounding spaces; an empty or unknown key names none.
+// A vendor key names its vendor regardless of case or spaces; unknown keys name none.
 void testVendorDisplayNames() {
   assert(vendorDisplayName(kVendorProviderDigiKey) == "DigiKey");
   assert(vendorDisplayName(kVendorProviderTme) == "TME");
@@ -14319,7 +14269,7 @@ void testVendorDisplayNames() {
   assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::Mouser) == "Mouser");
 }
 
-// A scanned bag creates a part whose origin is the bag's vendor, and refresh looks it up at that vendor only.
+// A scanned bag creates a part whose origin is the bag's vendor; refresh uses that vendor only.
 void testBagScanRecordsOrigin() {
   InventoryStore store;
   const auto code = digiKeyBagCode("445-15749-1-ND", "MLZ2012M3R3HT000");
@@ -14350,7 +14300,7 @@ void testBagScanRecordsOrigin() {
   assert(app_actions::digiKeyRefreshLookup(*tmePart).empty());
   assert(app_actions::tmeRefreshIdentifier(*tmePart).value == "0ZCM0010FF2G");
 
-  // A TME label of a DigiKey part that already holds that TME symbol matches the part instead of duplicating it.
+  // A TME label of a DigiKey part already holding that symbol matches the part, not a duplicate.
   InventoryStore withSymbol;
   const auto digiKeyPart = resolveScanCode(withSymbol, code);
   auto* holder = withSymbol.findById(digiKeyPart.itemId);
@@ -14362,10 +14312,9 @@ void testBagScanRecordsOrigin() {
   assert(originProvider(*holder) == "digikey");
 }
 
-// The device sends a bag's main code in full. The control characters of the envelope travel as JSON escapes.
+// The device sends a bag's full main code; control characters travel as JSON escapes.
 void testDeviceEventIdConflictIsRefused() {
-  // The device numbers its events. An id the desktop already holds for a different scan must not be acknowledged, or
-  // the scan is dropped without a message; an identical retransmission is still the same scan.
+  // An event id reused for a different scan must not be acknowledged; a retransmission is fine.
   const auto path = testTempRoot() / "inventatory-device-event-conflict-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -14403,7 +14352,7 @@ void testDeviceEventIdConflictIsRefused() {
   assert(pending.front().code == tmeCode);
   assert(pending.front().value == 5);
 
-  // A clash behind a new scan in the same request: the new scan is accepted and the clash is left out.
+  // A clash behind a new scan in one request: the new scan is accepted, the clash left out.
   DeviceSyncRequest mixed = first;
   mixed.requestId = "conflict-3";
   mixed.events = {{"conflict-event-2", "inventory.receive", "0002", 1, ""},
@@ -14456,13 +14405,11 @@ void testDeviceSyncEventCarriesBagCode() {
   assert(!parseDeviceSyncRequestJson(bagBody(string(kMaximumVendorBagCodeBytes + 1, 'A')), oversized, error));
 }
 
-// Mouser fixtures. All of this data is synthetic: the key, part numbers, manufacturers, prices and stock are made up
-// for these tests. None of it came from a live catalogue, a real key or a real inventory. The field names follow
-// Mouser's published v1 search response, which these tests pin; a live response confirms them.
+// Mouser fixtures: all data is synthetic. The field names follow Mouser's v1 search response;
+// a live response confirms them.
 constexpr const char* kSyntheticMouserKey = "synthetic0000mouser0000value";
 
-// Parses a search response with one synthetic part made of a Mouser part number and the given fields (each starting
-// with a comma), and returns that part.
+// Parses a response with one synthetic part; the fields are comma-prefixed JSON.
 MouserProductDetails parseSyntheticMouserPart(const string& fields) {
   vector<MouserProductDetails> products;
   string error;
@@ -14509,10 +14456,10 @@ void testMouserResponseParsing() {
   assert(resistor.productUrl == "https://example.invalid/999-SYN-RES-0001");
   assert(resistor.vendorMetadata.productUrl == resistor.productUrl);
   assert(resistor.vendorMetadata.locale.empty());
-  // The stock is digits only, and the price is the smallest quantity break, printed as Mouser sent it.
+  // The stock is digits only; the price is the smallest quantity break, as Mouser sent it.
   assert(resistor.quantityAvailable == "12345");
   assert(resistor.unitPrice == "$0.10 USD");
-  // Attributes pass through as sent (trimmed); one without a name is dropped, and the package is read by name.
+  // Attributes pass through trimmed; an unnamed one is dropped, and the package is read by name.
   assert(resistor.packageName == "0603 (1608 metric)");
   assert(resistor.parameters.size() == 2);
   assert(resistor.parameters[0].name == "Resistance" && resistor.parameters[0].value == "10 kOhms");
@@ -14520,8 +14467,8 @@ void testMouserResponseParsing() {
   assert(resistor.vendorMetadata.parameters.size() == 2);
   assert(resistor.orderable && resistor.productStatus.empty());
 
-  // A break without a quantity or a price is skipped. A currency already in the price is not repeated, and a first
-  // break above one piece says where it starts.
+  // Breaks with no quantity or price are skipped. A currency in the price is not repeated,
+  // and a first break above one piece says where it starts.
   const auto& capacitor = products[1];
   assert(capacitor.vendorMetadata.providerProductNumber == "999-SYN-CAP-0002");
   assert(capacitor.manufacturerName == "Example Components");
@@ -14553,7 +14500,7 @@ void testMouserEmptyPartsIsSuccess() {
 void testMouserErrorsListFails() {
   vector<MouserProductDetails> products;
   string error;
-  // The message is shown with the vendor's name; the client redacts the key from it, which this test does the same way.
+  // The client redacts the key from the message; this test does the same.
   const string key = kSyntheticMouserKey;
   const string echoed = R"({"Errors":[{"Id":0,"Code":"Invalid","Message":"Request refused for )" + key +
                         R"(","PropertyName":""}],"SearchResults":null})";
@@ -14564,7 +14511,7 @@ void testMouserErrorsListFails() {
   assert(shown == "Mouser: Request refused for [key]");
   assert(shown.find("DigiKey") == string::npos);
 
-  // An error about the key reads as a rejected key, and one about the limit as the limit; neither echoes the key.
+  // A key error reads as a rejected key, a limit error as the limit; neither echoes the key.
   assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"Invalid","Message":"The API key )" + key +
                                         R"( is not valid."}]})",
                                     products, &error));
@@ -14863,7 +14810,7 @@ void testMouserPartNumberOf() {
   bare.vendorMetadata.providerProductNumber = "999-SYN-0001";
   assert(!bare.hasMissingMetadata());
 
-  // mouser: finds a part by its Mouser part number, whether it is the selected source or a record beside another.
+  // mouser: finds a part by Mouser part number, as source or as a record beside another.
   mouserItem.id = "mouser-bound";
   mouserItem.partName = "Amplifier";
   mouserItem.quantity = 1;
@@ -14885,7 +14832,7 @@ void testMouserPartNumberOf() {
   assert((idsFor("mouser:SYN-TME-0001") == vector<string>{}));
 }
 
-// A part is refreshed only from the vendor it came from: a Mouser part from Mouser, and never from DigiKey or TME.
+// A part is refreshed only from its own vendor: a Mouser part never from DigiKey or TME.
 void testMouserRefreshUsesOriginOnly() {
   InventoryItem mouserItem;
   mouserItem.sku = "SYN-OPA-0001";
@@ -14896,7 +14843,7 @@ void testMouserRefreshUsesOriginOnly() {
   assert(app_actions::digiKeyRefreshLookup(mouserItem).empty());
   assert(app_actions::tmeRefreshIdentifier(mouserItem).value.empty());
 
-  // A Mouser part without its Mouser number is searched by its manufacturer part number, then by its SKU.
+  // A Mouser part without its number is searched by manufacturer part number, then by SKU.
   InventoryItem byPartNumber;
   byPartNumber.vendorMetadata.provider = "mouser";
   byPartNumber.vendorMetadata.manufacturerPartNumber = " SYN-OPA-0001 ";
@@ -14947,7 +14894,7 @@ void testMouserHistoryFilter() {
   assert((history_page_detail::filteredHistoryIndices(commits, {}, HistorySourceFilter::Tme) == vector<size_t>{0}));
 }
 
-// A Mouser commit with no message of its own is saved with the Mouser wording, and the Mouser record survives a reload.
+// A Mouser commit without a message gets the Mouser wording, and the record survives a reload.
 void testMouserCommitIsRecorded() {
   const auto path = testTempRoot() / "inventatory-mouser-commit-test.db";
   error_code cleanupError;
@@ -14981,7 +14928,7 @@ void testMouserCommitIsRecorded() {
   filesystem::remove(path, cleanupError);
 }
 
-// A reached request limit is told apart from every other Mouser failure, so a BOM run stops asking Mouser only then.
+// A reached request limit is distinct from other Mouser failures; a BOM run stops only then.
 void testMouserLimitReachedWording() {
   vector<MouserProductDetails> products;
   string error;
@@ -15003,8 +14950,7 @@ void testMouserLimitReachedWording() {
   assert(!mouserLimitReached(""));
 }
 
-// A record without a Mouser part number is never a match, however its manufacturer part number reads, because nothing
-// could be merged from it or ordered by it.
+// A record without a Mouser part number never matches: nothing can be merged or ordered from it.
 void testMouserKeepMatchesNeedMouserNumber() {
   const auto orderable = syntheticMouserProduct();
   auto noMouserNumber = orderable;
@@ -15013,7 +14959,7 @@ void testMouserKeepMatchesNeedMouserNumber() {
   other.vendorMetadata.providerProductNumber = "999-SYN-OPA-0002";
   other.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0002";
 
-  // The part number matches the manufacturer part number, in any letter case; the record without a Mouser number goes.
+  // Matches the manufacturer part number in any case; a record without a Mouser number is dropped.
   auto kept = keepMouserMatches({orderable, noMouserNumber, other}, "syn-opa-0001");
   assert(kept.size() == 1);
   assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
@@ -15028,13 +14974,13 @@ void testMouserKeepMatchesNeedMouserNumber() {
   assert(kept.size() == 2);
   assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
   assert(kept.back().vendorMetadata.providerProductNumber == "998-SYN-OPA-0001");
-  // Nothing is kept when the only match has no Mouser number, when the list is empty or the part number is empty.
+  // Nothing is kept if the only match has no Mouser number, or the list or part number is empty.
   assert(keepMouserMatches({noMouserNumber, other}, "SYN-OPA-0001").empty());
   assert(keepMouserMatches({}, "SYN-OPA-0001").empty());
   assert(keepMouserMatches({orderable}, "").empty());
   assert(keepMouserMatches({orderable}, "SYN-OPA-000").empty());
 
-  // Parsed records: a Mouser number that is absent or a placeholder leaves the record out of the matches.
+  // Parsed records: an absent or placeholder Mouser number leaves the record out.
   vector<MouserProductDetails> parsed;
   string error;
   assert(parseMouserSearchResponse(
@@ -15045,7 +14991,7 @@ void testMouserKeepMatchesNeedMouserNumber() {
   assert(keepMouserMatches(parsed, "SYN-OPA-0003").empty());
 }
 
-// A rejected key is told apart from every other Mouser failure, so a refresh stops asking Mouser only then.
+// A rejected key is distinct from other Mouser failures; a refresh stops asking only then.
 void testMouserKeyRejectedWording() {
   vector<MouserProductDetails> products;
   string error;
@@ -15084,7 +15030,7 @@ void testMouserKeyRejectedWording() {
   assert(!mouserKeyRejected("mouser rejected the api key"));
 }
 
-// The key test passes only on an answer it checked: a 2xx JSON object with no Errors, or the limit (HTTP 429).
+// The key test passes only on a checked answer: a 2xx JSON object without Errors, or HTTP 429.
 void testMouserKeyAcceptedChecksTheAnswer() {
   string error;
   // A search answer without Errors passes, with results, without results or as a bare object.
@@ -15114,7 +15060,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
     assert(!mouserKeyAccepted(status, "{}", &error));
     assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
   }
-  // A redirect or an informational status is not an answer to the search, even with a clean JSON body.
+  // A redirect or informational status is no answer, even with a clean JSON body.
   for (const uint32_t status : {100U, 301U, 302U, 307U}) {
     error.clear();
     assert(!mouserKeyAccepted(status, "{}", &error));
@@ -15128,7 +15074,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
     assert(error == "Unable to parse the Mouser response");
   }
   assert(!mouserKeyAccepted(204, "", &error));
-  // A 2xx answer with an Errors entry is not a pass; an entry about the key reads as a rejected key.
+  // A 2xx answer with an Errors entry is not a pass; a key entry reads as a rejected key.
   assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Synthetic failure"}],"SearchResults":{"Parts":[]}})",
                             &error));
   assert(error == "Mouser: Synthetic failure");
@@ -15142,7 +15088,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
   assert(error == "Mouser rejected the API key (HTTP 401)");
   assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
   assert(error == "Mouser rejected the API key (HTTP 403)");
-  // A reached limit can come with a failing status. Its Errors entry names the limit, so the key is not blamed.
+  // A limit can come with a failing status; its Errors entry names the limit, not the key.
   assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", &error));
   assert(mouserLimitReached(error) && !mouserKeyRejected(error));
   assert(!mouserKeyAccepted(401, R"({"Errors":[{"Message":"Maximum calls per day exceeded"}]})", &error));
@@ -15153,7 +15099,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
   assert(!mouserKeyAccepted(400, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
   assert(mouserKeyRejected(error));
 
-  // No message names another vendor or carries the key, once the client has redacted it as testConnection does.
+  // No message names another vendor or carries the key, once redacted as testConnection does.
   const string key = kSyntheticMouserKey;
   assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Request refused for )" + key + R"("}]})", &error));
   const auto shown = redactMouserKey(error, key);
@@ -15164,10 +15110,10 @@ void testMouserKeyAcceptedChecksTheAnswer() {
   assert(mouserKeyAccepted(200, "{}", nullptr));
 }
 
-// A suggestion from Mouser is stored with its own marker, and DigiKey and TME suggestions are stored exactly as before.
+// Mouser suggestions carry their own marker; DigiKey and TME storage is unchanged.
 void testBomMouserSuggestionStorage() {
-  // The stored forms are a compatibility contract: a DigiKey part is bare, and a TME or Mouser part carries its
-  // supplier marker after the verification marker.
+  // The stored forms are a compatibility contract: DigiKey parts are bare; TME and Mouser parts
+  // carry their supplier marker after the verification marker.
   assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND") == string("SYN-0001-ND"));
   assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND", true) == string("verified\x1eSYN-0001-ND"));
   assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-TME-0001", false, true) == string("tme\x1eSYN-TME-0001"));
@@ -15248,8 +15194,7 @@ void testBomMouserSuggestionStorage() {
              "\"999-SYN-OPA-0001\",\"Mouser\",\"check before ordering\"\r\n") != string::npos);
 }
 
-// A BOM line that names a Mouser part number matches the stock part that carries that number, and never a DigiKey part
-// whose number has the same text.
+// A Mouser part number matches the stock part that carries it, never a same-text DigiKey part.
 void testBomMouserLineMatching() {
   InventoryItem mouserItem;
   mouserItem.id = "opa-mouser";
@@ -15297,10 +15242,10 @@ void testBomMouserLineMatching() {
   assert(besideMatch.confirmed && besideMatch.chosenItemId() == "opa-beside");
 }
 
-// Mouser is asked by the line's part number only, and its record is suggested only when Mouser can sell it.
+// Mouser is asked by the line's part number, and its record is suggested only if it can sell it.
 void testBomMouserSuggestionChoice() {
-  // The query: the Mouser number on a Mouser line, else the manufacturer part number, else a designation that reads as
-  // a part number. A line with only a value, or with another supplier's number, is never sent.
+  // The query: the Mouser number on a Mouser line, else the manufacturer part number, else a
+  // designation that looks like a part number. Value-only or other-supplier lines are not sent.
   assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "Mouser", " 999-SYN-OPA-0001 ", "SYN-OPA-0001")) ==
          "999-SYN-OPA-0001");
   assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "LCSC", "C99999", "SYN-OPA-0001")) ==
@@ -15310,7 +15255,7 @@ void testBomMouserSuggestionChoice() {
   assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4)).empty());
   assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4, "LCSC", "C60474")).empty());
 
-  // A part that fits the line is chosen and verified, by its manufacturer part number or by its Mouser number.
+  // A part that fits the line is chosen and verified, by manufacturer or Mouser part number.
   const auto product = syntheticMouserProduct();
   const auto mpnLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "", "", "SYN-OPA-0001");
   auto chosen = bomMouserSuggestion(mpnLine, product);
@@ -15337,7 +15282,7 @@ void testBomMouserSuggestionChoice() {
                                product);
   assert(chosen.outcome == BomLookupOutcome::Found && chosen.suggestion == "999-SYN-OPA-0001" && !chosen.verified);
 
-  // A discontinued or obsolete part is never chosen, however well it fits, and is stored as no match.
+  // A discontinued or obsolete part is never chosen, however well it fits.
   auto discontinued = product;
   discontinued.orderable = false;
   discontinued.productStatus = "Obsolete";
@@ -15411,9 +15356,7 @@ const vector<TestCase>& registeredTests() {
     {"credentials", "CredentialStoreRoundTrip", testCredentialStoreRoundTrip},
     {"credentials", "WorkspaceScopedScannerCredentials", testWorkspaceScopedScannerCredentials},
     {"storage", "PinnedSqliteLibrary", testPinnedSqliteLibrary},
-    // Keep the unit-aware search tests on the executable path. These used to be
-    // declared and defined but never called, which allowed parser regressions
-    // to pass the test suite unnoticed.
+    // Must be registered here: an unregistered test never runs.
     {"inventory", "PhysicalValueParsing", testPhysicalValueParsing},
     {"inventory", "PhysicalValueMatching", testPhysicalValueMatching},
     {"inventory", "InductanceTextScanner", testInductanceTextScanner},
@@ -15712,9 +15655,7 @@ int main(int argc, char** argv) {
   if (reverseOrder) std::reverse(selected.begin(), selected.end());
 
 #ifndef _WIN32
-  // No test may read or write the developer's real home, configuration, data or cache directories:
-  // point them at the private temp root, which is removed when the program ends. (Windows tests set
-  // LOCALAPPDATA themselves where they need it.)
+  // Point HOME and the XDG directories at the private temp root, so no test touches real ones.
   const auto isolatedHome = testTempRoot() / "home";
   const struct {
     const char* name;
