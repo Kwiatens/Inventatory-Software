@@ -14,8 +14,7 @@ namespace inventatory {
 enum class StockDateFilter { All, Today, Last7Days, Last30Days, OlderThan30Days };
 enum class StockSortOrder { Az, Quantity, Za };
 
-// The Sort / Filter panel has two choice rows and a reset row. Rows and options
-// are addressed by index so keyboard focus and mouse targets share one model.
+// Panel rows and options are addressed by index, so keyboard focus and mouse share one model.
 constexpr int kStockFilterRowCount = 3;
 constexpr int kStockSortOptionCount = 3;
 constexpr int kStockDateFilterOptionCount = 5;
@@ -32,7 +31,6 @@ inline int clampStockFilterOption(int row, int option) {
   return std::clamp(option, 0, stockFilterOptionCount(row) - 1);
 }
 
-// Panel order is A-Z, Z-A, Quantity.
 inline StockSortOrder stockSortOrderAt(int option) {
   switch (option) {
     case 0: return StockSortOrder::Az;
@@ -50,7 +48,7 @@ inline int stockSortOrderIndex(StockSortOrder order) {
   return 0;
 }
 
-// Panel order is All, Today, 7 days, 30 days, Over 30. The enum is declared in the same order.
+// The enum follows the panel order, so the option index is the enum value.
 inline StockDateFilter stockDateFilterAt(int option) {
   switch (option) {
     case 0: return StockDateFilter::All;
@@ -66,7 +64,6 @@ inline int stockDateFilterIndex(StockDateFilter filter) {
   return static_cast<int>(filter);
 }
 
-// Short option labels for the panel rows.
 inline std::string stockSortOrderPanelName(StockSortOrder order) {
   switch (order) {
     case StockSortOrder::Az: return "A-Z";
@@ -87,9 +84,7 @@ inline std::string stockDateFilterPanelName(StockDateFilter filter) {
   return "All";
 }
 
-// Names the date filter in the header summary. With the sort name, a full A-Z or
-// Z-A summary must stay within 17 columns so it fits beside the category label
-// and the Filter button at 100 columns (see the header budget test).
+// Header summary name. "A-Z, <this>" or "Z-A, <this>" must fit in 17 columns at 100 columns wide.
 inline std::string stockDateFilterSummaryName(StockDateFilter filter) {
   switch (filter) {
     case StockDateFilter::All: return "all dates";
@@ -101,8 +96,7 @@ inline std::string stockDateFilterSummaryName(StockDateFilter filter) {
   return "all dates";
 }
 
-// The header summary states the sort and the modification-date filter in use,
-// so the page shows what is applied while the panel is closed.
+// Shows the applied sort and date filter while the panel is closed.
 inline std::string stockFilterSummary(StockSortOrder sortOrder, StockDateFilter dateFilter) {
   const std::string sortName = sortOrder == StockSortOrder::Quantity ? "Quantity"
                                : sortOrder == StockSortOrder::Za   ? "Z-A"
@@ -110,13 +104,12 @@ inline std::string stockFilterSummary(StockSortOrder sortOrder, StockDateFilter 
   return sortName + ", " + stockDateFilterSummaryName(dateFilter);
 }
 
-// Reset filters clears both the date filter and the sort order.
 inline void resetStockFilterState(StockDateFilter& dateFilter, StockSortOrder& sortOrder) {
   dateFilter = StockDateFilter::All;
   sortOrder = StockSortOrder::Az;
 }
 
-// Cells drawn by the Filter button: " Filter " followed by its "f " key hint.
+// Width of the Filter button: " Filter " plus the "f " key hint.
 constexpr std::size_t kStockFilterButtonCells = 10;
 
 // Outer widths of the stock list and detail panels for a terminal of screenWidth columns.
@@ -128,9 +121,8 @@ inline int stockListOuterWidth(int screenWidth) {
   return std::max(42, screenWidth - stockDetailOuterWidth(screenWidth) - 1);
 }
 
-// Ranked-view header of the stock list. The full wording comes first, then the
-// short wording, and the applied-filter summary is dropped only when even the
-// short wording cannot share the panel with it and the Filter button.
+// Ranked-view header: the full label, then the short one. The summary is dropped only
+// when even the short label does not fit beside it and the Filter button.
 struct StockRankedHeader {
   std::string label;
   bool showSummary = false;

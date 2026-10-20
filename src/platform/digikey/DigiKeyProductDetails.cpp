@@ -21,7 +21,7 @@ optional<string> extractComponentPackageFromText(const string& text) {
     return nullopt;
   }
 
-  // Compiled once: building a std::regex is far costlier than matching it.
+  // Compiled once: building a std::regex costs far more than matching.
   static const vector<regex> kPatterns = [] {
     vector<regex> patterns;
     for (const char* pattern : {
@@ -50,9 +50,8 @@ optional<string> extractComponentPackageFromText(const string& text) {
     return patterns;
   }();
 
-  // std::regex matchers may use stack that grows with the input length, and imported descriptions can
-  // be very long. Only the first 4096 bytes are searched: package names sit in short descriptions, so
-  // only a package name beyond that bound (or one cut by it) can change the result.
+  // std::regex stack grows with input length, so only the first 4096 bytes are searched.
+  // Package names sit in short descriptions.
   constexpr size_t kMaxSearchedBytes = 4096;
   const string searched = text.substr(0, kMaxSearchedBytes);
 
@@ -79,8 +78,7 @@ optional<string> extractInductanceFromText(const string& text) {
 
 optional<string> extractComponentPackage(const JsonPtr& product) {
   const auto fromParameter = [&](initializer_list<const char*> names) -> optional<string> {
-    // Packaging ("Tape & Reel") is a different parameter that can share the "Package" label; skip it and
-    // keep looking for the real case.
+    // Packaging ("Tape & Reel") can share the "Package" label; skip it and keep looking.
     return readParameterValue(product, names, [](const string& value) { return !looksLikePackagingType(value); });
   };
 
@@ -220,8 +218,7 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
     }
   }
 
-  // Keep the catalog response in the common provider shape.  The category ID
-  // is optional here because older DigiKey responses do not always expose it.
+  // Common provider shape. The category ID is optional: older DigiKey responses may omit it.
   details.vendorMetadata.provider = "digikey";
   details.vendorMetadata.providerProductNumber = lookupKey;
   details.vendorMetadata.manufacturerPartNumber = details.manufacturerPartNumber;

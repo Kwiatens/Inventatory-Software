@@ -29,10 +29,8 @@ bool sameValue(const Value& lhs, const Value& rhs) {
   return lhs == rhs;
 }
 
-// One independently merged unit of an item. The table starts from the staged item and only pulls
-// a live value in for a field the user did not touch, so a field missing from the table behaves
-// like the former whole-record overwrite instead of dropping the user's edit. Add new
-// InventoryItem fields here (identity `id`, `quantity` and `lastUpdated` are handled separately).
+// Per-field merge rules. A field missing from this table takes the staged value. Add new
+// InventoryItem fields here; `id`, `quantity` and `lastUpdated` are handled separately.
 struct FieldRule {
   const char* label;
   bool (*same)(const InventoryItem&, const InventoryItem&);
@@ -64,7 +62,7 @@ const FieldRule kFieldRules[] = {
     INVENTATORY_MERGE_FIELD("Inventatory ID", inventatoryId),
     INVENTATORY_MERGE_FIELD("created at", createdAt),
     INVENTATORY_MERGE_FIELD("machine code", machineCode),
-    // Rack id, slot and mode describe one placement and are merged together.
+    // Rack id, slot and mode are one placement, merged together.
     {"rack placement",
      [](const InventoryItem& lhs, const InventoryItem& rhs) {
        return lhs.rackId == rhs.rackId && lhs.rackSlot == rhs.rackSlot && lhs.rackAssignment == rhs.rackAssignment;
@@ -204,8 +202,7 @@ InventoryStore mergeInventoryChanges(const InventoryStore& base, const Inventory
     }
   }
 
-  // Items that existed when the work started. `merged` still lists the live items in their original
-  // order here; the first item with an id is the one an edit applies to.
+  // `merged` still holds the live items in order; an edit applies to the first item with its id.
   unordered_map<string, size_t> mergedPosition;
   for (size_t index = 0; index < merged.items().size(); ++index) {
     mergedPosition.emplace(merged.items()[index].id, index);
@@ -242,7 +239,6 @@ InventoryStore mergeInventoryChanges(const InventoryStore& base, const Inventory
                          merged.items().end());
   }
 
-  // Items created while the work was staged.
   for (const auto& item : staged.items()) {
     if (baseItems.count(item.id) != 0) continue;
     if (liveItems.count(item.id) != 0) {
@@ -253,8 +249,7 @@ InventoryStore mergeInventoryChanges(const InventoryStore& base, const Inventory
     touchedItemIds.insert(item.id);
   }
 
-  // A staged part may point at a rack that could not be carried over, or at a slot the live
-  // inventory filled in the meantime; let it be placed again instead of sharing the slot.
+  // Parts pointing at a missing rack or a slot the live inventory filled are placed again.
   unordered_set<string> rackIds;
   for (const auto& rack : merged.racks()) rackIds.insert(rack.id);
   const auto slotKey = [](const InventoryItem& item) { return item.rackId + '\x1f' + toUpper(trim(item.rackSlot)); };

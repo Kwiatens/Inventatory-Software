@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Linux Secret Service credential storage.
+// Linux Secret Service credential storage.
 
 #include "platform/security/CredentialStore.h"
 
@@ -53,8 +53,7 @@ CredentialLookup CredentialStore::lookup(const std::string& key) {
   GError* error = nullptr;
   gchar* secret = secret_password_lookup_sync(&kCredentialSchema, nullptr, &error,
                                               "key", credentialAttribute(key).c_str(), nullptr);
-  // libsecret reports "no matching item" as a null result without an error; a locked, dismissed or
-  // absent Secret Service sets the error.
+  // No match is a null result without an error; a locked or absent Secret Service sets one.
   const bool failed = error != nullptr;
   if (error != nullptr) g_error_free(error);
   if (secret == nullptr) {
@@ -89,8 +88,7 @@ bool CredentialStore::erase(const std::string& key) {
                              "key", attribute.c_str(), nullptr);
   const bool succeeded = error == nullptr;
   if (error != nullptr) g_error_free(error);
-  // libsecret's return value reports whether it removed a match. Treat a
-  // successful no-match as an idempotent erase, like Windows Credential Store.
+  // A successful no-match counts as an erase, like the Windows store.
   return succeeded;
 }
 

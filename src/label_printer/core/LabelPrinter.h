@@ -62,8 +62,7 @@ struct InventatoryLabelPlan {
 };
 
 struct InventatoryRackLabelPlan {
-  // The rack type as stored, upper-case ("INTEGRATED CIRCUITS"), and the short form printed when the full name
-  // does not fit nicely ("ICs"); empty when the type has no short form.
+  // Rack type as stored (upper-case), and its short form ("ICs") when the full name does not fit.
   string categoryText;
   string shortCategoryText;
   // The rack number without the R prefix, padded to two digits ("01", "12", "128").
@@ -109,9 +108,8 @@ class LabelPrinterService {
   string summaryText() const;
 
  private:
-  // What printer.conf held when this service last loaded or wrote it, so saveConfig can leave an
-  // unchanged file alone and never replace one it could not read (a transient open failure must not turn
-  // the user's printer choice into an empty configuration).
+  // printer.conf as last loaded or written. saveConfig skips unchanged files and never replaces one
+  // it could not read, so a transient failure cannot erase the printer choice.
   enum class ConfigFileState { Unknown, Missing, InSync, Unreadable };
 
   unique_ptr<PrinterBackend> backend_;

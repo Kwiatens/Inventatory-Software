@@ -139,8 +139,7 @@ bool DigiKeyApiClient::ensureAccessToken(string* error) {
   return true;
 }
 
-// Sends one request with the cached token. A 401 means the token was revoked or shortened server side
-// before our own expiry estimate, so the token is dropped and the request is repeated once with a new one.
+// A 401 means the token was revoked before our expiry estimate: drop it and retry once.
 bool DigiKeyApiClient::sendAuthorized(const wstring& method, const wstring& url, const string& body,
                                       bool jsonBody, std::uint32_t& statusCode, string& responseBody,
                                       string* error) {
@@ -261,8 +260,7 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::lookupProductDetails(const str
       return optional<DigiKeyProductDetails>{};
     }
 
-    // Stock, lead time and price are display-only; an odd value in one of them must not discard the
-    // description, parameters and datasheet that did parse.
+    // Stock, lead time and price are display-only: an odd value must not discard the rest.
     clearInvalidOptionalFields(details);
 
     return optional<DigiKeyProductDetails>{move(details)};

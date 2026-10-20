@@ -49,8 +49,7 @@ function Test-WindowsTerminalProfile {
         }
       }
     } catch {
-      # An unreadable or partially edited settings file should not block the
-      # ordinary console fallback.
+      # A broken settings file must not block the console fallback.
     }
   }
   return $false
@@ -62,8 +61,7 @@ function Start-InventatoryClassicConsole {
     [string]$WorkingDirectory
   )
 
-  # Launch conhost explicitly so Windows does not redirect this console app to
-  # the user's default Windows Terminal profile.
+  # Use conhost explicitly; otherwise Windows may open the default terminal profile.
   $consoleHost = Join-Path $env:SystemRoot 'System32\conhost.exe'
   $commandLine = 'title Inventatory && "{0}"' -f $ExecutablePath
   Start-Process -FilePath $consoleHost `

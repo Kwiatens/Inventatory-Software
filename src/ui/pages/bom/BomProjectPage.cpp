@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // KiCad BOM project input: pinned list, BOM comparison, Find in racks workflow.
 
 #include "App.h"
@@ -22,8 +21,7 @@ using namespace std;
 void App::handleBomProjectKey(const KeyEvent& key) {
   if (bomDeductPrompt_) {
     if (key.type == KeyType::Enter) {
-      // Enter is the key that walks the racks, so a key repeat on the last rack lands here.
-      // Changing stock needs the explicit `y`; Enter must never answer the question.
+      // Enter walks the racks, so a key repeat lands here. Only the explicit `y` may change stock.
       setMessage("Press y to take these parts out of stock, or n to leave stock as it is", 4);
       return;
     }
@@ -44,7 +42,7 @@ void App::handleBomProjectKey(const KeyEvent& key) {
       bomView_ = BomView::Split;
       dirty_ = true;
     }
-    return;  // y / n / + / - / Backspace are registered actions and dispatch ahead of this handler
+    return;  // Registered actions (y, n, +, -, Backspace) are dispatched first.
   }
 
   if (bomView_ == BomView::Build) {
@@ -62,8 +60,7 @@ void App::handleBomProjectKey(const KeyEvent& key) {
     return;
   }
 
-  // Everything with a visible accelerator lives in the action registry, which
-  // dispatches ahead of this handler; only raw navigation is handled here.
+  // Accelerator keys dispatch from the action registry first; only navigation is handled here.
   if (bomView_ == BomView::List || !bomAnalysisValid_) {
     if (key.type == KeyType::Character) {
       const auto ch = tolower(static_cast<unsigned char>(key.ch));

@@ -17,9 +17,7 @@ namespace {
 void setSqlError(SqliteConnection& connection, string* error, const string& fallback) {
   if (error == nullptr) return;
   const char* message = connection.db == nullptr ? nullptr : sqliteApi().errmsg(connection.db);
-  // sqlite3_errmsg() may still report "not an error" after a failed helper
-  // query has finalized its statement.  Keep the operation-specific context
-  // instead of replacing it with that non-diagnostic status.
+  // errmsg() may say "not an error" after a helper finalized; keep the operation's message.
   *error = message == nullptr || *message == '\0' || string(message) == "not an error" ? fallback : message;
 }
 
@@ -253,8 +251,7 @@ bool readIntegrityOk(SqliteConnection& connection, string* error) {
   return true;
 }
 
-// schemaVersion is the version the database reports. Columns added by a later
-// version are required only once the database reports that version.
+// Columns added in a later version are required only once the database reports that version.
 bool validateCurrentSchema(SqliteConnection& connection, string* error, int schemaVersion) {
   struct RequiredColumns {
     const char* table;
@@ -310,9 +307,8 @@ bool validateCurrentSchema(SqliteConnection& connection, string* error, int sche
   return true;
 }
 
-// Upgrades a legacy database in place. The only change is the vendor_sources column, appended with an
-// empty default, so every existing item, rack assignment and commit snapshot keeps its data. The
-// upgrade runs in one transaction; on any failure it rolls back and the database stays at the legacy version.
+// Upgrades a legacy database in place by appending vendor_sources, so existing data is kept.
+// Runs in one transaction; on failure it rolls back to the legacy version.
 bool upgradeLegacySchema(SqliteConnection& connection, string* error) {
   if (!validateCurrentSchema(connection, error, kInventoryLegacySchemaVersion)) return false;
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) {
@@ -406,7 +402,7 @@ bool validateInventoryDatabase(SqliteConnection& connection, string* error) {
     setSqlError(connection, error, "Unsupported Inventatory SQLite schema version");
     return false;
   }
-  // A legacy database is checked as it is. It is upgraded only when it is opened read-write.
+  // A legacy database is validated as-is; it is upgraded only on a read-write open.
   if (!validateCurrentSchema(connection, error, static_cast<int>(version)) || !validateDataValues(connection, error) ||
       !readIntegrityOk(connection, error)) {
     return false;

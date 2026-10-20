@@ -53,7 +53,6 @@ void App::selectSettingsCategory(SettingsCategory category) {
   settingsField_ = 0;
   if (category == SettingsCategory::Printer) refreshPrinterState();
   if (category == SettingsCategory::InventatoryScan) refreshDeviceEventRecords();
-  // Land on the first row that can be acted on, and select what it stands for.
   moveSettingsRow(0);
   dirty_ = true;
 }
@@ -83,7 +82,6 @@ void App::activateSettingsRow() {
   if (row.activate) {
     row.activate();
   } else {
-    // A row without its own action runs its first available button.
     for (const auto& button : row.buttons) {
       if (button.enabled && button.run) {
         button.run();
@@ -162,9 +160,7 @@ void App::handleSettingsKey(const KeyEvent& key) {
     return;
   }
 
-  // Every accelerator is registered in currentActions(); only navigation lives here. Up/Down move the
-  // row cursor, Left/Right move between categories, and Enter acts on the row. Moving never changes a
-  // setting.
+  // Accelerators live in currentActions(); this handles navigation only. Moving never changes a setting.
   const auto categoryCount = static_cast<int>(settingsCategoryEntries().size());
   if (key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k')) {
     moveSettingsRow(-1);

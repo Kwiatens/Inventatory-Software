@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - authenticated device server lifecycle and socket binding.
+// Authenticated device server lifecycle and socket binding.
 
 #define NOMINMAX
 
@@ -97,10 +97,8 @@ void LocalHttpServer::stop() {
   pendingClientChanged_.notify_all();
   if (reader_.joinable()) reader_.join();
 
-  // The acceptor has stopped, so no new socket can be added.  Close every
-  // queued socket before waking workers; only sockets already popped by a
-  // worker are allowed to finish their bounded I/O/callback work during
-  // shutdown.
+  // The acceptor has stopped, so no new sockets arrive. Close queued sockets before waking workers;
+  // workers finish only the sockets they already hold.
   deque<ReadyClient> queuedClients;
   {
     lock_guard<mutex> lock(clientQueueMutex_);

@@ -114,7 +114,6 @@ inline std::vector<UpdateNoteLine> formatUpdateNotes(const std::string& notes, i
 
     previousWasEmpty = false;
 
-    // Headings: 1 to 6 '#' followed by a space
     if (sourceLine[firstNonSpace] == '#') {
       size_t hashCount = 0;
       while (firstNonSpace + hashCount < sourceLine.size() &&
@@ -141,7 +140,6 @@ inline std::vector<UpdateNoteLine> formatUpdateNotes(const std::string& notes, i
       }
     }
 
-    // Bullet items: '-', '*', or '+' followed by a space
     const char marker = sourceLine[firstNonSpace];
     if ((marker == '-' || marker == '*' || marker == '+') &&
         firstNonSpace + 1 < sourceLine.size() &&
@@ -166,7 +164,6 @@ inline std::vector<UpdateNoteLine> formatUpdateNotes(const std::string& notes, i
       continue;
     }
 
-    // Regular paragraph lines
     std::string text = sourceLine.substr(firstNonSpace);
     while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
       text.pop_back();

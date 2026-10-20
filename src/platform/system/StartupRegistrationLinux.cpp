@@ -37,10 +37,8 @@ bool readFileContents(const filesystem::path& path, std::string& contents) {
   return !stream.bad();
 }
 
-// Replacing a launcher or icon that already holds the same bytes still gives it a new inode and
-// mtime. Plasma then drops its link between the running window and the launcher it was started
-// from, and the taskbar falls back to the terminal emulator's own icon. Only touch the file when
-// its contents actually differ.
+// Rewriting identical bytes still changes the inode and mtime, and Plasma then drops the link from
+// the window to its launcher. Write only when the contents differ.
 bool fileHoldsContents(const filesystem::path& path, std::string_view contents) {
   std::error_code ec;
   if (!filesystem::is_regular_file(path, ec) || filesystem::file_size(path, ec) != contents.size() || ec) return false;
@@ -67,9 +65,8 @@ bool writeFileIfChanged(const filesystem::path& path, std::string_view contents,
   return true;
 }
 
-// Desktop Entry Exec quoting: the argument is enclosed in double quotes, and a double quote, backtick,
-// dollar sign or backslash inside it gets one more backslash. The key-file string layer then doubles
-// every backslash, so a literal backslash is written as four. '%' is the field-code introducer.
+// Desktop Entry Exec quoting, with key-file escaping applied: a quote, backtick or dollar gets two
+// backslashes, a backslash gets four, and '%' is doubled.
 std::string desktopQuoted(const std::string& value) {
   std::string encoded = "\"";
   for (const char ch : value) {
@@ -77,7 +74,7 @@ std::string desktopQuoted(const std::string& value) {
     if (byte < 0x20U || byte == 0x7fU) return {};
     if (ch == '%') encoded += "%%";
     else if (ch == '"' || ch == '`' || ch == '$') encoded += "\\\\";
-    else if (ch == '\\') encoded += "\\\\\\";  // three more, then the character itself: four in all
+    else if (ch == '\\') encoded += "\\\\\\";
     if (ch != '%') encoded.push_back(ch);
   }
   encoded.push_back('"');
@@ -175,8 +172,7 @@ std::string systemdUnquote(const std::string& quoted) {
   return {};
 }
 
-// systemctl talks to the user manager over D-Bus and can wait for a unit's stop timeout, so it runs with
-// a deadline instead of blocking the interface indefinitely. Its output is captured, never printed.
+// Runs with a deadline: systemctl can wait on D-Bus or a unit's stop timeout. Output is captured.
 bool runSystemctl(const std::vector<std::string>& arguments, std::string& error,
                   std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
   std::vector<std::string> command{"systemctl"};
@@ -205,8 +201,7 @@ constexpr const char* kServiceName = "inventatory-background.service";
 
 filesystem::path servicePath() { return xdgConfigHome() / "systemd" / "user" / kServiceName; }
 
-// The executable an already registered unit points at, when it still exists. Launching a different
-// build (a development tree, a second install) must not silently retarget the login service.
+// Executable of the registered unit, if it exists; another build must not retarget the service.
 filesystem::path registeredExecutable() {
   std::ifstream stream(servicePath());
   std::string line;
@@ -222,9 +217,8 @@ filesystem::path registeredExecutable() {
 }
 
 std::string backgroundUnitContents(const filesystem::path& executable) {
-  // Restart=always: a SIGTERM from outside systemd (for example `pkill -x inventatory`) is a clean exit,
-  // and Restart=on-failure never restarts a clean exit, which left the service down. `systemctl --user
-  // stop` still stops it for good.
+  // Restart=always, not on-failure: a SIGTERM from outside (for example `pkill`) is a clean exit that
+  // on-failure would not restart. `systemctl --user stop` still stops it for good.
   return "[Unit]\nDescription=Inventatory Scan R1 background service\n\n" +
          std::string("[Service]\nType=simple\nExecStart=") + systemdQuoted(executable.u8string()) +
          " --background\nRestart=always\nRestartSec=5\nTimeoutStopSec=15\n\n[Install]\nWantedBy=default.target\n";
@@ -313,8 +307,7 @@ bool createDesktopShortcut(std::string& error) {
 
   const auto launcherDirectory = xdgDataHome() / "applications";
   const auto launcher = launcherDirectory / "inventatory.desktop";
-  // An existing launcher keeps the executable it was created for while that file still exists, so
-  // starting a development build or a second install does not retarget the user's launcher.
+  // An existing launcher keeps its executable, so a dev build or second install does not retarget it.
   std::error_code existsError;
   const bool launcherExisted = filesystem::exists(launcher, existsError);
   auto executable = registeredLauncherExecutable(launcher);
@@ -348,8 +341,8 @@ bool createDesktopShortcut(std::string& error) {
     }
   }
 
-  // The desktop copy is offered once, together with the first launcher. A user who deleted it does not
-  // get it back at every start; an existing copy is still kept current.
+  // Offer the desktop copy only with the first launcher, so a deleted copy is not restored.
+  // An existing copy is kept current.
   const auto desktop = userDesktopDirectory();
   if (!desktop.empty()) {
     const auto desktopLauncher = desktop / "inventatory.desktop";
@@ -397,7 +390,7 @@ bool setBackgroundStartupEnabled(bool enabled, std::string& error) {
     error = "Unable to create the user service directory: " + filesystemError.message();
     return false;
   }
-  // Every launch calls this; only touch the unit (and ask systemd to reload) when it changed.
+  // Runs on every launch; touch the unit and reload only when it changed.
   const auto contents = backgroundUnitContents(executable);
   const bool existed = filesystem::exists(unit, filesystemError);
   const bool changed = !fileHoldsContents(unit, contents);

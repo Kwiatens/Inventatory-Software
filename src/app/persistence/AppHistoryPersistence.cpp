@@ -33,9 +33,8 @@ void App::refreshInventoryCommits(bool afterOwnSave) {
     return;
   }
   if (afterOwnSave && !loadedCommits.empty()) {
-    // The history was validated when the workspace loaded and every commit since was derived from its
-    // stored parent in the same transaction, so checking the newest commit (its summary, snapshot and
-    // relation to its parent) is what a full pass would add.
+    // History was validated at load, and each later commit was derived from its parent in one
+    // transaction. Checking the newest commit is all a full pass would add.
     InventoryCommitDetail newest;
     if (!loadInventoryCommit(inventoryPath_, loadedCommits.front().id, newest)) {
       inventoryRecoveryRequired_ = true;

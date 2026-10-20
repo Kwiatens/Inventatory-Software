@@ -74,8 +74,7 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
                        ftxui::bgcolor(uiPanelLeftBg()));
   }
 
-  // Every list row carries the part/quantity separator at the same column so the
-  // vertical rule runs unbroken through group headers and spacers alike.
+  // Every row has the part/quantity rule at one column, so it runs unbroken through headers.
   const auto ruledRow = [&](ftxui::Element partCell, ftxui::Color background) {
     ftxui::Elements cells = {
         move(partCell),

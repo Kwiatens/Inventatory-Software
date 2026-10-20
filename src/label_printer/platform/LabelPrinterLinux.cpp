@@ -16,8 +16,7 @@
 namespace inventatory {
 namespace {
 
-// CUPS clients wait on cupsd or a remote server; a deadline keeps the single printer worker from
-// stalling forever behind an unreachable queue.
+// Deadlines keep the single printer worker from stalling behind an unreachable CUPS queue.
 constexpr std::chrono::seconds kQueryTimeout{10};
 constexpr std::chrono::seconds kPrintTimeout{30};
 

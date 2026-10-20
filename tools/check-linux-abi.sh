@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Fails when a Linux release binary needs a symbol or library version newer than the oldest supported
-# distribution provides. The release is built in an AlmaLinux 9 container (glibc 2.34, GCC 11), so the
-# defaults are that container's floor: glibc 2.34, libstdc++ GLIBCXX_3.4.29, C++ ABI 1.3.13, OpenSSL 3.0.0.
+# Fails when a Linux binary needs a symbol or version tag newer than the release floor.
+# Defaults are the AlmaLinux 9 build container's floor (glibc 2.34, GCC 11).
 set -euo pipefail
 
 binary=${1:?usage: check-linux-abi.sh <binary> [max-glibc] [max-glibcxx] [max-cxxabi]}
@@ -21,7 +20,7 @@ within_limit() {
   [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" = "$2" ]
 }
 
-# readelf lists the version needs as a "File:" header followed by its "Name:" entries.
+# readelf prints each needed file's "File:" line before its "Name:" entries.
 requirements=$(readelf -W -V "$binary" | awk '
   /Version needs section/ { needs = 1; next }
   /Version definition section|Version symbols section/ { needs = 0 }
@@ -52,7 +51,7 @@ while read -r file name; do
     libcrypto.so.3:OPENSSL_*)
       within_limit "${name#OPENSSL_}" "$max_openssl" || reject "$file" "$name" ;;
     *)
-      # Any other versioned library (for example a distribution-specific libcurl) may be missing that tag on another distribution.
+      # Other versioned libraries may lack the tag on other distributions.
       reject_library "$file" "$name" ;;
   esac
 done <<< "$requirements"

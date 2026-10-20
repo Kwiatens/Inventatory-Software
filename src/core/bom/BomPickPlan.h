@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Find in racks: the rack-by-rack pick route for a BOM analysis, and the sentences that guide it.
 
 #pragma once
 
@@ -41,10 +40,9 @@ struct BomPickStop {
 
 struct BomPickPlan {
   std::vector<BomPickStop> stops;
-  // Matches that stock cannot fully cover. Lines with nothing on hand never appear as picks; lines
-  // with some stock are picked as far as stock allows and are listed here as well.
+  // Matches stock cannot fully cover. Partly covered lines are also picked as far as stock allows.
   std::vector<size_t> shortMatches;
-  // Lines with stock candidates that the user has not confirmed. They are never picked from or deducted.
+  // Candidates the user has not confirmed. Never picked from or deducted.
   std::vector<size_t> unconfirmedMatches;
   int pieces = 0;      // everything the stops ask for
   int pickLines = 0;   // BOM lines with at least one piece to take
@@ -52,12 +50,11 @@ struct BomPickPlan {
   bool empty() const { return stops.empty(); }
 };
 
-// Rack stops come first in rack order, each sorted by slot, so the shelf is walked once. Parts in
-// stock outside any rack follow in one stop sorted by location. Only confirmed matches produce picks.
+// Rack stops first, in rack and slot order, so each shelf is walked once.
+// Loose parts follow in one stop.
 BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& store);
 
-// One pick as the walkthrough committed to it. A deduction runs only while every commit still holds: the item
-// is the same, its fingerprint has not changed, and it has at least the units the walkthrough took.
+// A pick as committed in the walkthrough. Deducting needs the same item, fingerprint and stock.
 struct BomPickCommit {
   std::string lineKey;
   std::string designation;  // the BOM value as written, for messages
@@ -66,12 +63,11 @@ struct BomPickCommit {
   std::string fingerprint;
 };
 
-// The commits of a plan, in route order, so commit index equals BomPick::commitIndex.
+// In route order, so an index equals BomPick::commitIndex.
 std::vector<BomPickCommit> bomPickCommits(const BomPickPlan& plan, const BomAnalysis& analysis,
                                           const InventoryStore& store);
 bool sameBomPickCommits(const std::vector<BomPickCommit>& lhs, const std::vector<BomPickCommit>& rhs);
-// Why the deduction must not run, one sentence per problem: an item that is gone or changed, or fewer units
-// on hand than were taken. Empty when every commit can be applied.
+// One sentence per problem that blocks deducting; empty when every commit can apply.
 std::vector<std::string> bomPickProblems(const std::vector<BomPickCommit>& commits, const std::vector<int>& taken,
                                          const InventoryStore& store);
 

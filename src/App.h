@@ -67,8 +67,7 @@ using WorkspaceGeneration = std::uint64_t;
 
 enum class UiMessageSeverity { Info, Success, Warning, Error };
 
-// Result of App::restartDeviceService(). DisabledUntilPaired is the expected state of a workspace
-// that has no usable Scan R1 pairing; it is not a failure to start.
+// Result of App::restartDeviceService(). DisabledUntilPaired is expected, not a failure.
 enum class DeviceServiceRestart { Restarted, DisabledUntilPaired, Failed };
 
 enum class UiMessageColorRole { Info, Success, Warning, Error };
@@ -101,8 +100,7 @@ inline constexpr bool uiMessageAcknowledgementPulseActive(long long startedAt, l
 
 inline constexpr int uiMessageRowHeight() { return 1; }
 
-// Shared by the controller and focused tests. Generation zero is never a
-// valid captured workspace, which makes an uninitialized result fail closed.
+// Generation zero is never valid, so an uninitialized result fails closed.
 inline WorkspaceGeneration advanceWorkspaceGeneration(WorkspaceGeneration current) {
   return current == std::numeric_limits<WorkspaceGeneration>::max() ? 1 : current + 1;
 }
@@ -111,9 +109,7 @@ inline bool workspaceGenerationMatches(WorkspaceGeneration current, WorkspaceGen
   return current != 0 && current == captured;
 }
 
-// Async BOM work must match both the workspace and the stable project/run
-// identity that initiated it.  Keeping this predicate free of App state makes
-// the stale-result rule easy to exercise independently.
+// Async BOM results must match the workspace and the project/run that started them.
 inline bool bomEnrichmentScopeMatches(const std::string& currentProjectId,
                                       const std::string& resultProjectId,
                                       WorkspaceGeneration currentWorkspaceGeneration,
@@ -125,8 +121,7 @@ inline bool bomEnrichmentScopeMatches(const std::string& currentProjectId,
          currentRequestSequence != 0 && currentRequestSequence == resultRequestSequence;
 }
 
-// The device can poll a queued label with the same request id.  Only these
-// two states complete that idempotent exchange; "pending" remains retryable.
+// Polling reuses the request id; only completed or failed ends the exchange. Pending is retryable.
 inline bool quickLabelResultIsTerminal(const DeviceQuickLabelPrintResult& result) {
   return result.status == "completed" || result.status == "failed";
 }
@@ -136,10 +131,7 @@ inline bool quickLabelResultMatchesRequest(const DeviceQuickLabelPrintResult& re
   return !requestId.empty() && result.requestId == requestId;
 }
 
-// Quick-label polling is idempotent only for the same request payload and
-// the same device/workspace context.  This predicate is kept independent of
-// App so the cache boundary can be regression-tested without constructing the
-// terminal controller.
+// A cached quick-label result is reused only for the same payload, device and workspace.
 struct QuickLabelPrintCacheIdentity {
   DeviceQuickLabelPrintRequest request;
   std::string deviceId;
@@ -157,9 +149,7 @@ inline bool quickLabelPrintCacheIdentityMatches(const QuickLabelPrintCacheIdenti
          cached.labelText == requested.labelText;
 }
 
-// Printer selection is staged before the shared Settings Save action runs.
-// Keeping this boundary independent makes row clicks and keyboard/mouse
-// selection movement feed the same draft state.
+// Printer selection is staged as a draft until the shared Settings Save runs.
 inline bool stagePrinterQueueSelection(const std::vector<PrinterQueueInfo>& queues,
                                        std::size_t selection,
                                        std::string& draftPrinterQueue,
@@ -187,8 +177,7 @@ class App {
   App(bool startInBackground, BackgroundController& backgroundController);
   int run();
   bool updateInstallerLaunched() const { return updateInstallerLaunched_; }
-  // True when a network worker was still running at shutdown. The final save has completed, but
-  // destroying this App would block on that worker, so the caller should exit without destroying it.
+  // A network worker was still running at shutdown; destroying the App would block on it.
   bool workAbandoned() const { return workAbandoned_; }
   const std::filesystem::path& updateMarkerPath() const { return updateMarkerPath_; }
 
@@ -206,8 +195,7 @@ class App {
     Update,
   };
 
-  // The Projects page hosts a pinned list, a focused BOM comparison, and the
-  // rack-by-rack Find in racks workflow.
+  // Projects page views: project list, BOM split comparison, and build walkthrough.
   enum class BomView { List, Split, Build };
 
   enum class ScanSetupStep {
@@ -289,9 +277,7 @@ class App {
     Mouser,
   };
 
-  // Surface is a non-actionable region (for example an overlay panel) that
-  // consumes pointer hits so clicks do not fall through to targets beneath it.
-  // It never shows hover and is never focusable.
+  // Non-actionable overlay region that consumes pointer hits so clicks do not reach targets below.
   enum class UiTargetKind { Navigation, Action, Row, Cell, Field, Link, Category, Button, Surface };
 
   struct UiTarget {
@@ -326,15 +312,13 @@ class App {
     ActionSheet,
   };
 
-  // A single discoverable command. The action bar and the bottom sheet are both
-  // generated from these; the accelerator (trigger) dispatches it directly.
-  // A trigger with type KeyType::Unknown is menu-only (no direct key).
+  // A command shown in the action bar and sheet; trigger runs it directly. Unknown means menu-only.
   struct Action {
-    std::string id;       // stable command identity: "stock.edit"
-    std::string label;    // concise, sentence case: "edit item"
-    std::string group;    // "Edit", "Links", "System"
-    std::string keyHint;  // shown next to the label: "e", "Ctrl+Z", "P"
-    KeyEvent trigger;     // key that runs it directly
+    std::string id;       // stable identity, e.g. "stock.edit"
+    std::string label;    // concise, sentence case
+    std::string group;
+    std::string keyHint;
+    KeyEvent trigger;
     std::function<void()> run;
   };
 
@@ -365,18 +349,16 @@ class App {
 
   struct WorkingCopy {
     InventoryItem item;
-    // The item as it was when the edit began. Saving replays only the fields changed relative to
-    // it onto the live item (matched by id), so scanner changes committed meanwhile survive.
+    // Snapshot at edit start; save replays only changed fields so scanner edits survive.
     InventoryItem original;
     bool isNew = false;
     size_t originalIndex = 0;
   };
 
-  // Settings rows (docs/ui-style-guide.md, section 4). One model per category drives rendering, the
-  // row cursor, Enter, mouse targets, and the "was ..." notes for staged changes.
+  // Settings rows; one model per category drives rendering, input and mouse targets.
   struct SettingsButton {
     std::string label;
-    std::string key;  // accelerator shown on the button; the action itself is registered in currentActions()
+    std::string key;  // shown on the button; the action is registered in currentActions()
     std::string targetId;
     std::function<void()> run;
     bool primary = false;
@@ -396,7 +378,7 @@ class App {
     std::optional<std::uint32_t> swatch;
     int field = -1;  // settingsField_ to select while the cursor is on this row
     bool buttonsOnFocus = false;  // contextual buttons, shown only on the focused row
-    bool buttonsOnly = false;  // no label or value: the buttons start the row (unconfigured integrations)
+    bool buttonsOnly = false;  // no label or value: buttons start the row
     bool editing = false;
     bool focusable() const { return static_cast<bool>(activate) || !buttons.empty(); }
   };
@@ -413,8 +395,7 @@ class App {
     bool valid = false;
   };
 
-  // Immutable once published. Background work captures one snapshot so a
-  // later data-directory change cannot redirect its completion to a new DB.
+  // Immutable once published, so background work keeps its database across a folder change.
   struct WorkspaceContext {
     InventatoryDataPaths paths;
     WorkspaceGeneration generation = 0;
@@ -472,8 +453,7 @@ class App {
     WorkspaceGeneration generation = 0;
   };
 
-  // One queued Mouser refresh lookup: the part number to search for, and the item's manufacturer when it is known,
-  // which tells apart Mouser products that share the number.
+  // One Mouser refresh lookup; the manufacturer, when known, tells apart products sharing a number.
   struct MouserRefreshRequest {
     std::string itemId;
     std::string partNumber;
@@ -488,38 +468,30 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
-  // The supplier clients shared by the lookups of one enrichment run. The worker builds them on its first
-  // lookup because reading the credentials can block on a locked keyring; the UI thread only releases
-  // them, and only while no lookup is running. Mouser has no client here: each Mouser lookup builds one from
-  // the saved key, because the request spacing is shared by every Mouser client in the process.
+  // Supplier clients for one run. The worker builds them (credential reads can block);
+  // the UI thread releases them only while no lookup runs.
   struct BomEnrichmentSession {
     std::unique_ptr<DigiKeyApiClient> client;
     std::unique_ptr<TmeApiClient> tmeClient;
-    // Mouser said its request limit was reached, so it is not asked again in this run. Read and written by the
-    // worker only; one lookup runs at a time and is joined before the next starts.
+    // Mouser's request limit was hit; skip Mouser for this run. Touched only by the worker.
     bool mouserLimitReached = false;
   };
 
   struct BomEnrichmentResult {
     std::string key;
     std::string suggestion;
-    // The supplier's part fits the BOM line by the same rules stock must pass. Unverified suggestions are
-    // labelled "check before ordering" wherever they are shown or exported.
+    // Fits the line by the stock rules; unverified suggestions read "check before ordering".
     bool verified = false;
     BomLookupOutcome outcome = BomLookupOutcome::Failed;
     std::string projectId;
     WorkspaceGeneration workspaceGeneration = 0;
     std::uint64_t requestSequence = 0;
     bool credentialsMissing = false;
-    // The suggestion came from TME rather than DigiKey.
     bool fromTme = false;
-    // The suggestion came from Mouser rather than DigiKey or TME.
     bool fromMouser = false;
   };
 
-  // Printer work is always executed against a value snapshot.  The worker
-  // creates its own LabelPrinterService so it never races the UI-owned
-  // configured queue or holds a pointer into App while a workspace changes.
+  // Printer work runs on a value snapshot with its own LabelPrinterService, never App state.
   enum class PrinterWorkKind { Refresh, Probe, PrintItem, PrintWire, PrintRack };
 
   struct QuickLabelPrintCacheEntry {
@@ -535,7 +507,7 @@ class App {
     InventatoryRack rack;
     std::string text;
     std::string rackLocation;
-    // Snapshot of the saved setting when the rack label job is queued.
+    // Saved setting, captured when the rack label job is queued.
     SymbolStandard symbolStandard = SymbolStandard::Eu;
     std::string successPrefix;
     std::string requestId;
@@ -550,16 +522,12 @@ class App {
     std::string error;
   };
 
-  // Detached printer workers publish into this shared state only.  Shutdown
-  // marks it cancelled and drops the App-owned reference, so a spooler call
-  // that ignores cancellation can finish without touching App or a new
-  // workspace.
+  // Printer workers publish only here; shutdown cancels it, so a stuck spooler call stays isolated.
   struct PrinterWorkCompletion {
     std::mutex completionMutex;
     std::optional<PrinterWorkResult> result;
     bool cancelled = false;
-    // Set by the UI thread before the worker starts and never changed afterwards, so it identifies
-    // the quick-label request that a cancelled, still-running job belongs to.
+    // Set before the worker starts and never changed; identifies the quick-label request.
     std::string requestId;
   };
 
@@ -570,8 +538,7 @@ class App {
     std::string unavailableReason;  // set when the worker could not start (no DigiKey credentials)
   };
 
-  // A vendor lookup for a part added by hand: each configured vendor's answer for the part number. The user picks one
-  // vendor, which becomes the part's origin.
+  // Vendor answers for a hand-added part; the user picks one as its origin.
   struct VendorLookupCandidate {
     std::string provider;  // "digikey", "tme" or "mouser"
     std::string partNumber;
@@ -679,7 +646,7 @@ class App {
   ftxui::Element renderMessageUi() const;
   ftxui::Element renderPageUi() const;
 
-  // Action registry (contextual bar + bottom sheet). Defined in ActionRegistry.cpp.
+  // Action registry; defined in ActionRegistry.cpp.
   std::vector<Action> currentActions() const;
   bool triggerMatches(const KeyEvent& trigger, const KeyEvent& key) const;
   bool dispatchAction(const KeyEvent& key);
@@ -688,9 +655,8 @@ class App {
   void handleActionSheetKey(const KeyEvent& key);
   ftxui::Element target(ftxui::Element element, std::string id, UiTargetKind kind,
                         std::function<void()> activate, bool enabled = true, bool focusable = true) const;
-  // Reserves a Surface region before the targets inside it are registered: hit
-  // testing runs newest-first, so those inner targets still win. Apply
-  // ftxui::reflect() to the returned box on the region's outer element.
+  // Reserve a Surface before registering its inner targets; hit testing is newest-first.
+  // Apply ftxui::reflect() to the returned box.
   ftxui::Box& reserveSurfaceTarget(std::string id) const;
   bool handleMouse(const ftxui::Mouse& mouse);
   void moveUiFocus(int delta);
@@ -726,10 +692,9 @@ class App {
   bool writeUpdateMarker(const std::string& state, const std::string& version,
                          const std::string& error = {});
   bool prepareUpdateHandoff();
-  // Removes the private download folder of the update in progress, unless the installer already owns it.
+  // Removes the update download folder unless the installer already owns it.
   void discardUpdateDownload();
-  // Shutdown: asks an in-flight update download, update check or firmware check to stop and waits for
-  // them until `deadline`. Returns false when one outlived it; workAbandoned() then reports true.
+  // Shutdown: stops update work, waiting until `deadline`. False if one outlived it.
   bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
@@ -747,12 +712,9 @@ class App {
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
-  // Shutdown variant: waits for workers only until `deadline`. Returns false when a worker
-  // outlived it; the unfinished futures and the state they use are then left untouched and
-  // workAbandoned() reports true so the caller can leave without joining them.
+  // Shutdown variant: waits until `deadline`. False if a worker outlived it; state is untouched.
   bool stopWorkspaceBoundWorkUntil(std::optional<std::chrono::steady_clock::time_point> deadline);
-  // Completes every queued device request with a 503. With closeForShutdown, later requests are
-  // refused immediately so HTTP workers never wait on a loop that is no longer running.
+  // Clears the queued device status requests.
   void cancelPendingDeviceRequests();
   void stopPrinterWork();
   // Records the durable effects of a print job that finished before stopPrinterWork() cancelled it.
@@ -772,8 +734,7 @@ class App {
   std::optional<PrinterWork> beginPrinterJob(PrinterWorkKind kind);
   bool queuePrinterJob(PrinterWork work);
   void refreshInventoryMovements();
-  // `afterOwnSave` skips re-validating the entire history after this process appended a commit; only the
-  // newest commit (the one just written) is checked.
+  // afterOwnSave: skip re-validating history; only the newest commit is checked.
   void refreshInventoryCommits(bool afterOwnSave = false);
   void openPrinterSetup();
   bool printSelectedLabel();
@@ -789,8 +750,7 @@ class App {
   void testQuickLabelPreset();
   bool printLabelForItem(const InventoryItem& item, const std::string& successPrefix, bool openSetupOnMissingPrinter);
   void toggleAutoPrintScannedLabels();
-  // A scan that creates a part prints its label only after the supplier lookup has settled, so the label carries
-  // the merged details. finishScanAutoPrint acts only on an item that queueScanAutoPrint recorded.
+  // Labels for new parts print after the supplier lookup settles, so they carry merged details.
   void queueScanAutoPrint(const std::string& itemId);
   void finishScanAutoPrint(const std::string& itemId, bool detailsFound);
   void stageSelectedPrinterQueue();
@@ -842,7 +802,7 @@ class App {
   bool testStagedDigiKey();
   bool testStagedTme();
   bool testStagedMouser();
-  // True when the field being edited holds a secret, so its typed text is masked and wiped after editing.
+  // True when the field holds a secret: typed text is masked and wiped after editing.
   bool settingsFieldIsSecret() const;
   void clearStagedTmeCredentials();
   void clearStagedMouserCredentials();
@@ -936,8 +896,7 @@ class App {
   const CsvImportCandidate* currentImportCandidate() const;
   std::string importCompletionMessage() const;
 
-  // KiCad BOM workflow. Analysis always runs against live stock, so a pinned
-  // project stays accurate as inventory changes.
+  // KiCad BOM workflow; analysis always runs against live stock.
   void beginBomProject(const std::string& bomText, const std::string& name,
                        const std::filesystem::path& sourcePath);
   void refreshBomAnalysis();
@@ -963,7 +922,7 @@ class App {
   bool restoreData();
   void retrySaveState();
   BomPickPlan bomPickPlan() const;
-  // Pieces the user says they took for one pick; defaults to everything the walkthrough committed to.
+  // Pieces taken for one pick; defaults to the full committed amount.
   int bomPickTaken(const BomPick& pick) const;
   void adjustBomPickTaken(int delta);
   void confirmBomMatch();
@@ -980,12 +939,10 @@ class App {
   InventoryStore store_;
   InventoryStore persistedStore_;
   bool persistedStoreValid_ = false;
-  // Snapshot taken when the import review began; the staged changes are replayed relative to it.
-  // Once the commit starts it holds the pre-commit live store instead, restored if a failed
-  // commit is cancelled.
+  // Snapshot at review start; once commit starts it holds the pre-commit store, restored on cancel.
   InventoryStore importOriginalStore_;
   InventoryStore importStagedStore_;
-  // Conflicts found while merging the staged import over scanner changes made during the review.
+  // Conflicts from merging the staged import over scanner changes made during review.
   std::vector<std::string> importMergeNotices_;
   std::vector<ActivityEntry> activities_;
   LabelPrinterService printerService_;
@@ -1019,11 +976,10 @@ class App {
   bool stocktakeCommitPending_ = false;
   std::string stocktakeSessionId_;
   std::unordered_map<std::string, int> stocktakeCounts_;
-  // Keyboard focus inside the Sort / Filter panel: the row and the option in it.
+  // Keyboard focus in the Sort / Filter panel: row and option.
   int stockFilterRow_ = 0;
   int stockFilterOption_ = 0;
-  // Vendor/catalogue identifiers are reference data, not what the page is for,
-  // so the details block starts collapsed.
+  // Vendor identifiers are reference data, so the details block starts collapsed.
   bool stockDetailsExpanded_ = false;
   std::string message_;
   UiMessageSeverity messageSeverity_ = kLegacyMessageSeverity;
@@ -1127,27 +1083,24 @@ class App {
   mutable ftxui::Box bomTableBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
-  // The picks the walkthrough started with, frozen when it began. Finish deducts only if the stock still
-  // matches them. Taken amounts are indexed by commit, so re-sorting the analysis cannot move them.
+  // Picks frozen when the walkthrough began; finish deducts only if stock still matches.
+  // Taken amounts are indexed by commit, so re-sorting the analysis cannot move them.
   std::vector<BomPickCommit> bomCommits_;
   std::vector<int> bomCommitTaken_;
-  // "Next match" choices not yet confirmed (bomLineKey -> item id). They move the suggestion and never confirm it.
+  // Unconfirmed "next match" picks (bomLineKey -> item id); they never confirm on their own.
   std::map<std::string, std::string> bomSuggestions_;
   size_t bomFinishSelection_ = 0;
   std::string bomRestockItemId_;
   std::string bomDeleteConfirmationProjectId_;
   time_t bomDeleteConfirmationUntil_ = 0;
   bool bomProjectsDirty_ = false;
-  // Line keys still awaiting a DigiKey suggestion; drained one per tick so the
-  // terminal stays responsive while lookups run.
+  // Line keys awaiting a suggestion; one is drained per tick to keep the UI responsive.
   std::vector<std::string> bomEnrichmentQueue_;
   size_t bomEnrichmentTotal_ = 0;
   std::string bomEnrichmentActiveKey_;
   WorkspaceGeneration bomEnrichmentGeneration_ = 0;
-  // One lookup in flight at a time, off the render thread. A DigiKey call takes
-  // seconds and would otherwise freeze the terminal for the whole shortage run.
-  // The client is declared first on purpose: members are destroyed in reverse,
-  // so the future (which joins its task) must outlive the client it borrows.
+  // One lookup at a time, off the render thread. The client is declared before the future, so
+  // the future (which joins its task) is destroyed first.
   std::shared_ptr<BomEnrichmentSession> bomEnrichmentClient_;
   std::future<BomEnrichmentResult> bomEnrichmentFuture_;
   std::string bomEnrichmentProjectId_;
@@ -1155,10 +1108,9 @@ class App {
   std::uint64_t bomEnrichmentSequence_ = 0;
   std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
   std::future<ScanDigiKeyEnrichmentResult> scanDigiKeyEnrichmentFuture_;
-  // UI thread only: created scans whose automatic label waits for their supplier lookup to settle.
+  // UI thread only: scans whose automatic label waits for their supplier lookup.
   std::vector<std::string> scanAutoPrintPending_;
-  // Inventory-wide DigiKey recovery runs one lookup per tick so restoring
-  // lost vendor metadata never blocks the terminal or changes stock counts.
+  // Inventory-wide DigiKey recovery: one lookup per tick; never changes stock counts.
   std::deque<std::pair<std::string, std::string>> digiKeyRefreshQueue_;
   size_t digiKeyRefreshTotal_ = 0;
   size_t digiKeyRefreshCompleted_ = 0;
@@ -1168,7 +1120,7 @@ class App {
   WorkspaceGeneration digiKeyRefreshGeneration_ = 0;
   std::string digiKeyRefreshLastError_;
   std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
-  // TME inventory refresh, run the same way as the DigiKey refresh: one lookup per tick, merged on the UI thread.
+  // TME inventory refresh: one lookup per tick, merged on the UI thread.
   std::deque<std::pair<std::string, TmeIdentifier>> tmeRefreshQueue_;
   size_t tmeRefreshTotal_ = 0;
   size_t tmeRefreshCompleted_ = 0;
@@ -1181,8 +1133,8 @@ class App {
   std::string tmeRefreshLastError_;
   std::unique_ptr<TmeApiClient> tmeRefreshClient_;
   std::future<TmeRefreshResult> tmeRefreshFuture_;
-  // Mouser inventory refresh, run the same way as the TME refresh: one lookup per tick, merged on the UI thread. The
-  // client is declared before the future so the future, which joins its task, is destroyed first.
+  // Mouser inventory refresh: one lookup per tick, merged on the UI thread. The client is declared
+  // before the future so the future is destroyed first.
   std::deque<MouserRefreshRequest> mouserRefreshQueue_;
   size_t mouserRefreshTotal_ = 0;
   size_t mouserRefreshCompleted_ = 0;
@@ -1235,25 +1187,23 @@ class App {
   std::string stagedDigiKeySecret_;
   bool stagedDigiKeySecretChanged_ = false;
   bool hasStoredDigiKeySecret_ = false;
-  // TME token and application secret, staged like the DigiKey secret until settings are saved.
+  // TME token and secret, staged until settings are saved.
   std::string stagedTmeToken_;
   bool stagedTmeTokenChanged_ = false;
   std::string stagedTmeSecret_;
   bool stagedTmeSecretChanged_ = false;
   bool hasStoredTmeToken_ = false;
   bool hasStoredTmeSecret_ = false;
-  // Mouser API key, staged the same way until settings are saved.
+  // Mouser API key, staged until settings are saved.
   std::string stagedMouserKey_;
   bool stagedMouserKeyChanged_ = false;
   bool hasStoredMouserKey_ = false;
-  // MOUSER_API_KEY is set, so lookups use it in place of the stored key. Read once at startup.
+  // MOUSER_API_KEY overrides the stored key; read once at startup.
   bool mouserKeyFromEnvironment_ = false;
   std::unordered_map<std::string, QuickLabelPrintCacheEntry> quickLabelPrintResults_;
   std::deque<std::string> quickLabelPrintOrder_;
-  // quickLabelMutex_ guards the quick-label presets in settings_, the print-result cache above and
-  // configuredPrinterSnapshot_, the only printer state the device-service worker threads may read.
-  // The UI thread refreshes the snapshot through publishConfiguredPrinter() after every change to
-  // printerService_, which itself stays UI-owned.
+  // quickLabelMutex_ guards the quick-label presets, the print-result cache and
+  // configuredPrinterSnapshot_, the only printer state device worker threads read.
   mutable std::mutex quickLabelMutex_;
   std::string configuredPrinterSnapshot_;
   std::string settingsConfirmAction_;
@@ -1280,19 +1230,17 @@ class App {
   std::filesystem::path updateNotesPath_;
   ftxui::Box updateNotesBounds_;
   bool updateCompletionPending_ = false;
-  // Start tick of the one-shot scan-line reveal on the post-update wordmark;
-  // -1 when idle. Atomic because the render ticker thread reads it.
+  // Start tick of the post-update wordmark reveal; -1 when idle. Atomic: read by the ticker.
   std::atomic<long long> wordmarkRevealStartedAt_{-1};
   bool updateInstallerLaunched_ = false;
   std::string scanFirmwareLatestVersion_;
   bool scanFirmwareChecked_ = false;
   bool scanFirmwareCheckFailed_ = false;
-  mutable std::deque<UiTarget> uiTargets_;  // deque: element addresses must stay stable, ftxui::reflect() keeps references into it
+  mutable std::deque<UiTarget> uiTargets_;  // deque: element addresses must stay stable
   mutable std::string hoveredTargetId_;
-  // Keyboard focus by target id (see ui/shared/UiFocus.h): set only by Tab, cleared by any other
-  // key or mouse click and whenever the page changes.
+  // Keyboard focus by target id; set by Tab, cleared by other keys, clicks and page changes.
   std::string focusedTargetId_;
-  // True while a pre-filled numeric prompt still holds its default: the first digit replaces it.
+  // Pre-filled numeric prompt still holds its default; the first digit replaces it.
   bool inputReplaceOnType_ = false;
 };
 

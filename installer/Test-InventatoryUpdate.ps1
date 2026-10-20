@@ -7,9 +7,7 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ('Inventatory-update-smoke-'
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 function Assert-DirectInstallCommand {
-  # Docs must always resolve GitHub's "latest" alias, which only ever points at a
-  # full (non-prerelease, non-draft) release, never a hand-pinned tag that goes
-  # stale the moment a new version ships.
+  # Docs must use GitHub's "latest" alias, not a hand-pinned tag that goes stale.
   $readmeCommand = (Get-Content (Join-Path $repositoryRoot 'README.md') |
     Where-Object { $_ -match 'curl\.exe ' } | Select-Object -First 1)
   if (-not $readmeCommand -or $readmeCommand -notmatch
@@ -136,7 +134,7 @@ try {
   $runningFixture = New-UpdateFixture 'running'
   $cmdCopy = Join-Path $runningFixture.Install 'inventatory.exe'
   Copy-Item -LiteralPath (Join-Path $env:SystemRoot 'System32\cmd.exe') -Destination $cmdCopy -Force
-  # Leave time for a cold WMI query and archive verification before the updater checks the process.
+  # Let a cold WMI query and archive check finish before the updater looks at the process.
   $heldProcess = Start-Process -FilePath $cmdCopy -ArgumentList @('/c', 'ping -n 15 127.0.0.1 > nul') -WindowStyle Hidden -PassThru
   $runningResult = Invoke-UpdateFixture $runningFixture
   if ($runningResult.Failed -or (Get-Content -Raw $runningResult.LaunchMarker) -notmatch 'inventatory.exe') {

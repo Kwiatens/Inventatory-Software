@@ -38,8 +38,7 @@ enum class KeyType {
 struct KeyEvent {
   KeyType type = KeyType::Unknown;
   char ch = '\0';
-  // Character events: the complete UTF-8 sequence of the typed character.
-  // `ch` holds that character only when it is a single ASCII byte.
+  // Complete UTF-8 sequence of a typed character; `ch` is set only for a single ASCII byte.
   string text;
 };
 
@@ -63,7 +62,7 @@ void initializeConsoleWindow();
 bool ensureTerminalAttached(int argc, char* argv[]);
 // Asks the desktop to draw attention to this terminal window (bell / taskbar urgency).
 void requestTerminalAttention();
-// Keeps a short-lived terminal window readable: returns when Enter is pressed or after timeoutMs.
+// Returns on Enter or after timeoutMs, so a short-lived terminal window stays readable.
 void waitForAcknowledgement(int timeoutMs);
 #ifndef _WIN32
 vector<string> buildTerminalCandidateArgs(const string& terminalBinary, const string& executable,

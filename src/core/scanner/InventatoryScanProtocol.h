@@ -20,9 +20,8 @@ namespace inventatory {
 
 constexpr int kInventatoryScanTransportProtocolVersion = 1;
 
-// Shared with the Scan R1 firmware's kMaxHttpBodyBytes. The firmware keeps a
-// bounded response and a second authenticated copy while checking the MAC, so
-// every valid desktop response must fit this body budget.
+// Matches the Scan R1 firmware's kMaxHttpBodyBytes. The firmware holds a second copy
+// while checking the MAC, so every valid response must fit.
 constexpr std::size_t kInventatoryScanResponseBodyLimit = 8192U;
 constexpr std::size_t kInventatoryScanResponseTextLimit = 256U;
 constexpr std::size_t kInventatoryScanResponseLocationLimit = 128U;
@@ -68,9 +67,7 @@ struct DeviceQuantityResult {
   int quantity = 0;
 };
 
-// A request id is only idempotent for the exact operation that created it.
-// Keep the request and workspace generation beside the cached result so a
-// reused id cannot replay a result for another device, payload, or workspace.
+// A request id replays only for the same request in the same workspace generation.
 struct DeviceQuantityCacheEntry {
   DeviceQuantityRequest request;
   std::uint64_t workspaceGeneration = 0;
@@ -92,9 +89,7 @@ struct DeviceSyncEvent {
   std::string type;
   std::string code;
   int value = 0;
-  // Filled from the durable inbox for pending events.  It is intentionally
-  // not part of the on-wire event object: the authenticated sync envelope
-  // already carries the sender identity.
+  // Set from the inbox. Not on the wire: the authenticated envelope already names the sender.
   std::string deviceId;
 };
 
@@ -205,8 +200,7 @@ bool retryFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std:
 bool discardFailedDeviceSyncEvents(const std::filesystem::path& databasePath, std::size_t& discardedCount);
 bool completeDeviceSyncEvent(InventoryStore& store, const std::filesystem::path& databasePath,
                               const DeviceSyncResult& result, const InventoryStore* previousStore = nullptr);
-// The Scan R1 shows an item name on two lines of about 22 characters, so a longer name is cut off. The
-// device gets the part's short label instead of a name longer than this.
+// The Scan R1 shows two lines of about 22 characters, so longer names are cut off on the device.
 constexpr std::size_t kDeviceItemNameLimit = 40U;
 std::string deviceItemName(const InventoryItem& item);
 DeviceLookupResult lookupDeviceItem(const std::filesystem::path& databasePath,
