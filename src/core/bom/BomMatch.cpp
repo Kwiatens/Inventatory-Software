@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Matching BOM lines against inventory by part number, value and package.
 
 #include "core/bom/BomMatch.h"
 
@@ -22,8 +21,8 @@ using namespace bom_match_detail;
 
 namespace {
 
-// Metric chip sizes that name the same package as an imperial code. None of them collides with an
-// imperial code in kChipCodes, so "0603" is never read as metric.
+// Metric chip sizes and the imperial codes they name. None collides with kChipCodes,
+// so "0603" is never read as metric.
 struct MetricChipCode {
   const char* metric;
   const char* imperial;
@@ -59,7 +58,7 @@ string imperialCodeFromIpcToken(const string& token) {
   return {};
 }
 
-// The imperial chip code a package string names: "0603", "0603 (1608 Metric)". Empty for other packages.
+// The imperial chip code a package names: "0603", "0603 (1608 Metric)". Empty otherwise.
 string chipCodeOfPackage(const string& package) {
   const auto trimmed = trim(package);
   const auto end = trimmed.find_first_of(" (");
@@ -80,7 +79,6 @@ string packageFromFootprint(const string& footprint) {
 
   const auto tokens = splitOnUnderscore(trimmed);
 
-  // Chip passives: the imperial code is a standalone token.
   for (const auto& token : tokens) {
     for (const auto* code : kChipCodes) {
       if (toLower(token) == toLower(code)) {
@@ -95,7 +93,6 @@ string packageFromFootprint(const string& footprint) {
     return diameter.empty() ? string("Radial") : "Radial " + diameter + "mm";
   }
 
-  // Connectors are identified by series plus pin count.
   if (!tokens.empty() && toLower(tokens.front()) == "jst") {
     const auto pins = pinCountToken(tokens);
     const string series = tokens.size() > 1 ? tokens[1] : string();
@@ -106,8 +103,7 @@ string packageFromFootprint(const string& footprint) {
     return trim(label);
   }
 
-  // EasyEDA and JLCPCB names lead with the chip code ("R0402", "C0402_NEW"), and IPC-7351 names carry the
-  // metric size ("CAPC1608X90N"). Both name the same chip as the imperial code KiCad footprints carry.
+  // EasyEDA ("R0402") and IPC-7351 ("CAPC1608X90N") names carry the same chip size as KiCad codes.
   if (!tokens.empty()) {
     if (const auto code = imperialCodeFromToken(tokens.front()); !code.empty()) return code;
     if (const auto code = imperialCodeFromIpcToken(tokens.front()); !code.empty()) return code;
@@ -124,8 +120,7 @@ string packageFromFootprint(const string& footprint) {
 }
 
 bool packageMatches(const string& lhs, const string& rhs) {
-  // Two chip packages match only when they are the same chip. Substring matching is too loose for codes:
-  // "0402" must not match a package whose text merely contains those digits.
+  // Chip codes must match exactly: "0402" must not match a package that contains those digits.
   const auto leftCode = chipCodeOfPackage(lhs);
   const auto rightCode = chipCodeOfPackage(rhs);
   if (!leftCode.empty() && !rightCode.empty()) return leftCode == rightCode;
@@ -154,7 +149,7 @@ optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
       compact.push_back(ch);
     }
   }
-  // The micro and ohm signs are written as their UTF-8 sequences; read them as the ASCII units "u" and "ohm".
+  // Map the UTF-8 micro and ohm signs to the ASCII units "u" and "ohm".
   for (const auto& [sign, ascii] : {pair<const char*, const char*>{"\xC2\xB5", "u"},
                                     {"\xCE\xBC", "u"},
                                     {"\xCE\xA9", "ohm"},
@@ -193,14 +188,12 @@ optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
     body = compact.substr(0, compact.size() - 1);
   }
 
-  // A bare number with no unit is ambiguous; only a resistor is ever written
-  // that way, and even then it needs at least one digit.
+  // A bare number is ambiguous; only a resistor is written that way, and it needs a digit.
   if (body.empty() || none_of(body.begin(), body.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) {
     return nullopt;
   }
 
-  // Imperial chip codes ("0603", "1206") are bare numbers too, but they name a
-  // package, not an ohm value.
+  // Bare chip codes ("0603") name a package, not an ohm value.
   if (notation == NumberNotation::Unitless) {
     for (const auto* code : kChipCodes) {
       if (body == code) {
@@ -235,9 +228,8 @@ bool looksLikePartNumber(const string& designation) {
 }
 
 string bomLineKey(const BomLine& line) {
-  // KiCad lines have no supplier identity, so their keys are the same as they were before identity columns
-  // existed. An EasyEDA row with the same name and footprint but another part number gets its own key, so
-  // its confirmation and supplier suggestion can never be applied to the wrong row.
+  // Keys without supplier or MPN match those from before identity columns. Other part numbers
+  // get their own key, so a confirmation never applies to the wrong row.
   string key = compactKey(line.designation) + "|" + compactKey(line.footprint);
   if (!line.supplierPartNumber.empty()) {
     key += "|" + compactKey(line.supplier) + ":" + compactKey(line.supplierPartNumber);
@@ -255,11 +247,8 @@ void recomputeBomTotals(BomAnalysis& analysis, const vector<InventoryItem>& item
     byId.emplace(item.id, &item);
   }
 
-  // One inventory part can serve several BOM lines, so sufficiency has to be judged against the total draw on
-  // that part, not line by line. Only confirmed lines draw stock: an unconfirmed line is never picked, so it
-  // must not take units away from a line that is.
-  // Keep aggregate demand wider than the public per-line `int` fields. A saturating int sum would make two
-  // INT_MAX BOM lines look satisfiable by INT_MAX stock even though their combined draw is larger.
+  // One part can serve several lines, so judge sufficiency on the total draw of confirmed lines.
+  // Sum in 64 bits: a saturating int sum would let two INT_MAX lines pass on INT_MAX stock.
   unordered_map<string, uint64_t> demand;
   for (size_t index = 0; index < analysis.matches.size(); ++index) {
     auto& match = analysis.matches[index];
@@ -299,21 +288,20 @@ void recomputeBomTotals(BomAnalysis& analysis, const vector<InventoryItem>& item
 
 namespace {
 
-// Lines carrying a supplier or manufacturer part number, or a designation that reads as one, are identity lines.
-// Their candidates are only accepted on an identifier match, never on value alone.
+// Identity lines carry a part number. They are accepted only on an identifier match, not by value.
 bool carriesPartIdentifier(const BomLine& line) {
   return !line.manufacturerPartNumber.empty() || !line.supplierPartNumber.empty() ||
          looksLikePartNumber(line.designation);
 }
 
-// Why a line with candidates is not matched without the user. The rules are the same for every BOM dialect.
+// Why a line with candidates needs the user. The same rules apply to every BOM dialect.
 BomCheckReason automaticReason(const BomMatch& match, const BomLine& line) {
-  if (match.candidates.empty()) return BomCheckReason::None;  // nothing to choose from: a shortage, not a check
+  if (match.candidates.empty()) return BomCheckReason::None;  // nothing to choose from: a shortage
   if (line.quantityConflict) return BomCheckReason::QuantityConflict;
   if (!carriesPartIdentifier(line)) {
     if (match.candidates.size() != 1) return BomCheckReason::Ambiguous;
-    // A single part is accepted only when its value and package both match. Without a package on either side, the
-    // part's score is 70 and it is offered for confirmation instead.
+    // Accepted only when value and package both match (score 90).
+    // Score 70 (package unknown) needs confirming.
     return match.candidates.front().score >= 90 ? BomCheckReason::None : BomCheckReason::Unverified;
   }
   const auto identityCount = count_if(match.candidates.begin(), match.candidates.end(),
@@ -326,8 +314,7 @@ BomCheckReason automaticReason(const BomMatch& match, const BomLine& line) {
 }  // namespace
 
 string bomItemFingerprint(const InventoryItem& item) {
-  // Only the fields the matcher reads. Quantity, price, location and sync state change often and must not
-  // invalidate a confirmation.
+  // Only fields the matcher reads: quantity, price and location must not invalidate a confirmation.
   string text;
   const auto add = [&text](const string& value) {
     text += value;
@@ -344,7 +331,7 @@ string bomItemFingerprint(const InventoryItem& item) {
     add(parameter.name);
     add(parameter.value);
   }
-  // FNV-1a, 64-bit. Unlike std::hash it gives the same value in every build, so stored fingerprints stay valid.
+  // FNV-1a: unlike std::hash, the same in every build, so stored fingerprints stay valid.
   uint64_t hash = 14695981039346656037ULL;
   for (const unsigned char ch : text) {
     hash ^= ch;
@@ -381,8 +368,8 @@ bool bomSuggestionFitsLine(const BomLine& line, const InventoryItem& suggestion)
   ValueKind bomKind = ValueKind::None;
   const auto bomValue = parseElectricalValue(line.designation, bomKind);
   const auto scored = scoreItem(suggestion, line, bomPackage, bomValue, bomKind, precomputeItemValues(suggestion));
-  // A line that names a part is only verified by that part: a different part with the same value and package is a
-  // different part. A line with no identifier is verified on value and package, as stock is.
+  // A line naming a part is verified only by that part.
+  // Otherwise value and package verify it, as for stock.
   if (carriesPartIdentifier(line)) return scored.identity;
   return scored.score >= 90;
 }
@@ -426,8 +413,8 @@ BomAnalysis analyzeBom(const KicadBomFile& bom, const vector<InventoryItem>& ite
       }
     }
 
-    // Best score first; a bigger reel breaks ties so the order is stable. The order only decides which
-    // candidate is suggested first. It never authorises a match.
+    // Best score first, then larger stock. The order only picks the suggestion,
+    // and never authorises a match.
     stable_sort(match.candidates.begin(), match.candidates.end(),
                 [&](const BomMatchCandidate& lhs, const BomMatchCandidate& rhs) {
                   if (lhs.score != rhs.score) {
@@ -445,8 +432,8 @@ BomAnalysis analyzeBom(const KicadBomFile& bom, const vector<InventoryItem>& ite
     size_t chosen = 0;
     BomCheckReason reason = automaticReason(match, line);
 
-    // A saved confirmation is honoured only for the same item with the same fingerprint. Anything else is
-    // reported as lost and the line falls back to the top suggestion unconfirmed. Nothing is replaced silently.
+    // A saved confirmation holds only for the same item and fingerprint. Otherwise it is reported
+    // lost, and the line falls back unconfirmed rather than being replaced silently.
     const auto saved = confirmations.find(key);
     if (saved != confirmations.end()) {
       const auto confirmation = decodeBomConfirmation(saved->second);
@@ -468,7 +455,7 @@ BomAnalysis analyzeBom(const KicadBomFile& bom, const vector<InventoryItem>& ite
       confirmed = true;
     }
 
-    // "Next match" moves the suggestion but never confirms it, so the user still has to press confirm.
+    // "Next match" moves the suggestion but never confirms it.
     const auto suggested = suggestions.find(key);
     if (suggested != suggestions.end()) {
       const auto candidate = find_if(match.candidates.begin(), match.candidates.end(),

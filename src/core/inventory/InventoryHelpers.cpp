@@ -79,8 +79,7 @@ string sanitizeIdPart(const string& value) {
 }
 
 bool InventoryItem::hasMissingMetadata() const {
-  // A part is identified by its DigiKey number, its TME symbol or its Mouser part number, whichever the item was
-  // enriched from.
+  // Identified by its DigiKey, TME or Mouser part number, whichever it was enriched from.
   const bool hasVendorNumber =
       !digikeyPartNumber.empty() || !tmeProductSymbol(*this).empty() || !mouserPartNumberOf(*this).empty();
   return partName.empty() || manufacturer.empty() || category.empty() || !hasVendorNumber ||
@@ -95,7 +94,7 @@ string InventoryItem::searchableText() const {
       << vendorMetadata.providerProductNumber << ' ' << vendorMetadata.manufacturerPartNumber << ' '
       << vendorMetadata.title << ' ' << vendorMetadata.detailedDescription;
 
-  // A TME record kept beside another source is still searchable by its symbol and part number.
+  // Records kept beside the selected source stay searchable.
   for (const auto& source : vendorSources) {
     out << ' ' << source.provider << ' ' << source.providerProductNumber << ' ' << source.manufacturerPartNumber;
   }

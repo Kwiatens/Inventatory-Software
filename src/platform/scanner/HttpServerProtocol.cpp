@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - bounded HTTP parsing and replay-state persistence.
+// Bounded HTTP parsing and replay-state persistence.
 
 #include "platform/scanner/HttpServerProtocolInternal.h"
 

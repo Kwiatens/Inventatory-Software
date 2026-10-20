@@ -27,8 +27,7 @@ SRC = ROOT / "branding" / "readme" / "src"
 OUT = ROOT / "branding" / "readme"
 DATA = Path(__file__).resolve().parent / "readme_art_data"
 
-# Colour tokens from the website (tokens.css). Dark is the site's own theme; light only swaps
-# the ink so the same section stays readable on a white page.
+# Colour tokens from the website's tokens.css. Light swaps only the ink, for white pages.
 THEMES = {
     "": {"text": "#f1eee5", "muted": "#8c9690", "rule": "#384543", "drop": "#1f3d3a"},
     "-light": {"text": "#0d1010", "muted": "#5d6865", "rule": "#cad0ca", "drop": "#cad0ca"},

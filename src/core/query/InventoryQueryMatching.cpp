@@ -30,7 +30,7 @@ struct TokenMatchResult {
   optional<PhysicalValueComparison> physical;
 };
 
-// True for a number with no unit, such as "10", "-4.7" or "0.5": optional sign, digits, at most one point.
+// A number with no unit, such as "10", "-4.7" or "0.5".
 bool isBareNumber(const string& text) {
   size_t index = (!text.empty() && (text[0] == '+' || text[0] == '-')) ? 1 : 0;
   size_t digits = 0;
@@ -59,8 +59,7 @@ const char* baseUnitName(PhysicalValueType type) {
   return "";
 }
 
-// True when needle occurs in text bounded by characters that cannot continue a value. "10" is found
-// in "10 Ohm" but not in "100 Ohm" or "4.10".
+// Whole-token search: "10" is found in "10 Ohm" but not in "100 Ohm" or "4.10".
 bool containsWholeToken(const string& text, const string& needle) {
   const auto continuesValue = [](char character) {
     const auto unsignedCharacter = static_cast<unsigned char>(character);
@@ -94,12 +93,10 @@ TokenMatchResult tokenMatchesParameterList(const vector<Parameter>& parameters, 
       continue;
     }
 
-    // A physical needle ("0.1uF", "4k7") is matched by value only. Its raw text is never searched,
-    // because "1uF" would then also find "11uF".
+    // A physical needle ("0.1uF", "4k7") matches by value; raw text would match "1uF" in "11uF".
     auto parsedNeedle = parsePhysicalValue(needleValue);
     if (parsedNeedle.has_value() && parsedNeedle->type != PhysicalValueType::Unknown) {
-      // If a key was specified (e.g. "param:Capacitance=0.1uF"), only match
-      // parameters whose name maps to the same physical type.
+      // With a key ("param:Capacitance=0.1uF"), only parameters of the same physical type match.
       if (!needleKey.empty()) {
         auto paramType = parameterNameToType(parameter.name);
         if (paramType != PhysicalValueType::Unknown && paramType != parsedNeedle->type) {
@@ -114,9 +111,9 @@ TokenMatchResult tokenMatchesParameterList(const vector<Parameter>& parameters, 
       continue;
     }
 
-    // A bare number on a parameter named for a value type ("param:Resistance=10") is compared in that
-    // type's base unit. A value that parses as a physical quantity must equal it exactly, so "10" does
-    // not find "100 Ohm". A value that does not parse ("10") must contain the number as a whole token.
+    // A bare number on a value-typed parameter ("param:Resistance=10") is read in its base unit.
+    // A parseable value must equal it exactly, so "10" does not find "100 Ohm".
+    // An unparseable value needs a whole-token match.
     const auto valueType = parameterNameToType(parameter.name);
     if (valueType != PhysicalValueType::Unknown && isBareNumber(needleValue)) {
       const auto parsedValue = parsePhysicalValue(parameter.value);
@@ -135,7 +132,6 @@ TokenMatchResult tokenMatchesParameterList(const vector<Parameter>& parameters, 
       continue;
     }
 
-    // Fall back to substring match
     if (parameterValue.find(loweredNeedleValue) != string::npos) {
       result.matched = true;
     }
@@ -150,9 +146,8 @@ TokenMatchResult tokenMatchesParameter(const InventoryItem& item, const string& 
   return {primary.matched || vendor.matched, bestPhysicalComparison(primary.physical, vendor.physical)};
 }
 
-// Reads the component family an item declares through its category or the leading word of its name
-// ("CAP CER ...", "Resistor", "Crystal"). Returns nullopt for items that declare nothing, and for
-// families without a physical value type (switches, MOSFETs, connectors).
+// Component family from the category or the leading word of the name ("CAP CER", "Resistor").
+// Returns nullopt when undeclared or valueless (switches, MOSFETs, connectors).
 optional<PhysicalValueType> declaredValueType(const InventoryItem& item) {
   const auto classify = [](const string& text) -> optional<PhysicalValueType> {
     const auto has = [&](const char* needle) { return text.find(needle) != string::npos; };
@@ -192,9 +187,8 @@ optional<PhysicalValueComparison> tokenMatchesParameterPhysicallyList(const vect
 
   optional<PhysicalValueComparison> best;
   for (const auto& parameter : parameters) {
-    // A parameter counts when it is named for this value type. Parameters of unknown meaning
-    // ("Input Capacitance (Ciss)", "Contact Rating") are trusted only on an item that declares
-    // itself a component of this type.
+    // Count a parameter named for this type. Unknown-meaning parameters ("Contact Rating")
+    // count only when the item declares this type.
     const auto paramType = parameterNameToType(parameter.name);
     if (paramType == PhysicalValueType::Unknown ? !declaredMatch : paramType != parsed->type) continue;
     const auto comparison = comparePhysicalValues(parameter.value, token);
@@ -205,8 +199,7 @@ optional<PhysicalValueComparison> tokenMatchesParameterPhysicallyList(const vect
   return best;
 }
 
-// Reads the whole operand as a decimal integer. Trailing text ("5abc", "1e3") or blanks make the
-// token meaningless rather than silently truncating it; a value beyond long long saturates.
+// Whole-operand decimal integer; trailing text ("5abc", "1e3") is rejected, overflow saturates.
 optional<long long> parseQuantityOperand(const string& text) {
   if (text.empty()) return nullopt;
   long long value = 0;
@@ -266,9 +259,8 @@ bool tokenMatchesField(const string& field, const string& value) {
   return containsInsensitive(field, value);
 }
 
-// Matches a rack: value against a location such as "R1-A1". A value without a dash names a whole
-// rack, so "r1" finds R1-A1 but not R10-A1. A value with a dash is a case-insensitive prefix of the
-// location, so "r1-a" finds R1-A1 and R1-A2. An empty value keeps the match-everything behaviour.
+// Rack match on a location such as "R1-A1". Without a dash the value names a whole rack ("r1"
+// finds R1-A1, not R10-A1). With a dash, a case-insensitive prefix: "r1-a" finds R1-A1, R1-A2.
 bool tokenMatchesRackLocation(const string& location, const string& value) {
   if (value.empty()) return containsInsensitive(location, value);
   const auto loweredLocation = toLower(location);
@@ -315,8 +307,7 @@ optional<PhysicalValueComparison> itemPhysicalComparison(const InventoryItem& it
   const auto parsed = parsePhysicalValue(target);
   if (!parsed.has_value() || parsed->type == PhysicalValueType::Unknown) return nullopt;
 
-  // An item that says it is a different kind of component never matches, whatever numbers its
-  // parameters or name happen to contain.
+  // An item declaring a different component family never matches, whatever its numbers.
   const auto declared = declaredValueType(item);
   if (declared.has_value() && *declared != parsed->type) return nullopt;
   const bool declaredMatch = declared.has_value();
@@ -413,8 +404,7 @@ QueryMatchResult evaluateQueryWithRack(const InventoryItem& item, const string& 
       return {false, nullopt};
     }
 
-    // Prefer physical comparison for parseable values so normalized matches
-    // receive a rank even when the raw spelling also appears in the item text.
+    // Physical comparison first, so a normalized match is ranked even if the raw text also appears.
     const auto physicalMatch = itemPhysicalComparison(item, rawToken);
     if (physicalMatch.has_value()) {
       bestPhysical = bestPhysicalComparison(bestPhysical, physicalMatch);

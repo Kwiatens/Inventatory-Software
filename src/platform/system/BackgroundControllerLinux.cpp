@@ -33,9 +33,8 @@ namespace {
 
 volatile sig_atomic_t gQuitSignal = 0;
 volatile sig_atomic_t gOpenSignal = 0;
-// Self-pipe: the handler writes a byte so the signal thread sleeps in poll() instead of polling flags.
-// Both ends stay open for the life of the process so a late signal can never write to a closed
-// (or reused) descriptor.
+// Self-pipe: the handler writes a byte so the signal thread sleeps in poll(). Both ends stay open
+// so a late signal never writes to a closed or reused descriptor.
 int gWakeRead = -1;
 int gWakeWrite = -1;
 struct sigaction gPreviousTermAction{};
@@ -78,8 +77,8 @@ filesystem::path lockPath(bool backgroundMode) {
   return directory / (backgroundMode ? "background.lock" : "interactive.lock");
 }
 
-// True when another open file description holds the lock exclusively. The probe takes only a shared
-// lock, so concurrent probes never see each other as the owner, and it is released immediately.
+// True when another open file description holds the lock exclusively. Probes use a shared lock,
+// so they never conflict with each other.
 bool lockHeldElsewhere(int descriptor) {
   if (flock(descriptor, LOCK_SH | LOCK_NB) == 0) {
     flock(descriptor, LOCK_UN);
@@ -88,8 +87,7 @@ bool lockHeldElsewhere(int descriptor) {
   return errno == EWOULDBLOCK || errno == EAGAIN;
 }
 
-// A probe holds its shared lock for microseconds and would make a starting service think another
-// instance owns the workspace, so a refused exclusive lock is retried for a short moment.
+// A probe's shared lock is held only briefly, so a refused exclusive lock is retried for a moment.
 bool takeExclusiveLock(int descriptor) {
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
   for (;;) {
@@ -139,7 +137,6 @@ pid_t lockedProcessId(bool backgroundMode) {
 }
 
 std::string executableName(std::string target) {
-  // A binary replaced on disk (an update) is reported with a " (deleted)" suffix while it keeps running.
   return filesystem::path(stripDeletedExecutableSuffix(std::move(target))).filename().string();
 }
 
@@ -150,8 +147,7 @@ std::string readExecutableLink(const std::string& path) {
   return std::string(buffer.data(), static_cast<size_t>(length));
 }
 
-// The lock file only records a PID, so before signalling it make sure that PID still belongs to a
-// process of this user running this application (and not an unrelated process that reused it).
+// The lock file only records a PID. Check it still belongs to this user's copy of the application.
 bool processLooksLikeInventatory(pid_t process) {
   const auto base = std::string("/proc/") + std::to_string(process);
   struct stat status{};
@@ -186,9 +182,8 @@ bool installSignalHandlers() {
   action.sa_flags = 0;
   if (sigaction(SIGTERM, &action, &gPreviousTermAction) != 0 ||
       sigaction(SIGINT, &action, &gPreviousInterruptAction) != 0 ||
-      // Closing the terminal window sends SIGHUP. FTXUI re-raises the signal it received once its
-      // loop ends, so without a handler here the process would die before saving or handing the
-      // workspace back to the background service.
+      // Closing the terminal sends SIGHUP. FTXUI re-raises it after its loop ends, so without a
+      // handler the process dies before saving or handing the workspace to the service.
       sigaction(SIGHUP, &action, &gPreviousHangupAction) != 0 ||
       sigaction(SIGUSR1, &action, &gPreviousUserAction) != 0) {
     return false;
@@ -224,8 +219,7 @@ std::filesystem::path backgroundRuntimeDirectory(const std::optional<std::string
   if (xdgRuntimeDir.has_value() && !xdgRuntimeDir->empty() && filesystem::path(*xdgRuntimeDir).is_absolute()) {
     if (auto directory = privateSubdirectory(*xdgRuntimeDir); !directory.empty()) return directory;
   }
-  // The systemd user manager always provides this directory; use it when the variable is missing so a
-  // launch from cron, su or an ssh session without PAM shares the service's locks.
+  // Used when XDG_RUNTIME_DIR is unset (cron, su, ssh without PAM), so locks are shared with the service.
   const auto userRunDirectory = userRunRoot / std::to_string(geteuid());
   if (validPrivateDirectory(userRunDirectory)) {
     if (auto directory = privateSubdirectory(userRunDirectory); !directory.empty()) return directory;
@@ -306,7 +300,7 @@ BackgroundStopResult BackgroundController::stopBackgroundService(int gracefulTim
   while (backgroundServiceRunning()) {
     // The PID is written just after the lock is taken, so the request is retried until it lands.
     if (!requested) requested = requestBackgroundServiceQuit();
-    // A request that cannot be delivered (no PID to signal) will not start working by waiting.
+    // Without a deliverable request, waiting will not help.
     if (elapsed() >= graceful || (!requested && elapsed() >= std::chrono::seconds(3))) break;
     const int seconds = static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(elapsed()).count());
     if (seconds > reportedSeconds) {
@@ -330,8 +324,7 @@ bool BackgroundController::restartAsBackgroundService() {
     close(instanceLockFd_);
     instanceLockFd_ = -1;
   }
-  // Prefer the per-user systemd unit so the service is supervised, logged and visible to
-  // `systemctl --user status`; fall back to a detached process when systemd is unavailable.
+  // Prefer the systemd user unit (supervised and logged); fall back to a detached process.
   std::string unitError;
   if (startBackgroundServiceUnit(unitError)) {
     const auto unitDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -372,8 +365,7 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   enabled_.store(enabled);
   {
     std::lock_guard<std::mutex> lock(callbackMutex_);
-    // An empty callback keeps the one installed earlier (run() passes both; the in-session enable
-    // from Settings passes only onQuit).
+    // An empty callback keeps the earlier one (the in-session enable from Settings passes only onQuit).
     if (onQuit) onQuit_ = std::move(onQuit);
     if (onOpen) onOpen_ = std::move(onOpen);
   }
@@ -400,8 +392,7 @@ bool BackgroundController::start(bool enabled, bool hideInitially, Callback onQu
   return true;
 }
 
-// Linux has no tray: background mode is only the enabled flag. The instance lock, signal thread and
-// signal handlers belong to the running process and are released by stop() at shutdown.
+// Linux has no tray. Background mode is only the enabled flag; the lock lasts until stop().
 void BackgroundController::disableBackgroundMode() { enabled_.store(false); }
 
 void BackgroundController::stop() {

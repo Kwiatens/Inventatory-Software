@@ -43,8 +43,7 @@ inline std::optional<CupsQueueLine> parseCupsQueueLine(const std::string& line) 
   return parsed;
 }
 
-// The first non-empty line of command output, trimmed and bounded, for a one-line status text.
-// `lpstat` failures can print several lines (and a trailing newline) that must not reach the status row.
+// First non-empty output line, trimmed and bounded. A failing lpstat can print several lines.
 inline std::string firstOutputLine(const std::string& output, std::size_t maximumLength = 160) {
   std::size_t begin = 0;
   while (begin < output.size()) {

@@ -16,8 +16,7 @@
 
 namespace {
 
-// A launch that cannot continue usually runs in a terminal window that closes the moment the
-// process exits, so the reason is shown and held on screen briefly instead of vanishing.
+// A failed launch runs in a window that closes on exit, so the reason is held on screen briefly.
 void reportLaunchProblem(const std::string& message, int holdMs) {
   std::cerr << message << '\n';
   if (holdMs <= 0) return;
@@ -25,12 +24,10 @@ void reportLaunchProblem(const std::string& message, int holdMs) {
   inventatory::waitForAcknowledgement(holdMs);
 }
 
-// Hands the workspace over from a running background service. Returns false when the service is
-// still running afterwards, in which case the workspace must not be opened.
+// Takes the workspace from a running background service. Returns false if it still runs afterwards.
 bool takeOverFromBackgroundService(inventatory::BackgroundController& controller) {
-  // The service saves and releases its lock within a few seconds; the long grace period only
-  // matters when it is busy. A service that never answers is terminated rather than left to block
-  // every later launch (a killed process leaves SQLite and the atomic state files consistent).
+  // The long grace period matters only when busy. A service that never answers is terminated,
+  // which leaves SQLite and the state files consistent.
   constexpr int kGracefulMs = 12000;
   constexpr int kForcedMs = 3000;
   bool announced = false;
@@ -64,8 +61,7 @@ bool takeOverFromBackgroundService(inventatory::BackgroundController& controller
 int runInventatory(bool startInBackground, std::filesystem::path& updateMarkerPath) {
   inventatory::BackgroundController backgroundController;
 #ifndef _WIN32
-  // While a terminal session owns the workspace, the service waits here rather than exiting; it takes the
-  // workspace as soon as the session closes, or when the session dies without restoring it.
+  // A background service waits while a terminal session owns the workspace, then takes over.
   if (startInBackground) backgroundController.waitForWorkspaceRelease();
 #else
   if (startInBackground && backgroundController.interactiveInstanceRunning()) return 0;
@@ -88,8 +84,8 @@ int runInventatory(bool startInBackground, std::filesystem::path& updateMarkerPa
   const int exitCode = app.run();
   if (app.updateInstallerLaunched()) updateMarkerPath = app.updateMarkerPath();
   if (app.workAbandoned() && updateMarkerPath.empty()) {
-    // A network worker outlived the shutdown deadline. Everything is saved and the single-instance
-    // lock is released; destroying the App would only block on that worker, so leave without it.
+    // A network worker outlived the shutdown deadline. Everything is saved, and destroying App would
+    // block on that worker.
     std::cout.flush();
     std::cerr.flush();
     std::_Exit(exitCode);
@@ -117,8 +113,8 @@ int main(int argc, char* argv[]) {
 #ifndef _WIN32
   if (std::setlocale(LC_ALL, "") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
     if (std::setlocale(LC_ALL, "C.UTF-8") == nullptr || std::string(nl_langinfo(CODESET)) != "UTF-8") {
-      // The background service never draws a terminal UI, so a missing UTF-8 locale must not stop it
-      // (a restart loop would silently disable Scan R1 bridging); only the interactive UI needs it.
+      // The background service draws no UI, so a missing UTF-8 locale must not stop it.
+      // A restart loop would silently disable Scan R1 bridging.
       if (!startInBackground) {
         std::cerr << "Inventatory requires a UTF-8 terminal locale. Set LANG to an installed UTF-8 locale and retry.\n";
         return 1;

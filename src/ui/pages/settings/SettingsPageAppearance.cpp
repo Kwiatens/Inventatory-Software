@@ -20,8 +20,7 @@ namespace inventatory {
 using namespace std;
 using namespace settings_page_detail;
 
-// The colour picker grid shown under the colour rows while it is open: twelve hues across, six
-// brightness steps down, the current choice marked with a bracket pair.
+// Colour picker grid under the colour rows: hues across, brightness steps down.
 ftxui::Elements App::renderSettingsAppearancePicker() const {
   auto self = const_cast<App*>(this);
   ftxui::Elements rows;

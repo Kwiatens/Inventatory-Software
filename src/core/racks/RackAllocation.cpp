@@ -43,9 +43,8 @@ bool containsWord(const string& text, const string& word) {
   return false;
 }
 
-// The text that says what kind of part an item is: its category, name, notes and tags, and the parameters that name a
-// type, a function, a package or a mounting. A long list of specifications (interfaces, features, memory sizes) says
-// what a part can do, not what it is, so it is left out: "Interface: CAN, I2C" would make a microcontroller a bus part.
+// Text saying what a part is: category, name, notes, tags and identity parameters. Spec lists
+// are left out, since "Interface: CAN, I2C" would make a microcontroller a bus part.
 string classificationText(const InventoryItem& item) {
   static const vector<string> identityParameters = {
       "mounting type", "package", "package / case", "supplier device package", "size / dimension", "type", "function",
@@ -64,7 +63,7 @@ string classificationText(const InventoryItem& item) {
 }
 
 bool isBulky(const string& text) {
-  // A cylinder with a diameter ("Ø8x10.2mm") is a can, which the rack does not hold, as DigiKey's "Radial, Can" is not.
+  // A diameter mark ("Ø8x10.2mm") means a can, which racks do not hold.
   return containsAny(text, {"module", "development board", "dev board", "dev kit", "breakout", "evaluation board",
                             "esp32", "esp8266", "to-220", "to220", "to-247", "to247", "to-3 ", "to-3,",
                             "to-126", "to126", "to-218", "to218", "to-262", "to262", "to-263", "to263",
@@ -102,8 +101,7 @@ bool isSmdRackEligible(const string& text) {
           hasCompactDiscretePackage(text));
 }
 
-// A category that says nothing about the part yet: a scan placeholder or an import row
-// waiting for DigiKey metadata. These parts stay pending instead of being given up on.
+// Placeholder category (a scan, or an import awaiting metadata): the part stays pending.
 bool hasPlaceholderCategory(const InventoryItem& item) {
   const auto category = toLower(trim(item.category));
   return category.empty() || category == "unsorted" || category == "unknown" ||
@@ -126,7 +124,7 @@ optional<string> componentTypeFor(const InventoryItem& item) {
   if (containsAny(text, {"resistor", "resistors"})) return "Resistors";
   if (containsAny(text, {"capacitor", "capacitors"})) return "Capacitors";
   if (containsAny(text, {"inductor", "inductors", "choke", "coil"})) return "Inductors";
-  // An LED is checked before the diodes: a TME LED is listed as a "Diode Type" of LED.
+  // Checked before diodes: a TME LED is listed with "Diode Type" LED.
   if (containsAny(text, {"indicator", "indicators", "light emitting"}) || containsWord(text, "led") ||
       containsWord(text, "leds")) {
     return "Indicators";
@@ -159,9 +157,8 @@ bool slotOccupied(const InventoryStore& store, const string& rackId, const strin
   });
 }
 
-// Which rack slots are taken, built once per reconcile pass instead of scanning every item for each
-// candidate slot. Slots are keyed by rack id plus normalized slot; `hints` remembers, per rack, the
-// first slot that may still be free so repeated allocations do not rescan a full rack.
+// Slot occupancy, built once per pass and keyed by rack id and normalized slot. `hints` holds, per
+// rack, the first slot that may still be free.
 class SlotIndex {
  public:
   explicit SlotIndex(const InventoryStore& store) {
@@ -213,9 +210,8 @@ bool rackSupportsSlot(const InventatoryRack& rack, const string& slot) {
   }
   const int row = normalized.front() - 'A';
   const int column = normalized.back() - '0';
-  // The supported rack UI exposes a five-by-five address space. Clamp
-  // persisted dimensions to that space so a corrupt/legacy dimension cannot
-  // produce invalid letters or an unbounded allocation loop.
+  // The UI addresses a five-by-five space. Persisted dimensions are clamped to it, so corrupt or
+  // legacy values cannot produce invalid letters or unbounded loops.
   return row < min(rack.rows, 5) && column <= min(rack.columns, 5);
 }
 
@@ -274,9 +270,8 @@ bool reconcileRackAssignmentWithIndex(InventoryStore& store, InventoryItem& item
   auto* currentRack = findRack(store, item.rackId);
   if (!componentType) {
     if (hasPlaceholderCategory(item)) {
-      // Not classifiable yet. Staying Automatic (without a slot) lets the next
-      // reconcile place the part once enrichment supplies a category; the Unassigned
-      // mode is reserved for parts that cannot be racked or that the user opted out.
+      // Not classifiable yet: stay Automatic with no slot, so a later reconcile places it once
+      // enrichment adds a category. Unassigned is for parts that cannot be racked or opted out.
       const bool pending = !item.rackId.empty() || !item.rackSlot.empty();
       slots.remove(item);
       item.rackId.clear();
@@ -324,9 +319,7 @@ bool reconcileRackAssignmentWithIndex(InventoryStore& store, InventoryItem& item
     const int number = rackNumber(rack.code);
     if (number < nextNumber) continue;
     if (number == numeric_limits<int>::max()) {
-      // There is no representable rack code after R2147483647. Leave the
-      // automatic assignment pending rather than wrapping into a duplicate or
-      // negative code.
+      // No rack code follows R2147483647; stay pending rather than wrap into a duplicate.
       return false;
     }
     nextNumber = number + 1;
@@ -353,7 +346,7 @@ bool reconcileRackAssignment(InventoryStore& store, InventoryItem& item) {
 }
 
 bool reconcileRackAssignments(InventoryStore& store) {
-  // One occupancy index serves the whole pass; building it per part made large imports cubic.
+  // One index for the whole pass; a per-part index made large imports cubic.
   SlotIndex slots(store);
   bool changed = false;
   for (auto& item : store.items()) changed = reconcileRackAssignmentWithIndex(store, item, slots) || changed;

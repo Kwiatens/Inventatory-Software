@@ -23,7 +23,7 @@ optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& sugg
       const auto trimmed = trim(suggestion);
       // A part without a usable number gives the user nothing to act on.
       if (trimmed.empty() || trimmed == "-") return string(kBomEnrichmentNoMatch);
-      // A DigiKey part is stored bare, as it was before the other suppliers were asked.
+      // DigiKey parts are stored without a supplier prefix.
       const string stored = fromTme      ? string(kBomEnrichmentTme) + trimmed
                             : fromMouser ? string(kBomEnrichmentMouser) + trimmed
                                          : trimmed;
@@ -46,13 +46,12 @@ bool bomEnrichmentCached(const map<string, string>& enrichment, const string& ke
 
 namespace {
 
-// The stored suggestion without its verification prefix.
 string withoutVerification(const string& stored) {
   const string prefix = kBomEnrichmentVerified;
   return stored.rfind(prefix, 0) == 0 ? stored.substr(prefix.size()) : stored;
 }
 
-// A supplier prefix of a stored suggestion and the vendor it names. A suggestion without one came from DigiKey.
+// Supplier prefix of a stored suggestion and the vendor it names. No prefix means DigiKey.
 struct SupplierPrefix {
   const char* prefix;
   const char* provider;
@@ -62,7 +61,7 @@ constexpr SupplierPrefix kSupplierPrefixes[] = {
     {kBomEnrichmentMouser, kVendorProviderMouser},
 };
 
-// The supplier prefix a suggestion starts with, once its verification prefix is removed; nullptr for none.
+// nullptr when the suggestion has no supplier prefix.
 const SupplierPrefix* supplierPrefixOf(const string& value) {
   for (const auto& entry : kSupplierPrefixes) {
     if (value.rfind(entry.prefix, 0) == 0) return &entry;
@@ -109,8 +108,7 @@ BomShortageExport buildBomShortageCsv(const BomAnalysis& analysis, const map<str
     const string check = part.empty() ? string()
                          : bomEnrichmentVerified(suggestion->second) ? string("verified")
                                                                      : string("check before ordering");
-    // A line waiting for confirmation is on the list, and counts nothing on hand: the stock it names is not yet
-    // the part the user has accepted for this line.
+    // A line awaiting confirmation counts nothing on hand: its stock is not yet the accepted part.
     const int onHand = match.confirmed ? match.available : 0;
     result.text += csvTextCell(line.designation) + ',' + csvTextCell(line.footprint) + ',' +
                    csvTextCell(packageFromFootprint(line.footprint)) + ',' + csvTextCell(join(line.designators, ' ')) +
@@ -280,8 +278,7 @@ bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProje
     return false;
   }
 
-  // The table is small and rewritten wholesale, matching how items and racks
-  // are persisted elsewhere.
+  // Small table, rewritten wholesale like the other stores.
   bool ok = execSql(connection, "DELETE FROM inventatory_bom_projects");
   for (const auto& project : projects) {
     if (!ok) {

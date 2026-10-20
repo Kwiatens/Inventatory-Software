@@ -28,15 +28,14 @@ bool hasEasyEdaHeaders(const vector<string>& headers) {
          findColumn(headers, {"Name"}) >= 0;
 }
 
-// EasyEDA Pro exports use Value or Comment for the value, like KiCad, but carry Supplier Part or Manufacturer Part.
-// Those columns are what tell the two apart, so this is checked before KiCad.
+// EasyEDA Pro: KiCad-style value columns plus Supplier or Manufacturer Part. Checked before KiCad.
 bool hasEasyEdaProHeaders(const vector<string>& headers) {
   return findColumn(headers, {"Designator"}) >= 0 && findColumn(headers, {"Footprint"}) >= 0 &&
          findColumn(headers, {"Name", "Value", "Comment"}) >= 0 &&
          findColumn(headers, {"Supplier Part", "Manufacturer Part"}) >= 0;
 }
 
-// A BOM-shaped header with no usable value column. Reported as a BOM problem rather than a DigiKey one.
+// BOM-shaped header with no usable value column; reported as a BOM problem.
 bool hasBomHeadersWithoutValue(const vector<string>& headers) {
   const bool designator = findColumn(headers, {"Designator", "Designators", "Reference", "References", "Ref",
                                                "Refs"}) >= 0;
@@ -57,15 +56,9 @@ bool hasDigiKeyHeaders(const vector<string>& headers) {
 
 }  // namespace
 
-// An Altium Designer Bill of Materials names its reference column "Designator" and its value column "Comment"
-// (or "Description" in an Altium 365 export). KiCad BOMs can carry those names too, so the two headers alone prove
-// nothing. A file is Altium only when it also has a header that KiCad does not write (LibRef, or Description beside
-// a supplier or manufacturer part column) and none of the headers only KiCad writes. Anything in doubt stays on the
-// KiCad parser, which is what stored projects were always read with.
-//
-// The supplier and manufacturer names below are the aliases AltiumBom.cpp reads, and they are NOT verified against
-// a real Altium export. Keep them in step with AltiumBom.cpp; "Qty" and "Supplier Part" are left out on purpose (see
-// AltiumBom.cpp).
+// Altium BOM headers overlap KiCad's, so a file is Altium only with a header KiCad does not
+// write (LibRef, or Description beside a supplier or manufacturer part). Anything in doubt is KiCad.
+// Keep the aliases in step with AltiumBom.cpp; "Qty" and "Supplier Part" are left out on purpose.
 bool hasAltiumBomHeaders(const vector<string>& headers) {
   if (findColumn(headers, {"Designator"}) < 0 || findColumn(headers, {"Comment", "Description"}) < 0) {
     return false;
@@ -89,8 +82,8 @@ CsvFormat detectCsvFormat(const string& text) {
     return CsvFormat::Unknown;
   }
 
-  // An export with supplier or manufacturer part columns is EasyEDA. Otherwise KiCad is checked next: its
-  // Quantity/Value columns overlap with DigiKey's, but only a BOM carries Designator plus Footprint.
+  // KiCad is checked after EasyEDA: its Value and Quantity columns overlap DigiKey's, but only
+  // a BOM has Designator plus Footprint.
   if (hasEasyEdaProHeaders(rows.front())) {
     return CsvFormat::EasyEdaBom;
   }
@@ -100,7 +93,7 @@ CsvFormat detectCsvFormat(const string& text) {
   if (hasEasyEdaHeaders(rows.front())) {
     return CsvFormat::EasyEdaBom;
   }
-  // An Altium 365 export has no Footprint column, so none of the checks above matches it.
+  // Altium 365 exports have no Footprint column, so the checks above miss them.
   if (hasAltiumBomHeaders(rows.front())) {
     return CsvFormat::KicadBom;
   }

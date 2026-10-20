@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Shared terminal UI formatting and inventory detail helpers.
 
 #pragma once
@@ -38,10 +37,8 @@ struct DetailField {
   ftxui::Color valueColor;
 };
 
-// Neutral graphite / petrol-cyan semantic palette used throughout the terminal UI.
-// The active palette is process-local because Inventatory has one interactive
-// application instance; settings pages can stage a replacement without making
-// every render function carry a palette parameter.
+// Semantic palette. It is process-local, so settings pages can stage a replacement
+// without every render function taking a palette parameter.
 void applyUiAppearance(const AppearanceSettings& appearance);
 const AppearanceSettings& activeUiAppearance();
 ftxui::Color uiAppearanceColor(AppearanceColorRole role);
@@ -79,8 +76,7 @@ ftxui::Color uiRowSelectedBg();
 
 ftxui::Element styledText(const string& text, optional<ftxui::Color> fg = nullopt,
                           optional<ftxui::Color> bg = nullopt);
-// Semantic text helpers keep the application-wide hierarchy explicit: section
-// labels and headings are bold, while ordinary content remains normal weight.
+// Headers and section labels are bold; body text is normal weight.
 ftxui::Element uiHeaderText(const string& text, optional<ftxui::Color> fg = nullopt,
                             optional<ftxui::Color> bg = nullopt);
 ftxui::Element uiBodyText(const string& text, optional<ftxui::Color> fg = nullopt,
@@ -97,52 +93,38 @@ ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::
 ftxui::Element footerField(const string& title, const string& body, ftxui::Color titleColor, ftxui::Color bodyColor,
                            ftxui::Color background, bool flashing = false);
 
-// Button roles. uiSecondaryButton is the ordinary raised text control used for
-// operational actions; uiPrimaryButton is the filled cyan control that
-// marks the one action a panel exists for, so it reads as a control rather
-// than as another line of text.
+// uiPrimaryButton is the filled cyan control for a panel's one main action;
+// uiSecondaryButton is the ordinary raised control for other actions.
 ftxui::Element uiPrimaryButton(const string& label, bool enabled = true);
 ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg = nullopt, bool enabled = true);
 
-// Page skeleton (docs/ui-style-guide.md). A button is ` Label ` on the raised surface with its key in
-// muted text; the primary button uses the active surface, a destructive one only changes its text
-// colour. Groups of buttons are separated by one cell.
+// Look per docs/ui-style-guide.md. A danger button changes only its text colour.
 enum class UiButtonKind { Normal, Primary, Danger };
 ftxui::Element uiButton(const string& label, const string& key = {}, UiButtonKind kind = UiButtonKind::Normal);
 
-// One plain-sentence voice line. Strong spans are bold primary text, slots are bold focus text, and
-// status tones use their status colour.
-// `maxWidth` > 0 cuts the sentence at that many cells, ending in "...", because a terminal row that
-// overflows would otherwise squeeze every word.
+// One plain-sentence voice line. `maxWidth` > 0 cuts it at that many cells with an
+// ellipsis, since an overflowing row would squeeze every word.
 ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg = nullopt, int maxWidth = 0);
 
-// The shared two-line page header: the title (bold) with `right` (pending state and the page's
-// button group) at the right end, the voice or context line under it, then one blank row. The
-// whole header sits on the workspace surface with a one-cell gutter.
+// Two-line page header. `right` holds the pending state and the page's buttons.
 ftxui::Element uiPageHeader(ftxui::Element title, ftxui::Element sub, ftxui::Element right = nullptr);
 
-// Milliseconds since the app started. The 100 ms redraw ticker means render
-// code can derive sub-second animation phase from this without its own timer;
-// time(nullptr) is too coarse to pulse against.
+// Milliseconds since start, for sub-second animation. time(nullptr) is too coarse.
 long long uiAnimationTicks();
 bool uiBlinkOn(int periodMs = 900);
 
 bool uiBoxContains(const ftxui::Box& box, int x, int y);
 
 string displayCategory(const string& category);
-// Terminal display width of UTF-8 text in cells (double-width glyphs count 2,
-// combining marks 0). Use this, never size(), for anything laid out in columns.
+// Display width in cells (wide glyphs 2, combining marks 0). Use this, not size(), for columns.
 size_t displayWidth(const string& value);
 // Longest prefix of `value` that fits in `cells` columns, cut on a glyph boundary.
 string takeCells(const string& value, size_t cells);
-// Both helpers measure and cut in cells, so multi-byte text is never split
-// inside a UTF-8 sequence. `maxLength` / `width` are columns.
+// Cuts on glyph boundaries, never inside a UTF-8 sequence. `maxLength` is in cells.
 string ellipsize(const string& value, size_t maxLength);
 
-// A distributor-style part name ("CAP CER 0.1UF 16V X7R 0603") split for emphasis: the leading words name the kind
-// of part, the first electrical value is the thing to scan for, and the rest is specification. The three pieces
-// always concatenate (with single spaces) back to the original words, so nothing is invented or dropped. A name
-// with no recognizable value ("STM32F103C8T6") keeps the whole name in `value`.
+// Splits a part name ("CAP CER 0.1UF 16V X7R 0603") into type, first value and spec.
+// The pieces rejoin to the original words; a name with no value keeps all in `value`.
 struct PartNameParts {
   string type;
   string value;
@@ -150,11 +132,10 @@ struct PartNameParts {
 };
 PartNameParts splitPartName(const string& name);
 
-// Quantity color shared by lists, rack cells, and detail: danger when out, warning when low, otherwise primary.
+// Danger when out, warning when low, otherwise primary.
 ftxui::Color uiQuantityColor(const InventoryItem& item, int lowStockThreshold);
 
-// Renders a split part name as dim type, bold value, dim spec. `maxWidth` > 0 truncates the end with an ellipsis
-// while keeping the value visible for as long as possible.
+// Dim type, bold value, dim spec. `maxWidth` > 0 truncates the end, keeping the value visible.
 ftxui::Element uiPartName(const string& name, int maxWidth = 0, bool selected = false);
 // Word-wraps on spaces; a word wider than the line is split on glyph boundaries.
 vector<string> wrapText(const string& text, int width);

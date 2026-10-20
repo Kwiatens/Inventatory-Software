@@ -26,7 +26,6 @@ using namespace settings_page_detail;
 
 namespace {
 
-// "~/Documents/Inventatory" rather than the full home path.
 string homeRelative(const filesystem::path& path) {
   auto text = path.u8string();
   const char* home = getenv("HOME");
@@ -39,7 +38,6 @@ string homeRelative(const filesystem::path& path) {
   return text;
 }
 
-// Paths keep both ends: "~/Documents/.../settings.conf".
 string middleEllipsize(const string& text, size_t width) {
   if (text.size() <= width || width < 8) return ellipsize(text, width);
   const size_t tail = (width - 3) / 2;
@@ -63,7 +61,7 @@ ftxui::Color toneColor(VoiceTone tone) {
 string onOff(bool value) { return value ? "On" : "Off"; }
 
 string queueStatusWord(const string& statusText) {
-  // CUPS reports "idle.  enabled since ..."; the first clause is the state.
+  // CUPS status reads "idle.  enabled since ..."; only the first clause is the state.
   auto word = statusText.substr(0, statusText.find('.'));
   return trim(word);
 }
@@ -120,7 +118,6 @@ App::SettingsPageModel App::settingsPageModel() const {
     result.enabled = enabled;
     return result;
   };
-  // A staged change shows the new value in the warning colour and the saved one beside it.
   const auto markChange = [](SettingsRow& row, bool changed, const string& was) {
     if (!changed) return;
     row.tone = VoiceTone::Warning;
@@ -623,7 +620,7 @@ App::SettingsPageModel App::settingsPageModel() const {
     }
 
     case SettingsCategory::Mouser: {
-      // A key from MOUSER_API_KEY counts as set: lookups and refresh use it when it is there.
+      // A MOUSER_API_KEY environment key also counts as set.
       const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty()
                                                    : (hasStoredMouserKey_ || mouserKeyFromEnvironment_);
       const bool refreshRunning = !mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid();
@@ -645,7 +642,7 @@ App::SettingsPageModel App::settingsPageModel() const {
         row.tone = VoiceTone::Warning;
         row.note = "changed";
       }
-      // Disabled while a refresh runs, as the key test action is then not offered from the keyboard either.
+      // Disabled during a refresh, and not offered from the keyboard then either.
       row.buttons = {button("Test", "t", "settings.mouser.test", [self] { self->testStagedMouser(); }, false, false,
                             !refreshRunning)};
       rows.push_back(move(row));
@@ -683,7 +680,7 @@ ftxui::Element App::renderSettingsUi() const {
   const auto surface = uiSurfaceBg();
   const auto canvas = uiCanvasBg();
 
-  // ---- navigation: the selected item shares the content surface, like a tab joined to its page ----
+  // The selected item shares the content surface, like a tab joined to its page.
   const bool updateAvailable = isVersionNewer(settings_.latestAvailableVersion, softwareVersion());
   const bool scanSetUp = inventatoryScanConfig_.setupComplete || !inventatoryScanConfig_.deviceId.empty();
   size_t failedScans = 0;
@@ -741,10 +738,8 @@ ftxui::Element App::renderSettingsUi() const {
                          [self, category] { self->selectSettingsCategory(category); }));
   }
 
-  // ---- content ----
   const auto model = settingsPageModel();
-  // The action column is as wide as the widest button group on the page, so every row's first
-  // button starts at the same column.
+  // Size the action column to the widest button group so the buttons align.
   int actionWidth = 0;
   for (const auto& row : model.rows) {
     if (row.buttonsOnly) continue;
@@ -755,8 +750,7 @@ ftxui::Element App::renderSettingsUi() const {
     }
     actionWidth = max(actionWidth, width);
   }
-  // Columns are sized from this page's own content: the longest group and label set their columns,
-  // the widest button group sets the action column, and the value takes the rest.
+  // Columns size to this page's content; the value column takes the rest.
   int longestGroup = 0;
   int longestLabel = 0;
   for (const auto& row : model.rows) {
@@ -764,7 +758,7 @@ ftxui::Element App::renderSettingsUi() const {
     longestLabel = max(longestLabel, static_cast<int>(row.label.size()));
   }
   const int markerWidth = 2;
-  // On narrow terminals the group names move from the gutter to their own line above the group.
+  // Narrow terminals put group names on their own line above the group.
   const bool groupsInGutter = contentWidth >= 90;
   const int groupWidth = groupsInGutter ? clamp(longestGroup + 3, 10, 15) : 0;
   int labelWidth = clamp(longestLabel + 3, 14, 30);
@@ -796,7 +790,7 @@ ftxui::Element App::renderSettingsUi() const {
     const auto bg = focused ? uiSelectionBg() : surface;
 
     if (row.buttonsOnly) {
-      // Only the marker and the buttons, starting at the front of the body.
+      // Buttons-only row: no label or value.
       auto marker = styledText(focused ? ">" : " ", uiFocusColor()) | ftxui::bold |
                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, markerWidth);
       if (row.focusable() && !row.targetId.empty()) {
@@ -828,7 +822,7 @@ ftxui::Element App::renderSettingsUi() const {
       valueParts.push_back(ftxui::text(" "));
       used += 3;
     }
-    // Paths keep both ends; everything else is cut at the end.
+    // Paths keep their file name; other values are cut at the end.
     const auto valueRoom = static_cast<size_t>(max(4, valueWidth - used - 1));
     const auto valueText = row.value.find('/') != string::npos ? middleEllipsize(row.value, valueRoom)
                                                                : ellipsize(row.value, valueRoom);

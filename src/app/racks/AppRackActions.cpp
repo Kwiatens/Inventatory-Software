@@ -24,9 +24,8 @@ using namespace std;
 using namespace app_actions;
 
 void App::changePage(Page page) {
-  // The unsaved-settings / unsaved-data prompt is modal. Leaving through a header click would
-  // skip it and strand the staged draft, so it must be answered (S / D / Esc or its buttons)
-  // first. completeSettingsExit() closes the prompt before it navigates.
+  // The unsaved-changes prompt is modal and must be answered first, or the draft is stranded.
+  // completeSettingsExit() closes it before navigating.
   if (inputMode_ == InputMode::ExitConfirmation) {
     setMessage("Answer the unsaved-changes prompt first: Save, Discard, or Stay", 4, UiMessageSeverity::Warning);
     return;
@@ -66,8 +65,7 @@ void App::changePage(Page page) {
     movingRackSource_.clear();
   }
   if (page != Page::Projects) {
-    // Leaving the page abandons an in-progress walkthrough rather than letting
-    // a half-finished pick resume out of context later.
+    // Leaving the page abandons an unfinished BOM walkthrough.
     bomDeductPrompt_ = false;
     if (bomView_ == BomView::Build) {
       bomView_ = BomView::Split;
@@ -79,8 +77,7 @@ void App::changePage(Page page) {
   dirty_ = true;
 }
 
-// Drops the transient state of a page that is being left, on every exit path (Esc, a header
-// click, a number key): wizard secrets, Bluetooth discovery and half-edited settings fields.
+// Clears transient state (wizard secrets, Bluetooth discovery, half-edited fields) on every exit.
 void App::releasePageState(Page leaving) {
   switch (leaving) {
     case Page::ScanSetup:
@@ -247,7 +244,7 @@ void App::changeSelectedRackType(const string& value) {
   }
   captureUndoSnapshot();
   const auto previous = rack->componentType;
-  // saveState() may reconcile parts and add racks, which invalidates `rack`; keep what is still needed.
+  // saveState() can add racks and invalidate `rack`, so copy what is still needed.
   const auto code = rack->code;
   rack->componentType = type;
   logActivity("rack", code + " type " + previous + " -> " + type);
@@ -262,7 +259,7 @@ void App::createRackWithType(const string& value) {
     setMessage("Rack type cannot be empty", 3);
     return;
   }
-  // A rack renamed to R2147483647 leaves no representable next code.
+  // A rack can be numbered INT_MAX, leaving no next code.
   long long nextNumber = 1;
   for (const auto& rack : store_.racks()) {
     nextNumber = max(nextNumber, static_cast<long long>(rackNumberFromCode(rack.code)) + 1);
@@ -432,14 +429,14 @@ void App::openSelectedRackItemDetail() {
     return;
   }
 
-  // Reset the stock query, sort and date filter so the detail panel can always show the part.
+  // Reset the stock filters if needed so the part shows in the detail panel.
   if (!selectStockItemById(item->id)) {
     setMessage("Selected part is no longer available", 2);
     return;
   }
   inputMode_ = InputMode::None;
   focusedTargetId_.clear();
-  // Leaving Racks drops a half-finished move and pending confirmations, as changePage does.
+  // As changePage does, drop a half-finished move and pending confirmations.
   movingRackItemId_.clear();
   movingRackSource_.clear();
   cancelDeleteConfirmation();

@@ -48,7 +48,7 @@ bool privateIpv4(uint32_t hostOrder) {
          (first == 192U && second == 168U) || (first == 169U && second == 254U);
 }
 
-// UTF-8 to UTF-16. An empty result for a non-empty input means the text was not valid UTF-8.
+// UTF-8 to UTF-16. Empty output for non-empty input means invalid UTF-8.
 wstring widenUtf8(const string& value) {
   if (value.empty()) return {};
   const int count = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
@@ -60,8 +60,7 @@ wstring widenUtf8(const string& value) {
   return result;
 }
 
-// Dialogs such as SHBrowseForFolder need COM on the calling thread. A thread that already runs in a
-// different apartment keeps working (CoInitializeEx then fails and nothing is uninitialized).
+// SHBrowseForFolder needs COM. If the thread already has an apartment, nothing is uninitialized.
 struct ComApartment {
   ComApartment() : result(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)), shouldUninitialize(SUCCEEDED(result)) {}
   ~ComApartment() {
@@ -74,7 +73,6 @@ struct ComApartment {
   bool shouldUninitialize;
 };
 
-// Places a DWORD on the open clipboard under a registered format name.
 bool setClipboardDword(const wchar_t* formatName, DWORD value) {
   const UINT format = RegisterClipboardFormatW(formatName);
   if (format == 0) return false;
@@ -125,7 +123,7 @@ bool openUrl(const string& url) {
 }
 
 bool copyToClipboard(const string& text) {
-  // The text is UTF-16 (CF_UNICODETEXT) so non-ASCII text is not mangled by the ANSI code page.
+  // UTF-16 (CF_UNICODETEXT) keeps non-ASCII text intact.
   const wstring wideText = widenUtf8(text);
   if (wideText.empty() && !text.empty()) {
     return false;
@@ -165,8 +163,7 @@ bool copyToClipboard(const string& text) {
     return false;
   }
 
-  // Best effort: the copied text can be a pairing secret, so keep it out of Windows clipboard
-  // history and cloud clipboard sync. A failure here does not fail the copy itself.
+  // Best effort: the text can be a pairing secret, so keep it out of clipboard history and cloud sync.
   setClipboardDword(L"ExcludeClipboardContentFromMonitorProcessing", 1U);
   setClipboardDword(L"CanIncludeInClipboardHistory", 0U);
   setClipboardDword(L"CanUploadToCloudClipboard", 0U);
@@ -202,8 +199,7 @@ bool saveFileDialog(filesystem::path& selectedPath, const string& title, const s
   if (!initialPath.empty() && initialPath.size() < fileName.size()) {
     copy(initialPath.begin(), initialPath.end(), fileName.begin());
   }
-  // The filter is a double-NUL-terminated list; the caller's string already ends with one NUL and
-  // wstring::c_str() supplies the second.
+  // The filter needs double NUL termination: the caller's string supplies one, c_str() the other.
   const wstring wideFilter = widenUtf8(filter);
   const wstring wideTitle = widenUtf8(title);
   const wstring wideExtension = widenUtf8(defaultExtension);

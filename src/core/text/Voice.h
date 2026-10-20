@@ -2,11 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Plain-sentence header lines ("Rack 1: take 26 pieces from 7 slots").
-//
-// A voice line is built from fixed templates filled with live data, so the same state always reads
-// the same way and every template can be tested as plain text. The tone of each span is semantic;
-// the UI maps it to weight and colour.
+// Plain-sentence header lines ("Rack 1: take 26 pieces from 7 slots") built from fixed templates,
+// so a state always reads the same. Span tone is semantic; the UI maps it to weight and colour.
 
 #pragma once
 
@@ -38,7 +35,7 @@ inline std::string voiceText(const VoiceLine& line) {
   return text;
 }
 
-// "1 part" / "26 parts".
+// Pluralises by count: "1 part", "26 parts".
 inline std::string voiceCount(int count, const std::string& singular, const std::string& plural) {
   return std::to_string(count) + " " + (count == 1 ? singular : plural);
 }

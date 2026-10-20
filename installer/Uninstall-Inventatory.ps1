@@ -18,8 +18,7 @@ function Get-InventatoryProcesses {
   $currentSession = (Get-Process -Id $PID).SessionId
   foreach ($candidate in $candidates) {
     if ([string]::IsNullOrWhiteSpace($candidate.ExecutablePath)) {
-      # Another user's process cannot be inspected without elevation; it runs in its own session, so
-      # it cannot be the copy that this script replaces.
+      # Another session's process cannot be inspected without elevation, so it is not this copy.
       if ([int]$candidate.SessionId -ne [int]$currentSession) { continue }
       throw "Unable to verify the executable path for Inventatory process $($candidate.ProcessId). Close Inventatory and run the uninstaller again."
     }
@@ -60,9 +59,8 @@ function Remove-InventatoryInstallLeftovers {
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# Credential Manager holds the DigiKey secret, the TME token and secret and the Scan R1 pairing token under 'Inventatory/<name>'
-# targets. They belong to the data that the user chose to delete, so they are removed with it.
-# Anything that could not be deleted is collected here and listed at the end instead of being reported as removed.
+# Secrets live under 'Inventatory/<name>' in Credential Manager and go with the user data.
+# Failures are listed at the end rather than reported as removed.
 $script:leftBehind = New-Object System.Collections.Generic.List[string]
 
 function Remove-InventatoryStoredSecrets {
@@ -87,9 +85,7 @@ function Remove-InventatoryUserFolder([string]$path) {
 
 Assert-InventatoryProcessesStopped
 Remove-InventatoryStartupRegistration
-# Removing the startup entry can race with Windows launching the background
-# process. Re-check before deleting the installation so a running process never
-# loses its files or an in-progress database write.
+# Removing the startup entry can race with a launch; re-check before deleting files.
 Assert-InventatoryProcessesStopped
 if (Test-Path -LiteralPath $installRoot) {
   Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction Stop
@@ -99,7 +95,7 @@ Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Desktop')) 'I
 Remove-Item -LiteralPath $bootstrapDownloadRoot -Recurse -Force -ErrorAction SilentlyContinue
 Remove-InventatoryInstallLeftovers
 if ((Read-Host 'Also delete Documents\Inventatory and local settings? [y/N]') -match '^[Yy]') {
-  # MyDocuments follows a redirected Documents folder (for example OneDrive known-folder backup).
+  # MyDocuments follows a redirected Documents folder (e.g. OneDrive backup).
   Remove-InventatoryUserFolder (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Inventatory')
   Remove-InventatoryUserFolder (Join-Path $env:LOCALAPPDATA 'Inventatory')
   Remove-InventatoryStoredSecrets

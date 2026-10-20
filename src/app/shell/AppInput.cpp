@@ -40,9 +40,8 @@ void App::handleKey(const KeyEvent& key) {
   }
   // Below the supported size only the resize notice is drawn; keys must not act on the hidden page.
   if (workspaceBlockedByTerminalSize()) return;
-  // A Tab-set focus only survives Tab, Shift+Tab and Enter. Any other key (arrows,
-  // j/k, shortcuts, typing) or an open prompt drops it, so Enter cannot re-run a
-  // control the user is no longer looking at.
+  // Only Tab, Shift+Tab and Enter keep a Tab-set focus. Other keys or an open prompt clear it,
+  // so Enter cannot re-run a control the user is no longer looking at.
   const bool focusKey = key.type == KeyType::Tab || key.type == KeyType::TabReverse || key.type == KeyType::Enter;
   if ((!focusKey || inputMode_ != InputMode::None) && !focusedTargetId_.empty()) {
     focusedTargetId_.clear();
@@ -104,16 +103,13 @@ void App::handleKey(const KeyEvent& key) {
       break;
   }
 
-  // Settings fields use their own staged editor rather than a shared
-  // InputMode. While it is active, all characters (including 1-5) and Enter
-  // belong to the field and must not trigger global navigation or focus.
+  // The staged settings editor owns all keys, including 1-5 and Enter, so they do not navigate.
   if (page_ == Page::Settings && (settingsEditingField_ || appearancePickerOpen_)) {
     handleSettingsKey(key);
     return;
   }
 
-  // The setup wizard owns every key while open: its Wi-Fi password and the
-  // six-digit verification code must never be interpreted as global shortcuts.
+  // The setup wizard owns every key, so a Wi-Fi password or code is never read as a shortcut.
   if (page_ == Page::ScanSetup) {
     handleInventatoryScanSetupKey(key);
     return;
@@ -138,8 +134,7 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
-  // Delete confirmation is modal. Route Enter/Escape to the confirmation
-  // handler before the normal focus system can activate an underlying target.
+  // Modal: route Enter and Escape here before focus can activate a target underneath.
   if (page_ == Page::Stock && deleteConfirmationActive()) {
     handleStockKey(key);
     return;
@@ -169,8 +164,7 @@ void App::handleKey(const KeyEvent& key) {
     }
   }
 
-  // Open the action sheet, or run a contextual action by its accelerator.
-  // Registry actions win over per-page handlers, keeping one source of truth.
+  // Registry actions run before per-page handlers, so there is one source of truth.
   if (key.type == KeyType::Character && key.ch == ' ') {
     openActionSheet();
     return;
@@ -228,15 +222,12 @@ ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
   const bool focused = enabled && focusable && !focusedTargetId_.empty() && id == focusedTargetId_;
 
   if (!enabled) {
-    // Disabled controls remain visible, but never inherit a hover/focus role
-    // from a stale target index or pointer location.
+    // Disabled controls stay visible but never take a hover or focus role from a stale index.
     element = element | ftxui::color(uiMutedText());
   } else {
     switch (kind) {
       case UiTargetKind::Button:
-        // Button helpers already own their raised/filled surfaces. Preserve a
-        // filled primary button's cyan identity while making both button
-        // roles readable under hover and keyboard focus.
+        // Button helpers own their surfaces, so only the text colour changes under hover or focus.
         if (hovered || focused) element = element | ftxui::color(uiFocusColor());
         if (focused) element = element | ftxui::bold;
         break;
@@ -270,8 +261,7 @@ ftxui::Element App::target(ftxui::Element element, string id, UiTargetKind kind,
 
 ftxui::Box& App::reserveSurfaceTarget(string id) const {
   // The activate callback is a no-op so a click is consumed without action.
-  // uiTargets_ is a deque, so the returned reference stays valid as later
-  // targets are appended.
+  // uiTargets_ is a deque, so this reference stays valid as targets are appended.
   uiTargets_.push_back(UiTarget{move(id), UiTargetKind::Surface, {}, true, false, [] {}});
   return uiTargets_.back().bounds;
 }
@@ -299,14 +289,13 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
     const int delta = mouse.button == ftxui::Mouse::WheelUp ? -1 : 1;
     focusedTargetId_.clear();
     if (inputMode_ == InputMode::ActionSheet) {
-      // The open sheet is the topmost surface: the wheel scrolls it, not the page behind it.
+      // The open sheet is topmost, so the wheel scrolls it, not the page behind.
       const int count = static_cast<int>(sheetActions_.size());
       sheetIndex_ = max(0, min(count - 1, sheetIndex_ + delta));
       dirty_ = true;
     }
     else if (page_ == Page::Stock) {
-      // The Sort / Filter panel is drawn over the list. A wheel over it scrolls
-      // nothing, so the stock selection behind the panel does not move.
+      // A wheel over the Sort / Filter panel must not move the stock selection behind it.
       const auto filterPanel = find_if(uiTargets_.begin(), uiTargets_.end(),
                                        [](const UiTarget& target) { return target.id == "stock.filter.panel"; });
       const bool overFilterPanel = filterPanel != uiTargets_.end() && contains(*filterPanel);
@@ -349,15 +338,13 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
     for (size_t reverse = uiTargets_.size(); reverse > 0; --reverse) {
       auto& hit = uiTargets_[reverse - 1];
       if (hit.enabled && contains(hit)) {
-        // While the action sheet is open only the sheet and its header control
-        // take clicks; a click on the page behind it just closes the sheet.
+        // With the sheet open, only the sheet and its header control take clicks; others close it.
         if (sheetOpen && hit.id != "header.actions" && hit.id.rfind("action.", 0) != 0) {
           inputMode_ = InputMode::None;
           dirty_ = true;
           return true;
         }
-        // A click selects/activates what is under the pointer without taking
-        // keyboard focus, so a later Enter still reaches the page's own action.
+        // A click activates without taking keyboard focus, so a later Enter still reaches the page.
         focusedTargetId_.clear();
         hit.activate();
         dirty_ = true;

@@ -42,7 +42,7 @@ string diameterToken(const vector<string>& tokens) {
   for (const auto& token : tokens) {
     if (token.size() > 2 && (token[0] == 'D' || token[0] == 'd') &&
         toLower(token).substr(token.size() - 2) == "mm") {
-      return token.substr(1, token.size() - 3);  // drop the leading D and trailing mm
+      return token.substr(1, token.size() - 3);
     }
   }
   return {};
@@ -84,13 +84,7 @@ string pinCountToken(const vector<string>& tokens) {
   return {};
 }
 
-// Splits a multiplier letter off the numeric body, honouring RKM notation where
-// the letter also stands in for the decimal point ("4R7", "1u5").
-//
-// A bare designation with no unit ("M3", "4u7", "U1") is not an electrical
-// value, so without a unit only the resistor markers R, K, M and G are read and
-// every marker except R needs digits in front of it. Under an explicit unit the
-// full SI prefix set applies.
+// Splits a multiplier letter off the number, which may stand for the decimal point ("4R7", "1u5").
 optional<double> parseNumberWithMultiplier(const string& body, NumberNotation notation) {
   if (body.empty()) {
     return nullopt;
@@ -116,8 +110,8 @@ optional<double> parseNumberWithMultiplier(const string& body, NumberNotation no
     const auto head = body.substr(0, alpha);
     const auto tail = body.substr(alpha + 1);
 
-    // Only a leading R is a decimal point on its own (R280 is 0.28 ohm); any
-    // other marker with nothing in front of it is a designator such as M3.
+    // Only a leading R is a decimal point on its own (R280 is 0.28 ohm); other
+    // markers need digits in front, so "M3" is a designator.
     if (head.empty() && letter != 'r') {
       return nullopt;
     }
@@ -133,8 +127,7 @@ optional<double> parseNumberWithMultiplier(const string& body, NumberNotation no
         multiplier = 1e-6;
         break;
       case 'm':
-        // Without a unit a lowercase m in a resistor value is read as mega, as before. Under an explicit ohm
-        // unit it is milli ("10mOhm" is a current-sense resistor); only an uppercase M is mega there.
+        // Unitless m means mega; with an explicit unit it is milli ("10mOhm" is a shunt).
         multiplier = notation == NumberNotation::Unitless ? 1e6 : 1e-3;
         break;
       case 'k':
@@ -149,12 +142,11 @@ optional<double> parseNumberWithMultiplier(const string& body, NumberNotation no
       default:
         return nullopt;
     }
-    // Without a unit the value is a resistor, and p/n/u are capacitor or
-    // inductor markers ("4u7"), so they never read as ohms.
+    // Unitless p, n and u are capacitor or inductor markers ("4u7"), never ohms.
     if (notation == NumberNotation::Unitless && (letter == 'p' || letter == 'n' || letter == 'u')) {
       return nullopt;
     }
-    // An uppercase M is always mega, whatever the unit.
+    // An uppercase M is mega whatever the unit.
     if (body[alpha] == 'M') {
       multiplier = 1e6;
     }
@@ -197,11 +189,9 @@ bool isStandaloneUnitWord(const string& word) {
   return kUnitWords.count(toLower(word)) != 0;
 }
 
-// The item-side value for a kind, taken from DigiKey parameters when present
-// and otherwise recovered from the description text.
+// Item value of a kind: from DigiKey parameters, else from the description text.
 optional<double> itemValueFor(const InventoryItem& item, ValueKind kind) {
-  // The initializer lists stay inline: binding one to a named variable would
-  // leave the backing array dangling past the full expression.
+  // Keep the initializer lists inline: a named variable would dangle the backing array.
   optional<string> text;
   switch (kind) {
     case ValueKind::Capacitance:
@@ -227,13 +217,9 @@ optional<double> itemValueFor(const InventoryItem& item, ValueKind kind) {
     }
   }
 
-  // DigiKey descriptions such as "CAP CER 1UF 25V X7R 0603" carry the value in
-  // free text, which covers items that were never enriched. A number needs an explicit unit or RKM marker: bare numbers in a name are
-  // package codes ("0603") or pin counts ("10 POS"), never component values. A
-  // unit written as its own word ("604 OHM", "100 nF") still belongs to the
-  // number in front of it.
-  // Cap the text used for free-text value recovery to the first 512 bytes of
-  // partName and 512 bytes of notes; this only affects absurdly long descriptions.
+  // Recover the value from free text such as "CAP CER 1UF 25V X7R 0603". A bare number is a package
+  // code or pin count, so it counts only with a unit, including a unit word after it ("604 OHM").
+  // Scan at most 512 bytes of each text, which bounds the work on oversized descriptions.
   constexpr size_t kMaxFreeTextBytes = 512;
   const auto partNameCap = item.partName.substr(0, min(item.partName.size(), kMaxFreeTextBytes));
   const auto notesCap = item.notes.substr(0, min(item.notes.size(), kMaxFreeTextBytes));
@@ -346,8 +332,7 @@ bool isDigiKeySupplier(const BomLine& line) {
 
 CandidateScore scoreItem(const InventoryItem& item, const BomLine& line, const string& bomPackage,
                          optional<double> bomValue, ValueKind bomKind, const ItemValueCache& cache) {
-  // Identifier matches decide on their own, each against the field it names. A DigiKey number never matches an
-  // LCSC row, and a manufacturer part number is never read as a value.
+  // Identifier matches decide alone, each against its named field. A part number is never a value.
   if (samePartNumber(line.designation, item.sku) || samePartNumber(line.designation, item.digikeyPartNumber)) {
     return {100, true};
   }
@@ -361,8 +346,8 @@ CandidateScore scoreItem(const InventoryItem& item, const BomLine& line, const s
     return {100, true};
   }
   if (!line.supplierPartNumber.empty() && !isDigiKeySupplier(line)) {
-    // A TME symbol or a Mouser part number counts wherever the item keeps it: its selected source or a record of that
-    // vendor beside another source.
+    // A TME symbol or Mouser number counts as the item's source or as a vendor record
+    // kept beside another source.
     const bool tmeLine = compactKey(line.supplier) == "tme";
     const bool mouserLine = compactKey(line.supplier) == "mouser";
     if (samePartNumber(line.supplierPartNumber, item.sku) ||

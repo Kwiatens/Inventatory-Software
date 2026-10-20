@@ -22,14 +22,11 @@ std::optional<PhysicalValueComparison> bestPhysicalComparison(
     const std::optional<PhysicalValueComparison>& current,
     const std::optional<PhysicalValueComparison>& candidate);
 
-// Compares a physical-value query against value-like words in the part name
-// (for example "0.1uF Capacitor"), so items that only carry the value in their
-// name still match equivalent spellings such as "100nF".
+// Compares value-like words in the part name, so "0.1uF Capacitor" matches "100nF".
 std::optional<PhysicalValueComparison> partNamePhysicalComparison(const InventoryItem& item,
                                                                   const std::string& target);
 
-// Best comparison of an item against a physical value. Only value-typed parameters and name words
-// count, and an item whose category or name declares a different component family never matches.
+// Only value parameters and name words count, and a different component family never matches.
 // Comparisons outside the match bands are dropped unless allowOutsideBands is set.
 std::optional<PhysicalValueComparison> itemPhysicalComparison(const InventoryItem& item,
                                                               const std::string& target,

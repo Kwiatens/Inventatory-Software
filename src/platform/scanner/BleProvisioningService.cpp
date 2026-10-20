@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory Scan R1 BLE discovery and encrypted first-use provisioning.
-
 #include "platform/scanner/BleProvisioningService.h"
 
 #include <algorithm>
@@ -74,9 +72,7 @@ BleProvisioningService::BleProvisioningService() = default;
 BleProvisioningService::~BleProvisioningService() { stopDiscovery(); }
 
 void BleProvisioningService::startDiscovery() {
-  // A watcher can finish on its own after a Windows BLE error. Reap that
-  // finished worker before starting a new one; assigning over a joinable
-  // std::thread terminates the process.
+  // Reap a worker that ended on its own; assigning over a joinable std::thread terminates.
   stopDiscovery();
   lock_guard<mutex> lock(mutex_);
   devices_.clear();
@@ -182,10 +178,7 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
         if (args.PairingKind() == DevicePairingKinds::ProvidePin) {
           args.Accept(winrt::to_hstring(pin));
         }
-        // ConfirmOnly is deliberately not auto-accepted.  Windows must show
-        // its physical/user confirmation prompt, or pairing fails closed if
-        // that prompt cannot be presented.  Accepting here would allow a
-        // nearby device to be paired without the user confirming its identity.
+        // ConfirmOnly is not auto-accepted: Windows must show its confirmation prompt.
       });
       const auto kinds = static_cast<DevicePairingKinds>(static_cast<unsigned>(DevicePairingKinds::ProvidePin) |
                                                          static_cast<unsigned>(DevicePairingKinds::ConfirmOnly));
@@ -199,10 +192,8 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
       return BleProvisioningOutcome::Failed;
     }
 
-    // Pairing can replace the cached GATT object, and Windows may retain a
-    // stale object even when the device was already paired. Always reopen it
-    // before service discovery, then retry briefly while the authenticated
-    // connection settles.
+    // Reopen the device after pairing; Windows may keep a stale GATT object.
+    // Discovery retries briefly.
     device = BluetoothLEDevice::FromBluetoothAddressAsync(request.address).get();
     if (!device) {
       publicError = "Windows could not reopen the paired scanner";
@@ -231,10 +222,7 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
     };
     auto services = discoverServices();
     if (!services && info.Pairing().IsPaired()) {
-      // A full firmware erase removes the ESP32 bond, but it does not remove
-      // the old Windows bond. Re-pair once when the authenticated GATT
-      // service cannot be discovered; otherwise every reflashed device stays
-      // permanently unavailable to the setup wizard.
+      // A firmware erase drops the scanner's bond but not Windows' bond, so re-pair once.
       try {
         info.Pairing().UnpairAsync().get();
         this_thread::sleep_for(chrono::milliseconds(500));
@@ -246,8 +234,7 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
           if (device) services = discoverServices();
         }
       } catch (...) {
-        // Keep the original discovery error if Windows refuses to refresh its
-        // pairing record; the caller can still remove the entry manually.
+        // If re-pairing fails, keep the original discovery error.
       }
     }
     if (!services) {
@@ -304,9 +291,7 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
             }
             statusChanged.notify_one();
           } catch (...) {
-            // A malformed notification is not proof that provisioning failed.
-            // The caller will classify the result as indeterminate if the
-            // authenticated write reached the device.
+            // A malformed notification proves nothing; the outcome comes from the write result.
           }
         });
     handlerAttached = true;
@@ -348,15 +333,13 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
       try {
         statusCharacteristic.ValueChanged(statusToken);
       } catch (...) {
-        // The handler is best-effort cleanup; the terminal status was already
-        // copied under the mutex above.
+        // Best-effort cleanup; the terminal status was already copied.
       }
       try {
         statusCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
             GattClientCharacteristicConfigurationDescriptorValue::None).get();
       } catch (...) {
-        // The result has already been captured; cleanup failure must not turn
-        // a confirmed provisioning result into a false failure.
+        // A cleanup failure must not turn a confirmed result into a failure.
       }
     }
 

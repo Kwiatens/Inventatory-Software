@@ -20,15 +20,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Release artifacts must run on a clean Windows PC without a separate
-# Visual C++ runtime installation.
+# Static MSVC runtime, so release builds run without a VC++ redistributable.
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 if(MSVC)
-  # Sources are UTF-8 without a BOM; decode them (and encode narrow literals) as UTF-8 regardless of
-  # the build machine's ANSI code page.
+  # Sources are UTF-8 without BOM; /utf-8 ignores the build machine's ANSI code page.
   add_compile_options(/W4 /permissive- /utf-8)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -65,9 +63,7 @@ else()
   set(INVENTATORY_CHILD_PROCESS_SOURCE src/platform/system/ChildProcess.cpp)
 endif()
 
-# SQLite is compiled into the executable so the release never depends on an
-# ambient sqlite3.dll. The official source archive and its published SHA3-256
-# pin the exact amalgamation used by every build.
+# Compiled in so releases never need an ambient sqlite3.dll. The hash pins the source.
 FetchContent_Declare(sqlite3_amalgamation
   URL https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip
   URL_HASH SHA3_256=628a44cfe82c66aed1ccbbe85a562d2e33ebe64b3288981ed76285612227934e
@@ -82,8 +78,7 @@ target_include_directories(sqlite3_amalgamation PUBLIC ${sqlite3_amalgamation_SO
 
 FetchContent_Declare(ftxui
   GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
-  # Keep the parser fix for consecutive/truncated Escape sequences. Pinning
-  # the commit makes source builds reproducible even if its upstream tag moves.
+  # Pinned commit includes the Escape-sequence parser fix and stays fixed if tags move.
   GIT_TAG 182ef70cd4dc1109d06e66361a9da86445928578
 )
 set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "Do not package FTXUI separately" FORCE)
@@ -350,7 +345,7 @@ add_executable(inventatory_tests
 )
 
 if(NOT WIN32)
-  # Linux publishes through avahi-daemon over D-Bus (GIO, already linked below).
+  # Linux publishes through avahi-daemon over D-Bus (GIO).
   target_sources(inventatory_tests PRIVATE src/platform/scanner/MdnsService.cpp)
 endif()
 
@@ -378,7 +373,7 @@ target_link_libraries(inventatory_input_tests PRIVATE Threads::Threads)
 
 if(BUILD_TESTING)
   add_test(NAME inventatory_core COMMAND inventatory_tests)
-  # Exit code 77 reports "credential tests skipped: no Secret Service" without hiding the other results.
+  # Exit code 77 means the credential tests were skipped (no Secret Service).
   set_tests_properties(inventatory_core PROPERTIES SKIP_RETURN_CODE 77)
   add_test(NAME inventatory_input COMMAND inventatory_input_tests)
 endif()

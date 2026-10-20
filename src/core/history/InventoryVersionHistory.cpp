@@ -167,8 +167,7 @@ bool readCommitSnapshot(SqliteConnection& connection, const string& id, Inventor
   return validateSnapshotSemantics(snapshot, nullptr);
 }
 
-// Why `commit` disagrees with the changes from its parent snapshot (`changes`, empty for an initial
-// commit), or nullptr when it is consistent.
+// Why `commit` disagrees with its parent's changes (`changes`), or nullptr when consistent.
 const char* commitInconsistency(const InventoryCommit& commit, bool hasParent,
                                 const vector<InventoryFieldChange>& changes) {
   if (!hasParent) {
@@ -208,9 +207,8 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
   };
   if (connection.db == nullptr) return fail("SQLite connection is not open");
 
-  // Snapshot rows are intentionally checked for orphaned commit IDs as well;
-  // otherwise an extra row could survive a restore and become visible after a
-  // later commit reuses the same identifier.
+  // Orphaned snapshot rows are checked too: one surviving a restore would reappear when its
+  // commit ID is reused.
   const char* const orphanQueries[] = {
       "SELECT 1 FROM inventatory_inventory_commit_items i LEFT JOIN inventatory_inventory_commits c "
       "ON c.commit_id=i.commit_id WHERE c.commit_id IS NULL LIMIT 1",
@@ -236,8 +234,7 @@ bool validateInventoryCommitHistory(SqliteConnection& connection, string* error)
     return fail("Unable to read inventory commit history");
   }
 
-  // Commits are checked as they stream by, holding only the previous commit and its snapshot next to
-  // the current one, so memory stays flat however long the history is.
+  // Commits are checked as they stream, keeping only the previous commit and snapshot in memory.
   unordered_set<string> commitIds;
   vector<string> revertedCommitIds;
   InventoryCommit previousCommit;
@@ -288,9 +285,7 @@ bool ensureInventoryCommitHistory(const filesystem::path& path, const InventoryS
   SqliteConnection connection;
   if (!openDatabase(path, connection) || !ensureInventoryCommitSchema(connection)) return false;
 
-  // Hold the write lock before checking and creating the baseline.  The old
-  // check-then-BEGIN sequence allowed two first writers to both observe an
-  // empty history and race their initial snapshots.
+  // Take the write lock before checking for a baseline, so two writers cannot both create one.
   if (!execSql(connection, "BEGIN IMMEDIATE TRANSACTION")) return false;
 
   SqliteStatement countStatement;
@@ -380,9 +375,8 @@ bool loadInventoryCommit(const filesystem::path& path, const string& id, Invento
 }
 
 const InventoryCommit* latestUndoableInventoryCommit(const vector<InventoryCommit>& commits) {
-  // Newest first. An undo is itself a commit that changes the inventory, so it must not be undone again: undoing
-  // it would re-apply the change it reverted. Each commit an undo names is skipped instead, so a second Ctrl+Z
-  // steps back to the change before.
+  // Newest first. An undo is never undone, as that would re-apply its change. The commit each undo
+  // names is skipped, so repeated Ctrl+Z steps further back.
   unordered_set<string> undone;
   for (const auto& commit : commits) {
     if (!commit.revertedCommitId.empty()) {

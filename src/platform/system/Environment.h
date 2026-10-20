@@ -12,9 +12,7 @@
 
 namespace inventatory {
 
-// Returns a value when the named environment variable is present. On Windows
-// the name and the value are UTF-8 (read through the wide API), so a caller that
-// builds a path from the value must use std::filesystem::u8path.
+// On Windows the name and value are UTF-8; build a path from the value with std::filesystem::u8path.
 std::optional<std::string> environmentValue(const char* name);
 
 #ifndef _WIN32
@@ -24,12 +22,10 @@ std::filesystem::path homeDirectory();
 std::filesystem::path xdgConfigHome();
 std::filesystem::path xdgDataHome();
 
-// Linux reports the running binary as "<path> (deleted)" after it was replaced on disk (an update,
-// a reinstall). This removes that suffix; other strings are returned unchanged.
+// Removes the " (deleted)" suffix Linux adds to a replaced binary; other strings are unchanged.
 std::string stripDeletedExecutableSuffix(std::string path);
 
-// The path of the running executable with any " (deleted)" suffix removed. Empty when it cannot be
-// resolved or no longer exists, so callers never register or exec a path that is not there.
+// Running executable path without the suffix. Empty when unresolved or missing.
 std::filesystem::path currentExecutablePath();
 #endif
 

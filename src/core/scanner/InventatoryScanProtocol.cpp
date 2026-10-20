@@ -29,10 +29,8 @@ string boundedResponseText(const string& value, size_t limit) {
          (static_cast<unsigned char>(value[end]) & 0xC0U) == 0x80U) {
     --end;
   }
-  // The protocol budget is measured after JSON escaping. Control characters
-  // can expand to six bytes, so a raw-byte cap alone would not bound the wire
-  // response. Preserve the largest valid UTF-8 prefix whose escaped form also
-  // fits the field budget.
+  // The budget applies after JSON escaping, where a control character takes six bytes.
+  // Keep the longest valid UTF-8 prefix whose escaped form fits.
   while (end > 0 && jsonEscape(value.substr(0, end)).size() > limit) {
     --end;
     while (end > 0 && end < value.size() &&
@@ -49,9 +47,8 @@ bool looksLikeSupportedInventatoryScanCode(const string& code) {
          all_of(trimmed.begin(), trimmed.end(), [](unsigned char ch) { return isdigit(ch) != 0; });
 }
 
-// Mirrors isStandardManufacturerPartNumber() in the R1 firmware, plus the '*' that a TME manufacturer part number can
-// carry (DS1023-1*40S21). A component Data Matrix carries the manufacturer part number, which is what the Scan R1 puts
-// in `code`, so the desktop must accept the same shape the device does.
+// Mirrors the R1 firmware's isStandardManufacturerPartNumber(), plus the '*' seen in TME part
+// numbers (DS1023-1*40S21). The desktop must accept every shape the device sends.
 bool looksLikeManufacturerPartNumber(const string& code) {
   const auto trimmed = trim(code);
   if (trimmed.size() < 2 || trimmed.size() > 64) return false;
@@ -158,9 +155,8 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
       error = "Invalid sync lookup";
       return false;
     }
-    // A lookup is informational and never changes inventory, so a code this
-    // build cannot resolve is dropped instead of failing the envelope. The
-    // queued inventory events travelling with it must still be delivered.
+    // A lookup never changes inventory, so a code of unsupported shape is dropped
+    // rather than failing the envelope, which carries inventory events.
     if (looksLikeSupportedLookupCode(*code)) {
       parsed.hasLookup = true;
       parsed.lookup = {*lookupId, *code};

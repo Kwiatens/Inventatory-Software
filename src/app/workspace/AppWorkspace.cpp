@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Workspace selection and cross-workspace state transitions.
 
 #include "App.h"
 #include "app/common/AppActionSupport.h"
@@ -34,8 +33,7 @@ bool App::chooseInventatoryFolder() {
     setMessage("No folder selected", 2);
     return false;
   }
-  // The throwing exists() overloads would terminate the UI on a folder whose children cannot be
-  // inspected (permissions, stale network mounts), so every check reports instead.
+  // Use the error_code overloads: the throwing ones would terminate the UI on an unreadable folder.
   error_code manifestError;
   const bool selectedIsBackupBundle = filesystem::exists(selectedPath / "manifest.tsv", manifestError);
   if (manifestError) {
@@ -172,10 +170,8 @@ bool App::chooseInventatoryFolder() {
     bomEnrichmentFuture_ = {};
   }
   bomEnrichmentClient_.reset();
-  // The selected workspace may legitimately have no inventory.db.  Clear the
-  // old workspace before loadState() so that the missing-file path creates an
-  // empty database rather than saving the previous workspace's in-memory
-  // inventory into the new folder.
+  // Clear the old workspace first, so loadState() creates an empty database rather than
+  // saving the previous inventory into the new folder.
   store_ = {};
   persistedStore_ = {};
   persistedStoreValid_ = false;

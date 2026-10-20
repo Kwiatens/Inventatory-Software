@@ -3,9 +3,8 @@
 
 // Inventatory - ZPL drawing helpers shared by the part and rack labels.
 //
-// Labels are 256 x 200 dots (32 x 25 mm, 203 dpi). Test prints land about 3 dots right of and 10 dots below the
-// ^FO origin, so layouts start at x 7 / y 0 and end at x 243 / y 179, which leaves an even margin of about 10
-// dots on every side of the printed label.
+// Labels are 256 x 200 dots (203 dpi). Test prints land about 3 dots right and 10 below the ^FO
+// origin, so layouts start at x 7 / y 0 and end at x 243 / y 179 for an even margin.
 
 #pragma once
 
@@ -22,8 +21,7 @@ inline constexpr int kLabelLeft = 7;
 inline constexpr int kLabelWidth = 236;
 inline constexpr int kLabelBottom = 179;
 inline constexpr int kHeaderHeight = 22;
-// Font 0 digits and capitals are about 0.74 of the font height tall and start at the field origin, so their
-// baseline is at y + 0.74 * height.
+// Font 0 capitals start at the field origin; their baseline is at y + 0.74 * height.
 inline constexpr double kCapHeight = 0.74;
 
 // The >| brand mark as a 5 x 5 pixel glyph, drawn as 3 dot squares.
@@ -68,7 +66,7 @@ inline void writeGraphic(std::ostringstream& out, int x, int y, const RackSymbol
   out << std::dec << std::nouppercase << std::setfill(' ') << "^FS\r\n";
 }
 
-// The black header bar: title at the left, brand mark at the right end. Returns the title's width budget.
+// Header bar: title at the left, brand mark at the right. Returns the title's width budget.
 inline int writeBrandHeader(std::ostringstream& out, const string& title) {
   writeBox(out, kLabelLeft, 0, kLabelWidth, kHeaderHeight, kHeaderHeight, 4);
   const auto logoX = kLabelLeft + kLabelWidth - kLogoInset - kLogoSize;

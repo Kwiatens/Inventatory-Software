@@ -21,8 +21,7 @@ bool ensureInventoryCommitSchema(SqliteConnection& connection) {
 bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryItem>& items,
                           const vector<InventatoryRack>& racks, const InventoryCommitDraft& draft,
                           InventoryCommit& committed) {
-  // A snapshot that history validation rejects would make the whole database unloadable, so refuse
-  // it here and let the caller's transaction roll back.
+  // Refuse a snapshot that history validation rejects; it would make the database unloadable.
   InventoryStore snapshot;
   snapshot.items() = items;
   snapshot.racks() = racks;
@@ -51,8 +50,7 @@ bool writeInventoryCommit(SqliteConnection& connection, const vector<InventoryIt
 
   InventoryCommitDraft counted = draft;
   if (!parentId.empty()) {
-    // The caller's counts come from a diff against a baseline held in memory. Only the stored
-    // parent snapshot is authoritative for validation, so derive the counts from it.
+    // Counts come from the stored parent snapshot, not the caller's in-memory baseline.
     InventoryStore parentSnapshot;
     if (!readInventoryCommitSnapshot(connection, parentId, parentSnapshot)) return false;
     countChangedEntities(inventoryCommitDiff(parentSnapshot, snapshot), counted.changedItemCount,

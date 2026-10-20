@@ -56,35 +56,27 @@ struct SqliteStatement {
 string sqliteText(sqlite3_stmt* stmt, int column);
 bool openDatabase(const filesystem::path& path, SqliteConnection& connection);
 bool openDatabaseReadOnly(const filesystem::path& path, SqliteConnection& connection);
-// Creates a consistent SQLite snapshot without mutating the source database.
-// The destination must not exist; callers should validate the closed snapshot
-// through validateInventoryDatabase() before publishing it.
+// Creates a consistent snapshot without modifying the source. The destination must not exist.
+// Validate the closed snapshot with validateInventoryDatabase() before publishing it.
 bool createSqliteSnapshot(const filesystem::path& sourcePath, const filesystem::path& destinationPath,
                           string* error = nullptr);
 bool execSql(SqliteConnection& connection, const string& sql);
 bool tableExists(SqliteConnection& connection, const string& tableName);
 bool tableColumnExists(SqliteConnection& connection, const string& tableName, const string& columnName);
 
-// All SQLite persistence modules share this versioned schema. A fresh empty
-// database is created transactionally on a read-write connection. A legacy
-// database (kInventoryLegacySchemaVersion) is upgraded in place by
-// ensureInventoryDatabaseSchema(), which only appends the vendor_sources column.
-// Read-only validation accepts a legacy database unchanged and never alters it.
-// Any other existing database must already match the current schema.
+// Shared versioned schema. ensureInventoryDatabaseSchema() upgrades a legacy database in place,
+// appending only vendor_sources. Read-only validation accepts a legacy database unchanged.
 constexpr int kInventoryDatabaseSchemaVersion = 2;
 constexpr int kInventoryLegacySchemaVersion = 1;
-//
-// ensureInventoryDatabaseSchema() is the cheap structural check every entry point runs (version,
-// tables and columns). The row-by-row value checks scan whole tables, so they are separate:
-// validateInventoryDataValues() runs when a workspace is loaded and validateInventoryDatabase()
-// (structure, values, integrity and history) when a database is restored, backed up or switched to.
+// ensureInventoryDatabaseSchema() is the cheap structural check. Row-value checks scan whole
+// tables: validateInventoryDataValues() runs on workspace load, validateInventoryDatabase() on
+// restore, backup or switch.
 bool ensureInventoryDatabaseSchema(SqliteConnection& connection, string* error = nullptr);
 bool validateInventoryDataValues(SqliteConnection& connection, string* error = nullptr);
 bool validateInventoryDatabase(SqliteConnection& connection, string* error = nullptr);
 
-// sqlite3_column_int()/column_int64() silently coerce and truncate values.
-// Persistence loaders use these checked conversions so malformed databases
-// cannot wrap into application-sized integers.
+// sqlite3_column_int()/column_int64() silently coerce and truncate. Loaders use these checked
+// conversions so malformed databases cannot wrap into application-sized integers.
 bool sqliteInt32(sqlite3_stmt* statement, int column, int& value);
 bool sqliteUInt64(sqlite3_stmt* statement, int column, std::uint64_t& value);
 bool sqliteSize(sqlite3_stmt* statement, int column, size_t& value);

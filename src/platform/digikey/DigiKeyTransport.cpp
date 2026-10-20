@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - DigiKey URL, WinHTTP, and header helpers.
+// DigiKey URL, WinHTTP, and header helpers.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -166,8 +166,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     path.append(components.lpszExtraInfo, components.dwExtraInfoLength);
   }
 
-  // Automatic proxy resolution follows the user's proxy configuration (WPAD/PAC); fall back to the
-  // machine-wide WinHTTP proxy where it is not available.
+  // Automatic proxy (WPAD/PAC) first; fall back to the default WinHTTP proxy.
   HINTERNET session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
   if (session == nullptr) {
@@ -204,7 +203,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     return false;
   }
 
-  // The bearer token and client secret must never follow a redirect to another host, so none is followed.
+  // No redirects: the bearer token and client secret must not reach another host.
   DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
   WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
 
@@ -254,9 +253,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     return false;
   }
 
-  // Retry-After is advisory and may also be an HTTP date. Accept only a
-  // small decimal delay so a hostile or broken server cannot hold the caller
-  // indefinitely. The retry loop remains bounded regardless of this header.
+  // Retry-After may be an HTTP date. Accept only a small decimal delay, capped at 2 seconds.
   if (statusCode == 429 || statusCode >= 500) {
     wchar_t retryAfter[32]{};
     DWORD retryAfterSize = sizeof(retryAfter);
@@ -346,10 +343,7 @@ bool isRetryableHttpStatus(DWORD statusCode) {
 
 bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
                  HttpResponse& response, string* error) {
-  // ProductDetails is a GET and therefore safe to repeat after a transport
-  // failure. OAuth token issuance and keyword search are POSTs; DigiKey does
-  // not publish an idempotency contract for either endpoint, so do not replay
-  // them automatically if a response may have been processed already.
+  // Only GET is retried: DigiKey publishes no idempotency contract for its POST endpoints.
   const bool retryableMethod = method == L"GET";
   for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
     string attemptError;
@@ -371,9 +365,7 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
 bool isSafeHeaderValue(const string& value) {
   if (value.size() > kMaximumDigiKeyFieldBytes) return false;
   for (const unsigned char character : value) {
-    // Reject all controls, not only CR/LF. WinHTTP header parsing has had
-    // different tolerance across Windows versions, and accepting a control
-    // byte here would make configuration an HTTP request-structure input.
+    // Reject all control bytes, not just CR/LF: WinHTTP parsing varies across Windows versions.
     if (character < 0x20U || character > 0x7EU) return false;
   }
   return true;

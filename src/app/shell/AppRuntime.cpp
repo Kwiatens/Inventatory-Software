@@ -61,8 +61,8 @@ bool App::workspaceIsCurrent(WorkspaceGeneration generation) const {
   return workspaceContext_ != nullptr && workspaceGenerationMatches(workspaceContext_->generation, generation);
 }
 
-// Starts a user-requested print job for the configured printer; the caller has checked that one exists.
-// Reports why no job can start right now.
+// The caller has checked that a printer is configured.
+// Returns nullopt, with a message, if no job can start.
 optional<App::PrinterWork> App::beginPrinterJob(PrinterWorkKind kind) {
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
@@ -248,9 +248,7 @@ void App::processPrinterWork() {
       PrinterWorkResult result;
       result.work = work;
       try {
-        // Constructing a private service also constructs a private Windows
-        // spooler backend.  No worker ever touches the UI-owned service or
-        // borrows App state, configured strings, or inventory references.
+        // Private service per job: no worker touches the UI-owned service or borrows App state.
         LabelPrinterService printer;
         printer.setConfiguredPrinter(work.printerName);
         switch (work.kind) {
@@ -282,8 +280,7 @@ void App::processPrinterWork() {
       if (!completion->cancelled) completion->result = move(result);
       }).detach();
     } catch (...) {
-      // Preserve the work identity when thread creation itself fails.  This
-      // keeps a pending quick-label request from being stranded forever.
+      // Keep the work identity so a pending quick-label request is not stranded.
       PrinterWorkResult result;
       result.work = move(work);
       result.success = false;
@@ -297,10 +294,8 @@ void App::processPrinterWork() {
   }
 }
 
-// Called on the UI thread before the workspace that started a job is replaced, so a finished job is
-// recorded against that workspace.  The generation check keeps the activity entry out of any
-// workspace that is no longer current.  Print outcomes are recorded like a normal finished result;
-// a worker that never finished is handled by stopPrinterWork().
+// Runs on the UI thread before the workspace is replaced, so a finished job is logged to it.
+// A job that never finished is handled by stopPrinterWork().
 void App::recordStoppedPrinterWork(const PrinterWorkResult& result) {
   const bool sent = result.success;
   const bool workspaceCurrent = workspaceIsCurrent(result.work.workspaceGeneration);
@@ -332,7 +327,7 @@ void App::recordStoppedPrinterWork(const PrinterWorkResult& result) {
       break;
     case PrinterWorkKind::Refresh:
     case PrinterWorkKind::Probe:
-      // These only update the printer status shown in the UI, which the stopped workspace discards.
+      // Only UI printer status, which the stopped workspace discards.
       break;
   }
 }
@@ -342,8 +337,8 @@ void App::stopPrinterWork() {
     lock_guard<mutex> lock(printerWorkMutex_);
     printerWorkQueue_.clear();
   }
-  // A job the worker already finished is recorded below.  A job still running is cancelled; the
-  // worker sees the flag under the same mutex and drops its result instead of publishing it.
+  // A finished job is recorded below. A running one is cancelled: its worker sees
+  // the flag and drops its result.
   string runningRequestId;
   if (printerWorkCompletion_ != nullptr) {
     const auto completion = printerWorkCompletion_;
@@ -367,8 +362,7 @@ void App::stopPrinterWork() {
     for (auto& entry : quickLabelPrintResults_) {
       if (entry.second.result.status != "pending") continue;
       if (!runningRequestId.empty() && entry.first == runningRequestId) {
-        // The print may already have reached the printer.  "failed" is terminal for the quick-label
-        // exchange, so the request is not re-sent, and the code keeps it apart from a printer error.
+        // The print may have reached the printer. "failed" is terminal: no re-send.
         entry.second.result.status = "failed";
         entry.second.result.code = "cancelled";
         entry.second.result.message = "Printing was cancelled before the label was confirmed";
@@ -409,14 +403,13 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   tmeRefreshQueue_.clear();
   mouserRefreshQueue_.clear();
   scanDigiKeyEnrichmentQueue_.clear();
-  scanAutoPrintPending_.clear();  // their lookups are dropped here, so their labels would never be settled
+  scanAutoPrintPending_.clear();  // Their lookups are dropped, so these labels would never settle.
   bomEnrichmentQueue_.clear();
   if (importSyncCancelFlag_ != nullptr) {
     importSyncCancelFlag_->store(true);
   }
 
-  // Workers capture raw pointers into the clients below, so a worker that is still running at the
-  // deadline keeps its client alive; nothing is reset until every worker has finished.
+  // Workers hold raw pointers into the clients, so reset nothing until every worker has finished.
   bool allFinished = true;
   allFinished = finishWorker(digiKeyRefreshFuture_, deadline) && allFinished;
   allFinished = finishWorker(tmeRefreshFuture_, deadline) && allFinished;
@@ -428,7 +421,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   if (!allFinished) {
     workAbandoned_ = true;
   } else {
-    stopDigiKeyRefresh();  // the worker has finished, so this only resets its state
+    stopDigiKeyRefresh();  // Workers have finished; this only resets state.
     stopTmeRefresh();
     stopMouserRefresh();
 
@@ -455,7 +448,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
 }
 
 bool App::stopUpdateWorkUntil(chrono::steady_clock::time_point deadline) {
-  // Once the installer owns the update there is nothing left to cancel or clean up here.
+  // Once the installer owns the update, there is nothing left to clean up.
   if (updateInstallerLaunched_) return true;
   if (updateDownloadState_ != nullptr) updateDownloadState_->cancelRequested.store(true);
   bool finished = true;
@@ -497,8 +490,8 @@ void App::requestUserExit() {
 #ifdef _WIN32
     backgroundController_.hideConsole(true);
 #else
-    // Linux has no Windows notification-area window to hide. Exit the TUI
-    // through its normal save path; App::run() then starts the user service.
+    // Linux has no notification-area window. Exit via the normal save path;
+    // run() then starts the user service.
     running_ = false;
 #endif
   } else {

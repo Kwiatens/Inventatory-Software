@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Pure data helpers for the History page.
-
 #include "HistoryPagePrivate.h"
 
 #include "core/inventory/VendorProvider.h"
@@ -114,7 +112,7 @@ string displayValue(const string& field, const string& value) {
         const auto timestamp = stoll(value);
         if (timestamp > 0) return nowTimestampString(static_cast<time_t>(timestamp));
       } catch (...) {
-        // Keep unexpected persisted values readable and lossless.
+        // Keep an unexpected stored value as it is.
       }
     }
   }

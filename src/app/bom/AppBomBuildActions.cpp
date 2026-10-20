@@ -48,8 +48,7 @@ void App::beginBomBuild() {
   if (!bomAnalysisValid_) {
     return;
   }
-  // The walkthrough starts from the stock on the shelf now. Its picks are frozen here, and finishing deducts
-  // only what was frozen, and only if the stock still matches it.
+  // Picks are frozen here; finishing deducts only these, and only if stock still matches.
   refreshBomAnalysis();
   const auto plan = bomPickPlan();
   if (plan.empty()) {
@@ -76,7 +75,6 @@ void App::advanceBomBuild(int delta) {
   }
 
   if (bomDeductPrompt_) {
-    // Back from the finish screen returns to the last stop.
     if (delta < 0) {
       bomDeductPrompt_ = false;
       bomBuildStep_ = plan.stops.size() - 1;
@@ -93,8 +91,7 @@ void App::advanceBomBuild(int delta) {
     return;
   }
   if (next >= static_cast<int>(plan.stops.size())) {
-    // Past the last stop the walkthrough asks its one question. Shortages do not block it: whatever
-    // was taken can still be deducted, and the missing lines stay on the shopping list.
+    // Shortages do not block the finish; missing lines stay on the shopping list.
     bomDeductPrompt_ = true;
     bomFinishSelection_ = 0;
     dirty_ = true;
@@ -106,8 +103,7 @@ void App::advanceBomBuild(int delta) {
 }
 
 void App::finishBomBuild(bool subtractFromStock) {
-  // Deducting works from the live stock. Refresh first, so the check below compares the walkthrough with the
-  // shelf as it is now, not as it was when the project was last analysed.
+  // Refresh first: the check below must compare against live stock, not the last analysis.
   if (subtractFromStock) refreshBomAnalysis();
   const auto plan = bomPickPlan();
   int parts = 0;
@@ -115,8 +111,7 @@ void App::finishBomBuild(bool subtractFromStock) {
   bool stockSaved = true;
 
   if (subtractFromStock) {
-    // Nothing is deducted unless every pick still matches the walkthrough: the same item, unchanged, with enough
-    // units. Any difference stops the whole deduction, so no part is taken from the wrong item or below zero.
+    // Deduct nothing unless every pick still matches: same item, unchanged, enough units.
     const auto abandon = [this](const string& reason) {
       bomDeductPrompt_ = false;
       bomBuildStep_ = 0;
@@ -146,14 +141,13 @@ void App::finishBomBuild(bool subtractFromStock) {
       if (item == nullptr || taken <= 0) {
         continue;
       }
-      item->quantity -= taken;  // checked above: on hand is at least the total drawn from this item
+      item->quantity -= taken;  // checked above: on hand covers the draw
       item->lastUpdated = now;
       reconcileRackAssignment(store_, *item);
       ++parts;
       pieces += taken;
     }
-    // A failed save keeps the deduction in memory for the R retry. The walkthrough still closes below so
-    // the finish prompt cannot be confirmed again and deduct the same pieces a second time.
+    // A failed save keeps the deduction in memory for retry; the walkthrough still closes below.
     stockSaved = saveState("bom_build", activeBomProjectId_);
   }
 
@@ -176,8 +170,7 @@ void App::finishBomBuild(bool subtractFromStock) {
                              to_string(pieces) + " pieces · " + to_string(bomAnalysis_.boards) + " boards");
   }
 
-  // The walkthrough always closes here, saved or not. Leaving it open after the stock was deducted would let
-  // the finish prompt deduct the same pieces again.
+  // Always close, saved or not: an open walkthrough could deduct the same pieces again.
   const auto shortLines = plan.shortMatches.size();
   const auto unconfirmedLines = plan.unconfirmedMatches.size();
   bomDeductPrompt_ = false;
@@ -223,8 +216,7 @@ bool App::exportBomShortages() {
     return false;
   }
 
-  // Build the whole file first and replace the target atomically: a full disk or a removed drive must
-  // neither leave a truncated export behind nor report success.
+  // Write atomically so a full disk never leaves a truncated export or reports success.
   const auto exported = buildBomShortageCsv(bomAnalysis_, project->enrichment);
   string writeError;
   if (!writeFileAtomically(target, exported.text, &writeError)) {

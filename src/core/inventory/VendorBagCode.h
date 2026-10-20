@@ -14,8 +14,7 @@
 
 namespace inventatory {
 
-// The longest main code a device may send. A DigiKey Data Matrix with its identifiers runs to about 150 characters, and a
-// TME label's QR text to about 130.
+// Longest main code a device may send: about 150 characters for DigiKey, 130 for TME labels.
 inline constexpr std::size_t kMaximumVendorBagCodeBytes = 512;
 
 // The part a vendor bag's main code names.
@@ -30,14 +29,12 @@ struct VendorBagIdentity {
   std::string productUrl;
 };
 
-// Recognises a main code from a supported vendor bag:
-//   - a DigiKey bag's Data Matrix: an ISO/IEC 15434 Macro 06 envelope whose P field is a DigiKey part number ending in -ND;
-//   - a TME bag's QR code: key:value text with PN and MPN or MFR, as parseTmeLabelPayload reads it.
-// Anything else, including the Data Matrix of a TME bag and an Inventatory machine code, gives nullopt.
+// Recognises a vendor bag's main code: a DigiKey Data Matrix (ISO/IEC 15434 Macro 06, P field
+// ending in -ND), or a TME QR label as parseTmeLabelPayload reads it. Other codes give nullopt.
 std::optional<VendorBagIdentity> recognizeVendorBagCode(const std::string& code);
 
-// The vendor an item came from, as a lower-case key ("digikey" or "tme"), or empty when no vendor is recorded.
-// Items stored before origins were recorded have no provider; a DigiKey part number on such an item names DigiKey.
+// Lower-case vendor key ("digikey" or "tme") an item came from; empty if unrecorded.
+// Older items with no provider but a DigiKey part number count as DigiKey.
 std::string originProvider(const InventoryItem& item);
 
 }  // namespace inventatory

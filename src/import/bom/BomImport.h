@@ -14,9 +14,8 @@ namespace inventatory {
 
 using std::string;
 
-// EasyEDA exports go to the EasyEDA parser, and Altium Designer exports to the Altium parser. An Altium export is
-// recognised only by headers that KiCad does not write, so everything else keeps the KiCad parser, which is what
-// stored projects were always read with, so their analysis does not change.
+// Altium exports are recognised only by headers KiCad does not write. Everything else stays on the
+// KiCad parser, so stored projects keep the same analysis.
 KicadBomFile parseBomText(const string& text, const string& projectName);
 
 }  // namespace inventatory

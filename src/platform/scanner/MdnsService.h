@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Platform DNS-SD registration for automatic Inventatory Scan discovery.
+// Platform DNS-SD registration for Inventatory Scan discovery.
 
 #pragma once
 
@@ -43,7 +42,7 @@ class MdnsService {
 #endif
   bool running_ = false;
 #ifndef _WIN32
-  // Avahi registration (private D-Bus connection plus entry group); defined in MdnsService.cpp.
+  // Avahi state (own D-Bus connection and entry group); defined in MdnsService.cpp.
   struct AvahiPublication;
   std::shared_ptr<AvahiPublication> publication_;
 #endif

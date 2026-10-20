@@ -54,7 +54,7 @@ bool itemTextContains(const InventoryItem& item, initializer_list<const char*> n
     return false;
   };
 
-  // The vendor's description says what the part is. A parameter's value does not: a 555 timer's "Type" reads
+  // The description says what the part is; a parameter value does not. A 555's "Type" reads
   // "Timer/Oscillator", which must not make it a crystal.
   if (textMatches(item.category) || textMatches(displayCategory(item.category)) || textMatches(item.partName) ||
       textMatches(item.manufacturer) || textMatches(item.location) || textMatches(item.notes) ||

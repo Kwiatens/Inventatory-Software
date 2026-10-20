@@ -85,7 +85,7 @@ bool decodeCsvBytes(const string& bytes, string& utf8, string& error) {
       error = "CSV looks like UTF-16 but is truncated or corrupt; save it as CSV UTF-8 and import it again";
       return false;
     }
-    // A U+0000 unit decodes to a NUL byte, which would cut text short wherever it is bound as a C string.
+    // A NUL byte would cut text short wherever it is used as a C string.
     if (utf8.find('\0') != string::npos) {
       error = "CSV contains NUL characters; save it as CSV UTF-8 and import it again";
       utf8.clear();
@@ -144,8 +144,7 @@ char sniffDelimiter(const string& text) {
   size_t tab = 0;
   bool inQuotes = false;
   bool sawContent = false;
-  // A quote only opens a quoted section at the start of a field; inside 2.13" ePaper it is a literal
-  // inch mark and must not swallow the delimiters that follow it.
+  // Only a field-start quote opens a section, so a mid-field inch mark cannot hide delimiters.
   bool atFieldStart = true;
 
   for (const char ch : text) {
@@ -164,7 +163,7 @@ char sniffDelimiter(const string& text) {
       continue;
     }
     if (ch == '\n') {
-      // Keep scanning while the line so far held nothing but whitespace.
+      // Only the first non-blank line decides.
       if (sawContent) {
         break;
       }
@@ -198,7 +197,7 @@ char sniffDelimiter(const string& text) {
 
 namespace {
 
-// The scanner behind parseCsv and parseCsvBackslashQuotes. With backslashQuotes, \" inside a quoted cell is one quote.
+// Shared scanner. With backslashQuotes, \" inside a quoted cell is one quote.
 vector<vector<string>> scanCsv(const string& text, char delimiter, string& error, size_t maxRows,
                                bool backslashQuotes) {
   error.clear();
@@ -235,8 +234,7 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
         continue;
       }
       if (ch == '"') {
-        // Spaces and tabs after a closing quote are padding when the delimiter, a line break or the end
-        // of text follows them. A tab is never padding when it is the delimiter itself.
+        // Spaces and tabs after a closing quote are padding, unless the tab is the delimiter.
         size_t after = index + 1;
         while (after < text.size() && (text[after] == ' ' || text[after] == '\t') && text[after] != delimiter) {
           ++after;
@@ -250,14 +248,11 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
           inQuotes = false;
           index = after - 1;
         } else {
-          // Lenient recovery: KiCad writes inch marks unescaped, as in
-          // "2.13" ePaper". A quote that is not followed by a delimiter or a
-          // line break cannot be closing the field, so keep it as content.
+          // Lenient: KiCad writes unescaped inch marks (2.13" ePaper); keep the quote as content.
           field.push_back('"');
         }
       } else if (ch == '\n') {
-        // A line break inside a quoted cell (a multi-line description) becomes a space, so every cell is
-        // one line by the time it reaches part names, the terminal and labels. CR is dropped as elsewhere.
+        // A line break inside a quoted cell becomes a space, so cells stay single-line.
         field.push_back(' ');
       } else if (ch != '\r') {
         field.push_back(ch);
@@ -267,9 +262,7 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
     }
 
     if (ch == '"' && field.find_first_not_of(" \t") == string::npos) {
-      // A quote opens a quoted section only at the start of a field. Elsewhere (2.13" ePaper in an
-      // unquoted field) it is an inch mark; treating it as an opener would swallow the delimiters and
-      // line breaks that follow.
+      // Only a field-initial quote opens a quoted section; elsewhere it is an inch mark.
       inQuotes = true;
     } else if (ch == delimiter) {
       row.push_back(trim(field));

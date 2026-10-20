@@ -1,10 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Contextual action registry: the single source of truth for each screen's
-// commands. The action bar and the bottom sheet are both generated from
-// currentActions(), and key accelerators dispatch through the same list.
+// Contextual action registry. The action bar, the action sheet and key shortcuts all come from
+// currentActions().
 
 #include "App.h"
 
@@ -40,8 +38,7 @@ vector<App::Action> App::currentActions() const {
       return isalnum(ch) ? static_cast<char>(tolower(ch)) : '.';
     });
     id.erase(unique(id.begin(), id.end(), [](char lhs, char rhs) { return lhs == '.' && rhs == '.'; }), id.end());
-    // Symbol-only hints ("+" and "-", "[" and "]") collapse to the same text; keep the
-    // first id as is and number later duplicates so hover and click state stay per row.
+    // Symbol-only hints can collide; number later duplicates so each row keeps its own id.
     const string baseId = id;
     for (int duplicate = 2; any_of(actions.begin(), actions.end(), [&](const Action& other) { return other.id == id; });
          ++duplicate) {
@@ -133,7 +130,7 @@ vector<App::Action> App::currentActions() const {
       if (const auto* selected = self->selectedItem(); selected != nullptr && !tmeProductSymbol(*selected).empty()) {
         add("TME", "Links", "l", chr('l'), openTme);
       }
-      // 'm' opens the racks on this page, so the Mouser product page takes 's', the free letter in the vendor's name.
+      // 'm' is racks, so Mouser takes 's', a letter of its name.
       if (const auto* selected = self->selectedItem(); selected != nullptr && !mouserPartNumberOf(*selected).empty()) {
         add("Mouser", "Links", "s", chr('s'), openMouser);
       }
@@ -215,7 +212,7 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Settings:
-      // Settings rows show these keys on their buttons; Enter on a row and the row cursor are page-local.
+      // Enter and the row cursor are page-local; the other keys show on the row buttons.
       if (settingsCategory_ == SettingsCategory::General) {
         add("choose data folder", "General", "b", chr('b'), [self] { self->stageInventatoryFolder(); });
         add("edit low-stock threshold", "General", "e", chr('e'),
@@ -348,8 +345,8 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Projects:
-      // The Find in racks workflow owns the keyboard while it runs, so only the
-      // split and list views expose project commands here.
+      // Find in racks owns the keyboard while it runs.
+      // Project commands show only in split and list views.
       if (bomDeductPrompt_) {
         add("deduct from stock", "Finish", "y", chr('y'), [self] { self->finishBomBuild(true); });
         add("keep stock", "Finish", "n", chr('n'), [self] { self->finishBomBuild(false); });
@@ -429,8 +426,7 @@ void App::openActionSheet() {
     setMessage("No actions available here", 2, UiMessageSeverity::Warning);
     return;
   }
-  // List every group once so the sheet shows one header per group; Up/Down then
-  // follow the order the rows are drawn in.
+  // Group the rows so Up/Down follow the order they are drawn in.
   vector<string> groups;
   groups.reserve(actions.size());
   for (const auto& action : actions) groups.push_back(action.group);
@@ -442,8 +438,7 @@ void App::openActionSheet() {
   dirty_ = true;
 }
 
-// The header "Actions" control: opens the sheet like Space does, closes it when
-// it is already open, and never replaces a prompt the user is typing into.
+// The header Actions control works like Space, but never replaces a prompt the user is typing into.
 void App::activateActionsControl() {
   if (inputMode_ == InputMode::ActionSheet) {
     inputMode_ = InputMode::None;
@@ -538,9 +533,7 @@ ftxui::Element App::renderActionSheetUi() const {
     }));
   }
 
-  // Size the vbox itself (not a window wrapper) to the full terminal width so
-  // its rows' filler()s stretch edge to edge and the sheet stays opaque; a
-  // window would clamp only its outer size and leave the child at natural width.
+  // Size the vbox itself, not a wrapping window, so its rows' fillers stretch to the full width.
   return ftxui::vbox(move(rows)) | ftxui::bgcolor(uiPanelLeftBg()) |
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, screenWidth);
 }

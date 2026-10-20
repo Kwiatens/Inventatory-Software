@@ -3,8 +3,6 @@
 
 // Inventatory - Inventory backup creation and validation.
 
-// Inventatory - Inventory export and backup/restore workflows.
-
 #include "core/transfer/InventoryTransferPrivate.h"
 
 #include "app/settings/AppSettings.h"
@@ -36,8 +34,7 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
   error.clear();
   error_code filesystemError;
 #ifndef _WIN32
-  // A data folder that is a symbolic link (a dotfile manager, a folder moved to another disk) is only
-  // read here, so it is followed to the folder it names.
+  // A data folder that is a symlink (dotfile manager, moved folder) is followed to its target.
   if (filesystem::is_symlink(dataDirectory, filesystemError) && !filesystemError) {
     const auto resolved = filesystem::canonical(dataDirectory, filesystemError);
     if (filesystemError || !filesystem::is_directory(resolved, filesystemError) || filesystemError) {
@@ -92,10 +89,8 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
     return false;
   }
 
-  // Refuse oversized source files before opening SQLite's online-backup or
-  // copying optional sidecars.  Validation repeats the bound on the staged
-  // snapshot to cover growth races, but this preflight prevents an obviously
-  // oversized local workspace from consuming staging disk and hash time.
+  // Refuse oversized sources before the SQLite snapshot and sidecar copies. Validation repeats
+  // the bound on the staged copy to cover growth races.
   uintmax_t sourceAggregateSize = 0;
   const auto checkSourceSize = [&](const filesystem::path& source, const string& name) {
     error_code sourceSizeError;
@@ -195,10 +190,9 @@ bool createInventatoryBackup(const filesystem::path& dataDirectory, const filesy
     entries.push_back(move(entry));
   }
   if (!writeManifest(staging, applicationVersion, entries, error)) return fail(error);
-  // The manifest is written only after every staged file is complete; this
-  // validation is read-only and therefore cannot migrate or create the DB.
+  // Read-only check: it must not migrate or create the database.
   if (!validateInventatoryBackup(staging, error)) return fail(error);
-  // The bundle's file names must be on disk before the rename publishes it as a finished backup.
+  // Flush the file names to disk before the rename publishes the backup.
   string syncError;
   if (!syncDirectory(staging, &syncError)) return fail("Unable to flush the backup folder: " + syncError);
   if (!ops.rename(staging, destinationDirectory, error)) return fail(error);

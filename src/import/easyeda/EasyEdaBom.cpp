@@ -48,8 +48,7 @@ EasyEdaColumns mapEasyEdaColumns(const vector<string>& headers) {
   return columns;
 }
 
-// Footprints of parts that are never bought: copper pads on a panel edge, fiducials, mounting holes, test
-// points and similar. They are excluded only when the row has no supplier or manufacturer part number.
+// Footprints of parts that are never bought. Excluded only when the row has no part number.
 bool isNonElectricalFootprint(const string& footprint) {
   string compact;
   for (const unsigned char ch : footprint) {
@@ -89,8 +88,7 @@ KicadBomFile parseEasyEdaBomText(const string& text, const string& projectName) 
     return bom;
   }
 
-  // Each reference designator may appear once across the whole export. A repeated reference would count one
-  // physical part twice, so the whole file is refused and the message names the reference.
+  // A designator may appear once per export; a repeat would count one part twice.
   unordered_map<string, size_t> designatorRows;
   for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
     const auto& row = rows[rowIndex];
@@ -136,8 +134,7 @@ KicadBomFile parseEasyEdaBomText(const string& text, const string& projectName) 
       continue;
     }
 
-    // Demand is never less than the designators placed. A Quantity that disagrees is kept visible and the
-    // row cannot match on its own until the user confirms it.
+    // Demand is at least the designator count. A Quantity that disagrees needs confirmation.
     const int designatorCount = static_cast<int>(line.designators.size());
     int requested = 0;
     const auto quantityText = csvCell(row, columns.quantity);

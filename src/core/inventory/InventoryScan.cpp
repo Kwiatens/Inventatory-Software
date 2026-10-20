@@ -23,8 +23,8 @@ constexpr size_t kMaximumTmeLabelFieldBytes = 64;
 
 const char kUnrecognizedBagMessage[] = "This code is not from a supported vendor bag. Add the part manually";
 
-// Symbols and part numbers use letters, digits and the separators that appear in TME and manufacturer codes. A
-// manufacturer part number may also carry '*' (CONNFLY's DS1023-1*40S21); a TME symbol may not.
+// Symbols and part numbers use letters, digits and the separators of TME and manufacturer codes.
+// A manufacturer part number may also carry '*' (CONNFLY's DS1023-1*40S21); a TME symbol may not.
 bool isTmeLabelIdentifier(const string& value, bool allowAsterisk) {
   if (value.empty() || value.size() > kMaximumTmeLabelFieldBytes) return false;
   return all_of(value.begin(), value.end(), [allowAsterisk](char character) {
@@ -44,8 +44,8 @@ bool parseTmeQuantity(const string& value, int& quantity) {
   return true;
 }
 
-// The part a vendor identity names, found by the vendor's own part number whatever vendor the part came from. A TME
-// symbol kept beside a DigiKey part still identifies that part, so a TME label of it matches rather than duplicates.
+// The part a vendor identity names, matched by the vendor's own part number. A TME symbol kept
+// beside a DigiKey part still matches, so its TME label does not create a duplicate.
 InventoryItem* findVendorPart(InventoryStore& store, const VendorBagIdentity& identity) {
   const auto number = toLower(trim(identity.providerProductNumber));
   if (number.empty()) return nullptr;
@@ -63,8 +63,7 @@ InventoryItem* findVendorPart(InventoryStore& store, const VendorBagIdentity& id
   return nullptr;
 }
 
-// A TME label creates a placeholder whose origin is TME and that carries the symbol, so the TME lookup can run after
-// the scan is committed.
+// A TME label creates a placeholder with the symbol, so the lookup can run after the commit.
 ScanResolution resolveTmeLabel(InventoryStore& store, const VendorBagIdentity& identity) {
   if (auto* existing = findVendorPart(store, identity)) {
     return {true, false, existing->id, "Matched existing item"};
@@ -92,8 +91,7 @@ ScanResolution resolveTmeLabel(InventoryStore& store, const VendorBagIdentity& i
   return {true, true, store.items().back().id, "Created a placeholder item from the TME label"};
 }
 
-// A DigiKey bag creates a placeholder whose origin is DigiKey and that carries the DigiKey part number, so the DigiKey
-// lookup can run after the scan is committed.
+// A DigiKey bag creates a placeholder with the part number, so the lookup can run after the commit.
 ScanResolution resolveDigiKeyBag(InventoryStore& store, const VendorBagIdentity& identity) {
   if (auto* existing = findVendorPart(store, identity)) {
     return {true, false, existing->id, "Matched existing item"};
@@ -163,9 +161,8 @@ optional<TmeLabelFields> parseTmeLabelPayload(const string& rawCode) {
   return label;
 }
 
-// Resolves a code from the scanner. A scan adds or finds a part only when the code is the main code of a supported
-// vendor bag; every other code is refused, so no part is created from a code whose vendor is unknown. Inventatory
-// machine codes find the part they label.
+// Resolves a scanner code. Only a supported vendor bag's main code can create a part; machine codes
+// find the part they label.
 ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode) {
   const auto code = trim(rawCode);
   if (code.empty()) {

@@ -49,8 +49,8 @@ struct JsonValue {
   struct Number {
     string text;
   };
-  // A string value longer than kMaximumDigiKeyFieldBytes. The parser validates its whole text but keeps none
-  // of it, so no reader can mistake a cut-off prefix for the complete value. Readers treat it as absent text.
+  // A string over kMaximumDigiKeyFieldBytes is validated, but its text is dropped so no cut-off
+  // prefix is read as the value. Readers treat it as absent.
   struct OversizedText {};
   using Object = std::unordered_map<string, shared_ptr<JsonValue>>;
   using Array = vector<shared_ptr<JsonValue>>;
@@ -103,12 +103,11 @@ using value_text::looksLikeFrequencyValue;
 using value_text::looksLikeInductanceValue;
 optional<string> readParameterText(const JsonPtr& entry, const string& label);
 bool looksLikePackagingType(const string& value);
-// Looks a product parameter up by label: an exact label match wins over a loose (substring) one, and
-// entries whose value `accept` rejects are skipped so a later, better entry is still found.
+// Looks up a parameter by label. Exact labels beat substring matches; `accept` skips entries.
 optional<string> readParameterValue(const JsonPtr& product, initializer_list<const char*> names,
                                     const std::function<bool(const string&)>& accept = {});
 optional<string> extractInductanceFromText(const string& text);
-// Package name (SOT-23, 0805, QFN-32, ...) found in product text; only a bounded prefix of the text is searched.
+// Package name (SOT-23, 0805, QFN-32, ...) in product text; only a bounded prefix is searched.
 optional<string> extractComponentPackageFromText(const string& text);
 
 optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& query);
@@ -117,11 +116,10 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
 bool isSafeHeaderValue(const string& value);
 bool appendHeader(std::ostringstream& headers, const char* name, const string& value, string* error);
 bool appendAuthorizationHeader(std::ostringstream& headers, const string& token, string* error);
-// Blanks the display-only numeric fields (stock, lead time, price) that are not valid numbers, so one odd
-// value does not discard an otherwise usable product. Returns true when something was cleared.
+// Blanks invalid display-only numbers (stock, lead time, price) instead of discarding the product.
+// Returns true when something was cleared.
 bool clearInvalidOptionalFields(DigiKeyProductDetails& details);
-// Seconds an access token may be reused: the server's expires_in minus a safety margin, or a default
-// when the field is missing or unusable.
+// Seconds a token may be reused: expires_in less a margin, or a default if unusable.
 int tokenLifetimeSeconds(const string& expiresIn);
 bool isUnsignedDecimal(const string& value, unsigned long long maximum);
 bool isFiniteDecimal(const string& value, double maximum);

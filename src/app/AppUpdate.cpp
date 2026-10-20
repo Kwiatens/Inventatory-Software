@@ -101,8 +101,7 @@ string previewNotes(const string& notes) {
   if (notes.empty()) return "No release notes were provided for this release.";
   constexpr size_t kPreviewCharacters = 1800U;
   if (notes.size() <= kPreviewCharacters) return notes;
-  // Cut on a character boundary: back up while the first dropped byte is a continuation byte, so a
-  // multi-byte character is either kept whole or removed whole (never left as a dangling lead byte).
+  // Back up to a UTF-8 character boundary so no multi-byte character is split.
   size_t cut = kPreviewCharacters;
   while (cut > 0 && (static_cast<unsigned char>(notes[cut]) & 0xC0U) == 0x80U) --cut;
   return notes.substr(0, cut) + "\n\n... release notes continue after the update";
@@ -165,8 +164,7 @@ void App::beginSoftwareUpdate() {
     return;
   }
 #ifndef _WIN32
-  // The installer replaces the executable in place; find out now, before the download and before the
-  // interface closes, that this installation cannot be written by the current user.
+  // The installer replaces the executable in place; check writability before downloading.
   if (!isInstallDirectoryWritable(currentExecutablePath())) {
     setMessage("This Inventatory install is not writable by you; update it with the tool that installed it", 8);
     return;
@@ -365,7 +363,7 @@ void App::processSoftwareUpdate() {
         updateError_ = result.error;
       }
     } else {
-      // The download folder is created when the download starts, not before the user accepts.
+      // The download folder is created only when the download starts.
       updatePackage_ = move(result.package);
       updateStep_ = UpdateWizardStep::Preview;
       updateNotesScroll_ = 0;

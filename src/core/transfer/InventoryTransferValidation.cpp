@@ -30,9 +30,8 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
   set<string> listed;
   uintmax_t aggregateSize = 0;
   for (const auto& entry : entries) listed.insert(entry.name);
-  // The iterator owns enumerationError: a failed construction or increment ends the loop early, so
-  // it is checked after the loop as well. Per-entry queries use their own code so they cannot hide
-  // or clear an enumeration failure.
+  // A failed construction or increment ends the loop early, so check enumerationError after it.
+  // Per-entry queries use their own error_code so they cannot hide that failure.
   error_code enumerationError;
   filesystem::directory_iterator iterator(directory, enumerationError);
   const filesystem::directory_iterator end;
@@ -87,9 +86,8 @@ bool validateEntries(const filesystem::path& directory, const vector<BackupEntry
 #ifdef _WIN32
 namespace {
 
-// Windows compares path names case-insensitively for non-ASCII letters too (for example U+0141 and
-// U+0142), so the comparison form is lowered on the UTF-16 path with the invariant locale rather
-// than byte by byte on its UTF-8 form.
+// Windows compares names case-insensitively for non-ASCII too, so fold the UTF-16 path with the
+// invariant locale rather than the UTF-8 bytes.
 filesystem::path foldPathCase(const filesystem::path& value) {
   const wstring& wide = value.native();
   if (wide.empty()) return value;
@@ -154,10 +152,8 @@ bool isLinkedOrReparseArtifact(const filesystem::path& path, error_code& error) 
 #endif
 }
 
-// Validate the complete data-directory portion of a workspace without
-// creating, migrating, or otherwise mutating any file. Backup staging,
-// post-activation restore checks, and startup recovery all use this same
-// semantic gate so an optional sidecar cannot bypass one of those paths.
+// Read-only: must not create, migrate or mutate files. Backup, restore and recovery share this
+// gate so an optional sidecar cannot bypass it.
 bool validateWorkspaceData(const filesystem::path& directory, string& error) {
   error.clear();
   const auto rejectLinkedArtifact = [&](const filesystem::path& path, const char* label) {

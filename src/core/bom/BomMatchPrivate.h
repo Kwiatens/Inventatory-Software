@@ -57,14 +57,13 @@ struct ItemValueCache {
 ItemValueCache precomputeItemValues(const InventoryItem& item);
 
 std::optional<std::string> itemPackage(const InventoryItem& item);
-// Two part numbers are the same when they match after case and separators are removed. Empty never matches.
+// Equal after case and separators are removed. Empty never matches.
 bool samePartNumber(const std::string& lhs, const std::string& rhs);
-// True when `needle` (already compacted) is a whole word of `text`. Words are split on spaces, commas and
-// semicolons, so "ESP32-S3-WROOM-1" is a word of "Espressif ESP32-S3-WROOM-1" but not of "...-N16R8".
+// True when compacted `needle` is a whole word of `text`, split on spaces, commas, semicolons.
 bool partNumberWordIn(const std::string& text, const std::string& needle);
 bool partNameHasToken(const InventoryItem& item, const std::string& designation);
 
-// The best score an item earns for a line, and whether that score came from an identifier match.
+// Best score for a line; `identity` is set when it came from an identifier match.
 struct CandidateScore {
   int score = 0;
   bool identity = false;

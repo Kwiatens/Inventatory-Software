@@ -1,10 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - TME request encoding primitives.
-//
-// The TME v2 token request sends the token and the application secret as HTTP Basic credentials, and the product
-// requests put their symbols and part numbers in the query string.
+// The token request sends HTTP Basic credentials. Product symbols and part numbers
+// go in the query string.
 
 #pragma once
 

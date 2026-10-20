@@ -254,9 +254,8 @@ bool deserializeParametersFromStorageStrict(const string& value, vector<Paramete
   return deserializeParametersStrictImpl(value, parameters);
 }
 
-// Each source is one quoted record holding the ten vendorMetadata fields. The
-// records are separated by spaces, so the list is itself a sequence of quoted
-// strings and can sit inside an item record as a single quoted field.
+// Each source is one quoted record of the ten vendorMetadata fields. The list is a sequence
+// of quoted strings, so it fits in an item record as one quoted field.
 string serializeVendorSourcesForStorage(const vector<VendorProductMetadata>& sources) {
   ostringstream out;
   for (size_t index = 0; index < sources.size(); ++index) {
@@ -275,8 +274,7 @@ string serializeVendorSourcesForStorage(const vector<VendorProductMetadata>& sou
 
 namespace {
 
-// Reads the raw fields of one source record. The structured fields stay encoded so the strict and
-// lenient readers can each decide how to treat them.
+// Reads one source record, leaving structured fields encoded for the strict and lenient readers.
 bool readVendorSourceRecord(const string& record, VendorProductMetadata& source, string& categoryPath,
                             string& parameters) {
   istringstream input(record);
@@ -293,7 +291,7 @@ bool readVendorSourceRecord(const string& record, VendorProductMetadata& source,
 }  // namespace
 
 vector<VendorProductMetadata> deserializeVendorSourcesFromStorage(const string& value) {
-  // A damaged record is skipped so the readable sources still load. The strict reader below refuses it.
+  // Skips a damaged record so readable sources still load; the strict reader refuses it.
   istringstream list(value);
   vector<VendorProductMetadata> sources;
   for (list >> ws; !list.eof(); list >> ws) {
@@ -458,9 +456,7 @@ bool deserializeActivity(const string& line, ActivityEntry& entry) {
   if (!(input >> entry.timestamp >> quoted(entry.kind) >> quoted(entry.message))) {
     return false;
   }
-  // A record is a complete line, not merely a valid prefix.  Without this
-  // check a valid entry followed by arbitrary bytes was accepted and then
-  // preserved/re-written as if the file were trustworthy.
+  // The whole line must be consumed; otherwise trailing bytes would be accepted and rewritten.
   input >> ws;
   return input.eof();
 }
@@ -493,10 +489,8 @@ bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activit
 
 namespace {
 
-// Serializes one record so that its line never exceeds what loadActivities accepts. Quoting doubles
-// every quote and backslash, so a message that is valid on its own can still produce an oversized
-// line; such a message is cut (on a UTF-8 boundary) and marked, instead of making the whole log
-// unreadable on the next start.
+// Keeps a record within the line limit loadActivities accepts. Quoting can double a message's size,
+// so an oversized message is cut on a UTF-8 boundary and marked with "...".
 string serializeActivityWithinLineLimit(const ActivityEntry& entry) {
   auto line = serializeActivity(entry);
   if (line.size() <= kMaxActivityLineBytes) return line;

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // CSV import review page rendering and keyboard handling.
 
 #include "App.h"
@@ -374,8 +373,7 @@ void App::handleImportCsvKey(const KeyEvent& key) {
   }
 }
 
-// Reviewed rows (accepted, merged or skipped) live only in memory until the import is
-// finished, so leaving the review asks once before throwing them away.
+// Reviewed rows exist only in memory until the import finishes, so leaving asks once first.
 bool App::confirmImportDiscard() {
   const int reviewed = importCreatedCount_ + importMergedCount_ + importSkippedCount_;
   const bool needsConfirmation = importStageActive_ && !importCommitPending_ && reviewed > 0;

@@ -28,8 +28,7 @@ using namespace app_actions;
 
 namespace {
 
-// TME's answer for one BOM line: the symbol of the first candidate that fits the line, or of the first candidate
-// when none fits, which is then shown as needing a check.
+// TME's answer for a BOM line: the first fitting candidate, else the first orderable, unverified.
 struct TmeSuggestion {
   BomLookupOutcome outcome = BomLookupOutcome::Failed;
   string suggestion;
@@ -37,7 +36,7 @@ struct TmeSuggestion {
 };
 
 TmeSuggestion lookupTmeSuggestion(TmeApiClient& client, const string& keywords, const BomLine& line) {
-  // A candidate is only known to fit once its parameters and package are read, so the first few are read in full.
+  // Fit is only known once parameters and package are read, so read the first few in full.
   constexpr size_t kCandidatesRead = 3;
   TmeSuggestion answer;
   TmeLookupOutcome searched = TmeLookupOutcome::Failed;
@@ -54,7 +53,7 @@ TmeSuggestion lookupTmeSuggestion(TmeApiClient& client, const string& keywords, 
     if (!candidate.orderable) continue;
     if (!client.fetchProductDetails(candidate, &error)) return answer;  // a failure is retried later
     if (answer.suggestion.empty()) answer.suggestion = candidate.vendorMetadata.providerProductNumber;
-    // The record is judged the same way a stock item is: by its part number, or by its value and package.
+    // Judge the record as a stock item is judged: by part number, or by value and package.
     InventoryItem probe;
     probe.partName = candidate.productDescription;
     probe.sku = candidate.vendorMetadata.manufacturerPartNumber;
@@ -70,14 +69,13 @@ TmeSuggestion lookupTmeSuggestion(TmeApiClient& client, const string& keywords, 
   return answer;
 }
 
-// Mouser's answer for one BOM line: the Mouser part number of the one record the line's part number names, when Mouser
-// can sell it. limitReached is set when Mouser refused the request because its request limit was reached.
+// Mouser's sellable record for the line's part number; limitReached is set at the request limit.
 BomMouserSuggestion lookupMouserSuggestion(MouserApiClient& client, const string& partNumber, const BomLine& line,
                                            bool& limitReached) {
   BomMouserSuggestion answer;
   MouserLookupOutcome lookup = MouserLookupOutcome::Failed;
   string error;
-  // A BOM line names no manufacturer, so none is passed to tell apart products that share the part number.
+  // BOM lines name no manufacturer, so none is passed to disambiguate.
   const auto product = client.lookupByPartNumber(partNumber, lookup, &error);
   switch (lookup) {
     case MouserLookupOutcome::Found:
@@ -85,11 +83,11 @@ BomMouserSuggestion lookupMouserSuggestion(MouserApiClient& client, const string
       break;
     case MouserLookupOutcome::NoMatch:
     case MouserLookupOutcome::Ambiguous:
-      // Several products with the part number are never guessed between, and asking again would get the same answer.
+      // Never guess between several products; asking again gets the same answer.
       answer.outcome = BomLookupOutcome::NoMatch;
       break;
     case MouserLookupOutcome::Failed:
-      // A failure is retried later. A reached request limit also ends Mouser's part of this run.
+      // Failure is retried later; a reached limit also ends Mouser for this run.
       limitReached = mouserLimitReached(error);
       break;
   }
@@ -119,12 +117,9 @@ void App::queueBomEnrichment() {
     return;
   }
   bomEnrichmentProjectId_ = project->id;
-  // A new queue run invalidates any result still in flight.  The old future is
-  // allowed to finish against its captured client, then its project/sequence
-  // pair is checked before anything is applied or saved.
+  // A new run invalidates any result still in flight; it is checked before being applied.
   ++bomEnrichmentSequence_;
-  // Credentials are looked up by the worker (the credential store can block on a locked keyring) and a
-  // missing configuration ends the run quietly, so an offline user never sees an error they cannot act on.
+  // The worker reads credentials (the keyring can block); missing config ends the run quietly.
   if (const auto context = currentWorkspaceContext(); context != nullptr) {
     bomEnrichmentGeneration_ = context->generation;
   } else {
@@ -136,7 +131,7 @@ void App::queueBomEnrichment() {
     }
     const auto key = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
     if (bomEnrichmentCached(project->enrichment, key)) {
-      continue;  // answered earlier and cached with the pinned project
+      continue;  // already answered and cached with the project
     }
     if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), key) == bomEnrichmentQueue_.end()) {
       bomEnrichmentQueue_.push_back(key);
@@ -146,8 +141,7 @@ void App::queueBomEnrichment() {
 }
 
 void App::processBomEnrichment() {
-  // Collect a finished lookup first, then start the next one. Only ever one
-  // request is outstanding, so the shared client's cached token is safe.
+  // Collect the finished lookup before starting the next; one request at a time keeps the token.
   if (bomEnrichmentFuture_.valid()) {
     if (bomEnrichmentFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
       return;
@@ -155,9 +149,7 @@ void App::processBomEnrichment() {
     const auto result = bomEnrichmentFuture_.get();
     const auto context = currentWorkspaceContext();
     if (result.requestSequence != bomEnrichmentSequence_) {
-      // A project reopen/re-import superseded this lookup.  It is safe to
-      // release the old client now that its future has been joined, ensuring
-      // a subsequent run uses the current credentials.
+      // Superseded by a reopen or re-import; release the old client so the next run uses new keys.
       bomEnrichmentClient_.reset();
     }
     if (bomEnrichmentScopeMatches(bomEnrichmentProjectId_, result.projectId,
@@ -168,12 +160,12 @@ void App::processBomEnrichment() {
         return candidate.id == result.projectId;
       });
       if (targetProject != bomProjects_.end() && !result.key.empty()) {
-        // A failed lookup stores nothing so the line is retried the next time the project opens.
+        // A failed lookup stores nothing, so the line is retried next time.
         if (const auto entry = bomEnrichmentEntry(result.outcome, result.suggestion, result.verified, result.fromTme,
                                                   result.fromMouser)) {
           targetProject->enrichment[result.key] = *entry;
         } else {
-          // Drop a stale "-" left behind by earlier versions rather than keep showing it.
+          // Drop a stale "-" entry from earlier versions.
           targetProject->enrichment.erase(result.key);
         }
         dirty_ = true;
@@ -193,8 +185,7 @@ void App::processBomEnrichment() {
     }
     if (bomEnrichmentQueue_.empty() && result.requestSequence == bomEnrichmentSequence_) {
       bomEnrichmentClient_.reset();
-      // Persist the project identified by the result, never whichever project
-      // happens to be selected when the future completes.
+      // Save the project named by the result, not whichever is selected now.
       if (!result.projectId.empty()) saveBomProjects();
       return;
     }
@@ -227,8 +218,7 @@ void App::processBomEnrichment() {
     return;
   }
 
-  // A manufacturer part number is the precise query. Without one, the keyword search uses the value and package,
-  // which can return a near miss, so its answer is checked against the line before it is shown as verified.
+  // A keyword search (no MPN) can return a near miss, so its hit is checked against the line.
   const BomLine lineSnapshot = *line;
   const auto keywords = trim(line->manufacturerPartNumber.empty()
                                  ? line->designation + " " + packageFromFootprint(line->footprint)
@@ -240,8 +230,7 @@ void App::processBomEnrichment() {
   bomEnrichmentFuture_ = async(launch::async, [session, key, keywords, lineSnapshot, projectId, generation,
                                                 requestSequence] {
     BomEnrichmentResult result{key, {}, false, BomLookupOutcome::Failed, projectId, generation, requestSequence};
-    // Credentials are read by the worker, because the credential store can block. A supplier that is not configured
-    // is skipped; a run with no supplier configured ends quietly.
+    // Read credentials here: the keyring can block. Unconfigured suppliers are skipped.
     if (session->client == nullptr) {
       const auto config = loadDigiKeyConfig();
       if (config.valid()) session->client = make_unique<DigiKeyApiClient>(config);
@@ -250,22 +239,20 @@ void App::processBomEnrichment() {
       const auto config = loadTmeConfig();
       if (config.valid()) session->tmeClient = make_unique<TmeApiClient>(config);
     }
-    // Mouser's key is read for every lookup and a fresh client is built from it, so a key saved during the run applies
-    // from the next line. That is safe because the request spacing is shared by every Mouser client in the process.
+    // Read the Mouser key per lookup, so a key saved mid-run applies to the next line.
     const auto mouserConfig = loadMouserConfig();
     const bool mouserConfigured = mouserConfig.valid();
     if (session->client == nullptr && session->tmeClient == nullptr && !mouserConfigured) {
       result.credentialsMissing = true;
       return result;
     }
-    // DigiKey is asked first. TME is asked when DigiKey has no part for the line, or when DigiKey is not configured.
-    // Mouser is asked last, when neither DigiKey nor TME has a part for the line or is configured.
+    // Order: DigiKey, TME, then Mouser; each is asked only when the earlier one has no part.
     if (session->client != nullptr) {
       string error;
       DigiKeyLookupOutcome lookup = DigiKeyLookupOutcome::Failed;
       if (const auto details = session->client->lookupProductDetails(keywords, lookup, &error)) {
         result.suggestion = details->manufacturerPartNumber.empty() ? details->lookupKey : details->manufacturerPartNumber;
-        // The supplier's record is judged the same way a stock item is: by its part number, or by its value and package.
+        // Judge the record as a stock item is judged: by part number, or by value and package.
         InventoryItem probe;
         probe.partName = details->productDescription;
         probe.sku = details->manufacturerPartNumber;
@@ -275,7 +262,7 @@ void App::processBomEnrichment() {
         result.outcome = BomLookupOutcome::Found;
         return result;
       }
-      // Only a clear "no part" moves on to TME; a failed request is retried later, as it always was.
+      // Only a clear "no part" moves on to TME; failures are retried later.
       if (lookup != DigiKeyLookupOutcome::NoMatch) return result;
     }
     if (session->tmeClient != nullptr) {
@@ -295,16 +282,14 @@ void App::processBomEnrichment() {
       result.outcome = BomLookupOutcome::NoMatch;
       return result;
     }
-    // Once Mouser's request limit is reached, the lines only Mouser could answer stay unanswered (a failure, which
-    // stores nothing) and are asked again in a later run, rather than spending more of the quota now.
+    // At Mouser's request limit, leave these lines unanswered for a later run.
     if (session->mouserLimitReached) return result;
     BomMouserSuggestion answer;
     try {
       MouserApiClient mouserClient(mouserConfig);
       answer = lookupMouserSuggestion(mouserClient, mouserPartNumber, lineSnapshot, session->mouserLimitReached);
     } catch (...) {
-      // A failure stores nothing and the line is asked again later. The key travels in the request URL, so no
-      // exception text is kept.
+      // Store nothing: the API key is in the URL, so the exception text is not kept.
       return result;
     }
     result.suggestion = answer.suggestion;

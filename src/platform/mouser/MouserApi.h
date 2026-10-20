@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Mouser catalogue client (Search API v1, keyword search).
-
 #pragma once
 
 #include "core/inventory/Inventory.h"
@@ -15,7 +13,6 @@
 
 namespace inventatory {
 
-// Secure credential store name for the Mouser Search API key.
 inline constexpr const char* kMouserApiKeyCredentialName = "mouser-api-key";
 
 struct MouserConfig {
@@ -24,84 +21,71 @@ struct MouserConfig {
   bool valid() const;
 };
 
-// Environment variable MOUSER_API_KEY first, then the secure credential store entry above. The key is never read from
-// settings.conf.
+// Reads MOUSER_API_KEY first, then the credential store. Never read from settings.conf.
 MouserConfig loadMouserConfig();
-// True when MOUSER_API_KEY is set to a non-blank value. That value is used in place of the stored key, so Settings
-// must count it as a key that is set.
+// True when MOUSER_API_KEY is non-blank. It replaces the stored key, so Settings counts it as set.
 bool mouserKeyFromEnvironment();
 
 // One Mouser catalogue entry, read from one keyword-search result.
 struct MouserProductDetails {
-  VendorProductMetadata vendorMetadata;  // provider "mouser"; providerProductNumber = the Mouser part number;
-                                         // manufacturerPartNumber; categoryPath = {Category} when present; title =
-                                         // Description; productUrl = ProductDetailUrl; locale left empty
+  // provider "mouser"; providerProductNumber = Mouser part number; title = Description.
+  VendorProductMetadata vendorMetadata;
   std::string manufacturerName;
   std::string productDescription;
   std::string categoryName;
-  std::vector<Parameter> parameters;     // ProductAttributes as name/value pairs, values exactly as Mouser sent them
-  std::string packageName;               // the value of the attribute named "Package / Case" (case-insensitive), if any
+  std::vector<Parameter> parameters;     // Name/value pairs, values as Mouser sent them
+  std::string packageName;               // From the "Package / Case" attribute (case-insensitive)
   std::string datasheetUrl;
   std::string productUrl;
-  std::string quantityAvailable;         // digits only, e.g. "1234"; empty when unknown
-  std::string unitPrice;                 // the lowest-quantity price as Mouser printed it; empty when unknown
-  std::string productStatus;             // LifecycleStatus when present, else "Discontinued" when IsDiscontinued is true
-  bool orderable = true;                 // false when IsDiscontinued is true or the lifecycle says Obsolete or Discontinued
+  std::string quantityAvailable;         // Digits only; empty when unknown
+  std::string unitPrice;                 // Lowest-quantity price, as Mouser printed it
+  std::string productStatus;             // LifecycleStatus, else "Discontinued" when IsDiscontinued
+  bool orderable = true;                 // False when discontinued or obsolete
 };
 
-// Why a lookup produced no details. NoMatch and Ambiguous are answers from Mouser; Failed covers transport, key, status
-// and parse errors, which a later attempt may resolve.
+// NoMatch and Ambiguous are Mouser's answers. Failed (transport, key, status, parse) may succeed
+// later.
 enum class MouserLookupOutcome { Found, NoMatch, Ambiguous, Failed };
 
-// Parses a keyword-search response body. An envelope with an empty Parts list is success with no products. A non-empty
-// Errors list, or a body that is not a JSON object, is a failure with the message set in *error.
+// An empty Parts list is success with no products. A non-empty Errors list or a non-object body is
+// a failure; the message goes to *error.
 bool parseMouserSearchResponse(const std::string& body, std::vector<MouserProductDetails>& products, std::string* error);
 
-// True when the part number equals the product's manufacturer part number OR its Mouser part number. Comparison ignores
-// letter case and every character that is not a letter or digit, so "STM32F103C8T6" and "stm32-f103c8t6" are equal.
+// Matches either part number, ignoring case and non-alphanumeric characters.
 bool mouserPartNumberMatches(const std::string& partNumber, const MouserProductDetails& product);
 
-// The products a lookup of the part number may use: those whose part number matches it AND that carry a Mouser part
-// number. A record without a Mouser part number cannot be ordered or merged, so it is never a match.
+// Matches that also carry a Mouser part number; without one the record cannot be ordered or merged.
 std::vector<MouserProductDetails> keepMouserMatches(const std::vector<MouserProductDetails>& products,
                                                     const std::string& partNumber);
 
-// Index of the product a part number means. With a manufacturer given, only products of that manufacturer (case-insensitive)
-// are kept. Returns the index of the single remaining product, or matches.size() when none or several remain.
+// Filters by manufacturer (case-insensitive) when given. Returns the index of the sole remaining
+// product, or matches.size() if none or several remain.
 std::size_t chooseMouserCandidate(const std::vector<MouserProductDetails>& matches, const std::string& partNumber,
                                   const std::string& manufacturer);
 
-// Replaces every occurrence of the key in text with "[key]". Used on every error string before it leaves this layer.
+// Replaces the key with "[key]". Applied to every error string before it leaves this layer.
 std::string redactMouserKey(std::string text, const std::string& apiKey);
 
-// True when an error from this client says Mouser's request limit was reached: HTTP 429, or an Errors entry about a
-// limit or quota. Further requests would only spend more of the quota, so a caller stops asking until later.
+// True for HTTP 429 or a limit/quota error. Callers should stop asking until later.
 bool mouserLimitReached(const std::string& error);
 
-// True when an error from this client says Mouser rejected the API key: HTTP 401 or 403, or an Errors entry about the
-// key. Further requests with the same key would be refused too, so a caller stops asking until the key is changed.
+// True for HTTP 401/403 or a key error. Callers should stop until the key changes.
 bool mouserKeyRejected(const std::string& error);
 
-// Whether a key-test answer shows that Mouser accepted the key. HTTP 429 counts: the key was accepted and the limit is
-// reached. A 2xx answer counts only when the body is a JSON object with no Errors entries. Every other answer is false
-// with the message in *error: a rejected key, a failed search, an unreadable body or "Mouser request failed (HTTP n)".
-// The message does not carry the key; the caller redacts it anyway.
+// Whether a key test shows Mouser accepted the key. HTTP 429 counts as accepted. A 2xx counts only
+// with a JSON object body and no Errors. Otherwise false, with the reason in *error.
 bool mouserKeyAccepted(std::uint32_t statusCode, const std::string& body, std::string* error);
 
-// Mouser Search API v1 client. Each request is a POST authenticated by the API key in the query string. Requests are
-// spaced process-wide, across every client, so that the key stays under Mouser's limit however many clients run.
+// Mouser Search API v1 client. Requests are spaced process-wide to respect the key's rate limit.
 class MouserApiClient {
  public:
   explicit MouserApiClient(MouserConfig config);
 
-  // One keyword search with a fixed term. The key is accepted only when Mouser answers the search (see
-  // mouserKeyAccepted): a rejected key, a failed or unreadable answer and an answer with errors are false with an
-  // error, and a reached request limit (HTTP 429) counts as accepted.
+  // Keyword search with a fixed term; see mouserKeyAccepted for the result rules.
   bool testConnection(std::string* error = nullptr);
 
-  // Keyword search for the part number, then the exact matches only. Zero matches is NoMatch, and so is a result list
-  // with no exact match (never guess from loose matches). Several matches that the manufacturer cannot separate are
-  // Ambiguous. Transport, status and parse failures are Failed and carry a message safe to show.
+  // Keyword search, then exact matches only; never guess from loose matches. Several matches that
+  // the manufacturer cannot separate are Ambiguous.
   std::optional<MouserProductDetails> lookupByPartNumber(const std::string& partNumber, MouserLookupOutcome& outcome,
                                                          std::string* error = nullptr,
                                                          const std::string& manufacturer = std::string());
@@ -109,8 +93,7 @@ class MouserApiClient {
  private:
   bool searchKeyword(const std::string& keyword, std::vector<MouserProductDetails>& products,
                      MouserLookupOutcome& outcome, std::string* error);
-  // Sleeps just long enough that calls from every client in the process stay under Mouser's limit of 30 calls per
-  // minute.
+  // Sleeps so all clients together stay under Mouser's limit of 30 calls per minute.
   void waitForRequestSlot();
 
   MouserConfig config_;

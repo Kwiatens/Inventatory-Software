@@ -54,9 +54,8 @@ struct DigiKeyProductDetails {
   VendorProductMetadata vendorMetadata;
 };
 
-// Why a product lookup produced no details. NoMatch is an authoritative answer (DigiKey searched
-// and found nothing usable); Failed covers transport, authentication, rate limit and parse errors,
-// which a later attempt may well resolve.
+// Why a lookup gave no details. NoMatch is authoritative. Failed (transport, auth, rate limit,
+// parse) may succeed later.
 enum class DigiKeyLookupOutcome {
   Found,
   NoMatch,
@@ -65,8 +64,7 @@ enum class DigiKeyLookupOutcome {
 
 DigiKeyConfig loadDigiKeyConfig();
 
-// Validates a DigiKey JSON payload without issuing a network request. This
-// keeps the bounded parser independently testable for malformed responses.
+// Validates a DigiKey JSON payload without a network request, for testing the bounded parser.
 bool validateDigiKeyJsonPayload(const string& payload, string* error = nullptr);
 
 class DigiKeyApiClient {
@@ -78,7 +76,7 @@ class DigiKeyApiClient {
   optional<DigiKeyProductDetails> fetchProductDetails(const string& productNumber,
                                                            string* error = nullptr);
 
-  // Same lookup as fetchProductDetails, additionally telling "nothing matched" from "the request failed".
+  // Like fetchProductDetails, but tells "nothing matched" from "the request failed".
   optional<DigiKeyProductDetails> lookupProductDetails(const string& productNumber, DigiKeyLookupOutcome& outcome,
                                                        string* error = nullptr);
 

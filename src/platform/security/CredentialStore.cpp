@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Windows Credential Manager implementation for user-scoped secrets.
 
 #include "platform/security/CredentialStore.h"
@@ -72,9 +71,7 @@ optional<string> workspaceDigest(const filesystem::path& workspaceDirectory) {
     return nullopt;
   }
 
-  // Windows paths are case-insensitive.  Lowercasing the UTF-16 path keeps
-  // equivalent spellings in the same Credential Manager scope while leaving
-  // the original path untouched on disk.
+  // Windows paths are case-insensitive, so lowercase them to share one credential scope.
   transform(normalizedPath.begin(), normalizedPath.end(), normalizedPath.begin(), [](wchar_t ch) {
     return ch >= L'A' && ch <= L'Z' ? static_cast<wchar_t>(ch - L'A' + L'a') : ch;
   });

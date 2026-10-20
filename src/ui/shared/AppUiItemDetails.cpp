@@ -39,8 +39,7 @@ bool categoryContains(const InventoryItem& item, initializer_list<const char*> n
   return false;
 }
 
-// The words of a parameter name, in lower case, without punctuation: "Voltage - Supply (Min/Max)" has the words voltage,
-// supply, min and max.
+// Lower-case words of a parameter name; punctuation separates them.
 vector<string> parameterNameWords(const string& name) {
   vector<string> words;
   string word;
@@ -56,8 +55,8 @@ vector<string> parameterNameWords(const string& name) {
   return words;
 }
 
-// Two names are one parameter when one is the leading words of the other: "Package" is "Package / Case" and "Current" is
-// "Current - Test". A name that only contains the other's words is a different parameter: "Color" is not "Lens Color".
+// Names match when one's words lead the other's: "Package" matches "Package / Case",
+// but "Color" does not match "Lens Color".
 bool parameterLabelMatches(const string& lhs, const string& rhs) {
   const auto left = parameterNameWords(lhs);
   const auto right = parameterNameWords(rhs);
@@ -102,8 +101,7 @@ optional<string> extractInductanceFromText(const string& text) {
 }
 
 const Parameter* findParameter(const vector<Parameter>& parameters, initializer_list<const char*> names) {
-  // For each wanted name, the parameter with that exact name comes before one that only starts with it, so "Current" is
-  // the "Current" parameter even when the record lists "Current - Test" first.
+  // An exact name match wins over a prefix match, even when the record lists the prefix first.
   for (const auto* name : names) {
     const auto wanted = normalizeKey(name);
     for (const auto& parameter : parameters) {
@@ -162,9 +160,7 @@ string prettyLabel(const string& label) {
 }
 
 vector<DetailField> electricalFieldsForItem(const InventoryItem& item) {
-  // Vendor data uses a lone dash or "N/A" to mean "no value". Those carry no
-  // more information than an absent parameter, so they are dropped rather than
-  // given a row in the detail panel.
+  // Vendor placeholders ("-", "N/A") carry no value, so they are dropped.
   const auto isPlaceholder = [](const string& value) {
     const auto trimmed = trim(value);
     // normalizeKey drops punctuation, so "N/A" and "n.a." both reduce to "na".

@@ -12,10 +12,9 @@
 
 namespace inventatory {
 
-// Parses a complete dot-decimal literal such as "0.1" or "1e-3" without
-// consulting the process locale. The application calls setlocale(LC_ALL, ""),
-// and std::stod would then stop at the '.' under comma-decimal locales. Returns
-// false unless the whole string is consumed as one number.
+// Parses a dot-decimal literal regardless of locale: the app calls setlocale(LC_ALL, ""), and
+// std::stod would stop at '.' under comma-decimal locales. Fails unless the whole string is
+// one number.
 inline bool parseClassicDecimal(const std::string& text, double& value) {
   std::istringstream stream(text);
   stream.imbue(std::locale::classic());

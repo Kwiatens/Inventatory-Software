@@ -1,12 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - digit entry for numeric prompts that start with a default value.
-//
-// A prompt that is pre-filled with the current or suggested quantity behaves
-// like a selected field: the first digit replaces the default instead of being
-// appended to it ("5" then "10" must give 10, never 510). Backspace edits the
-// default as ordinary text and ends the replace behaviour.
+// Digit entry for numeric prompts with a pre-filled default. The first digit
+// replaces the default ("5" then "10" gives 10, not 510).
 
 #pragma once
 
@@ -16,9 +12,7 @@
 
 namespace inventatory::numeric_prompt {
 
-// Appends `ch` when it is a digit and the buffer has room. While
-// `replacePending` is set the buffer is replaced instead. Returns true when
-// the buffer changed.
+// Returns false when `ch` is not a digit or the buffer is full.
 inline bool applyDigit(std::string& buffer, char ch, bool& replacePending, std::size_t maxDigits) {
   if (std::isdigit(static_cast<unsigned char>(ch)) == 0) return false;
   if (replacePending) {
@@ -31,7 +25,7 @@ inline bool applyDigit(std::string& buffer, char ch, bool& replacePending, std::
   return true;
 }
 
-// Backspace on a pre-filled default edits it character by character.
+// Backspace ends replace mode and edits the default as ordinary text.
 inline bool applyBackspace(std::string& buffer, bool& replacePending) {
   replacePending = false;
   if (buffer.empty()) return false;

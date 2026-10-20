@@ -38,7 +38,7 @@ bool App::undoLastInventoryChange() {
     setMessage("Nothing to undo", 3, UiMessageSeverity::Warning);
     return false;
   }
-  // Copied before saving: saving reloads the commit list, which would leave a pointer into it dangling.
+  // Copied before saving, since saving reloads the commit list and would dangle the pointer.
   const auto targetId = latest->id;
   const auto targetSequence = latest->sequence;
 
@@ -57,7 +57,7 @@ bool App::undoLastInventoryChange() {
   const bool saved = saveInventoryState(draft);
   syncSelectionToFilter();
   syncRackSelection();
-  // The stock on hand has changed, so the open BOM project is compared again, whichever page pressed Ctrl+Z.
+  // Stock changed, so the open BOM project is compared again.
   if (bomAnalysisValid_) refreshBomAnalysis();
   if (saved) {
     setMessage("Undid commit #" + to_string(targetSequence), 4, UiMessageSeverity::Success);
@@ -236,9 +236,8 @@ void App::syncSelectionToFilter() {
   dirty_ = true;
 }
 
-// The stock selection is a position in the sorted and filtered match list, not an index into the store, so
-// a part picked from another page is found in that list by id. Unless keepView is set, or the part is already
-// visible, the search, the closest-value mode, the sort and the date filter are reset so the part is shown.
+// The selection is a position in the filtered, sorted match list, so a part is found there by id.
+// Unless keepView is set or the part is visible, the filters and sort are reset to show it.
 bool App::selectStockItemById(const string& itemId, bool keepView) {
   const auto locate = [&]() -> optional<size_t> {
     const auto matches = stockSearchMatches();
@@ -317,7 +316,7 @@ void App::cancelDeleteConfirmation() {
 }
 
 void App::clearDeleteConfirmationIfExpired() {
-  // Keep the confirmation popup visible after the countdown reaches zero.
+  // No-op: the delete confirmation stays visible after the countdown ends.
 }
 
 void App::confirmDeleteSelectedItem() {

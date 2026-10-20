@@ -23,12 +23,10 @@ enum class CsvFormat {
   BomMissingValue,
 };
 
-// Reads only the header row, so detection stays cheap and never depends on
-// whether the file happens to contain valid product lines.
+// Reads only the header row, so it is cheap and ignores the product lines.
 CsvFormat detectCsvFormat(const string& text);
 
-// True when the header row is an Altium Designer Bill of Materials. Shared by the format detector and the BOM
-// dispatch, so a file is routed to the Altium parser exactly when the detector called it a BOM.
+// True when the header row is an Altium BOM. Shared by the detector and the BOM dispatch.
 bool hasAltiumBomHeaders(const vector<string>& headers);
 
 }  // namespace inventatory

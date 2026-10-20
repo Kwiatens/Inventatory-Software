@@ -40,21 +40,18 @@ struct PhysicalValueComparison {
   PhysicalValueMatchBand band = PhysicalValueMatchBand::None;
 };
 
-// Parses a string like "100nF", "0.1uF", "10k Ohm", "4R7", "1MHz" into a
-// normalized physical value. Returns nullopt if the string cannot be parsed.
+// Parses a value such as "100nF" or "4R7" into a normalized value; nullopt if it cannot be parsed.
 std::optional<PhysicalValue> parsePhysicalValue(const std::string& text);
 
-// Compares two parameter value strings using the built-in search bands. The
-// first argument is the candidate value and the second is the requested value.
-// Returns normalized values, signed-free relative distance, and the band.
+// Compares candidate with target using the built-in search bands. Returns the values, relative
+// distance and band; nullopt if either fails to parse or the types differ or are unknown.
 std::optional<PhysicalValueComparison> comparePhysicalValues(const std::string& candidate,
                                                              const std::string& target);
 
-// Returns the human-readable label used by the Stock result groups.
+// Label for a band, as shown in the Stock result groups.
 const char* physicalValueMatchBandName(PhysicalValueMatchBand band);
 
-// Maps a parameter name to its physical value type.
-// Recognizes common aliases: "res", "cap", "ind", "freq", etc.
+// Maps a parameter name, including common aliases such as "res" or "cap", to its value type.
 PhysicalValueType parameterNameToType(const std::string& name);
 
 // Heuristics on free-form parameter text, shared by the DigiKey importer and the label printer.

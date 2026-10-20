@@ -79,8 +79,7 @@ function Get-InventatoryProcesses {
   $currentSession = (Get-Process -Id $PID).SessionId
   foreach ($candidate in $candidates) {
     if ([string]::IsNullOrWhiteSpace($candidate.ExecutablePath)) {
-      # Another user's process cannot be inspected without elevation; it runs in its own session, so
-      # it cannot be the copy that this script replaces.
+      # Another session's process cannot be inspected without elevation, so it is not this copy.
       if ([int]$candidate.SessionId -ne [int]$currentSession) { continue }
       throw "Unable to verify the executable path for Inventatory process $($candidate.ProcessId). Close Inventatory and run the installer again."
     }
@@ -101,8 +100,7 @@ function Wait-InventatoryProcessesStopped([int]$timeoutSeconds = 30) {
   while ($true) {
     $running = @(Get-InventatoryProcesses)
     if ($running.Count -eq 0) {
-      # Give Windows a short interval to release the image section after the
-      # process exits before the directory swap begins.
+      # Give Windows time to release the image section before the directory swap.
       Start-Sleep -Milliseconds 100
       if (@(Get-InventatoryProcesses).Count -eq 0) { return }
     }
@@ -115,8 +113,7 @@ function Wait-InventatoryProcessesStopped([int]$timeoutSeconds = 30) {
 }
 
 function Quiesce-InventatoryProcesses {
-  # Do not terminate the application: it owns the database and must be closed
-  # through its normal UI/tray path so its final save can complete safely.
+  # Never terminate the app: it owns the database and must save on a normal exit.
   $running = @(Get-InventatoryProcesses)
   if ($running.Count -eq 0) { return }
   $description = ($running | ForEach-Object { "$($_.Name) (PID $($_.Id))" }) -join ', '
@@ -163,13 +160,10 @@ function Start-InventatoryTerminal([string]$exe, [string]$workingDirectory) {
       Start-Process -FilePath $windowsTerminal -WorkingDirectory $workingDirectory -ArgumentList $arguments -ErrorAction Stop
       return
     } catch {
-      # Fall through to the system default terminal if the Windows Terminal
-      # command is registered but cannot open a tab.
+      # Fall back to the default terminal if Windows Terminal cannot open a tab.
     }
   }
-  # Starting the executable directly lets Windows choose its configured
-  # terminal application, while still working on systems without Windows
-  # Terminal through the normal console-host fallback.
+  # Starting the exe directly lets Windows pick the user's configured terminal.
   Start-Process -FilePath $exe -WorkingDirectory $workingDirectory -WindowStyle Normal
 }
 
@@ -223,9 +217,7 @@ try {
     }
     Verify-UpdateAsset $archive $checksums 'Inventatory-win-x64.zip'
     Verify-UpdateAsset $PSCommandPath $checksums 'Install-Inventatory.ps1'
-    # The foreground process intentionally remains alive while this script is
-    # started. Waiting here gives it time to save and exit through its normal
-    # shutdown path; the script never force-kills an inventory owner.
+    # Wait for the app to save and exit normally; never force-kill it.
     Wait-InventatoryProcessesStopped -timeoutSeconds 60
     $tag = $ReleaseVersion
   } else {
@@ -252,9 +244,7 @@ try {
     throw 'Release archive is missing Inventatory or its background launcher.'
   }
 
-  # Re-check immediately before replacing files. This closes the race between
-  # the initial prompt and the directory swap without terminating a process
-  # that may still be saving inventory data.
+  # Re-check right before the swap; never terminate a process that may still be saving.
   Wait-InventatoryProcessesStopped -timeoutSeconds 1
 
   $oldInstallMoved = $false
@@ -270,8 +260,7 @@ try {
     $updateActivationCompleted = $true
     Remove-Item -LiteralPath $backupRoot -Recurse -Force -ErrorAction SilentlyContinue
   } catch {
-    # Keep the old installation recoverable if the new directory cannot be
-    # activated. The staged package is disposable; user data is elsewhere.
+    # Keep the old install recoverable. Staged files are disposable; user data is elsewhere.
     if ($newInstallMoveAttempted -and (Test-Path -LiteralPath $installRoot)) {
       $failedInstallRoot = "$installRoot.failed." + [guid]::NewGuid().ToString('N')
       try {

@@ -28,9 +28,7 @@ write_marker() {
   mv -f -- "$marker_tmp" "$marker_path"
 }
 
-# The executable of a running process. The kernel appends " (deleted)" to the link once the file has been
-# replaced or removed on disk (for example by an earlier update); the path before the suffix is where the
-# update belongs, and without stripping it the path would never match an executable name or the wait below.
+# Strip the " (deleted)" suffix the kernel adds once the executable is replaced on disk.
 running_executable() {
   exe_path=$(readlink -f -- "/proc/$1/exe" 2>/dev/null) || return 1
   case "$exe_path" in
@@ -41,8 +39,7 @@ running_executable() {
 
 cleanup() {
   if [ -n "$stage" ] && [ -d "$stage" ]; then rm -rf -- "$stage"; fi
-  # The application downloads an update into its own private Inventatory-update-* folder and leaves it
-  # for this script to remove, whether the update was applied or not.
+  # The app leaves its private Inventatory-update-* folder for this script to remove.
   if [ -n "$download_dir" ] && [ -d "$download_dir" ] && [ ! -L "$download_dir" ] && [ -O "$download_dir" ]; then
     case "$(basename -- "$download_dir")" in
       Inventatory-update-?*) rm -rf -- "$download_dir" ;;
@@ -139,8 +136,7 @@ else
   validate_archive
 fi
 
-# An executable the loader rejects (for example one that needs a newer glibc) is refused before activation,
-# so an update never replaces a working copy with one that cannot start. The loader's first message is kept.
+# Refuse an executable the loader rejects (e.g. newer glibc) before activation.
 startup_error=$("$stage/inventatory" --version 2>&1 >/dev/null) ||
   fail "This Inventatory build does not start on this system: $(printf '%s\n' "$startup_error" | head -n 1)"
 

@@ -347,8 +347,7 @@ bool jsonContainsStringValue(const std::string& json, const std::string& key, co
 #define WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY 4
 #endif
 
-// Automatic proxy resolution follows the user's proxy configuration (WPAD/PAC); fall back to the
-// machine-wide WinHTTP proxy where it is not available.
+// Automatic proxy (WPAD/PAC) first; fall back to the default WinHTTP proxy.
 HINTERNET openUpdaterWinHttpSession() {
   HINTERNET session = WinHttpOpen(L"Inventatory updater", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
@@ -367,9 +366,7 @@ std::string fetchLatestReleaseJson(const std::string& repository) {
   HINTERNET connection = WinHttpConnect(session, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
   if (connection == nullptr) { WinHttpCloseHandle(session); return {}; }
   const std::wstring repositoryWide(repository.begin(), repository.end());
-  // The `latest` endpoint intentionally excludes prereleases. The public beta
-  // updater must be able to exercise GitHub prereleases as well, so request
-  // the newest published release entry instead.
+  // The `latest` endpoint skips prereleases; the beta updater needs them, so list releases instead.
   const std::wstring path = L"/repos/" + repositoryWide + L"/releases?per_page=1";
   HINTERNET request = WinHttpOpenRequest(connection, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
                                          WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
@@ -407,9 +404,7 @@ bool parseHttpsUrl(const std::string& url, URL_COMPONENTS& components, std::wstr
   if (wideUrl.empty()) return false;
   components = {};
   components.dwStructSize = sizeof(components);
-  // A null component pointer is an output request only when its length is set
-  // to -1. Without these sentinels WinHTTP accepts the URL but leaves the
-  // host/path lengths empty, which makes every valid asset URL look invalid.
+  // Length -1 makes WinHTTP return each component; otherwise lengths stay empty and valid URLs fail.
   components.dwSchemeLength = static_cast<DWORD>(-1);
   components.dwHostNameLength = static_cast<DWORD>(-1);
   components.dwUrlPathLength = static_cast<DWORD>(-1);
@@ -440,8 +435,8 @@ bool queryContentLength(HINTERNET request, std::uint64_t& total) {
   return total <= kMaximumUpdateAssetBytes;
 }
 #else
-// Limits a transfer and its redirects to HTTPS. libcurl 7.85 and newer take the protocol name; older libcurl
-// (AlmaLinux 9 ships 7.76, and release binaries are built against it) takes the bit mask.
+// Limits a transfer and its redirects to HTTPS. libcurl 7.85+ takes protocol names; older releases,
+// including the 7.76 the Linux release is built against, take a bit mask.
 void allowOnlyHttps(CURL* request) {
 #if LIBCURL_VERSION_NUM >= 0x075500
   curl_easy_setopt(request, CURLOPT_PROTOCOLS_STR, "https");
@@ -508,7 +503,7 @@ UpdateCheckResult latestRelease(const std::string& repository, const std::string
 }  // namespace
 
 bool isUpdateCheckDue(bool enabled, std::int64_t lastCheckUnixSeconds, std::int64_t nowUnixSeconds) {
-  // A stored time in the future (the clock was once ahead) cannot be trusted, so the check is due.
+  // A future timestamp (the clock was once ahead) is untrusted, so the check is due.
   return enabled && (lastCheckUnixSeconds <= 0 || lastCheckUnixSeconds > nowUnixSeconds ||
                      nowUnixSeconds - lastCheckUnixSeconds >= kUpdateCheckIntervalSeconds);
 }
@@ -590,8 +585,7 @@ UpdateCheckResult parseReleaseMetadata(const std::string& json, const std::strin
     while (start < json.size() && std::isspace(static_cast<unsigned char>(json[start])) != 0) ++start;
     if (start >= json.size()) return {};
     if (json[start] == ']') {
-      // An optional channel, such as Scan R1 firmware before its first
-      // published release, is healthy but has nothing to compare against.
+      // An empty channel (such as firmware before its first release) is valid; nothing to compare.
       if (requireUpdateAssets) return {};
       return {true, false, {}, {}, {}};
     }
@@ -690,9 +684,7 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
     error = "The update asset URL is not an approved GitHub download";
     return false;
   }
-  // WinHTTP returns component pointers into the original URL. They are
-  // length-delimited, not null-terminated, so passing them directly to the
-  // LPCWSTR APIs can make the host include the following URL path.
+  // Component pointers are length-delimited, not null-terminated; copy them before LPCWSTR use.
   const auto wideHost = widen(host);
   const auto widePath = widen(path + urlComponent(components.lpszExtraInfo, components.dwExtraInfoLength));
   if (wideHost.empty() || widePath.empty()) {
@@ -880,8 +872,7 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
   curl_easy_setopt(request, CURLOPT_URL, url.c_str());
   curl_easy_setopt(request, CURLOPT_USERAGENT, "Inventatory updater");
   curl_easy_setopt(request, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
-  // A large asset on a slow link must not hit a short total deadline; abort when the
-  // transfer stalls (under 1 KiB/s for 30 s), with a generous hard cap of two hours.
+  // No total deadline for large assets: abort on a stall (under 1 KiB/s for 30 s); two-hour cap.
   curl_easy_setopt(request, CURLOPT_LOW_SPEED_LIMIT, 1024L);
   curl_easy_setopt(request, CURLOPT_LOW_SPEED_TIME, 30L);
   curl_easy_setopt(request, CURLOPT_TIMEOUT_MS, 7200000L);
@@ -953,8 +944,7 @@ std::filesystem::path createUpdateDownloadDirectory(const std::filesystem::path&
   if (!std::filesystem::create_directory(directory, filesystemError) || filesystemError) return {};
   return directory;
 #else
-  // mkdtemp picks an unused name and creates it with mode 0700, so another local user can neither
-  // pre-create nor read the downloaded package.
+  // mkdtemp makes an unused name with mode 0700, so no other local user can pre-create or read it.
   auto pattern = (base / "Inventatory-update-XXXXXX").string();
   pattern.push_back('\0');
   if (mkdtemp(pattern.data()) == nullptr) return {};
@@ -979,7 +969,7 @@ std::size_t removeStaleUpdateDownloadDirectories(const std::filesystem::path& pa
     const auto& entry = *iterator;
     const auto name = entry.path().filename().string();
     if (name.size() <= sizeof(kPrefix) - 1U || name.compare(0, sizeof(kPrefix) - 1U, kPrefix) != 0) continue;
-    // A symbolic link, or anything that is not a plain folder, is never followed or removed.
+    // Symbolic links and non-folders are never followed or removed.
     std::error_code entryError;
     const auto status = entry.symlink_status(entryError);
     if (entryError || !std::filesystem::is_directory(status)) continue;
@@ -1060,8 +1050,7 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
     return false;
   }
   int handshake[2]{-1, -1};
-  // Both ends are close-on-exec: a successful exec of the installer closes the write end, which is
-  // how the parent learns that the exec happened.
+  // Close-on-exec on both ends: a successful exec closes the write end, telling the parent it started.
   if (pipe2(handshake, O_CLOEXEC) != 0) {
     if (handshake[0] >= 0) close(handshake[0]);
     if (handshake[1] >= 0) close(handshake[1]);
@@ -1131,8 +1120,8 @@ void relaunchAfterUpdate(const std::filesystem::path& markerPath) {
   if (executable.empty()) return;
   const auto exe = executable.u8string();
   const auto marker = markerPath.u8string();
-  // The installer waits while /proc/<pid>/exe still names the Inventatory
-  // binary, so exec'ing the shell here is what allows it to replace the file.
+  // exec replaces this process image, so /proc/<pid>/exe no longer names the binary and the
+  // installer can replace it.
   static const char* const kWaiter =
       "printf 'Installing the Inventatory update...\\n'\n"
       "tries=0\n"

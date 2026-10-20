@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Linux DigiKey HTTPS transport and shared request helpers.
+// Linux DigiKey HTTPS transport and shared request helpers.
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/parts/DecimalParse.h"
@@ -118,11 +118,9 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_setopt(handle, CURLOPT_USERAGENT, "Inventatory DigiKey client/1.0");
   curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
   curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 8000L);
-  // Requests run on worker threads next to other libcurl users; never let libcurl install signal handlers.
+  // Worker threads share libcurl; NOSIGNAL stops it installing signal handlers.
   curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
-  // DigiKey's API endpoints do not require redirects. Keep the authenticated
-  // custom headers bound to the HTTPS origin instead of forwarding them to a
-  // redirect target.
+  // No redirects, so authenticated headers never leave the HTTPS origin.
   curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 0L);
   curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, receiveBody);
   curl_easy_setopt(handle, CURLOPT_WRITEDATA, &received);

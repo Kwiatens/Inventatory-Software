@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Find in racks: the rack-by-rack pick route for a BOM analysis, and the sentences that guide it.
 
 #include "core/bom/BomPickPlan.h"
 
@@ -43,7 +42,7 @@ BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& stor
 
   for (size_t index = 0; index < analysis.matches.size(); ++index) {
     const auto& match = analysis.matches[index];
-    // Nothing in stock is a shortage. A match the user has not confirmed waits for them and is never picked.
+    // Nothing in stock is a shortage. Unconfirmed matches wait and are never picked.
     if (match.candidates.empty()) {
       plan.shortMatches.push_back(index);
       continue;
@@ -113,7 +112,7 @@ BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& stor
     plan.stops.push_back(move(loose));
   }
 
-  // Commit indexes follow the route, so a deduction can refer to a pick by its position in the walkthrough.
+  // Commit indexes follow route order, so a deduction can refer to each pick by position.
   size_t commitIndex = 0;
   for (auto& stop : plan.stops) {
     for (auto& pick : stop.picks) pick.commitIndex = commitIndex++;
@@ -156,7 +155,7 @@ bool sameBomPickCommits(const vector<BomPickCommit>& lhs, const vector<BomPickCo
 vector<string> bomPickProblems(const vector<BomPickCommit>& commits, const vector<int>& taken,
                                const InventoryStore& store) {
   vector<string> problems;
-  // Several picks can draw on one item, so the units taken from it are added up before they are compared with stock.
+  // Picks may share one item, so sum the units drawn before comparing with stock.
   map<string, long long> drawn;
   for (size_t index = 0; index < commits.size(); ++index) {
     const int units = index < taken.size() ? taken[index] : commits[index].quantity;

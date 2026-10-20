@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - TME category and parameter vocabulary, written in the terms the label, rack and detail rules use.
-
 #include "platform/tme/TmeVocabulary.h"
 
 #include <cctype>
@@ -23,8 +21,7 @@ string vocabularyKey(const string& text) {
   return key;
 }
 
-// A word of the category name, with its punctuation removed: "Voltage regulators - DC/DC circuits" has the words
-// voltage, regulators, dc, dc and circuits.
+// Lower-case words of the category name, split at punctuation.
 vector<string> categoryWords(const string& categoryName) {
   vector<string> words;
   string current;
@@ -40,8 +37,8 @@ vector<string> categoryWords(const string& categoryName) {
   return words;
 }
 
-// A keyword of four letters or fewer must be a whole word (or its plural), so "led" does not match "handled". Longer
-// keywords match inside a word, so "resistor" matches "resistors" and "microswitches".
+// A keyword of four letters or fewer must match a whole word or its plural: "led" is not in
+// "handled". Longer keywords match inside a word, so "resistor" matches "microswitches".
 bool wordMatches(const string& word, const string& keyword) {
   if (keyword.size() <= 4) return word == keyword || word == keyword + "s";
   return word.find(keyword) != string::npos;
@@ -52,8 +49,7 @@ struct FamilyRule {
   vector<const char*> keywords;
 };
 
-// Checked in order: the first rule with a matching word decides the family. Protection parts come first so that a
-// TVS diode is a circuit protection part and not a diode, and a fuse is not a resistor.
+// The first matching rule wins. Protection parts come first, so a TVS diode is not a diode.
 const vector<FamilyRule>& familyRules() {
   static const vector<FamilyRule> rules = {
       {"Circuit Protection", {"tvs", "fuse", "varistor"}},
@@ -78,7 +74,7 @@ const vector<FamilyRule>& familyRules() {
   return rules;
 }
 
-// TME parameter names (normalised with vocabularyKey) and the name the app reads them under.
+// TME parameter keys (as vocabularyKey normalises them) and the name the app reads them under.
 const vector<pair<string, string>>& parameterNames() {
   static const vector<pair<string, string>> names = {
       {"mounting", "Mounting Type"},
@@ -98,7 +94,7 @@ const vector<pair<string, string>>& parameterNames() {
       {"kindofintegratedcircuit", "Type"},
       {"luminosity", "Luminous Intensity"},
       {"ledcurrent", "Current - Test"},
-      // A reel quantity, not a package. Its name contains "package", which the label reads as the package name.
+      // A reel quantity, not a package. Its name contains "package", which the label reads as one.
       {"manufacturerstandardpackage", "Standard Quantity"},
       {"quantityinsetpackage", "Standard Quantity"},
       {"operatingcurrent", "Current Rating (Amps)"},
@@ -189,8 +185,7 @@ vector<Parameter> tmeParameters(const string& name, const string& value, const s
     }
   }
   if (key == "memory") {
-    // "1kB EEPROM, 2kB SRAM, 32kB FLASH" gives each memory its own figure, as DigiKey's records do. A value that is not
-    // a list of memories is kept as sent.
+    // Gives each memory its own figure, as DigiKey does. Other values are kept as sent.
     vector<Parameter> parameters;
     size_t start = 0;
     while (start < text.size()) {
@@ -217,7 +212,7 @@ vector<Parameter> tmeParameters(const string& name, const string& value, const s
     return {{"Lens Transparency", lowered == "transparent" ? "Clear" : text}};
   }
   if (key == "typeofdiode" || key == "diodetype") {
-    // A diode type that says "LED" restates what the part is, which the label already shows.
+    // "LED" repeats what the label already shows, so it is dropped.
     if (lowered == "led") return {};
     vector<Parameter> parameters = {{"Diode Type", text}};
     if (lowered.find("schottky") != string::npos) {
@@ -232,8 +227,7 @@ vector<Parameter> tmeParameters(const string& name, const string& value, const s
 
 string tmeParameterName(const string& name, const string& family) {
   const auto key = vocabularyKey(name);
-  // A protection part's maximum off-state voltage is its reverse standoff voltage; for a rectifier it is the reverse
-  // voltage the datasheet rates.
+  // A protection part's off-state maximum is its reverse standoff voltage; a rectifier's is Vr.
   if (key == "maxoffstatevoltage") {
     return family == "Circuit Protection" ? "Voltage - Reverse Standoff (Typ)" : "Voltage - DC Reverse (Vr) (Max)";
   }

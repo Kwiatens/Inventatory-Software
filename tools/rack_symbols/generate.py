@@ -83,17 +83,15 @@ def render(name, box, anchor_x=None, max_height=None):
     svg = read_svg(name)
     gx, gy, gw, gh = geometry(svg)
     if anchor_x is not None:
-        # Centre on a feature (a transistor's circle) instead of the bounding box, which also holds long leads.
+        # Centre on a feature (e.g. a transistor's circle), not on the long leads too.
         half = max(anchor_x - gx, gx + gw - anchor_x)
         gx, gw = anchor_x - half, 2 * half
     stroke = box["stroke"]
     k = min((box["width"] - stroke) / gw, (box["height"] - stroke) / gh)
-    # Round to the nearest dot so the bitmap hugs its drawing: an empty trailing column would push the symbol off
-    # the centre of the label.
+    # Round to whole dots so the bitmap hugs its drawing; an empty column would shift the symbol.
     width = int(round(gw * k + stroke))
     height = int(round(gh * k + stroke))
-    # Put the horizontal axis (tile y = 75, where nearly every lead sits) on a dot boundary so an even stroke
-    # covers whole rows instead of straddling two.
+    # Put the horizontal axis (tile y = 75, where most leads sit) on a dot boundary.
     top_dots = stroke / 2 - gy * k
     axis = (75 - gy) * k + stroke / 2
     top_dots -= axis - round(axis)

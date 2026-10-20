@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Inventatory - Hardware Inventory Management System
-// Application bootstrap helpers for data paths and database reuse.
 
 #include "app/shell/AppBootstrap.h"
 
@@ -39,8 +38,7 @@ filesystem::path discoverInventatoryDataPath() {
   addCandidate("OneDriveConsumer");
   addCandidate("OneDriveCommercial");
 #else
-  // Keep a pre-existing Windows-era Documents workspace in place on the first
-  // Linux launch. Never copy or migrate its contents implicitly.
+  // Reuse a Windows-era Documents workspace. Its contents are never copied or migrated.
   if (const auto home = environmentValue("HOME"); home.has_value() && !home->empty()) {
     candidates.push_back(filesystem::path(*home) / "Documents" / "Inventatory");
   }
@@ -49,8 +47,7 @@ filesystem::path discoverInventatoryDataPath() {
   for (const auto& candidate : candidates) {
     const bool inventoryExists = filesystem::exists(candidate / "inventory.db", error);
     if (error) {
-      // Preserve the candidate path so App::loadState() can surface the
-      // inspection error instead of silently selecting an empty workspace.
+      // Return the candidate so loadState() reports the error, not an empty workspace.
       return candidate;
     }
     if (inventoryExists) {

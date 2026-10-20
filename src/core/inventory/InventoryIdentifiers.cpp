@@ -206,8 +206,7 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
     }
 
     auto normalizedId = trim(item.inventatoryId);
-    // A well-formed ID is kept only by the first part that carries it; a later duplicate (copied or
-    // imported data) gets a fresh one so the inventory stays saveable.
+    // Only the first part with a well-formed ID keeps it; a later duplicate gets a fresh one.
     if (!normalizedId.empty() && isInventatoryId(normalizedId) && keptIds.insert(toLower(normalizedId)).second) {
       item.inventatoryId = normalizedId;
     } else {
@@ -228,8 +227,7 @@ void ensureInventoryIdentifiers(vector<InventoryItem>& items) {
     }
 
     auto normalizedMachineCode = normalizeMachineCode(item.machineCode);
-    // Like Inventatory IDs, a machine code stays with the first part that carries it, so the printed
-    // label of that part keeps resolving; only the later duplicate is given a new code.
+    // As with IDs, the first part with a machine code keeps it, so its label still resolves.
     if (!normalizedMachineCode.empty() && usedMachineCodes.count(normalizedMachineCode) == 0) {
       item.machineCode = move(normalizedMachineCode);
       usedMachineCodes.insert(item.machineCode);

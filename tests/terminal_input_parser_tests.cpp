@@ -9,9 +9,7 @@
 #include <ftxui/component/event.hpp>
 #include <ftxui/component/terminal_input_parser.hpp>
 
-// The checks are assert() calls. CMake's Release configuration defines NDEBUG, which compiles every
-// assert() out, so a Release ctest run would pass without checking anything. Keep the checks enabled
-// in every build type.
+// Keep asserts enabled in every build type; CMake's Release config defines NDEBUG.
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -19,8 +17,7 @@
 
 int main() {
   {
-    // Escape is also the prefix of terminal Alt/VT sequences. A burst of
-    // Escape presses must remain separate events rather than becoming text.
+    // Escape also prefixes terminal sequences, so repeated Escapes stay separate events.
     std::vector<ftxui::Event> events;
     ftxui::TerminalInputParser parser([&events](ftxui::Event event) {
       events.push_back(std::move(event));

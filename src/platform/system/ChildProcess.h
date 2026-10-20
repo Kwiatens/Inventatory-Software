@@ -18,8 +18,8 @@
 
 namespace inventatory {
 
-// Writing to a helper that already exited must fail with EPIPE instead of raising SIGPIPE in the
-// application. A SIGPIPE this guard provoked is consumed again; one that was already pending stays.
+// Writes to a helper that already exited must fail with EPIPE, not raise SIGPIPE. A SIGPIPE this
+// guard provoked is consumed; one that was already pending stays.
 class SigpipeGuard final {
  public:
   SigpipeGuard() {
@@ -55,13 +55,11 @@ class SigpipeGuard final {
 };
 
 struct ChildProcessOptions {
-  // The whole run, including a helper that closes its output but never exits. The helper and its
-  // process group are killed when it expires.
+  // Covers the whole run, even a helper that closes its output but never exits. Expiry kills its group.
   std::chrono::milliseconds timeout{10000};
   // Captured output beyond this ends the run.
   std::size_t maxOutputBytes = 64U * 1024U;
-  // Merge the helper's stderr into the captured output. Otherwise stderr is discarded, so a helper's
-  // warnings never reach the terminal user interface.
+  // Otherwise stderr is discarded, so helper warnings never reach the terminal UI.
   bool mergeStderr = false;
   // Written to the helper's standard input and then closed; standard input is /dev/null when unset.
   bool hasInput = false;
@@ -79,9 +77,8 @@ struct ChildProcessResult {
   bool succeeded() const { return started && !timedOut && !outputTooLarge && !inputFailed && exitCode == 0; }
 };
 
-// Runs argv[0] (searched in PATH) with a bounded lifetime. Descriptors are close-on-exec, the argument
-// vector is built before fork() so the child only makes async-signal-safe calls, and the helper leads
-// its own process group so a timeout also stops anything it started.
+// Runs argv[0] (from PATH) with a bounded lifetime. argv is built before fork(), so the child makes
+// only async-signal-safe calls. The helper leads its own process group, so a timeout stops all of it.
 ChildProcessResult runChildProcess(const std::vector<std::string>& argv, const ChildProcessOptions& options = {});
 
 }  // namespace inventatory

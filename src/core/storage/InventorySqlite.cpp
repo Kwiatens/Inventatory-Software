@@ -18,8 +18,7 @@ using namespace std;
 namespace {
 
 string sqlitePath(const filesystem::path& path) {
-  // sqlite3_open_v2 takes UTF-8. path.string() uses the active Windows code
-  // page and cannot address otherwise valid Unicode data directories.
+  // sqlite3_open_v2 takes UTF-8; path.string() is lossy under the Windows code page.
   return path.u8string();
 }
 
@@ -60,8 +59,7 @@ SqliteStatement::~SqliteStatement() {
 }
 
 string sqliteText(sqlite3_stmt* stmt, int column) {
-  // Read by the stored length, not as a C string, so an embedded NUL is kept rather than cutting the text.
-  // column_bytes must be asked after column_text.
+  // Use the stored length, so an embedded NUL is kept. column_bytes must follow column_text.
   const auto* text = sqliteApi().column_text(stmt, column);
   if (text == nullptr) return string();
   const int length = sqliteApi().column_bytes(stmt, column);
@@ -168,8 +166,7 @@ bool createSqliteSnapshot(const filesystem::path& sourcePath, const filesystem::
     return false;
   }
 
-  // Closing the destination after backup_finish commits its rollback journal
-  // and makes the resulting file safe to hash and reopen read-only.
+  // Closing the destination on return finalizes the file for hashing and read-only reopening.
   return true;
 }
 
@@ -241,8 +238,7 @@ bool sqliteSize(sqlite3_stmt* statement, int column, size_t& value) {
 bool sqliteTime(sqlite3_stmt* statement, int column, time_t& value) {
   if (sqliteApi().column_type(statement, column) != SQLITE_INTEGER) return false;
   const sqlite3_int64 raw = sqliteApi().column_int64(statement, column);
-  // Inventatory timestamps are Unix times.  Negative values are outside the
-  // persisted domain even on platforms whose time_t can represent them.
+  // Timestamps are Unix times; negatives are outside the persisted domain.
   if (raw < 0) return false;
   if (static_cast<uint64_t>(raw) > static_cast<uint64_t>((numeric_limits<time_t>::max)())) return false;
   value = static_cast<time_t>(raw);

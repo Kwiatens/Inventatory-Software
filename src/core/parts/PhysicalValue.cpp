@@ -43,12 +43,8 @@ constexpr PhysicalValueBandLimits physicalValueBandLimits(PhysicalValueType type
                                                  : PhysicalValueBandLimits{0.0, 0.0};
 }
 
-// Converts a plain decimal literal without consulting the process locale. The
-// application calls setlocale(LC_ALL, ""), and strtod would then read "0.1" as
-// "0" under locales that use a comma as the decimal separator.
-//
-// A literal that overflows (or is not a number at all) has no value; returning 0 there would make
-// "1e999 k" compare as an exact 0-ohm match.
+// Parses a decimal literal independent of the process locale, which the app sets.
+// Overflow and non-numbers give nullopt; 0 would make "1e999 k" match a 0-ohm value.
 std::optional<double> parseClassicDouble(const string& literal) {
   std::istringstream stream(literal);
   stream.imbue(std::locale::classic());
@@ -118,8 +114,7 @@ struct ParsedUnit {
 };
 
 bool parsePrefix(char prefix, double& multiplier) {
-  // SI is case-insensitive except for m/M: milli and mega are different
-  // prefixes. K is accepted as a common component-marking spelling of k.
+  // SI prefixes are case-insensitive except m (milli) and M (mega). K is accepted as k.
   switch (prefix) {
     case 'p':
     case 'P': multiplier = 1e-12; return true;
@@ -138,8 +133,7 @@ bool parsePrefix(char prefix, double& multiplier) {
 }
 
 bool parseUnicodeMicroPrefix(const string& value, size_t& consumed, double& multiplier) {
-  // DigiKey data commonly uses U+00B5 (micro sign), while some sources use
-  // U+03BC (Greek small letter mu). Both are UTF-8 and mean the same SI prefix.
+  // Both U+00B5 (micro sign) and U+03BC (Greek mu) mean the micro prefix.
   static constexpr char kMicroSign[] = "\xC2\xB5";
   static constexpr char kGreekMu[] = "\xCE\xBC";
   if (value.rfind(kMicroSign, 0) == 0 || value.rfind(kGreekMu, 0) == 0) {
@@ -151,9 +145,8 @@ bool parseUnicodeMicroPrefix(const string& value, size_t& consumed, double& mult
   return false;
 }
 
-// The unit must be a whole word ("ohm", "F", "Hz"), not just start with the right letter: "10 hours"
-// is not an inductance and "5 ft" is not a capacitance. Anything after the word (a tolerance such
-// as "1%", a rating) is ignored.
+// The unit must be a whole word, so "10 hours" is not an inductance and "5 ft" not a capacitance.
+// Text after the word, such as a tolerance, is ignored.
 PhysicalValueType unitType(const string& unit) {
   if (unit.empty()) {
     return PhysicalValueType::Unknown;
@@ -185,7 +178,6 @@ ParsedUnit parseUnit(const string& suffix) {
     return {};
   }
 
-  // A unit without an SI prefix.
   const auto directType = unitType(remaining);
   if (directType != PhysicalValueType::Unknown) {
     return {directType, 1.0};
@@ -202,9 +194,7 @@ ParsedUnit parseUnit(const string& suffix) {
 
   const auto unit = trimValue(remaining.substr(prefixLength));
   if (unit.empty()) {
-    // A bare prefixed component value such as 10k or 1M is conventionally a
-    // resistor value. Values with n/u/p need a unit because they are
-    // otherwise ambiguous between capacitance and inductance.
+    // A bare 10k or 1M is a resistor value; n/u/p need a unit (capacitance or inductance).
     if (prefixLength == 1 &&
         (remaining.front() == 'k' || remaining.front() == 'K' || remaining.front() == 'M' ||
          remaining.front() == 'm' || remaining.front() == 'g' || remaining.front() == 'G')) {
@@ -244,8 +234,8 @@ std::optional<PhysicalValue> parseRkmValue(const string& text) {
   const char marker = text[alpha];
   const bool resistanceMarker = marker == 'r' || marker == 'R';
   double multiplier = 1.0;
-  // Only k/K/M/G/g are resistance markers in RKM position. p/n/u/m are
-  // ambiguous (4u7 may be 4.7 uF or 4.7 uH) and are left to the caller.
+  // Only k/K/M/G/g mark resistance here. p/n/u/m are ambiguous (4u7 is 4.7 uF or 4.7 uH)
+  // and are left to the caller.
   const bool resistancePrefixMarker = marker == 'k' || marker == 'K' || marker == 'M' || marker == 'g' ||
                                       marker == 'G';
   if (!resistanceMarker && !resistancePrefixMarker) {
@@ -264,8 +254,7 @@ std::optional<PhysicalValue> parseRkmValue(const string& text) {
     return std::nullopt;
   }
 
-  // A marker followed by digits is decimal RKM notation. A marker at the end
-  // is an ordinary unit/prefix notation and is handled by parseUnit instead.
+  // A marker at the end is a unit or prefix, left to parseUnit.
   if (tail.empty() && !resistanceMarker) {
     return std::nullopt;
   }
@@ -303,8 +292,7 @@ std::optional<PhysicalValue> parsePhysicalValue(const std::string& text) {
   if (trimmed.empty()) {
     return std::nullopt;
   }
-  // Datasheets often carry U+2126 OHM SIGN, which is canonically the same letter as the Greek
-  // capital omega the unit parser knows.
+  // U+2126 OHM SIGN is canonically the Greek capital omega that the unit parser knows.
   static constexpr char kOhmSign[] = "\xE2\x84\xA6";
   static constexpr char kGreekOmega[] = "\xCE\xA9";
   for (auto at = trimmed.find(kOhmSign); at != string::npos; at = trimmed.find(kOhmSign, at + 2)) {
@@ -315,8 +303,7 @@ std::optional<PhysicalValue> parsePhysicalValue(const std::string& text) {
     return rkm;
   }
 
-  // Handles signs, .5, and scientific notation while leaving the unit suffix
-  // for the component-specific parser below.
+  // Parses signs, .5 and exponents; the unit suffix is left for parseUnit.
   double number = 0.0;
   const auto numberLength = scanLeadingNumber(trimmed, number);
   if (numberLength == 0) {
@@ -431,8 +418,7 @@ string canonicalInductanceUnit(string unit) {
   return "H";
 }
 
-// Character classes of the inductance grammar. They are ASCII-only, as the C locale used by the
-// former std::regex matcher: \d is [0-9], \s is the C isspace set, and \b uses [A-Za-z0-9_].
+// ASCII classes for the inductance grammar: \d is [0-9], \s is C isspace, \b is [A-Za-z0-9_].
 bool isAsciiDigit(char ch) { return ch >= '0' && ch <= '9'; }
 
 bool isAsciiWordChar(char ch) {
@@ -445,11 +431,8 @@ bool isRegexSpace(char ch) {
 
 char asciiLower(char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; }
 
-// Matches the inductance grammar  \d+(?:\.\d+)?|\d+[rR]\d+  then  \s*  then  [munp]?h  then  \b
-// (case-insensitively) at `start`, which must be a digit. The alternatives cannot both match at the
-// same position, and no backtracking choice can succeed where the greedy one fails, so this single
-// forward pass gives the same result as the regular expression. Returns the number as written
-// (still containing any 'R') and the unit as written.
+// Matches \d+(?:\.\d+)?|\d+[rR]\d+ \s* [munp]?h \b, case-insensitively, at `start`.
+// A greedy forward pass matches the regex result. Returns the number (with any 'R') and the unit.
 std::optional<std::pair<string, string>> matchInductanceAt(const string& text, size_t start) {
   const size_t size = text.size();
   size_t cursor = start;

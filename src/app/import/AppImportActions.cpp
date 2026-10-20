@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// CSV import and DigiKey synchronization actions.
+// Inventatory - CSV import and DigiKey synchronization actions.
 
 #include "App.h"
 #include "app/common/AppActionSupport.h"
@@ -56,8 +55,7 @@ void App::beginCsvImport() {
     return;
   }
 
-  // The file picker is the only way in, so detection replaces asking the user
-  // which dialect they just chose.
+  // Detection replaces asking the user which CSV dialect was exported.
   const auto format = detectCsvFormat(text);
   if (format == CsvFormat::KicadBom || format == CsvFormat::EasyEdaBom) {
     beginBomProject(text, projectNameFromPath(selectedPath), selectedPath);
@@ -111,9 +109,7 @@ void App::beginCsvImport() {
 void App::cancelImportSession() {
   if (!importStageActive_ && !importCommitPending_) return;
   if (importCommitPending_) {
-    // The staged copy was assigned to the live view only to let the existing
-    // save-retry path retry the exact same operation. Restore the pre-import
-    // view when the user explicitly cancels that retry.
+    // store_ holds the staged copy for the save retry; restore the old view on cancel.
     store_ = importOriginalStore_;
   }
   importCandidates_.clear();
@@ -136,14 +132,12 @@ void App::cancelImportSession() {
 bool App::commitImportStage() {
   if (!importStageActive_) return true;
   if (!importCommitPending_) {
-    // The review can last minutes, during which the scanner keeps committing stock changes to
-    // store_. Replay only what the import changed relative to the snapshot taken at the start,
-    // by item id, so those changes (and parts the scanner created) are not reverted. A retry after
-    // a failed save must not replay again: store_ already holds the merged result.
+    // The scanner changes store_ during review, so replay only this import's changes, by item id.
+    // A retry after a failed save must not replay again: store_ already holds the merged result.
     importMergeNotices_.clear();
     auto merged = mergeInventoryChanges(importOriginalStore_, importStagedStore_, store_, QuantityMerge::ApplyDelta,
                                         &importMergeNotices_);
-    importOriginalStore_ = move(store_);  // what cancelImportSession restores if the save keeps failing
+    importOriginalStore_ = move(store_);  // Restored by cancelImportSession if saving keeps failing
     store_ = move(merged);
   }
   if (!saveState("import", importSourcePath_.filename().u8string())) {
@@ -341,7 +335,7 @@ void App::beginImportSync(bool retryFailed) {
   importSyncFuture_ = async(launch::async, [requests = move(requests), cancelFlag, generation] {
     ImportSyncBatchResult batch;
     batch.workspaceGeneration = generation;
-    // Reading the credentials can block on a locked keyring, so it happens here and not on the UI thread.
+    // Credential reads can block on a locked keyring, so they run off the UI thread.
     const auto config = loadDigiKeyConfig();
     if (!config.valid()) {
       batch.unavailableReason = "DigiKey API credentials are not configured";

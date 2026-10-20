@@ -24,7 +24,6 @@ using std::vector;
 // The largest CSV text, in bytes, any importer reads.
 inline constexpr std::uintmax_t kMaximumCsvInputBytes = 25U * 1024U * 1024U;
 
-// The largest total number of parsed cells allowed across all rows.
 inline constexpr size_t kMaximumCsvCells = 2000000;
 
 // Removes a leading UTF-8 byte order mark so the first header cell stays clean.
@@ -33,34 +32,25 @@ string stripByteOrderMark(string text);
 // True when `text` is well-formed UTF-8 (no overlong forms, surrogates or code points above U+10FFFF).
 bool isValidUtf8(const string& text);
 
-// Turns the bytes of a CSV file into UTF-8 text for the importers. A UTF-8 byte order mark is dropped and a
-// UTF-16 file (byte order mark FF FE or FE FF, as Excel's "Unicode Text" writes) is converted. Anything
-// else must already be valid UTF-8: legacy code pages such as Windows-1250 cannot be recognised reliably,
-// so they are refused with a message that tells the user how to re-save the file, instead of letting
-// invalid bytes into part names, the database and labels.
+// Converts CSV bytes to UTF-8, dropping a UTF-8 BOM and converting UTF-16 (BOM FF FE or FE FF).
+// Other input must be valid UTF-8; legacy code pages are refused rather than guessed.
 bool decodeCsvBytes(const string& bytes, string& utf8, string& error);
 
-// Reads a CSV file of at most kMaximumCsvInputBytes and decodes it with decodeCsvBytes. `kind` names the file
-// in the messages ("CSV", "BOM"). Returns false with a user-facing `error` when it cannot be read or decoded.
+// Reads and decodes a CSV file up to kMaximumCsvInputBytes; `kind` names it in messages.
 bool readCsvFile(const std::filesystem::path& path, const string& kind, string& utf8, string& error);
 
-// Picks the delimiter used by the first non-blank line: ',', ';' or '\t'.
-// Quoted sections are ignored so a quoted "2,62800 zl" cannot win the vote.
+// Picks ',', ';' or '\t' from the first non-blank line. Quoted sections are ignored.
 char sniffDelimiter(const string& text);
 
-// RFC4180-ish scanner. Doubled quotes inside a quoted field yield one quote,
-// CR is dropped everywhere, a line break inside a quoted field becomes a space (cells are single-line),
-// and fully blank rows are discarded. When `maxRows` is specified, scanning stops early once that many
-// non-blank rows have been parsed.
+// Doubled quotes yield one quote, CR is dropped, and line breaks in quoted fields become spaces.
+// Blank rows are discarded. Scanning stops after `maxRows` non-blank rows.
 vector<vector<string>> parseCsv(const string& text, char delimiter, string& error,
                                 size_t maxRows = (std::numeric_limits<size_t>::max)());
 
-// parseCsv for an export that writes a quote inside a quoted cell as \" (an Altium 365 export does, for an inch mark).
-// Inside quotes, \" is one quote and does not end the cell. Everything else is read exactly as parseCsv reads it.
+// Like parseCsv, but \" inside quotes is one quote (Altium 365 writes inch marks this way).
 vector<vector<string>> parseCsvBackslashQuotes(const string& text, char delimiter, string& error);
 
-// Lowercases and strips every non-alphanumeric character, so "Digi-Key Part #"
-// and "digikey part number" collapse onto comparable keys.
+// Lowercases and drops non-alphanumerics, so "Digi-Key Part #" matches "digikey part number".
 string normalizeHeader(string value);
 
 bool anyHeaderMatches(const string& header, initializer_list<const char*> aliases);
@@ -68,7 +58,7 @@ bool anyHeaderMatches(const string& header, initializer_list<const char*> aliase
 // Index of the first header cell matching any alias, or -1.
 int findColumn(const vector<string>& headers, initializer_list<const char*> aliases);
 
-// Bounds-safe trimmed cell access; empty string for a negative index.
+// Trimmed cell; empty when the index is negative or out of range.
 string csvCell(const vector<string>& row, int index);
 
 }  // namespace inventatory

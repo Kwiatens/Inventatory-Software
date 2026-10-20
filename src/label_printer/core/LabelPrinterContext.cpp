@@ -16,13 +16,8 @@ using namespace std;
 namespace label_printer_detail {
 
 string diodeMainLabelValue(const InventoryItem& item) {
-  // The diode type (Zener/Schottky/TVS/Rectifier) is already printed in the
-  // header bar, so the main line should carry the
-  // actual part identifier instead of the catalog description, which often
-  // repeats the type ("DIODE ZENER 4.7V ..."). Prefer the concrete
-  // manufacturer/vendor part number over the descriptive part name.
-  // The distributor's own number ("641-1127-1-ND") is not what is printed on
-  // the part, so the manufacturer part number comes first.
+  // The header bar names the type, so print the part number, not a description that repeats it.
+  // The distributor's number is not on the part, so the manufacturer number comes first.
   if (const auto mpn = trim(item.vendorMetadata.manufacturerPartNumber); !mpn.empty()) {
     return mpn;
   }

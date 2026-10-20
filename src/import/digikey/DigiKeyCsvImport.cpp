@@ -103,8 +103,7 @@ vector<string> descriptionWords(const string& description) {
   return words;
 }
 
-// "100nf", "1uf" and "22pf" in a description are capacitor values; "uf" or "nf" inside another word
-// (BUF, UFBGA, INFRARED) are not.
+// "100nf" and "22pf" are capacitor values; "BUF" and "UFBGA" are not.
 bool isCapacitanceWord(const string& word) {
   if (word.size() < 3) return false;
   const auto suffix = word.substr(word.size() - 2);
@@ -112,7 +111,7 @@ bool isCapacitanceWord(const string& word) {
   return all_of(word.begin(), word.end() - 2, [](unsigned char ch) { return isdigit(ch) != 0; });
 }
 
-// Matches whole words only, so SHIELDED, CONTROLLED and BUNDLED are not LEDs and BUF is not a capacitor.
+// Whole words only, so SHIELDED is not an LED and BUF is not a capacitor.
 string inferCategory(const string& description) {
   const auto words = descriptionWords(description);
   const auto hasWord = [&](initializer_list<const char*> candidates) {
@@ -120,7 +119,7 @@ string inferCategory(const string& description) {
       return any_of(candidates.begin(), candidates.end(), [&](const char* candidate) { return word == candidate; });
     });
   };
-  // A ferrite bead is rated in ohms but is an inductor-class part, not a resistor.
+  // Ferrite beads are rated in ohms but are inductors, not resistors.
   if (hasWord({"ferrite", "bead", "beads"})) {
     return "Inductors";
   }
@@ -371,10 +370,8 @@ CsvImportResult parseDigiKeyCsvText(const string& text, const vector<InventoryIt
     return result;
   }
 
-  // DigiKey exports can repeat a line when an order was split across
-  // shipments. Treat the CSV as one logical receipt: keep the first row's
-  // review metadata and add quantities from later rows with the same DigiKey
-  // number, falling back to the manufacturer number.
+  // A split shipment repeats a line: merge later rows into the first, summing quantities.
+  // The key is the DigiKey number, or the manufacturer number when that is blank.
   vector<CsvImportCandidate> consolidated;
   unordered_map<string, size_t> byPart;
   for (auto& candidate : result.candidates) {

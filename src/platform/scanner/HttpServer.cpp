@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Authenticated local device service used by the Inventatory Scan R1 hardware.
-
 #define NOMINMAX
 
 #include "platform/scanner/HttpServer.h"
@@ -32,8 +29,7 @@ constexpr uint32_t kClientIoTimeoutMs = 2000U;
 constexpr size_t kMaxQueuedClients = 16;
 constexpr size_t kMaxPendingPerAddress = 8;
 constexpr uint32_t kReaderSelectIntervalMs = 100U;
-// Pause after an accept() failure that is not tied to a single aborted connection (descriptor or
-// kernel memory exhaustion), so a persistent error does not turn the acceptor into a busy loop.
+// Back off after accept() errors not tied to one connection (descriptor or memory exhaustion).
 constexpr uint32_t kAcceptFailureBackoffMs = 50U;
 
 struct PendingClient {
@@ -52,12 +48,8 @@ LocalHttpServer::~LocalHttpServer() {
 }
 
 void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path replayStatePath) {
-  // Rotation takes the credential operation lock first and only opportunistically
-  // takes callback serialization. If a callback is already running, waiting
-  // here could deadlock the application thread when that callback is waiting
-  // for the UI to process its request. In that case the epoch changes under
-  // replayMutex_; the stale callback can finish, but its replay commit and
-  // reservation release are rejected by the epoch check.
+  // Rotation takes the credential lock, then only tries the callback lock: waiting could deadlock
+  // with a callback waiting on the UI. The epoch then rejects a stale callback's replay commit.
   lock_guard<mutex> operationLock(credentialOperationMutex_);
   unique_lock<mutex> callbackLock(callbackSerialMutex_, try_to_lock);
   const auto fingerprint = deviceTransportStateFingerprint(token);
@@ -76,14 +68,12 @@ void LocalHttpServer::setDeviceCredentials(string deviceId, string token, path r
   replayStateFingerprint_ = fingerprint;
   replayCounterInFlight_.reset();
   if (pairingChanged) {
-    // A deliberate in-process token rotation starts a fresh replay sequence.
-    // The next accepted request rewrites the state file with the new fingerprint.
+    // A deliberate rotation starts a fresh sequence; the next accepted request rewrites the state.
     replayStateValid_ = true;
     lastAcceptedCounter_ = 0;
   } else {
-    // A state file left by a previous pairing secret (a rotation or clear that crashed before the file
-    // was removed) is for a different key; a request MAC'd with this key cannot replay under it, so
-    // the sequence simply restarts. Only unreadable or malformed state locks the service.
+    // State from another pairing secret is ignored and the sequence restarts. Only unreadable state
+    // locks the service.
     const auto loaded = loadReplayState(replayStatePath_, replayStateFingerprint_, lastAcceptedCounter_);
     replayStateValid_ = loaded != ReplayStateLoad::Invalid;
     if (!replayStateValid_) lastAcceptedCounter_ = 0;
@@ -234,9 +224,7 @@ void LocalHttpServer::readerLoop() {
 #endif
     const int selected = select(selectDescriptorCount, &readable, nullptr, nullptr, &timeout);
     if (selected < 0) {
-      // A signal delivered to this thread (a terminal resize, a second launch asking this instance
-      // to come forward) interrupts select(); that is not a socket failure, so keep the pending
-      // requests and wait again.
+      // A signal interrupts select(); keep the pending requests rather than failing them.
       if (socketInterrupted(socketLastError())) continue;
       for (auto& client : pending) closePendingClient(client);
       pending.clear();

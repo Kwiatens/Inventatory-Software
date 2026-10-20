@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Shared terminal UI formatting and inventory detail helpers.
 
 #include "ui/shared/AppUiShared.h"
@@ -236,8 +235,7 @@ ftxui::Element footerField(const string& title, const string& body, ftxui::Color
 }
 
 ftxui::Element uiPrimaryButton(const string& label, bool enabled) {
-  // Filled petrol-cyan on canvas-dark text. The inversion is what separates a
-  // primary control from the surrounding label/value lines at a glance.
+  // Inverted (cyan fill, dark text) so the control stands apart from label/value lines.
   if (!enabled) return styledText("  " + label + "  ", uiMutedText(), uiRaisedSurfaceBg());
   return uiHeaderText("  " + label + "  ", uiCanvasBg(), uiInteractiveColor());
 }
@@ -344,8 +342,7 @@ size_t displayWidth(const string& value) {
 }
 
 string takeCells(const string& value, size_t cells) {
-  // Utf8ToGlyphs yields one entry per terminal cell: a double-width glyph is
-  // followed by an empty entry, and combining marks are merged into their base.
+  // Wide glyphs are followed by an empty entry in Utf8ToGlyphs output; combining marks merge.
   const auto glyphs = ftxui::Utf8ToGlyphs(value);
   string result;
   size_t used = 0;
@@ -450,7 +447,7 @@ ftxui::Element uiPartName(const string& name, int maxWidth, bool selected) {
   string type = parts.type.empty() ? string() : parts.type + " ";
   string spec = parts.spec.empty() ? string() : " " + parts.spec;
   if (maxWidth > 0) {
-    // Trim the specification first, then the type, so the value stays readable on narrow panes.
+    // Trim the spec first, then the type, so the value stays readable.
     int room = maxWidth - static_cast<int>(ftxui::string_width(parts.value));
     if (room < 0) {
       return uiHeaderText(ellipsize(parts.value, static_cast<size_t>(maxWidth)), valueColor);
@@ -499,12 +496,11 @@ vector<string> wrapText(const string& text, int width) {
 
   while (words >> word) {
     size_t wordWidth = displayWidth(word);
-    // A word wider than the line is split on glyph boundaries instead of overflowing.
     while (wordWidth > limit) {
       flushLine();
       auto head = takeCells(word, limit);
       if (head.empty()) {
-        // A glyph wider than the whole line: emit it alone rather than looping forever.
+        // A glyph wider than the line is emitted alone, or the loop would never end.
         head = takeCells(word, 2);
         if (head.empty()) head = word.substr(0, 1);
       }

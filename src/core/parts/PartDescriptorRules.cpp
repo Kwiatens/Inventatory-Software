@@ -14,13 +14,9 @@ namespace inventatory::part_descriptor_detail {
 using namespace std;
 
 PartDescriptor discreteSemiconductorRule(const LabelContext& context) {
-  // DigiKey places the useful discrete subtype in either its taxonomy leaf or
-  // a structured "Type" parameter.  Resolve those before the broad family
-  // mapping below: returning "Diode" for a Schottky or "Transistor" for an
-  // NPN BJT throws away the information that distinguishes the stock item.
-  // Scanned items can lack persisted DigiKey taxonomy and therefore
-  // retain only "Discrete Semiconductor Products". Their part name and
-  // Technology parameter are still structured enough to identify the family.
+  // Resolve the subtype from the taxonomy leaf or "Type" parameter first; the broad family mapping
+  // below would return "Diode" for a Schottky. Scanned items keep only "Discrete Semiconductor
+  // Products", so their part name and Technology parameter identify the family.
   const bool isIntegratedCircuitFamily = hasCategoryPhrase(
       context, {"integrated circuits", "power management", "logic", "interface", "linear", "data acquisition", "clock timing"});
   const bool isDiscreteSemiconductorFamily = hasCategoryPhrase(context, {"discrete semiconductor"});
@@ -93,18 +89,16 @@ PartDescriptor discreteSemiconductorRule(const LabelContext& context) {
 }
 
 PartDescriptor integratedCircuitRule(const LabelContext& context) {
-  // Scans can retain only the broad "Integrated Circuits" category.
-  // Within that trusted family, DigiKey's Function/Topology fields and the
-  // standardized product description identify the actual IC role.
+  // Scans may keep only the broad "Integrated Circuits" category; then Function, Topology and the
+  // product description identify the IC role.
   const bool isIc = hasCategoryPhrase(context, {"integrated circuits", "power management", "pmic", "voltage regulators",
                                                 "linear amplifiers", "linear comparators", "data acquisition", "clock timing",
                                                 "logic", "interface", "memory", "microcontrollers", "embedded processors"});
   if (!isIc) return {};
   const bool isMemoryCategory = hasCategoryPhrase(context, {"memory"});
 
-  // A memory taxonomy is stronger evidence than a word such as "timer" in a
-  // memory-controller description. Resolve its concrete memory technology,
-  // then retain the honest Memory IC fallback when the technology is absent.
+  // A memory taxonomy outranks words such as "timer" in a memory-controller description.
+  // Resolve the technology, falling back to Memory IC.
   if (isMemoryCategory) {
     if (hasParameter(context, {"Memory Type"}, {"eeprom"}) || guardedTitleHas(context, {"eeprom"})) return resolved("EEPROM", "EEPROM", PartLabelSource::VendorRule);
     if (hasParameter(context, {"Memory Type"}, {"flash"}) || guardedTitleHas(context, {"flash memory", "nor flash", "nand flash"})) return resolved("Flash Memory", "Flash Memory", PartLabelSource::VendorRule);
@@ -164,9 +158,8 @@ PartDescriptor integratedCircuitRule(const LabelContext& context) {
 }
 
 PartDescriptor specificCategoryMapping(const LabelContext& context) {
-  // These are taxonomy leaves supplied by DigiKey, not product-name guesses.
-  // Keep them ahead of their family mappings so a concrete component is never
-  // reduced to the parent just because the full category path also contains it.
+  // DigiKey taxonomy leaves, not product-name guesses. They come before their family mappings so a
+  // concrete part is not reduced to its parent.
   if (hasCategoryPhrase(context, {"chip resistor", "resistors chip"})) return resolved("Surface-Mount Resistor", "SMD Resistor", PartLabelSource::VendorCategory);
   if (hasCategoryPhrase(context, {"through hole resistors"})) return resolved("Through-Hole Resistor", "THT Resistor", PartLabelSource::VendorCategory);
   if (hasCategoryPhrase(context, {"chassis mount resistors"})) return resolved("Chassis-Mount Resistor", "Chassis Resistor", PartLabelSource::VendorCategory);
@@ -211,10 +204,8 @@ PartDescriptor specificCategoryMapping(const LabelContext& context) {
 }
 
 PartDescriptor categoryMapping(const LabelContext& context) {
-  // Exact vendor category names are stable evidence.  These mappings deliberately
-  // do not inspect notes, MPNs, tags, or arbitrary free text.
-  // Protection and discrete semiconductors: specific leaves precede their
-  // deliberately broad parent families.
+  // Exact category names are stable evidence; notes, MPNs, tags and free text are never inspected.
+  // Specific leaves precede their broad parent families.
   if (hasExactCategory(context, {"fuse holders"})) return resolved("Fuse Holder", "Fuse Holder", PartLabelSource::VendorCategory);
   if (hasExactCategory(context, {"fuses", "thermal fuses", "ptc resettable fuses"})) return resolved("Fuse", "Fuse", PartLabelSource::VendorCategory);
   if (hasExactCategory(context, {"circuit breakers"})) return resolved("Circuit Breaker", "Circuit Breaker", PartLabelSource::VendorCategory);
@@ -278,8 +269,7 @@ PartDescriptor categoryMapping(const LabelContext& context) {
   if (hasExactCategory(context, {"digital isolators"})) return resolved("Digital Isolator", "Digital Isolator", PartLabelSource::VendorCategory);
   if (hasExactCategory(context, {"interface controllers", "interface specialized"})) return resolved("Interface IC", "Interface IC", PartLabelSource::VendorCategory);
 
-  // Some vendors expose a descriptive leaf rather than a category path.  The
-  // phrases below are still category evidence, not a global product-title scan.
+  // Some vendors give a descriptive leaf, not a category path. These are still category evidence.
   if (hasCategoryPhrase(context, {"temperature sensors", "thermistors"})) return resolved("Temperature Sensor", "Temp Sensor", PartLabelSource::VendorCategory);
   if (hasCategoryPhrase(context, {"pressure sensors", "pressure sensor"})) return resolved("Pressure Sensor", "Pressure Sensor", PartLabelSource::VendorCategory);
   if (hasCategoryPhrase(context, {"humidity moisture sensors"})) return resolved("Humidity Sensor", "Humidity Sensor", PartLabelSource::VendorCategory);
@@ -295,8 +285,7 @@ PartDescriptor categoryMapping(const LabelContext& context) {
 }
 
 PartDescriptor parentCategoryRule(const LabelContext& context) {
-  // DigiKey can return a stable parent category rather than the final leaf.
-  // A title is accepted only when that parent already identifies the family.
+  // A parent category may be all DigiKey returns; the title is used only when the parent fits.
   if (hasCategoryPhrase(context, {"circuit protection"}) && guardedTitleHas(context, {"fuse"})) {
     return resolved("Fuse", "Fuse", PartLabelSource::VendorRule);
   }
@@ -381,9 +370,7 @@ bool isGenericCategory(const string& category) {
 }
 
 string fallbackCategory(const LabelContext& context) {
-  // The last category segment is normally the provider's most useful leaf. It
-  // remains honest for categories we do not yet map, while avoiding the former
-  // meaningless "Part" label.
+  // The last segment is usually the most useful leaf for an unmapped part.
   for (auto it = context.categories.rbegin(); it != context.categories.rend(); ++it) {
     const auto category = trim(*it);
     if (!category.empty() && !isGenericCategory(category)) {

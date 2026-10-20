@@ -47,8 +47,7 @@ string windowsErrorText(unsigned long code) {
 
   wstring wide(buffer, length);
   LocalFree(buffer);
-  // The system text ends with "\r\n" and may wrap lines; keep it on one line and convert it as UTF-16
-  // so localized messages are not reduced to '?'.
+  // One line, converted from UTF-16 so localized text is not reduced to '?'.
   for (wchar_t& ch : wide) {
     if (ch == L'\r' || ch == L'\n') {
       ch = L' ';
@@ -131,9 +130,8 @@ PrinterQueueInfo makePrinterInfo(const wstring& name, const wstring& driver, con
     if (status & PRINTER_STATUS_DOOR_OPEN) {
       statusParts.push_back("Door open");
     }
-    // Flags that only say the printer is working do not make it unready. Any other flag that is set and
-    // not named above (paper jam, user intervention, out of memory, ...) means it needs attention, and
-    // is shown with its value instead of being reported as ready.
+    // Working flags do not make a printer unready. Any other unnamed flag (a paper jam) needs
+    // attention.
     const DWORD named = PRINTER_STATUS_PAUSED | PRINTER_STATUS_OFFLINE | PRINTER_STATUS_ERROR |
                         PRINTER_STATUS_PAPER_OUT | PRINTER_STATUS_NOT_AVAILABLE | PRINTER_STATUS_NO_TONER |
                         PRINTER_STATUS_DOOR_OPEN;
@@ -214,8 +212,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
     unique_ptr<void, decltype(&ClosePrinter)> printerHandle(handle, ClosePrinter);
     DWORD bytesNeeded = 0;
     if (!GetPrinterW(handle, 2, nullptr, 0, &bytesNeeded)) {
-      // The sizing call is expected to fail with ERROR_INSUFFICIENT_BUFFER; any other error means the
-      // queue could not be queried and must not be reported as ready.
+      // Expect ERROR_INSUFFICIENT_BUFFER here; any other error must not be reported as ready.
       const DWORD sizingError = GetLastError();
       if (sizingError != ERROR_INSUFFICIENT_BUFFER) {
         result.message = "Unable to query printer status: " + windowsErrorText(sizingError);

@@ -52,10 +52,8 @@ bool executableAvailable(const char* name) {
   return false;
 }
 
-// Runs a desktop helper (the zenity dialogs) and captures its standard output. The helper's own
-// warnings (GTK, dconf, a missing display) are discarded instead of being printed over the terminal
-// interface. A dialog waits for the user, so the deadline is only a backstop for a helper that never
-// returns.
+// Runs a desktop helper (zenity) and captures its stdout. Its warnings are discarded so they do not
+// print over the terminal UI. A dialog waits for the user, so the deadline is only a backstop.
 bool runCaptured(const string& executable, const vector<string>& arguments, string& output) {
   vector<string> command{executable};
   command.insert(command.end(), arguments.begin(), arguments.end());
@@ -67,9 +65,8 @@ bool runCaptured(const string& executable, const vector<string>& arguments, stri
   return result.succeeded();
 }
 
-// Closes every inherited descriptor above stderr in a forked child just before exec.  Only raw
-// system calls are used, so it is async-signal-safe and does not allocate.  Everything the app
-// creates is already close-on-exec; this is defence in depth against descriptors from libraries.
+// Closes inherited descriptors above stderr in a forked child before exec. Uses only async-signal-safe
+// calls. The app's own descriptors are already close-on-exec; this covers library descriptors.
 void closeInheritedDescriptors() {
 #ifdef SYS_close_range
   if (syscall(SYS_close_range, 3U, ~0U, 0U) == 0) return;
@@ -104,8 +101,7 @@ bool spawnDetached(const string& executable, const string& argument) {
 
 bool runClipboard(const char* executable, const vector<string>& arguments, const string& text) {
   int descriptors[2]{};
-  // Close-on-exec: the child only needs its dup2()ed copy, and a concurrently forked helper must
-  // not keep a write end open (it would stop the reader from seeing EOF).
+  // Close-on-exec, so a concurrent helper cannot hold the write end and block the reader's EOF.
   if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
   const pid_t child = fork();
   if (child < 0) {
@@ -197,7 +193,7 @@ void initializeConsoleWindow() {
 
 vector<string> buildTerminalCandidateArgs(const string& terminalBinary, const string& executable,
                                           const vector<string>& extraArgs) {
-  // Each terminal's own flags up to the point where the command to run begins.
+  // Each terminal's flags, up to the command to run.
   static const vector<vector<string>> kLaunchers = {
       {"konsole", "--separate", "--hide-menubar", "--hide-tabbar", "--hide-toolbars", "--desktopfile", "inventatory",
        "-qwindowtitle", "Inventatory", "-qwindowicon", "inventatory", "-p", "Icon=inventatory", "-p",
@@ -294,9 +290,8 @@ bool openUrl(const string& url) {
 }
 
 bool copyToClipboard(const string& text) {
-  // The only caller copies the Scan R1 pairing token, so ask for the clipboard-manager "sensitive"
-  // hint where it exists (wl-copy 2.2 and newer). Older wl-copy rejects the option and is retried
-  // without it; xclip and xsel have no equivalent.
+  // The only caller copies the Scan R1 pairing token, so request the "sensitive" clipboard hint where
+  // wl-copy 2.2+ supports it. Older wl-copy is retried without it; xclip and xsel have no equivalent.
   if (executableAvailable("wl-copy") &&
       (runClipboard("wl-copy", {"--sensitive"}, text) || runClipboard("wl-copy", {}, text))) {
     return true;

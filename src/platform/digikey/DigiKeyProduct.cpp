@@ -112,8 +112,7 @@ optional<string> readParameterValue(const JsonPtr& product, initializer_list<con
     return normalized;
   };
 
-  // An exact label wins over a loose one: "Package" must not shadow "Package / Case" just because it
-  // comes first in DigiKey's (unordered) parameter list.
+  // An exact label beats a loose one: "Package" must not shadow "Package / Case" by list order.
   for (const bool exact : {true, false}) {
     for (const auto& entry : *entries) {
       const auto label = readFirstMember(entry, {"Parameter", "ParameterText"});
@@ -256,8 +255,8 @@ optional<SearchMatch> extractSearchMatch(const JsonPtr& product) {
   return nullopt;
 }
 
-// A keyword result is only accepted for the part that was asked for: the query must be one of the product's
-// DigiKey numbers or its manufacturer part number. Any weaker similarity would merge another part's data.
+// Accept a keyword result only if the query is one of its DigiKey numbers or its MPN.
+// A weaker match could merge another part's data.
 optional<string> identifiedProductNumber(const SearchMatch& match, const string& query) {
   const auto wanted = normalizeSearchKey(query);
   if (wanted.empty()) return nullopt;

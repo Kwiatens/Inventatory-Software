@@ -43,9 +43,7 @@ string hexBytes(const unsigned char* data, size_t count) {
   return output.str();
 }
 
-// Keep the manifest format cryptographically meaningful on every build. The
-// PC product is Windows-only, but using a real portable implementation here
-// also keeps validation and tests deterministic on other toolchains.
+// Portable SHA-256 for non-Windows builds, so validation and tests are deterministic.
 class Sha256 {
  public:
   Sha256() : state_{0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,

@@ -306,8 +306,7 @@ void App::commitSettingsFieldEdit() {
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
     const auto preset = trim(inputBuffer_);
     if (preset.empty() || preset.size() > kQuickLabelPresetTextLimit) {
-      // The limit is a wire/storage budget in bytes (the R1 response and settings validation both
-      // measure bytes), so say so: accented letters and symbols take 2 or more.
+      // The limit counts bytes on the wire and in storage, so accented letters take 2.
       setMessage("Quick labels must be 1 to " + to_string(kQuickLabelPresetTextLimit) +
                      " bytes of text (accented letters use 2)",
                  5);
@@ -326,8 +325,7 @@ void App::commitSettingsFieldEdit() {
       settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
     }
   } else if (settingsCategory_ == SettingsCategory::DigiKey) {
-    // Keep the editor open on an over-long value: the validator rejects it on save, so accepting it here would
-    // make every later save fail.
+    // Keep the editor open on an over-long value; accepting it would make every save fail.
     const auto tooLong = [this](const char* label, size_t limit, const string& text) {
       if (text.size() <= limit) return false;
       setMessage(string(label) + " must be " + to_string(limit) + " bytes or fewer", 4);
@@ -369,7 +367,7 @@ void App::commitSettingsFieldEdit() {
       default: break;
     }
   } else if (settingsCategory_ == SettingsCategory::Tme) {
-    // Same rule as DigiKey: an over-long value keeps the editor open, because the validator would reject the save.
+    // Over-long values keep the editor open, as for DigiKey.
     const auto tooLong = [this](const char* label, size_t limit, const string& text) {
       if (text.size() <= limit) return false;
       setMessage(string(label) + " must be " + to_string(limit) + " bytes or fewer", 4);
@@ -422,12 +420,12 @@ void App::commitSettingsFieldEdit() {
         setMessage("API key cannot be empty; press Esc to keep the stored key", 4);
         return;
       }
-      // Same rule as TME: an over-long key keeps the editor open.
+      // An over-long key keeps the editor open.
       if (key.size() > kMaxMouserKeyBytes) {
         setMessage("Mouser API key must be " + to_string(kMaxMouserKeyBytes) + " bytes or fewer", 4);
         return;
       }
-      // Every call rejects a key that holds spaces or control characters, so such a key is never staged.
+      // Every call rejects such keys, so never stage one.
       if (!MouserConfig{key}.valid()) {
         setMessage("Mouser API key cannot contain spaces or control characters", 4);
         return;

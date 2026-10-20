@@ -3,8 +3,6 @@
 
 // Inventatory - Rack placement and movement actions.
 
-// Inventatory - rack navigation, editing, movement, and printing actions.
-
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 

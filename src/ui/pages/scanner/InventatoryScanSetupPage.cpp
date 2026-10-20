@@ -139,7 +139,7 @@ bool App::copyInventatoryScanToken() {
 }
 
 void App::beginScanFirmwareCheck() {
-  // Started together with the software update check; the Settings > Updates row reports progress.
+  // Runs alongside the software update check; Settings > Updates shows progress.
   if (scanFirmwareFuture_.valid()) return;
   scanFirmwareChecked_ = false;
   scanFirmwareCheckFailed_ = false;
@@ -242,9 +242,8 @@ void App::finishBleProvisioning(BleProvisionResult result) {
   }
   inventatoryScanConfig_.token = result.candidateToken;
   inventatoryScanConfig_.deviceId.clear();
-  // Persist the unpaired state before replacing the workspace credential. If
-  // the final paired-state write fails, a restart remains fail-closed even if
-  // Credential Manager has already accepted the new token.
+  // Persist the unpaired state first: if the final paired write fails, a restart
+  // stays fail-closed even when the credential store already took the new token.
   inventatoryScanConfig_.setupComplete = false;
   const bool unpairedConfigSaved = saveScannerConfigChecked(false);
   const bool tokenSaved = unpairedConfigSaved && saveScannerCredentialChecked(false);
@@ -334,14 +333,13 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
     return;
   }
 
-  // The setup result message promises "press R to retry saving"; R must reach the retry here,
-  // not be swallowed by the wizard. Only on the steps that take no typed text.
+  // R retries saving, as the setup result message promises; only on steps without typed text.
   if (key.type == KeyType::Character && key.ch == 'R' &&
       (scanSetupStep_ == ScanSetupStep::Confirm || scanSetupStep_ == ScanSetupStep::Complete) &&
       (scannerConfigSavePending_ || scannerCredentialSavePending_)) {
     retrySaveState();
     if (scanSetupStep_ == ScanSetupStep::Confirm && !scannerConfigSavePending_ && !scannerCredentialSavePending_) {
-      // Pairing data is saved now; the R1 was already provisioned, so finish instead of re-sending.
+      // Pairing data is saved and the R1 is already provisioned; finish instead of re-sending.
       if (returnToOnboardingAfterScan_) {
         beginWizardTransition(Page::ScanSetup, onboardingStep_, ScanSetupStep::Complete, true);
       } else {
@@ -387,8 +385,7 @@ void App::handleInventatoryScanSetupKey(const KeyEvent& key) {
 
   if (key.type != KeyType::Enter) return;
   const auto advanceScanStep = [this](ScanSetupStep next) {
-    // Every step starts with an empty field. The previous step's text (possibly the Wi-Fi
-    // password) must not carry into the next prompt or stay in memory after it was copied.
+    // Clear the field so the previous step's text (maybe the Wi-Fi password) is not kept.
     inputBuffer_.assign(inputBuffer_.size(), '\0');
     inputBuffer_.clear();
     if (returnToOnboardingAfterScan_) {

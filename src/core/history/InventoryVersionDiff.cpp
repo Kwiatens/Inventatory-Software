@@ -15,9 +15,8 @@ namespace inventatory {
 using namespace std;
 
 namespace {
-// The diff compares these rendered strings, so the rendering must be injective: values that contain a
-// separator are quoted, which keeps ["a,b"] distinct from ["a", "b"] and {"a", "b=c"} from {"a=b", "c"}.
-// Ordinary values render exactly as before.
+// Rendering must stay injective for the diff: values holding a separator are quoted,
+// so ["a,b"] and ["a", "b"] stay distinct.
 string listElement(const string& value, const char* separators) {
   if (value.find_first_of(separators) == string::npos && value.find_first_of("\"\\") == string::npos) return value;
   string quotedValue = "\"";
@@ -53,8 +52,7 @@ string serializeRackSnapshot(const InventatoryRack& rack) {
 }
 
 namespace {
-// The provider records kept beside the selected one, shown as provider and number, so a change to any of them
-// is visible in the history.
+// Records kept beside the selected source, so changes to them show in history.
 string vendorSourcesText(const vector<VendorProductMetadata>& sources) {
   string text;
   for (const auto& source : sources) {
@@ -295,8 +293,7 @@ bool prepareInventoryCommitReverse(const InventoryCommitDetail& detail, const In
     }
   }
 
-  // Parts and racks that changed independently can make the reversed state inconsistent, for example
-  // a restored part whose rack was deleted since, or whose slot another part now holds.
+  // Later changes can make the reversed state invalid, e.g. a restored part whose slot is taken.
   string invalid;
   if (!validateSnapshotSemantics(reversed, &invalid)) {
     conflict = "Later changes conflict with this commit; " + invalid;

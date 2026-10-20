@@ -29,8 +29,7 @@ std::optional<std::string> environmentValue(const char* name) {
   if (name == nullptr || *name == '\0') return std::nullopt;
 
 #ifdef _WIN32
-  // Names and values are UTF-8 here; the CRT's narrow environment is ANSI and lossy for profile
-  // paths with characters outside the active code page.
+  // Names and values are UTF-8; the CRT's narrow environment is ANSI and lossy outside the code page.
   const int wideNameLength = MultiByteToWideChar(CP_UTF8, 0, name, -1, nullptr, 0);
   if (wideNameLength <= 0) return std::nullopt;
   std::wstring wideName(static_cast<std::size_t>(wideNameLength), L'\0');

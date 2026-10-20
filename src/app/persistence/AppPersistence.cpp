@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Workspace loading, persistence, backup, restore, and history actions.
+// Inventatory - workspace loading and persistence actions.
 
 #include "App.h"
 #include "app/common/AppActionSupport.h"
@@ -50,10 +49,8 @@ void App::loadState() {
     dirty_ = true;
     return;
   }
-  // A missing database is a valid empty workspace.  Activate the candidate
-  // only after an existing database has loaded successfully, so a failed
-  // switch cannot overwrite the prior in-memory inventory and an empty target
-  // can never inherit that inventory during its initial save.
+  // A missing database is an empty workspace. Activate the candidate only after an existing one
+  // loads, so a failed switch keeps the in-memory inventory and an empty target cannot inherit it.
   store_ = move(loadedStore);
   inventoryRecoveryRequired_ = false;
   inventoryRecoveryDetail_.clear();
@@ -105,8 +102,6 @@ void App::loadState() {
     activities_.push_back(makeActivity("system", "Inventory loaded"));
     activities_.push_back(makeActivity("system", "Terminal initialized"));
   }
-  // DigiKey metadata is fetched on demand during scan-driven workflows, not at startup.
-
   bool scannerCredentialStoreUnavailable = false;
   if (trim(inventatoryScanConfig_.token).empty()) {
     const auto resolution = resolveWorkspaceScannerCredential(dataPath_, inventatoryScanConfig_);
@@ -122,8 +117,7 @@ void App::loadState() {
         inventatoryScanConfig_.deviceId.clear();
         inventatoryScanConfig_.setupComplete = false;
         if (resolution.credentialStoreUnavailable) {
-          // The pairing on disk is untouched (it is not rewritten below), so it works again once
-          // the keyring is unlocked and Inventatory is restarted.
+          // Pairing on disk is untouched: it works again after the keyring unlocks and restart.
           scannerCredentialStoreUnavailable = true;
           setMessage("The system keyring is locked or unavailable, so the Scan R1 pairing cannot be read; "
                      "unlock it and restart Inventatory",
@@ -139,8 +133,7 @@ void App::loadState() {
   vector<string> saveFailures;
   bool inventorySaved = false;
   if (inventoryLoaded || !inventoryFileExists) {
-    // A database that loaded unchanged already holds exactly this inventory; rewriting every row
-    // on each launch would only add risk. Write when the file is new or loading repaired rows.
+    // Rewrite only a new database or one that loading repaired; rewriting every row adds risk.
     if (!inventoryFileExists || inventoryNormalized) {
       inventorySaved = store_.save(inventoryPath_);
       if (!inventorySaved) saveFailures.push_back("inventory");
@@ -173,9 +166,7 @@ void App::loadState() {
 }
 
 bool App::reloadInventoryState() {
-  // Reloading replaces the in-memory inventory with the database. Unsaved changes (for instance
-  // after a failed save, which keeps them in memory so they can be retried) must not be dropped by
-  // a stray keystroke; History and Undo refuse the same way.
+  // Unsaved changes (kept after a failed save) must not be dropped; History and Undo refuse too.
   if (pendingCommitDraftValid_ ||
       (persistedStoreValid_ && !inventoryCommitDiff(persistedStore_, store_).empty())) {
     setMessage("Unsaved inventory changes; press R to retry saving before reloading", 5,

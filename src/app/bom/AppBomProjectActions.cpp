@@ -68,7 +68,7 @@ void App::sortBomAnalysisForProject(BomAnalysis& analysis, const vector<Inventor
   stable_sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
     const auto& leftMatch = analysis.matches[lhs];
     const auto& rightMatch = analysis.matches[rhs];
-    // In stock first, then the lines waiting for a confirmation, then the missing ones.
+    // Order: in stock, then awaiting confirmation, then missing.
     const auto rank = [](const BomMatch& match) { return match.sufficient ? 0 : match.needsConfirmation() ? 1 : 2; };
     if (rank(leftMatch) != rank(rightMatch)) return rank(leftMatch) < rank(rightMatch);
 
@@ -130,8 +130,7 @@ bool App::saveBomProjects() {
 }
 
 void App::beginBomProject(const string& bomText, const string& name, const filesystem::path& sourcePath) {
-  // Parse into a local first: a failed re-import must keep the BOM that the open project is analysed from,
-  // otherwise the next refreshBomAnalysis() would invalidate that project's analysis.
+  // Parse into a local so a failed re-import keeps the open project's analysis valid.
   auto parsed = parseBomText(bomText, name);
   if (!parsed.ok) {
     setMessage("BOM import failed: " + parsed.error, 6);
@@ -139,8 +138,6 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   }
   bomFile_ = std::move(parsed);
 
-  // A freshly imported project is held in memory until the user pins it, so a
-  // one-off analysis never clutters the list.
   BomProject project;
   project.id = "bom-" + makeId().substr(0, 12);
   project.name = name;
@@ -150,8 +147,7 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   project.lastOpened = project.createdAt;
   project.bomText = bomText;
 
-  // Replace an existing project built from the same file rather than stacking
-  // duplicates every time the user re-imports after a schematic change.
+  // Re-importing the same file replaces its project instead of duplicating it.
   const auto existing = find_if(bomProjects_.begin(), bomProjects_.end(), [&](const BomProject& candidate) {
     return !candidate.sourcePath.empty() && candidate.sourcePath == project.sourcePath;
   });
@@ -179,8 +175,7 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   inputMode_ = InputMode::None;
   refreshBomAnalysis();
   queueBomEnrichment();
-  // Persist straight away: an imported BOM should survive a restart without the
-  // user having to ask for it.
+  // Save now so an imported BOM survives a restart.
   const bool projectSaved = saveBomProjects();
   changePage(Page::Projects);
 
@@ -300,7 +295,7 @@ void App::cycleBomAlternate() {
   if (project == nullptr || !bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
     return;
   }
-  // Check the candidates against the stock on the shelf now, not the stock from when the project was opened.
+  // Check candidates against current stock, not stock from when the project opened.
   refreshBomAnalysis();
   const auto& match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
   if (match.candidates.size() < 2) {
@@ -308,7 +303,7 @@ void App::cycleBomAlternate() {
     return;
   }
 
-  // "Next match" only moves the suggestion. Nothing is saved until the user confirms it with c.
+  // Only moves the suggestion; nothing is saved until confirmed with c.
   const auto selectedLineKey = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
   const auto next = (match.chosen + 1) % match.candidates.size();
   bomSuggestions_[selectedLineKey] = match.candidates[next].itemId;
@@ -328,7 +323,7 @@ void App::confirmBomMatch() {
   if (project == nullptr || !bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
     return;
   }
-  // Confirm against the item as it is now: the saved fingerprint is what later checks compare against.
+  // Confirm against current stock; the saved fingerprint is what later checks compare.
   refreshBomAnalysis();
   const auto match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
   const auto selectedLineKey = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
@@ -397,7 +392,7 @@ void App::beginBomRestock() {
     return;
   }
   if (match.needsConfirmation()) {
-    // Restocking a suggested part would add units to a part the user has not accepted for this line.
+    // Restocking a suggested part would add units to a part not yet accepted for this line.
     setMessage("Confirm this line's part first (press c)", 4);
     return;
   }

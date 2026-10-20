@@ -47,9 +47,8 @@ bool App::saveSettingsDraft() {
                                             : max(1U, settings_.quickLabelRevision + 1U);
   }
 
-  // Fully read the candidate before stopping the active service or changing
-  // the persisted settings pointer.  A missing database is a valid empty
-  // workspace; an existing database and its sidecars must be readable.
+  // Read the candidate fully before stopping the service or changing settings. A missing
+  // database is an empty workspace; an existing one must load.
   InventoryStore candidateStore;
   AppSettings oldSettings = settings_;
   const auto oldPaths = makeInventatoryDataPaths(dataPath_);
@@ -100,9 +99,8 @@ bool App::saveSettingsDraft() {
     }
   }
 
-  // Do not allow a switch while a user-visible sync is mid-flight.  Other
-  // workspace-bound lookups are quiesced below; their results are never
-  // allowed to cross the generation boundary.
+  // No workspace switch during a visible sync. Other workspace lookups stop below, and their
+  // results must not cross the generation boundary.
   if (dataChanged && importSyncRunning_) {
     setMessage("Wait for DigiKey sync to finish before changing the data folder", 5);
     return false;
@@ -121,8 +119,7 @@ bool App::saveSettingsDraft() {
   bool tmeTokenChanged = false;
   bool tmeSecretChanged = false;
   bool mouserKeyChanged = false;
-  // Puts one credential back after a later step failed. When the store could not be read the previous state is
-  // unknown, so nothing is erased: a stored secret must never be lost to a failed read.
+  // Restores one credential after a later step failed. An unreadable previous state erases nothing.
   const auto restoreCredential = [](const char* name, const CredentialLookup& previous) {
     if (previous.status == CredentialReadStatus::Found && previous.secret.has_value()) {
       CredentialStore::write(name, *previous.secret);
@@ -130,7 +127,6 @@ bool App::saveSettingsDraft() {
       CredentialStore::erase(name);
     }
   };
-  // Puts back every credential this save has written so far.
   const auto rollbackCredentials = [&] {
     if (credentialChanged) restoreCredential(kDigiKeySecretName, oldDigiKeySecret);
     if (tmeTokenChanged) restoreCredential(kTmeTokenCredentialName, oldTmeToken);
@@ -220,8 +216,7 @@ bool App::saveSettingsDraft() {
       lock_guard<mutex> lock(quickLabelMutex_);
       settings_ = oldSettings;
     }
-    // The draft keeps every staged edit (data folder, colours, DigiKey fields, printer) so the user can
-    // retry or pick another folder instead of redoing the whole form.
+    // Keep the draft so the user can retry or pick another folder without re-entering it.
     settingsDirty_ = true;
     if (startupChanged) {
       string ignored;
@@ -255,7 +250,7 @@ bool App::saveSettingsDraft() {
       settings_ = oldSettings;
       settingsDraft_ = oldSettings;
       const bool rollbackSaved = saveAppSettings(settingsPath_, oldSettings);
-      // The credential store and the OS startup entry were changed earlier in this save; put them back too.
+      // Also undo the credential and startup changes made earlier in this save.
       if (startupChanged) {
         string ignored;
         setBackgroundStartupEnabled(oldSettings.backgroundServiceEnabled, ignored);
@@ -294,7 +289,7 @@ bool App::saveSettingsDraft() {
       lock_guard<mutex> lock(quickLabelMutex_);
       settings_ = oldSettings;
     }
-    // The draft keeps every staged edit so the user can retry after fixing the write problem.
+    // Keep the draft so the user can retry.
     settingsDirty_ = true;
     if (startupChanged) {
       string ignored;
@@ -321,8 +316,7 @@ bool App::saveSettingsDraft() {
   autoPrintScannedLabels_ = settings_.autoPrintScannedLabels;
   auto bridgeRestart = DeviceServiceRestart::Restarted;
   if (portChanged || dataChanged) bridgeRestart = restartDeviceService();
-  // A background service that cannot start is reported after the rest of the save has been applied, so the
-  // printer queue and the staged secret are never left half applied.
+  // Report a failed background start after the rest of the save, so nothing is left half applied.
   bool backgroundStartFailed = false;
   bool backgroundDisabledSaved = true;
   if (backgroundChanged) {
@@ -331,9 +325,7 @@ bool App::saveSettingsDraft() {
         backgroundQuitRequested_.store(true);
       });
       if (!backgroundStarted) {
-        // Keep the setting truthful if the tray/controller could not be
-        // created.  A later launch should not repeatedly claim an available
-        // background service that never started.
+        // Store the setting as off, so a later launch does not claim a service that never started.
         settings_.backgroundServiceEnabled = false;
         settingsDraft_.backgroundServiceEnabled = false;
         string startupError;

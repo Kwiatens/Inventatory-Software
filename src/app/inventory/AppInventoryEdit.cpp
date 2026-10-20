@@ -210,9 +210,8 @@ void App::saveWorkingCopy() {
     return;
   }
 
-  // The scanner keeps committing stock changes while the form is open, and the item may have moved
-  // within store_, so the stored item is found by id and only the fields the user changed are
-  // replayed onto it instead of overwriting the whole record with the stale copy.
+  // The scanner may change store_ while the form is open, so the item is found by id and only the
+  // user's changed fields are replayed onto it.
   vector<string> mergeNotices;
   if (workingCopy_.isNew) {
     captureUndoSnapshot();

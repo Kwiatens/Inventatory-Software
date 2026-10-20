@@ -33,8 +33,7 @@ namespace inventory_transfer_detail {
 
 namespace {
 
-// The restore journal and the directory renames are the crash-recovery protocol, so a rename must be on
-// disk before the next step is recorded. A move between directories changes both of them.
+// Renames are crash-recovery steps: each must be on disk before the next step is recorded.
 bool syncRenamedEntry(const filesystem::path& source, const filesystem::path& destination, string& error) {
   const auto parentOf = [](const filesystem::path& path) {
     return path.parent_path().empty() ? filesystem::path(".") : path.parent_path();
@@ -80,8 +79,7 @@ bool transientWindowsMoveError(const error_code& error) {
     error_code filesystemError;
     filesystem::rename(source, destination, filesystemError);
 #ifdef _WIN32
-    // An antivirus scan, the search indexer or cloud sync can briefly hold a handle inside a folder
-    // that is being moved; such access and sharing violations usually clear within a moment.
+    // Antivirus, indexers or sync can briefly lock a moved folder; retry those transient errors.
     for (int attempt = 1; filesystemError && attempt < 5 && transientWindowsMoveError(filesystemError); ++attempt) {
       Sleep(static_cast<DWORD>(50 * attempt));
       filesystemError.clear();
@@ -128,10 +126,8 @@ bool transientWindowsMoveError(const error_code& error) {
 
 namespace {
 
-// Files that restore replaces or discards together with the old workspace.
-// SQLite sidecars and the scanner replay state belong to the old workspace's
-// database and pairing, so keeping them next to the restored data would be
-// wrong (a stale journal could be applied to the restored database).
+// Files replaced or discarded with the old workspace. Keeping SQLite sidecars or replay state
+// beside restored data would apply a stale journal to the restored database.
 constexpr const char* kRestoreReplacedNames[] = {
     "inventory.db",      "activity.tsv",          "printer.conf",
     "quick_labels.conf", "inventatory_scan.conf", "inventatory-scan-replay.state",
@@ -155,15 +151,14 @@ WorkspaceEntryKind classifyWorkspaceEntry(const filesystem::path& path, Workspac
     if (name == known) reserved = true;
     else if (lowered == known) similar = true;
   }
-  // A name that differs only by case would collide on a case-insensitive
-  // filesystem, so it is neither replaceable nor safe to carry over.
+  // A case-only difference would collide on case-insensitive filesystems.
   if (similar) return WorkspaceEntryKind::Conflict;
   if (reserved) {
     return source == WorkspaceEntrySource::RestoredCopy ? WorkspaceEntryKind::Replaced
                                                         : WorkspaceEntryKind::Conflict;
   }
   if (!replaced) return WorkspaceEntryKind::Preserved;
-  // A real folder with a managed file name is user data, not a managed file.
+  // A folder with a managed file name is user data.
   error_code statusError;
   const auto status = filesystem::symlink_status(path, statusError);
   if (statusError || status.type() == filesystem::file_type::directory) return WorkspaceEntryKind::Conflict;
@@ -210,8 +205,7 @@ bool moveUnmanagedEntries(const filesystem::path& from, const filesystem::path& 
   if (!listPreservedEntries(from, source, preserved, error)) return false;
   for (const auto& entry : preserved) {
     const auto target = to / entry.filename();
-    // rename() silently replaces an existing file, so never move onto a name
-    // that is already in use.
+    // rename() silently replaces an existing file, so never move onto a name in use.
     error_code statusError;
     const auto status = filesystem::symlink_status(target, statusError);
     if (status.type() != filesystem::file_type::not_found) {
@@ -303,8 +297,7 @@ bool atomicWriteText(const filesystem::path& target, const string& text, const T
     filesystem::remove(temporary, filesystemError);
     return false;
   }
-  // The content must be on disk before the rename can make it the journal; otherwise a crash can leave
-  // a journal that is empty or older than the layout it describes.
+  // Flush before the rename makes it the journal; a crash must not leave an empty or stale one.
   string syncError;
   if (!syncFile(temporary, &syncError)) {
     error = "Unable to flush " + target.u8string() + ": " + syncError;

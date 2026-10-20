@@ -25,9 +25,8 @@ int boundedSqliteLimit(size_t limit) {
 
 enum class StoredEventIdentity { Unused, Same, Different, Failed };
 
-// Compares an incoming event with the stored row that has its id. A retransmitted event is the same scan and is
-// accepted again. A different scan under a stored id is not accepted: the device numbers its events, so a number the
-// desktop already holds would otherwise be acknowledged and never processed, and the scan would be lost.
+// Compares an event with the stored row of its id. A different scan under that id is refused:
+// the device numbers its events, so accepting it would ack and lose the scan.
 StoredEventIdentity storedEventIdentity(SqliteConnection& connection, const string& deviceId,
                                         const DeviceSyncEvent& event) {
   SqliteStatement statement;
@@ -183,8 +182,8 @@ bool acceptDeviceSyncEvents(const filesystem::path& databasePath, const DeviceSy
     const auto& event = request.events[index];
     const auto identity = storedEventIdentity(connection, request.deviceId, event);
     if (identity == StoredEventIdentity::Different) {
-      // The first event is the head of the device's outbox, so the whole request is refused: nothing behind it may be
-      // accepted before it. A clash further back is left out, and the device raises it as its next head.
+      // A clash on the head event refuses the request: nothing may be accepted ahead of it.
+      // A clash further back is skipped, and the device raises it as its next head.
       if (index == 0) headConflict = true;
       continue;
     }
@@ -207,8 +206,7 @@ vector<DeviceSyncEvent> loadPendingDeviceSyncEvents(const filesystem::path& data
   if (!openDatabase(databasePath, connection) || !ensureInventoryDatabaseSchema(connection)) return events;
   if (limit == 0) return events;
   SqliteStatement statement;
-  // received_at has one-second resolution and a request carries several events, so the arrival order
-  // within a second is the insertion order (rowid), never the device-chosen event id.
+  // received_at has one-second resolution; ties go by rowid, never by the device's event id.
   const char* sql = R"SQL(
     SELECT event_id, device_id, event_type, event_code, event_value
     FROM inventatory_device_events WHERE state='received' ORDER BY received_at, rowid LIMIT ?
@@ -312,7 +310,7 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
     result.status = "found";
     const auto itemId = sqliteText(statement.stmt, 0);
     result.itemName = sqliteText(statement.stmt, 1);
-    // Release the read before the full item is loaded through its own connection.
+    // Finish the read before loading the item on its own connection.
     sqliteApi().reset(statement.stmt);
     if (result.itemName.size() > kDeviceItemNameLimit) {
       InventoryStore store;
@@ -327,11 +325,8 @@ DeviceLookupResult lookupDeviceItem(const filesystem::path& databasePath, const 
 
 bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& databasePath,
                              const DeviceSyncResult& result, const InventoryStore* previousStore) {
-  // Finalize identifiers in the same snapshot that is committed and returned
-  // to the application. InventoryStore::saveWithCommit() normalizes a
-  // private copy, which would otherwise leave a newly received item without
-  // its Inventatory ID/machine code in live memory. The auto-label path
-  // prints from that live item immediately after this call.
+  // Finalize IDs on the snapshot that is committed and returned to the app. saveWithCommit()
+  // normalizes only a private copy, so the live item would otherwise lack its IDs for auto-label.
   auto finalized = store;
   ensureInventoryIdentifiers(finalized.items());
 
@@ -342,9 +337,8 @@ bool completeDeviceSyncEvent(InventoryStore& store, const filesystem::path& data
     if (!openDatabaseReadOnly(databasePath, identityConnection) ||
         !validateInventoryDatabase(identityConnection) ||
         !loadReceivedEventDeviceId(identityConnection, result.eventId, deviceId)) {
-      // A result without an explicit identity is accepted only when the
-      // still-pending inbox row supplies it.  This keeps legacy callers safe
-      // while preventing a completion from matching an arbitrary event ID.
+      // Without an explicit device id, take it from the pending inbox row, so a completion
+      // cannot match an arbitrary event id.
       return false;
     }
   }

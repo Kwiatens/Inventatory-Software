@@ -3,8 +3,7 @@
 
 #pragma once
 
-// Private helpers shared by the focused App action translation units. This
-// header is not part of the public application interface.
+// Private helpers for the App action source files. Not part of the public interface.
 
 #include "App.h"
 #include "core/inventory/VendorBagCode.h"
@@ -34,8 +33,7 @@ constexpr size_t kDeviceStatusQueueLimit = 256;
 constexpr uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
 constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
 
-// Delay before the oldest scanner event is committed again after a failed commit: 2 s, doubling up
-// to 60 s.
+// Retry delay after a failed scanner commit: 2 s, doubling up to 60 s.
 inline chrono::seconds deviceSyncRetryDelay(int consecutiveFailures) {
   int seconds = 2;
   for (int step = 1; step < consecutiveFailures && seconds < 60; ++step) seconds *= 2;
@@ -57,8 +55,7 @@ enum class WorkspaceScannerCredentialStatus {
 struct WorkspaceScannerCredentialResolution {
   WorkspaceScannerCredentialStatus status = WorkspaceScannerCredentialStatus::RequiresPairing;
   optional<string> token;
-  // The credential store could not answer (locked or missing keyring). The scanner stays disabled
-  // exactly as for a missing credential, but the user is told the real reason.
+  // Store unavailable (locked or no keyring): the scanner stays disabled, but the reason is shown.
   bool credentialStoreUnavailable = false;
 };
 
@@ -70,8 +67,7 @@ inline bool validScannerToken(const string& token) {
 inline WorkspaceScannerCredentialResolution resolveScannerCredential(const CredentialLookup& lookup,
                                                                      const InventatoryScanConfig& config) {
   if (lookup.status == CredentialReadStatus::Unavailable) {
-    // Whether a token exists is unknown. Never mint a fresh one: it would replace the real token as
-    // soon as the store answers again.
+    // Token existence is unknown. Never mint a fresh one: it would replace the real token.
     return {WorkspaceScannerCredentialStatus::RequiresPairing, nullopt, true};
   }
   const auto& scopedCredential = lookup.secret;
@@ -140,15 +136,13 @@ inline vector<Parameter> parseParameters(const string& text) {
   return values;
 }
 
-// The names that stand for the item's package case: DigiKey lists "Package / Case" and the stored package is "Package".
-// The supplier's device package ("Supplier Device Package") is a separate parameter and is not one of them.
+// Names of the package case. A supplier's device package is a separate parameter.
 inline bool isPackageParameterName(const string& name) {
   const auto key = normalizeKey(name);
   return key == "package" || key == "packagecase" || key == "casepackage";
 }
 
-// A vendor value replaces a stored one only for the same parameter. A longer name that starts with the same words is a
-// different parameter: a DigiKey "Lens Color" must not overwrite the LED's "Color".
+// Only the same parameter is replaced: DigiKey's "Lens Color" must not overwrite "Color".
 inline bool isSameParameterName(const string& stored, const string& name) {
   const auto key = normalizeKey(name);
   if (!key.empty() && normalizeKey(stored) == key) return true;
@@ -176,8 +170,7 @@ inline bool upsertParameter(vector<Parameter>& parameters, const string& name, c
   return true;
 }
 
-// Field-by-field equality of two vendor records. VendorProductMetadata has no operator==, and parameter
-// order is part of the record.
+// VendorProductMetadata has no operator==. Parameter order is part of the record.
 inline bool sameVendorRecord(const VendorProductMetadata& left, const VendorProductMetadata& right) {
   if (left.provider != right.provider || left.providerProductNumber != right.providerProductNumber ||
       left.manufacturerPartNumber != right.manufacturerPartNumber || left.categoryId != right.categoryId ||
@@ -195,9 +188,8 @@ inline bool sameVendorRecord(const VendorProductMetadata& left, const VendorProd
   return true;
 }
 
-// Keeps a record from a provider other than the item's selected one, replacing that provider's earlier
-// record. Returns true when the stored records changed. A record without a provider or a product number is
-// ignored, because it cannot be looked up again.
+// Keeps one record per provider, replacing that provider's earlier record. Returns true if changed.
+// Ignores a record without a provider or product number, as it cannot be looked up again.
 inline bool upsertVendorSource(InventoryItem& item, const VendorProductMetadata& record) {
   const auto provider = toLower(trim(record.provider));
   if (provider.empty() || trim(record.providerProductNumber).empty()) return false;
@@ -211,8 +203,7 @@ inline bool upsertVendorSource(InventoryItem& item, const VendorProductMetadata&
   return true;
 }
 
-// Applies a TME product. TME becomes the selected source when the item has none or already uses TME.
-// Otherwise the TME record is kept beside the selected source, so neither provider's identity is replaced.
+// TME is the selected source only if none is set or TME is; else it is kept as a source.
 inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& details) {
   VendorProductMetadata record = details.vendorMetadata;
   record.provider = "tme";
@@ -223,7 +214,7 @@ inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& detai
   }
 
   bool changed = false;
-  // Fills an empty field, or a placeholder the scan or the import left behind, as the DigiKey merge does.
+  // Fills an empty field or a placeholder left by a scan or import.
   const auto assignIfUseful = [&](string& target, const string& value, bool replaceUnknown = false) {
     const auto trimmed = trim(value);
     if (trimmed.empty()) return;
@@ -272,7 +263,7 @@ inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& detai
     item.vendorMetadata.parameters = record.parameters;
     changed = true;
   }
-  // The product's parameters, and the package, stock and price TME gives, also appear on the item, as DigiKey's do.
+  // Also copies TME's parameters, package, stock and price onto the item.
   for (const auto& parameter : details.parameters) {
     if (upsertParameter(item.parameters, parameter.name, parameter.value)) changed = true;
   }
@@ -290,7 +281,7 @@ inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& detai
     changed = true;
   }
 
-  // A matched TME record completes the item's metadata, as a DigiKey record does.
+  // A matched record marks the item as synced.
   if (item.syncStatus != "synced") {
     item.syncStatus = "synced";
     changed = true;
@@ -299,8 +290,7 @@ inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& detai
   return changed;
 }
 
-// Sets or clears the TME symbol of an item. An item with no catalogue of its own becomes a TME part. An item
-// bound to DigiKey keeps DigiKey as its selected source and holds the TME symbol beside it, as a merged record does.
+// Sets or clears the TME symbol. An item bound to another provider keeps that as its source.
 inline bool setTmeSymbol(InventoryItem& item, const string& symbol) {
   const auto value = trim(symbol);
   if (value.size() > 64) return false;
@@ -337,13 +327,10 @@ inline bool setTmeSymbol(InventoryItem& item, const string& symbol) {
   return true;
 }
 
-// What a TME refresh looks up for an item: a TME symbol the item already carries, else its manufacturer part
-// number, else its SKU. A SKU is often a supplier order number (a DigiKey code, for example) that TME does not
-// know, so the part number comes first. The result is matched exactly; the item's manufacturer tells apart TME products
-// that share the part number.
+// Lookup order: TME symbol, manufacturer part number, then SKU. A SKU is often a supplier order
+// number that TME does not know, so it comes last.
 inline TmeIdentifier tmeRefreshIdentifier(const InventoryItem& item) {
-  // Only a part that came from TME is refreshed from TME; a part that came from another vendor (DigiKey or Mouser) is
-  // never looked up here.
+  // Only a part that came from TME is refreshed from TME.
   if (originProvider(item) != "tme") return {};
   if (const auto symbol = tmeProductSymbol(item); !symbol.empty()) return {true, symbol, {}};
   if (const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber); !partNumber.empty()) {
@@ -352,10 +339,8 @@ inline TmeIdentifier tmeRefreshIdentifier(const InventoryItem& item) {
   return {false, trim(item.sku), trim(item.manufacturer)};
 }
 
-// The measured value a TME record gives for a part the item already describes (resistance, capacitance, inductance)
-// must agree with the stored value. A record that clearly disagrees is a different part, perhaps listed under the same
-// part number, and merging it would put the wrong values on the item. Returns the name of the disagreeing parameter, or
-// empty when the record agrees or has nothing to compare.
+// A TME record's resistance, capacitance or inductance must match the stored value, or it is a
+// different part with the same part number. Returns the disagreeing parameter's name, or empty.
 inline string tmeRecordConflict(const InventoryItem& item, const TmeProductDetails& details) {
   for (const auto& parameter : details.parameters) {
     if (parameter.name != "Resistance" && parameter.name != "Capacitance" && parameter.name != "Inductance") continue;
@@ -368,8 +353,7 @@ inline string tmeRecordConflict(const InventoryItem& item, const TmeProductDetai
   return {};
 }
 
-// Applies a Mouser product. Mouser becomes the selected source when the item has none or already uses Mouser.
-// Otherwise the Mouser record is kept beside the selected source, so neither provider's identity is replaced.
+// Mouser is the selected source only if none is set or Mouser is; else it is kept as a source.
 inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails& details) {
   VendorProductMetadata record = details.vendorMetadata;
   record.provider = kVendorProviderMouser;
@@ -380,7 +364,7 @@ inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails&
   }
 
   bool changed = false;
-  // Fills an empty field, or a placeholder an import left behind, as the TME merge does.
+  // Fills an empty field or an import's placeholder.
   const auto assignIfUseful = [&](string& target, const string& value, bool replaceUnknown = false) {
     const auto trimmed = trim(value);
     if (trimmed.empty()) return;
@@ -428,7 +412,7 @@ inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails&
     item.vendorMetadata.parameters = record.parameters;
     changed = true;
   }
-  // The product's attributes, and the package, stock and price Mouser gives, also appear on the item, as TME's do.
+  // Also copies Mouser's attributes, package, stock and price onto the item.
   for (const auto& parameter : details.parameters) {
     if (upsertParameter(item.parameters, parameter.name, parameter.value)) changed = true;
   }
@@ -446,7 +430,7 @@ inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails&
     changed = true;
   }
 
-  // A matched Mouser record completes the item's metadata, as a TME record does.
+  // A matched record marks the item as synced.
   if (item.syncStatus != "synced") {
     item.syncStatus = "synced";
     changed = true;
@@ -455,22 +439,17 @@ inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails&
   return changed;
 }
 
-// What a Mouser refresh looks up for an item: the Mouser part number the item carries, else its manufacturer part
-// number, else its SKU. Mouser's search matches either number exactly, and the caller passes the item's manufacturer
-// to tell apart products that share the number.
+// Lookup order: Mouser part number, manufacturer part number, then SKU.
 inline string mouserRefreshLookup(const InventoryItem& item) {
-  // Only a part that came from Mouser is refreshed from Mouser; a DigiKey or TME part that holds a Mouser record
-  // beside its own is never looked up here.
+  // Only a part that came from Mouser is refreshed from Mouser.
   if (originProvider(item) != kVendorProviderMouser) return {};
   if (const auto partNumber = mouserPartNumberOf(item); !partNumber.empty()) return partNumber;
   if (const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber); !partNumber.empty()) return partNumber;
   return trim(item.sku);
 }
 
-// The manufacturer part number a Mouser record gives must be the one the item already stores. A record with another
-// number is a different part, and merging it would put the wrong details on the item. Letter case and punctuation are
-// ignored, as mouserPartNumberMatches ignores them. Returns the name of the disagreeing field, or empty when the
-// numbers agree or either side has none to compare.
+// A record with another manufacturer part number is a different part. Case and punctuation are
+// ignored. Returns the disagreeing field, or empty if the numbers agree or either is missing.
 inline string mouserRecordConflict(const InventoryItem& item, const MouserProductDetails& details) {
   const auto stored = normalizeKey(item.vendorMetadata.manufacturerPartNumber);
   const auto incoming = normalizeKey(details.vendorMetadata.manufacturerPartNumber);
@@ -514,11 +493,8 @@ inline bool mergeDigiKeyMetadata(InventoryItem& item, const DigiKeyProductDetail
   assignIfUseful(item.productUrl, details.productUrl);
   assignIfUseful(item.datasheetUrl, details.datasheetUrl);
 
-  // The retained provider record is the sole input for deterministic vendor
-  // label resolution; direct item fields remain available for the UI.
-  // An item already bound to another catalogue provider keeps that identity:
-  // replacing it would swap the part its provider number points at. The DigiKey
-  // record is kept beside it as a source instead.
+  // An item bound to another provider keeps that identity: replacing it would swap the part its
+  // provider number points at. The DigiKey record is kept beside it as a source.
   const auto boundProvider = toLower(trim(item.vendorMetadata.provider));
   const bool identityOwnedElsewhere = !boundProvider.empty() && boundProvider != "digikey";
   if (identityOwnedElsewhere) {
@@ -646,7 +622,7 @@ inline DigiKeyApiHandle createDigiKeyApi() {
 }
 
 inline string digiKeyRefreshLookup(const InventoryItem& item) {
-  // Only a part that came from DigiKey is refreshed from DigiKey; a TME or Mouser part is never looked up here.
+  // Only a part that came from DigiKey is refreshed from DigiKey.
   if (originProvider(item) != "digikey") return {};
   const auto provider = toLower(trim(item.vendorMetadata.provider));
   if (!trim(item.digikeyPartNumber).empty()) {
@@ -655,7 +631,7 @@ inline string digiKeyRefreshLookup(const InventoryItem& item) {
   if (provider == "digikey" && !trim(item.vendorMetadata.providerProductNumber).empty()) {
     return trim(item.vendorMetadata.providerProductNumber);
   }
-  // Older imports may retain only the SKU, which is the DigiKey number of a part DigiKey supplied.
+  // Older imports may keep only the SKU, which is the DigiKey number.
   if (provider == "digikey" && !trim(item.sku).empty()) {
     return trim(item.sku);
   }

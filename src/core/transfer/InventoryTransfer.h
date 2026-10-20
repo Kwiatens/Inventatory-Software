@@ -17,9 +17,7 @@ struct AppSettings;
 
 bool exportInventoryCsv(const InventoryStore& store, const std::filesystem::path& path, std::string& error);
 
-// Optional operation overrides are test-only seams for deterministic
-// failure-path tests. Production callers must pass nullptr; integrity checks
-// and SQLite snapshot validation are never delegated to these callbacks.
+// Test-only seams. Production callers pass nullptr; integrity checks are never delegated here.
 struct InventoryTransferTestHooks {
   std::function<bool(const std::filesystem::path&, const std::filesystem::path&, std::string&)> copyFile;
   std::function<bool(const std::filesystem::path&, const std::filesystem::path&, std::string&)> renamePath;
@@ -28,8 +26,7 @@ struct InventoryTransferTestHooks {
   std::function<bool(const std::filesystem::path&, const AppSettings&, std::string&)> saveSettings;
 };
 
-// Creates and validates a self-contained backup bundle. Secrets are not part
-// of the bundle; scanner pairing is deliberately re-established on restore.
+// Secrets are not included in the bundle; scanner pairing is re-established on restore.
 bool createInventatoryBackup(const std::filesystem::path& dataDirectory,
                              const std::filesystem::path& appSettingsPath,
                              const std::filesystem::path& destinationDirectory,
@@ -40,16 +37,12 @@ bool restoreInventatoryBackup(const std::filesystem::path& backupDirectory,
                              const std::filesystem::path& destinationDirectory,
                              const std::filesystem::path& appSettingsPath, std::string& error,
                              const InventoryTransferTestHooks* testHooks = nullptr,
-                             // Set only when the function returns false after
-                             // publishing the replacement workspace and the
-                             // rollback/cleanup could not make the outcome
-                             // unambiguous. Callers must keep services stopped
-                             // until the active workspace has been reloaded.
+                             // Set when false is returned after publishing the replacement and
+                             // the outcome is unclear. Keep services stopped until reload.
                              bool* replacementWorkspaceActiveOnFailure = nullptr);
 
-// Called by startup before loading the active workspace. It completes a
-// committed restore cleanup or rolls back an interrupted activation using the
-// journal written next to appSettingsPath. The journal contains no secrets.
+// Run at startup before loading the workspace: completes a committed restore or rolls back
+// an interrupted one. The journal next to appSettingsPath holds no secrets.
 bool recoverInventatoryRestore(const std::filesystem::path& destinationDirectory,
                                const std::filesystem::path& appSettingsPath, std::string& error);
 

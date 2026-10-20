@@ -25,8 +25,7 @@ namespace label_printer_detail {
 
 namespace {
 
-// The SI prefixes a value may carry, each with the power of ten it stands for. The micro sign comes as U+00B5 from one
-// vendor and as the Greek mu, U+03BC, from another; both are the same prefix.
+// SI prefixes and their powers of ten. Vendors send micro as U+00B5 or U+03BC (Greek mu).
 struct UnitPrefix {
   const char* text;
   int exponent;
@@ -38,7 +37,7 @@ const vector<UnitPrefix>& unitPrefixes() {
   return prefixes;
 }
 
-// The prefix text printed for a power of ten the normaliser may choose. Only the powers in this list are ever used.
+// Prefix text for each power of ten that exponentFor can return.
 const char* prefixText(int exponent) {
   switch (exponent) {
     case 9: return "G";
@@ -52,8 +51,7 @@ const char* prefixText(int exponent) {
   }
 }
 
-// One figure with its unit: "0.6V", "600 mV" or "1.5µH". The unit is optional only so that the low end of a range can
-// be "100" in "100 to 600mV".
+// A figure and its unit, "600 mV". Only a range's low end may omit the unit: "100 to 600mV".
 struct UnitFigure {
   string number;
   int exponent = 0;
@@ -66,8 +64,7 @@ bool isKnownUnit(const string& unit) {
   return find(units.begin(), units.end(), unit) != units.end();
 }
 
-// Reads "600 mV" as a figure. Returns false for anything else, so a value this rule does not own is printed as it was
-// sent: "Ø5x11mm", "±20%", "2000h" and "-40 to 85°C" all stay as they are.
+// Reads "600 mV" as a figure. Returns false for anything else, which then prints as sent.
 bool parseUnitFigure(const string& text, UnitFigure& figure) {
   size_t at = 0;
   if (text.empty() || !isdigit(static_cast<unsigned char>(text[0]))) return false;
@@ -96,14 +93,13 @@ bool parseUnitFigure(const string& text, UnitFigure& figure) {
   return true;
 }
 
-// The value of a figure in base units (volts, amps, ohms ...), as a long double so the prefix choice is exact enough.
+// Value of a figure in base units. long double keeps the prefix choice exact.
 long double baseValue(const UnitFigure& figure, int exponent) {
   return strtold(figure.number.c_str(), nullptr) * powl(10.0L, static_cast<long double>(exponent));
 }
 
-// The power of ten a base value prints with. Most units use the prefix that leaves a mantissa from 1 to 999. Capacitance
-// is the exception: electrolytics are written "4700µF" and "1000µF", not "4.7mF" and "1mF", so farads print as F from
-// 1 F, mF from 100 mF, µF below that, and nF and pF for the small values.
+// Power of ten a base value prints with: mantissa 1 to 999, except for capacitance.
+// Electrolytics read "4700µF", so farads print as F from 1 F, mF from 100 mF, and µF below that.
 int exponentFor(const string& unit, long double base) {
   const auto magnitude = fabsl(base);
   if (magnitude == 0.0L) return 0;
@@ -119,10 +115,8 @@ int exponentFor(const string& unit, long double base) {
   return -12;
 }
 
-// Every vendor's value reaches the label through this rule, so the same quantity prints the same way whichever vendor
-// sent it and for a vendor added later. The prefix comes from exponentFor: "0.6V" and "600 mV" both print "600mV",
-// "0.25W" and "250 mW" both print "250mW", "16 V" prints "16V" and "0.6kV" prints "600V", and "4700 µF" stays "4700µF".
-// A range takes one prefix for both ends, so "3.8 to 32V" stays one unit. The ± before a figure is kept as it was sent.
+// One printed form per quantity, whichever vendor sent it: "0.6V" and "600 mV" both print "600mV".
+// A range takes one prefix for both ends, and a ± before a figure is kept.
 string normalizedUnitValue(const string& value) {
   const auto text = trim(value);
   const auto first = text.find_first_of("0123456789");
@@ -155,8 +149,7 @@ string normalizedUnitValue(const string& value) {
   return leading + lowText + " to " + highText + prefixText(exponent) + high.unit;
 }
 
-// The measured value printed as the main text of a passive part, without its
-// tolerance. Empty when the part is not a passive or the value is missing.
+// Main text of a passive part, without its tolerance. Empty for other parts or a missing value.
 string measuredMainValue(const InventoryItem& item) {
   const auto compactValue = [](string value) {
     value = normalizedUnitValue(trim(value));
@@ -186,7 +179,7 @@ string cutAt(const string& value, const string& marker) {
   return at == string::npos ? value : trim(value.substr(0, at));
 }
 
-// "Radial, Can" and "Axial" say how the leads leave the body, not what the package is.
+// "Radial" and "Axial" describe the leads, not the package.
 bool isLeadStyleName(const string& value) {
   const auto key = normalizeKey(value.substr(0, value.find(',')));
   return key == "radial" || key == "axial";
@@ -198,7 +191,6 @@ bool isNonstandardPackage(const string& value) {
          isLeadStyleName(value);
 }
 
-// "12.00" -> "12", "0.50" -> "0.5".
 string trimTrailingZeros(string number) {
   if (number.find('.') != string::npos) {
     while (!number.empty() && number.back() == '0') number.pop_back();
@@ -207,10 +199,8 @@ string trimTrailingZeros(string number) {
   return number;
 }
 
-// The label patterns in this file were std::regex searches. std::regex matchers may use stack that
-// grows with the input length, and imported text can be very long, so these are linear scanners.
-// They match the same ASCII grammar: \d is [0-9], \s is the C isspace set, and (?![A-Za-z]) is an
-// ASCII letter test. Each scanner finds the leftmost match, as regex_search does.
+// Linear scanners replace std::regex, whose stack grows with input length. Same ASCII grammar.
+// Each finds the leftmost match, as regex_search does.
 bool isAsciiDigitChar(char ch) { return ch >= '0' && ch <= '9'; }
 
 bool isAsciiLetterChar(char ch) { return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'); }
@@ -231,9 +221,8 @@ bool literalAt(const string& value, size_t pos, const char* literal) {
 
 bool letterAt(const string& value, size_t pos) { return pos < value.size() && isAsciiLetterChar(value[pos]); }
 
-// End of the decimal \d+(?:\.\d+)? that starts at `pos`, which must hold a digit. The fraction is
-// taken whenever it is present: every pattern here needs a space, "m", "x" or ")" after the number,
-// so a shorter number could never be followed by a match.
+// End of the decimal \d+(?:\.\d+)? at `pos`. The fraction is always taken: every pattern needs a
+// space, "m", "x" or ")" after the number, so a shorter number could never match.
 size_t decimalEnd(const string& value, size_t pos) {
   size_t end = pos;
   while (end < value.size() && isAsciiDigitChar(value[end])) ++end;
@@ -269,8 +258,7 @@ bool findMetricSize(const string& value, string& first, string& second) {
       continue;
     }
     if (metricSizeAt(value, start, first, second)) return true;
-    // Every later start inside this digit run reaches the same end of the run, so none can match
-    // either: skip to the end of the run.
+    // Later starts in this digit run reach the same run end, so none can match.
     while (start < value.size() && isAsciiDigitChar(value[start])) ++start;
   }
   return false;
@@ -313,16 +301,14 @@ string cutAtListComma(const string& value) {
   return value;
 }
 
-// Vendor data uses a lone dash or "N/A" for "no value"; treat it as absent,
-// matching the stock detail view.
+// Vendors write "no value" as a dash or N/A; treat it as absent.
 bool isPlaceholderValue(const string& value) {
   const auto trimmed = trim(value);
   return trimmed.empty() || trimmed == "-" || trimmed == "--" || trimmed == "\xE2\x80\x93" ||
          trimmed == "\xE2\x80\x94" || normalizeKey(trimmed) == "na";
 }
 
-// Exact-name lookup for short names that the substring matcher confuses,
-// such as "RAM" inside "Program Memory Size".
+// Exact-name lookup for names the substring matcher confuses: "RAM" in "Program Memory Size".
 optional<string> exactParameter(const InventoryItem& item, initializer_list<const char*> names) {
   for (const auto* name : names) {
     const auto key = normalizeKey(name);
@@ -334,12 +320,10 @@ optional<string> exactParameter(const InventoryItem& item, initializer_list<cons
   return nullopt;
 }
 
-// What a tile value must look like. A value that does not carry the expected
-// unit is a mismatched parameter, and a blank tile is better than a wrong one.
+// Unit a tile value must carry. A blank tile is better than a wrong one.
 enum class Unit { Any, Volt, Amp, Watt, Ohm, Hertz, Celsius, Millimetre };
 
-// The positions where the unit letters may start after an optional SI prefix, in the order a regex
-// engine tries them: after the prefix when one is present, then at `pos` itself.
+// Positions where the unit letters may start, after an optional SI prefix, in regex try order.
 vector<size_t> unitStarts(const string& value, size_t pos, const char* prefixes, bool micro) {
   static const char kMicroSign[] = u8"µ";
   vector<size_t> starts;
@@ -349,8 +333,7 @@ vector<size_t> unitStarts(const string& value, size_t pos, const char* prefixes,
   return starts;
 }
 
-// Whether a unit of `unit` follows the digit that precedes `pos`, with the spaces after the digit
-// already skipped. The patterns these replace were \d\s*(prefix)?UNIT(?![A-Za-z]) and similar.
+// Whether `unit` follows the digit before `pos`. Replaces \d\s*(prefix)?UNIT(?![A-Za-z]).
 bool unitAfterDigit(const string& value, size_t pos, Unit unit) {
   static const char kSiPrefixes[] = "pnumkKMG";
   switch (unit) {
@@ -396,17 +379,15 @@ bool unitAfterDigit(const string& value, size_t pos, Unit unit) {
 
 bool hasUnit(const string& value, Unit unit) {
   if (unit == Unit::Any) return true;
-  // Every unit pattern starts with a digit, so the digit is the only possible match start. No unit
-  // begins with a space, so the greedy run of spaces after a digit is the only choice that can match.
+  // Units start after a digit and never with a space, so skipping all spaces is the only choice.
   for (size_t at = 0; at < value.size(); ++at) {
     if (isAsciiDigitChar(value[at]) && unitAfterDigit(value, skipRegexSpaces(value, at + 1), unit)) return true;
   }
   return false;
 }
 
-// "Through Hole" and "Surface Mount" describe how a part is fitted, never an
-// electrical property; they reach a tile when a loose name match picks up the
-// "Mounting Type" parameter.
+// Fitting styles such as "Through Hole" are not electrical values, but a loose name match
+// can still pick them up.
 bool looksLikeMountingValue(const string& value) {
   const auto key = normalizeKey(value);
   if (key == "smd" || key == "smt" || key == "tht") return true;
@@ -416,13 +397,11 @@ bool looksLikeMountingValue(const string& value) {
   return false;
 }
 
-// A tile value is printed whole or not at all: a clipped "12.0..." or
-// "Through H..." reads as data.
+// A tile value is printed whole or not at all; a clipped value reads as data.
 bool fitsTile(const string& value) {
   return estimateFont0Width(value, kLabelTileMinSize, kLabelTileMinSize) <= kLabelTileWidth;
 }
 
-// The number of words in a parameter name: "Voltage - Rated (DC)" has three.
 size_t nameWordCount(const string& name) {
   size_t count = 0;
   bool inWord = false;
@@ -437,7 +416,7 @@ size_t nameWordCount(const string& name) {
   return count;
 }
 
-// The text of a parameter name after its first `words` words: "Voltage - Rated (DC)" after two words is " (DC)".
+// Text of a parameter name after its first `words` words: "Voltage - Rated (DC)" gives " (DC)".
 string nameTail(const string& name, size_t words) {
   size_t counted = 0;
   for (size_t index = 0; index < name.size(); ++index) {
@@ -448,10 +427,8 @@ string nameTail(const string& name, size_t words) {
   return {};
 }
 
-// A parameter name that extends the wanted name is the same quantity under a qualifier: "Voltage - Rated (DC)" is
-// "Voltage - Rated", and "Current - Average Rectified (Io) (per Diode)" is "Current - Average Rectified (Io)". Only a
-// name whose first extra word names another quantity is not: "Voltage - Supply Span (Min)" is a span, not a supply
-// voltage.
+// A name extended by a qualifier is the same quantity: "Voltage - Rated (DC)" is "Voltage - Rated".
+// Not when the first extra word names another quantity: "Voltage - Supply Span (Min)" is a span.
 bool extendsByQualifier(const string& parameterName, const string& wanted) {
   static const initializer_list<const char*> kOtherQuantities = {
       "span", "junction", "offset", "bias", "leakage", "quiescent", "dropout", "standby", "reverse", "forward",
@@ -470,7 +447,7 @@ bool extendsByQualifier(const string& parameterName, const string& wanted) {
          kOtherQuantities.end();
 }
 
-// A range from its two figures, with the unit printed once as the vendors print it: "3.8V" and "32V" are "3.8 to 32V".
+// Range from two figures with the unit printed once: "3.8V" and "32V" give "3.8 to 32V".
 string rangeValue(const string& low, const string& high) {
   const auto unitStart = [](const string& value) {
     const auto last = value.find_last_of("0123456789");
@@ -486,10 +463,8 @@ class TileCollector {
  public:
   explicit TileCollector(const InventoryItem& item) : item_(item) {}
 
-  // Each parameter feeds at most one tile. Names match exactly first, then, for
-  // long names only, as a prefix ("Voltage - Rated" finds "Voltage - Rated (DC)").
-  // Short names such as "Type" never match inside longer ones: they would
-  // otherwise pick up "Mounting Type".
+  // Each parameter feeds one tile. Exact names match first, then prefixes of long names only.
+  // Short names such as "Type" must not match "Mounting Type".
   void add(const string& caption, initializer_list<const char*> names, Unit unit = Unit::Any) {
     for (const auto* name : names) {
       if (addRange(caption, name, unit)) return;
@@ -516,7 +491,7 @@ class TileCollector {
     }
   }
 
-  // A record that lists a minimum and a maximum as "<name> (Min)" and "<name> (Max)" gives one range, which the tile shows.
+  // "<name> (Min)" and "<name> (Max)" together make one range tile.
   bool addRange(const string& caption, const char* name, Unit unit) {
     const auto low = unusedParameter(string(name) + " (Min)");
     const auto high = unusedParameter(string(name) + " (Max)");
@@ -565,7 +540,6 @@ class TileCollector {
   vector<LabelParameterTile> tiles_;
 };
 
-// Dielectric and film materials by their common abbreviations.
 string dielectricTileValue(string value) {
   for (const auto& [name, abbreviation] : {pair<const char*, const char*>{"Polypropylene", "PP"},
                                            {"Polyester", "PET"},
@@ -593,17 +567,15 @@ string mainLabelValue(const InventoryItem& item) {
     return diodeMainLabelValue(item);
   }
 
-  // Distributor descriptions such as "MOSFET N-CH 30V 5A" explain a part,
-  // but are not its printable name. For transistors and ICs, preserve the
-  // manufacturer's actual part number when DigiKey supplied one.
+  // Distributor descriptions ("MOSFET N-CH 30V 5A") are not printable names. Transistors and ICs
+  // use the manufacturer part number.
   if (categoryContains(item, {"transistor", "mosfet", "fet", "discrete semiconductor"}) ||
       itemTextContains(item, {"mosfet", "trans npn", "trans pnp", "bjt transistor"}) || isIcLikeItem(item)) {
     if (!trim(item.vendorMetadata.manufacturerPartNumber).empty()) return trim(item.vendorMetadata.manufacturerPartNumber);
     if (!trim(item.sku).empty()) return trim(item.sku);
   }
 
-  // A part still named by its supplier's description (TME and DigiKey both store it as the title) prints its part
-  // number, which is short and identifies the part. A name the user typed is printed as it is.
+  // A part named by its supplier's title prints the part number; a user-typed name is kept as is.
   const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber);
   if (!partNumber.empty() && trim(item.partName) == trim(item.vendorMetadata.title)) {
     return partNumber;
@@ -635,8 +607,7 @@ string mainLabelTolerance(const InventoryItem& item) {
   return fieldOrBlank(value, 8);
 }
 
-// The package line is at most 12 characters and is never clipped. A name that fits is printed whole, one that does not
-// is cut to its first word ("14-VFDFN Exposed Pad" is "14-VFDFN"), and when no word fits the line is left off.
+// The package line is at most 12 characters and never clipped: cut to its first word, or left off.
 string wholePackageWord(const string& value) {
   constexpr size_t kPackageLineWidth = 12;
   auto cleaned = trim(value);
@@ -648,7 +619,7 @@ string wholePackageWord(const string& value) {
   return {};
 }
 
-// A size that does not fit reads as its footprint in millimetres: "6.6x5.1x1.5mm" is "6.6x5.1mm", its length and width.
+// A size too long for a tile reads as its footprint: "6.6x5.1x1.5mm" gives "6.6x5.1mm".
 string footprintSize(const string& value) {
   const auto text = trim(value);
   if (text.find("mm") == string::npos) return {};
@@ -668,9 +639,7 @@ string footprintSize(const string& value) {
   return footprint.size() <= 12 ? footprint : string();
 }
 
-// The same package is often written two ways: DigiKey's JEDEC "DO-204AL" is the "DO-41" that TME prints, and TME's
-// "TSOT26" is the "TSOT-23-6" in DigiKey's record. Both vendors print the one name in this table. A row is added when
-// two vendors name one package differently.
+// Vendors name some packages differently ("DO-204AL" and "DO-41"). Both print the name here.
 string canonicalPackageName(const string& name) {
   static const vector<pair<string, string>> names = {
       {"do204al", "DO-41"}, {"do41", "DO-41"}, {"sot23", "SOT-23"}, {"tsot26", "TSOT-23-6"}};
@@ -681,8 +650,7 @@ string canonicalPackageName(const string& name) {
   return name;
 }
 
-// A cylinder is printed by its diameter, which both vendors give: TME's "Ø5x11mm" and DigiKey's "0.197" Dia (5.00mm)"
-// are "Ø5mm". DigiKey gives no body length, so the length is left out for both.
+// A cylinder prints its diameter, "Ø5mm". DigiKey gives no body length, so the length is left out.
 string cylinderLine(const string& value) {
   const auto text = trim(value);
   const auto symbol = text.find(u8"Ø");
@@ -701,8 +669,7 @@ string cylinderLine(const string& value) {
 }
 
 string shortPackageLine(const InventoryItem& item) {
-  // The supplier package name is usually the one printed on reels and in
-  // footprints (SOT-23, SMA); the case name lists several aliases.
+  // Prefer the supplier package name (SOT-23, SMA) to the case name, which lists aliases.
   for (const auto names : {initializer_list<const char*>{"Supplier Device Package", "Device Package"},
                            initializer_list<const char*>{"Package / Case", "Package Case", "Case / Package",
                                                          "Case Package", "Package"}}) {
@@ -754,8 +721,7 @@ vector<string> manufacturerWordCandidates(const string& name) {
     word = normalizeKey(word);
     return any_of(kCorporateWords.begin(), kCorporateWords.end(), [&](const char* known) { return word == known; });
   };
-  // "Infineon Technologies" -> "Infineon": drop trailing corporate words one at
-  // a time, always keeping the leading name.
+  // Drop trailing corporate words one at a time, always keeping the leading name.
   while (words.size() > 1 && isCorporateWord(words.back())) {
     words.pop_back();
     auto& last = words.back();
@@ -776,8 +742,7 @@ vector<string> manufacturerWordCandidates(const string& name) {
   return candidates;
 }
 
-// The word cuts, then the short brand names ("ST" for STMicroelectronics). The short names come last, after every
-// word cut has been tried.
+// Short brand names ("ST") come after every word cut.
 vector<string> manufacturerCandidates(const string& name) {
   auto candidates = manufacturerWordCandidates(name);
   const auto full = fieldOrBlank(trim(name), 32);
@@ -826,9 +791,8 @@ string labelTileValue(const string& value) {
   text = cutAt(text, "(");
   replaceAll(text, "Ohms", u8"Ω");
   replaceAll(text, "Ohm", u8"Ω");
-  // "~" is the ZPL control prefix, so ranges print as "from to to" with the
-  // shared unit once: "-40°C ~ 85°C" -> "-40 to 85°C". A hyphen would read as
-  // a minus sign next to negative limits ("-40-85°C").
+  // "~" is a ZPL control character, so ranges become " to ": "-40°C ~ 85°C" gives "-40 to 85°C".
+  // A hyphen would read as a minus sign.
   if (const auto tilde = text.find('~'); tilde != string::npos) {
     auto low = trim(text.substr(0, tilde));
     const auto high = trim(text.substr(tilde + 1));
@@ -845,8 +809,8 @@ string labelTileValue(const string& value) {
   for (const auto* qualifier : {" Max", " Typ", " Min"}) {
     if (endsWith(text, qualifier)) text = trim(text.substr(0, text.size() - strlen(qualifier)));
   }
-  // "20V DC" and "5VDC" are the voltage the unit already gives. The qualifier only makes a supply range too wide for
-  // its tile, and the two vendors write it with and without a space. "AC/DC" keeps its qualifier.
+  // Drop a DC or AC suffix the unit implies ("20V DC", "5VDC"); it only widens a supply range.
+  // "AC/DC" keeps its qualifier.
   for (const auto* qualifier : {"DC", "AC"}) {
     if (!endsWith(text, qualifier)) continue;
     const auto rest = trim(text.substr(0, text.size() - strlen(qualifier)));
@@ -884,13 +848,11 @@ void splitRackLocation(const string& location, string& rackCode, string& rackCel
 
 namespace {
 
-// What a field's label says it measures: the order that fields of a part without specific tiles are shown in, and the unit
-// its value must carry. The order follows meaning, so one part gives the same tiles from either vendor's record, whatever
-// order that record lists its parameters in. A rank of -1 marks a field that describes the part rather than how it
-// behaves (a lens, a size, a packaging or a status): such a field never reaches a tile.
+// What a field's label measures: its order among fallback tiles and the unit its value must carry.
+// Rank -1 marks a field that describes the part (size, packaging, status) and never reaches a tile.
 struct FieldConcept {
   int rank = 13;
-  // A value without the unit is another figure under this label: a tolerance ("±20ppm") under "Frequency" is left off.
+  // A value without the unit is another figure: "±20ppm" under "Frequency" is left off.
   Unit unit = Unit::Any;
   // A colour is printed with a capital first letter, as DigiKey writes it: "green" is "Green".
   bool colour = false;
@@ -927,7 +889,7 @@ FieldConcept fieldConcept(const string& label) {
   return {13, Unit::Any};
 }
 
-// A caption is printed whole or not at all: one the layout would have to cut short is left off the label.
+// A caption is printed whole or left off.
 bool captionIsWhole(const string& caption) {
   const auto fitted = fitFont0Text(toUpper(caption), kLabelTileWidth, {12, 11, 10});
   return !fitted.text.empty() && !endsWith(fitted.text, "...");
@@ -957,7 +919,7 @@ vector<LabelParameterTile> fallbackParameterTiles(const InventoryItem& item, siz
     if (caption.empty() || !captionIsWhole(caption)) continue;
     candidates.push_back({meaning.rank, caption, value});
   }
-  // By concept, then by caption and value; the order the record lists its fields in never decides the tiles.
+  // Sorted by concept, then caption and value, so the record's field order never decides.
   sort(candidates.begin(), candidates.end(), [](const Candidate& left, const Candidate& right) {
     if (left.rank != right.rank) return left.rank < right.rank;
     if (left.caption != right.caption) return left.caption < right.caption;
@@ -982,9 +944,8 @@ bool nameMentions(const InventoryItem& item, initializer_list<const char*> needl
   return any_of(needles.begin(), needles.end(), [&](const char* needle) { return containsInsensitive(text, needle); });
 }
 
-// The rules run in order and the first one that yields a tile decides. A rule that matches the part by its text but
-// finds no tile of its own does not end the search: the rules after it still apply, and then the fallback fields. The
-// MOSFET rule is the exception, since a MOSFET's tiles must not be replaced by a bipolar transistor's.
+// The first rule that yields a tile decides; a rule with no tile falls through. The MOSFET rule
+// never falls through: a MOSFET's tiles must not be replaced by a bipolar transistor's.
 vector<LabelParameterTile> specificParameterTiles(const InventoryItem& item) {
   TileCollector tiles(item);
 
@@ -1020,7 +981,7 @@ vector<LabelParameterTile> specificParameterTiles(const InventoryItem& item) {
     if (!tiles.empty()) return tiles.take();
   }
 
-  // A part is a microcontroller by its family or by its name; TME files its microcontrollers under the family of ICs.
+  // Microcontrollers match by family or name; TME files them under the IC family.
   if (categoryContains(item, {"mcu", "microcontroller"}) || nameMentions(item, {"mcu", "microcontroller"})) {
     tiles.add("CORE", {"Core Processor", "Core"});
     tiles.add("CLOCK", {"Clock Speed", "Clock Frequency", "Speed"}, Unit::Hertz);
@@ -1073,7 +1034,7 @@ vector<LabelParameterTile> specificParameterTiles(const InventoryItem& item) {
     tiles.add("VDC", {"Voltage Rating - DC", "Voltage - DC"}, Unit::Volt);
     tiles.add("VAC", {"Voltage Rating - AC", "Voltage - AC"}, Unit::Volt);
     tiles.add("SPEED", {"Response Time"});
-    // TME names a fuse's limits in plain words and has no response time. These fill the free tiles of such a fuse.
+    // TME gives a fuse's limits in plain words and no response time; these fill its free tiles.
     tiles.add("VMAX", {"Max. voltage", "Maximum voltage"}, Unit::Volt);
     tiles.add("IMAX", {"Maximum current"}, Unit::Amp);
     tiles.add("POWER", {"Power"}, Unit::Watt);
@@ -1099,7 +1060,7 @@ vector<LabelParameterTile> specificParameterTiles(const InventoryItem& item) {
     tiles.add("VR", {"Voltage - DC Reverse (Vr) (Max)", "Reverse Voltage", "Peak Reverse Voltage", "Vr"}, Unit::Volt);
     tiles.add("IO", {"Current - Average Rectified (Io)", "Forward Current", "Current"}, Unit::Amp);
     tiles.add("VF", {"Voltage - Forward (Vf) (Max) @ If", "Forward Voltage", "Vf"}, Unit::Volt);
-    // Technology says which diode it is (Schottky or standard); it outranks the surge rating when four tiles fit.
+    // Technology (Schottky or standard) outranks the surge rating when four tiles fit.
     tiles.add("TECH", {"Technology"});
     tiles.add("IFSM", {"Current - Non Rep. Surge 50, 60Hz (Ifsm)", "Ifsm"}, Unit::Amp);
     if (!tiles.empty()) return tiles.take();
@@ -1113,7 +1074,7 @@ vector<LabelParameterTile> specificParameterTiles(const InventoryItem& item) {
     if (!tiles.empty()) return tiles.take();
   }
 
-  // A regulator's topology is its own parameter ("buck", "boost-buck", "LDO"), and so is the word its description gives.
+  // Regulator topology is its own parameter ("buck", "LDO") or named in the description.
   const auto topology = exactParameter(item, {"Topology"});
   const bool regulatorTopology =
       topology && (containsInsensitive(*topology, "buck") || containsInsensitive(*topology, "boost") ||
@@ -1154,10 +1115,9 @@ vector<LabelParameterTile> specificParameterTiles(const InventoryItem& item) {
     if (!tiles.empty()) return tiles.take();
   }
 
-  // Timers, oscillators and other ICs without a dedicated list: supply, speed,
-  // current and temperature are what a drawer label needs.
+  // ICs without a dedicated list: supply, frequency, current and temperature.
   if (isIcLikeItem(item)) {
-    // DigiKey gives an amplifier's supply as a span, "Voltage - Supply Span (Min)" and "(Max)", which reads as one range.
+    // DigiKey gives an amplifier's supply as "Supply Span (Min)" and "(Max)": one range.
     tiles.add("SUPPLY", {"Voltage - Supply (Vcc/Vdd)", "Voltage - Supply", "Voltage - Supply Span", "Supply Voltage",
                          "Operating Voltage"}, Unit::Volt);
     tiles.add("FREQ", {"Frequency", "Clock Frequency"}, Unit::Hertz);

@@ -109,11 +109,9 @@ void App::discardFailedDeviceEvents() {
 }
 
 void App::processDeviceSyncEvents() {
-  // New events announce themselves through deviceSyncEventsHint_; the periodic look is only a
-  // safety net, so an idle service does not query SQLite ten times a second.
+  // New events set deviceSyncEventsHint_; the 5 s poll is only a safety net.
   const auto now = chrono::steady_clock::now();
-  // After a failed commit the same oldest event would fail again immediately, so it is not retried
-  // before the back-off expires. The hint is left alone so the retry happens as soon as it does.
+  // After a failed commit, wait out the back-off; the hint stays set so the retry runs then.
   if (now < deviceSyncRetryAfter_ && workspaceIsCurrent(deviceSyncRetryGeneration_)) return;
   if (!deviceSyncEventsHint_.exchange(false) && now - lastDeviceSyncEventPoll_ < chrono::seconds(5)) return;
   lastDeviceSyncEventPoll_ = now;
@@ -121,11 +119,8 @@ void App::processDeviceSyncEvents() {
   if (context == nullptr) return;
   const auto pending = loadPendingDeviceSyncEvents(context->paths.inventory, 1);
   if (pending.empty()) return;
-  // After a failed save the unsaved edit stays in store_ for retry. An event applied to that store
-  // would be committed together with the edit under a baseline that lacks it, and the pending
-  // commit draft would be lost. The events stay in the durable inbox (the device already has its
-  // acknowledgement, so nothing waits on this); they are processed when the save succeeds or the
-  // change is discarded, and the periodic poll picks them up otherwise.
+  // Do not apply events over unsaved edits: they would commit under a baseline lacking them and
+  // lose the pending draft. They stay queued until the save succeeds or the change is discarded.
   if (!persistedStoreValid_ || inventoryHasChanges(persistedStore_, store_)) {
     setMessage("Scanner events are waiting for unsaved inventory changes; press R to retry saving", 4,
                UiMessageSeverity::Warning);
@@ -147,8 +142,8 @@ void App::processDeviceSyncEvents() {
   result.message = "Invalid inventory event";
 
   string affectedItemId;
-  string enrichmentLookup;  // queued for DigiKey only after the event is durably committed
-  string tmeLookupSymbol;   // queued for TME only after the event is durably committed
+  string enrichmentLookup;  // queued for DigiKey after the commit is durable
+  string tmeLookupSymbol;   // queued for TME after the commit is durable
   bool created = false;
   if (event.type == "inventory.adjust") {
     DeviceQuantityRequest request{{}, event.eventId, event.code, event.value};
@@ -191,7 +186,7 @@ void App::processDeviceSyncEvents() {
       string warning;
       const bool shouldEnrich = created || trim(item->syncStatus) != "synced" ||
                                 app_actions::isScanPlaceholderName(item->partName);
-      // A part is looked up only at the vendor it came from, by the vendor's own part number that the bag names.
+      // Look up only at the vendor the part came from, by the part number the bag code names.
       if (const auto identity = recognizeVendorBagCode(event.code);
           identity.has_value() && shouldEnrich && originProvider(*item) == identity->provider) {
         if (identity->provider == "tme") {
@@ -218,8 +213,7 @@ void App::processDeviceSyncEvents() {
 
   if (!workspaceIsCurrent(context->generation)) return;
   if (!completeDeviceSyncEvent(candidate, context->paths.inventory, result, &persistedStore_)) {
-    // The event stays in the durable inbox in the received state and is retried with a growing delay;
-    // the status line keeps saying so instead of the loop re-running on every tick.
+    // The event stays in the inbox and is retried with a growing delay.
     ++deviceSyncCommitFailures_;
     deviceSyncRetryAfter_ = now + app_actions::deviceSyncRetryDelay(deviceSyncCommitFailures_);
     deviceSyncRetryGeneration_ = context->generation;
@@ -233,14 +227,13 @@ void App::processDeviceSyncEvents() {
   deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
   if (!enrichmentLookup.empty()) scanDigiKeyEnrichmentQueue_.emplace_back(affectedItemId, enrichmentLookup);
   const bool tmeLookupQueued = !tmeLookupSymbol.empty() && enqueueTmeScanLookup(affectedItemId, tmeLookupSymbol);
-  // A created part prints its label only after its lookup settles, so the label carries the merged details.
+  // A created part prints after its lookup settles, so the label has the merged details.
   if (created && (!enrichmentLookup.empty() || tmeLookupQueued)) queueScanAutoPrint(affectedItemId);
   store_ = move(candidate);
   persistedStore_ = store_;
   persistedStoreValid_ = true;
   refreshInventoryMovements();
-  // The commit was just appended through the same transaction as a normal save; validating the whole
-  // history again for every scanned event would grow with each scan.
+  // Skip the full history check: validating it per scanned event would grow with each scan.
   refreshInventoryCommits(true);
   if (result.status == "failed") {
     logActivity("device error", result.message);

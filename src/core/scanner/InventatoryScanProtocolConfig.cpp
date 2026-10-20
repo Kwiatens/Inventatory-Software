@@ -99,8 +99,7 @@ bool loadInventatoryScanConfig(const filesystem::path& path, InventatoryScanConf
     }
   }
   if (!input.eof() || malformedLine || !(hasDeviceId && hasFallbackHost && hasFallbackPort)) return false;
-  // Older config files had no setup marker. A stored device identity means
-  // that pairing had already completed before the marker was introduced.
+  // Older files lack setup_complete; a stored device_id means pairing had already completed.
   if (!hasSetupComplete) loaded.setupComplete = !loaded.deviceId.empty();
   config = move(loaded);
   return true;

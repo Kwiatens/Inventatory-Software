@@ -3,8 +3,6 @@
 
 // Inventatory - Rack printer actions.
 
-// Inventatory - rack navigation, editing, movement, and printing actions.
-
 #include "App.h"
 #include "app/common/AppActionSupport.h"
 
@@ -29,7 +27,7 @@ bool App::printSelectedRackPartLabel() {
     setMessage("No part in this slot", 2);
     return false;
   }
-  // Print the slot's own part; the Stock selection is a sorted position and must not be involved.
+  // Print the slot's own part, not the Stock selection, which is a sorted position.
   const auto itemId = item->id;
   ensureInventoryIdentifiers(store_.items());
   const auto* printable = store_.findById(itemId);
