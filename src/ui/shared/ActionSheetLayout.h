@@ -3,11 +3,8 @@
 
 // Inventatory - pure layout rules for the bottom action sheet.
 //
-// The sheet replaces the context line at the bottom of the frame, so on a
-// 30-row terminal it can only be a fraction of the screen tall. These helpers
-// group the actions, count the rows and choose the visible window so the
-// cursor row is always drawn and every action stays reachable by keyboard and
-// mouse. They do not touch FTXUI or App state so they can be unit tested.
+// Keeps the cursor row visible and every action reachable on short terminals. No FTXUI or
+// App state, so these helpers can be unit tested.
 
 #pragma once
 
@@ -18,8 +15,7 @@
 
 namespace inventatory::action_sheet {
 
-// Order that lists each group once, in order of first appearance, keeping the
-// registry order inside a group. Returns indices into the original list.
+// Indices grouped by the first appearance of each group, keeping registry order within a group.
 inline std::vector<std::size_t> groupedOrder(const std::vector<std::string>& groups) {
   std::vector<std::string> seen;
   for (const auto& group : groups) {
@@ -40,7 +36,7 @@ struct Row {
   std::size_t action = 0;  // for a header: the first action of its group
 };
 
-// Rows for groups already in display order: one header per run of equal groups.
+// Rows for groups already in display order; a header starts each run.
 inline std::vector<Row> rowsFor(const std::vector<std::string>& orderedGroups) {
   std::vector<Row> rows;
   rows.reserve(orderedGroups.size() * 2);
@@ -62,9 +58,8 @@ inline std::size_t rowOfAction(const std::vector<Row>& rows, std::size_t action)
   return 0;
 }
 
-// Frame chrome that stays on screen around the sheet: header, two dividers and
-// the message row, plus the sheet's own title and divider. A few page rows are
-// kept visible above the sheet so it reads as a sheet, not a screen takeover.
+// Frame rows around the sheet (header, dividers, message, sheet title), and page rows
+// kept visible, so it reads as a sheet.
 inline constexpr int kChromeRows = 4;
 inline constexpr int kTitleRows = 2;
 inline constexpr int kMinPageRows = 6;

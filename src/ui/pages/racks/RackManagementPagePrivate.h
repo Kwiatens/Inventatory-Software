@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Private Rack page layout helpers.
-
 #pragma once
 
 #include <algorithm>
@@ -23,31 +21,26 @@ inline std::string shortComponentType(const std::string& componentType) {
   return componentType;
 }
 
-// Floor division ensures that multiplying by the number of slot rows will never
-// exceed the available vertical space, preventing the grid from overflowing
-// the terminal and clipping the bottom row or quantity indicators.
-// Every rack slot row receives the exact same height.
+// Floor division keeps every row within the space, so the grid cannot clip the bottom row.
 inline int equalRackSlotHeight(int slotRowsSpace, int rackGridRows) {
   if (rackGridRows <= 0) return 0;
   return std::max(3, slotRowsSpace / rackGridRows);
 }
 
-// Rows left over after every slot row receives `slotHeight`. Never negative: when the space is too small for the
-// minimum slot height there is nothing to hand out.
+// Rows left over after each slot row gets `slotHeight`. Never negative.
 inline int rackSlotRemainderRows(int slotRowsSpace, int rackGridRows, int slotHeight) {
   if (rackGridRows <= 0) return 0;
   return std::max(0, slotRowsSpace - slotHeight * rackGridRows);
 }
 
-// Floor division ensures that every slot column receives the exact same width
-// and that all columns together do not exceed the available horizontal grid space.
+// Floor division keeps every column the same width and the total within the grid.
 inline int equalRackSlotWidth(int slotColumnsSpace, int rackGridColumns) {
   if (rackGridColumns <= 0) return 0;
   return std::max(7, slotColumnsSpace / rackGridColumns);
 }
 
-// One slot's contents: part name split into dim type, bold value and dim specification, with a bold quantity pinned to
-// the bottom edge. Shared by the Racks page and the Projects build walkthrough so both grids read the same.
+// One slot's contents: type, bold value and specification, with the quantity at the bottom.
+// Shared by the Racks and Projects grids.
 ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowStockThreshold, int cellWidth,
                             int rowHeight);
 

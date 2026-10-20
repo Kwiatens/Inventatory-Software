@@ -38,9 +38,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     return uiMutedColor();
   };
 
-  // Editing renders inline here instead of a separate blocking field-name menu:
-  // the Detail panel becomes the form, current field highlighted, live typing
-  // shown in place. Save ('s') and cancel (Esc) act on the whole form.
+  // Editing renders inline: the detail panel becomes the form, with live typing in place.
   const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue;
   const InventorySearchMatch* selectedMatch = nullptr;
   if (rankedView && !searchMatches.empty()) {
@@ -51,8 +49,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
   ftxui::Elements detailRows;
   auto self = const_cast<App*>(this);
   if (inputMode_ == InputMode::VendorPick) {
-    // The vendors that answered for the part, one block each. Each block shows what the vendor gives, and the
-    // highlighted vendor's preview lists what it would fill in.
+    // One block per vendor that answered; the highlighted one previews what it would fill in.
     const auto width = static_cast<size_t>(max(detailInnerWidth, 8));
     detailRows.push_back(fullLine(ellipsize("Vendor for " + vendorLookupQuery_, width), uiTitleColor(), uiRowSelectedBg()));
     detailRows.push_back(uiDivider());
@@ -139,7 +136,6 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     const bool passive = categoryContains(*item, {"resistor", "capacitor", "inductor", "diode", "fuse",
                                                    "thermistor", "varistor", "crystal", "resonator"});
     const auto manufacturer = trim(item->manufacturer).empty() ? string("Unknown manufacturer") : item->manufacturer;
-    // The part is the subject of this panel: its full name leads in bold, then who makes it.
     detailRows.push_back(ftxui::paragraphAlignLeft(item->partName) | ftxui::bold | ftxui::color(uiPrimaryText()));
     detailRows.push_back(styledText(manufacturer, uiMutedColor()));
     if (passive) {
@@ -155,8 +151,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       detailRows.push_back(styledText(partShortDescription(*item), uiMutedColor()));
     }
 
-    // Essentials: the two facts the footer buttons act on, kept directly under
-    // the summary instead of at the bottom of a details list.
+    // Qty and rack sit under the summary, not in the details list.
     const auto rack = rackLocation(*item, store_.racks());
     const auto quantityColor = uiQuantityColor(*item, settings_.lowStockThreshold);
     const bool outOfStock = item->quantity <= 0;
@@ -248,15 +243,13 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       detailRows.push_back(uiDivider());
       detailRows.push_back(fullLine("Electrical parameters", uiSecondaryText(), uiSurfaceBg()));
       for (const auto& field : electricalFields) {
-        // The passive summary line above already prints the package value, and
-        // "0603 (1608 Metric)" needs no label to be understood.
+        // The passive summary already shows the package.
         if (passive && field.label == "Package: ") continue;
         detailRows.push_back(detailFieldLine(field, detailInnerWidth));
       }
     }
 
-    // Detail fields carry no value when empty, so an absent one is dropped
-    // rather than rendered as a dash.
+    // Empty fields are dropped, not shown as a dash.
     ftxui::Elements detailRowsExpanded;
     const auto detailField = [&](const string& label, const string& value, ftxui::Color valueColor) {
       if (trim(value).empty()) return;
@@ -269,8 +262,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     detailField("Inventatory ID", item->inventatoryId, uiPrimaryText());
     detailField("Location", item->location, uiPrimaryText());
     detailField("Tags", renderTags(item->tags), uiPrimaryText());
-    // Collapsible: the heading always states how many fields are hidden so the
-    // block never looks like missing data.
+    // The heading shows how many fields are hidden, so it never looks like missing data.
     detailRows.push_back(uiDivider());
     detailRows.push_back(target(ftxui::hbox({
                                     styledText(stockDetailsExpanded_ ? " - Details" : " + Details",

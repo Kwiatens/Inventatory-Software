@@ -3,11 +3,8 @@
 
 // Inventatory - TME catalogue client (API v2).
 //
-// The v2 flow is the one a community client uses for the current API: a client-credentials token request with the
-// token and application secret as HTTP Basic credentials, then bearer-authenticated GET requests. A product lookup
-// reads the product record (products), then its parameters, documents, stock and prices, so a merged part carries the
-// same kinds of data a DigiKey part does. The response shapes were read from live v2 responses: every list sits under
-// data.elements, and each detail record names its symbol. A record that does not match the request is not used.
+// Gets a client-credentials token (token and secret as HTTP Basic), then reads the product,
+// parameters, documents, stock and prices with bearer requests. Records for other symbols are not used.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -53,12 +50,11 @@ constexpr const char* kTmeParametersPath = "products/parameters";
 constexpr const char* kTmeFilesPath = "products/files";
 constexpr const char* kTmeDataPath = "products/data";
 constexpr const char* kTmeSearchPath = "products/search";
-// Symbol used by the credential test. TME only has to accept the product request; a symbol it does not list still
-// counts as a pass, because the token has been accepted.
+// Credential test symbol. Not being listed still passes: TME accepted the token.
 constexpr const char* kCredentialTestSymbol = "1N4148";
 constexpr size_t kMaximumTmeIdentifierBytes = 256;
 constexpr size_t kMaximumTmeProducts = 50;
-// Used when the token response has no usable expires_in. The token is replaced this many seconds before it ends.
+// Used when the token response has no usable expires_in.
 constexpr long long kDefaultTokenLifetimeSeconds = 300;
 constexpr long long kTokenRefreshMarginSeconds = 30;
 
@@ -74,14 +70,14 @@ string upperCase(string value) {
   return value;
 }
 
-// The envelope status in upper case: "OK" or "SUCCESS" for a good answer, empty when the body has no status.
+// Upper-cased envelope status: "OK" or "SUCCESS" when good, empty when absent.
 string envelopeStatus(const JsonPtr& root) {
   auto status = readStringPath(root, {"status"});
   if (!status.has_value()) status = readStringPath(root, {"Status"});
   return upperCase(trim(status.value_or("")));
 }
 
-// Fails when the envelope reports a status other than OK or SUCCESS, with the status and message TME sent.
+// Fails on a status other than OK or SUCCESS, quoting TME's status and message.
 bool checkEnvelope(const JsonPtr& root, string* error) {
   const auto status = envelopeStatus(root);
   if (status.empty() || status == "OK" || status == "SUCCESS") return true;
@@ -104,7 +100,6 @@ string scalarText(const JsonPtr& value) {
   return {};
 }
 
-// The first non-empty scalar among the keys, trimmed.
 string firstText(const JsonPtr& node, initializer_list<const char*> keys) {
   for (const char* key : keys) {
     const auto* member = findMember(node, key);
@@ -120,8 +115,7 @@ const JsonValue::Array* memberArray(const JsonPtr& object, const char* key) {
   return member == nullptr ? nullptr : asArray(*member);
 }
 
-// The product records of a response. A lookup lists them under data.elements; a search nests them one level
-// down, as data.products.elements.
+// Lookups list records under data.elements; searches nest them under data.products.
 const JsonValue::Array* productRecords(const JsonPtr& root) {
   const auto* data = findMember(root, "data");
   if (data == nullptr) return nullptr;
@@ -134,7 +128,7 @@ const JsonValue::Array* productRecords(const JsonPtr& root) {
   return memberArray(*data, "ProductList");
 }
 
-// The member names of an object, sorted and joined, so an error can say which fields a record has.
+// Sorted member names, for error messages.
 string objectKeys(const JsonPtr& node) {
   const auto* object = asObject(node);
   if (object == nullptr) return {};
@@ -149,7 +143,7 @@ string objectKeys(const JsonPtr& node) {
   return joined;
 }
 
-// The elements of a detail response (parameters, documents, stock and prices), each carrying its symbol.
+// Elements of a detail response; each carries its symbol.
 const JsonValue::Array* detailElements(const JsonPtr& root) {
   const auto* data = findMember(root, "data");
   if (data == nullptr) return nullptr;
@@ -157,7 +151,7 @@ const JsonValue::Array* detailElements(const JsonPtr& root) {
   return memberArray(*data, "elements");
 }
 
-// The element that carries the symbol. A record for another symbol is never used for this product.
+// Element for the symbol. Records for other symbols are never used.
 const JsonPtr* elementFor(const JsonValue::Array* elements, const string& symbol) {
   if (elements == nullptr) return nullptr;
   const auto wanted = upperCase(trim(symbol));
@@ -167,7 +161,7 @@ const JsonPtr* elementFor(const JsonValue::Array* elements, const string& symbol
   return nullptr;
 }
 
-// TME's availability flag, in words. The flags are listed by the product record.
+// Readable text for a TME product_status flag.
 string productStatusText(const string& flag) {
   if (flag == "NOT_IN_OFFER") return "Not in offer";
   if (flag == "CANNOT_BE_ORDERED") return "Cannot be ordered";
@@ -177,7 +171,6 @@ string productStatusText(const string& flag) {
   return flag;
 }
 
-// The text of a parameter's values. TME lists each value with an id; several values are joined.
 string parameterValueText(const JsonPtr& parameter) {
   const auto* values = memberArray(parameter, "values");
   if (values == nullptr) return {};
@@ -239,7 +232,7 @@ bool isTmeAuthorizationStatus(const string& status) {
          upper.find("FORBIDDEN") != string::npos;
 }
 
-// A part number with its letter case and punctuation removed: the form in which TME and the distributors agree.
+// Part number without case or punctuation: the form TME and distributors agree on.
 string partNumberKey(const string& partNumber) {
   string key;
   for (const unsigned char character : partNumber) {
@@ -248,8 +241,8 @@ string partNumberKey(const string& partNumber) {
   return key;
 }
 
-// The manufacturer's name without the company suffixes, in the form the two catalogues agree on ("Littelfuse Inc." and
-// "LITTELFUSE" are one maker). Empty for a placeholder such as "Unknown".
+// Manufacturer name without company suffixes, so "Littelfuse Inc." and "LITTELFUSE" match.
+// Empty for a placeholder such as "Unknown".
 string manufacturerKey(const string& manufacturer) {
   static const char* const suffixes[] = {"inc", "incorporated", "corp", "corporation", "co", "ltd", "limited", "llc",
                                          "gmbh", "sa", "plc", "the"};
@@ -283,8 +276,7 @@ size_t chooseTmeCandidate(const vector<TmeProductDetails>& matches, const string
                           const string& manufacturer) {
   vector<size_t> candidates;
   for (size_t index = 0; index < matches.size(); ++index) candidates.push_back(index);
-  // The part is the one the item's manufacturer makes. When no candidate is from that manufacturer, none can be
-  // chosen: the product TME means is not in its list.
+  // Only products from the item's manufacturer qualify; if none does, no candidate is chosen.
   if (const auto wanted = manufacturerKey(manufacturer); !wanted.empty()) {
     vector<size_t> sameMaker;
     for (const auto index : candidates) {
@@ -294,9 +286,8 @@ size_t chooseTmeCandidate(const vector<TmeProductDetails>& matches, const string
     candidates = sameMaker;
     if (candidates.size() == 1) return candidates.front();
   }
-  // Among one maker's products, the one that carries the part number as its own symbol is the part itself; the others
-  // are alternative symbols and packagings of the same MPN. The exact symbol is preferred over one that matches only
-  // without punctuation.
+  // Among one maker's products, the one whose own symbol is the part number is the part; others are
+  // alternative symbols or packagings. An exact symbol beats a match that ignores punctuation.
   const auto wanted = upperCase(trim(partNumber));
   const auto symbolKey = partNumberKey(partNumber);
   for (const bool exact : {true, false}) {
@@ -360,14 +351,14 @@ bool parseTmeProductResponse(const string& body, vector<TmeProductDetails>& prod
       product.manufacturerName = firstText(record, {"manufacturer", "producer", "Producer"});
     }
     product.productDescription = firstText(record, {"description", "Description"});
-    // TME names the leaf category ("SMD resistors"); the part is classified under the DigiKey family it belongs to.
+    // Map TME's leaf category to its DigiKey-style family.
     auto leafCategory = trim(readStringPath(record, {"category", "name"}).value_or(""));
     if (leafCategory.empty()) leafCategory = firstText(record, {"category", "Category"});
     product.categoryName = tmeCategoryFamily(leafCategory);
     if (product.categoryName.empty()) product.categoryName = leafCategory;
-    // The vendor's category path holds the same family DigiKey's does, which the label and rack rules read.
+    // Same family as DigiKey's category path; the label and rack rules read it.
     product.vendorMetadata.categoryPath = product.categoryName.empty() ? vector<string>() : vector<string>{product.categoryName};
-    // product_status lists the flags that apply; the part cannot be ordered when TME says so.
+    // Not orderable when TME flags NOT_IN_OFFER or CANNOT_BE_ORDERED.
     if (const auto* flags = memberArray(record, "product_status"); flags != nullptr) {
       string joined;
       for (const auto& flag : *flags) {
@@ -428,7 +419,7 @@ bool parseTmeParameterResponse(const string& body, const string& symbol, TmeProd
       }
     }
   }
-  // The package reads as DigiKey prints it: the inch size with the metric size, or the case name when TME gives one.
+  // Package as DigiKey prints it: inch size with metric size, otherwise the case name.
   string package = caseInch;
   if (!caseInch.empty() && !caseMillimetre.empty()) package += " (" + caseMillimetre + " Metric)";
   // A one-letter case code is TME's internal code (for example "F"), not a package name.
@@ -454,7 +445,7 @@ bool parseTmeDocumentResponse(const string& body, const string& symbol, TmeProdu
   const auto* container = element == nullptr ? nullptr : findMember(*element, "documents");
   const auto* documents = container == nullptr ? nullptr : memberArray(*container, "elements");
   if (documents == nullptr) return true;
-  // The datasheet is the PDF document of type DTE. Other documents are linked files, videos and text.
+  // The datasheet is the PDF document of type DTE.
   for (const auto& document : *documents) {
     if (upperCase(firstText(document, {"type"})) != "DTE") continue;
     auto url = firstText(document, {"url"});
@@ -514,7 +505,7 @@ TmeApiClient::TmeApiClient(TmeConfig config) : config_(move(config)) {}
 
 bool TmeApiClient::fetchAccessToken(string* error) {
   if (!config_.valid()) return setError(error, "TME configuration is incomplete or too large");
-  // The token is the Basic user name and the application secret the password, as the v2 token request expects.
+  // The token is the Basic user name and the secret the password, as the v2 token request expects.
   const auto credentials = base64Encode(config_.token + ":" + config_.applicationSecret);
   HttpResponse response;
   if (!requestHttp(L"POST", widen(string(kTmeApiBase) + kTmeTokenPath),
@@ -578,7 +569,7 @@ bool TmeApiClient::getEndpoint(const string& path, const vector<pair<string, str
     HttpResponse response;
     if (!requestHttp(L"GET", widen(url), widen(headers), "", response, error)) return false;
     if (response.statusCode == 401) {
-      // The server no longer accepts the cached token. Fetch a new one and try once more.
+      // Cached token rejected; fetch a new one and retry once.
       accessToken_.clear();
       continue;
     }
@@ -683,7 +674,7 @@ optional<TmeProductDetails> TmeApiClient::lookupByPartNumber(const string& partN
     setError(error, "TME part number is empty or too long");
     return nullopt;
   }
-  // Asks TME for the products under a part number, keeping those whose part numbers match it.
+  // Queries TME by part number and keeps the products whose numbers match.
   const auto queryMatches = [&](const string& query, vector<TmeProductDetails>& matches) {
     string body;
     if (!getProducts({{"mpns[]", query}}, body, error)) return false;
@@ -697,8 +688,8 @@ optional<TmeProductDetails> TmeApiClient::lookupByPartNumber(const string& partN
 
   vector<TmeProductDetails> matches;
   if (!queryMatches(identifier, matches)) return nullopt;
-  // TME keeps some part numbers without their punctuation (ERJ6ENF2002V, for ERJ-6ENF2002V), which DigiKey's lookup
-  // ignores. The same part is asked for in that form when TME has nothing under the number as written.
+  // TME stores some part numbers without punctuation (ERJ6ENF2002V for ERJ-6ENF2002V). Retry in that
+  // form when nothing matches as written.
   const auto compact = partNumberKey(identifier);
   if (matches.empty() && !compact.empty() && compact != identifier) {
     if (!queryMatches(compact, matches)) return nullopt;

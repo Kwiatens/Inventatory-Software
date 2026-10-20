@@ -41,13 +41,9 @@ InventatoryLabelPlan LabelPrinterService::buildLabelPlan(const InventoryItem& it
 
 namespace {
 
-// Item label layout on the 256 x 200 dot (32 x 25 mm, 203 dpi) stock. The
-// left column says what the part is; the right column holds the QR code,
-// the readable ID, the rack slot and a pen field for recording a move.
-//
-// Test prints land about 3 dots right of and 10 dots below ^FO, so the
-// layout starts at x 7 / y 0 and ends at x 243 / y 179: that leaves an even
-// margin of about 10 dots on all four sides of the printed label.
+// Item label on 256 x 200 dot stock (32 x 25 mm, 203 dpi). Left: the part. Right: QR code, ID,
+// rack slot and pen field. Test prints land about 3 dots right and 10 dots below ^FO, so the
+// layout spans x 7-243 and y 0-179 to balance the margins.
 constexpr int kBottom = kLabelBottom;
 constexpr int kHeaderY = 0;
 constexpr int kPillY = 80;
@@ -128,10 +124,8 @@ void writeMainValue(ostringstream& out, const InventatoryLabelPlan& plan) {
     writeCenteredLine(out, kValueCenterY, oneLine.size, oneLine.text);
     return;
   }
-  // Long names wrap onto two lines at word boundaries before anything is cut.
-  // Two lines at the smallest font (18) can hold at most ~120 bytes in this column.
-  // If the sanitized text exceeds a safe bound, it cannot possibly fit onto two
-  // lines before anything is cut, so skip wrapping and step down instead.
+  // Long names wrap at word boundaries before anything is cut. Text over kMaxTwoLineBytes cannot
+  // fit on two lines, so it skips wrapping and steps down instead.
   constexpr size_t kMaxTwoLineBytes = 256;
   if (sanitized.size() <= kMaxTwoLineBytes) {
     istringstream words(sanitized);
@@ -272,9 +266,8 @@ string LabelPrinterService::buildZpl(const InventoryItem& item, string rackLocat
     manufacturerX = kLeft + pillWidth + 6;
   }
   if (!plan.manufacturerLine.empty()) {
-    // The full name when it fits at the largest size. Otherwise the name is cut to its leading words ("Infineon
-    // Technologies" -> "Infineon", "Panasonic Industry" -> "Panasonic") before any name is printed in smaller type. Only
-    // when no word cut fits is the name reduced in size, and then the short brand names are tried.
+    // Full name if it fits at the largest size; otherwise cut to leading words before shrinking.
+    // Short brand names are tried last.
     const auto available = kLeft + kLeftColumnWidth - manufacturerX;
     const auto candidates = manufacturerCandidates(plan.manufacturerLine);
     FittedLabelText manufacturer;

@@ -52,8 +52,7 @@ void App::storeQuickLabelPrintResult(const DeviceQuickLabelPrintResult& result,
   const auto known = quickLabelPrintResults_.find(result.requestId);
   const bool wasKnown = known != quickLabelPrintResults_.end();
   if (known != quickLabelPrintResults_.end()) {
-    // A late completion from an older operation must not overwrite a newer
-    // operation that reused the same request id.
+    // A late result from an older operation must not overwrite a newer one with the same id.
     if (!quickLabelPrintCacheIdentityMatches(known->second.identity, identity)) return;
   }
   quickLabelPrintResults_[result.requestId] = {identity, result};
@@ -100,8 +99,7 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
         result = known->second.result;
         return result.status == "completed";
       }
-      // This request id is being reused for a different operation.  Remove
-      // the old entry while retaining its order slot for bounded eviction.
+      // Request id reused for another operation: drop the old entry but keep its order slot.
       quickLabelPrintResults_.erase(known);
     }
     if (request.revision != settings_.quickLabelRevision) {
@@ -111,9 +109,7 @@ bool App::printDeviceQuickLabel(const DeviceQuickLabelPrintRequest& request, con
     } else {
       text = settings_.quickLabelPresets[static_cast<size_t>(request.presetIndex - 1)];
     }
-    // printer.conf belongs to the active workspace. The app-settings copy can still describe the
-    // previously selected workspace during a switch. This runs on a worker thread, so it reads the
-    // snapshot the UI thread publishes rather than the UI-owned printer service.
+    // Worker thread: read the printer snapshot the UI publishes, not the UI-owned service.
     printerName = configuredPrinterSnapshot_;
   }
 

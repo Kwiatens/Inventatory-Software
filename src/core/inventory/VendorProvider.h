@@ -15,8 +15,7 @@ inline constexpr const char* kVendorProviderDigiKey = "digikey";
 inline constexpr const char* kVendorProviderTme = "tme";
 inline constexpr const char* kVendorProviderMouser = "mouser";
 
-// The name a vendor is shown with ("DigiKey", "TME" or "Mouser") for its key, which is compared without regard to case
-// or surrounding spaces. Empty for an empty or unknown key.
+// Display name ("DigiKey", "TME" or "Mouser") for a key, case-insensitive. Empty if unknown.
 std::string vendorDisplayName(const std::string& provider);
 
 }  // namespace inventatory

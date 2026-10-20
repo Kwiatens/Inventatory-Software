@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Authenticated local device service used by the Inventatory Scan R1 hardware.
+// Authenticated local device service for the Inventatory Scan R1.
 
 #pragma once
 
@@ -102,15 +101,11 @@ class LocalHttpServer {
   SyncCallback onSync_;
   mutable mutex callbackMutex_;
   mutable mutex stateMutex_;
-  // The callback is synchronous because the authenticated response contains
-  // its result.  Serialize callback execution without holding a server state
-  // mutex, so application work can safely call back into the server or block
-  // on its own persistence/printing queues.
+  // The callback runs synchronously, since the response carries its result. Calls are serialized
+  // outside the state mutexes, so the callback may re-enter the server or block on its queues.
   mutex callbackSerialMutex_;
-  // Credential rotation is serialized with authentication and replay state.
-  // It opportunistically quiesces callback execution; if the callback is
-  // already waiting on the UI, the epoch still invalidates its later replay
-  // commit without blocking the UI thread on this server mutex.
+  // Rotation is serialized with authentication and replay state. The epoch invalidates a callback's
+  // replay commit if it finishes after rotation, without waiting for that callback.
   mutable mutex credentialOperationMutex_;
   mutable mutex replayMutex_;
   uint16_t port_ = 0;

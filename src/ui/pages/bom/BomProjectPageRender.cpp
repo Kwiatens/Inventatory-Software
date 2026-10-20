@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // KiCad BOM project rendering: pinned list, BOM comparison, Find in racks workflow.
 
 #include "App.h"
@@ -92,7 +91,6 @@ ftxui::Element App::renderBomProjectUi() const {
     return fullLine(" Project changes are not saved yet. Press R to retry.", uiDangerColor(), uiDangerBg());
   };
 
-  // ---------------------------------------------------------------- list ---
   if (bomView_ == BomView::List || !bomAnalysisValid_) {
     auto importButton = target(uiButton("Import BOM", "i", bomProjects_.empty() ? UiButtonKind::Primary : UiButtonKind::Normal),
                                "bom.import", UiTargetKind::Button, [self] { self->beginCsvImport(); });
@@ -115,8 +113,7 @@ ftxui::Element App::renderBomProjectUi() const {
       const auto& project = bomProjects_[index];
       const bool selected = index == min(bomProjectSelection_, bomProjects_.size() - 1);
       const auto bg = selected ? uiSelectionBg() : surface;
-      // Render runs at 10 Hz, so the row count comes from a cheap newline count
-      // rather than a full re-parse of the stored BOM.
+      // Renders at 10 Hz, so count newlines rather than re-parsing the stored BOM.
       const auto lineCount = count(project.bomText.begin(), project.bomText.end(), '\n');
       auto row = ftxui::hbox({
                      styledText(selected ? " > " : "   ", uiFocusColor()),
@@ -151,13 +148,11 @@ ftxui::Element App::renderBomProjectUi() const {
   const auto* project = activeBomProject();
   const auto projectName = project == nullptr ? string("Project") : project->name;
 
-  // --------------------------------------------------------------- build ---
   if (bomView_ == BomView::Build) {
     const auto plan = bomPickPlan();
     if (plan.empty()) return ftxui::text("");
     const auto stopIndex = min(bomBuildStep_, plan.stops.size() - 1);
 
-    // ---- finish: one table, one question ----
     if (bomDeductPrompt_) {
       int planned = 0;
       int taken = 0;
@@ -238,7 +233,6 @@ ftxui::Element App::renderBomProjectUi() const {
     });
     auto header = uiPageHeader(voiceTitle(bomPickStopTitle(stop)), ftxui::text(""), move(buttons));
 
-    // The pick list: slot, part, the board references it is for, and how many to take.
     const bool loose = stop.rackId.empty();
     const int sideWidth = loose ? screenWidth - 2 : clamp(screenWidth * 2 / 5, 44, 64);
     const int slotWidth = loose ? clamp(sideWidth / 5, 14, 24) : 6;
@@ -271,14 +265,13 @@ ftxui::Element App::renderBomProjectUi() const {
              ftxui::bgcolor(surface) | ftxui::flex;
     }
 
-    // The rack grid: lettered columns, numbered rows, one-cell gaps on the workspace surface. Slots to
-    // open carry the BOM value and how many to take; every other slot is a quiet raised block.
+    // Lit slots carry the BOM value and the take; the other slots are a quiet raised block.
     constexpr int rows = 5;
     constexpr int columns = 5;
     constexpr int designatorWidth = 3;
     const int gridWidth = max(40, screenWidth - sideWidth - 4);
     const int slotWidth2 = rack_page_detail::equalRackSlotWidth(gridWidth - designatorWidth - (columns - 1), columns);
-    // Shell (5 rows), page header (3), letter row (1), row gaps (4) and the route line with its gap (2).
+    // The 15 rows outside the grid: shell, page header, letter row, row gaps and route line.
     const int slotHeight = rack_page_detail::equalRackSlotHeight(max(rows * 3, screenHeight - 15), rows);
     const bool pulse = uiBlinkOn(700);
 
@@ -303,8 +296,7 @@ ftxui::Element App::renderBomProjectUi() const {
         if (column > 0) cells.push_back(ftxui::text(" "));
         const auto slot = rackSlotLabel(column, row);
         const auto found = picksBySlot.find(slot);
-        // Every slot shows its number and the value stored there, in the same place, so the grid
-        // reads the same whether or not it is lit. Lit slots add the amount to take.
+        // Every slot shows its number and stored value in the same place, lit or not.
         const auto* pick = found != picksBySlot.end() ? found->second : nullptr;
         const auto* item = pick != nullptr ? store_.findById(pick->itemId) : itemAtRackSlot(store_, stop.rackId, slot);
         string value = pick != nullptr ? pick->designation : string("-");
@@ -315,7 +307,7 @@ ftxui::Element App::renderBomProjectUi() const {
         const auto valueWidth = static_cast<size_t>(max(1, slotWidth2 - 2));
         ftxui::Element body;
         if (pick != nullptr) {
-          // Lit slots pulse between the interactive fill and the active surface; both states stay lit.
+          // Lit slots pulse between two fills; both stay lit.
           const auto bg = pulse ? uiInteractiveColor() : uiActiveBg();
           const auto fg = pulse ? uiCanvasBg() : uiPrimaryText();
           const auto slotFg = pulse ? uiCanvasBg() : uiFocusColor();
@@ -352,7 +344,6 @@ ftxui::Element App::renderBomProjectUi() const {
            ftxui::bgcolor(surface) | ftxui::flex;
   }
 
-  // ------------------------------------------------------------ compare ---
   int suggested = 0;
   if (project != nullptr) {
     for (const auto& match : bomAnalysis_.matches) {
@@ -392,8 +383,8 @@ ftxui::Element App::renderBomProjectUi() const {
                                    cell("Have", haveWidth, uiMutedText(), false, true),
                                    cell("Status", statusWidth, uiMutedText(), false, true)}));
 
-  // In stock: confirmed and covered. To check: stock parts that wait for the user to confirm one. Missing: nothing
-  // in stock covers the line.
+  // In stock: covered. To check: a stock part awaits confirmation.
+  // Missing: no stock covers the line.
   const auto groupOf = [](const BomMatch& match) -> string {
     return match.sufficient ? "s" : match.needsConfirmation() ? "c" : "m";
   };
@@ -437,7 +428,7 @@ ftxui::Element App::renderBomProjectUi() const {
     if (match.sufficient) {
       const auto rack = item == nullptr ? string() : rackLocation(*item, store_.racks());
       if (!rack.empty()) {
-        // rackLocation reads "R1-E3"; spell the rack out the way the pick route does.
+        // rackLocation gives "R1-E3"; spell the rack out as the pick route does.
         const auto dash = rack.find('-');
         where = dash == string::npos ? rack : "Rack " + to_string(max(1, rackNumberFromCode(rack.substr(0, dash)))) + "  " + rack.substr(dash + 1);
       } else if (item != nullptr && !item->location.empty()) {
@@ -445,7 +436,7 @@ ftxui::Element App::renderBomProjectUi() const {
       }
       whereColor = uiLinkColor();
     } else if (match.needsConfirmation() && item != nullptr) {
-      // The stock part this line would use, waiting for the user to confirm it.
+      // The stock part this line would use, awaiting confirmation.
       where = "Suggested  " + item->partName;
       whereColor = uiWarnColor();
     } else if (project != nullptr) {

@@ -28,8 +28,7 @@ using namespace inventory_transfer_detail;
 
 namespace {
 
-// `recordedDirectory` is the data directory as the user named it; it is what the restored settings
-// record, even when the work is done on the folder a symbolic link resolves to.
+// The settings record recordedDirectory as the user named it, even when a symlink is resolved.
 bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const filesystem::path& destinationDirectory,
                                   const filesystem::path& recordedDirectory, const filesystem::path& appSettingsPath,
                                   string& error, const InventoryTransferTestHooks* testHooks,
@@ -39,8 +38,7 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = false;
 #ifndef _WIN32
   {
-    // Activation renames the data folder itself, which for a symbolic link would move the link instead
-    // of the data. Work on the folder the link names; the link keeps pointing at the restored workspace.
+    // Activation renames the data folder, so for a symlink work on its target instead.
     error_code linkError;
     if (filesystem::is_symlink(destinationDirectory, linkError) && !linkError) {
       const auto resolved = filesystem::canonical(destinationDirectory, linkError);
@@ -106,9 +104,7 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
     error = "Unable to inspect restore destination: " + filesystemError.message();
     return false;
   }
-  // Restore replaces only Inventatory's managed files. Refuse up front, before
-  // any artifact exists, when another entry of the data folder could not be
-  // carried over to the restored workspace unchanged.
+  // Refuse before any artifact exists if an unmanaged entry cannot be carried over.
   if (destinationExists &&
       !checkUnmanagedEntriesPreservable(destinationDirectory, WorkspaceEntrySource::OldWorkspace, error)) {
     return false;
@@ -146,9 +142,8 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
       }
       cleanupOk = cleanupOk && cleanupError.empty();
     }
-    // Preserve the journal when any owned artifact could not be removed so
-    // startup recovery can retry the cleanup; deleting the marker would make
-    // the leftover settings backup undiscoverable.
+    // Keep the journal when cleanup fails, so startup recovery can retry and find the
+    // leftover settings backup.
     if (cleanupOk) {
       cleanupError.clear();
       cleanupOk = ops.removeAll(journalPath, cleanupError);
@@ -172,10 +167,8 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
   if (journal.destinationExisted && !ops.rename(destinationDirectory, journal.oldData, primaryError)) {
     return discardStage(primaryError);
   }
-  // From this point onward the old workspace has been moved out of the
-  // destination (or the destination was initially absent). Any failure can
-  // leave the on-disk workspace in an indeterminate state unless rollback
-  // completes, so callers must keep dependent services stopped.
+  // Past this point a failure can leave the workspace indeterminate until rollback completes,
+  // so callers must keep dependent services stopped.
   if (replacementWorkspaceActiveOnFailure != nullptr) *replacementWorkspaceActiveOnFailure = true;
   const auto failWithRollback = [&](const string& primary) {
     string rollbackError;
@@ -186,10 +179,8 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
   };
   journal.state = "protected";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
-  // Carry every unmanaged entry over by renaming it into the staged workspace
-  // (no copy, no delete) so the single activation rename below publishes the
-  // restored files and the user's own files together. Rollback and recovery
-  // move these entries back before discarding staging.
+  // Rename, not copy, so the activation rename publishes these entries with the restored files.
+  // Rollback and recovery move them back before staging is discarded.
   if (journal.destinationExisted &&
       !moveUnmanagedEntries(journal.oldData, staging, WorkspaceEntrySource::OldWorkspace, ops, primaryError)) {
     return failWithRollback(primaryError);
@@ -207,10 +198,8 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
     primaryError = "Restored settings are invalid";
   } else {
     restoredSettings.dataDirectory = recordedDirectory;
-    // Whether the background service is registered, which port the paired scanner uses and whether the
-    // user answered the background prompt describe this computer, not the workspace. They stay as they
-    // are here (or at their defaults on a computer without settings) so the next launch does not register
-    // a startup service nobody agreed to, and the scanner is not moved to another port.
+    // These describe this computer, not the workspace. Keep the local values so no startup
+    // service is registered without consent.
     AppSettings localSettings;
     if (journal.settingsExisted) loadAppSettings(appSettingsPath, localSettings);
     restoredSettings.backgroundServiceEnabled = localSettings.backgroundServiceEnabled;
@@ -226,9 +215,7 @@ bool restoreInventatoryBackupImpl(const filesystem::path& backupDirectory, const
   journal.state = "settings_activated";
   if (!writeRestoreJournal(journalPath, journal, ops, primaryError)) return failWithRollback(primaryError);
 
-  // The manifest and sanitized settings belong to the bundle, not to the
-  // selected data directory. Remove them only after the active DB/settings
-  // have been validated and journaled.
+  // Bundle files are removed only after the active DB and settings are validated and journaled.
   if (!validateWorkspaceData(destinationDirectory, primaryError)) {
     if (primaryError.empty()) primaryError = "Restored workspace data could not be validated";
   }

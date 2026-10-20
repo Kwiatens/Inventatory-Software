@@ -23,7 +23,7 @@ bool App::testStagedMouser() {
     setMessage("Mouser test is already running", 3);
     return false;
   }
-  // A key staged in this editor is tested; otherwise the saved key is read the way lookups read it.
+  // Test the key staged in the editor; otherwise the saved key, as lookups read it.
   MouserConfig config;
   if (stagedMouserKeyChanged_) {
     config.apiKey = trim(stagedMouserKey_);
@@ -52,7 +52,7 @@ bool App::testStagedMouser() {
             result.ok = client.testConnection(&result.error);
           } catch (const std::exception& e) {
             result.ok = false;
-            // The key travels in the request URL, so an exception text could carry it.
+            // Exception text could include the key from the request URL, so it is redacted.
             result.error = redactMouserKey(e.what(), config.apiKey);
           } catch (...) {
             result.ok = false;
@@ -96,7 +96,7 @@ void App::beginMouserRefresh() {
     return;
   }
 
-  stopMouserRefresh();  // no refresh is running here, so this only resets the previous run's state
+  stopMouserRefresh();  // Resets the previous run's state.
   mouserRefreshClient_ = make_unique<MouserApiClient>(config);
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {
@@ -108,7 +108,7 @@ void App::beginMouserRefresh() {
   for (const auto& item : store_.items()) {
     const auto partNumber = app_actions::mouserRefreshLookup(item);
     if (partNumber.empty()) continue;
-    // A manufacturer the part does not know is no help in telling Mouser's products apart.
+    // An "Unknown" manufacturer does not help tell Mouser's products apart.
     const auto manufacturer = trim(item.manufacturer) == "Unknown" ? string() : trim(item.manufacturer);
     mouserRefreshQueue_.push_back({item.id, partNumber, manufacturer});
   }
@@ -143,14 +143,14 @@ void App::processMouserRefresh() {
         ++mouserRefreshErrors_;
         mouserRefreshLastError_ = "An inventory item disappeared during refresh";
       } else if (const auto conflict = app_actions::mouserRecordConflict(*item, *result.details); !conflict.empty()) {
-        // The record describes a different part than the stored one, so nothing from it is merged.
+        // A different part: nothing from this record is merged.
         ++mouserRefreshErrors_;
         mouserRefreshLastError_ =
             "Mouser's " + conflict + " for " + item->partName + " disagrees with the stored part; not merged";
         logActivity("sync", mouserRefreshLastError_);
       } else {
         if (app_actions::mergeMouserMetadata(*item, *result.details)) mouserRefreshChanged_ = true;
-        // A label printed next must show the slot the merged part is placed in; saving would place it too late.
+        // Reconcile now, so a label printed next shows the part's merged slot.
         if (reconcileRackAssignment(store_, *item)) mouserRefreshChanged_ = true;
         ++mouserRefreshSucceeded_;
       }
@@ -167,8 +167,7 @@ void App::processMouserRefresh() {
           break;
       }
       mouserRefreshLastError_ = result.error.empty() ? "Mouser returned no product details" : result.error;
-      // A reached limit or a rejected key would only be answered the same way again, so the rest of the run is dropped
-      // and the run ends with its summary.
+      // A reached limit or rejected key would fail the rest the same way; drop the run.
       if (mouserLimitReached(result.error) || mouserKeyRejected(result.error)) mouserRefreshQueue_.clear();
     }
 
@@ -202,7 +201,7 @@ void App::processMouserRefresh() {
     try {
       result.details = client->lookupByPartNumber(request.partNumber, outcome, &result.error, request.manufacturer);
     } catch (...) {
-      // The key travels in the request URL, so no exception text is passed on.
+      // Exception text could include the key from the request URL, so it is not passed on.
       result.details.reset();
       result.error = "Mouser lookup failed unexpectedly";
     }

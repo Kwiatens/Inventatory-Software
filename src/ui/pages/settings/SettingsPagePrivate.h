@@ -52,7 +52,7 @@ inline SettingsBridgeNotice settingsBridgeNotice(DeviceServiceRestart restart) {
 }
 
 inline constexpr const char* kDigiKeySecretName = "digikey-client-secret";
-// Byte limit for the Mouser API key in the Settings editor, the same limit MouserConfig::valid() applies.
+// Byte limit for the Mouser key in the settings editor; matches MouserConfig::valid().
 inline constexpr std::size_t kMaxMouserKeyBytes = 256U;
 inline constexpr int kAppearancePickerHueSteps = 12;
 inline constexpr int kAppearancePickerValueSteps = 6;

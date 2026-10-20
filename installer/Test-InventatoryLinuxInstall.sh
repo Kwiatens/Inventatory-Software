@@ -31,7 +31,7 @@ version=$("$installed" --version)
 test "$version" = 'Inventatory installer fixture'
 printf 'Linux installer smoke test passed: %s\n' "$version"
 
-# An executable that cannot start is refused before activation, and the loader's reason is reported.
+# Refuse an unstartable executable before activation.
 broken_payload="$test_root/broken-payload"
 broken_package="$test_root/broken-package"
 broken_home="$test_root/broken-home"
@@ -57,12 +57,10 @@ grep -q 'does not start on this system: fixture loader error' "$test_root/broken
 test ! -e "$broken_home/.local/bin/inventatory"
 printf 'Linux installer refusal of an unstartable executable test passed\n'
 
-# In-app update: the installer replaces the running executable once it exits and then removes the
-# private download folder the application created, whether the update succeeded or failed.
+# In-app update: the installer replaces the running executable, then removes the download folder.
 live_dir="$test_root/live"
 mkdir -p -- "$live_dir"
-# The fixture process must run as "inventatory", so it is a copy of a real binary. On RHEL-family systems sleep is a
-# shell-style wrapper for the coreutils binary, and a copy of that wrapper would run as coreutils instead.
+# Copy a real binary: on RHEL-family systems sleep is a wrapper and would run as coreutils.
 sleep_binary=$(command -v sleep)
 sleep_program=
 if [ "$(head -c 2 -- "$sleep_binary")" = '#!' ]; then
@@ -86,7 +84,7 @@ run_update_case() {
   "$live_dir/inventatory" ${sleep_program:+"$sleep_program"} 30 &
   live_pid=$!
   if [ "$replace_live" = replace ]; then
-    # The file the process runs from was replaced on disk, so /proc/<pid>/exe now ends in " (deleted)".
+    # Replacing the file on disk makes /proc/<pid>/exe end in " (deleted)".
     cp -- "$sleep_binary" "$live_dir/inventatory.new"
     mv -f -- "$live_dir/inventatory.new" "$live_dir/inventatory"
     case "$(readlink "/proc/$live_pid/exe")" in
@@ -115,7 +113,7 @@ run_update_case bad tamper
 grep -q '^state=failed$' "$test_root/bad-marker"
 printf 'Linux update hand-off test passed\n'
 
-# An executable replaced while it runs (an earlier update, a manual install) is still updated in place.
+# An executable replaced while running is still updated in place.
 run_update_case replaced ok replace
 grep -q '^state=complete$' "$test_root/replaced-marker"
 test "$("$live_dir/inventatory" --version)" = 'Inventatory installer fixture'

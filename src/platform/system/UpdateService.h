@@ -39,14 +39,11 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
                           const UpdateDownloadProgress& progress, std::string& error);
 bool verifyReleaseFileSha256(const std::filesystem::path& path, const std::string& expectedHash,
                              std::string& error);
-// A new, empty, private download folder for one update ("Inventatory-update-*" under `parent`, or the
-// system temporary folder when `parent` is empty). Never reuses an existing folder; empty on failure.
-// On Linux its mode is 0700. The installer removes it once the update has been applied or has failed.
+// New, empty, private "Inventatory-update-*" folder under `parent` (system temp folder when empty).
+// Never reuses a folder; empty on failure. Mode 0700 on Linux. The installer removes it when done.
 std::filesystem::path createUpdateDownloadDirectory(const std::filesystem::path& parent = {});
-// Removes "Inventatory-update-*" folders under `parent` (the system temporary folder when empty) that were
-// last modified more than `minimumAge` ago: leftovers of an update that was abandoned, crashed or whose
-// installer never ran. Only real folders owned by the current user are touched, and a fresh folder that an
-// update in progress still uses is never old enough to match. Returns how many folders were removed.
+// Removes "Inventatory-update-*" folders under `parent` not modified for `minimumAge`: leftovers of
+// abandoned or crashed updates. Only current-user folders are touched. Returns the count removed.
 std::size_t removeStaleUpdateDownloadDirectories(const std::filesystem::path& parent = {},
                                                  std::chrono::seconds minimumAge = std::chrono::hours(24));
 // Whether the folder holding `executable` can be written, so an update can replace it. Always true
@@ -59,17 +56,14 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
                            const std::filesystem::path& notesPath,
                            const std::string& releaseVersion,
                            std::string& error);
-// Linux: replaces the exited application process with a waiter that lets the
-// detached installer proceed, then execs the (updated or unchanged) executable
-// in the same terminal once the completion marker leaves the pending state.
-// Returns only when the relaunch could not be started. No-op on Windows, whose
-// installer opens a new terminal itself.
+// Linux: replaces the process with a waiter that lets the detached installer run, then execs the
+// executable in the same terminal once the marker leaves pending. Returns only if that fails.
+// No-op on Windows, whose installer opens its own terminal.
 void relaunchAfterUpdate(const std::filesystem::path& markerPath);
 UpdateCheckResult checkLatestRelease(const std::string& installedVersion);
 
-// Latest published Scan R1 firmware. `installedVersion` is the version the
-// paired device last reported; an empty value still returns the latest release
-// with `updateAvailable` false, because nothing is known to compare against.
+// Latest Scan R1 firmware. An empty `installedVersion` still returns the release, with
+// `updateAvailable` false.
 UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion);
 
 }  // namespace inventatory

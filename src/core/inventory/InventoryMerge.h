@@ -5,12 +5,9 @@
 
 // Inventatory - three-way merge of staged inventory edits onto the live inventory.
 //
-// A form edit or CSV import review can stay open for minutes while the Scan R1 service keeps
-// committing stock changes. Writing the staged copy back over the live store would silently
-// revert those committed changes, so staged work is replayed as a delta instead: only what the
-// user changed relative to the snapshot taken when the work started is applied, matched by item
-// id, on top of whatever the live inventory holds now. The helpers are pure (no UI, no I/O) so
-// they can be tested without the application shell.
+// A form or CSV review can stay open for minutes while scanner commits continue. Staged work is
+// replayed as a delta, matched by item id, so committed changes are not reverted.
+// Pure helpers: no UI, no I/O.
 
 #include "core/inventory/Inventory.h"
 
@@ -20,40 +17,29 @@
 namespace inventatory {
 
 enum class QuantityMerge {
-  // The staged quantity is an absolute value the user typed; it replaces a concurrent change
-  // and the replaced scanner value is reported in the notices.
+  // A quantity the user typed; replaces a concurrent change and reports it in the notices.
   PreferEdited,
-  // The staged quantity is stock added on top of the snapshot (CSV import); the delta is applied
-  // to the live quantity so a concurrent scanner change is kept.
+  // Stock added on top of the snapshot (CSV import); the delta is applied to the live quantity.
   ApplyDelta,
 };
 
-// Merges one item. `base` is the item when the work started, `edited` the staged item and
-// `current` the live item. Fields the user did not change keep the live value, fields the user
-// changed win, and a field changed to a different value on both sides is reported in `notices`
-// (user value kept). `lastUpdated` is the newer of the two. The identity (`id`) is taken from
-// `edited`; callers match by id before calling.
+// Merges one item: `base` is the item when the work started, `edited` the staged copy and
+// `current` the live one. Unchanged fields take the live value and changed fields win.
+// A field changed on both sides is reported in `notices`, with the user's value kept.
+// `id` comes from `edited`.
 InventoryItem mergeEditedItem(const InventoryItem& base, const InventoryItem& edited,
                               const InventoryItem& current, QuantityMerge quantity,
                               std::vector<std::string>* notices = nullptr);
 
-// Call after merging an edited item into `store` (where `item` is the merged copy, or the live item
-// itself). A manual placement taken from the edit may name a rack that no longer exists or a slot another
-// part took while the form was open; sharing it would make the save fail repeatedly. In that case the
-// placement is cleared back to automatic (the caller re-places it) and a notice is added. Returns true
-// when the placement was cleared.
+// Call after merging an item into `store`. Clears a placement that names a missing rack or a slot
+// another part took meanwhile, since keeping it would fail every save. Item becomes automatic
+// and a notice is added. Returns true when cleared.
 bool releaseConflictingRackPlacement(const InventoryStore& store, InventoryItem& item,
                                      std::vector<std::string>* notices = nullptr);
 
-// Replays the changes between `base` and `staged` onto `current` and returns the result:
-// items are matched by id, so scanner quantity changes and scanner-created items in `current`
-// survive. Staged additions are appended, staged edits are merged field by field, staged
-// removals apply only to an item that was not changed in `current`, and an item that vanished
-// from `current` is not resurrected. Racks created in `staged` are added unless the live
-// inventory already has a rack with the same code; items pointing at a rack that could not be
-// carried over fall back to automatic placement. Rack edits and removals are not part of any
-// staged workflow and are not replayed. Anything that could not be merged cleanly is described
-// in `notices`.
+// Replays changes between `base` and `staged` onto `current`, matching items by id. Staged
+// additions are appended, edits merge field by field, and removals apply only to items unchanged
+// in `current`. Rack edits and removals are not replayed. Problems go to `notices`.
 InventoryStore mergeInventoryChanges(const InventoryStore& base, const InventoryStore& staged,
                                      const InventoryStore& current, QuantityMerge quantity,
                                      std::vector<std::string>* notices = nullptr);

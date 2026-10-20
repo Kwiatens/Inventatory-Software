@@ -1,9 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The checks in this file are assert() calls. CMake's Release configuration defines NDEBUG, which
-// compiles every assert() out, so a Release ctest run would pass without checking anything. Keep the
-// checks enabled in every build type. This must come before the first standard header.
+// CMake's Release config defines NDEBUG, which would compile every assert() out. Keep the checks
+// enabled in all build types, and keep this before the first standard header.
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -119,11 +118,8 @@
 #include <ws2tcpip.h>
 #endif
 
-// The always-on assert used by every test. A failure prints the expression and exits instead of
-// throwing: production code under test catches exceptions from hooks and callbacks, and a thrown
-// failure there would be swallowed and turn a failed check into a pass. testAssertionFailed() runs
-// the registered cleanups first, and std::exit() then runs the static destructors, so neither the
-// private temp root nor a test credential outlives a failing run.
+// Always-on assert. It exits rather than throws: code under test catches exceptions from hooks
+// and callbacks and would swallow the failure. Registered cleanups run first.
 #undef assert
 #define assert(expr)                                                                                                 \
   do {                                                                                                                \
@@ -148,9 +144,8 @@ constexpr const char* kTestApplicationChecksums = "SHA256SUMS-linux.txt";
 constexpr const char* kTestApplicationInstaller = "Install-Inventatory.sh";
 #endif
 
-// Runs an action when it leaves scope and, if an assert fails first, before the process exits. Use it for
-// state outside the temp root (for example credential-store entries) that a plain destructor would leak,
-// because a failing assert exits the process without unwinding.
+// Runs an action on scope exit, or before a failing assert exits the process. Use it for
+// state outside the temp root (for example credential-store entries) that would otherwise leak.
 class TestCleanup final {
  public:
   explicit TestCleanup(function<void()> action) : action_(std::move(action)) {
@@ -193,11 +188,9 @@ class TestCleanup final {
   function<void()> action_;
 };
 
-// Every fixture lives under one private directory that is created fresh (random name, never reused) for
-// each run of the test program and removed when the program ends, including after a failed assert. Two runs
-// (Debug and Release, ctest -j, two terminals) therefore cannot clobber each other, a predictable name in a
-// shared temp directory cannot be pre-created by someone else, and nothing is left behind. Set
-// INVENTATORY_KEEP_TEST_TEMP=1 to keep the directory and print its path when investigating a failure.
+// Fixtures live in a fresh random directory removed at exit, even after a failed assert.
+// Concurrent runs cannot clobber each other, and a predictable name cannot be pre-created.
+// Set INVENTATORY_KEEP_TEST_TEMP=1 to keep it when investigating.
 class TestTempRoot final {
  public:
   TestTempRoot() {
@@ -249,8 +242,7 @@ const filesystem::path& testTempRoot() {
   return root.path();
 }
 
-// The area/name of the test that is running, for failure messages. Written by the runner before each
-// test and read by whichever thread fails an assert, hence atomic. The pointed-to text outlives the run.
+// Running test's name for failure messages. Atomic because any thread may fail an assert.
 atomic<const char*>& currentTestLabel() {
   static atomic<const char*> label{"(startup)"};
   return label;
@@ -319,7 +311,7 @@ void writeTextFile(const filesystem::path& path, const string& text, bool execut
 
 bool processIsGone(pid_t process) {
   if (kill(process, 0) != 0) return errno == ESRCH;
-  // An orphan that nobody reaps stays visible as a zombie; it is dead all the same.
+  // An unreaped orphan shows as a zombie; it is dead all the same.
   ifstream stat("/proc/" + to_string(process) + "/stat");
   string line;
   getline(stat, line);
@@ -328,9 +320,8 @@ bool processIsGone(pid_t process) {
 }
 #endif
 
-// The main code of a DigiKey bag as the scanner forwards it: an ISO/IEC 15434 Macro 06 envelope, with the fields
-// separated by group separators and the code ended by a record separator and end-of-transmission.
-// Outside the POSIX-only block above, because the tests use it on every platform.
+// DigiKey bag code as the scanner forwards it: an ISO/IEC 15434 Macro 06 envelope. Kept outside
+// the POSIX-only block because every platform's tests use it.
 string digiKeyBagCode(const string& partNumber, const string& manufacturerPartNumber) {
   const string rs(1, '\x1e');
   const string gs(1, '\x1d');
@@ -469,7 +460,7 @@ void testAtomicFileLinks() {
   assert(entries == 1);
   assert(writeFileAtomically(root / "config" / "nested" / "deeper.conf", "created", &error));
 
-  // A symbolic link (a dotfile-managed settings file) keeps being a link; its target gets the content.
+  // A dotfile-managed symlink stays a link; its target gets the content.
   writeTextFile(root / "real" / "settings.conf", "old");
   filesystem::create_symlink("../real/settings.conf", root / "config" / "settings.conf");
   assert(writeFileAtomically(root / "config" / "settings.conf", "new", &error));
@@ -489,13 +480,13 @@ void testAtomicFileLinks() {
   assert(filesystem::is_symlink(root / "config" / "later.conf"));
   assert(readTextFile(root / "real" / "later.conf") == "created through link");
 
-  // A cyclic chain cannot be followed; the write still succeeds and replaces the link itself.
+  // A symlink cycle cannot be followed, so the write replaces the link itself.
   filesystem::create_symlink("loop-b.conf", root / "config" / "loop-a.conf");
   filesystem::create_symlink("loop-a.conf", root / "config" / "loop-b.conf");
   assert(writeFileAtomically(root / "config" / "loop-a.conf", "loop", &error));
   assert(readTextFile(root / "config" / "loop-a.conf") == "loop");
 
-  // Flushing helpers succeed for what exists and report what does not.
+  // Sync helpers succeed on existing paths and report missing ones.
   assert(syncFile(root / "real" / "settings.conf", &error));
   assert(syncDirectory(root / "real", &error));
   assert(!syncFile(root / "real" / "missing.conf", &error) && !error.empty());
@@ -517,7 +508,7 @@ void testHistoryPageLayoutData() {
 }
 
 #ifndef _WIN32
-// A small workspace for backup and restore tests: one stocked item with its commit history.
+// A workspace with one stocked item and its commit history.
 void createTransferTestWorkspace(const filesystem::path& folder) {
   filesystem::create_directories(folder);
   InventoryStore store;
@@ -578,7 +569,7 @@ void testBackupAndRestoreThroughDataFolderLinks() {
   assert(restored.load(linkedTarget / "inventory.db"));
   assert(restored.items().size() == 1 && restored.items().front().id == "link-item");
   assert(readTextFile(realTarget / "notes.txt") == "user file");
-  // The settings keep naming the link, so retargeting it later is still honoured.
+  // Settings keep naming the link, so retargeting it later still works.
   {
     AppSettings afterRestore;
     assert(loadAppSettings(root / "target-settings.conf", afterRestore));
@@ -608,8 +599,6 @@ void testPrimaryNavigationContract() {
   assert(inventatory::app_navigation::primaryNavigationEntryForShortcut('7') == nullptr);
 }
 
-// Keyboard focus is tracked by target id, so a changing target list cannot make
-// Enter land on a different control, and only Tab can create a focus.
 void testSplitPartNameSeparatesTypeValueAndSpec() {
   const auto expectSplit = [](const string& name, const string& type, const string& value, const string& spec) {
     const auto parts = splitPartName(name);
@@ -654,6 +643,8 @@ void testQuantityColorSeparatesOutLowAndHealthyStock() {
   assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::DangerText)] == 0xCC8BA4);
 }
 
+// Focus is tracked by target id, so a changing target list cannot send Enter to another control.
+// Only Tab creates a focus.
 void testUiFocusTracking() {
   using inventatory::ui_focus::Candidate;
   namespace uf = inventatory::ui_focus;
@@ -689,8 +680,7 @@ void testUiFocusTracking() {
   assert(!uf::isActivatable({{"off", false, true}}, "off"));
 }
 
-// The header keeps the Actions control on screen at every supported width by
-// dropping the clock first.
+// The header drops the clock before the Actions control runs out of room.
 void testHeaderClockYieldsToActionsControl() {
   using inventatory::app_navigation::HeaderClock;
   using inventatory::app_navigation::headerClockFor;
@@ -703,7 +693,7 @@ void testHeaderClockYieldsToActionsControl() {
   assert(headerClockFor(106, kFixed) == HeaderClock::Full);
   assert(headerClockFor(120, kFixed) == HeaderClock::Full);
   assert(headerClockFor(240, kFixed) == HeaderClock::Full);
-  // Whatever clock is chosen, brand + destinations + Actions + clock never exceeds the row.
+  // Whatever clock is chosen, the row must not overflow.
   for (int width = 100; width <= 240; ++width) {
     int used = kFixed;
     switch (headerClockFor(width, kFixed)) {
@@ -715,8 +705,7 @@ void testHeaderClockYieldsToActionsControl() {
   }
 }
 
-// The action sheet groups each header once and scrolls so the cursor row is
-// always on screen, including for the largest registry (Stock with a selection).
+// Each group header appears once, and the cursor row stays visible when scrolling.
 void testActionSheetLayout() {
   namespace as = inventatory::action_sheet;
   const std::vector<std::string> stock = {
@@ -741,8 +730,7 @@ void testActionSheetLayout() {
   // The unmerged list needed one header per run of groups.
   assert(as::rowCountFor(stock) > as::rowCountFor(ordered));
 
-  // At 30 terminal rows the sheet may use at most 18 body rows; the whole sheet,
-  // chrome included, must fit in the terminal.
+  // At 30 rows the sheet uses at most 18 body rows, and the whole sheet must fit the terminal.
   assert(as::maxBodyRows(30) == 18);
   assert(as::maxBodyRows(30) + as::kTitleRows + as::kChromeRows + as::kMinPageRows <= 30);
   assert(as::maxBodyRows(10) == as::kMinBodyRows);
@@ -773,8 +761,7 @@ void testActionSheetLayout() {
   assert(as::windowFor(5, 3, 0).count == 0);
 }
 
-// Pre-filled numeric prompts (set quantity, receive shortage) behave like a
-// selected field: the first digit replaces the default.
+// A pre-filled prompt acts like a selected field: the first digit replaces the default.
 void testNumericPromptReplacesDefault() {
   namespace np = inventatory::numeric_prompt;
   std::string buffer = "5";
@@ -785,7 +772,7 @@ void testNumericPromptReplacesDefault() {
   assert(buffer == "10");
   assert(!np::applyDigit(buffer, 'x', replace, 9) && buffer == "10");  // non-digits are ignored
 
-  // Backspace edits the default as text and ends the replace behaviour.
+  // Backspace edits the default as text and ends replacement.
   buffer = "25";
   replace = true;
   assert(np::applyBackspace(buffer, replace));
@@ -811,7 +798,7 @@ void testTerminalSizeGate() {
   assert(nav::terminalTooSmall(80, 24));
 }
 
-// Discarding in-memory work needs a second, deliberate request inside the window.
+// Discarding in-memory work needs a second request inside the window.
 void testConfirmGuard() {
   namespace cg = inventatory::confirm_guard;
   std::time_t armed = 0;
@@ -827,7 +814,7 @@ void testConfirmGuard() {
   assert(cg::confirmed(now + 30, armed, 6, false) && armed == 0);
 }
 
-// UI text helpers measure and cut in terminal cells, never inside a UTF-8 sequence.
+// UI text helpers measure and cut in cells, never inside a UTF-8 sequence.
 namespace {
 bool wellFormedUtf8(const std::string& text) {
   size_t index = 0;
@@ -883,7 +870,7 @@ void testUtf8AwareTextLayout() {
       assert(rejoinedNoSpace == expected);  // wrapping neither loses nor splits a character
     }
   }
-  // A long unbroken word (a URL, a part number) is hard-wrapped instead of overflowing.
+  // A long unbroken word is hard-wrapped instead of overflowing.
   const auto url = wrapText("https://example.com/a-very-long-datasheet-path/part.pdf", 20);
   assert(url.size() == 3);  // 55 characters at width 20: 20 + 20 + 15
   for (const auto& line : url) assert(displayWidth(line) <= 20);
@@ -900,7 +887,7 @@ void testRestoreKeepsMachineSpecificSettings() {
   const auto source = root / "source";
   createTransferTestWorkspace(source);
 
-  // The bundle comes from a computer where the background service was enabled on another port.
+  // The bundle comes from a computer with the background service on another port.
   AppSettings bundleSettings;
   bundleSettings.dataDirectory = source;
   bundleSettings.completedOnboardingVersion = 1;
@@ -928,7 +915,7 @@ void testRestoreKeepsMachineSpecificSettings() {
   assert(afterRestore.deviceServicePort == 9191);
   assert(afterRestore.completedOnboardingVersion == 1 && afterRestore.dataDirectory == target);
 
-  // A computer without settings starts from the defaults, not from the bundle's machine state.
+  // Without settings, a computer starts from defaults, not the bundle's machine state.
   const auto freshTarget = root / "fresh-target";
   assert(restoreInventatoryBackup(root / "bundle", freshTarget, root / "fresh-settings.conf", error));
   AppSettings fresh;
@@ -940,10 +927,8 @@ void testRestoreKeepsMachineSpecificSettings() {
 #endif
 
 #ifndef _WIN32
-// The Linux publisher talks to avahi-daemon over D-Bus, but only for an address
-// that belongs to an up, non-loopback private-LAN interface.  Anything else must
-// be refused by the interface gate before any D-Bus traffic, so these cases are
-// deterministic whether or not avahi-daemon runs on the test machine.
+// Non-private addresses are refused before any D-Bus traffic, so the results do not depend on
+// whether avahi-daemon runs on the test machine.
 void testLinuxMdnsRefusesNonPrivateInterfaces() {
   MdnsService service;
   service.stop();  // stop() without a prior start() is a no-op
@@ -998,11 +983,9 @@ string sendLocalHttpRequest(uint16_t port, const string& request, int receiveTim
   return response;
 }
 
-// A TCP port that is free right now on the address the scanner service binds, so the tests never depend
-// on a fixed port being unused (parallel test runs, a developer's own service). Another process could
-// still claim it before start(); the server then falls forward to the next ports and every test reads
-// the real port back from port(). Ports handed out earlier in this run, and the ones just above them
-// that a fall-forward could take, are never returned twice.
+// A free port, so tests never rely on a fixed one. Another process may claim it before start();
+// the server then falls forward, and tests read the real port from port(). Ports within 20 of an
+// earlier one handed out in this run are skipped.
 uint16_t freeScannerTestPort() {
   static set<uint16_t> handedOut;
 #ifdef _WIN32
@@ -1016,7 +999,7 @@ uint16_t freeScannerTestPort() {
     sockaddr_in address{};
     address.sin_family = AF_INET;
     assert(setScannerTestAddress(address));
-    address.sin_port = 0;  // The operating system picks an unused port.
+    address.sin_port = 0;  // Let the OS pick an unused port.
     assert(::bind(probe, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0);
     socklen_t addressSize = sizeof(address);
     assert(getsockname(probe, reinterpret_cast<sockaddr*>(&address), &addressSize) == 0);
@@ -1172,7 +1155,7 @@ void testDecimalParsingCommaLocale();
 void testStockFilterState();
 
 void testStockFilterState() {
-  // Panel rows and their option counts. Clamping keeps keyboard focus inside a row.
+  // Panel rows and option counts. Clamping keeps focus inside a row.
   assert(stockFilterOptionCount(0) == 3);
   assert(stockFilterOptionCount(1) == 5);
   assert(stockFilterOptionCount(2) == 1);
@@ -1180,7 +1163,7 @@ void testStockFilterState() {
   assert(clampStockFilterOption(1, -1) == 0);
   assert(clampStockFilterOption(2, 3) == 0);
 
-  // Panel positions round-trip, so the applied option is marked on the row that owns it.
+  // Panel positions round-trip, so the applied option is marked on its own row.
   assert(stockSortOrderAt(0) == StockSortOrder::Az);
   assert(stockSortOrderAt(1) == StockSortOrder::Za);
   assert(stockSortOrderAt(2) == StockSortOrder::Quantity);
@@ -1197,17 +1180,15 @@ void testStockFilterState() {
   assert(stockFilterSummary(StockSortOrder::Quantity, StockDateFilter::Last30Days) == "Quantity, last 30 days");
   assert(stockFilterSummary(StockSortOrder::Za, StockDateFilter::OlderThan30Days) == "Z-A, over 30 days");
 
-  // Header budget: an A-Z or Z-A summary must fit beside the category label and the
-  // Filter button in the 47-column part cell at 100 columns, with the 3-digit quantity column.
+  // At 100 columns, an A-Z or Z-A summary fits beside the category and the Filter button.
   for (const auto sortOrder : {StockSortOrder::Az, StockSortOrder::Za}) {
     for (int option = 0; option < kStockDateFilterOptionCount; ++option) {
       assert(stockFilterSummary(sortOrder, stockDateFilterAt(option)).size() <= 17);
     }
   }
 
-  // Ranked header budget: at 100 columns the list panel is 57 cells wide. The
-  // old "Stock N matches, ranked by value" header needs 60 cells beside the
-  // "A-Z, all dates" summary and the Filter button, so it pushed the button out.
+  // At 100 columns the 57-cell panel cannot fit the full "Stock N matches, ranked by value"
+  // header (60 cells) beside the summary and Filter button, so the short form is used.
   assert(stockListOuterWidth(100) == 57);
   assert(stockListOuterWidth(120) == 77);
   assert(displayWidth("Stock  12 matches, ranked by value") + 1 + displayWidth("A-Z, all dates") + 1 +
@@ -1216,15 +1197,14 @@ void testStockFilterState() {
   assert(narrowRanked.label == "Ranked  12 matches");
   assert(narrowRanked.showSummary);
   assert(narrowRanked.cells <= 57);
-  // Wider panels keep the full wording when it fits, with or without the longest summary.
+  // Wider panels keep the full wording when it fits.
   const auto wideRanked = stockRankedHeaderFor(12, stockFilterSummary(StockSortOrder::Quantity,
                                                                       StockDateFilter::Last30Days),
                                                stockListOuterWidth(120));
   assert(wideRanked.label == "Stock  12 matches, ranked by value");
   assert(wideRanked.showSummary);
   assert(wideRanked.cells <= 77);
-  // Every summary and match count the page can show keeps the Filter button inside the panel
-  // at the supported 100, 120, and 160 column terminals, and the summary is never cut.
+  // At 100, 120 and 160 columns, every summary and count keeps the Filter button in the panel.
   for (const int screenWidth : {100, 120, 160}) {
     const int listWidth = stockListOuterWidth(screenWidth);
     for (const size_t matchCount : {size_t{0}, size_t{9}, size_t{10}, size_t{99}, size_t{999}, size_t{12345}}) {
@@ -1250,7 +1230,6 @@ void testStockFilterState() {
 
 // Physical value parsing and matching tests
 void testPhysicalValueParsing() {
-  // Capacitance values
   auto cap1 = parsePhysicalValue("100nF");
   assert(cap1.has_value());
   assert(cap1->type == PhysicalValueType::Capacitance);
@@ -1282,7 +1261,6 @@ void testPhysicalValueParsing() {
   assert(cap5->type == PhysicalValueType::Capacitance);
   assert(std::abs(cap5->value - 1e-10) < 1e-15);
 
-  // Resistance values
   auto res1 = parsePhysicalValue("10k Ohm");
   assert(res1.has_value());
   assert(res1->type == PhysicalValueType::Resistance);
@@ -1303,7 +1281,6 @@ void testPhysicalValueParsing() {
   assert(res4->type == PhysicalValueType::Resistance);
   assert(std::abs(res4->value - 1000000.0) < 1.0);
 
-  // Inductance values
   auto ind1 = parsePhysicalValue("4.7uH");
   assert(ind1.has_value());
   assert(ind1->type == PhysicalValueType::Inductance);
@@ -1314,7 +1291,6 @@ void testPhysicalValueParsing() {
   assert(ind2->type == PhysicalValueType::Inductance);
   assert(std::abs(ind2->value - 0.01) < 0.0001);
 
-  // Frequency values
   auto freq1 = parsePhysicalValue("1MHz");
   assert(freq1.has_value());
   assert(freq1->type == PhysicalValueType::Frequency);
@@ -1342,14 +1318,12 @@ void testPhysicalValueParsing() {
   assert(std::abs(parsePhysicalValue("2M2")->value - 2.2e6) < 1e-3);
   assert(std::abs(parsePhysicalValue("1G5")->value - 1.5e9) < 1.0);
 
-  // Ambiguous p/n/u/m markers in RKM position are not resistances (4u7 can be
-  // 4.7 uF or 4.7 uH), and a prefix marker without a head digit is not a value
-  // (M3 is a screw size), so queries fall back to ordinary text matching.
+  // Ambiguous p/n/u/m markers in RKM position are not resistances (4u7 is uF or uH), and a marker
+  // without a leading digit is not a value (M3 is a screw size). Such queries fall back to text.
   for (const char* text : {"4u7", "4U7", "4n7", "4p7", "4m7", "M3", "U1", "K4", "G1", "k7", "n5"}) {
     assert(!parsePhysicalValue(text).has_value());
   }
 
-  // Invalid inputs
   assert(!parsePhysicalValue("").has_value());
   assert(!parsePhysicalValue("abc").has_value());
   assert(!parsePhysicalValue("123").has_value());
@@ -1379,7 +1353,7 @@ void testPhysicalValueParsing() {
   assert(std::abs(parsePhysicalValue("4.7 k" + ohmSign)->value - 4700.0) < 1e-9);
   assert(std::abs(parsePhysicalValue("2.2 M" + greekOmega)->value - 2.2e6) < 1e-3);
 
-  // The unit must be a whole word, so unrelated words are not component values.
+  // The unit must be a whole word, so unrelated words are not values.
   for (const char* text : {"10 hours", "5 ft", "2 rad", "10 hrs", "3 henna", "1 farmers", "4 ohmage"}) {
     assert(!parsePhysicalValue(text).has_value());
   }
@@ -1407,7 +1381,6 @@ void testLinuxExecutablePathHasNoDeletedSuffix() {
 #endif
 
 void testPhysicalValueMatching() {
-  // 100nF should match 0.1uF (same value, different prefix)
   const auto exactCap = comparePhysicalValues("100nF", "0.1uF");
   assert(exactCap.has_value());
   assert(exactCap->band == PhysicalValueMatchBand::Exact);
@@ -1415,16 +1388,12 @@ void testPhysicalValueMatching() {
   assert(unicodeCap.has_value());
   assert(unicodeCap->band == PhysicalValueMatchBand::Exact);
 
-  // 10k Ohm should match 10000 Ohm
   assert(comparePhysicalValues("10k Ohm", "10000 Ohm")->band == PhysicalValueMatchBand::Exact);
 
-  // 4R7 should match 4.7 Ohm
   assert(comparePhysicalValues("4R7", "4.7 Ohm")->band == PhysicalValueMatchBand::Exact);
 
-  // 4.7uH should match 4700nH
   assert(comparePhysicalValues("4.7uH", "4700nH")->band == PhysicalValueMatchBand::Exact);
 
-  // 1MHz should match 1000kHz
   assert(comparePhysicalValues("1MHz", "1000kHz")->band == PhysicalValueMatchBand::Exact);
 
   // Affix helpers shared by the BOM matcher and the label printer
@@ -1439,7 +1408,6 @@ void testPhysicalValueMatching() {
   assert(value_text::looksLikeInductanceValue("4.7 uH") && !value_text::looksLikeInductanceValue("100 kHz"));
   assert(value_text::looksLikeFrequencyValue("100 kHz") && !value_text::looksLikeFrequencyValue("4.7uH"));
 
-  // Different types should not match
   assert(!comparePhysicalValues("100nF", "100 Ohm").has_value());
 
   // The built-in bands classify up to 33% as possible and reject values beyond it.
@@ -1449,14 +1417,13 @@ void testPhysicalValueMatching() {
   assert(comparePhysicalValues("134nF", "100nF")->band == PhysicalValueMatchBand::None);
   assert(comparePhysicalValues("66nF", "100nF")->band == PhysicalValueMatchBand::None);
 
-  // Within the workable band should match
   assert(comparePhysicalValues("101nF", "100nF")->band == PhysicalValueMatchBand::Workable);
 }
 
 void testInductanceTextScanner() {
   using value_text::extractInductance;
 
-  // Ordinary text: the values and canonical units the former regular expression produced.
+  // Ordinary text yields canonical values and units.
   assert(extractInductance("FIXED IND 4R7 uH 3.7A").value_or("") == "4.7uH");
   assert(extractInductance("4r7 UH").value_or("") == "4.7uH");
   assert(extractInductance("10 MH choke").value_or("") == "10mH");
@@ -1469,12 +1436,11 @@ void testInductanceTextScanner() {
   assert(extractInductance("10\tmH").value_or("") == "10mH");
   assert(extractInductance("10\nmH").value_or("") == "10mH");
 
-  // The first value in the text wins, and a non-matching earlier candidate does not hide a later one.
+  // The first value wins, and a non-matching earlier candidate does not hide a later one.
   assert(extractInductance("5 uH 10 mH").value_or("") == "5uH");
   assert(extractInductance("100 MHz then 2.2 uH").value_or("") == "2.2uH");
 
-  // Word boundaries: a number glued to a preceding word character, or a unit followed by a word
-  // character, is not a value.
+  // A number glued to a word character, or a unit followed by one, is not a value.
   assert(!extractInductance("A10mH").has_value());
   assert(!extractInductance("10mHz").has_value());
   assert(!extractInductance("10mH_x").has_value());
@@ -1483,20 +1449,18 @@ void testInductanceTextScanner() {
   assert(!extractInductance("4R uH").has_value());
   assert(!extractInductance("10 \xC2\xB5" "H").has_value());
 
-  // Text with no value.
   assert(!extractInductance("").has_value());
   assert(!extractInductance("no value here").has_value());
   assert(!extractInductance("12 Ohm").has_value());
 
-  // A long digit run (a CSV description of up to 1 MiB) must neither overflow the stack nor
-  // take quadratic time; each result is checked, not only that the call returns.
+  // A 1 MiB digit run must neither overflow the stack nor take quadratic time.
   const string digits(1000000, '7');
   const auto withUnit = extractInductance(digits + " mH");
   assert(withUnit.has_value() && withUnit->size() == digits.size() + 2);
   assert(withUnit->compare(digits.size(), 2, "mH") == 0);
   assert(!extractInductance(digits).has_value());
 
-  // Many separate candidates, each one scanned once, still finish and find the last value.
+  // Many candidates must still finish quickly and find the last value.
   string spaced;
   for (int index = 0; index < 200000; ++index) spaced += "1 ";
   assert(!extractInductance(spaced).has_value());
@@ -1521,8 +1485,8 @@ void testBackgroundRuntimeDirectory() {
 
   // The variable wins when it names a private absolute directory.
   assert(backgroundRuntimeDirectory(xdg.string(), userRun, fallbackRoot) == xdg / "inventatory");
-  // Without the variable the per-user run directory is shared, so a launch from cron, su or ssh
-  // finds the same locks as the systemd unit.
+  // Without the variable, the per-user run directory is shared, so cron, su or ssh launches
+  // find the same locks as the systemd unit.
   const auto expectedUserRun = userRun / to_string(geteuid()) / "inventatory";
   assert(backgroundRuntimeDirectory(nullopt, userRun, fallbackRoot) == expectedUserRun);
   assert(backgroundRuntimeDirectory(string(), userRun, fallbackRoot) == expectedUserRun);
@@ -1538,10 +1502,8 @@ void testBackgroundRuntimeDirectory() {
 }
 #endif
 
-// Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing comma-decimal locale a failure
-// instead of a silent skip, so the locale regression tests cannot quietly stop running.
-// Locale tests that could not run because no comma-decimal locale is installed. main() reports them with
-// the CTest "skipped" status (77), the same way it reports skipped credential tests.
+// Locale tests skipped without a comma-decimal locale; main() reports them as CTest status 77.
+// Set INVENTATORY_REQUIRE_LOCALE_TESTS=1 (CI) to make a missing locale fail the run.
 int skippedLocaleTests = 0;
 
 void skipOrFailMissingLocale(const char* testName) {
@@ -1553,10 +1515,9 @@ void skipOrFailMissingLocale(const char* testName) {
   ++skippedLocaleTests;
 }
 
-// The credential tests need a running, unlocked Secret Service (a desktop session, or
-// `dbus-run-session` with an unlocked gnome-keyring). Without one they are
-// skipped with a visible notice and the run ends with the CTest "skipped" status (77) instead of aborting
-// every test that follows. Set INVENTATORY_REQUIRE_KEYRING_TESTS=1 (CI) to make that a failure.
+// Credential tests need an unlocked Secret Service: a desktop session, or dbus-run-session with
+// an unlocked gnome-keyring. Without one they are skipped, not aborted, so later tests still run.
+// Set INVENTATORY_REQUIRE_KEYRING_TESTS=1 (CI) to make that a failure.
 int skippedCredentialTests = 0;
 
 bool credentialStoreAvailable() {
@@ -1581,8 +1542,7 @@ void skipMissingCredentialStore(const char* testName) {
   ++skippedCredentialTests;
 }
 
-// The application calls setlocale(LC_ALL, ""), so value parsing and search must
-// keep working when the user's locale writes decimals with a comma.
+// The app calls setlocale(LC_ALL, ""), so parsing and search must accept a comma decimal.
 void testClosestValueSearchStaysWithinFamilyAndBand() {
   const auto make = [](const char* id, const char* name, const char* category, vector<Parameter> parameters) {
     InventoryItem item;
@@ -1620,7 +1580,7 @@ void testClosestValueSearchStaysWithinFamilyAndBand() {
   assert(closest.size() == 4);
   assert(closest.front().band == PhysicalValueMatchBand::Exact);
 
-  // The ordinary search applies the same band limits (a literal "100nF" in any text still matches as text).
+  // Ordinary search applies the same band limits.
   const auto ordinary = filterItems(items, "100nF");
   for (const size_t index : ordinary) {
     const auto& id = items[index].id;
@@ -1675,8 +1635,7 @@ void testPhysicalValueCommaDecimalLocale() {
     assert(matches.size() == 2);
     assert(items[matches[0]].id != "locale-other" && items[matches[1]].id != "locale-other");
   }
-  // Only items within the match bands are listed: both real 100 nF items (exact); the 1 uF item is far
-  // outside +/-33% and is not a candidate.
+  // Only items within the match band are listed; the 1 uF item is outside +/-33%.
   const auto closest = findClosestPhysicalValues(items, "100nF");
   assert(closest.size() == 2);
   for (size_t rank = 0; rank < 2; ++rank) {
@@ -1697,8 +1656,7 @@ void testLinuxControllerLockProbesNeverBlockAcquisition() {
   filesystem::permissions(root, filesystem::perms::owner_all, filesystem::perm_options::replace);
   ScopedEnvironment runtime("XDG_RUNTIME_DIR", root.string());
 
-  // A process that only looks at the lock must never make a starting instance believe another one
-  // owns the workspace: probes run in 10-25 ms loops while the systemd unit starts.
+  // Probing the lock must never make a starting instance believe another one owns the workspace.
   atomic<bool> stopProbing{false};
   atomic<int> probes{0};
   thread prober([&] {
@@ -1709,7 +1667,7 @@ void testLinuxControllerLockProbesNeverBlockAcquisition() {
       probes.fetch_add(1);
     }
   });
-  // Wait until the prober has really run, so the acquisitions below overlap with it even on a busy machine.
+  // Wait until the prober runs, so the acquisitions overlap with it even on a busy machine.
   while (probes.load() == 0) this_thread::yield();
   int failures = 0;
   for (int attempt = 0; attempt < 300; ++attempt) {
@@ -1719,7 +1677,7 @@ void testLinuxControllerLockProbesNeverBlockAcquisition() {
   }
   stopProbing.store(true);
   prober.join();
-  assert(probes.load() > 0);  // the prober really ran concurrently; the exact count depends on scheduling
+  assert(probes.load() > 0);  // the count depends on scheduling
   assert(failures == 0);
 
   // A genuinely held lock is still refused, and is reported by every probe.
@@ -1735,8 +1693,7 @@ void testLinuxControllerLockProbesNeverBlockAcquisition() {
 }
 #endif
 
-// BOM value parsing and DigiKey numeric-field validation read dot-decimal text,
-// which must not depend on the user's locale.
+// BOM and DigiKey number parsing reads dot-decimal text and must not depend on the locale.
 void testDecimalParsingCommaLocale() {
   const char* candidates[] = {"pl_PL.UTF-8", "pl_PL.utf8", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8"};
   const string previous = setlocale(LC_ALL, nullptr);
@@ -1800,7 +1757,7 @@ void testLinuxChildProcessIsBounded() {
     assert(result.succeeded() && result.output == "label data");
   }
   {
-    // Input larger than the pipe is streamed while the helper's output is read, without deadlock.
+    // Input larger than the pipe is streamed while output is read, so no deadlock.
     ChildProcessOptions options;
     options.hasInput = true;
     options.input.assign(1U << 20U, 'x');
@@ -1827,7 +1784,7 @@ void testLinuxChildProcessIsBounded() {
     assert(steady_clock::now() - begin < seconds(10));
   }
   {
-    // A helper that never answers is stopped at the deadline, together with what it started.
+    // A silent helper is stopped at the deadline, with the processes it started.
     const auto root = testTempRoot() / ("inventatory-child-test-" + to_string(getpid()));
     error_code ignored;
     filesystem::remove_all(root, ignored);
@@ -1865,8 +1822,7 @@ void testLinuxChildProcessIsBounded() {
   }
 }
 
-// Isolated environment for the startup registration tests: a fake systemctl that logs its calls and writes
-// a warning to stderr on every call, and private XDG folders.
+// Private XDG folders and a fake systemctl that logs calls and writes a warning to stderr.
 struct StartupTestEnvironment {
   explicit StartupTestEnvironment(const string& name)
       : root(testTempRoot() / ("inventatory-" + name + "-test-" + to_string(getpid()))),
@@ -1907,8 +1863,7 @@ struct StartupTestEnvironment {
 
 void testSystemctlOutputStaysOffTheTerminal() {
   StartupTestEnvironment environment("systemctl-stderr");
-  // The helper's stderr must not reach the terminal interface. The fake systemctl writes a warning on
-  // every call; fd 2 is pointed at a file for the duration and must stay empty.
+  // The helper's stderr must not reach the terminal; fd 2 goes to a file that must stay empty.
   const auto stderrFile = environment.root / "stderr.txt";
   fflush(stderr);
   const int savedError = dup(STDERR_FILENO);
@@ -1930,7 +1885,6 @@ void testSystemctlOutputStaysOffTheTerminal() {
 void testPhysicalValueSearchIntegration() {
   vector<InventoryItem> items;
 
-  // Item with 0.1uF capacitance
   InventoryItem cap1;
   cap1.id = "cap-01uf";
   cap1.partName = "0.1uF Capacitor";
@@ -1939,7 +1893,6 @@ void testPhysicalValueSearchIntegration() {
   cap1.parameters = {{"Capacitance", string("0.1 ") + "\xC2\xB5" + "F"}, {"Voltage", "50V"}};
   items.push_back(cap1);
 
-  // Item with 100nF capacitance (physically same as 0.1uF)
   InventoryItem cap2;
   cap2.id = "cap-100nf";
   cap2.partName = "100nF Capacitor";
@@ -1948,7 +1901,6 @@ void testPhysicalValueSearchIntegration() {
   cap2.parameters = {{"Capacitance", "100nF"}, {"Voltage", "50V"}};
   items.push_back(cap2);
 
-  // Item with 1uF capacitance (different value)
   InventoryItem cap3;
   cap3.id = "cap-1uf";
   cap3.partName = "1uF Capacitor";
@@ -1957,7 +1909,6 @@ void testPhysicalValueSearchIntegration() {
   cap3.parameters = {{"Capacitance", "1uF"}, {"Voltage", "16V"}};
   items.push_back(cap3);
 
-  // Item with 10k Ohm resistance
   InventoryItem res1;
   res1.id = "res-10k";
   res1.partName = "10k Resistor";
@@ -1966,7 +1917,6 @@ void testPhysicalValueSearchIntegration() {
   res1.parameters = {{"Resistance", "10k Ohm"}, {"Tolerance", "1%"}};
   items.push_back(res1);
 
-  // Item with 10000 Ohm resistance (physically same as 10k)
   InventoryItem res2;
   res2.id = "res-10000";
   res2.partName = "10000 Ohm Resistor";
@@ -1975,7 +1925,6 @@ void testPhysicalValueSearchIntegration() {
   res2.parameters = {{"Resistance", "10000 Ohm"}, {"Tolerance", "1%"}};
   items.push_back(res2);
 
-  // Search for "100nF" should find both cap1 and cap2
   auto capFiltered = filterItems(items, "100nF");
   assert(capFiltered.size() == 2);  // exactly the two equivalent capacitors, nothing else
   bool foundCap1 = false, foundCap2 = false;
@@ -1986,7 +1935,6 @@ void testPhysicalValueSearchIntegration() {
   assert(foundCap1);
   assert(foundCap2);
 
-  // Search for "0.1uF" should find both cap1 and cap2
   capFiltered = filterItems(items, "0.1uF");
   assert(capFiltered.size() == 2);  // exactly the two equivalent capacitors, nothing else
   foundCap1 = false;
@@ -1998,7 +1946,6 @@ void testPhysicalValueSearchIntegration() {
   assert(foundCap1);
   assert(foundCap2);
 
-  // Search for "10k" should find both res1 and res2
   auto resFiltered = filterItems(items, "10k");
   assert(resFiltered.size() == 2);  // 10k and 10000 Ohm, nothing else
   bool foundRes1 = false, foundRes2 = false;
@@ -2040,8 +1987,7 @@ void testPhysicalValueSearchIntegration() {
     assert(!findClosestPhysicalValues(named, "100nF").empty());
   }
 
-  // Capacitor RKM notation and screw sizes are not read as resistances, so
-  // they match as ordinary text and do not rank resistors.
+  // Capacitor RKM notation and screw sizes are not resistances, so they only match as text.
   {
     vector<InventoryItem> notation;
     InventoryItem screw;
@@ -2168,8 +2114,7 @@ void testInventoryCommitHistory() {
   assert(commits.front().parentId.empty());
   assert(commits.front().message == "Initial inventory");
 
-  // Commit snapshots retain the pre-v1 structured encoding and must reject
-  // truncated or trailing records instead of silently dropping metadata.
+  // Snapshots must reject trailing records rather than silently drop metadata.
   {
     const auto serialized = serializeItem(item);
     InventoryItem restored;
@@ -2357,8 +2302,8 @@ void testDesktopLauncherExecQuoting() {
   const auto applications = environment.launcher();
   const auto special = environment.root / "sp $dollar `tick` \\slash \"quote\" 100%" / "inventatory";
   writeTextFile(special, "#!/bin/sh\n", true);
-  // The same path as the key-file text of a spec-conformant Exec value: backslash-escaped \" ` $ and
-  // backslash, every backslash doubled, and % written as %%.
+  // Key-file text of a spec-conformant Exec value: \" ` $ are backslash-escaped, and
+  // every backslash is doubled, and % is written as %%.
   const string quoted = "Exec=\"" +
                         (environment.root / "sp \\\\$dollar \\\\`tick\\\\` \\\\\\\\slash \\\\\"quote\\\\\" 100%%").string() +
                         "/inventatory\"\n";
@@ -2375,9 +2320,8 @@ void testDesktopLauncherExecQuoting() {
   assert(readTextFile(applications) == text);
 }
 #endif
-// The history is validated commit by commit as it streams past, and a caller that has just appended a
-// commit itself may skip the full pass. Every inconsistency the old all-at-once validation rejected must
-// still be rejected, and an untouched history must still load.
+// Commits are checked as the history streams. Everything a full pass rejects must still fail,
+// and an untouched history must still load.
 void testInventoryHistoryValidation() {
   const auto path = testTempRoot() / "inventatory-history-validation-test.db";
   const auto pristine = testTempRoot() / "inventatory-history-validation-pristine.db";
@@ -2486,8 +2430,7 @@ void testInventoryHistoryValidation() {
   // Counts that claim a commit changed nothing although its snapshot differs from its parent.
   tampered("UPDATE inventatory_inventory_commits SET changed_item_count = 0 WHERE commit_id=" + commitIdAt(1), false);
 
-  // Skipping the full pass trusts the older commits (it is only used right after our own append), but
-  // still reads the commit list.
+  // Skipping the full pass trusts older commits but still reads the commit list.
   {
     filesystem::copy_file(pristine, path, filesystem::copy_options::overwrite_existing);
     {
@@ -2500,7 +2443,7 @@ void testInventoryHistoryValidation() {
     assert(!loadInventoryCommits(path, loaded));
     assert(loadInventoryCommits(path, loaded, false));
     assert(loaded.size() == 5);
-    // The newest commit is still checked on its own, as the application does after saving.
+    // The newest commit is still checked on its own.
     InventoryCommitDetail newest;
     assert(loadInventoryCommit(path, loaded.front().id, newest));
   }
@@ -2509,10 +2452,10 @@ void testInventoryHistoryValidation() {
   filesystem::remove(pristine, cleanupError);
 }
 
-// A reversal must never produce, and the commit writer must never store, a snapshot that history
-// validation would later reject: that would make the whole database unloadable.
+// Neither a reversal nor the commit writer may store a snapshot that validation would reject;
+// that would make the whole database unloadable.
 void testLatestUndoableInventoryCommit() {
-  // Commits are newest first, as the history lists them. Commit 1 is the initial inventory and has no parent.
+  // Newest first, as the history lists them. Commit 1 is the initial inventory with no parent.
   const auto commit = [](const string& id, const string& parent, uint64_t sequence, const string& reverted = {},
                          size_t changed = 1) {
     InventoryCommit result;
@@ -2526,19 +2469,19 @@ void testLatestUndoableInventoryCommit() {
   };
   const auto initial = commit("c1", "", 1, {}, 0);
 
-  // A build (c2), a move (c3), and the first undo, which reverted the move (c4). The next undo must reverse the build,
-  // not the undo: undoing c4 would put the move back.
+  // A build (c2), a move (c3), and an undo of the move (c4). The next undo must reverse the build,
+  // not c4, which would put the move back.
   const vector<InventoryCommit> afterFirstUndo = {commit("c4", "c3", 4, "c3"), commit("c3", "c2", 3),
                                                   commit("c2", "c1", 2, {}, 4), initial};
   const auto* target = latestUndoableInventoryCommit(afterFirstUndo);
   assert(target != nullptr && target->id == "c2");
 
-  // After the build is undone too there is nothing left: the initial inventory has no parent to restore.
+  // Undoing the build too leaves nothing: the initial inventory has no parent to restore.
   const vector<InventoryCommit> afterSecondUndo = {commit("c5", "c4", 5, "c2"), commit("c4", "c3", 4, "c3"),
                                                    commit("c3", "c2", 3), commit("c2", "c1", 2, {}, 4), initial};
   assert(latestUndoableInventoryCommit(afterSecondUndo) == nullptr);
 
-  // A change made after an undo is the next thing to undo, and the undone history stays skipped below it.
+  // A change made after an undo is undone next; the undone history stays skipped.
   const vector<InventoryCommit> newChange = {commit("c6", "c5", 6), commit("c5", "c4", 5, "c2"),
                                              commit("c4", "c3", 4, "c3"), commit("c3", "c2", 3),
                                              commit("c2", "c1", 2, {}, 4), initial};
@@ -2626,7 +2569,7 @@ void testInventoryCommitSnapshotsStayValid() {
   assert(!prepareInventoryCommitReverse(detail, store, reversed, conflict));
   assert(conflict == "Later changes conflict with this commit; Inventory commit snapshot has duplicate or invalid identifiers");
 
-  // The commit writer refuses a snapshot history validation would reject, and the database stays usable.
+  // The commit writer refuses an invalid snapshot and leaves the database usable.
   vector<InventoryCommit> before;
   assert(loadInventoryCommits(path, before));
   InventoryStore dangling = store;
@@ -2689,8 +2632,8 @@ void testInventoryCommitDiffSeparatesAmbiguousValues() {
   assert(parameterChange != changes.end() && parameterChange->after == "Resistance=10k");
 }
 
-// An oversized string value must not fail the whole DigiKey document. Its text is validated like any other
-// string but never stored, so readers see it as absent while the fields around it still read correctly.
+// An oversized string must not fail the whole DigiKey document. It is validated but never stored,
+// so readers see it as absent.
 void testDigiKeyOversizedJsonStrings() {
   using namespace digikey_detail;
   const string oversized(5000, 'm');
@@ -2712,7 +2655,7 @@ void testDigiKeyOversizedJsonStrings() {
   }
 
   {
-    // As the product description, the oversized text is reported as no value, never as a cut-off prefix.
+    // An oversized description reads as no value, never as a cut-off prefix.
     string error;
     const auto root = parseJson(R"({"Product":{"Description":{"ProductDescription":")" + oversized + R"("}}})", &error);
     assert(root.has_value());
@@ -2739,7 +2682,7 @@ void testDigiKeyOversizedJsonStrings() {
   }
 
   {
-    // Escapes inside an oversized string are still decoded and validated, so valid ones are accepted.
+    // Escapes inside an oversized string are still decoded and validated; valid ones pass.
     string error;
     assert(validateDigiKeyJsonPayload(R"({"d":")" + oversized + R"(\né😀"})", &error));
     assert(error.empty());
@@ -2781,7 +2724,7 @@ void testDigiKeyOversizedJsonStrings() {
   }
 
   {
-    // Many oversized values stay within the payload limit, and the whole payload limit still applies.
+    // Many oversized values fit the payload limit, which still applies to the whole body.
     string error;
     string many = "[";
     for (int index = 0; index < 200; ++index) {
@@ -2800,8 +2743,8 @@ void testDigiKeyOversizedJsonStrings() {
   }
 }
 
-// DigiKey response parsing must not lose a usable product to an odd display-only value, must find the
-// real package among look-alike parameters, and must size the token lifetime from the server's answer.
+// Parsing must skip odd display-only values, find the real package among look-alikes, and size
+// the token lifetime from the server's answer.
 void testDigiKeyParsingRobustness() {
   using namespace digikey_detail;
   const auto parse = [](const string& json) {
@@ -2874,8 +2817,8 @@ void testDigiKeyParsingRobustness() {
 }
 
 void testInventoryItemVendorSourcesRoundTrip() {
-  // Retained sources must survive the item record that commit snapshots store, including characters the
-  // field encoding has to escape. A record written before sources existed still reads, with none.
+  // Sources must survive the snapshot record, including characters the field encoding escapes.
+  // A record written before sources existed still reads, with none.
   InventoryItem item;
   item.id = "source-item";
   item.partName = "Source part";
@@ -2913,8 +2856,8 @@ void testInventoryItemVendorSourcesRoundTrip() {
   assert(source.locale == other.locale);
   assert(serializeItem(parsed) == line);
 
-  // Without sources the record ends with an empty quoted field. Removing that field gives the layout that
-  // commit snapshots had before sources existed, and the strict reader must accept it.
+  // Without sources the record ends in an empty quoted field. Dropping it gives the old layout,
+  // which the strict reader must still accept.
   item.vendorSources.clear();
   const string emptyField = "\t\"\"";
   const auto current = serializeItem(item);
@@ -2926,15 +2869,15 @@ void testInventoryItemVendorSourcesRoundTrip() {
   assert(legacyParsed.vendorSources.empty());
   assert(legacyParsed.vendorMetadata.provider == "digikey");
 
-  // Unknown trailing data still fails the strict reader, and the lenient reader ignores a damaged record.
+  // Unknown trailing data fails the strict reader; the lenient reader ignores a damaged record.
   InventoryItem rejected;
   assert(!deserializeItemStrict(legacy + "\t\"junk\"", rejected));
   assert(deserializeVendorSourcesFromStorage("\"not a record\" ").empty());
 }
 
 void testSqliteUpgradesLegacyDatabase() {
-  // A version 1 database gains only the vendor_sources column. Its items and commit history keep their data,
-  // read-only validation leaves the file at version 1, and the first read-write open upgrades it.
+  // A version 1 database gains only the vendor_sources column and keeps its data. Read-only
+  // validation leaves it at version 1; the first read-write open upgrades it.
   const auto path = testTempRoot() / "inventatory-legacy-upgrade-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -2953,7 +2896,7 @@ void testSqliteUpgradesLegacyDatabase() {
     capacitor.quantity = 3;
     store.items().push_back(resistor);
     store.items().push_back(capacitor);
-    // Commit the items so the file has a history snapshot to carry through the upgrade.
+    // Commit so the file has a history snapshot to carry through the upgrade.
     InventoryStore empty;
     InventoryCommitDraft draft;
     draft.message = "Legacy fixture";
@@ -2974,7 +2917,7 @@ void testSqliteUpgradesLegacyDatabase() {
     return sqliteApi().column_int64(statement.stmt, 0);
   };
   {
-    // Rebuild the file in the version 1 layout: no vendor_sources column and commit snapshots without the field.
+    // Rebuild the file in the version 1 layout: no vendor_sources column, no snapshot field.
     SqliteConnection connection;
     assert(openDatabase(path, connection));
     assert(scalarInt(connection, "SELECT COUNT(*) FROM inventatory_inventory_commit_items") > 0);
@@ -3047,8 +2990,7 @@ void testSqliteUpgradesLegacyDatabase() {
 }
 
 void testSqliteRejectsIncompleteLegacyDatabase() {
-  // A legacy database missing another required column is refused, and refused without changes. A version
-  // number this build does not know is refused too.
+  // An incomplete legacy database is refused without changes, and so is an unknown version.
   const auto path = testTempRoot() / "inventatory-legacy-incomplete-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -3156,8 +3098,7 @@ void testSqliteSchemaValidation() {
   }
 
   {
-    // Entry points only run the structural schema check; the table-scanning value checks belong to
-    // load, restore and backup validation, which must still reject a bad row.
+    // Entry points check only the schema; load, restore and backup must still reject a bad row.
     const auto valuesPath = testTempRoot() / "inventatory-data-values-test.db";
     filesystem::remove(valuesPath, cleanupError);
     {
@@ -3315,13 +3256,11 @@ void testSqliteSchemaValidation() {
     valid.deviceId = "device-a";
     assert(completeDeviceSyncEvent(candidate, completionPath, valid, &original));
     assert(loadInventoryCommits(completionPath, commits));
-    // The first versioned write records both the original snapshot and the
-    // scanner mutation in the same transaction.
+    // The first versioned write records the original snapshot and the scanner change together.
     assert(commits.size() == initialCommitCount + 2);
 
-    // A completed event cannot be applied a second time, even if the result
-    // carries the correct device identity.  The failed update must roll back
-    // the snapshot rewrite and must not append another inventory commit.
+    // A completed event cannot be applied twice, even with the correct device identity. The failed
+    // update must roll back the snapshot and append no commit.
     assert(!completeDeviceSyncEvent(candidate, completionPath, valid, &original));
     assert(loadInventoryCommits(completionPath, commits));
     assert(commits.size() == initialCommitCount + 2);
@@ -3346,8 +3285,7 @@ void testUpdateDownloadFolderAndInstallDirectory() {
   filesystem::remove_all(root, ignored);
   filesystem::create_directories(root);
 
-  // The download folder is new and private every time, never a predictable name another user could
-  // have prepared.
+  // The download folder is new and private each time, never a predictable name.
   const auto first = createUpdateDownloadDirectory(root);
   const auto second = createUpdateDownloadDirectory(root);
   assert(!first.empty() && !second.empty() && first != second);
@@ -3371,8 +3309,8 @@ void testUpdateDownloadFolderAndInstallDirectory() {
     filesystem::permissions(readOnly, filesystem::perms::owner_all, filesystem::perm_options::replace);
   }
 
-  // Folders left behind by an abandoned update are swept once they are a day old; fresh ones (an update in
-  // progress), other names, plain files and symbolic links are never touched.
+  // Abandoned update folders older than a day are swept. Fresh ones, other names, plain files
+  // and symbolic links are never touched.
   {
     const auto sweepRoot = root / "sweep";
     filesystem::create_directories(sweepRoot);
@@ -3401,7 +3339,7 @@ void testUpdateDownloadFolderAndInstallDirectory() {
     assert(filesystem::is_directory(fresh) && filesystem::is_directory(otherName) && filesystem::is_directory(bareName));
     assert(filesystem::is_regular_file(staleFile));
     assert(filesystem::is_symlink(linked) && filesystem::is_regular_file(outside / "keep.txt"));
-    // The age threshold is the caller's: a short one sweeps the fresh folder too, and nothing else new.
+    // The caller sets the age threshold; a short one sweeps the fresh folder too.
     assert(removeStaleUpdateDownloadDirectories(sweepRoot, chrono::seconds(60)) == 1);
     assert(!filesystem::exists(fresh));
     assert(removeStaleUpdateDownloadDirectories(sweepRoot) == 0);
@@ -3519,7 +3457,7 @@ void testPackageGHardening() {
       assert(!error.empty());
     }
 
-    // A NUL escape is refused, and other escaped control characters never reach the inventory as such.
+    // A NUL escape is refused; other escaped control characters are not kept as such.
     error.clear();
     assert(!digikey_detail::parseJson(R"({"d":"a\u0000b"})", &error).has_value());
     assert(error.find("NUL") != string::npos);
@@ -3811,8 +3749,8 @@ void testSettingsBridgeNotice() {
   assert(failed.severity == UiMessageSeverity::Warning);
 }
 
-// Negative Scan R1 transport cases: every rejected request must leave the sync callback untouched and
-// must not consume the replay counter; a stale lower counter is rejected like an exact replay.
+// Rejected requests must not reach the sync callback or use up the replay counter.
+// A stale lower counter is refused like an exact replay.
 void testScannerHttpNegativeCases() {
   const auto stateDirectory = testTempRoot() / "inventatory-http-negative-test";
   error_code cleanupError;
@@ -3837,7 +3775,7 @@ void testScannerHttpNegativeCases() {
     assert(response.rfind(statusLine, 0) == 0);
     assert(syncCalls == 0);
   };
-  // Replaces the value of one header line in a request built by signedSyncRequest.
+  // Replaces one header value in a request from signedSyncRequest.
   const auto withHeader = [](string request, const string& name, const string& value) {
     const auto begin = request.find(name + ": ");
     assert(begin != string::npos);
@@ -3902,8 +3840,7 @@ void testScannerHttpNegativeCases() {
   expectRejected(withHeader(base, "X-Inventatory-Mac", deviceRequestMac(token, "POST", syncPath, deviceId, 71, body)),
                  "HTTP/1.1 401 Unauthorized");
 
-  // Authenticated but wrong identity: the device header differs from the paired device, or the body
-  // device id differs from the header. Both are rejected before the counter is reserved.
+  // Wrong identity, in the header or the body, is rejected before the counter is reserved.
   expectRejected(signedSyncRequest(token, "r1-other", 72, body), "HTTP/1.1 400 Bad Request");
   string otherDeviceBody = body;
   const auto deviceInBody = otherDeviceBody.find("r1-secure");
@@ -3915,8 +3852,8 @@ void testScannerHttpNegativeCases() {
   assert(deviceRequestMac("", "POST", syncPath, deviceId, 1, body).empty());
   assert(deviceRequestMac("zz", "POST", syncPath, deviceId, 1, body).empty());
 
-  // None of the rejections above consumed a counter: counter 100 is accepted, a stale lower counter and
-  // an exact replay are 409 conflicts, and a higher counter is accepted again.
+  // Rejections used no counter: 100 is accepted, a lower or repeated one gets 409,
+  // and 101 is accepted.
   const auto accepted = sendLocalHttpRequest(port, signedSyncRequest(token, deviceId, 100, body));
   assert(accepted.rfind("HTTP/1.1 200 OK", 0) == 0);
   assert(syncCalls == 1);
@@ -3945,9 +3882,8 @@ vector<long> currentTaskIds() {
   return ids;
 }
 
-// A signal delivered to the reader or a worker thread (terminal resize, a second launch asking this
-// instance to come forward) interrupts select()/recv()/send() with EINTR. That must not drop the
-// pending device request or lose the response.
+// A signal (terminal resize, a second launch) can interrupt select()/recv()/send() with EINTR.
+// That must not drop the pending device request or lose the response.
 void testScannerServerSurvivesSignals() {
   const auto stateDirectory = testTempRoot() / "inventatory-http-signal-test";
   error_code cleanupError;
@@ -4035,7 +3971,7 @@ void testScannerCredentialResolution() {
   assert(!validScannerToken(string(63, '0') + 'g'));
   assert(!validScannerToken(string(63, '0') + ' '));
 
-  // Every branch of the pure resolution, including a credential store that cannot answer.
+  // Every branch of the pure resolution, including an unavailable credential store.
   {
     struct Row {
       CredentialReadStatus lookup;
@@ -4054,8 +3990,8 @@ void testScannerCredentialResolution() {
         {CredentialReadStatus::NotFound, nullopt, false, "  ", WorkspaceScannerCredentialStatus::FreshCredential, false},
         {CredentialReadStatus::NotFound, nullopt, true, "", WorkspaceScannerCredentialStatus::RequiresPairing, false},
         {CredentialReadStatus::NotFound, nullopt, false, "r1", WorkspaceScannerCredentialStatus::RequiresPairing, false},
-        // An unreadable store never yields a fresh credential (it would replace the real token) and is
-        // reported as unavailable, whether or not a pairing is recorded.
+        // An unreadable store never yields a fresh credential, which would replace the real token.
+        // It is reported as unavailable, with or without a pairing.
         {CredentialReadStatus::Unavailable, nullopt, false, "", WorkspaceScannerCredentialStatus::RequiresPairing, true},
         {CredentialReadStatus::Unavailable, nullopt, true, "r1", WorkspaceScannerCredentialStatus::RequiresPairing, true},
         {CredentialReadStatus::Unavailable, validLower, false, "", WorkspaceScannerCredentialStatus::RequiresPairing, true},
@@ -4127,8 +4063,7 @@ void testScannerCredentialResolution() {
   assert(!cleanupError);
 }
 
-// Scanner events are committed against the database while the UI may hold unsaved edits, an open
-// edit form or a staged import. These tests cover the core units those App paths rely on.
+// Scanner events commit while the UI may hold unsaved edits, an open form or a staged import.
 namespace {
 
 InventoryItem mergeTestItem(const string& id, const string& name, int quantity) {
@@ -4143,8 +4078,7 @@ InventoryItem mergeTestItem(const string& id, const string& name, int quantity) 
   return item;
 }
 
-// Gives every field of an item a value derived from `tag` so two fills never agree on any field.
-// A field that mergeEditedItem forgets to carry over shows up as a serialized difference.
+// Gives every field a value derived from `tag`, so a field that mergeEditedItem drops shows up.
 void fillMergeTestItem(InventoryItem& item, const string& tag, int number) {
   item.partName = tag + " name";
   item.manufacturer = tag + " maker";
@@ -4188,10 +4122,8 @@ bool anyNoticeContains(const vector<string>& notices, const string& needle) {
 }  // namespace
 
 void testScannerCommitIgnoresUnsavedMemoryEdits() {
-  // A failed save keeps the edited store in memory for retry. A scanner event processed in that
-  // window must not use the unsaved store as its diff baseline: the commit would count only the
-  // scanner change while its snapshot also carried the edit, which fails history validation on
-  // every later save and refuses to load on the next launch.
+  // A failed save keeps the edit in memory. A scanner event must not use that unsaved store as
+  // its diff baseline, or history validation fails on every later save and load.
   const auto path = testTempRoot() / "inventatory-scanner-unsaved-edit-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -4242,8 +4174,7 @@ void testScannerCommitIgnoresUnsavedMemoryEdits() {
   assert(loadInventoryCommit(path, commits.front().id, detail));
   assert(detail.hasParent);
   assert(inventoryCommitDiff(detail.snapshot, candidate).empty());
-  // The stored count is the number of items that differ from the parent snapshot, here both the
-  // scanned part and the part carrying the unsaved edit, whatever baseline the caller passed.
+  // The stored count is the items that differ from the parent: the scanned part and the edited one.
   unordered_set<string> changedItems;
   for (const auto& change : detail.changes) {
     if (change.entityType == "item") changedItems.insert(change.entityId);
@@ -4266,8 +4197,7 @@ void testScannerCommitIgnoresUnsavedMemoryEdits() {
   assert(loadInventoryCommits(path, commits));
   assert(commits.size() == 3);
 
-  // A caller that believes something changed while the store already equals its parent snapshot
-  // must not leave a change-less, non-checkpoint commit behind (history validation rejects it).
+  // A save with no change must not leave an empty, non-checkpoint commit behind.
   InventoryCommit noOp;
   assert(next.saveWithCommit(path, persisted, draft, {}, nullptr, &noOp));
   assert(noOp.id.empty());
@@ -4287,7 +4217,7 @@ void testPendingDeviceEventsKeepArrivalOrder() {
   assert(store.save(path));
   assert(ensureInventoryCommitHistory(path, store));
 
-  // Event ids that do not sort in arrival order must not reorder the events that share a second.
+  // Events sharing a second keep arrival order, even when their ids sort differently.
   DeviceSyncRequest request;
   request.protocolVersion = 1;
   request.requestId = "order-sync";
@@ -4370,7 +4300,7 @@ void testInventoryMerge() {
     auto holder = taker;
     assert(!releaseConflictingRackPlacement(store, holder, nullptr));
   }
-  // The user typed a quantity as well: the typed value wins and the replaced scanner value is reported.
+  // A typed quantity wins, and the replaced scanner value is reported.
   {
     const auto base = mergeTestItem("merge-b", "Capacitor", 10);
     auto edited = base;
@@ -4396,8 +4326,8 @@ void testInventoryMerge() {
     assert(mergeEditedItem(base, edited, current, QuantityMerge::PreferEdited, &notices).quantity == 12);
     assert(notices.empty());
   }
-  // Every field is carried: an edit of all fields onto an untouched live item reproduces the edit,
-  // and an untouched edit over a live item that changed every field reproduces the live item.
+  // Every field is carried: an edit reproduces on an untouched item, and an untouched edit keeps
+  // every live change.
   {
     auto base = mergeTestItem("merge-d", "unused", 0);
     fillMergeTestItem(base, "base", 1);
@@ -4422,7 +4352,7 @@ void testInventoryMerge() {
     expected.lastUpdated = max(edited.lastUpdated, current.lastUpdated);
     assert(serializeItem(conflicting) == serializeItem(expected));
   }
-  // Import: the quantity is stock added on top of the snapshot and composes with the scanner's.
+  // Import: the staged quantity is a delta that composes with the scanner's changes.
   {
     const auto base = mergeTestItem("merge-e", "Diode", 5);
     auto staged = base;
@@ -4441,7 +4371,7 @@ void testInventoryMerge() {
     assert(mergeEditedItem(base, staged, current, QuantityMerge::ApplyDelta, &notices).quantity == 0);
   }
 
-  // Import: a staged change the live stock can no longer absorb is clamped and reported, never silent.
+  // A staged change the live stock cannot absorb is clamped and reported.
   {
     const auto base = mergeTestItem("merge-clamp", "Clamped part", 10);
     auto staged = base;
@@ -4480,7 +4410,7 @@ void testInventoryMerge() {
     assert(quiet.empty());
   }
 
-  // Import review: scanner quantity change and scanner-created item survive the staged commit.
+  // Scanner changes survive the staged import commit.
   {
     InventoryStore base;
     base.items().push_back(mergeTestItem("store-x", "Stocked X", 5));
@@ -4639,8 +4569,7 @@ void testInventoryMerge() {
            uncontested.findById("slot-import")->rackSlot == "A1");
   }
 
-  // End to end: the scanner commits during the staged work, then the merged store is saved the
-  // way the import commit does it. History stays valid and keeps both changes.
+  // End to end: a scanner commit during the import review, then the import is saved.
   {
     const auto path = testTempRoot() / "inventatory-merge-scanner-import-test.db";
     error_code cleanupError;
@@ -4690,7 +4619,7 @@ void testInventoryMerge() {
     }
     assert(live.items().size() == 3);
 
-    // Import commit: replay the staged delta over the live store and save against the persisted store.
+    // Replay the staged delta over the live store, then save.
     vector<string> notices;
     auto merged = mergeInventoryChanges(base, staged, live, QuantityMerge::ApplyDelta, &notices);
     assert(notices.empty());
@@ -4751,12 +4680,12 @@ void testRackPageSlotGeometry() {
   assert(rack_page_detail::equalRackSlotWidth(40, 5) == 8);
   assert(rack_page_detail::equalRackSlotWidth(100, 5) == 20);
 
-  // Floor division ensures rack slots never exceed available space across terminal heights
+  // Floor division keeps slots within the available rows at every terminal height.
   for (int availableRows = 15; availableRows <= 100; ++availableRows) {
     const int height = rack_page_detail::equalRackSlotHeight(availableRows, 5);
     assert(height >= 3);
     assert(height * 5 <= availableRows);
-    // Every row is accounted for: identical slots plus a remainder (under one row per slot) for the header band.
+    // Slots plus the remainder (under one row per slot) fill the available rows exactly.
     const int remainder = rack_page_detail::rackSlotRemainderRows(availableRows, 5, height);
     assert(height * 5 + remainder == availableRows);
     assert(remainder < 5);
@@ -4764,7 +4693,7 @@ void testRackPageSlotGeometry() {
   assert(rack_page_detail::rackSlotRemainderRows(46, 5, 9) == 1);
   assert(rack_page_detail::rackSlotRemainderRows(45, 5, 9) == 0);
   assert(rack_page_detail::rackSlotRemainderRows(10, 5, 3) == 0);
-  // Floor division ensures rack slot widths never exceed available space across terminal widths
+  // Floor division keeps slot widths within the available columns at every width.
   for (int availableCols = 35; availableCols <= 250; ++availableCols) {
     const int width = rack_page_detail::equalRackSlotWidth(availableCols, 5);
     assert(width >= 7);
@@ -4873,8 +4802,7 @@ if (!credentialStoreAvailable()) {
   const auto stored = CredentialStore::read(key);
   const bool erased = CredentialStore::write(key, "");
   const bool missing = !CredentialStore::read(key).has_value();
-  // Always clean the unique test target before asserting so a failed test
-  // cannot leave a credential behind in the user's Credential Manager.
+  // Clean up before asserting, so a failed test cannot leave a credential behind.
   CredentialStore::erase(key);
   assert(initiallyErased);
   assert(wrote);
@@ -4898,11 +4826,9 @@ if (!credentialStoreAvailable()) {
   assert(filesystem::create_directories(workspaceA));
   assert(filesystem::create_directories(workspaceB));
 
-  // A global target must never be implicitly visible through a workspace
-  // scope. Scanner pairing is deliberately workspace-local.
+  // A global target must not be visible through a workspace scope; pairing is workspace-local.
   const auto legacyKey = key + "-legacy";
-  // Erase every credential this block can create, even when an assert below fails, so the user's
-  // keyring is left as it was found.
+  // Erase every credential this block creates, even if an assert fails.
   const TestCleanup credentialCleanup([workspaceA, workspaceB, key, legacyKey] {
     CredentialStore::erase(legacyKey);
     CredentialStore::eraseForWorkspace(workspaceA, key);
@@ -4943,8 +4869,7 @@ if (!credentialStoreAvailable()) {
 }
 }
 
-// The persistence tests below must exercise the statically linked, pinned
-// SQLite amalgamation rather than an ambient sqlite3.dll.
+// Must test the pinned, statically linked SQLite, not an ambient sqlite3.dll.
 void testPinnedSqliteLibrary() {
 assert(sqliteApi().load());
 assert(sqlite3_libversion_number() == 3053004);
@@ -5021,9 +4946,8 @@ void testWindowsMoveRetriesSharingViolation() {
   filesystem::remove_all(retryDirectory, retryCleanup);
 }
 
-// A destination that stays locked for the whole retry budget (about half a second) is reported, and neither
-// file is touched. Windows only: it needs a handle opened without sharing. The lock is released only after
-// the call returns, so the test has no timing dependence.
+// A destination locked for the whole retry budget (about half a second) is reported, and neither
+// file is touched. The lock is released only after the call, so there is no timing dependence.
 void testWindowsMoveGivesUpWhenDestinationStaysLocked() {
   const auto lockedDirectory = testTempRoot() / "inventatory-move-locked-test";
   error_code lockedCleanup;
@@ -5086,8 +5010,7 @@ void testItemFilterQueries() {
   assert(filtered.size() == 1);
   assert(items[filtered[0]].id == "res-0603-10k");
 
-  // Malformed quantity filters must behave as a non-match rather than
-  // propagating std::stoi exceptions through the interactive search path.
+  // Malformed quantity filters must not match, and must not throw from std::stoi.
   assert(filterItems(items, "qty>not-a-number").empty());
   assert(filterItems(items, "qty>=999999999999999999999").empty());
   // Trailing text or exponent notation is not silently truncated to a number.
@@ -5161,7 +5084,7 @@ void testRackQueryMatchesWholeRackCode() {
 }
 
 // A bare free-text token that names a rack follows the same rule as rack:. "r1" finds R1-A1 but not
-// R10-A1, a dashed token still finds its exact location, and a part name such as "10k" still matches.
+// R10-A1, a dashed token still finds its location, and a part name such as "10k" still matches.
 void testBareFreeTextRackTokenMatchesWholeRackCode() {
   vector<InventatoryRack> racks;
   for (const char* code : {"R1", "R2", "R10"}) {
@@ -5198,7 +5121,7 @@ void testBareFreeTextRackTokenMatchesWholeRackCode() {
   assert((idsFor("10k") == vector<string>{"r2-a1"}));
 }
 
-// param: values on a physical parameter are compared by value. "1uF" must not find "11uF", and a bare
+// param: values on a physical parameter compare by value. "1uF" must not find "11uF", and a bare
 // number must not find a longer number, while non-numeric needles keep the substring match.
 void testParameterQueryMatchesValuesNotSubstrings() {
   const auto withParameter = [](const char* id, const char* name, const char* value) {
@@ -5284,7 +5207,7 @@ void testScanCodeResolution() {
   InventoryStore store;
   store.items() = items;
 
-  // A plain part number is not a vendor bag: the scanner adds or finds parts only from a bag's main code.
+  // Only a vendor bag's main code adds or finds parts; a plain part number is refused.
   const char* refusedMessage = "This code is not from a supported vendor bag. Add the part manually";
   const auto plainNumber = resolveScanCode(store, "311-10.0KHRCT-ND");
   assert(!plainNumber.matched && !plainNumber.created);
@@ -5308,7 +5231,7 @@ void testScanCodeResolution() {
   assert(matchedBag.matched && !matchedBag.created);
   assert(matchedBag.itemId == "res-0603-10k");
 
-  // A bag of a new part creates it; a bag of a part that is not in the store creates one part only.
+  // A bag of a part not in the store creates one part.
   const auto created = resolveScanCode(store, digiKeyBagCode("311-22KHRCT-ND", "RC0603FR-0722KL"));
   assert(created.matched && created.created);
   assert(store.findById(created.itemId) != nullptr);
@@ -5378,7 +5301,7 @@ void testDuplicateMachineCodesAreReassigned() {
   items.push_back(second);
 
   ensureInventoryIdentifiers(items);
-  // The first holder keeps its code (its printed label stays valid); only the later duplicate changes.
+  // The first holder keeps its code, so its printed label stays valid; only the duplicate changes.
   assert(items[0].machineCode == "0002");
   assert(items[1].machineCode != "0002" && !items[1].machineCode.empty());
   const auto settled = items;
@@ -5388,8 +5311,7 @@ void testDuplicateMachineCodesAreReassigned() {
 }
 
 void testDuplicateInventatoryIdsGetFreshIds() {
-  // Two parts carrying the same well-formed Inventatory ID (copied or imported data) must not
-  // leave the inventory unsaveable: the later one is given a fresh ID.
+  // A duplicate Inventatory ID must not block saving; the later part gets a fresh ID.
   vector<InventoryItem> items;
   for (const char* id : {"dup-id-1", "dup-id-2", "dup-id-3"}) {
     InventoryItem item;
@@ -5623,8 +5545,7 @@ void testRackAssignmentAndSlots() {
 }
 
 void testBulkRackAllocationStaysFast() {
-  // Automatic allocation of a large batch must stay fast (it used to rescan every item for every
-  // slot of every rack) and still fill racks in order, one slot per part.
+  // A large batch must allocate quickly and still fill racks in order, one slot per part.
   InventoryStore bulkStore;
   constexpr int kBulkParts = 2000;
   for (int index = 0; index < kBulkParts; ++index) {
@@ -5665,8 +5586,8 @@ void testBulkRackAllocationStaysFast() {
 }
 
 void testScanPlaceholderStaysPendingForRacking() {
-  // A scan placeholder has no category yet. It must stay pending (Automatic) instead of being
-  // marked Unassigned, so enrichment can rack it; a deliberate Unassigned stays untouched.
+  // A placeholder with no category stays Automatic, so enrichment can rack it.
+  // A deliberate Unassigned is left untouched.
   InventoryStore scanStore;
   InventatoryRack resistorRack;
   resistorRack.id = "rack-scan-resistors";
@@ -5754,8 +5675,7 @@ void testItemSerializationRoundTrip() {
 }
 
 void testIncompleteRackLoadIsNotWrittenBack() {
-  // A failed rack read must not replace an existing in-memory store or make
-  // the successfully read item subset eligible for a later write-back.
+  // A failed rack read must keep the in-memory store and never write back the partial items.
   const auto databasePath = testTempRoot() / "inventatory-incomplete-load-test.db";
   error_code removeError;
   filesystem::remove(databasePath, removeError);
@@ -5837,12 +5757,9 @@ void testEmbeddedNulItemNameIsStoredIntact() {
   store.items().push_back(item);
   assert(store.save(tempPath));
 
-  // The item reader converts text with C-string functions, so a reload would stop at the NUL and
-  // cannot show the stored bytes. Check the stored value directly: length(CAST(... AS BLOB)) counts
-  // every byte and hex() covers the whole value.
+  // The item reader stops at a NUL, so check the stored bytes directly with length() and hex().
   {
-    // Scope the connection so it is closed before the file is removed; Windows cannot delete an
-    // open file.
+    // Close the connection before removing the file; Windows cannot delete an open file.
     SqliteConnection connection;
     assert(openDatabaseReadOnly(tempPath, connection));
     SqliteStatement statement;
@@ -5981,9 +5898,7 @@ void testDigiKeyMetadataMergeKeepsKnownFields() {
 }
 
 void testDigiKeyMergeKeepsAnotherProviderIdentity() {
-  // An item already bound to a different catalogue provider keeps that
-  // provider's identity. A DigiKey response must not replace the provider or
-  // the product number it resolves.
+  // An item bound to another provider keeps its identity; a DigiKey response must not replace it.
   InventoryItem item;
   item.vendorMetadata.provider = "tme";
   item.vendorMetadata.providerProductNumber = "TME-SYMBOL-1";
@@ -6025,7 +5940,7 @@ void testDigiKeyMergeKeepsAnotherProviderIdentity() {
   assert(app_actions::mergeDigiKeyMetadata(spelledDifferently, sameProvider));
   assert(spelledDifferently.vendorMetadata.title == "DigiKey title");
 
-  // An unbound item takes the DigiKey identity as before.
+  // An unbound item takes the DigiKey identity.
   InventoryItem unbound;
   assert(app_actions::mergeDigiKeyMetadata(unbound, details));
   assert(unbound.vendorMetadata.provider == "digikey");
@@ -6039,14 +5954,14 @@ void testTmeEncodingPrimitives() {
   assert(tme_encoding::base64Encode("tok:sec") == "dG9rOnNlYw==");
   assert(tme_encoding::base64Encode(string("\x00\xff", 2)) == "AP8=");
   assert(tme_encoding::base64Encode("Ma") == "TWE=");
-  // Query names and values are percent-encoded: spaces become %20 and the brackets of symbols[] are escaped.
+  // Percent-encoding: spaces become %20, and the brackets of symbols[] are escaped.
   assert(tme_encoding::percentEncode("a b/c~_.-") == "a%20b%2Fc~_.-");
   assert(tme_encoding::percentEncode("symbols[]") == "symbols%5B%5D");
 }
 
 void testTmeResponseParsing() {
-  // The v2 envelope is { status, message, error_data, data }, and the products are in data.elements. The field
-  // names follow the v2 sample. This pins how they are read; a live response confirms them.
+  // The v2 envelope is { status, message, error_data, data }, with products in data.elements.
+  // The field names follow the v2 sample; a live response confirms them.
   vector<TmeProductDetails> products;
   string error;
   const string found =
@@ -6061,7 +5976,7 @@ void testTmeResponseParsing() {
   assert(products.front().manufacturerPartNumbers.size() == 2);
   assert(products.front().manufacturerName == "Vishay");
   assert(products.front().productDescription == "Diode switching");
-  // The part is classified under its DigiKey family; TME's own category is kept as the vendor's category path.
+  // Classified under the DigiKey family; TME's own category stays in the vendor category path.
   assert(products.front().categoryName == "Discrete Semiconductor Products");
   assert(products.front().vendorMetadata.categoryPath == vector<string>{"Discrete Semiconductor Products"});
   assert(products.front().vendorMetadata.categoryId == "42");
@@ -6072,7 +5987,7 @@ void testTmeResponseParsing() {
   // A successful answer with no products is not an error.
   assert(parseTmeProductResponse(R"({"status":"OK","data":{"elements":[]}})", products, &error));
   assert(products.empty());
-  // A status other than OK fails with the status and message. Authorization statuses are recognised.
+  // A status other than OK fails with its message. Authorization statuses are recognised.
   assert(!parseTmeProductResponse(R"({"status":"E_AUTHORIZATION_FAILED","message":"Access denied.","data":[]})",
                                   products, &error));
   assert(error.find("E_AUTHORIZATION_FAILED") != string::npos);
@@ -6084,7 +5999,7 @@ void testTmeResponseParsing() {
   assert(!parseTmeProductResponse(R"({"status":"OK"})", products, &error));
   assert(!parseTmeProductResponse(R"([1,2])", products, &error));
   assert(!parseTmeProductResponse("<html>403</html>", products, &error));
-  // Records without a symbol fail and name the fields they have, so a layout mismatch shows on the first lookup.
+  // Records without a symbol fail and name their fields, so a layout change shows at once.
   assert(!parseTmeProductResponse(R"({"status":"OK","data":{"elements":[{"Producer":"X"}]}})", products, &error));
   assert(error.find("Producer") != string::npos);
   // A product search nests its records one level down, under data.products.
@@ -6164,7 +6079,7 @@ void testTmeMergeKeepsSelectedIdentity() {
   // Only a part that came from TME is looked up at TME: by its symbol.
   assert(app_actions::tmeRefreshIdentifier(item).isSymbol);
   assert(app_actions::tmeRefreshIdentifier(item).value == "1N4148-TP");
-  // A DigiKey part keeps DigiKey as its origin and is never looked up at TME, even with a TME record beside it.
+  // A DigiKey part is never looked up at TME, even with a TME record beside it.
   assert(app_actions::tmeRefreshIdentifier(digiKeyItem).value.empty());
   InventoryItem byPartNumber;
   byPartNumber.sku = "1N4148-ND";
@@ -6187,8 +6102,7 @@ void testTmeMergeKeepsSelectedIdentity() {
 }
 
 void testTmeSourceChangeIsRecorded() {
-  // A TME record kept beside a DigiKey part is a recorded change. The refresh that adds it makes a commit that the
-  // history check accepts, the commit counts the part, and a reload keeps the record.
+  // A TME record beside a DigiKey part is a recorded change that validates and survives a reload.
   const auto path = testTempRoot() / "inventatory-tme-source-history-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -6240,7 +6154,7 @@ void testTmeSourceChangeIsRecorded() {
 }
 
 void testTmeLabelScan() {
-  // The QR text of a TME bag label (BEL FUSE 0ZCM0010FF2G, 5 pcs), as the scanner passes it on.
+  // QR text of a TME bag label, as the scanner forwards it.
   const string payload =
       "QTY:5 PN:0ZCM0010FF2G PO:00000000/1 MFR:BELFUSE MPN:0ZCM0010FF2G CoO:TW RoHS "
       "https://www.tme.eu/details/0ZCM0010FF2G";
@@ -6298,7 +6212,7 @@ void testTmeLabelScan() {
 }
 
 void testDeviceItemNameFitsTheScanR1Screen() {
-  // A TME title is longer than the Scan R1 screen can show, so the device gets the part's short label.
+  // A TME title is too long for the Scan R1 screen, so the device gets the short label.
   InventoryItem tme;
   tme.id = "device-name-tme";
   tme.partName = "Connector: pin strips; socket; female; data; PIN: 40; THT; straight";
@@ -6332,7 +6246,7 @@ void testDeviceItemNameFitsTheScanR1Screen() {
 }
 
 void testTmeScanEventCommitsAndLooksUp() {
-  // The event a TME label scan sends: the R1 builds its code from the symbol and the manufacturer part number.
+  // The event a TME label scan sends, built from the symbol and manufacturer part number.
   const string code = "PN:ZL262-40SG MPN:DS1023-1*40S21";
   const auto path = testTempRoot() / "inventatory-tme-scan-event-test.db";
   error_code cleanupError;
@@ -6377,13 +6291,12 @@ void testTmeScanEventCommitsAndLooksUp() {
   assert(reloaded.items()[0].sku == "ZL262-40SG");
   assert(reloaded.items()[0].quantity == 5);
 
-  // The R1 looks the code up once the part exists; the TME symbol finds it, which the manufacturer part number never did.
+  // The TME symbol finds the part once it exists; the manufacturer part number never did.
   const auto found = lookupDeviceItem(path, {"tme-lookup-1", "ZL262-40SG"});
   assert(found.status == "found");
   assert(!found.itemName.empty());
 
-  // The TME lookup that follows the scan merges the TME record into the placeholder and saves it. The device waits
-  // for the scan's result, and the desktop holds the next event while the save is pending, so the save must succeed.
+  // The lookup after the scan must save, because the device waits on it.
   TmeProductDetails details;
   details.vendorMetadata.provider = "tme";
   details.vendorMetadata.providerProductNumber = "ZL262-40SG";
@@ -6408,8 +6321,7 @@ void testTmeScanEventCommitsAndLooksUp() {
 }
 
 void testTmeDetailParsing() {
-  // Real v2 responses for one capacitor (0603X474K100CT), as TME returned them. The parameter names, the document
-  // type and the price breaks are the ones TME uses, so these pin how the detail records are read.
+  // Real v2 responses for one capacitor, pinning how its records are read.
   const string parameters = R"JSON({"status":"OK","data":{"elements":[{"symbol":"0603X474K100CT","parameters":{"elements":[{"id":2,"name":"Manufacturer","values":[{"id":851,"value":"WALSIN"}]},{"id":115,"name":"Type of capacitor","values":[{"id":1437230,"value":"ceramic"}]},{"id":2650,"name":"Kind of capacitor","values":[{"id":1437413,"value":"MLCC"}]},{"id":118,"name":"Capacitance","values":[{"id":1437945,"value":"0.47\u00b5F"}]},{"id":120,"name":"Operating voltage","values":[{"id":1437419,"value":"10V"}]},{"id":116,"name":"Dielectric","values":[{"id":1437420,"value":"X5R"}]},{"id":39,"name":"Tolerance","values":[{"id":1819340,"value":"\u00b110%"}]},{"id":10,"name":"Mounting","values":[{"id":1436750,"value":"SMD"}]},{"id":2932,"name":"Case - inch","values":[{"id":1620227,"value":"0603"}]},{"id":2931,"name":"Case - mm","values":[{"id":1620228,"value":"1608"}]},{"id":32,"name":"Operating temperature","values":[{"id":1819360,"value":"-55...85\u00b0C"}]}]}}]}})JSON";
   const string files = R"JSON({"status":"OK","data":{"elements":[{"symbol":"0603X474K100CT","assets":{"primary_photo":{"prime":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=640&height=480&wat=1&wat_url=_tme-wrk_%2Ftme_new_render3d.png&wat_scale=100p&ci_sign=b581469a721118f8ca2768a949685b3548c66ba5","thumbnail":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=100&height=75&q=75&ci_sign=96eb51ef4a890459099c72c0e3754a4dadab8db2","high_resolution":"\/\/ce8dc832c.cloudimg.io\/v7\/_cdn_\/AA\/F2\/B0\/00\/1\/733098_1.jpg?width=1440&height=1080&wat=1&wat_url=_tme-wrk_%2Ftme_new_render3d.png&wat_scale=100p&ci_sign=6b8918ce4ccc9b6896f24b9aae305914453ee8eb"},"additional":{"elements":[]},"presentation":{"elements":[]}},"documents":{"elements":[{"url":"\/\/www.tme.eu\/Document\/e45476bf270793f696988c4e93ce1237\/ASC_General_Purpose.pdf","type":"DTE","size":1198234,"file_name":"ASC_General_Purpose.pdf","language":"EN"}]},"parameter_images":{"elements":[]}}]}})JSON";
   const string data = R"JSON({"status":"OK","data":{"elements":[{"stock_quantity":0,"symbol":"0603X474K100CT","unit":{"id":"ST","short_name":"pcs","singular_translation":"Piece","plural_translation":null},"prices":{"elements":[{"amount":4000,"price":0.00638,"special":false}],"tax":{"type":"VAT","rate":23.0},"currency":"EUR","type":"GROSS"},"deliveries":null}]}})JSON";
@@ -6432,13 +6344,13 @@ void testTmeDetailParsing() {
   assert(parameterValue("Operating Voltage") == "10V");
   assert(parameterValue("Package / Case") == "0603 (1608 Metric)");
   assert(product.packageName == "0603 (1608 Metric)");
-  // The manufacturer comes from the product record, and the separate case sizes are folded into the package.
+  // The manufacturer comes from the product record; case sizes fold into the package.
   assert(parameterValue("Manufacturer").empty());
   assert(parameterValue("Case - inch").empty());
   assert(parameterValue("Case - mm").empty());
   assert(product.vendorMetadata.parameters.size() == product.parameters.size());
 
-  // The datasheet is the PDF of type DTE, made into a full address.
+  // The datasheet is the DTE-type PDF, as a full URL.
   assert(parseTmeDocumentResponse(files, "0603X474K100CT", product, &error));
   assert(product.datasheetUrl ==
          "https://www.tme.eu/Document/e45476bf270793f696988c4e93ce1237/ASC_General_Purpose.pdf");
@@ -6466,7 +6378,7 @@ void testTmeDetailParsing() {
 }
 
 void testTmeMergeFillsEnrichment() {
-  // The record TME gives for a capacitor, as the product lookup assembles it from the responses.
+  // The record the TME product lookup assembles for a capacitor.
   TmeProductDetails details;
   details.vendorMetadata.provider = "tme";
   details.vendorMetadata.providerProductNumber = "0603X474K100CT";
@@ -6511,7 +6423,7 @@ void testTmeMergeFillsEnrichment() {
     return string();
   };
   assert(valueOf(item, "Mounting Type") == "SMD");
-  // "Package" updates the "Package / Case" entry it matches, as the DigiKey merge does, so the package is stored once.
+  // "Package" updates the matching "Package / Case" entry, so the package is stored once.
   assert(valueOf(item, "Package / Case") == "0603 (1608 Metric)");
   assert(item.parameters.size() == 6);
   assert(valueOf(item, "Quantity Available") == "0");
@@ -6523,7 +6435,7 @@ void testTmeMergeFillsEnrichment() {
   // The item is complete with a vendor number, a category, a datasheet and a product page.
   assert(!item.hasMissingMetadata());
 
-  // A part bound to DigiKey keeps its DigiKey data. The TME record is kept beside it, and nothing else changes.
+  // A DigiKey-bound part keeps its data; the TME record is kept beside it.
   InventoryItem digiKeyItem;
   digiKeyItem.partName = "CAP CER 0.47UF 10V X5R 0603";
   digiKeyItem.category = "Multilayer Ceramic Capacitors (MLCC) - SMD/SMT";
@@ -6555,7 +6467,7 @@ void testTmeMergeFillsEnrichment() {
 }
 
 void testTmeItemsAutoPlaceInRacks() {
-  // A TME part goes to the rack for its type, decided from the category and parameters the TME record gives.
+  // A TME part is racked by the type its category and parameters give.
   InventoryStore store;
   InventatoryRack capacitors;
   capacitors.id = "tme-capacitors";
@@ -6618,9 +6530,7 @@ void testTmeItemsAutoPlaceInRacks() {
 }
 
 void testTmeScannedPartLabelPlan() {
-  // A TME label scan creates a placeholder that prints "Unsorted" and "Scanned TME Item". The label prints only after
-  // the lookup has merged the fuse's record and placed the part, so the label carries the part number, header,
-  // package, maker, the rating and limits, and the rack slot.
+  // The label prints after the lookup merges the fuse record and places the part.
   auto backend = make_unique<MockPrinterBackend>();
   LabelPrinterService service(std::move(backend));
   service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
@@ -6629,7 +6539,7 @@ void testTmeScannedPartLabelPlan() {
   fuse.vendorMetadata.providerProductNumber = "0ZCM0010FF2G";
   fuse.vendorMetadata.manufacturerPartNumber = "0ZCM0010FF2G";
   fuse.productDescription = "Fuse: PTC polymer; SMD; 100mA; Imax: 40A; 0ZCM; 0603";
-  // The parser keeps the description as the vendor title, as it does for DigiKey.
+  // The parser keeps the description as the vendor title, as for DigiKey.
   fuse.vendorMetadata.title = fuse.productDescription;
   fuse.manufacturerName = "BEL FUSE";
   fuse.categoryName = "SMD Polymer Fuses";
@@ -6664,7 +6574,7 @@ void testTmeScannedPartLabelPlan() {
   assert(!placed.empty());
   const auto plan = service.buildLabelPlan(merged, placed);
   assert(plan.categoryHeader == "SMD Polymer Fuses");
-  // TME's own part number is the printed name; the description is too long for the label and is not a name.
+  // The part number is the printed name; the description is too long for the label.
   assert(plan.mainValue == "0ZCM0010FF2G");
   assert(!plan.mainIsMeasuredValue);
   assert(plan.manufacturerLine == "BEL FUSE");
@@ -6680,8 +6590,7 @@ void testTmeScannedPartLabelPlan() {
   assert(plan.parameters[2].caption == "IMAX" && plan.parameters[2].value == "40A");
   assert(plan.parameters[3].caption == "POWER" && plan.parameters[3].value == "500mW");
 
-  // A name the user typed is printed as it is; a supplier's description that is still the name is replaced by the
-  // part number, for TME and DigiKey parts alike.
+  // A typed name prints as is; a supplier's description is replaced by the part number.
   InventoryItem connector;
   connector.id = "connector";
   connector.partName = "CONN HEADER 10POS 2.54MM";
@@ -6818,7 +6727,7 @@ InventoryItem parityPlaceholder(const std::string& partName, const std::string& 
   return item;
 }
 
-// One rack for each kind of part the rack rules place, so a part's rack type is the type it is classified as.
+// One rack per part type the rack rules place, so each part's rack type matches its class.
 InventoryStore parityRacks() {
   InventoryStore store;
   int number = 1;
@@ -6843,8 +6752,7 @@ std::string parityRackType(const InventoryStore& store, const InventoryItem& ite
   return {};
 }
 
-// Case, spacing and the plus-or-minus sign do not change what a label says: "100 mA" and "100mA" are the same value, and
-// a tolerance printed as "±10%" is the same as "10%" where a vendor leaves the sign out.
+// Case, spacing and the plus-or-minus sign do not change what a label says.
 std::string parityText(const std::string& text) {
   std::string out;
   for (size_t index = 0; index < text.size();) {
@@ -6858,7 +6766,7 @@ std::string parityText(const std::string& text) {
   return out;
 }
 
-// The letters and the digit groups of a package name: "SOT-23-3" is "sot" and 23, 3; "SOT23" is "sot" and 23.
+// Letters and digit groups of a package name: "SOT-23-3" is "sot", 23, 3; "SOT23" is "sot", 23.
 struct PackageShape {
   std::string letters;
   std::vector<std::string> digits;
@@ -6893,9 +6801,8 @@ std::string packageAliasKey(const std::string& name) {
   return alias == aliases.end() ? key : alias->second;
 }
 
-// Vendors name one package in their own way: "SOT23" and "SOT-23-3", "SO8" and "8-SOIC", "TO220AB" and "TO-220AB". The
-// same family and the same size numbers are the same package. Different size numbers ("DO41" and "DO-204AL") are not,
-// unless the list of aliases names them as one outline.
+// Vendors spell one package differently ("SOT23" and "SOT-23-3"). Same family and size numbers
+// are the same package; different size numbers are not, unless the alias table joins them.
 bool samePackage(const std::string& reference, const std::string& tme) {
   if (parityText(reference) == parityText(tme) || packageAliasKey(reference) == packageAliasKey(tme)) return true;
   const auto first = packageShape(reference);
@@ -6911,7 +6818,7 @@ bool samePackage(const std::string& reference, const std::string& tme) {
   });
 }
 
-// A number with a unit, in base units: "600 mV" and "0.6V" are both "0.6|v". Empty for anything else ("-40 to 85°C").
+// Base-unit form: "600 mV" and "0.6V" are both "0.6|v". Empty for anything else ("-40 to 85°C").
 std::string parityQuantity(const std::string& text) {
   std::string compact;
   for (const unsigned char character : text) {
@@ -6953,7 +6860,7 @@ std::string parityQuantity(const std::string& text) {
   return value.str() + "|" + base->second;
 }
 
-// Two label values agree when they are the same text, or the same quantity written with another prefix or unit.
+// Values agree if they are the same text, or the same quantity with another prefix or unit.
 bool sameParityValue(const std::string& reference, const std::string& tme) {
   if (parityText(reference) == parityText(tme)) return true;
   const auto quantity = parityQuantity(reference);
@@ -6963,8 +6870,8 @@ bool sameParityValue(const std::string& reference, const std::string& tme) {
 }  // namespace
 
 void testTmeDigiKeyLabelParity() {
-  // The same part, from either vendor, must give the same label and the same rack. The DigiKey label is the reference:
-  // every field it prints must be printed for the TME record too, unless the fixture lists the check as exempt.
+  // Both vendors must give the same label and rack. The DigiKey label is the reference;
+  // every field it prints must also appear for TME unless the fixture exempts it.
   std::vector<TmeDigiKeyParityExemption> exemptions;
   const auto parts = readTmeDigiKeyParityFixture(exemptions);
   assert(parts.size() >= 100);
@@ -6984,7 +6891,7 @@ void testTmeDigiKeyLabelParity() {
     const auto& part = parts[index];
     auto digiKeyItem = parityPlaceholder("Scanned DigiKey Item", "parity-dk-" + std::to_string(index));
     app_actions::mergeDigiKeyMetadata(digiKeyItem, part.digikey);
-    // A record that disagrees with the part's stored value is not merged by the app; the check is reported as such.
+    // A record that conflicts with the stored value is not merged; report it as a conflict.
     if (const auto conflict = app_actions::tmeRecordConflict(digiKeyItem, part.tme); !conflict.empty()) {
       mismatches.push_back(part.mpn + "\tconflict\t" + conflict + "\tTME record disagrees");
       continue;
@@ -7008,7 +6915,7 @@ void testTmeDigiKeyLabelParity() {
     if (!samePackage(reference.packageLine, tme.packageLine)) {
       mismatches.push_back(part.mpn + "\tpackage\t" + reference.packageLine + "\t" + tme.packageLine);
     }
-    // The vendors print one maker under different names ("Panasonic Industry", "PANASONIC"); the first word names it.
+    // Vendors print one maker in different ways; compare the first word ("Panasonic").
     const auto makerName = [](const std::string& name) {
       std::string word;
       for (const unsigned char character : name.substr(0, name.find(' '))) {
@@ -7026,7 +6933,7 @@ void testTmeDigiKeyLabelParity() {
     }
   }
 
-  // Every difference must be an exempt check for that part, and every exempt check must still be a difference.
+  // Each difference must be an exempt check for its part, and each exemption must still apply.
   std::vector<std::string> unexplained;
   std::vector<bool> used(exemptions.size(), false);
   for (const auto& mismatch : mismatches) {
@@ -7037,8 +6944,7 @@ void testTmeDigiKeyLabelParity() {
     bool exempt = false;
     const auto family = familyOf.at(mpn);
     for (size_t index = 0; index < exemptions.size(); ++index) {
-      // "family:<name>" exempts the check for every part of that DigiKey family, for a field TME does not publish for
-      // that kind of part; "*" exempts it for every part.
+      // "family:<name>" exempts a check for a whole DigiKey family; "*" exempts it for all parts.
       const auto& scope = exemptions[index].mpn;
       const bool applies = scope == "*" || scope == mpn || (scope.rfind("family:", 0) == 0 && scope.substr(7) == family);
       if (applies && exemptions[index].check == check) {
@@ -7059,7 +6965,7 @@ void testTmeDigiKeyLabelParity() {
 }
 
 void testTmeVocabularyMapsKinds() {
-  // A TME parameter whose value names the device becomes the DigiKey parameter for that kind of device.
+  // A TME parameter that names the device becomes the matching DigiKey parameter.
   const string discrete = "Discrete Semiconductor Products";
   const auto nChannel = tmeParameters("Type of transistor", "N-MOSFET", discrete);
   assert(nChannel.size() == 1 && nChannel[0].name == "FET Type" && nChannel[0].value == "N-Channel");
@@ -7087,7 +6993,7 @@ void testTmeVocabularyMapsKinds() {
   assert(memory.size() == 3 && figure("Program Memory Size") == "32kB" && figure("RAM Size") == "2kB" &&
          figure("EEPROM Size") == "1kB");
   assert(tmeParameters("Kind of core", "8-bit", "Integrated Circuits (ICs)")[0].name == "Core Size");
-  // An LED's operating voltage is its forward voltage; a diode type that only says LED adds nothing.
+  // An LED's operating voltage is its forward voltage; a diode type of LED adds nothing.
   assert(tmeParameterName("Operating voltage", "Optoelectronics") == "Voltage - Forward (Vf) (Typ)");
   assert(tmeParameterName("Operating voltage", "Integrated Circuits (ICs)") == "Operating Voltage");
   assert(tmeParameters("Diode Type", "LED", "Optoelectronics").empty());
@@ -7101,7 +7007,7 @@ void testTmeVocabularyMapsKinds() {
   assert(tmeParameterName("Type of integrated circuit", "Integrated Circuits (ICs)") == "Function");
   assert(tmeParameterName("Something TME-only", discrete) == "Something TME-only");
 
-  // Categories are classified as DigiKey's families. A word inside another word does not count: "handled" is not an LED.
+  // Categories map to DigiKey families by whole word: "handled" is not an LED.
   assert(tmeCategoryFamily("SMD resistors") == "Resistors");
   assert(tmeCategoryFamily("THT electrolytic capacitors") == "Capacitors");
   assert(tmeCategoryFamily("Bidirectional TVS SMD diodes") == "Circuit Protection");
@@ -7124,7 +7030,7 @@ void testTmeRecordConflictGuard() {
   TmeProductDetails same;
   same.parameters = {{"Resistance", u8"4.7 MΩ"}};
   assert(app_actions::tmeRecordConflict(stored, same).empty());
-  // Values that differ only in notation agree, and a record or item without the value has nothing to compare.
+  // Values that differ only in notation agree; a missing value has nothing to compare.
   InventoryItem capacitor;
   capacitor.parameters = {{"Capacitance", u8"100nF"}};
   TmeProductDetails microfarads;
@@ -7156,9 +7062,8 @@ void testLabelsReadTmeValues() {
   assert(service.buildLabelPlan(capacitor).mainTolerance == "-20/+80%");
 }
 
-// The label tiles follow what each field measures, not the order a vendor lists its parameters in. Reversing a record's
-// parameters gives the same tiles for every fixture part from both vendors; no caption or value is cut short; and no
-// field that only describes the part (a lens, a size, a status) becomes a tile.
+// Label tiles follow what each field measures, not the record's parameter order. No caption or
+// value is cut short, and descriptive fields (a lens, a size, a status) never become tiles.
 void testLabelTilesIgnoreRecordOrder() {
   std::vector<TmeDigiKeyParityExemption> exemptions;
   const auto parts = readTmeDigiKeyParityFixture(exemptions);
@@ -7210,8 +7115,7 @@ void testLabelTilesFollowConcepts() {
     return std::string("<none>");
   };
 
-  // An LED's colour is the colour of its light, not of its lens: DigiKey lists "Lens Color" after "Color" and the
-  // lens must not take the colour's tile, whichever order the record lists them in.
+  // An LED's colour is its light's, not its lens's, whichever order the record lists them in.
   InventoryItem led;
   led.id = "led";
   led.partName = "LTST-C170KGKT";
@@ -7231,7 +7135,7 @@ void testLabelTilesFollowConcepts() {
     assert(valueOf(tiles, "LENS TRANSPARENCY") == "<none>");
   }
 
-  // A colour starts with a capital letter whichever vendor it comes from: TME writes "green", and the label prints "Green".
+  // Colours start with a capital letter, whichever vendor supplies them.
   InventoryItem tmeLed;
   tmeLed.id = "tme-led";
   tmeLed.partName = "LTST-C170KGKT";
@@ -7240,7 +7144,7 @@ void testLabelTilesFollowConcepts() {
   tmeLed.parameters = {{"Color", "green"}, {"Luminous Intensity", "18 to 35mcd"}, {"Voltage - Forward (Vf) (Typ)", "2 to 2.4V"}};
   assert(valueOf(tilesOf(tmeLed), "COLOR") == "Green");
 
-  // An impedance and a current rating get their short captions, and a tolerance in a frequency field is no frequency.
+  // Impedance and current get short captions; a tolerance in a frequency field is no frequency.
   InventoryItem filter;
   filter.id = "ferrite";
   filter.partName = "Ferrite bead";
@@ -7263,8 +7167,7 @@ void testLabelTilesFollowConcepts() {
   amplifier.parameters = {{"Voltage - Supply", u8"± 2.25 to 20V DC, 4.5 to 40V"}, {"Operating Temperature", "0 to 70°C"}};
   assert(valueOf(tilesOf(amplifier), "SUPPLY") == u8"± 2.25 to 20V");
 
-  // A part whose name matches a rule that finds none of its own tiles (an oscillator's frequency is in hertz, and this one
-  // gives a tolerance) is still a timer IC: its supply and current tiles come from the IC rule.
+  // A timer whose frequency field holds a tolerance is still an IC for its tiles.
   InventoryItem timer;
   timer.id = "timer";
   timer.partName = "NE555 timer oscillator";
@@ -7278,20 +7181,19 @@ void testLabelTilesFollowConcepts() {
 }
 
 void testParameterNamesStayApart() {
-  // "Color" and "Lens Color" are different parameters, and so are "Type" and "Mounting Type", and "Supplier Device
-  // Package" and "Package / Case". Only "Package" and "Package / Case" name the same thing.
+  // Only "Package" and "Package / Case" name the same thing; the other pairs are distinct.
   assert(!parameterLabelMatches("Lens Color", "Color"));
   assert(!parameterLabelMatches("Mounting Type", "Type"));
   assert(!parameterLabelMatches("Supplier Device Package", "Package"));
   assert(parameterLabelMatches("Package / Case", "Package"));
   assert(parameterLabelMatches("Current - Test", "Current"));
 
-  // A name that is exactly the wanted one wins over a longer name that starts with it, whatever order the record lists them in.
+  // An exact name wins over a longer one that starts with it, in any record order.
   InventoryItem item;
   item.parameters = {{"Current - Test", "20mA"}, {"Current", "2A"}};
   assert(parameterValue(item, {"Current"}) == "2A");
 
-  // A DigiKey record merged into an item keeps each of its parameters, and a second parameter does not overwrite the first.
+  // Merging keeps every parameter; a second one does not overwrite the first.
   InventoryItem diode;
   diode.partName = "1N5819";
   DigiKeyProductDetails details;
@@ -7307,8 +7209,7 @@ void testParameterNamesStayApart() {
   assert(parameterValue(diode, {"Package / Case"}) == "SOD-123F");
 }
 
-// The package line never shows a clipped name: a size that is too long reads as its footprint, and a package name that is
-// too long is cut to its first word.
+// The package line is never clipped: a long size shows its footprint, a long name its first word.
 void testPackageLineIsNeverClipped() {
   auto backend = make_unique<MockPrinterBackend>();
   LabelPrinterService service(std::move(backend));
@@ -7344,7 +7245,7 @@ void testPackageLineIsNeverClipped() {
 }
 
 void testTmeRackAndHeaderIgnoreSpecifications() {
-  // A specification list does not decide what a part is: "controlled parameter" is not an LED, and a microcontroller's
+  // A spec list does not set the part type: "controlled parameter" is not an LED, and an MCU's
   // bus list does not make it a transceiver.
   InventoryStore store = parityRacks();
   InventoryItem sensor;
@@ -7366,7 +7267,7 @@ void testTmeRackAndHeaderIgnoreSpecifications() {
                                 {"Interface", "CAN, I2C, SPI, USART, USB"}};
   assert(partShortDescription(microcontroller) != "Transceiver");
 
-  // A transceiver names one bus, and an LED stays an indicator even when TME lists it as a diode type.
+  // A transceiver names one bus; an LED stays an indicator even if TME lists a diode type.
   InventoryItem transceiver;
   transceiver.id = "tme-transceiver";
   transceiver.partName = "IC: CAN transceiver";
@@ -7388,7 +7289,7 @@ void testTmeRackAndHeaderIgnoreSpecifications() {
 }
 
 void testTmeSearchTokens() {
-  // tme: finds a part by its TME symbol, whether the symbol is the selected source or a record beside a DigiKey part.
+  // tme: finds a part by TME symbol, as the selected source or a record beside a DigiKey part.
   InventoryItem tmeBound;
   tmeBound.id = "tme-bound";
   tmeBound.partName = "Fuse";
@@ -7427,7 +7328,7 @@ void testTmeSearchTokens() {
 }
 
 void testTmeSettingsPersistOptionalKeys() {
-  // Storefront keys are optional: a file written with the defaults has none of them, and still loads.
+  // Storefront keys are optional: a file written with defaults has none, and still loads.
   const auto path = testTempRoot() / "inventatory-tme-settings-test.conf";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -7718,8 +7619,7 @@ void testCategoryHeadersAndPartDescriptors() {
     assert(descriptor.source == source);
   };
 
-  // Each future adapter supplies the same metadata contract, so category
-  // meaning is verified without any live supplier credentials.
+  // Each vendor supplies the same metadata contract, so categories are checked offline.
   vendorFixture("digikey", "Fuses", "Fuse with ADC monitoring", {{"Resolution", "12 bit"}},
                 "Fuse", "Fuse", PartLabelSource::VendorCategory);
   vendorFixture("digikey", "Circuit Protection - Fuses", "FUSE GLASS 1A 250VAC", {},
@@ -7739,10 +7639,7 @@ void testCategoryHeadersAndPartDescriptors() {
   vendorFixture("tme", "Connectors", "Header", {{"Number of Positions", "8"}},
                 "Connector", "Connector", PartLabelSource::VendorCategory);
 
-  // DigiKey discrete leaves are frequently represented by a broad path plus
-  // a terminal taxonomy segment and structured electrical type.  The label
-  // must preserve that concrete subtype rather than collapsing to a generic
-  // semiconductor family.
+  // Keep the concrete subtype of a DigiKey discrete leaf, not the generic semiconductor family.
   vendorFixture("digikey", "Transistors - Bipolar (BJT) - Single", "TRANS NPN 40V 0.2A SOT-23",
                 {{"Transistor Type", "NPN"}}, "NPN BJT Transistor", "BJT NPN", PartLabelSource::VendorCategory);
   vendorFixture("digikey", "Transistors - FETs, MOSFETs - Single", "MOSFET P-CH 30V 4A SOT-23",
@@ -7776,8 +7673,7 @@ void testCategoryHeadersAndPartDescriptors() {
   vendorFixture("digikey", "Clock/Timing", "IC RTC I2C 8SOIC",
                 {{"Function", "Real Time Clock"}}, "Real-Time Clock", "RTC", PartLabelSource::VendorRule);
 
-  // Broad vendor-taxonomy coverage: categories, rather than loose words in
-  // the product title, decide the concrete printed type.
+  // Categories, not loose words in the title, decide the printed type.
   vendorFixture("digikey", "Switches - Tactile Switches", "TACTILE SWITCH", {},
                 "Tactile Switch", "Tactile Switch", PartLabelSource::VendorCategory);
   vendorFixture("mouser", "Pushbutton Switches", "Illuminated pushbutton", {},
@@ -7863,8 +7759,7 @@ void testCategoryHeadersAndPartDescriptors() {
   assert(zpl.find("Tol ") == string::npos);
   assert(zpl.find("Tempco") == string::npos);
   assert(zpl.find("^FO13,5^A0N,16,16^FR^FDRESISTOR^FS") != string::npos);
-  // Measured value: number, smaller unit and tolerance on one baseline, the
-  // group centred between the header bar and the package row.
+  // Number, smaller unit and tolerance share one baseline, centred between header and package.
   assert(zpl.find("^FO30,34^A0N,46,46^FD10k^FS") != string::npos);
   assert(zpl.find(u8"^FD\u03A9^FS") != string::npos);
   assert(zpl.find("^A0N,18,18^FD1%^FS") != string::npos);
@@ -7872,8 +7767,7 @@ void testCategoryHeadersAndPartDescriptors() {
   assert(zpl.find("^FD125mW^FS") != string::npos);
   assert(zpl.find("^FDYageo^FS") != string::npos);
   assert(zpl.find("^FO180,18^BQN,2,3^FDLA,0002^FS") != string::npos);
-  // The short ID is printed under the QR code for manual lookup.
-  // It is centred on the 63 dot QR symbol without printer-side centring.
+  // The short ID sits under the QR code for manual lookup, centred on its 63-dot symbol.
   assert(zpl.find("^FO188,94^A0N,14,14^FDR-0002^FS") != string::npos);
   // Header bar starts at y 0 (prints land ~10 dots low) and carries the 5 x 5 logo.
   assert(zpl.find("^FO7,0^GB236,22,22,B,4^FS") != string::npos);
@@ -7979,12 +7873,12 @@ void testCategoryHeadersAndPartDescriptors() {
   assert(customRackPlan.rackNumber == "12");
   assert(customRackPlan.symbolKey == "grid");
   const auto customRackZpl = service.buildRackLabelZpl(customRack);
-  // A custom type has no electrical symbol: it gets the 5 x 5 grid, and its name splits rather than shrinks.
+  // A custom type has no electrical symbol: it gets the 5 x 5 grid, and its name splits.
   assert(customRackZpl.find("^GFA,594,594,9,") != string::npos);
   assert(customRackZpl.find("^FDSMD^FS") != string::npos);
   assert(customRackZpl.find("^FDWIDGETS^FS") != string::npos);
 
-  // The full name is used while it fits nicely; the short form takes over when it does not.
+  // The full name is used while it fits; otherwise the short form.
   InventatoryRack longRack;
   longRack.id = "rack-long-1";
   longRack.code = "R13";
@@ -8093,7 +7987,7 @@ void testCategoryHeadersAndPartDescriptors() {
       assert(anyBlack);
     }
   }
-  // The connector's pin array sits centred in its outline, and the transistor is centred on its circle
+  // The connector's pin array is centred in its outline; the transistor is centred on its circle
   // rather than on a bounding box that also holds the long base lead.
   const auto symbolBitmap = [&](const string& key) -> const RackSymbolBitmap& {
     for (size_t index = 0; index < kRackSymbolSetCount; ++index) {
@@ -8581,8 +8475,7 @@ void testDiodeParameterTiles() {
 void testCapacitorValueAndTiles() {
   LabelPrinterService service(make_unique<MockPrinterBackend>());
 
-  // DigiKey-style MLCC: value with tolerance as the main text, dielectric
-  // and voltage as tiles, manufacturer (not the part number) under the value.
+  // DigiKey-style MLCC: value as the main text, dielectric and voltage as tiles.
   InventoryItem mlcc;
   mlcc.id = "mlcc-1";
   mlcc.partName = "CAP CER 0.1UF 50V X7R 0402";
@@ -8602,7 +8495,7 @@ void testCapacitorValueAndTiles() {
                      {"ESR (Equivalent Series Resistance)", "N/A"}};
   const auto mlccPlan = service.buildLabelPlan(mlcc, "R118-b2");
   assert(mlccPlan.mainIsMeasuredValue);
-  // The main value follows the shared unit rule: the prefix that leaves 1 to 999, so 0.1 uF is 100 nF.
+  // The shared unit rule: the prefix leaving 1 to 999 makes 0.1 uF read as 100 nF.
   assert(mlccPlan.mainValue == "100nF");
   assert(mlccPlan.mainTolerance == u8"\u00B110%");
   assert(mlccPlan.packageLine == "0402");
@@ -8641,7 +8534,7 @@ void testCapacitorValueAndTiles() {
     }
   }
   assert(mlccZpl.find("GRM155R71H104KE14D") == string::npos);
-  // The name is cut to its leading word, as every long manufacturer name is, rather than printed in smaller type.
+  // A long manufacturer name is cut to its leading word, not printed smaller.
   assert(mlccZpl.find("^FDMurata^FS") != string::npos);
   assert(mlccZpl.find("^FD100n^FS") != string::npos);
   assert(mlccZpl.find("^FDF^FS") != string::npos);
@@ -8731,8 +8624,7 @@ void testCapacitorValueAndTiles() {
   assert(shortened.width <= 60);
   assert(shortened.text.size() > 3 && shortened.text.compare(shortened.text.size() - 3, 3, "...") == 0);
   const auto utf8 = fitFont0Text(u8"\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9\u03A9", 20, {12});
-  // At size 12 an omega advances 7.44 dots and each dot 3.36, so exactly one omega plus the ellipsis (18
-  // dots) fits in 20; a cut in the middle of the two-byte omega, or dropping every character, must fail.
+  // At size 12, one omega plus the ellipsis (18 dots) fits in 20. A cut inside omega must fail.
   assert(utf8.size == 12);
   assert(utf8.width == 18);
   assert(utf8.text == u8"\u03A9...");
@@ -8744,15 +8636,14 @@ void testFont0TruncationMatchesSearch() {
   const auto unchanged = fitFont0Text("SS34", 166, {40, 36});
   assert(unchanged.text == "SS34" && unchanged.size == 40 && unchanged.width == 85);
 
-  // Text that needs truncation: the longest prefix whose estimated width plus "..." fits. Expected
-  // values were measured with the previous one-character-at-a-time search.
+  // Longest prefix whose width plus "..." fits. The values must not change with the search.
   const auto manufacturer = fitFont0Text("A very long manufacturer name that cannot fit", 60, {16, 12});
   assert(manufacturer.text == "A very lon..." && manufacturer.size == 12 && manufacturer.width == 60);
   const auto part = fitFont0Text("Texas Instruments LM358 dual op-amp, 8-pin SOIC", 100, {16, 14, 12});
   assert(part.text == "Texas Instrumen..." && part.size == 12 && part.width == 95);
   const auto rack = fitFont0Text("R1234567890ABCDEF", 30, {17, 16, 15, 14, 13});
   assert(rack.text == "R1..." && rack.size == 13 && rack.width == 25);
-  // A cut that ends in a space is measured without that space ("Wa Wb..." fits, "Wa Wb ..." would not).
+  // A cut ending in a space is measured without it ("Wa Wb..." fits, "Wa Wb ..." would not).
   const auto spaced = fitFont0Text("Wa Wb Wc Wd", 50, {12});
   assert(spaced.text == "Wa Wb..." && spaced.size == 12 && spaced.width == 43);
   const auto spacedWide = fitFont0Text("MMM MMMM", 45, {12});
@@ -8781,13 +8672,12 @@ void testFont0TruncationMatchesSearch() {
   assert(longOmegas.text.compare(longOmegas.text.size() - 3, 3, "...") == 0);
   assert((longOmegas.text.size() - 3) % 2 == 0);
 
-  // The estimate of a 1 MiB string is computed without overflowing: 78 hundredths per "M" at size 40.
+  // A 1 MiB string's estimate must not overflow: 78 hundredths per "M" at size 40.
   assert(estimateFont0Width(string(1u << 20, 'M'), 40, 40) == 32715572);
 }
 
 void testUnitsManufacturersAndPackagesAgreeAcrossVendors() {
-  // One unit form for every vendor: the prefix that leaves 1 to 999, and no space before the unit. TME's base units
-  // and DigiKey's scaled units print the same.
+  // One unit form for every vendor: TME's base units and DigiKey's scaled units print alike.
   assert(labelTileValue("0.6V") == "600mV");
   assert(labelTileValue("600 mV") == "600mV");
   assert(labelTileValue("0.25W") == "250mW");
@@ -8812,7 +8702,7 @@ void testUnitsManufacturersAndPackagesAgreeAcrossVendors() {
   assert(labelTileValue("-40°C ~ 85°C") == "-40 to 85°C");
   assert(labelTileValue("± 2.25 to 20V") == "± 2.25 to 20V");
 
-  // Manufacturer: "Panasonic Industry" is "Panasonic", the leading word, and the drawn label says so.
+  // The label falls back to the leading word, "Panasonic".
   const auto panasonic = label_printer_detail::manufacturerWordCandidates("Panasonic Industry");
   assert(panasonic.size() == 2 && panasonic.front() == "Panasonic Industry" && panasonic.back() == "Panasonic");
   LabelPrinterService service(make_unique<MockPrinterBackend>());
@@ -8834,8 +8724,8 @@ void testUnitsManufacturersAndPackagesAgreeAcrossVendors() {
   assert(labelTile(radialPlan, "HEIGHT") == "12mm");
   assert(service.buildZpl(radialCapacitor, "R1-a1").find("^FDPanasonic^FS") != string::npos);
 
-  // Package: a lead style is not a package, and a cylinder is its diameter. The same package under two names prints the
-  // one name: DigiKey's JEDEC DO-204AL and TME's DO41 are DO-41, and TME's TSOT26 is TSOT-23-6.
+  // A lead style is not a package, and a cylinder shows its diameter. Aliases print one name:
+  // DO-204AL and DO41 are DO-41; TSOT26 is TSOT-23-6.
   InventoryItem radial;
   radial.parameters = {{"Package / Case", "Radial, Can"}, {"Size / Dimension", "0.197\" Dia (5.00mm)"}};
   assert(label_printer_detail::shortPackageLine(radial) == u8"Ø5mm");
@@ -8893,8 +8783,7 @@ void testLabelTextScannersAreLinear() {
   assert(voltageTile("16 F").empty());
   assert(voltageTile("V16").empty());
 
-  // Hostile inputs: a million-character digit run and a million spaces after one digit must return
-  // quickly and without recursion. None of them holds a match.
+  // Hostile inputs must return quickly, without recursion, and without a match.
   const string digits(1000000, '7');
   assert(labelTileValue("\"(" + digits + ")").find("mm") == string::npos);
   footprint.parameters = {{"Size / Dimension", digits}};
@@ -8923,9 +8812,7 @@ void testDigiKeyPackageSearchIsBounded() {
 void testDielectricNeverComesFromMountingType() {
   LabelPrinterService service(make_unique<MockPrinterBackend>());
 
-  // The photographed label: "Mounting Type" must never reach the dielectric
-  // tile, and electrolytics (which have no dielectric parameter) simply
-  // have no such tile.
+  // "Mounting Type" must never reach the dielectric tile; electrolytics have none.
   InventoryItem electrolytic;
   electrolytic.id = "cap-electrolytic";
   electrolytic.category = "Aluminum Electrolytic Capacitors";
@@ -9202,9 +9089,8 @@ void testScanConfigSaveAndLoad() {
 }
 
 void testPrinterConfigAtomicReplacement() {
-  // Printer configuration is replaced only after the complete temporary
-  // file has been written and flushed. A failed replacement must not damage
-  // the existing path, and malformed/oversized files must not be accepted.
+  // Config is replaced only after the temp file is flushed. A failed replacement must leave the
+  // old file intact, and malformed or oversized files are refused.
 #ifdef _WIN32
   const auto directory = testTempRoot() / L"inventatory-printer-\u017c\u00f3\u0142\u0107";
 #else
@@ -9243,16 +9129,14 @@ void testPrinterConfigAtomicReplacement() {
   }
   assert(!malformedService.loadConfig(configPath));
 
-  // A directory at the destination makes the final atomic replacement fail
-  // after the temporary file has been written. It must remain intact.
+  // A directory at the destination makes the final replacement fail; it must stay intact.
   const auto replacementFailurePath = directory / "existing-destination";
   assert(filesystem::create_directory(replacementFailurePath, cleanupError));
   assert(!service.saveConfig(replacementFailurePath));
   assert(filesystem::is_directory(replacementFailurePath, cleanupError));
   assert(!cleanupError);
 
-  // An unconfigured service still writes the valid empty configuration used
-  // by the normal first-run save path.
+  // An unconfigured service still writes the empty configuration used on first run.
   const auto emptyConfigPath = directory / "empty.conf";
   LabelPrinterService empty(make_unique<MockPrinterBackend>());
   assert(empty.saveConfig(emptyConfigPath));
@@ -9297,8 +9181,7 @@ void testPrinterConfigAtomicReplacement() {
     assert(fresh.saveConfig(missingPath));
     assert(readConfig(missingPath) == "\"Queue D\"\n");
 
-    // A file that exists but cannot be read is never replaced by an empty configuration. It is
-    // replaced only once the user chooses a printer again.
+    // An unreadable file is never replaced by an empty configuration, only by a chosen printer.
     const auto damagedPath = directory / "damaged.conf";
     const string damaged = "\"Queue E\" trailing-data\n";
     writeConfig(damagedPath, damaged);
@@ -9332,9 +9215,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
     return true;
   };
 
-  // Workspace-bound replay files must not share counters. A fresh workspace
-  // with a newly scoped token rejects the previous workspace's token and can
-  // start its own counter sequence at one.
+  // Replay files are per workspace: a new token rejects the old one and restarts counters at one.
   const auto workspaceA = stateDirectory / "workspace-a";
   const auto workspaceB = stateDirectory / "workspace-b";
   const auto replayA = inventatoryScanReplayStatePath(workspaceA);
@@ -9428,8 +9309,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   assert(elapsed < chrono::seconds(1));
   assert(syncCalls == 2);
 
-  // One address cannot hold every pending slot: past the per-address cap its next connection is refused,
-  // and it is served again as soon as the idle ones close.
+  // Past the per-address cap a new connection is refused, and served again once idle ones close.
   vector<NativeSocket> floodClients;
   for (int index = 0; index < 8; ++index) floodClients.push_back(connectSlowLocalClient(server.port()));
   this_thread::sleep_for(chrono::milliseconds(100));
@@ -9461,9 +9341,8 @@ void testHttpWorkspaceIsolationAndPortSelection() {
 
 #ifndef _WIN32
   {
-    // Linux: the listener and accepted connections must be close-on-exec so a helper process
-    // spawned while the service runs (xdg-open and the browser it starts) cannot keep the
-    // scanner port bound after the service stops or restarts.
+    // Sockets must be close-on-exec, so a helper spawned while the service runs (xdg-open, a
+    // browser) cannot keep the scanner port bound.
     const auto cloexecSocketsOnPort = [](uint16_t port, size_t& found) {
       bool allCloexec = true;
       found = 0;
@@ -9480,7 +9359,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
       return allCloexec;
     };
 
-    // One free port serves all three servers below: the child and the rebinding server must reuse it.
+    // The child and the rebinding server must reuse this port.
     const uint16_t reusedPort = freeScannerTestPort();
     LocalHttpServer inheritServer;
     inheritServer.setDeviceCredentials(deviceId, rotatedToken, replayState);
@@ -9488,8 +9367,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
     const uint16_t inheritPort = inheritServer.port();
     assert(inheritPort == reusedPort);
     const NativeSocket inheritClient = connectSlowLocalClient(inheritPort);
-    // Wait until the server has accepted the connection: the listener plus the accepted socket are both
-    // bound to the port, and both must be close-on-exec.
+    // Wait for the accepted connection; the listener and that socket must both be close-on-exec.
     size_t socketsOnPort = 0;
     bool allCloexec = false;
     for (int tick = 0; tick < 500 && socketsOnPort < 2; ++tick) {
@@ -9502,8 +9380,8 @@ void testHttpWorkspaceIsolationAndPortSelection() {
     inheritServer.stop();
     closeSocket(inheritClient);
 
-    // A previous application instance serves, spawns a long-lived helper (as opening a link does)
-    // and exits without a clean stop(): the helper must not keep the port in LISTEN.
+    // A previous instance spawns a helper, as opening a link does, then exits without stop().
+    // The helper must not keep the port in LISTEN.
     int execReady[2]{-1, -1};
     int helperReport[2]{-1, -1};
     assert(pipe2(execReady, O_CLOEXEC) == 0);
@@ -9602,8 +9480,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   for (int attempt = 0; attempt < 100 && !rotationFinished.load(); ++attempt) {
     this_thread::sleep_for(chrono::milliseconds(5));
   }
-  // Rotation must not wait for a callback that may itself be waiting for
-  // foreground/UI work. The in-flight request is invalidated by the epoch.
+  // Rotation must not wait for a callback; the epoch invalidates the in-flight request.
   assert(rotationFinished.load());
   releaseRotationCallback.store(true);
   rotationRequestThread.join();
@@ -9656,8 +9533,7 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   assert(overflowSyncCalls == 1);
   overflowServer.stop();
 
-  // A replay-marker write failure must fail closed after the durable
-  // callback, and the same counter must not invoke the callback again.
+  // A failed replay-marker write fails closed after the callback; the counter must not run again.
   const auto replayFailureParent = stateDirectory / "replay-failure-parent";
   {
     ofstream parentFile(replayFailureParent, ios::binary | ios::trunc);
@@ -9713,9 +9589,8 @@ void testHttpWorkspaceIsolationAndPortSelection() {
   assert(syncCalls == 4);
   malformedFingerprintServer.stop();
 
-  // State left behind by a previous pairing secret (a rotation that crashed before the file was
-  // removed) is for a different key: the new key starts a fresh sequence instead of being locked out,
-  // and the first accepted request rewrites the file for the current key.
+  // State from an older pairing secret (a rotation that crashed before cleanup) is for another key.
+  // The new key starts a fresh sequence, and the first accepted request rewrites the file.
   const auto foreignReplayState = stateDirectory / "foreign-replay.state";
   {
     ofstream foreign(foreignReplayState, ios::trunc);
@@ -9854,8 +9729,7 @@ void testDeviceSyncRequestParsing() {
   assert(request.quickLabelPrint.presetIndex == 2);
   assert(request.quickLabelPrint.revision == 3);
 
-  // One decoder serves event fields and result acknowledgements: escapes become UTF-8, and the same
-  // identifier decodes to the same string in both places.
+  // One decoder serves event fields and acks, so an identifier decodes the same in both places.
   const auto syncWith = [](const string& eventId, const string& code, const string& ack) {
     return R"({"protocolVersion":1,"requestId":"sync-json","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"events":[{"eventId":")" +
            eventId + R"(","type":"inventory.adjust","code":")" + code +
@@ -9985,7 +9859,7 @@ void testDeviceSyncRequestParsing() {
   deeplyNested += '}';
   assert(!parseDeviceSyncRequestJson(deeplyNested, request, error));
 
-  // Escapes are decoded, keys of nested objects are ignored, and ambiguous or truncated bodies are rejected.
+  // Escapes decode, nested keys are ignored, and ambiguous or truncated bodies are rejected.
   const string syncEnvelope =
       R"({"protocolVersion":1,"requestId":"sync-json","deviceId":"r1-a","firmwareVersion":"0.1.0","mode":"ready","rssi":-48,"queueDepth":1,"resultAcks":[],"events":[)";
   assert(parseDeviceSyncRequestJson(
@@ -10076,9 +9950,7 @@ void testDeviceSyncRequestParsing() {
   result.location = "R1-A1";
   result.message = "Quantity updated";
 
-  // A newly received device event is auto-printed immediately after its event is
-  // committed. Its live item must receive the same identifiers as the SQLite
-  // snapshot; otherwise the label has blank Inventatory text and an empty QR field.
+  // An auto-printed new item needs the same identifiers as its SQLite snapshot.
   InventoryItem autoLabelItem;
   autoLabelItem.id = "auto-label-new-item";
   autoLabelItem.partName = "Auto label IC";
@@ -10273,9 +10145,7 @@ void testDataPathSwitchRollsBackWhenSaveFails() {
 }
 
 void testQuickLabelPresetPersistence() {
-  // Quick label presets travel with the Inventatory data folder rather than
-  // the machine-local settings file, so they survive a restart even if the
-  // data folder is the thing the user backs up or moves.
+  // Quick label presets live in the data folder, not the machine-local settings file.
   const auto path = testTempRoot() / "inventatory-quick-labels-test.conf";
   error_code removeError;
   filesystem::remove(path, removeError);
@@ -10298,8 +10168,7 @@ void testQuickLabelPresetPersistence() {
 }
 
 void testAtomicAuxiliaryFiles() {
-  // Small auxiliary files must validate before publication and preserve the
-  // last good bytes when a draft or final replacement is rejected.
+  // Small files validate before publication and keep the last good bytes on rejection.
   const auto root = testTempRoot() / "inventatory-atomic-auxiliary-test";
   error_code cleanupError;
   filesystem::remove_all(root, cleanupError);
@@ -10397,8 +10266,7 @@ void testAtomicAuxiliaryFiles() {
   assert(loadedActivities.size() == preservedActivities.size());
   assert(loadedActivities[0].message == preservedActivities[0].message);
 
-  // A message that is valid on its own can serialize past the loader's line limit once its
-  // quotes are doubled. It is cut on save so the log stays readable on the next start.
+  // Doubled quotes can push a valid message past the loader's line limit, so save cuts it.
   {
     const string quotes(64U * 1024U, '"');
     string multibyte;
@@ -10462,8 +10330,7 @@ void testLinuxDesktopShortcuts() {
   assert(launcherContent.find("StartupWMClass=inventatory") != string::npos);
   assert(launcherContent.find("[Desktop Entry]") != string::npos);
 
-  // A second launch must not replace the launcher or icons; a replaced launcher makes Plasma
-  // revert the taskbar icon of the already running window.
+  // A second launch must not replace the launcher or icons: Plasma would revert the taskbar icon.
   const auto iconPath = testData / "icons" / "hicolor" / "48x48" / "apps" / "inventatory.png";
   struct stat launcherBefore{}, iconBefore{}, desktopBefore{};
   const auto desktopLauncherPath = testDesktop / "inventatory.desktop";
@@ -10535,8 +10402,7 @@ void testLinuxDesktopShortcuts() {
 
 #endif
 void testApplicationIconAsset() {
-  // Resolved from the source tree the build was configured from, not from the working directory, which
-  // CTest sets to the build directory.
+  // Resolved from the source tree, since CTest runs from the build directory.
 #ifdef Inventatory_TEST_SOURCE_DIR
   const auto icoPath = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "branding" / "icons" / "inventatory.ico";
 #else
@@ -10631,7 +10497,7 @@ void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
   const auto at = [&](AppearanceColorRole role) -> uint32_t& { return appearance.colors[static_cast<size_t>(role)]; };
   const AppearanceSettings defaults;
   const auto current = [&](AppearanceColorRole role) { return defaults.colors[static_cast<size_t>(role)]; };
-  // Pre-apricot/rose installs persisted the old defaults; one color was customized by the user.
+  // Old defaults upgrade, but a colour the user customised (DangerBg) is kept.
   at(AppearanceColorRole::WarningText) = 0xD8B56B;
   at(AppearanceColorRole::DangerText) = 0xE08C83;
   at(AppearanceColorRole::WarningBg) = 0x3A3327;
@@ -10645,8 +10511,7 @@ void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
   assert(at(AppearanceColorRole::DangerBg) == 0x112233);
   assert(!upgradeLegacyAppearanceDefaults(appearance));
 
-  // The apricot/rose defaults and the warm ivory text that preceded the Slate palette upgrade too,
-  // and a colour the user customised is never touched.
+  // Earlier palettes upgrade too; a customised colour is never touched.
   AppearanceSettings apricot;
   const auto role = [&](AppearanceColorRole r) -> uint32_t& { return apricot.colors[static_cast<size_t>(r)]; };
   role(AppearanceColorRole::PrimaryText) = 0xF1EEE5;
@@ -10694,7 +10559,7 @@ void testInvalidLowStockThresholdIsRejected() {
 }
 
 void testDigiKeySettingsFieldLimits() {
-  // The Settings editor and the settings validator share these limits; a value accepted on screen must save.
+  // Editor and validator share these limits, so any value accepted on screen saves.
   const auto path = testTempRoot() / "inventatory-digikey-field-limits-test.conf";
   AppSettings limits;
   limits.digiKeyClientId = string(kMaxDigiKeyFieldBytes, 'c');
@@ -10729,7 +10594,7 @@ void testDigiKeySettingsFieldLimits() {
 }
 
 void testSymbolStandardPersistence() {
-  // The EU default is not written, so the file stays readable by releases that predate the setting.
+  // The EU default is not written, so older releases can still read the file.
   const auto path = testTempRoot() / "inventatory-symbol-standard-settings-test.conf";
   AppSettings defaults;
   defaults.dataDirectory = "data";
@@ -10835,15 +10700,14 @@ void testUpdatePreviewPresentation() {
   assert(updateNotesLineWidth(formatted[0]) == 2 + static_cast<int>(displayWidth("Highlights")) + 2);
   assert(updateNotesLineWidth(formatted[1]) == 4 + static_cast<int>(displayWidth("Added brand new application icon.")) + 2);
 
-  // Panel width computed across all note lines remains stable regardless of scroll offset.
+  // Panel width is stable across repeated calls.
   const auto scroll0 = updateNotesPanelWidth(formatted, 60);
   const auto scroll5 = updateNotesPanelWidth(formatted, 60);
   assert(scroll0 == scroll5);
 }
 
 void testUtf8TextInputEditing() {
-  // Typed characters keep their full UTF-8 sequence and Backspace removes
-  // whole characters, so Polish letters and unit symbols never corrupt text.
+  // Typed characters keep their UTF-8 sequence, and Backspace removes whole characters.
   string buffer;
   appendKeyText(buffer, KeyEvent{KeyType::Character, 'a', ""});
   appendKeyText(buffer, KeyEvent{KeyType::Character, '\0', "\xC5\x82"});      // ł
@@ -11025,9 +10889,7 @@ void testReleaseMetadataParsing() {
   assert(!removeError);
 }
 
-// --- KiCad BOM integration -----------------------------------------------
-// A trimmed copy of a real KiCad grouped export: semicolon delimited, a
-// non-orderable REF** row, and an unescaped inch mark in "2.13" ePaper".
+// Trimmed KiCad grouped export: semicolons, a non-orderable REF** row, and an unescaped inch mark.
 const string kicadBom =
     "\"Id\";\"Designator\";\"Footprint\";\"Quantity\";\"Designation\";\"Supplier and ref\";\n"
     "1;\"C1, C15, C16, C22, C23, C25\";\"C_0603_1608Metric\";6;\"1uF\";;;\n"
@@ -11062,7 +10924,7 @@ void testCsvInchMarkInUnquotedField() {
   const auto multi = parseCsv("a,5\" x 7\",c\nd,e,f\n", ',', csvError);
   assert(csvError.empty() && multi.size() == 2);
   assert(multi[0].size() == 3 && multi[0][1] == "5\" x 7\"" && multi[0][2] == "c");
-  // Quoting at the start of a field (also after a blank) still works, including embedded delimiters.
+  // Quoting at the start of a field (also after a blank) still works, with embedded delimiters.
   const auto quoted = parseCsv("x; \"a;b\";\"c\"\"d\"\n", ';', csvError);
   assert(csvError.empty() && quoted.size() == 1);
   assert(quoted[0].size() == 3 && quoted[0][1] == "a;b" && quoted[0][2] == "c\"d");
@@ -11111,12 +10973,12 @@ void testCsvEncodingValidation() {
   assert(!decodeCsvBytes(utf16("abc", false, {0xD83DU}), utf8, encodingError));
   assert(!decodeCsvBytes(string("\xFF\xFE\x00\x00x\x00\x00\x00", 8), utf8, encodingError));
   assert(encodingError.find("UTF-32") != string::npos);
-  // A U+0000 unit would become an embedded NUL byte; the UTF-8 route refuses those, so UTF-16 must too.
+  // A U+0000 unit would make an embedded NUL byte, so UTF-16 must be refused like UTF-8.
   for (const bool littleEndian : {true, false}) {
     assert(!decodeCsvBytes(utf16("R1;a", littleEndian, {0x0000U, 'b'}), utf8, encodingError));
     assert(encodingError.find("NUL") != string::npos && utf8.empty());
   }
-  // Windows-1250 (0xB5 micro sign, 0xB3 for l-stroke), overlong or truncated UTF-8 and NULs without a BOM.
+  // Windows-1250 (0xB5 micro, 0xB3 l-stroke), overlong or truncated UTF-8, and NULs without a BOM.
   for (const string& bad : {string("Description\n10\xB5" "F\n"), string("Ilo\xB3\xE6\n"), string("a\xC0\x80" "b"),
                            string("a\xE2\x82"), string("a\xED\xA0\x80" "b"), string("a\xF5\x80\x80\x80"),
                            string("R\0e\0f\0", 6)}) {
@@ -11188,8 +11050,7 @@ void testKicadBomParsing() {
   assert(bom.lines.front().quantityPerBoard == 6);
   assert(bom.lines.front().designation == "1uF");
   assert(bom.lines.front().footprint == "C_0603_1608Metric");
-  // Lenient quote recovery keeps the display row intact instead of swallowing
-  // the rest of the file.
+  // Lenient quote recovery keeps this row from swallowing the rest of the file.
   const auto epaper = find_if(bom.lines.begin(), bom.lines.end(), [](const BomLine& line) {
     return !line.designators.empty() && line.designators.front() == "U2";
   });
@@ -11411,8 +11272,7 @@ void testMatchingPrefersValueAndPackage() {
     return size_t{0};
   };
 
-  // Value plus package ranks the 0603 part first, ahead of a far larger 0805 reel. The 0603 part is only the
-  // suggestion: the package-less part fits the line as well, so the user confirms one of them.
+  // Value plus package ranks the 0603 part first; the package-less part also fits, so confirm.
   const auto capIndex = lineIndexOf("100nF");
   assert(analysis.matches[capIndex].chosenItemId() == "cap-100nf-0603");
   assert(analysis.matches[capIndex].needed == 2);
@@ -11432,7 +11292,7 @@ void testMatchingPrefersValueAndPackage() {
   const auto radialIndex = lineIndexOf("100uF");
   assert(analysis.matches[radialIndex].candidates.empty());
   assert(!analysis.matches[radialIndex].sufficient);
-  assert(analysis.shortCount == 5);  // five of the eight KiCad lines are not sufficiently covered by this stock
+  assert(analysis.shortCount == 5);  // five of the seven orderable lines are not covered by this stock
   assert(analysis.confirmCount == 1);  // the 100nF line waits for the user to pick its part
   assert(analysis.readyCount == 1);    // only the exact module match is authorised on identity alone
   assert(!bomBuildReady(analysis));
@@ -11441,7 +11301,7 @@ void testMatchingPrefersValueAndPackage() {
   const auto oneMicroIndex = lineIndexOf("1uF");
   assert(!analysis.matches[oneMicroIndex].sufficient);
 
-  // A confirmation pins the chosen part across a re-analysis, for as long as that part is unchanged.
+  // A confirmation pins the chosen part across re-analysis, while that part is unchanged.
   const auto& noPackageItem = items[2];
   map<string, string> confirmations;
   confirmations[bomLineKey(analysis.lines[capIndex])] =
@@ -11452,7 +11312,7 @@ void testMatchingPrefersValueAndPackage() {
   assert(pinned.matches[capIndex].sufficient);
   assert(pinned.matches[capIndex].check == BomCheckReason::None);
 
-  // A bare item id, as earlier versions stored it, is not a confirmation. The top suggestion is shown, unconfirmed.
+  // A bare item id from earlier versions is not a confirmation.
   map<string, string> bareId;
   bareId[bomLineKey(analysis.lines[capIndex])] = "cap-100nf-unknown";
   const auto unpinned = analyzeBom(bom, items, 1, bareId);
@@ -11494,7 +11354,7 @@ BomAnalysis pickPlanAnalysis(const vector<tuple<string, string, int, vector<stri
     BomMatch match;
     match.lineIndex = analysis.lines.size();
     if (!itemId.empty()) match.candidates.push_back({itemId, 100});
-    // The walkthrough only ever picks confirmed matches, so the helper models lines the user has confirmed.
+    // The pick walkthrough only uses confirmed matches, so model confirmed lines.
     match.confirmed = !itemId.empty();
     match.needed = needed;
     analysis.lines.push_back(line);
@@ -11503,7 +11363,7 @@ BomAnalysis pickPlanAnalysis(const vector<tuple<string, string, int, vector<stri
   return analysis;
 }
 
-// Stock used to characterise the KiCad matching path: value, package and part-number cases in one set.
+// Stock covering the KiCad matching cases: value, package and part number.
 vector<InventoryItem> characterisationStock() {
   InventoryItem cap;
   cap.id = "cap-100nf-0603";
@@ -11564,11 +11424,9 @@ string describeBomAnalysis(const BomAnalysis& analysis) {
 }
 
 void testKicadBomCharacterisation() {
-  // Captured before the EasyEDA work. KiCad lines carry no supplier identity, so their keys, quantities and
-  // candidate lists must stay byte-identical. Two intended changes are recorded here:
-  //  - the 100nF line has two equally good stock parts, so it is no longer sufficient on its own (confirm first);
-  //  - "esp32-module" is no longer a candidate: its name holds ESP32-S3-WROOM-1 only as part of "...-N16R8",
-  //    and a part number matches a whole word, not a substring.
+  // KiCad lines have no supplier identity, so this snapshot must stay byte-identical.
+  // Intended changes: the 100nF line now needs confirmation (two equal parts), and "esp32-module"
+  // is not a candidate, since a part number matches a whole word, not a substring of "...-N16R8".
   const auto bom = parseKicadBomText(kicadBom, "Astro Arrow");
   const auto analysis = analyzeBom(bom, characterisationStock(), 1, {});
   const string expected = R"SNAP(1uf|c06031608metric | needed 6 | available 1 | sufficient no | chosen cap-1uf-0603 | cap-1uf-0603:90
@@ -11587,8 +11445,8 @@ ready 1 short 5 pieces 14
   }
 }
 
-// Synthetic export in the layout of an EasyEDA Standard BOM: UTF-8 with a byte order mark, tab delimited, quoted
-// cells. The Ohm sign is U+03A9 (bytes CE A9), as EasyEDA writes it.
+// Synthetic EasyEDA Standard BOM: UTF-8 with a byte order mark, tab delimited, quoted cells.
+// The Ohm sign is U+03A9 (bytes CE A9), as EasyEDA writes it.
 const string easyedaBom =
     "\xEF\xBB\xBF"
     "ID\tName\tDesignator\tFootprint\tQuantity\tSupplier\tSupplier Part\tPrice\n"
@@ -11623,7 +11481,7 @@ void testEasyEdaBomParsing() {
   const auto bom = parseBomText(easyedaBom, "Rydful");
   assert(bom.ok);
   assert(bom.projectName == "Rydful");
-  // Three orderable rows. The castellated pads have no supplier part and are excluded, with a warning that names them.
+  // Three orderable rows; the castellated pads lack a supplier part, so a warning names them.
   assert(bom.lines.size() == 3);
   assert(bom.warnings.size() == 1);
   assert(bom.warnings.front().find("Castellated_Pad x1 is not orderable") != string::npos);
@@ -11659,7 +11517,7 @@ void testEasyEdaBomRefusesAmbiguousRows() {
   assert(!duplicate.ok);
   assert(duplicate.error.find("Designator C2 appears on rows 2 and 3") != string::npos);
 
-  // A row without a name or a designator cannot be placed or priced, so it is refused rather than dropped.
+  // A row without a name or designator cannot be placed or priced, so it is refused, not dropped.
   const auto noName = parseEasyEdaBomText(header + "\tR1\tR0402\t1\tC25744\n", "no name");
   assert(!noName.ok && noName.error.find("has no Name for R1") != string::npos);
   const auto noDesignator = parseEasyEdaBomText(header + "10k\t\tR0402\t1\tC25744\n", "no designator");
@@ -11672,8 +11530,7 @@ void testEasyEdaBomRefusesAmbiguousRows() {
   const auto noNameColumn = parseEasyEdaBomText("Designator\tFootprint\tQuantity\nR1\tR0402\t1\n", "no column");
   assert(!noNameColumn.ok && noNameColumn.error.find("missing the Name") != string::npos);
 
-  // A Quantity that disagrees with the designators is kept visible. The row never matches on its own, and demand is
-  // never less than the designators placed.
+  // A mismatched Quantity stays visible; demand is never less than the designators placed.
   const auto mismatch = parseEasyEdaBomText(header + "10k\tR1,R2,R3\tR0402\t2\tC25744\n", "mismatch");
   assert(mismatch.ok);
   assert(mismatch.lines.size() == 1);
@@ -11687,7 +11544,7 @@ void testEasyEdaBomRefusesAmbiguousRows() {
 
 void testEasyEdaRowWithPartNumberKept() {
   const string header = "Name\tDesignator\tFootprint\tQuantity\tSupplier\tSupplier Part\n";
-  // (a) EasyEDA row H1 with an LCSC part number is kept, same row without part numbers is skipped with a warning.
+  // A row with an LCSC part number is kept; the same row without one is skipped with a warning.
   const string rowWithPart = header + "Standoff M3\tH1\tMountingHole_3.2mm\t1\tLCSC\tC12345\n";
   const auto bomKept = parseEasyEdaBomText(rowWithPart, "kept");
   assert(bomKept.ok);
@@ -11704,7 +11561,7 @@ void testEasyEdaRowWithPartNumberKept() {
   assert(bomSkipped.warnings.size() == 1);
   assert(bomSkipped.warnings.front().find("Standoff M3 is not orderable") != string::npos);
 
-  // When another orderable row is present, the BOM succeeds and keeps only the orderable row with a warning.
+  // With another orderable row, the BOM succeeds, keeps that row, and warns.
   const string mixed = rowWithoutPart + "10k\tR1\tR0402\t1\tLCSC\tC25744\n";
   const auto bomMixed = parseEasyEdaBomText(mixed, "mixed");
   assert(bomMixed.ok);
@@ -11764,7 +11621,7 @@ void testEasyEdaProDialectDetectionAndParsing() {
 void testBomDialectDetection() {
   assert(detectCsvFormat(kicadBom) == CsvFormat::KicadBom);
   assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
-  // Designator and footprint, but no value column the importer can read: a BOM problem, not a DigiKey one.
+  // Designator and footprint but no readable value column: a BOM problem, not a DigiKey one.
   assert(detectCsvFormat("Designator\tFootprint\tQuantity\nR1\tR0402\t1\n") == CsvFormat::BomMissingValue);
   assert(detectCsvFormat("alpha,beta\n1,2\n") == CsvFormat::Unknown);
   // Each dialect is parsed by its own reader, and the KiCad path is unchanged.
@@ -11789,18 +11646,18 @@ void testBomIdentityMatching() {
   assert(identified.confirmed && identified.check == BomCheckReason::None);
   assert(identified.chosenItemId() == "cap-100n-mpn" && identified.sufficient);
 
-  // The same line with only the plain part in stock: the value fits, but the named part is not there. The user decides.
+  // The named part is not in stock, so the user decides, even though the value fits.
   const auto notInStock = analyzeBom(bomTestFile({mpnLine}), {plain}, 1, {}).matches.front();
   assert(!notInStock.confirmed && !notInStock.sufficient);
   assert(notInStock.check == BomCheckReason::IdentityNotInStock);
   assert(notInStock.needsConfirmation());
 
-  // An LCSC number the stock cannot identify never matches on value alone, whatever the Supplier says.
+  // An LCSC number the stock cannot identify never matches on value alone.
   const auto lcscLine = bomTestLine("100nF", "C0402", 4, "LCSC", "C60474");
   const auto lcsc = analyzeBom(bomTestFile({lcscLine}), {plain}, 1, {}).matches.front();
   assert(!lcsc.confirmed && lcsc.check == BomCheckReason::IdentityNotInStock);
 
-  // A DigiKey part number identifies the item that carries that number, even when another item fits by value.
+  // A DigiKey part number identifies its item, even when another item fits by value.
   InventoryItem digiKeyResistor;
   digiKeyResistor.id = "res-dk";
   digiKeyResistor.partName = "RES 10K 1% 0402";
@@ -11814,7 +11671,7 @@ void testBomIdentityMatching() {
   const auto dk = analyzeBom(bomTestFile({dkLine}), {otherResistor, digiKeyResistor}, 1, {}).matches.front();
   assert(dk.confirmed && dk.chosenItemId() == "res-dk");
 
-  // A part number is a whole word of the name. LM3585 is not LM358, and LM358 is a whole word of its own name.
+  // Part numbers match whole words: LM3585 is not LM358.
   InventoryItem lm3585 = plain;
   lm3585.id = "opamp-lm3585";
   lm3585.partName = "LM3585 OPAMP SOIC-8";
@@ -11829,7 +11686,7 @@ void testBomIdentityMatching() {
   assert(opampFound.confirmed && opampFound.chosenItemId() == "opamp-lm358");
   assert(opampFound.candidates.size() == 1 && opampFound.candidates.front().identity);
 
-  // Two equally good parts and no identifier: the match waits for the user, and the best candidate is only suggested.
+  // Two equally good parts and no identifier: the user decides; the best is only suggested.
   InventoryItem tight = otherResistor;
   tight.id = "res-01pct";
   tight.partName = "RES 10K 0.1% 0402";
@@ -11845,8 +11702,7 @@ void testBomIdentityMatching() {
   assert(ambiguous.check == BomCheckReason::Ambiguous);
   assert(ambiguous.chosenItemId() == "res-01pct");  // the suggestion is the larger reel, never the authority
 
-  // One part with the right value but no package on either side is offered, not accepted. With a matching package
-  // the same kind of part is accepted.
+  // A part with a matching value but no package on either side is offered, not accepted.
   InventoryItem noPackage = plain;
   noPackage.id = "cap-no-package";
   noPackage.partName = "CAP CER 100NF 16V X7R";
@@ -11879,7 +11735,7 @@ void testBomLcscPartNumberMatching() {
   differentSkuItem.sku = "C99999";
   differentSkuItem.quantity = 50;
 
-  // An LCSC-supplier line whose supplier part equals a stock item's sku is an identity match and auto-confirms when unique.
+  // An LCSC line whose supplier part equals a stock sku is an identity match.
   const auto lcscLine = bomTestLine("100nF", "C0402", 4, "LCSC", "C60474");
   const auto matched = analyzeBom(bomTestFile({lcscLine}), {lcscItem}, 1, {}).matches.front();
   assert(matched.confirmed);
@@ -11896,8 +11752,7 @@ void testBomLcscPartNumberMatching() {
   const auto metaMatched = analyzeBom(bomTestFile({lcscLine}), {metaItem}, 1, {}).matches.front();
   assert(metaMatched.confirmed && metaMatched.chosenItemId() == "cap-100n-meta");
 
-  // A different SKU does not match via the supplier part number; since the line has a supplier part number,
-  // it is not confirmed on value alone (IdentityNotInStock).
+  // A different SKU does not match, and the line is not confirmed on value alone.
   const auto unmatched = analyzeBom(bomTestFile({lcscLine}), {differentSkuItem}, 1, {}).matches.front();
   assert(!unmatched.confirmed);
   assert(unmatched.check == BomCheckReason::IdentityNotInStock);
@@ -11936,7 +11791,7 @@ void testBomConfirmationLifecycle() {
   moved[0].quantity = 3;
   assert(analyzeBom(bom, moved, 1, confirmations).matches.front().confirmed);
 
-  // Changing what the matcher reads does invalidate it. The line is unconfirmed, and nothing is swapped in silently.
+  // Changing what the matcher reads invalidates it; nothing is swapped in silently.
   auto edited = items;
   edited[0].partName = "RES 10K 1% 0402 reel replaced";
   const auto lost = analyzeBom(bom, edited, 1, confirmations).matches.front();
@@ -11952,8 +11807,8 @@ void testBomConfirmationLifecycle() {
   assert(!suggested.confirmed && suggested.chosenItemId() == "res-1pct");
   assert(suggested.check == BomCheckReason::Ambiguous);
 
-  // A bare item id, as earlier versions stored it, is not a confirmation.
-  const auto bare = analyzeBom(bom, items, 1, {{key, loose.id}}).matches.front();
+  // A bare item id from earlier versions is not a confirmation.
+  const auto bare =analyzeBom(bom, items, 1, {{key, loose.id}}).matches.front();
   assert(!bare.confirmed && bare.check == BomCheckReason::OverrideLost);
 
   // Only a complete, well-formed confirmation decodes.
@@ -11971,8 +11826,7 @@ void testBomConfirmationLifecycle() {
   assert(bomItemFingerprint(loose).size() == 16);
 }
 
-// Reads one of the synthetic Altium fixtures in tests/fixtures. The first line is a SYNTHETIC notice for whoever opens
-// the file; the CSV reader has no comments, so that line is dropped before parsing.
+// Reads a synthetic Altium fixture; its SYNTHETIC notice line is dropped before parsing.
 string readAltiumFixture(const string& name) {
   const auto path = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / name;
   ifstream input(path);
@@ -12030,8 +11884,7 @@ void testAltiumSupplierFixtureFillsSupplierColumns() {
   assert(bom.ok);
   assert(bom.lines.size() == 3);
 
-  // The supplier, its part number and the manufacturer part number come from the named columns. A supplier line
-  // keeps its supplier name as the file gives it.
+  // Supplier columns are read by name, and the supplier name is kept as the file gives it.
   const auto& resistors = bom.lines[0];
   assert(resistors.supplier == "Mouser");
   assert(resistors.supplierPartNumber == "999-SYN-RES-10K");
@@ -12058,7 +11911,7 @@ void testAltiumQuotedCellsKeepCommas() {
 void testAltiumRefusesAmbiguousRows() {
   const string header = "Comment,Designator,Footprint,Quantity\n";
 
-  // A repeated designator would count one physical part twice, so the whole file is refused and the message names it.
+  // A repeated designator would count one part twice, so the whole file is refused.
   const auto duplicate = parseAltiumBomText(header + "100nF,\"C1,C2\",C0402,2\n10k,C2,R0402,1\n", "duplicate");
   assert(!duplicate.ok);
   assert(duplicate.error.find("Designator C2 appears on rows 2 and 3") != string::npos);
@@ -12077,13 +11930,13 @@ void testAltiumRefusesAmbiguousRows() {
   const auto badQuantity = parseAltiumBomText(header + "10k,R1,R0402,two\n", "bad quantity");
   assert(!badQuantity.ok && badQuantity.error.find("is not a whole number") != string::npos);
 
-  // A cell past the last column means a quote was misread, so the row is refused. Empty cells past it are harmless.
+  // A cell past the last column means a misread quote: the row is refused. Empty ones are fine.
   const auto shifted = parseAltiumBomText(header + "10k,R1,R0402,1,extra\n", "shifted");
   assert(!shifted.ok && shifted.error.find("has a cell past the last column") != string::npos);
   const auto trailingCommas = parseAltiumBomText(header + "10k,R1,R0402,1,,\n", "trailing commas");
   assert(trailingCommas.ok && trailingCommas.lines.size() == 1);
 
-  // A part with a part number but no designator is still refused, so a total row can never hide a part.
+  // A part with a part number but no designator is still refused, so a total row cannot hide it.
   const auto partWithoutDesignator =
       parseAltiumBomText("Comment,Designator,Manufacturer Part Number 1\n,,SYN-PART-1\n", "part without designator");
   assert(!partWithoutDesignator.ok && partWithoutDesignator.error.find("has no designator") != string::npos);
@@ -12107,8 +11960,7 @@ void testAltiumHeaderErrors() {
 void testAltiumQuantityConflictIsKept() {
   const string header = "Comment,Designator,Footprint,Quantity\n";
 
-  // A Quantity that disagrees with the designators is kept visible. The row cannot match on its own, and demand is
-  // never less than the designators placed.
+  // A mismatched Quantity stays visible; demand is never less than the designators placed.
   const auto mismatch = parseAltiumBomText(header + "10k,\"R1,R2,R3\",R0402,2\n", "mismatch");
   assert(mismatch.ok && mismatch.lines.size() == 1);
   assert(mismatch.lines.front().quantityConflict);
@@ -12120,8 +11972,7 @@ void testAltiumQuantityConflictIsKept() {
 }
 
 void testAltium365ExportReachesAltiumParser() {
-  // An Altium 365 export has no Comment column and reads its value from Description. It reaches the Altium parser,
-  // which reads its supplier columns. The KiCad parser reads neither, so it would refuse the file.
+  // An Altium 365 export has no Comment column, so its value comes from Description.
   const auto text = readAltiumFixture("altium-365.csv");
   assert(detectCsvFormat(text) == CsvFormat::KicadBom);
   assert(!parseKicadBomText(text, "Altium 365").ok);
@@ -12135,7 +11986,7 @@ void testAltium365ExportReachesAltiumParser() {
   assert(resistors.quantityPerBoard == 2 && !resistors.quantityConflict);
   assert(resistors.supplier == "Mouser" && resistors.supplierPartNumber == "999-SYN-RES-10K");
 
-  // A quote written as \" inside a quoted cell stays a quote, and the cells after it stay in their own columns.
+  // A \" inside a quoted cell stays a quote, and later cells keep their own columns.
   const auto& header = bom.lines[1];
   assert(header.designation == "10 Pin Shrouded Header, 0.050\", Key Pin 7");
   assert(header.designators == (vector<string>{"J4"}) && header.quantityPerBoard == 1);
@@ -12156,13 +12007,13 @@ void testAltium365ExportReachesAltiumParser() {
 }
 
 void testAltiumBackslashQuotes() {
-  // In the backslash reader, \" inside a quoted cell is one quote, and the cell goes on to its real closing quote.
+  // In the backslash reader, \" is one quote, and the cell ends at its real closing quote.
   string error;
   const auto escaped = parseCsvBackslashQuotes("\"0.050\\\", key\",x\n", ',', error);
   assert(error.empty() && escaped.size() == 1 && escaped.front().size() == 2);
   assert(escaped.front()[0] == "0.050\", key" && escaped.front()[1] == "x");
 
-  // The shared reader is unchanged: the same text ends the cell at the backslash, as it always has.
+  // The shared reader still ends the cell at the backslash.
   const auto shared = parseCsv("\"0.050\\\", key\",x\n", ',', error);
   assert(error.empty() && shared.size() == 1 && shared.front().size() == 3);
   assert(shared.front()[0] == "0.050\\");
@@ -12176,7 +12027,7 @@ void testAltiumDetectionKeepsOtherDialects() {
   const auto kicadReading = parseKicadBomText(altium, "dispatch");
   assert(kicadReading.ok && kicadReading.lines.front().supplierPartNumber.empty());
 
-  // A KiCad BOM stays on the KiCad parser, with the same lines and warnings as the KiCad parser gives.
+  // A KiCad BOM stays on the KiCad parser, with the same lines and warnings.
   const auto viaDispatch = parseBomText(kicadBom, "kicad");
   const auto direct = parseKicadBomText(kicadBom, "kicad");
   assert(viaDispatch.ok == direct.ok && viaDispatch.lines.size() == direct.lines.size());
@@ -12193,7 +12044,7 @@ void testAltiumDetectionKeepsOtherDialects() {
   assert(detectCsvFormat(easyedaBom) == CsvFormat::EasyEdaBom);
   assert(parseBomText(easyedaBom, "easyeda").lines.size() == 3);
 
-  // A file with a KiCad-only Qty column is not Altium, even with the Altium-shaped columns beside it.
+  // A file with a KiCad-only Qty column is not Altium, even with Altium-shaped columns.
   const string withQty = "Comment,Designator,Footprint,Description,Qty,Supplier 1\n10k,R1,R0402,Synthetic,1,Mouser\n";
   const auto kicadShaped = parseBomText(withQty, "qty");
   assert(kicadShaped.ok && kicadShaped.lines.size() == 1);
@@ -12201,11 +12052,11 @@ void testAltiumDetectionKeepsOtherDialects() {
 }
 
 void testBomLineKeysSeparateEasyEdaParts() {
-  // Two rows with the same name and footprint but different LCSC numbers are different parts and get different keys.
+  // Rows differing only by LCSC number are different parts, with different keys.
   const auto first = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25744");
   const auto second = bomTestLine("10k\xCE\xA9", "R0402", 1, "LCSC", "C25745");
   assert(bomLineKey(first) != bomLineKey(second));
-  // A KiCad line carries no supplier identity, so its key is the same as it was before identity columns existed.
+  // A KiCad line has no supplier identity, so its key stays as it was.
   assert(bomLineKey(bomTestLine("10k", "R_0402_1005Metric", 1)) == "10k|r04021005metric");
 
   // A confirmation for one row never applies to the other.
@@ -12231,7 +12082,7 @@ void testBomPickCommitsAndProblems() {
   dk.parameters = {{"Resistance", "10 kOhms"}, {"Package / Case", "0402 (1005 Metric)"}};
   store.items().push_back(dk);
 
-  // Two lines draw on the same item. Both are identified by the same DigiKey number, so both are confirmed.
+  // Two lines draw on one item. Both are identified by the same DigiKey number, so both confirm.
   const auto bom = bomTestFile({bomTestLine("10k", "R0402", 5, "DigiKey", "311-10.0KLRCT-ND"),
                                 bomTestLine("10k", "R0402", 7, "DigiKey", "311-10.0KLRCT-ND")});
   const auto analysis = analyzeBom(bom, store.items(), 1, {});
@@ -12242,7 +12093,7 @@ void testBomPickCommitsAndProblems() {
   assert(sameBomPickCommits(commits, commits));
   assert(bomPickProblems(commits, {5, 7}, store).empty());
 
-  // Stock that fell below the walkthrough's take is reported, with the units involved. Nothing is clamped.
+  // Stock below the walkthrough's take is reported with its units. Nothing is clamped.
   store.items()[0].quantity = 10;
   const auto shortage = bomPickProblems(commits, {5, 7}, store);
   assert(shortage.size() == 1);
@@ -12260,7 +12111,7 @@ void testBomPickCommitsAndProblems() {
   assert(!gone.empty() && gone.front().find("is no longer in stock") != string::npos);
   assert(bomPickProblems(commits, {0, 0}, store).empty());
 
-  // The commit list differs when the plan differs, so a deduction against a changed plan is refused.
+  // The commit list differs when the plan does, so a deduction against a changed plan is refused.
   auto other = commits;
   other[1].quantity = 6;
   assert(!sameBomPickCommits(commits, other));
@@ -12533,8 +12384,7 @@ void testEnrichmentCacheRules() {
   assert(bomEnrichmentExportText(kBomEnrichmentNoMatch).empty());
   assert(bomEnrichmentExportText("").empty());
 
-  // The shortage export is built as text first: markers never reach it, cells stay formula-safe, and a
-  // line that is in stock is left out.
+  // The shortage export keeps markers out, cells formula-safe, and in-stock lines out.
   KicadBomFile shortageBom;
   shortageBom.ok = true;
   const auto addShortageLine = [&](const string& designation, const string& footprint, const string& designator,
@@ -12563,7 +12413,7 @@ void testEnrichmentCacheRules() {
   shortageEnrichment[bomLineKey(shortageBom.lines[2])] = kBomEnrichmentNoMatch;
   const auto shortageCsv = buildBomShortageCsv(shortageAnalysis, shortageEnrichment);
   assert(shortageCsv.rows == 3);
-  // A suggestion stored before verification existed is unverified, so it is exported as "check before ordering".
+  // A suggestion stored before verification existed is exported as "check before ordering".
   assert(shortageCsv.text ==
          "Designation,Footprint,Package,Designators,Needed,On hand,Suggested part,Supplier,Suggestion check\r\n"
          "\"100uF\",\"CP_Radial_D5.0mm_P2.50mm\",\"Radial 5.0mm\",\"C1\",2,0,\"493-13399-ND\",\"DigiKey\","
@@ -12583,8 +12433,7 @@ void testEnrichmentCacheRules() {
   assert(!bomEnrichmentVerified("493-13399-ND"));  // stored before verification existed
   assert(bomEnrichmentSupplier("493-13399-ND") == "DigiKey");
 
-  // A suggestion from TME carries its own marker: the part reads back without it, the supplier is TME, and the
-  // shopping list names TME beside the part.
+  // A TME suggestion has its own marker: the part reads back without it, and the supplier is TME.
   const auto tmeEntry = bomEnrichmentEntry(BomLookupOutcome::Found, "0ZCM0010FF2G", true, true).value();
   assert(bomEnrichmentPart(tmeEntry) == "0ZCM0010FF2G");
   assert(bomEnrichmentSupplier(tmeEntry) == "TME");
@@ -12597,8 +12446,7 @@ void testEnrichmentCacheRules() {
   assert(buildBomShortageCsv(shortageAnalysis, tmeEnrichment).text.find("\"0ZCM0010FF2G\",\"TME\",\"verified\"") !=
          string::npos);
 
-  // A line waiting for confirmation is on the shopping list with nothing on hand: the stock it names is not yet
-  // the part the user accepted for that line.
+  // A line awaiting confirmation is listed with nothing on hand; its stock is not yet accepted.
   InventoryItem candidate;
   candidate.id = "res-1pct";
   candidate.partName = "RES 10K 1% 0402";
@@ -12668,8 +12516,7 @@ void testBackupExportAndRestoreWorkflow() {
   assert(exportedText.find("Transfer resistor") != string::npos);
   assert(exportedText.find("Quantity") != string::npos);
   assert(exportedText.find("\"\t =HYPERLINK(\"\"https://example.invalid\"\")\"") != string::npos);
-  // Exporting over an existing file replaces it whole and leaves no temporary file behind; an export
-  // that cannot be written reports an error and leaves the destination as it was.
+  // An export replaces the file whole, leaves no temp file, and reports a failed write.
   {
     error_code ignoredExportError;
     exported.close();  // Windows cannot replace a file that is still open
@@ -12851,8 +12698,7 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoverInventatoryRestore(restoreTarget, targetSettingsPath, error));
   }
   {
-    // cleanup_pending is the restore commit point. Recovery must tolerate a
-    // crash after old data was deleted but before the settings backup.
+    // cleanup_pending is the commit point; recovery must survive a crash after old data is gone.
     InventoryStore cleanupOldStore;
     InventoryItem cleanupOldItem;
     cleanupOldItem.id = "cleanup-old-item";
@@ -12884,8 +12730,7 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoveredStore.items().front().id == "transfer-item");
   }
   {
-    // A crash after every rollback artifact is gone but before journal
-    // removal must also leave the committed workspace recoverable.
+    // A crash after rollback artifacts are gone, but before journal removal, must stay recoverable.
     InventoryStore cleanupOldStore;
     InventoryItem cleanupOldItem;
     cleanupOldItem.id = "journal-cleanup-old-item";
@@ -12920,8 +12765,7 @@ void testBackupExportAndRestoreWorkflow() {
     assert(recoveredStore.items().front().id == "transfer-item");
   }
   {
-    // A failure after the settings backup has been created must clean that
-    // owned artifact along with staging, without touching the active data.
+    // A failure after the settings backup is created must clean that artifact, not the active data.
     InventoryTransferTestHooks hooks;
     bool settingsBackupCreated = false;
     hooks.copyFile = [&targetSettingsPath, &settingsBackupCreated](const filesystem::path& sourcePath,
@@ -12967,10 +12811,8 @@ void testBackupExportAndRestoreWorkflow() {
   assert(!filesystem::exists(restoreTarget / "settings.conf"));
 
   {
-    // Restore replaces only Inventatory's managed files. Everything else in
-    // the chosen data folder is user data and must survive every outcome:
-    // success, refusal before activation, a failed move, and a crash at any
-    // step followed by startup recovery.
+    // Restore replaces only managed files; other data-folder entries must survive every outcome:
+    // success, refusal, a failed move, and a crash followed by recovery.
     const auto tempRoot = testTempRoot();
     const auto keepTarget = tempRoot / "inventatory-transfer-preserve-target";
     const auto keepSettings = tempRoot / "inventatory-transfer-preserve-settings.conf";
@@ -13072,8 +12914,7 @@ void testBackupExportAndRestoreWorkflow() {
       assert(loaded.items().size() == 1);
       return loaded.items().front().id;
     };
-    // Real operations that can be interleaved with injected crashes. Every
-    // hook is counted so a crash can be placed before or after any step.
+    // Real operations with injected crashes; each hook is counted so a crash can land at any step.
     struct CrashPlan {
       size_t operations = 0;
       size_t crashAt = 0;  // 1-based; 0 never crashes
@@ -13227,8 +13068,7 @@ void testBackupExportAndRestoreWorkflow() {
         assert(recovered);
         expectUnmanagedIntact();
         if (crashAt == 1 && !crashAfter) {
-          // Crashing before the journal exists leaves only the empty staging
-          // directory, which holds no data and has nothing to recover.
+          // Before the journal exists only the empty staging directory remains.
           for (const auto& name : restoreArtifacts()) {
             assert(name.find(".restore-staging-") != string::npos);
             assert(filesystem::is_empty(tempRoot / filesystem::u8path(name)));
@@ -13250,14 +13090,11 @@ void testBackupExportAndRestoreWorkflow() {
         }
       }
     }
-    // Crash points before the commit point must roll back and later ones must complete the restore, so both
-    // outcomes have to occur; their split depends on the number of steps and is not pinned.
+    // Crashes before the commit point roll back, later ones complete; both outcomes must occur.
     assert(committedRecoveries > 0 && rolledBackRecoveries > 0);
 
-    // 5. Committed cleanup never deletes an unmanaged entry that is still in
-    //    the protected old data (for example, from an interrupted older
-    //    release): it is moved into the active workspace first, and a name
-    //    clash leaves the protected data in place instead of deleting it.
+    // 5. Cleanup moves leftover unmanaged entries into the workspace before deleting old data.
+    //    On a name clash the protected data stays in place.
     const auto crashAtCleanupCommit = [&](const string& leftoverName) {
       resetWorkspace();
       InventoryTransferTestHooks hooks;
@@ -13307,8 +13144,7 @@ void testBackupExportAndRestoreWorkflow() {
     for (const auto& name : restoreArtifacts()) filesystem::remove_all(tempRoot / filesystem::u8path(name), keepCleanupError);
   }
 
-  // If the protected old directory disappears before rollback, the active
-  // destination must remain intact rather than being deleted blindly.
+  // If the protected old directory vanishes before rollback, the active destination stays intact.
   const auto missingOldTarget = testTempRoot() / "inventatory-transfer-missing-old-target";
   const auto missingOldSettings = testTempRoot() / "inventatory-transfer-missing-old-settings.conf";
   filesystem::remove_all(missingOldTarget, cleanupError);
@@ -13387,8 +13223,7 @@ void testBackupExportAndRestoreWorkflow() {
   filesystem::remove_all(preparedTarget, cleanupError);
   filesystem::remove(preparedSettings, cleanupError);
 
-  // Online backup must capture the last committed WAL state without waiting
-  // for or including a writer's uncommitted transaction.
+  // Online backup captures the last committed WAL state, not an open writer's transaction.
   const auto liveBundle = testTempRoot() / "inventatory-transfer-live-bundle";
   filesystem::remove_all(liveBundle, cleanupError);
   SqliteConnection liveConnection;
@@ -13447,8 +13282,7 @@ void testBackupEmptyWorkspaceAndInvalidSources() {
   assert(validateInventatoryBackup(emptyBundle, error));
   assert(!restoreInventatoryBackup(emptyBundle, emptyBundle, emptySettingsPath, error));
 
-  // A readable SQLite file without the Inventatory schema is rejected by
-  // the staged public backup workflow, and the source is not modified.
+  // A SQLite file without the Inventatory schema is refused, and the source is not modified.
   filesystem::create_directories(noSchemaSource);
   {
     SqliteConnection noSchemaConnection;
@@ -13693,7 +13527,7 @@ void testOpenDatabaseCreatesParentDirectories() {
 
 #ifndef _WIN32
 void testSignalExistingInstanceOpensWindow() {
-  // Private runtime directory: a UI or service the developer has open must not hold these locks.
+  // Private runtime directory, so an open UI or service cannot hold these locks.
   const auto runtimeRoot = testTempRoot() / ("inventatory-signal-test-" + to_string(getpid()));
   filesystem::create_directories(runtimeRoot);
   filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
@@ -13711,8 +13545,7 @@ void testSignalExistingInstanceOpensWindow() {
 }
 
 void testBackgroundServiceWaitsForWorkspace() {
-  // A background service started while a terminal session owns the workspace waits for it instead of
-  // exiting, and takes the workspace as soon as the session lets go.
+  // A service started while a terminal owns the workspace waits, then takes it on release.
   const auto runtimeRoot = testTempRoot() / ("inventatory-wait-test-" + to_string(getpid()));
   filesystem::create_directories(runtimeRoot);
   filesystem::permissions(runtimeRoot, filesystem::perms::owner_all, filesystem::perm_options::replace);
@@ -13749,8 +13582,7 @@ void testBackgroundServiceTakeover() {
     assert(none.stopBackgroundService(200, 200) == BackgroundStopResult::NotRunning);
   }
 
-  // Starts a child that owns the background lock. A cooperative child quits on SIGTERM; a stubborn
-  // one ignores it, standing in for a service stuck in its shutdown.
+  // A child owns the background lock; a stubborn one ignores SIGTERM, like a stuck service.
   const auto spawnService = [&](bool stubborn) {
     int ready[2]{};
     assert(pipe(ready) == 0);
@@ -13832,8 +13664,7 @@ void testBackgroundServiceTakeover() {
     close(descriptor);
   }
   {
-    // Closing the terminal sends SIGHUP; it must reach the quit callback instead of killing the
-    // process before its final save.
+    // SIGHUP from a closed terminal must reach the quit callback, not kill the process first.
     BackgroundController controller;
     assert(controller.acquireSingleInstance(false));
     atomic<bool> quit{false};
@@ -13844,16 +13675,14 @@ void testBackgroundServiceTakeover() {
     controller.stop();
   }
   {
-    // Turning "run in background" off in Settings only ends background mode: the running TUI keeps
-    // its single-instance lock and its graceful-shutdown signal handling until the process exits.
+    // Turning background mode off keeps the running TUI's lock and shutdown handling until exit.
     const auto handlerOf = [](int signalNumber) {
       struct sigaction current{};
       assert(sigaction(signalNumber, nullptr, &current) == 0);
       return current.sa_handler;
     };
-    // A second launch is another process: it must still find the interactive instance and be
-    // refused the workspace. (A forked child stands in for it and exits without running any
-    // controller teardown, which would reset this process's signal handlers.)
+    // A second launch must find the running instance and be refused the workspace.
+    // A forked child stands in for it, so no teardown resets our signal handlers.
     const auto secondLaunchBlocked = [] {
       const pid_t child = fork();
       assert(child >= 0);
@@ -13895,8 +13724,7 @@ void testBackgroundServiceTakeover() {
     for (int tick = 0; tick < 100 && quits.load() == 1; ++tick) this_thread::sleep_for(chrono::milliseconds(10));
     assert(quits.load() == 2);
 
-    // Re-enabling in the same session (as Settings does, without an open callback) keeps the open
-    // callback and the instance lock, and does not start a second signal thread.
+    // Re-enabling in the same session keeps the open callback, the lock, and one signal thread.
     atomic<int> laterQuits{0};
     assert(controller.start(true, false, [&laterQuits] { ++laterQuits; }));
     assert(controller.enabled());
@@ -13926,8 +13754,7 @@ void testBackgroundServiceTakeover() {
 }
 
 void testSystemdUnitRegistration() {
-  // The per-user unit is rewritten and reloaded only when it changes, and keeps pointing at the
-  // executable it was registered with.
+  // The unit is rewritten and reloaded only on change, and keeps its registered executable.
   const auto root = testTempRoot() / ("inventatory-unit-test-" + to_string(getpid()));
   filesystem::create_directories(root / "bin");
   filesystem::create_directories(root / "config");
@@ -13965,7 +13792,7 @@ void testSystemdUnitRegistration() {
   assert(unitText.find("After=network-online.target") == string::npos);
   assert(unitText.find("TimeoutStopSec=15") != string::npos);
   assert(unitText.find("--background") != string::npos);
-  // A clean exit, such as the SIGTERM from `pkill -x inventatory`, is never restarted under on-failure.
+  // A clean exit, such as SIGTERM from `pkill -x inventatory`, is never restarted on-failure.
   assert(unitText.find("\nRestart=always\n") != string::npos);
   assert(unitText.find("Restart=on-failure") == string::npos);
   assert(unitText.find("\nRestartSec=5\n") != string::npos);
@@ -13994,8 +13821,7 @@ void testSystemdUnitRegistration() {
 
 #endif
 
-// Every way a stored or reversed snapshot can be semantically invalid is refused with its own message, so a
-// corrupt commit is reported precisely instead of making the whole history unloadable.
+// Each invalid snapshot is refused with its own message, so a corrupt commit is reported precisely.
 void testSnapshotSemanticsRejectInvalidSnapshots() {
   const auto makeStore = [] {
     InventoryStore store;
@@ -14058,7 +13884,7 @@ void testSnapshotSemanticsRejectInvalidSnapshots() {
   auto missingRack = makeStore();
   missingRack.items()[0].rackId = "deleted-rack";
   rejected(missingRack, "invalid rack assignment");
-  // The rack is 2 rows by 2 columns, so only A1..B2 exist and a slot is a letter followed by a number.
+  // The rack is 2 by 2, so only A1..B2 exist; a slot is a letter then a number.
   for (const char* slot : {"C1", "A3", "A0", "1A", "A", "AA", "A-1", "B99999999999999999999999"}) {
     auto outOfRange = makeStore();
     outOfRange.items()[0].rackSlot = slot;
@@ -14077,8 +13903,7 @@ void testSnapshotSemanticsRejectInvalidSnapshots() {
   assert(validateSnapshotSemantics(sameSlotTwice, &error));
 }
 
-// The lenient recovery for an unescaped inch mark has one failure mode that the importers rely on being an
-// error rather than silent data loss: a quote followed by text swallows the rest of the file.
+// Lenient inch-mark recovery must fail loudly: a quote followed by text must not swallow the file.
 void testCsvQuotedFieldRecovery() {
   string error;
   // The inch mark inside a quoted field is content; only the quote before the delimiter closes it.
@@ -14092,8 +13917,7 @@ void testCsvQuotedFieldRecovery() {
   assert(error.empty());
   assert(closed.size() == 2 && closed[0] == vector<string>{"a"} && closed[1] == vector<string>{"b"});
 
-  // A quote followed by text cannot close the field, so the field runs on to the end of the file; that is
-  // reported as an unterminated field and no partial rows are returned.
+  // A quote followed by text runs the field to the end of the file: an error, with no partial rows.
   const auto swallowed = parseCsv("\"abc\"def,ghi\nnext,row\n", ',', error);
   assert(swallowed.empty());
   assert(error.find("unterminated quoted field") != string::npos);
@@ -14138,7 +13962,7 @@ void testCsvClosingQuotePadding() {
   assert(error.empty());
   assert(tabDelimited.size() == 1 && tabDelimited[0] == (vector<string>{"abc", "x"}));
 
-  // The KiCad inch mark keeps its content when a space follows the quote and ordinary text follows it.
+  // An inch mark keeps its content even when spaces follow the closing quote.
   const auto inch = parseCsv("\"2.13\" ePaper\"  ,x\n", ',', error);
   assert(error.empty());
   assert(inch.size() == 1 && inch[0] == (vector<string>{"2.13\" ePaper", "x"}));
@@ -14150,8 +13974,7 @@ void testScannerCredentialResolutionOrSkip() {
   else skipMissingCredentialStore("scanner credential resolution");
 }
 
-// Inventory history lives in its own table. Each save replaces the table, and loading returns the points
-// oldest first, so every field has to survive the round trip exactly.
+// Each save replaces the history table; loading returns points oldest first, field for field.
 void testInventoryHistoryPersistenceRoundTrip() {
   const auto database = testTempRoot() / "inventatory-history-persistence.db";
   error_code cleanupError;
@@ -14223,8 +14046,7 @@ bool createSmallBackupBundle(const filesystem::path& root, const filesystem::pat
   return createInventatoryBackup(root / "source", root / "settings.conf", bundle, "1.0.0", error);
 }
 
-// The manifest records a size and a SHA-256 digest for each bundled file. A change that keeps the size is
-// caught only by the digest, so this changes one letter without changing the file's length.
+// The manifest's SHA-256 digest must catch a same-size change, so this edits one letter only.
 void testBackupBundleDetectsSameSizeCorruption() {
   const auto root = testTempRoot() / "inventatory-bundle-digest";
   const auto bundle = root / "bundle";
@@ -14259,8 +14081,7 @@ void testBackupBundleDetectsSameSizeCorruption() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// A bundle holds only the documented files. Scanner pairing data and any token, secret or password must
-// stay out of it, including the sanitized settings file.
+// A bundle holds only documented files: no scanner pairing data, token or secret.
 void testBackupBundleHoldsOnlyDocumentedFiles() {
   const auto root = testTempRoot() / "inventatory-bundle-contents";
   const auto bundle = root / "bundle";
@@ -14291,8 +14112,7 @@ void testBackupBundleHoldsOnlyDocumentedFiles() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// A restore journal that cannot be parsed must stop startup recovery before any workspace file changes,
-// and the journal must stay on disk so it can be inspected.
+// An unparsable restore journal stops recovery before any file changes, and stays on disk.
 void testCorruptRestoreJournalLeavesWorkspaceAlone() {
   const auto root = testTempRoot() / "inventatory-corrupt-journal";
   const auto workspace = root / "workspace";
@@ -14324,8 +14144,7 @@ void testCorruptRestoreJournalLeavesWorkspaceAlone() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// writeFileAtomically either replaces the destination completely or leaves it as it was. A failed write
-// reports an error and leaves no temporary file in the destination folder.
+// A failed atomic write keeps the prior file and leaves no temporary file behind.
 void testWriteFileAtomicallyFailureKeepsPriorFile() {
   const auto root = testTempRoot() / "inventatory-atomic-failure";
   error_code cleanupError;
@@ -14350,7 +14169,7 @@ void testWriteFileAtomicallyFailureKeepsPriorFile() {
   assert(!error.empty());
   assert(readWhole(blocking) == "not a folder");
 
-  // A folder cannot be replaced by a file, and the failed replacement must not leave its temporary file.
+  // A folder cannot be replaced by a file, and the failed replace must leave no temp file.
   const auto folder = root / "folder";
   filesystem::create_directories(folder);
   error.clear();
@@ -14368,8 +14187,7 @@ void testWriteFileAtomicallyFailureKeepsPriorFile() {
   filesystem::remove_all(root, cleanupError);
 }
 
-// Every test is registered here, in execution order, under the area it covers. `--list` prints
-// "area/name" and `--filter` matches a substring of that label.// The main code of the DigiKey bag in the photo, with its 20Z padding, as the scanner forwards it.
+// The main code of the DigiKey bag in the photo, with its 20Z padding, as the scanner forwards it.
 void testVendorBagCodeRecognition() {
   const string gs(1, '\x1d');
   const string rs(1, '\x1e');
@@ -14400,14 +14218,13 @@ void testVendorBagCodeRecognition() {
   assert(tme->manufacturerPartNumber == "0ZCM0010FF2G");
   assert(tme->productUrl == "https://www.tme.eu/details/0ZCM0010FF2G");
 
-  // Not a bag's main code: the TME bag's bottom Data Matrix has no envelope, and neither do machine codes, part numbers,
-  // URLs or nothing at all.
+  // Not a main code: no envelope on the TME bottom matrix, machine codes, part numbers or URLs.
   for (const char* other : {"P0ZCM0010FF2G1P0ZCM0010FF2GQ54LTWK34115735/9", "0002", "Inventatory:R-0002",
                             "311-10.0KHRCT-ND", "MLZ2012M3R3HT000",
                             "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604", ""}) {
     assert(!recognizeVendorBagCode(other).has_value());
   }
-  // The P field must be a DigiKey part number ending in -ND, and must be read as a whole field: "30P" is not "P".
+  // The P field must be a DigiKey number ending in -ND, read as a whole field: "30P" is not "P".
   assert(!recognizeVendorBagCode(digiKeyBagCode("445-15749-1", "MLZ2012M3R3HT000")).has_value());
   assert(!recognizeVendorBagCode(digiKeyBagCode("", "MLZ2012M3R3HT000")).has_value());
   assert(!recognizeVendorBagCode("[)>" + rs + "06" + gs + "30P445-15749-1-ND" + gs + "1PMLZ2012M3R3HT000" + rs + eot)
@@ -14419,8 +14236,7 @@ void testVendorBagCodeRecognition() {
   // A code past the device limit is refused.
   assert(!recognizeVendorBagCode(string(kMaximumVendorBagCodeBytes + 1, 'A')).has_value());
 
-  // The origin of an item is its recorded vendor; an item stored before origins were recorded takes DigiKey from its
-  // DigiKey part number, and an item with neither has no origin.
+  // An item's origin is its recorded vendor; older items fall back to their DigiKey number.
   InventoryItem tmeItem;
   tmeItem.vendorMetadata.provider = "TME";
   assert(originProvider(tmeItem) == "tme");
@@ -14432,7 +14248,7 @@ void testVendorBagCodeRecognition() {
   assert(originProvider(unbound).empty());
 }
 
-// Each vendor key names its vendor whatever its case and surrounding spaces; an empty or unknown key names none.
+// A vendor key names its vendor regardless of case or spaces; unknown keys name none.
 void testVendorDisplayNames() {
   assert(vendorDisplayName(kVendorProviderDigiKey) == "DigiKey");
   assert(vendorDisplayName(kVendorProviderTme) == "TME");
@@ -14453,7 +14269,7 @@ void testVendorDisplayNames() {
   assert(history_page_detail::historySourceFilterLabel(HistorySourceFilter::Mouser) == "Mouser");
 }
 
-// A scanned bag creates a part whose origin is the bag's vendor, and refresh looks it up at that vendor only.
+// A scanned bag creates a part whose origin is the bag's vendor; refresh uses that vendor only.
 void testBagScanRecordsOrigin() {
   InventoryStore store;
   const auto code = digiKeyBagCode("445-15749-1-ND", "MLZ2012M3R3HT000");
@@ -14484,7 +14300,7 @@ void testBagScanRecordsOrigin() {
   assert(app_actions::digiKeyRefreshLookup(*tmePart).empty());
   assert(app_actions::tmeRefreshIdentifier(*tmePart).value == "0ZCM0010FF2G");
 
-  // A TME label of a DigiKey part that already holds that TME symbol matches the part instead of duplicating it.
+  // A TME label of a DigiKey part already holding that symbol matches the part, not a duplicate.
   InventoryStore withSymbol;
   const auto digiKeyPart = resolveScanCode(withSymbol, code);
   auto* holder = withSymbol.findById(digiKeyPart.itemId);
@@ -14496,10 +14312,9 @@ void testBagScanRecordsOrigin() {
   assert(originProvider(*holder) == "digikey");
 }
 
-// The device sends a bag's main code in full. The control characters of the envelope travel as JSON escapes.
+// The device sends a bag's full main code; control characters travel as JSON escapes.
 void testDeviceEventIdConflictIsRefused() {
-  // The device numbers its events. An id the desktop already holds for a different scan must not be acknowledged, or
-  // the scan is dropped without a message; an identical retransmission is still the same scan.
+  // An event id reused for a different scan must not be acknowledged; a retransmission is fine.
   const auto path = testTempRoot() / "inventatory-device-event-conflict-test.db";
   error_code cleanupError;
   filesystem::remove(path, cleanupError);
@@ -14537,7 +14352,7 @@ void testDeviceEventIdConflictIsRefused() {
   assert(pending.front().code == tmeCode);
   assert(pending.front().value == 5);
 
-  // A clash behind a new scan in the same request: the new scan is accepted and the clash is left out.
+  // A clash behind a new scan in one request: the new scan is accepted, the clash left out.
   DeviceSyncRequest mixed = first;
   mixed.requestId = "conflict-3";
   mixed.events = {{"conflict-event-2", "inventory.receive", "0002", 1, ""},
@@ -14590,13 +14405,11 @@ void testDeviceSyncEventCarriesBagCode() {
   assert(!parseDeviceSyncRequestJson(bagBody(string(kMaximumVendorBagCodeBytes + 1, 'A')), oversized, error));
 }
 
-// Mouser fixtures. All of this data is synthetic: the key, part numbers, manufacturers, prices and stock are made up
-// for these tests. None of it came from a live catalogue, a real key or a real inventory. The field names follow
-// Mouser's published v1 search response, which these tests pin; a live response confirms them.
+// Mouser fixtures: all data is synthetic. The field names follow Mouser's v1 search response;
+// a live response confirms them.
 constexpr const char* kSyntheticMouserKey = "synthetic0000mouser0000value";
 
-// Parses a search response with one synthetic part made of a Mouser part number and the given fields (each starting
-// with a comma), and returns that part.
+// Parses a response with one synthetic part; the fields are comma-prefixed JSON.
 MouserProductDetails parseSyntheticMouserPart(const string& fields) {
   vector<MouserProductDetails> products;
   string error;
@@ -14643,10 +14456,10 @@ void testMouserResponseParsing() {
   assert(resistor.productUrl == "https://example.invalid/999-SYN-RES-0001");
   assert(resistor.vendorMetadata.productUrl == resistor.productUrl);
   assert(resistor.vendorMetadata.locale.empty());
-  // The stock is digits only, and the price is the smallest quantity break, printed as Mouser sent it.
+  // The stock is digits only; the price is the smallest quantity break, as Mouser sent it.
   assert(resistor.quantityAvailable == "12345");
   assert(resistor.unitPrice == "$0.10 USD");
-  // Attributes pass through as sent (trimmed); one without a name is dropped, and the package is read by name.
+  // Attributes pass through trimmed; an unnamed one is dropped, and the package is read by name.
   assert(resistor.packageName == "0603 (1608 metric)");
   assert(resistor.parameters.size() == 2);
   assert(resistor.parameters[0].name == "Resistance" && resistor.parameters[0].value == "10 kOhms");
@@ -14654,8 +14467,8 @@ void testMouserResponseParsing() {
   assert(resistor.vendorMetadata.parameters.size() == 2);
   assert(resistor.orderable && resistor.productStatus.empty());
 
-  // A break without a quantity or a price is skipped. A currency already in the price is not repeated, and a first
-  // break above one piece says where it starts.
+  // Breaks with no quantity or price are skipped. A currency in the price is not repeated,
+  // and a first break above one piece says where it starts.
   const auto& capacitor = products[1];
   assert(capacitor.vendorMetadata.providerProductNumber == "999-SYN-CAP-0002");
   assert(capacitor.manufacturerName == "Example Components");
@@ -14687,7 +14500,7 @@ void testMouserEmptyPartsIsSuccess() {
 void testMouserErrorsListFails() {
   vector<MouserProductDetails> products;
   string error;
-  // The message is shown with the vendor's name; the client redacts the key from it, which this test does the same way.
+  // The client redacts the key from the message; this test does the same.
   const string key = kSyntheticMouserKey;
   const string echoed = R"({"Errors":[{"Id":0,"Code":"Invalid","Message":"Request refused for )" + key +
                         R"(","PropertyName":""}],"SearchResults":null})";
@@ -14698,7 +14511,7 @@ void testMouserErrorsListFails() {
   assert(shown == "Mouser: Request refused for [key]");
   assert(shown.find("DigiKey") == string::npos);
 
-  // An error about the key reads as a rejected key, and one about the limit as the limit; neither echoes the key.
+  // A key error reads as a rejected key, a limit error as the limit; neither echoes the key.
   assert(!parseMouserSearchResponse(R"({"Errors":[{"Code":"Invalid","Message":"The API key )" + key +
                                         R"( is not valid."}]})",
                                     products, &error));
@@ -14997,7 +14810,7 @@ void testMouserPartNumberOf() {
   bare.vendorMetadata.providerProductNumber = "999-SYN-0001";
   assert(!bare.hasMissingMetadata());
 
-  // mouser: finds a part by its Mouser part number, whether it is the selected source or a record beside another.
+  // mouser: finds a part by Mouser part number, as source or as a record beside another.
   mouserItem.id = "mouser-bound";
   mouserItem.partName = "Amplifier";
   mouserItem.quantity = 1;
@@ -15019,7 +14832,7 @@ void testMouserPartNumberOf() {
   assert((idsFor("mouser:SYN-TME-0001") == vector<string>{}));
 }
 
-// A part is refreshed only from the vendor it came from: a Mouser part from Mouser, and never from DigiKey or TME.
+// A part is refreshed only from its own vendor: a Mouser part never from DigiKey or TME.
 void testMouserRefreshUsesOriginOnly() {
   InventoryItem mouserItem;
   mouserItem.sku = "SYN-OPA-0001";
@@ -15030,7 +14843,7 @@ void testMouserRefreshUsesOriginOnly() {
   assert(app_actions::digiKeyRefreshLookup(mouserItem).empty());
   assert(app_actions::tmeRefreshIdentifier(mouserItem).value.empty());
 
-  // A Mouser part without its Mouser number is searched by its manufacturer part number, then by its SKU.
+  // A Mouser part without its number is searched by manufacturer part number, then by SKU.
   InventoryItem byPartNumber;
   byPartNumber.vendorMetadata.provider = "mouser";
   byPartNumber.vendorMetadata.manufacturerPartNumber = " SYN-OPA-0001 ";
@@ -15081,7 +14894,7 @@ void testMouserHistoryFilter() {
   assert((history_page_detail::filteredHistoryIndices(commits, {}, HistorySourceFilter::Tme) == vector<size_t>{0}));
 }
 
-// A Mouser commit with no message of its own is saved with the Mouser wording, and the Mouser record survives a reload.
+// A Mouser commit without a message gets the Mouser wording, and the record survives a reload.
 void testMouserCommitIsRecorded() {
   const auto path = testTempRoot() / "inventatory-mouser-commit-test.db";
   error_code cleanupError;
@@ -15115,7 +14928,7 @@ void testMouserCommitIsRecorded() {
   filesystem::remove(path, cleanupError);
 }
 
-// A reached request limit is told apart from every other Mouser failure, so a BOM run stops asking Mouser only then.
+// A reached request limit is distinct from other Mouser failures; a BOM run stops only then.
 void testMouserLimitReachedWording() {
   vector<MouserProductDetails> products;
   string error;
@@ -15137,8 +14950,7 @@ void testMouserLimitReachedWording() {
   assert(!mouserLimitReached(""));
 }
 
-// A record without a Mouser part number is never a match, however its manufacturer part number reads, because nothing
-// could be merged from it or ordered by it.
+// A record without a Mouser part number never matches: nothing can be merged or ordered from it.
 void testMouserKeepMatchesNeedMouserNumber() {
   const auto orderable = syntheticMouserProduct();
   auto noMouserNumber = orderable;
@@ -15147,7 +14959,7 @@ void testMouserKeepMatchesNeedMouserNumber() {
   other.vendorMetadata.providerProductNumber = "999-SYN-OPA-0002";
   other.vendorMetadata.manufacturerPartNumber = "SYN-OPA-0002";
 
-  // The part number matches the manufacturer part number, in any letter case; the record without a Mouser number goes.
+  // Matches the manufacturer part number in any case; a record without a Mouser number is dropped.
   auto kept = keepMouserMatches({orderable, noMouserNumber, other}, "syn-opa-0001");
   assert(kept.size() == 1);
   assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
@@ -15162,13 +14974,13 @@ void testMouserKeepMatchesNeedMouserNumber() {
   assert(kept.size() == 2);
   assert(kept.front().vendorMetadata.providerProductNumber == "999-SYN-OPA-0001");
   assert(kept.back().vendorMetadata.providerProductNumber == "998-SYN-OPA-0001");
-  // Nothing is kept when the only match has no Mouser number, when the list is empty or the part number is empty.
+  // Nothing is kept if the only match has no Mouser number, or the list or part number is empty.
   assert(keepMouserMatches({noMouserNumber, other}, "SYN-OPA-0001").empty());
   assert(keepMouserMatches({}, "SYN-OPA-0001").empty());
   assert(keepMouserMatches({orderable}, "").empty());
   assert(keepMouserMatches({orderable}, "SYN-OPA-000").empty());
 
-  // Parsed records: a Mouser number that is absent or a placeholder leaves the record out of the matches.
+  // Parsed records: an absent or placeholder Mouser number leaves the record out.
   vector<MouserProductDetails> parsed;
   string error;
   assert(parseMouserSearchResponse(
@@ -15179,7 +14991,7 @@ void testMouserKeepMatchesNeedMouserNumber() {
   assert(keepMouserMatches(parsed, "SYN-OPA-0003").empty());
 }
 
-// A rejected key is told apart from every other Mouser failure, so a refresh stops asking Mouser only then.
+// A rejected key is distinct from other Mouser failures; a refresh stops asking only then.
 void testMouserKeyRejectedWording() {
   vector<MouserProductDetails> products;
   string error;
@@ -15218,7 +15030,7 @@ void testMouserKeyRejectedWording() {
   assert(!mouserKeyRejected("mouser rejected the api key"));
 }
 
-// The key test passes only on an answer it checked: a 2xx JSON object with no Errors, or the limit (HTTP 429).
+// The key test passes only on a checked answer: a 2xx JSON object without Errors, or HTTP 429.
 void testMouserKeyAcceptedChecksTheAnswer() {
   string error;
   // A search answer without Errors passes, with results, without results or as a bare object.
@@ -15248,7 +15060,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
     assert(!mouserKeyAccepted(status, "{}", &error));
     assert(error == "Mouser request failed (HTTP " + to_string(status) + ")");
   }
-  // A redirect or an informational status is not an answer to the search, even with a clean JSON body.
+  // A redirect or informational status is no answer, even with a clean JSON body.
   for (const uint32_t status : {100U, 301U, 302U, 307U}) {
     error.clear();
     assert(!mouserKeyAccepted(status, "{}", &error));
@@ -15262,7 +15074,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
     assert(error == "Unable to parse the Mouser response");
   }
   assert(!mouserKeyAccepted(204, "", &error));
-  // A 2xx answer with an Errors entry is not a pass; an entry about the key reads as a rejected key.
+  // A 2xx answer with an Errors entry is not a pass; a key entry reads as a rejected key.
   assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Synthetic failure"}],"SearchResults":{"Parts":[]}})",
                             &error));
   assert(error == "Mouser: Synthetic failure");
@@ -15276,7 +15088,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
   assert(error == "Mouser rejected the API key (HTTP 401)");
   assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
   assert(error == "Mouser rejected the API key (HTTP 403)");
-  // A reached limit can come with a failing status. Its Errors entry names the limit, so the key is not blamed.
+  // A limit can come with a failing status; its Errors entry names the limit, not the key.
   assert(!mouserKeyAccepted(403, R"({"Errors":[{"Message":"Maximum calls per minute exceeded"}]})", &error));
   assert(mouserLimitReached(error) && !mouserKeyRejected(error));
   assert(!mouserKeyAccepted(401, R"({"Errors":[{"Message":"Maximum calls per day exceeded"}]})", &error));
@@ -15287,7 +15099,7 @@ void testMouserKeyAcceptedChecksTheAnswer() {
   assert(!mouserKeyAccepted(400, R"({"Errors":[{"Message":"The API key is not valid."}]})", &error));
   assert(mouserKeyRejected(error));
 
-  // No message names another vendor or carries the key, once the client has redacted it as testConnection does.
+  // No message names another vendor or carries the key, once redacted as testConnection does.
   const string key = kSyntheticMouserKey;
   assert(!mouserKeyAccepted(200, R"({"Errors":[{"Message":"Request refused for )" + key + R"("}]})", &error));
   const auto shown = redactMouserKey(error, key);
@@ -15298,10 +15110,10 @@ void testMouserKeyAcceptedChecksTheAnswer() {
   assert(mouserKeyAccepted(200, "{}", nullptr));
 }
 
-// A suggestion from Mouser is stored with its own marker, and DigiKey and TME suggestions are stored exactly as before.
+// Mouser suggestions carry their own marker; DigiKey and TME storage is unchanged.
 void testBomMouserSuggestionStorage() {
-  // The stored forms are a compatibility contract: a DigiKey part is bare, and a TME or Mouser part carries its
-  // supplier marker after the verification marker.
+  // The stored forms are a compatibility contract: DigiKey parts are bare; TME and Mouser parts
+  // carry their supplier marker after the verification marker.
   assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND") == string("SYN-0001-ND"));
   assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-0001-ND", true) == string("verified\x1eSYN-0001-ND"));
   assert(bomEnrichmentEntry(BomLookupOutcome::Found, "SYN-TME-0001", false, true) == string("tme\x1eSYN-TME-0001"));
@@ -15382,8 +15194,7 @@ void testBomMouserSuggestionStorage() {
              "\"999-SYN-OPA-0001\",\"Mouser\",\"check before ordering\"\r\n") != string::npos);
 }
 
-// A BOM line that names a Mouser part number matches the stock part that carries that number, and never a DigiKey part
-// whose number has the same text.
+// A Mouser part number matches the stock part that carries it, never a same-text DigiKey part.
 void testBomMouserLineMatching() {
   InventoryItem mouserItem;
   mouserItem.id = "opa-mouser";
@@ -15431,10 +15242,10 @@ void testBomMouserLineMatching() {
   assert(besideMatch.confirmed && besideMatch.chosenItemId() == "opa-beside");
 }
 
-// Mouser is asked by the line's part number only, and its record is suggested only when Mouser can sell it.
+// Mouser is asked by the line's part number, and its record is suggested only if it can sell it.
 void testBomMouserSuggestionChoice() {
-  // The query: the Mouser number on a Mouser line, else the manufacturer part number, else a designation that reads as
-  // a part number. A line with only a value, or with another supplier's number, is never sent.
+  // The query: the Mouser number on a Mouser line, else the manufacturer part number, else a
+  // designation that looks like a part number. Value-only or other-supplier lines are not sent.
   assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "Mouser", " 999-SYN-OPA-0001 ", "SYN-OPA-0001")) ==
          "999-SYN-OPA-0001");
   assert(bomMouserQuery(bomTestLine("Dual amplifier", "SOIC-8", 1, "LCSC", "C99999", "SYN-OPA-0001")) ==
@@ -15444,7 +15255,7 @@ void testBomMouserSuggestionChoice() {
   assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4)).empty());
   assert(bomMouserQuery(bomTestLine("100nF", "C0402", 4, "LCSC", "C60474")).empty());
 
-  // A part that fits the line is chosen and verified, by its manufacturer part number or by its Mouser number.
+  // A part that fits the line is chosen and verified, by manufacturer or Mouser part number.
   const auto product = syntheticMouserProduct();
   const auto mpnLine = bomTestLine("Dual amplifier", "SOIC-8_3.9x4.9mm_P1.27mm", 1, "", "", "SYN-OPA-0001");
   auto chosen = bomMouserSuggestion(mpnLine, product);
@@ -15471,7 +15282,7 @@ void testBomMouserSuggestionChoice() {
                                product);
   assert(chosen.outcome == BomLookupOutcome::Found && chosen.suggestion == "999-SYN-OPA-0001" && !chosen.verified);
 
-  // A discontinued or obsolete part is never chosen, however well it fits, and is stored as no match.
+  // A discontinued or obsolete part is never chosen, however well it fits.
   auto discontinued = product;
   discontinued.orderable = false;
   discontinued.productStatus = "Obsolete";
@@ -15545,9 +15356,7 @@ const vector<TestCase>& registeredTests() {
     {"credentials", "CredentialStoreRoundTrip", testCredentialStoreRoundTrip},
     {"credentials", "WorkspaceScopedScannerCredentials", testWorkspaceScopedScannerCredentials},
     {"storage", "PinnedSqliteLibrary", testPinnedSqliteLibrary},
-    // Keep the unit-aware search tests on the executable path. These used to be
-    // declared and defined but never called, which allowed parser regressions
-    // to pass the test suite unnoticed.
+    // Must be registered here: an unregistered test never runs.
     {"inventory", "PhysicalValueParsing", testPhysicalValueParsing},
     {"inventory", "PhysicalValueMatching", testPhysicalValueMatching},
     {"inventory", "InductanceTextScanner", testInductanceTextScanner},
@@ -15846,9 +15655,7 @@ int main(int argc, char** argv) {
   if (reverseOrder) std::reverse(selected.begin(), selected.end());
 
 #ifndef _WIN32
-  // No test may read or write the developer's real home, configuration, data or cache directories:
-  // point them at the private temp root, which is removed when the program ends. (Windows tests set
-  // LOCALAPPDATA themselves where they need it.)
+  // Point HOME and the XDG directories at the private temp root, so no test touches real ones.
   const auto isolatedHome = testTempRoot() / "home";
   const struct {
     const char* name;

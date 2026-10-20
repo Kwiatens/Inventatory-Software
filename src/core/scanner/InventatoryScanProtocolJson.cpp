@@ -32,10 +32,9 @@ optional<unsigned> hexQuad(const string& text, size_t at) {
 
 }  // namespace
 
-// The one JSON string decoder for Scan R1 messages. `position` is the opening quote; on success it is
-// moved past the closing quote. Escapes decode to UTF-8 (surrogate pairs included). Raw control
-// characters, a NUL escape (it would truncate the value at the SQLite binding), unpaired surrogates and
-// unknown escapes are rejected rather than altered.
+// The one JSON string decoder for Scan R1 messages. `position` is the opening quote and moves past
+// the closing quote on success. Rejects raw control characters, a NUL escape (it would truncate
+// the SQLite binding), unpaired surrogates and unknown escapes.
 optional<string> decodeJsonStringLiteral(const string& text, size_t& position) {
   if (position >= text.size() || text[position] != '"') return nullopt;
   string value;

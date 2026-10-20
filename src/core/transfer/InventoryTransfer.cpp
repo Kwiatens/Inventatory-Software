@@ -33,8 +33,7 @@ string rackLocationForExport(const InventoryItem& item, const InventoryStore& st
 using namespace inventory_transfer_detail;
 
 bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& path, string& error) {
-  // Build the whole file first and replace the destination atomically, so a failed or interrupted
-  // export never leaves a truncated file over the previous one.
+  // Write atomically so a failed or interrupted export never leaves a truncated file.
   ostringstream output;
   output << "ID,Part name,Manufacturer,Category,Quantity,Location,SKU,Machine code,"
             "DigiKey part,Sync status,Tags,Parameters,Notes,Datasheet URL,Product URL,Last updated,"

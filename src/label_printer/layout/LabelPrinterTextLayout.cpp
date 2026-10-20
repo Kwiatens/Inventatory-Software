@@ -34,7 +34,7 @@ string shortParameterLabel(const string& label) {
   if (key.find("capacitance") != string::npos || key == "value") {
     return "C";
   }
-  // DC resistance is the coil's DCR, not the resistance of a resistor; the rule comes before the plain resistance one.
+  // DC resistance of a coil (DCR), not a resistor's. Checked before plain resistance.
   if (key.find("dcresistance") != string::npos || key == "dcr") {
     return "DCR";
   }
@@ -47,7 +47,7 @@ string shortParameterLabel(const string& label) {
   if (key.find("impedance") != string::npos) {
     return "Z";
   }
-  // Luminous intensity is measured in candela, and its value already carries the unit (35mcd).
+  // Luminous intensity: the value already carries its unit (35mcd).
   if (key.find("luminous") != string::npos || key.find("luminosity") != string::npos ||
       key.find("millicandela") != string::npos || key.find("candela") != string::npos) {
     return "INTENSITY";
@@ -73,7 +73,7 @@ string shortParameterLabel(const string& label) {
   if (key.find("voltageinput") != string::npos || key == "vin") {
     return "Vin";
   }
-  // The words come in either order: "Voltage - Forward (Vf)" and "Forward Voltage" are the same caption.
+  // Word order varies: "Voltage - Forward (Vf)" and "Forward Voltage" are one caption.
   if ((key.find("forward") != string::npos && key.find("voltage") != string::npos) || key == "vf") {
     return "Vf";
   }
@@ -183,8 +183,8 @@ string shortParameterLabel(const string& label) {
     return "Pkg";
   }
 
-  // DigiKey names often give the symbol in brackets: "Current - Average Rectified (Io)" is Io, and "Voltage - Forward
-  // (Vf) (Typ)" is Vf. A bracket with a qualifier (Typ, Max) or a lower-case term such as "(th)" is not a symbol.
+  // DigiKey gives symbols in brackets: "Current - Average Rectified (Io)" is Io. Qualifiers
+  // (Typ, Max) and lower-case terms such as "(th)" are not symbols.
   for (auto open = label.find('('); open != string::npos; open = label.find('(', open + 1)) {
     const auto close = label.find(')', open);
     if (close == string::npos) break;
@@ -239,7 +239,7 @@ string normalizeResistanceValue(string value) {
   if (value.empty()) {
     return {};
   }
-  // TME writes the unit itself ("1.5k\u03A9"); a second one would print "1.5k\u03A9\u03A9".
+  // TME writes the unit itself; a second one would print it twice.
   const auto endsWithUnit = [&](const string& unit) {
     return value.size() >= unit.size() && value.compare(value.size() - unit.size(), unit.size(), unit) == 0;
   };
@@ -256,11 +256,8 @@ string fitSingleLineLabel(const string& value, size_t maxLength) {
 
 namespace {
 
-// Advance width of one byte of font 0 text, in hundredths of the ^A0 width
-// parameter, checked against test prints: letters and digits came out at or
-// below these values, while "-" (1.5 digits) and symbols print much wider than
-// in a typical condensed face. A UTF-8 lead byte stands for its whole
-// character; continuation bytes add nothing.
+// Advance width of one byte of font 0 text, in hundredths of the ^A0 width, from test prints.
+// A UTF-8 lead byte stands for its whole character; continuation bytes add nothing.
 int font0ByteHundredths(unsigned char ch) {
   if ((ch & 0xC0) == 0x80) return 0;  // UTF-8 continuation byte
   if (ch >= 0x80) return 62;
@@ -303,11 +300,8 @@ FittedLabelText fitFont0Text(const string& text, int maxWidth, initializer_list<
     const auto width = font0Width(cleanedHundredths, size);
     if (width <= maxWidth) return {cleaned, size, saturateToInt(width)};
   }
-  // Nothing fits: keep the smallest size and drop trailing characters, one
-  // character at a time from the end, until the text plus its ellipsis fits.
-  // Only trailing bytes are removed, so the width of each candidate is kept as
-  // a running total instead of being measured again: the search is linear in
-  // the text length. The first candidate that fits is the same as before.
+  // Nothing fits: keep the smallest size and drop trailing bytes until the text and ellipsis fit.
+  // A running total keeps the search linear in the text length.
   const auto size = *(sizes.end() - 1);
   const auto ellipsisHundredths = font0Hundredths("...");
   size_t end = cleaned.size();

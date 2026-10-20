@@ -221,8 +221,7 @@ string withoutTrailingSlashes(string value) {
   return value;
 }
 
-// A scanned URL identifies a part only when it is the whole stored URL. A short or generic code
-// must never match as a substring of some product or datasheet link.
+// A URL matches only as the whole stored URL. A generic code must never match as a substring.
 bool urlMatchesScannedCode(const string& url, const string& loweredNeedle) {
   if (loweredNeedle.rfind("http://", 0) != 0 && loweredNeedle.rfind("https://", 0) != 0) return false;
   return !url.empty() && withoutTrailingSlashes(toLower(url)) == withoutTrailingSlashes(loweredNeedle);

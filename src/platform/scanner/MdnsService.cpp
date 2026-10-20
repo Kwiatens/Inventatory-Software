@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Platform DNS-SD registration for automatic Inventatory Scan discovery.
-
 #include "platform/scanner/MdnsService.h"
 
 #include <array>
@@ -57,9 +54,7 @@ string privateInterfaceName(const string& requestedAddress) {
   return selected;
 }
 
-// Avahi's D-Bus API (org.freedesktop.Avahi).  avahi-publish-service has no
-// option to select an interface, so the registration goes straight to the
-// daemon, which lets one entry group be published on a single interface index.
+// Talks to Avahi's D-Bus API directly: avahi-publish-service cannot select an interface.
 constexpr const char* kAvahiBusName = "org.freedesktop.Avahi";
 constexpr const char* kAvahiServerInterface = "org.freedesktop.Avahi.Server";
 constexpr const char* kAvahiEntryGroupInterface = "org.freedesktop.Avahi.EntryGroup";
@@ -70,8 +65,7 @@ constexpr gint32 kAvahiEntryGroupFailure = 4;
 constexpr int kAvahiCallTimeoutMs = 1000;
 constexpr auto kAvahiEstablishTimeout = std::chrono::seconds(2);
 
-// Synchronous call that never auto-starts avahi-daemon.  Returns a full
-// reference (or nullptr on any error); `parameters` is consumed either way.
+// Synchronous call that never auto-starts avahi-daemon. Consumes `parameters`; nullptr on error.
 GVariant* callAvahi(GDBusConnection* connection, const char* objectPath, const char* interfaceName,
                     const char* methodName, GVariant* parameters, const char* replyType) {
   GError* error = nullptr;
@@ -82,7 +76,7 @@ GVariant* callAvahi(GDBusConnection* connection, const char* objectPath, const c
   return reply;
 }
 
-// TXT record exactly as before: a single "protocol=1" string and nothing else.
+// TXT record: the single string "protocol=1".
 GVariant* serviceTxtRecords() {
   static const char kProtocolText[] = "protocol=1";
   GVariantBuilder builder;
@@ -94,12 +88,8 @@ GVariant* serviceTxtRecords() {
 
 }  // namespace
 
-// Owns a private system-bus connection and the entry group registered on it.
-// A private connection is deliberate: avahi-daemon drops every entry group of a
-// client that disconnects, so the advertisement disappears when the application
-// exits or is killed, and the process is never terminated by a shared
-// connection's exit-on-close behaviour if the system bus goes away.  All calls
-// are synchronous with short timeouts and run on the caller's (UI) thread.
+// Private system-bus connection and its entry group. Avahi drops the group on disconnect, so the
+// advertisement ends with the process, and a lost shared bus cannot exit the application.
 struct MdnsService::AvahiPublication {
   AvahiPublication() = default;
   AvahiPublication(const AvahiPublication&) = delete;
@@ -139,9 +129,8 @@ struct MdnsService::AvahiPublication {
     g_variant_unref(created);
     if (groupPath.empty()) return false;
 
-    // AddService(interface, protocol, flags, name, type, domain, host, port, txt):
-    // a concrete interface index plus AVAHI_PROTO_INET keeps the service off
-    // every other interface; the empty domain/host select the daemon defaults.
+    // An interface index plus AVAHI_PROTO_INET keeps the service off other interfaces.
+    // Empty domain and host use the daemon defaults.
     auto* added = callAvahi(
         connection, groupPath.c_str(), kAvahiEntryGroupInterface, "AddService",
         g_variant_new("(iiussssq@aay)", static_cast<gint32>(interfaceIndex), kAvahiProtocolInet, 0U, "Inventatory",
@@ -154,8 +143,7 @@ struct MdnsService::AvahiPublication {
     if (committed == nullptr) return false;
     g_variant_unref(committed);
 
-    // Wait for probing to finish so a name collision or daemon failure is
-    // reported to the caller instead of leaving a silent non-advertisement.
+    // Wait for probing, so a collision or daemon failure is reported.
     const auto deadline = std::chrono::steady_clock::now() + kAvahiEstablishTimeout;
     for (;;) {
       const auto state = groupState();
@@ -189,8 +177,7 @@ struct MdnsService::AvahiPublication {
 struct MdnsService::RegistrationState {
   struct CallbackContext {
     std::shared_ptr<RegistrationState> state;
-    // The DNS API owns the callback timing.  Keep this context alive until
-    // that callback runs even if MdnsService has already been destroyed.
+    // Keeps the context alive until the DNS API's callback runs, even if the service is destroyed.
     std::shared_ptr<CallbackContext> self;
     bool deregistration = false;
   };
@@ -226,9 +213,7 @@ bool isPrivateIpv4(IP4_ADDRESS address) {
 void WINAPI MdnsService::registrationComplete(DWORD status, PVOID context, PDNS_SERVICE_INSTANCE instance) {
   auto* callbackContext = static_cast<RegistrationState::CallbackContext*>(context);
   if (callbackContext == nullptr) return;
-  // Copy the self-retaining reference before breaking the cycle.  The state
-  // remains alive for the complete callback even when the owning service has
-  // timed out or been destroyed.
+  // Holds the state for the whole callback, even if the service has timed out or been destroyed.
   const auto keepAlive = callbackContext->self;
   const auto state = callbackContext->state;
   callbackContext->self.reset();
@@ -243,9 +228,7 @@ void WINAPI MdnsService::registrationComplete(DWORD status, PVOID context, PDNS_
       state->registrationComplete = true;
     }
   }
-  // Windows supplies a separately allocated instance to completion callbacks.
-  // The state-owned instance is released by RegistrationState after all
-  // asynchronous operations have quiesced.
+  // Free only the callback's own instance; RegistrationState frees the state-owned one.
   if (instance != nullptr && instance != state->instance) DnsServiceFreeInstance(instance);
   state->completionChanged.notify_all();
   (void)keepAlive;
@@ -284,10 +267,7 @@ bool MdnsService::start(std::uint16_t port, const string& boundAddress) {
   registrationState_->instance = DnsServiceConstructInstance(
       L"Inventatory._inventatory._tcp.local", wideHost.c_str(), haveIpv4Address ? &ipv4Address : nullptr,
       nullptr, port, 0, 0, 1, keys, values);
-  // mDNS is a local-network discovery mechanism.  Do not publish a service
-  // instance that has no private LAN address (for example on a public/VPN-only
-  // host), even though the HTTP listener may still be reachable by an address
-  // known to the user.
+  // Advertise only with a private LAN address; on a public or VPN-only host, stay silent.
   if (registrationState_->instance == nullptr || !haveIpv4Address) {
     registrationState_.reset();
     return false;
@@ -354,9 +334,7 @@ bool MdnsService::start(std::uint16_t port, const string& boundAddress) {
   running_ = true;
   return true;
 #else
-  // Only the private-LAN interface that owns the bound address may advertise
-  // the service.  No such interface (loopback, public, unknown) means no
-  // advertisement at all, and this gate runs before any D-Bus traffic.
+  // Advertise only on the private-LAN interface owning the bound address, before any D-Bus traffic.
   const auto interfaceName = privateInterfaceName(boundAddress);
   if (interfaceName.empty() || interfaceName.size() >= IFNAMSIZ) return false;
   const auto interfaceIndex = if_nametoindex(interfaceName.c_str());

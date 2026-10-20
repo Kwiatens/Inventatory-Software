@@ -31,9 +31,8 @@ inline void appendUtf8(std::string& out, std::uint32_t codePoint) {
   }
 }
 
-// Decodes the code point at `offset` and advances past it. Returns false, leaving `offset` past the
-// bytes it examined, for a truncated sequence, a stray continuation byte, an overlong form, a
-// surrogate or a value above 0x10FFFF.
+// Decodes the code point at `offset` and advances past it. Returns false on a malformed sequence
+// (truncated, overlong, surrogate, above 0x10FFFF), leaving `offset` past the bytes examined.
 inline bool nextUtf8CodePoint(const std::string& input, std::size_t& offset, std::uint32_t& codePoint) {
   if (offset >= input.size()) return false;
   const auto first = static_cast<unsigned char>(input[offset++]);

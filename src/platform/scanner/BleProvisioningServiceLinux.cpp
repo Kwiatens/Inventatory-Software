@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory Scan R1 BLE discovery and authenticated provisioning through BlueZ.
+// Scan R1 BLE discovery and authenticated provisioning through BlueZ.
 
 #include "platform/scanner/BleProvisioningService.h"
 
@@ -186,10 +186,8 @@ bool findGattCharacteristics(GVariant* objects, const std::string& devicePath,
                               std::string& statusPath, std::string& requestPath) {
   statusPath.clear();
   requestPath.clear();
-  // First the setup service objects that belong to the scanner being provisioned, then only the
-  // characteristics owned by one of those services. Another resolved device that exposes the same
-  // service (a second scanner in range, a stale cached entry) is never mistaken for this one, whatever
-  // order BlueZ enumerates the objects in.
+  // Only characteristics of this scanner's setup services count. Another device exposing the same
+  // service is never mistaken for it, whatever order BlueZ lists the objects in.
   std::vector<std::string> servicePaths;
   GVariantIter serviceIterator;
   g_variant_iter_init(&serviceIterator, objects);
@@ -332,9 +330,8 @@ class BluezAgent final {
     return expectedDevicePath_ == devicePath;
   }
 
-  // Only the unique name that owns org.bluez may drive the agent. Any other
-  // process on the system bus could otherwise call Cancel() or read the pairing
-  // code through RequestPinCode() by naming the expected device path.
+  // Only the unique name owning org.bluez may drive the agent; any other bus client could call
+  // Cancel() or RequestPinCode().
   bool senderIsBluez(GDBusMethodInvocation* invocation) const {
     const gchar* sender = g_dbus_method_invocation_get_sender(invocation);
     if (sender == nullptr) return false;
@@ -342,8 +339,7 @@ class BluezAgent final {
     return !bluezOwner_.empty() && bluezOwner_ == sender;
   }
 
-  // Resolved once from the thread that registers the agent, never from the agent
-  // loop thread, so method dispatch never blocks on a synchronous D-Bus call.
+  // Resolved on the registering thread, so method dispatch never blocks on D-Bus.
   bool resolveBluezOwner(std::string& error) {
     GError* ownerError = nullptr;
     auto* reply = g_dbus_connection_call_sync(connection_, "org.freedesktop.DBus", "/org/freedesktop/DBus",
@@ -471,9 +467,7 @@ class BluezAgent final {
       requestLoopStop = registrationId_ != 0;
     }
     if (requestLoopStop && context != nullptr && loop != nullptr) {
-      // Attach a source instead of invoking directly: invoke may run inline
-      // when the loop thread has published its context but has not entered
-      // g_main_loop_run() yet, losing the quit request in that startup window.
+      // Attach an idle source: a direct invoke can run before g_main_loop_run() and lose the quit.
       auto* source = g_idle_source_new();
       g_source_set_callback(source, [](gpointer userData) -> gboolean {
         g_main_loop_quit(static_cast<GMainLoop*>(userData));
@@ -888,10 +882,8 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
     return BleProvisioningOutcome::Failed;
   }
 
-  // BlueZ does not expose the protection level of an existing bond through
-  // Device1. Remove an old bond and require the six-digit code exchange every
-  // time this setup flow runs, so an unauthenticated cached pairing is never
-  // treated as proof that the physical scanner was verified.
+  // BlueZ does not expose an existing bond's protection level, so remove any old bond and always
+  // require the code exchange. A cached pairing is never proof the scanner was verified.
   auto* deviceProperties = managedObjects(connection);
   bool alreadyPaired = false;
   if (deviceProperties != nullptr) {
@@ -965,9 +957,8 @@ BleProvisioningOutcome BleProvisioningService::provision(const BleProvisioningRe
   auto* connected = callBluez(connection, devicePath, "org.bluez.Device1", "Connect", nullptr,
                               G_VARIANT_TYPE("()"), 15000);
   if (connected == nullptr) {
-    // BlueZ reports AlreadyConnected when its discovery session already owns
-    // the connection. Treat that state as usable; subsequent GATT lookup is
-    // the definitive connection check.
+    // Connect can fail with AlreadyConnected when discovery owns the link; accept it if Connected.
+    // The GATT lookup is the real check.
     const auto state = getProperty(connection, devicePath, "org.bluez.Device1", "Connected");
     gboolean isConnected = FALSE;
     if (state != nullptr) {

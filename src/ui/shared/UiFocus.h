@@ -1,13 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - keyboard focus tracking for clickable terminal targets.
-//
-// Focus is identified by the stable target id rather than by the position in
-// the per-frame target list, which changes whenever rows are filtered, added
-// or removed. Only Tab / Shift+Tab move it; every other key and every mouse
-// click drops it, so Enter keeps meaning "run the page's primary action" unless
-// the user has visibly tabbed to a control.
+// Keyboard focus for clickable terminal targets, tracked by stable id because the
+// per-frame target list changes. Only Tab / Shift+Tab move it; any other key or
+// click drops it, so Enter keeps running the page's primary action.
 
 #pragma once
 
@@ -35,9 +31,8 @@ inline int indexOf(const std::vector<Candidate>& targets, const std::string& id)
   return -1;
 }
 
-// The id Tab (delta > 0) or Shift+Tab (delta < 0) moves to, wrapping around.
-// With no current focus, Tab lands on the first and Shift+Tab on the last
-// focusable target. Returns an empty string when nothing can take focus.
+// Id that Tab (delta > 0) or Shift+Tab (delta < 0) moves to, wrapping. With no
+// focus, starts at the first or last target. Empty when nothing can take focus.
 inline std::string next(const std::vector<Candidate>& targets, const std::string& current, int delta) {
   if (targets.empty() || delta == 0) return {};
   const int count = static_cast<int>(targets.size());

@@ -27,8 +27,7 @@ using std::vector;
 
 struct SqliteConnection;
 
-// A pinned project keeps the BOM text rather than a file reference, so the
-// analysis can be rebuilt against current stock without the original file.
+// Keeps the BOM text, not a file reference, so the analysis can be rebuilt from current stock.
 struct BomProject {
   string id;
   string name;
@@ -44,8 +43,7 @@ struct BomProject {
 
 bool loadBomProjects(const filesystem::path& databasePath, vector<BomProject>& projects);
 bool saveBomProjects(const filesystem::path& databasePath, const vector<BomProject>& projects);
-// Validate the persisted BOM rows without migrating or mutating the database.
-// Backup validation uses this read-only seam before a bundle can be activated.
+// Read-only check of persisted BOM rows, used to validate a backup before activation.
 bool validateBomProjects(SqliteConnection& connection, string* error = nullptr);
 
 // How a supplier suggestion lookup for one BOM line ended.
@@ -55,42 +53,34 @@ enum class BomLookupOutcome {
   Failed,   // transport, credential, rate-limit or parse failure
 };
 
-// Stored in a project's enrichment map for a line the suppliers answered "no match" for.
+// Enrichment value for a line the suppliers answered with no match.
 inline constexpr const char* kBomEnrichmentNoMatch = "(no match)";
 
-// Prefix of a stored suggestion whose supplier record fits its BOM line. A suggestion without the prefix was stored
-// before verification existed, and is treated as unverified: shown and exported as "check before ordering".
+// Marks a suggestion whose supplier record fits its BOM line; without it, it is unverified.
 inline constexpr const char* kBomEnrichmentVerified = "verified\x1e";
 
-// Prefix of a stored suggestion that came from TME. It follows the verification prefix. A suggestion without it or the
-// Mouser prefix came from DigiKey, which was the only supplier before TME was asked as well.
+// Marks a suggestion from TME. No TME or Mouser prefix means DigiKey.
 inline constexpr const char* kBomEnrichmentTme = "tme\x1e";
 
-// Prefix of a stored suggestion that came from Mouser. It takes the place of the TME prefix, after the verification
-// prefix. Part numbers do not hold the record separator, so a stored DigiKey part is never read as a Mouser one.
+// Marks a suggestion from Mouser. Part numbers never contain the separator.
 inline constexpr const char* kBomEnrichmentMouser = "mouser\x1e";
 
-// The enrichment entry a finished lookup may persist, or nullopt when nothing may be cached. A
-// failure is never cached: it is transient, and a cached value would stop the line from being retried.
-// A caller sets at most one of fromTme and fromMouser; with neither, the suggestion came from DigiKey.
+// nullopt when nothing may be cached. Failures are never cached, so the line is retried.
+// Set at most one of fromTme and fromMouser; neither means DigiKey.
 optional<string> bomEnrichmentEntry(BomLookupOutcome outcome, const string& suggestion, bool verified = false,
                                     bool fromTme = false, bool fromMouser = false);
-// The part number a stored suggestion names, without the verification and supplier prefixes. Empty for markers.
+// Part number of a stored suggestion, without prefixes. Empty for markers.
 string bomEnrichmentPart(const string& stored);
-// True when a stored suggestion was verified against its BOM line.
 bool bomEnrichmentVerified(const string& stored);
-// The supplier a stored suggestion names: "DigiKey", "TME" or "Mouser". Empty for markers and failures.
+// Supplier of a stored suggestion: "DigiKey", "TME" or "Mouser". Empty for markers and failures.
 string bomEnrichmentSupplier(const string& stored);
 
-// True when the project already holds an answer for the line and it need not be looked up again.
-// Empty values and the "-" that earlier versions stored for every failure do not count.
+// True when the line already has an answer. Empty values and the legacy "-" do not count.
 bool bomEnrichmentCached(const map<string, string>& enrichment, const string& key);
 
-// The text a shortage export may show for a stored entry: the suggested part, never a marker.
 string bomEnrichmentExportText(const string& stored);
 
-// The shortage list of an analysis as spreadsheet-ready CSV text (CRLF rows, formula-safe cells). The
-// suggested part and its supplier come from `enrichment`; markers and failures are exported as empty cells.
+// Shortage list as CSV (CRLF rows, formula-safe cells). Markers and failures export as empty cells.
 struct BomShortageExport {
   string text;
   size_t rows = 0;

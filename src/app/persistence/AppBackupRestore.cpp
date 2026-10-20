@@ -52,7 +52,7 @@ bool App::backupData() {
   replace(stamp.begin(), stamp.end(), ' ', '_');
   auto destination = parent / ("Inventatory Backup " + stamp);
   for (int suffix = 2;; ++suffix) {
-    // An uninspectable name ends the search; creating the bundle then reports the real problem.
+    // If the name cannot be inspected, stop; creating the bundle reports the real error.
     error_code existsError;
     if (!filesystem::exists(destination, existsError) || existsError) break;
     destination = parent / ("Inventatory Backup " + stamp + "-" + to_string(suffix));
@@ -127,9 +127,8 @@ bool App::restoreData() {
   if (!restoreInventatoryBackup(selectedBackup, dataPath_, settingsPath_, error, nullptr,
                                 &replacementWorkspaceActiveOnFailure)) {
     if (replacementWorkspaceActiveOnFailure) {
-      // The replacement directory was published but cleanup or rollback did
-      // not complete.  The old in-memory state no longer describes the files
-      // on disk, so starting the service here could expose a stale workspace.
+      // Replacement is live but cleanup or rollback failed. Starting the service could expose
+      // a stale workspace, so it stays stopped.
       server_.stop();
       mdnsService_.stop();
       inventoryRecoveryRequired_ = true;

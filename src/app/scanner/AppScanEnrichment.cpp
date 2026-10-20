@@ -46,8 +46,7 @@ void App::queueScanAutoPrint(const string& itemId) {
   scanAutoPrintPending_.push_back(itemId);
 }
 
-// Runs once the lookup for a created part has finished, whether or not it found the part. A part that is still
-// a placeholder is not printed: its label would say "Unsorted" and "Scanned ... Item" and nothing else.
+// Runs when a created part's lookup ends. A part still holding placeholder names is not printed.
 void App::finishScanAutoPrint(const string& itemId, bool detailsFound) {
   const auto pending = find(scanAutoPrintPending_.begin(), scanAutoPrintPending_.end(), itemId);
   if (pending == scanAutoPrintPending_.end()) return;
@@ -82,14 +81,14 @@ void App::processScanDigiKeyEnrichment() {
     }
     if (result.details) {
       if (auto* item = store_.findById(result.itemId); item != nullptr) {
-        // A label printed next must show the slot the merged part is placed in; saving would place it too late.
+        // Reconcile now, so a label printed next shows the merged part's slot.
         const bool merged = mergeDigiKeyMetadata(*item, *result.details);
         const bool placed = reconcileRackAssignment(store_, *item);
         if (merged) logActivity("scan", "Synced DigiKey metadata for " + item->partName);
         if (merged || placed) saveState("digikey", result.itemId, "DigiKey enrichment");
       }
     } else if (!result.error.empty()) {
-      // A workspace without DigiKey credentials stays silent; only a lookup that was attempted and failed is shown.
+      // Silent without DigiKey credentials; only an attempted, failed lookup is shown.
       const auto shortError = result.error.size() > 80 ? result.error.substr(0, 77) + "..." : result.error;
       const auto message = "DigiKey lookup failed for a scanned part: " + shortError;
       setMessage(message, 5, UiMessageSeverity::Warning);
@@ -108,7 +107,7 @@ void App::processScanDigiKeyEnrichment() {
     ScanDigiKeyEnrichmentResult result;
     result.itemId = itemId;
     result.workspaceGeneration = generation;
-    // Reading the credentials can block on a locked keyring, so it happens here and not on the UI thread.
+    // Credential reads can block on a locked keyring, so they run off the UI thread.
     const auto config = loadDigiKeyConfig();
     if (!config.valid()) return result;
     DigiKeyApiClient client(config);
@@ -136,7 +135,7 @@ void App::beginDigiKeyRefresh() {
     return;
   }
 
-  stopDigiKeyRefresh();  // no refresh is running here, so this only resets the previous run's state
+  stopDigiKeyRefresh();  // Resets the previous run's state.
   digiKeyRefreshClient_ = move(api.client);
   const auto context = currentWorkspaceContext();
   if (context == nullptr) {

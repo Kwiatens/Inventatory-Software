@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-// Printer setup wizard rendering and keyboard handling.
+// Printer queue refresh and label printing.
 
 #include "App.h"
 
@@ -20,8 +19,8 @@ void App::refreshPrinterState() {
   const auto context = currentWorkspaceContext();
   if (context == nullptr) return;
 
-  // Enumeration and probing can enter the Windows spooler and take seconds.
-  // Capture only the queue name and let the UI-tick worker publish a result.
+  // Probing can block on the Windows spooler for seconds. Capture only the queue name; the
+  // UI-tick worker publishes the result.
   {
     lock_guard<mutex> lock(printerWorkMutex_);
     for (const auto& queued : printerWorkQueue_) {

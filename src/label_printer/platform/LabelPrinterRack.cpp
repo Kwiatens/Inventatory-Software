@@ -87,8 +87,8 @@ InventatoryRackLabelPlan LabelPrinterService::buildRackLabelPlan(const Inventato
 
 namespace {
 
-// Rack label (layout A): the rack number is the largest thing on the label, white on a black block; the
-// electrical symbol and the type name sit to its right.
+// Layout A: the rack number is the largest item, white on a black block.
+// The electrical symbol and the type name sit to its right.
 constexpr int kBlockX = kLabelLeft;
 constexpr int kBlockY = 28;
 constexpr int kBlockWidth = 100;
@@ -124,8 +124,7 @@ NameLayout twoLineName(const string& name, int maxWidth, initializer_list<int> s
   return best;
 }
 
-// The full name when it fits nicely on one line; otherwise the short form; otherwise the full name stepped down
-// or split over two lines. Nothing is ever cut.
+// Full name on one line if it fits, else the short form, else stepped down or split. Never cut.
 NameLayout chooseName(const InventatoryRackLabelPlan& plan, int maxWidth) {
   const auto full = sanitizeLabelText(plan.categoryText);
   const auto oneLine = [&](const string& text, initializer_list<int> sizes) {
@@ -170,7 +169,7 @@ string LabelPrinterService::buildRackLabelZpl(const InventatoryRack& rack, Symbo
   writeBox(out, kBlockX, kBlockY, kBlockWidth, kBlockHeight, kBlockWidth, 1);
   const auto blockCenterX = kBlockX + kBlockWidth / 2;
   writeText(out, centeredLeft(blockCenterX, 0, estimateFont0Width("RACK", 16, 16)), 38, 16, 16, "RACK", "^FR");
-  // The number takes the largest size that fits the block; three-digit racks step down, they are never cut.
+  // Largest size that fits the block; three-digit racks step down, never cut.
   const auto numberSize = fitFont0Text(plan.rackNumber, kBlockWidth - 10, {112, 104, 96, 88, 80, 72, 64, 56, 48});
   const auto numberRegionTop = 62;
   const auto numberRegionBottom = kLabelBottom - 7;

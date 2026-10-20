@@ -27,9 +27,7 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
   string stepError;
   bool oldDataExists = false;
   if (journal.destinationExisted) {
-    // Never destroy the active destination unless the journal still points to
-    // a real, owned protected directory that can be put back. A missing old
-    // directory is an unrecoverable state, not permission to continue.
+    // Never remove the active destination unless the owned protected copy exists to put back.
     if (!inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, true, oldDataExists,
                               stepError)) {
       error = stepError;
@@ -37,10 +35,7 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
     }
   } else if (!inspectOwnedArtifact(journal.oldData, journal.destination, ".restore-old-data", true, false,
                                    oldDataExists, stepError) || oldDataExists) {
-    // A journal that says no destination existed must never remove an
-    // unexpected old-data artifact. It may be user data or evidence of a
-    // journal/state mismatch, so leave everything untouched and require
-    // explicit recovery handling.
+    // Never remove an unexpected old-data artifact: it may be user data or a journal mismatch.
     error = oldDataExists ? "Unexpected protected old-data artifact is present" : stepError;
     return false;
   }
@@ -57,8 +52,7 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
     return false;
   }
   if (journal.destinationExisted) {
-    // Unmanaged entries may already have been moved out of the protected data
-    // into staging. Put them back before staging is discarded below.
+    // Return unmanaged entries from staging before it is discarded below.
     bool stagingExists = false;
     if (!inspectOwnedArtifact(journal.staging, journal.destination, ".restore-staging", true, false, stagingExists,
                               stepError)) {
@@ -84,9 +78,7 @@ bool rollbackRestore(const RestoreJournal& journal, const TransferOps& ops, stri
         error = stepError;
         return false;
       }
-      // The replacement was published with the preserved entries inside it.
-      // Move them back to the protected data; only restore-owned files may be
-      // removed together with the failed replacement.
+      // Move preserved entries out of the failed replacement; only restore-owned files may go.
       string returnError;
       if (!moveUnmanagedEntries(newData, journal.oldData, WorkspaceEntrySource::RestoredCopy, ops, returnError)) {
         string restoreError;
@@ -168,9 +160,7 @@ bool cleanupCommittedRestore(const RestoreJournal& journal, const TransferOps& o
     error = "Restored data is active, but staging cleanup failed: " + stepError;
     return false;
   }
-  // Only Inventatory's own replaced files may be deleted with the old data.
-  // Anything else still in it (for example after an interrupted move) is
-  // moved into the active workspace; a name clash keeps the old data in place.
+  // Move leftover unmanaged entries back first; a name clash keeps the old data in place.
   if (oldDataExists &&
       !moveUnmanagedEntries(journal.oldData, journal.destination, WorkspaceEntrySource::OldWorkspace, ops,
                             stepError)) {
@@ -297,8 +287,7 @@ bool recoverInventatoryRestore(const filesystem::path& destinationDirectory, con
     } else if (validationError.empty()) {
       validationError = "Restored workspace data could not be validated";
     }
-    // An activated DB without valid settings is not a committed workspace;
-    // roll it back and leave the original validation error visible.
+    // Activated data without valid settings is not committed: roll back, keep the error.
     string rollbackError;
     if (rollbackRestore(journal, ops, rollbackError)) {
       error = validationError.empty() ? "Interrupted restore was rolled back" : validationError;
