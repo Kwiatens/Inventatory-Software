@@ -241,7 +241,24 @@ if(WIN32)
   set_target_properties(inventatory_background PROPERTIES OUTPUT_NAME "inventatory-background")
 endif()
 
-target_include_directories(inventatory PRIVATE src)
+# The Linux desktop icons are embedded from branding/icons; editing a PNG reconfigures the build.
+set(INVENTATORY_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(NOT WIN32)
+  set(INVENTATORY_ICON_ARRAYS "")
+  set(INVENTATORY_ICON_TABLE "")
+  foreach(size 16 24 32 48 64 128 256 512)
+    set(icon "${CMAKE_CURRENT_SOURCE_DIR}/branding/icons/inventatory-${size}.png")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${icon}")
+    file(READ "${icon}" icon_hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," icon_bytes "${icon_hex}")
+    string(APPEND INVENTATORY_ICON_ARRAYS "inline constexpr unsigned char kIcon${size}Png[] = {${icon_bytes}};\n")
+    string(APPEND INVENTATORY_ICON_TABLE "    {${size}, kIcon${size}Png, sizeof(kIcon${size}Png)},\n")
+  endforeach()
+  configure_file(src/platform/system/AppIconsLinux.h.in
+                 "${INVENTATORY_GENERATED_DIR}/platform/system/AppIconsLinux.h" @ONLY)
+endif()
+
+target_include_directories(inventatory PRIVATE src "${INVENTATORY_GENERATED_DIR}")
 target_compile_definitions(inventatory PRIVATE
   Inventatory_VERSION_STRING="${INVENTATORY_VERSION}"
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
@@ -357,7 +374,7 @@ if(NOT WIN32)
   target_sources(inventatory_tests PRIVATE src/platform/scanner/MdnsService.cpp)
 endif()
 
-target_include_directories(inventatory_tests PRIVATE src)
+target_include_directories(inventatory_tests PRIVATE src "${INVENTATORY_GENERATED_DIR}")
 target_compile_definitions(inventatory_tests PRIVATE
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
   Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"
