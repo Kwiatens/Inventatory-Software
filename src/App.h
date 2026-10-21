@@ -426,7 +426,8 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
-  struct DigiKeyTestResult {
+  // The outcome of a DigiKey, TME or Mouser credential test.
+  struct SupplierTestResult {
     bool ok = false;
     std::string error;
     WorkspaceGeneration generation = 0;
@@ -438,18 +439,6 @@ class App {
     TmeLookupOutcome outcome = TmeLookupOutcome::Failed;
     std::string error;
     WorkspaceGeneration workspaceGeneration = 0;
-  };
-
-  struct TmeTestResult {
-    bool ok = false;
-    std::string error;
-    WorkspaceGeneration generation = 0;
-  };
-
-  struct MouserTestResult {
-    bool ok = false;
-    std::string error;
-    WorkspaceGeneration generation = 0;
   };
 
   // One Mouser refresh lookup; the manufacturer, when known, tells apart products sharing a number.
@@ -697,14 +686,13 @@ class App {
   bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
-  void processDigiKeyTest();
-  void processTmeTest();
+  // Shows a finished credential test, unless the workspace changed while it ran.
+  void finishSupplierTest(std::future<SupplierTestResult>& testFuture, const std::string& supplier);
   void beginTmeRefresh();
   // False when the lookup could not be queued (no TME credentials, or no workspace).
   bool enqueueTmeScanLookup(const std::string& itemId, const std::string& symbol);
   void processTmeRefresh();
   void stopTmeRefresh();
-  void processMouserTest();
   void beginMouserRefresh();
   void processMouserRefresh();
   void stopMouserRefresh();
@@ -801,6 +789,15 @@ class App {
   bool testStagedDigiKey();
   bool testStagedTme();
   bool testStagedMouser();
+  // Runs a credential test off the UI thread. test fills the error and returns whether the
+  // credentials work; exceptionText, when set, rewrites an exception's text before it is shown.
+  bool startSupplierTest(std::future<SupplierTestResult>& testFuture, const std::string& supplier,
+                         std::function<bool(std::string&)> test,
+                         std::function<std::string(const std::string&)> exceptionText = {});
+  // The staged secret, or the saved one when none is staged. False, with a message, when the
+  // credential store cannot be read.
+  bool stagedOrStoredSecret(bool staged, const std::string& stagedValue, const std::string& credentialName,
+                            const std::string& description, std::string& secret);
   // True when the field holds a secret: typed text is masked and wiped after editing.
   bool settingsFieldIsSecret() const;
   void clearStagedTmeCredentials();
@@ -1211,9 +1208,9 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
-  std::future<DigiKeyTestResult> digiKeyTestFuture_;
-  std::future<TmeTestResult> tmeTestFuture_;
-  std::future<MouserTestResult> mouserTestFuture_;
+  std::future<SupplierTestResult> digiKeyTestFuture_;
+  std::future<SupplierTestResult> tmeTestFuture_;
+  std::future<SupplierTestResult> mouserTestFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckFailed_ = false;

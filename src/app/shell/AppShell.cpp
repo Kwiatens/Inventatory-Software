@@ -170,9 +170,9 @@ void App::processBackgroundWork() {
   processSoftwareUpdate();
   processScanFirmwareCheck();
   processBleProvisioning();
-  processDigiKeyTest();
-  processTmeTest();
-  processMouserTest();
+  finishSupplierTest(digiKeyTestFuture_, "DigiKey");
+  finishSupplierTest(tmeTestFuture_, "TME");
+  finishSupplierTest(mouserTestFuture_, "Mouser");
   processScanDigiKeyEnrichment();
   processDigiKeyRefresh();
   processTmeRefresh();

@@ -27,71 +27,20 @@ bool App::testStagedTme() {
   config.country = settingsDraft_.tmeCountry;
   config.language = settingsDraft_.tmeLanguage;
   config.currency = settingsDraft_.tmeCurrency;
-  if (stagedTmeTokenChanged_) {
-    config.token = stagedTmeToken_;
-  } else {
-    const auto stored = CredentialStore::lookup(kTmeTokenCredentialName);
-    if (stored.status == CredentialReadStatus::Found && stored.secret.has_value()) {
-      config.token = *stored.secret;
-    } else if (stored.status == CredentialReadStatus::Unavailable) {
-      setMessage("Secure credential storage is unavailable; the saved TME token cannot be read", 5);
-      return false;
-    }
-  }
-  if (stagedTmeSecretChanged_) {
-    config.applicationSecret = stagedTmeSecret_;
-  } else {
-    const auto stored = CredentialStore::lookup(kTmeSecretCredentialName);
-    if (stored.status == CredentialReadStatus::Found && stored.secret.has_value()) {
-      config.applicationSecret = *stored.secret;
-    } else if (stored.status == CredentialReadStatus::Unavailable) {
-      setMessage("Secure credential storage is unavailable; the saved TME application secret cannot be read", 5);
-      return false;
-    }
+  if (!stagedOrStoredSecret(stagedTmeTokenChanged_, stagedTmeToken_, kTmeTokenCredentialName, "TME token",
+                            config.token) ||
+      !stagedOrStoredSecret(stagedTmeSecretChanged_, stagedTmeSecret_, kTmeSecretCredentialName,
+                            "TME application secret", config.applicationSecret)) {
+    return false;
   }
   if (!config.valid()) {
     setMessage("TME token and application secret are required", 4);
     return false;
   }
-  const auto context = currentWorkspaceContext();
-  const auto generation = context != nullptr ? context->generation : 0;
-  try {
-    tmeTestFuture_ = std::async(
-        std::launch::async,
-        [config = std::move(config), generation]() -> TmeTestResult {
-          TmeTestResult result;
-          result.generation = generation;
-          try {
-            TmeApiClient client(std::move(config));
-            result.ok = client.testConnection(&result.error);
-          } catch (const std::exception& e) {
-            result.ok = false;
-            result.error = e.what();
-          } catch (...) {
-            result.ok = false;
-            result.error = "Connection test failed unexpectedly";
-          }
-          return result;
-        });
-  } catch (...) {
-    setMessage("Unable to start TME test", 4, UiMessageSeverity::Error);
-    return false;
-  }
-  setMessage("Testing TME credentials...", 10);
-  dirty_ = true;
-  return true;
-}
-
-void App::processTmeTest() {
-  if (!tmeTestFuture_.valid() || tmeTestFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
-    return;
-  }
-  const auto result = tmeTestFuture_.get();
-  if (workspaceIsCurrent(result.generation)) {
-    setMessage(result.ok ? "TME credentials are valid" : "TME test failed: " + result.error, 5,
-               result.ok ? UiMessageSeverity::Success : UiMessageSeverity::Error);
-    dirty_ = true;
-  }
+  return startSupplierTest(tmeTestFuture_, "TME", [config](string& error) {
+    TmeApiClient client(config);
+    return client.testConnection(&error);
+  });
 }
 
 void App::beginTmeRefresh() {
