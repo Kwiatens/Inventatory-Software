@@ -24,7 +24,6 @@ string shortCode(const string& value, size_t maxLength = 14);
 string fieldOrBlank(const string& value, size_t maxLength);
 string sanitiseZplFragment(const string& value);
 string shortParameterLabel(const string& label);
-string compactDescriptor(const string& value, size_t maxLength = 10);
 string normalizeResistanceValue(string value);
 string fitSingleLineLabel(const string& value, size_t maxLength);
 
