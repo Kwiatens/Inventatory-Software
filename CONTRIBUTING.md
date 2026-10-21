@@ -1,6 +1,6 @@
 # Contributing to Inventatory
 
-Thank you for your intrest in helping with the development of Inventatory!
+Thank you for your interest in helping with the development of Inventatory!
 
 Here is a guide on how to contribute to the project.
 
