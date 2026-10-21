@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Plain-sentence header lines ("Rack 1: take 26 pieces from 7 slots") built from fixed templates,
 // so a state always reads the same. Span tone is semantic; the UI maps it to weight and colour.
 
