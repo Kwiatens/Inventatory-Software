@@ -213,6 +213,27 @@ ftxui::Element centered(ftxui::Element element) {
   return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
 }
 
+ftxui::Element uiDeleteConfirmation(ftxui::Element page, int screenWidth, const string& title, const string& noun,
+                                    const string& selected, int secondsLeft) {
+  const int popupWidth = max(48, min(screenWidth - 12, 72));
+  ftxui::Elements popupRows;
+  const auto question = "Are you sure you want to delete this " + noun + " from the database?";
+  popupRows.push_back(ftxui::paragraphAlignLeft(question) | ftxui::color(uiTitleColor()));
+  popupRows.push_back(uiDivider());
+  popupRows.push_back(ftxui::paragraphAlignLeft("Selected: " + selected) | ftxui::color(uiWarnColor()));
+  popupRows.push_back(ftxui::paragraphAlignLeft("Press Enter to confirm after the timer unlocks.") |
+                      ftxui::color(secondsLeft == 0 ? uiTitleColor() : uiMutedColor()));
+  popupRows.push_back(ftxui::paragraphAlignLeft("Press Esc to cancel.") | ftxui::color(uiMutedColor()));
+  popupRows.push_back(ftxui::paragraphAlignLeft(to_string(secondsLeft) + " second" +
+                                                (secondsLeft == 1 ? string() : string("s")) + " remaining") |
+                      ftxui::color(uiWarnColor()));
+  auto popup = ftxui::window(styledText(title, uiDangerColor()),
+                             ftxui::vbox(move(popupRows)) | ftxui::bgcolor(uiPanelRightBg()) |
+                                 ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, popupWidth)) |
+               ftxui::color(uiDangerColor());
+  return ftxui::dbox({move(page), ftxui::vbox({ftxui::filler(), centered(move(popup)), ftxui::filler()})});
+}
+
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor,
                      optional<ftxui::Color> borderColor) {
   (void)borderColor;

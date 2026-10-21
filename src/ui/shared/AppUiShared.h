@@ -89,6 +89,10 @@ ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg = nullopt,
 // A table cell exactly `width` columns wide: text clipped with an ellipsis, left or right aligned.
 ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool rightAlign = false);
 ftxui::Element centered(ftxui::Element element);
+// The timed delete confirmation drawn over a page. noun names what is deleted ("part", "rack");
+// Enter confirms once secondsLeft reaches zero.
+ftxui::Element uiDeleteConfirmation(ftxui::Element page, int screenWidth, const string& title, const string& noun,
+                                    const string& selected, int secondsLeft);
 ftxui::Element panel(const string& title, ftxui::Elements body, optional<ftxui::Color> titleColor = nullopt,
                      optional<ftxui::Color> borderColor = nullopt);
 ftxui::Element footerField(const string& title, const string& body, ftxui::Color titleColor, ftxui::Color bodyColor,
