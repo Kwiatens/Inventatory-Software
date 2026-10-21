@@ -342,6 +342,8 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Update wizard";
         contextText = "Inventatory release update";
         break;
+      case Page::Onboarding:
+        break;
     }
   }
 

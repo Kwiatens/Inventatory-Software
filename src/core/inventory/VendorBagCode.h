@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Recognises the main code of a supported vendor bag, and the vendor an inventory item came from.
 
 #pragma once

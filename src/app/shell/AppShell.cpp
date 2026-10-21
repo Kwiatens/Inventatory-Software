@@ -50,16 +50,16 @@ KeyEvent translateEvent(const ftxui::Event& event) {
       {ftxui::Event::Delete, KeyType::Delete},
   };
   for (const auto& [key, type] : kKeys) {
-    if (event == key) return {type, '\0'};
+    if (event == key) return {type, '\0', {}};
   }
   if (event == ftxui::Event::Backspace) {
-    return {controlModifierPressed() ? KeyType::CtrlBackspace : KeyType::Backspace, '\0'};
+    return {controlModifierPressed() ? KeyType::CtrlBackspace : KeyType::Backspace, '\0', {}};
   }
   if (event.is_character() && !event.character().empty()) {
     const auto& text = event.character();
     return {KeyType::Character, text.size() == 1 ? text[0] : '\0', text};
   }
-  return {KeyType::Unknown, '\0'};
+  return {KeyType::Unknown, '\0', {}};
 }
 
 }  // namespace

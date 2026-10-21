@@ -24,9 +24,8 @@ namespace inventatory {
 using namespace std;
 
 namespace {
-KeyEvent chr(char c) { return {KeyType::Character, c}; }
-KeyEvent special(KeyType type) { return {type, '\0'}; }
-KeyEvent none() { return {KeyType::Unknown, '\0'}; }
+KeyEvent chr(char c) { return {KeyType::Character, c, {}}; }
+KeyEvent special(KeyType type) { return {type, '\0', {}}; }
 }  // namespace
 
 vector<App::Action> App::currentActions() const {
@@ -395,6 +394,11 @@ vector<App::Action> App::currentActions() const {
       }
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
+    case Page::DigiKeySetup:
+    case Page::Onboarding:
+    case Page::ScanSetup:
+    case Page::Update:
+      break;  // These pages register no contextual actions.
   }
 
   return actions;

@@ -114,12 +114,13 @@ add_executable(inventatory
   src/app/bom/AppBomActions.cpp
   src/app/bom/AppBomProjectActions.cpp
   src/app/bom/AppBomBuildActions.cpp
-  src/app/settings/AppSettings.cpp
-  src/app/settings/AppSettingsAppearance.cpp
+  src/core/settings/AppSettings.cpp
+  src/core/settings/AppSettingsAppearance.cpp
   ${INVENTATORY_STARTUP_SOURCE}
   src/core/inventory/Inventory.cpp
   src/core/inventory/InventoryHelpers.cpp
   src/core/inventory/InventoryIdentifiers.cpp
+  src/core/inventory/ParameterLookup.cpp
   src/core/parts/PartDescriptor.cpp
   src/core/parts/PartDescriptorContext.cpp
   src/core/parts/PartDescriptorRules.cpp
@@ -255,8 +256,8 @@ target_link_libraries(inventatory PRIVATE sqlite3_amalgamation ftxui::screen ftx
 add_executable(inventatory_tests
   tests/inventatory_tests.cpp
   src/app/shell/AppBootstrap.cpp
-  src/app/settings/AppSettings.cpp
-  src/app/settings/AppSettingsAppearance.cpp
+  src/core/settings/AppSettings.cpp
+  src/core/settings/AppSettingsAppearance.cpp
   ${INVENTATORY_STARTUP_SOURCE}
   src/platform/system/UpdateService.cpp
   src/platform/scanner/HttpServer.cpp
@@ -296,6 +297,7 @@ add_executable(inventatory_tests
   src/core/inventory/Inventory.cpp
   src/core/inventory/InventoryHelpers.cpp
   src/core/inventory/InventoryIdentifiers.cpp
+  src/core/inventory/ParameterLookup.cpp
   src/core/parts/PartDescriptor.cpp
   src/core/parts/PartDescriptorContext.cpp
   src/core/parts/PartDescriptorRules.cpp

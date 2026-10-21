@@ -1065,7 +1065,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604",
       "synced",
       "RC0603FR-0710KL",
-      1710000000, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
+      1710000000, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {},
   });
 
   items.push_back({
@@ -1084,7 +1084,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/espressif-systems/ESP32-S3/15240400",
       "synced",
       "ESP32-S3-WROOM-1",
-      1710000100, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
+      1710000100, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {},
   });
 
   ensureInventoryIdentifiers(items);
@@ -3167,8 +3167,8 @@ void testSqliteSchemaValidation() {
   filesystem::remove(duplicatePath, cleanupError);
   {
     InventoryStore duplicate;
-    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
-    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
+    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
     assert(!duplicate.save(duplicatePath));
   }
   filesystem::remove(duplicatePath, cleanupError);
@@ -5681,7 +5681,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   filesystem::remove(databasePath, removeError);
 
   InventoryStore persisted;
-  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
   assert(persisted.save(databasePath));
 
   {
@@ -5691,7 +5691,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   }
 
   InventoryStore retained;
-  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
   assert(!retained.load(databasePath));
   assert(retained.items().size() == 1);
   assert(retained.items().front().id == "live-item");
@@ -10297,10 +10297,10 @@ void testBackgroundStartupLauncherPath() {
   assert(launcherPath == L"C:\\Program Files\\Inventatory\\inventatory-background.exe");
   assert(buildBackgroundStartupCommand(launcherPath) ==
          L"\"C:\\Program Files\\Inventatory\\inventatory-background.exe\" --background");
-  assert(buildDesktopShortcutPath(L"C:\\Users\\pawci\\Desktop") ==
-         L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
-  assert(buildDesktopShortcutPath(L"C:\\Users\\pawci\\Desktop\\") ==
-         L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
+  assert(buildDesktopShortcutPath(L"C:\\Users\\user\\Desktop") ==
+         L"C:\\Users\\user\\Desktop\\Inventatory.lnk");
+  assert(buildDesktopShortcutPath(L"C:\\Users\\user\\Desktop\\") ==
+         L"C:\\Users\\user\\Desktop\\Inventatory.lnk");
 }
 
 #ifndef _WIN32

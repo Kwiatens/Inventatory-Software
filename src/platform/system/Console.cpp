@@ -104,21 +104,12 @@ bool controlModifierPressed() {
 }
 
 bool openUrl(const string& url) {
-  constexpr size_t kMaximumUrlLength = 2048;
-  if (url.size() > kMaximumUrlLength || url.rfind("https://", 0) != 0) {
-    return false;
-  }
-  for (const unsigned char character : url) {
-    if (character < 0x20U || character == 0x7fU) {
-      return false;
-    }
-  }
-  const auto hostBegin = sizeof("https://") - 1U;
-  const auto hostEnd = url.find_first_of("/?#", hostBegin);
-  if (hostEnd == hostBegin || url.find_first_of("\\\"<>|", hostBegin) != string::npos) {
-    return false;
-  }
-  const auto result = reinterpret_cast<intptr_t>(ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+  if (!openableUrl(url)) return false;
+  // The wide call keeps non-ASCII characters intact; the ANSI one reads the URL in the local code page.
+  const auto wideUrl = widenUtf8(url);
+  if (wideUrl.empty()) return false;
+  const auto result =
+      reinterpret_cast<intptr_t>(ShellExecuteW(nullptr, L"open", wideUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
   return result > 32;
 }
 

@@ -5,7 +5,7 @@
 
 #include "core/transfer/InventoryTransferPrivate.h"
 
-#include "app/settings/AppSettings.h"
+#include "core/settings/AppSettings.h"
 #include "core/bom/BomProjectStore.h"
 #include "core/storage/InventorySqlite.h"
 #include "label_printer/core/LabelPrinter.h"

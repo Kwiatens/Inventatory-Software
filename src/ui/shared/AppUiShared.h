@@ -7,6 +7,7 @@
 
 #include "app/settings/AppSettings.h"
 #include "core/inventory/Inventory.h"
+#include "core/inventory/ParameterLookup.h"
 #include "core/text/Voice.h"
 
 #include <ftxui/component/component.hpp>
@@ -144,12 +145,7 @@ string joinTags(const vector<string>& tags);
 string renderTags(const vector<string>& tags);
 string renderUrl(const string& url);
 
-string normalizeKey(string value);
 bool categoryContains(const InventoryItem& item, initializer_list<const char*> needles);
-bool parameterLabelMatches(const string& lhs, const string& rhs);
-bool looksLikePackagingValue(const string& value);
-const Parameter* findParameter(const vector<Parameter>& parameters, initializer_list<const char*> names);
-optional<string> parameterValue(const InventoryItem& item, initializer_list<const char*> names);
 string prettyLabel(const string& label);
 
 vector<DetailField> electricalFieldsForItem(const InventoryItem& item);

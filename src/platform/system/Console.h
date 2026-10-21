@@ -68,6 +68,18 @@ void waitForAcknowledgement(int timeoutMs);
 vector<string> buildTerminalCandidateArgs(const string& terminalBinary, const string& executable,
                                           const vector<string>& extraArgs = {});
 #endif
+// An https:// link with a host, no control characters and nothing a shell or launcher could
+// misread. openUrl refuses anything else.
+inline bool openableUrl(const string& url) {
+  constexpr size_t kMaximumUrlLength = 2048;
+  if (url.size() > kMaximumUrlLength || url.rfind("https://", 0) != 0) return false;
+  for (const unsigned char character : url) {
+    if (character < 0x20U || character == 0x7fU) return false;
+  }
+  const auto hostBegin = sizeof("https://") - 1U;
+  return url.find_first_of("/?#", hostBegin) != hostBegin &&
+         url.find_first_of("\\\"<>|", hostBegin) == string::npos;
+}
 bool openUrl(const string& url);
 bool copyToClipboard(const string& text);
 bool openCsvFileDialog(filesystem::path& selectedPath);
