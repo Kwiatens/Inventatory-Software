@@ -189,6 +189,7 @@ add_executable(inventatory
   src/platform/digikey/DigiKeyJsonParser.cpp
   src/platform/digikey/DigiKeyProduct.cpp
   src/platform/digikey/DigiKeyProductDetails.cpp
+  src/platform/digikey/DigiKeyTransportCommon.cpp
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   src/platform/tme/TmeApi.cpp
   src/platform/tme/TmeEncoding.cpp
@@ -278,6 +279,7 @@ add_executable(inventatory_tests
   src/platform/digikey/DigiKeyJsonParser.cpp
   src/platform/digikey/DigiKeyProduct.cpp
   src/platform/digikey/DigiKeyProductDetails.cpp
+  src/platform/digikey/DigiKeyTransportCommon.cpp
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   src/import/csv/CsvReader.cpp
   src/import/csv/CsvFormat.cpp
