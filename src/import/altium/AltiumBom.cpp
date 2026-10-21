@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Altium Designer BOM export parsing (a Bill of Materials report saved as CSV).
 
 #include "import/altium/AltiumBom.h"

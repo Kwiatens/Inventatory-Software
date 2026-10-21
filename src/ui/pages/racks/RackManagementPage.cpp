@@ -48,12 +48,6 @@ ftxui::Element rackOccupancyIndicator(size_t occupied, size_t capacity, int widt
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-string assignmentLabel(RackAssignmentMode mode) {
-  if (mode == RackAssignmentMode::Manual) return "manual";
-  if (mode == RackAssignmentMode::Unassigned) return "unassigned";
-  return "automatic";
-}
-
 string packageSummary(const InventoryItem& item) {
   for (const auto& parameter : item.parameters) {
     if (parameterLabelMatches(parameter.name, "Package") || parameterLabelMatches(parameter.name, "Package / Case")) {

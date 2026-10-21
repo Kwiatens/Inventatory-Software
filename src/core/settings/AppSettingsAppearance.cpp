@@ -3,7 +3,7 @@
 
 // Inventatory - Appearance settings formatting and parsing.
 
-#include "app/settings/AppSettings.h"
+#include "core/settings/AppSettings.h"
 
 #include <cctype>
 #include <iomanip>

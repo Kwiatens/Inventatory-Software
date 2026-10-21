@@ -1,9 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-
-#include "app/settings/AppSettings.h"
+#include "core/settings/AppSettings.h"
 
 #include "core/storage/AtomicFile.h"
 #include "core/scanner/InventatoryScanProtocol.h"

@@ -29,15 +29,15 @@ using namespace std;
 App::App(bool startInBackground, BackgroundController& backgroundController)
     : backgroundController_(backgroundController),
       startInBackground_(startInBackground),
-      settingsPath_(appSettingsPath()),
-      updateMarkerPath_(appSettingsDirectory() / "update-status.conf"),
-      updateNotesPath_(appSettingsDirectory() / "update-notes.md"),
       dataPath_(discoverInventatoryDataPath()),
       inventoryPath_(dataPath_ / "inventory.db"),
       printerPath_(dataPath_ / "printer.conf"),
       activityPath_(dataPath_ / "activity.tsv"),
       inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
-      quickLabelsPath_(dataPath_ / "quick_labels.conf") {
+      quickLabelsPath_(dataPath_ / "quick_labels.conf"),
+      settingsPath_(appSettingsPath()),
+      updateMarkerPath_(appSettingsDirectory() / "update-status.conf"),
+      updateNotesPath_(appSettingsDirectory() / "update-notes.md") {
   error_code settingsFileError;
   const bool settingsFileExists = filesystem::exists(settingsPath_, settingsFileError);
   const bool loadedSettings = loadAppSettings(settingsPath_, settings_);
