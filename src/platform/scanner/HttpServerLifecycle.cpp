@@ -128,15 +128,6 @@ uint16_t LocalHttpServer::port() const {
   return port_;
 }
 
-string LocalHttpServer::baseUrl() const {
-  const auto addresses = this->addresses();
-  const auto host = addresses.empty() ? string("127.0.0.1") : addresses.front();
-  const auto servicePort = port();
-  ostringstream out;
-  out << "http://" << host << ':' << servicePort;
-  return out.str();
-}
-
 vector<string> LocalHttpServer::addresses() const {
   lock_guard<mutex> lock(stateMutex_);
   if (!addresses_.empty()) {
