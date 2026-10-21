@@ -7,6 +7,7 @@
 #define NOMINMAX
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
+#include "platform/system/WindowsText.h"
 #include "core/parts/DecimalParse.h"
 
 #ifdef _WIN32
@@ -36,31 +37,9 @@ namespace inventatory {
 using namespace std;
 namespace digikey_detail {
 
-wstring widen(const string& value) {
-  if (value.empty() || value.size() > static_cast<size_t>(numeric_limits<int>::max())) {
-    return {};
-  }
-  const int required = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
-  if (required <= 0) {
-    return {};
-  }
-  wstring out(static_cast<size_t>(required), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), out.data(), required);
-  return out;
-}
+wstring widen(const string& value) { return utf8ToWide(value); }
 
-string narrow(const wstring& value) {
-  if (value.empty()) {
-    return {};
-  }
-  const int required = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
-  if (required <= 0) {
-    return {};
-  }
-  string out(static_cast<size_t>(required), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), out.data(), required, nullptr, nullptr);
-  return out;
-}
+string narrow(const wstring& value) { return wideToUtf8(value); }
 
 string httpErrorMessage(const string& prefix) {
   const DWORD code = GetLastError();

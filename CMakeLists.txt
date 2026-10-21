@@ -46,6 +46,7 @@ if(WIN32)
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningService.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
   set(INVENTATORY_CHILD_PROCESS_SOURCE)
+  set(INVENTATORY_WINDOWS_TEXT_SOURCE src/platform/system/WindowsText.cpp)
 else()
   find_package(PkgConfig REQUIRED)
   find_package(OpenSSL REQUIRED)
@@ -61,6 +62,7 @@ else()
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningServiceLinux.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
   set(INVENTATORY_CHILD_PROCESS_SOURCE src/platform/system/ChildProcess.cpp)
+  set(INVENTATORY_WINDOWS_TEXT_SOURCE)
 endif()
 
 # Compiled in so releases never need an ambient sqlite3.dll. The hash pins the source.
@@ -198,6 +200,7 @@ add_executable(inventatory
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
+  ${INVENTATORY_WINDOWS_TEXT_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   ${INVENTATORY_BLE_SOURCE}
@@ -268,6 +271,7 @@ add_executable(inventatory_tests
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
+  ${INVENTATORY_WINDOWS_TEXT_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   src/platform/tme/TmeApi.cpp

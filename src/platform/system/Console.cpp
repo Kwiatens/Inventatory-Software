@@ -5,6 +5,7 @@
 #define NOMINMAX
 
 #include "platform/system/Console.h"
+#include "platform/system/WindowsText.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -39,18 +40,6 @@ string ipv4ToString(const sockaddr_in& address) {
     return {};
   }
   return buffer;
-}
-
-// UTF-8 to UTF-16. Empty output for non-empty input means invalid UTF-8.
-wstring widenUtf8(const string& value) {
-  if (value.empty()) return {};
-  const int count = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
-  if (count <= 0) return {};
-  wstring result(static_cast<size_t>(count), L'\0');
-  if (MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), count) <= 0) {
-    return {};
-  }
-  return result;
 }
 
 // SHBrowseForFolder needs COM. If the thread already has an apartment, nothing is uninitialized.
@@ -99,7 +88,7 @@ bool controlModifierPressed() {
 bool openUrl(const string& url) {
   if (!openableUrl(url)) return false;
   // The wide call keeps non-ASCII characters intact; the ANSI one reads the URL in the local code page.
-  const auto wideUrl = widenUtf8(url);
+  const auto wideUrl = utf8ToWide(url);
   if (wideUrl.empty()) return false;
   const auto result =
       reinterpret_cast<intptr_t>(ShellExecuteW(nullptr, L"open", wideUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
@@ -108,7 +97,7 @@ bool openUrl(const string& url) {
 
 bool copyToClipboard(const string& text) {
   // UTF-16 (CF_UNICODETEXT) keeps non-ASCII text intact.
-  const wstring wideText = widenUtf8(text);
+  const wstring wideText = utf8ToWide(text);
   if (wideText.empty() && !text.empty()) {
     return false;
   }
@@ -184,9 +173,9 @@ bool saveFileDialog(filesystem::path& selectedPath, const string& title, const s
     copy(initialPath.begin(), initialPath.end(), fileName.begin());
   }
   // The filter needs double NUL termination: the caller's string supplies one, c_str() the other.
-  const wstring wideFilter = widenUtf8(filter);
-  const wstring wideTitle = widenUtf8(title);
-  const wstring wideExtension = widenUtf8(defaultExtension);
+  const wstring wideFilter = utf8ToWide(filter);
+  const wstring wideTitle = utf8ToWide(title);
+  const wstring wideExtension = utf8ToWide(defaultExtension);
   OPENFILENAMEW dialog{};
   dialog.lStructSize = sizeof(dialog);
   dialog.hwndOwner = nullptr;
@@ -207,7 +196,7 @@ bool saveFileDialog(filesystem::path& selectedPath, const string& title, const s
 
 bool openFolderDialog(filesystem::path& selectedPath, const string& title) {
   const ComApartment apartment;
-  const wstring wideTitle = widenUtf8(title);
+  const wstring wideTitle = utf8ToWide(title);
   BROWSEINFOW browse{};
   browse.hwndOwner = nullptr;
   browse.lpszTitle = wideTitle.c_str();

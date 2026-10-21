@@ -9,6 +9,7 @@
 
 #include "core/transfer/InventoryTransferPrivate.h"
 #include "platform/system/Environment.h"
+#include "platform/system/WindowsText.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -54,17 +55,6 @@ constexpr char kReleaseRepository[] = Inventatory_RELEASE_REPOSITORY;
 constexpr char kScanFirmwareRepository[] = Inventatory_SCAN_FIRMWARE_REPOSITORY;
 
 #ifdef _WIN32
-std::wstring widen(const std::string& value) {
-  if (value.empty()) return {};
-  const int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
-  if (sizeNeeded <= 0) return {};
-  std::wstring result(static_cast<size_t>(sizeNeeded), L'\0');
-  if (MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), sizeNeeded) <= 0) {
-    return {};
-  }
-  return result;
-}
-
 std::wstring quoteWindowsArgument(const std::wstring& value) {
   std::wstring quoted = L"\"";
   size_t backslashes = 0;
@@ -400,7 +390,7 @@ std::string fetchLatestReleaseJson(const std::string& repository) {
 }
 
 bool parseHttpsUrl(const std::string& url, URL_COMPONENTS& components, std::wstring& wideUrl) {
-  wideUrl = widen(url);
+  wideUrl = utf8ToWide(url);
   if (wideUrl.empty()) return false;
   components = {};
   components.dwStructSize = sizeof(components);
@@ -412,15 +402,6 @@ bool parseHttpsUrl(const std::string& url, URL_COMPONENTS& components, std::wstr
   return WinHttpCrackUrl(wideUrl.c_str(), static_cast<DWORD>(wideUrl.size()), 0, &components) != FALSE &&
          components.nScheme == INTERNET_SCHEME_HTTPS && components.lpszHostName != nullptr &&
          components.dwHostNameLength > 0 && components.lpszUrlPath != nullptr && components.dwUrlPathLength > 0;
-}
-
-std::string urlComponent(const wchar_t* value, DWORD length) {
-  if (value == nullptr || length == 0) return {};
-  const int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, value, static_cast<int>(length), nullptr, 0, nullptr, nullptr);
-  if (sizeNeeded <= 0) return {};
-  std::string result(static_cast<size_t>(sizeNeeded), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, value, static_cast<int>(length), result.data(), sizeNeeded, nullptr, nullptr);
-  return result;
 }
 
 bool queryContentLength(HINTERNET request, std::uint64_t& total) {
@@ -678,15 +659,15 @@ bool downloadReleaseAsset(const std::string& url, const std::filesystem::path& d
     error = "The update asset URL is invalid";
     return false;
   }
-  const auto host = urlComponent(components.lpszHostName, components.dwHostNameLength);
-  const auto path = urlComponent(components.lpszUrlPath, components.dwUrlPathLength);
+  const auto host = wideToUtf8(components.lpszHostName, components.dwHostNameLength);
+  const auto path = wideToUtf8(components.lpszUrlPath, components.dwUrlPathLength);
   if (host != "github.com" || path.empty()) {
     error = "The update asset URL is not an approved GitHub download";
     return false;
   }
   // Component pointers are length-delimited, not null-terminated; copy them before LPCWSTR use.
-  const auto wideHost = widen(host);
-  const auto widePath = widen(path + urlComponent(components.lpszExtraInfo, components.dwExtraInfoLength));
+  const auto wideHost = utf8ToWide(host);
+  const auto widePath = utf8ToWide(path + wideToUtf8(components.lpszExtraInfo, components.dwExtraInfoLength));
   if (wideHost.empty() || widePath.empty()) {
     error = "The update asset URL is invalid";
     return false;
@@ -1017,8 +998,8 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
   if (length == 0 || length >= MAX_PATH) { error = "Could not locate PowerShell"; return false; }
   const std::filesystem::path powershell = std::filesystem::path(systemDirectory) / "WindowsPowerShell" /
                                            "v1.0" / "powershell.exe";
-  const auto repository = widen(Inventatory_RELEASE_REPOSITORY);
-  const auto version = widen(releaseVersion);
+  const auto repository = utf8ToWide(Inventatory_RELEASE_REPOSITORY);
+  const auto version = utf8ToWide(releaseVersion);
   if (repository.empty() || version.empty()) { error = "The update release identity is invalid"; return false; }
   std::wstring command = quoteWindowsArgument(powershell.wstring()) +
                          L" -NoLogo -NoProfile -ExecutionPolicy Bypass -File " + quoteWindowsArgument(installerPath.wstring()) +

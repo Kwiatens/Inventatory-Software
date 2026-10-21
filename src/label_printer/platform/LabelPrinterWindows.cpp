@@ -9,6 +9,7 @@
 #include "label_printer/core/LabelPrinterPrivate.h"
 
 #include "core/inventory/InventoryInternals.h"
+#include "platform/system/WindowsText.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -29,8 +30,6 @@ using namespace std;
 using namespace label_printer_detail;
 
 namespace {
-
-string narrowFromWide(const wstring& value);
 
 string windowsErrorText(unsigned long code) {
 #ifdef _WIN32
@@ -53,7 +52,7 @@ string windowsErrorText(unsigned long code) {
       ch = L' ';
     }
   }
-  const string result = trim(narrowFromWide(wide));
+  const string result = trim(wideToUtf8(wide));
   return result.empty() ? "Windows error " + to_string(code) : result;
 #else
   (void)code;
@@ -61,47 +60,13 @@ string windowsErrorText(unsigned long code) {
 #endif
 }
 
-string narrowFromWide(const wstring& value) {
-#ifdef _WIN32
-  if (value.empty()) {
-    return {};
-  }
-  const int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
-  if (sizeNeeded <= 0) {
-    return {};
-  }
-  string result(static_cast<size_t>(sizeNeeded), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), result.data(), sizeNeeded, nullptr, nullptr);
-  return result;
-#else
-  return {};
-#endif
-}
-
-wstring widenFromUtf8(const string& value) {
-#ifdef _WIN32
-  if (value.empty()) {
-    return {};
-  }
-  const int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
-  if (sizeNeeded <= 0) {
-    return {};
-  }
-  wstring result(static_cast<size_t>(sizeNeeded), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), result.data(), sizeNeeded);
-  return result;
-#else
-  return {};
-#endif
-}
-
 #ifdef _WIN32
 PrinterQueueInfo makePrinterInfo(const wstring& name, const wstring& driver, const wstring& port, DWORD status,
                                  bool isDefault) {
   PrinterQueueInfo info;
-  info.name = narrowFromWide(name);
-  info.driverName = narrowFromWide(driver);
-  info.portName = narrowFromWide(port);
+  info.name = wideToUtf8(name);
+  info.driverName = wideToUtf8(driver);
+  info.portName = wideToUtf8(port);
   info.isDefault = isDefault;
 
   vector<string> statusParts;
@@ -195,7 +160,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
       return result;
     }
 
-    const auto wideName = widenFromUtf8(printerName);
+    const auto wideName = utf8ToWide(printerName);
     if (wideName.empty()) {
       result.message = "Printer name could not be converted";
       return result;
@@ -242,7 +207,7 @@ class WindowsPrinterBackend final : public PrinterBackend {
   }
 
   bool sendRawJob(const string& printerName, const string& jobName, const string& zpl, string* error) const override {
-    const auto wideName = widenFromUtf8(printerName);
+    const auto wideName = utf8ToWide(printerName);
     if (wideName.empty()) {
       if (error != nullptr) {
         *error = "Printer name could not be converted";
@@ -263,8 +228,8 @@ class WindowsPrinterBackend final : public PrinterBackend {
     unique_ptr<void, decltype(&ClosePrinter)> printerHandle(handle, ClosePrinter);
 
     DOC_INFO_1W doc{};
-    const auto jobWide = widenFromUtf8(jobName);
-    const auto rawWide = widenFromUtf8("RAW");
+    const auto jobWide = utf8ToWide(jobName);
+    const auto rawWide = utf8ToWide("RAW");
     doc.pDocName = const_cast<LPWSTR>(jobWide.empty() ? L"Inventatory Label" : jobWide.c_str());
     doc.pOutputFile = nullptr;
     doc.pDatatype = const_cast<LPWSTR>(rawWide.empty() ? L"RAW" : rawWide.c_str());
