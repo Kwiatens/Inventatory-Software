@@ -762,6 +762,7 @@ class App {
   void applyWizardTransitionTarget();
   bool regenerateInventatoryScanToken();
   bool clearInventatoryScanPairing();
+  bool rotateInventatoryScanPairing(const std::string& tokenNotStoredMessage, const std::string& doneMessage);
   bool copyInventatoryScanToken();
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();

@@ -34,39 +34,9 @@ bool App::regenerateInventatoryScanToken() {
   }
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
-  const auto previousConfig = inventatoryScanConfig_;
-  const bool previousCredentialPending = scannerCredentialSavePending_;
-  const bool previousConfigPending = scannerConfigSavePending_;
-  const auto previousPersistenceError = persistenceError_;
-  const bool serviceWasRunning = server_.running();
-  mdnsService_.stop();
-  server_.stop();
-  inventatoryScanConfig_.token = generateInventatoryScanToken();
-  inventatoryScanConfig_.deviceId.clear();
-  inventatoryScanConfig_.setupComplete = false;
-  if (!saveScannerConfigChecked(true)) {
-    inventatoryScanConfig_ = previousConfig;
-    scannerCredentialSavePending_ = previousCredentialPending;
-    scannerConfigSavePending_ = previousConfigPending;
-    persistenceError_ = previousPersistenceError;
-    if (serviceWasRunning) restartDeviceService();
-    return false;
-  }
-  if (!saveScannerCredentialChecked(true)) {
-    setMessage("Generated a new token, but it could not be stored securely; pair again after saving succeeds", 7);
-    return false;
-  }
-  deviceLastSeen_ = 0;
-  deviceFirmwareVersion_.clear();
-  deviceRssi_ = 0;
-  clearQuickLabelPrintCache();
-  error_code replayError;
-  filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
-  server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
-                               inventatoryScanReplayStatePath(dataPath_));
-  setMessage("Generated a new pairing token; pair the scanner again", 5);
-  dirty_ = true;
-  return true;
+  return rotateInventatoryScanPairing(
+      "Generated a new token, but it could not be stored securely; pair again after saving succeeds",
+      "Generated a new pairing token; pair the scanner again");
 }
 
 bool App::clearInventatoryScanPairing() {
@@ -84,7 +54,13 @@ bool App::clearInventatoryScanPairing() {
   }
   settingsConfirmAction_.clear();
   settingsConfirmUntil_ = 0;
+  return rotateInventatoryScanPairing("Cleared pairing, but the replacement token could not be stored securely",
+                                      "Cleared paired device identity; pair the scanner again");
+}
 
+// Gives the scanner a new pairing token and forgets the paired device. If the configuration cannot
+// be saved, the previous pairing is restored and the service runs as before.
+bool App::rotateInventatoryScanPairing(const string& tokenNotStoredMessage, const string& doneMessage) {
   const auto rotatedToken = generateInventatoryScanToken();
   const auto previousConfig = inventatoryScanConfig_;
   const bool previousCredentialPending = scannerCredentialSavePending_;
@@ -105,7 +81,7 @@ bool App::clearInventatoryScanPairing() {
     return false;
   }
   if (!saveScannerCredentialChecked(true)) {
-    setMessage("Cleared pairing, but the replacement token could not be stored securely", 7);
+    setMessage(tokenNotStoredMessage, 7);
     return false;
   }
   deviceLastSeen_ = 0;
@@ -116,7 +92,7 @@ bool App::clearInventatoryScanPairing() {
   filesystem::remove(inventatoryScanReplayStatePath(dataPath_), replayError);
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
-  setMessage("Cleared paired device identity; pair the scanner again", 5);
+  setMessage(doneMessage, 5);
   dirty_ = true;
   return true;
 }
