@@ -120,122 +120,70 @@ void App::processScanDigiKeyEnrichment() {
 }
 
 void App::beginDigiKeyRefresh() {
-  if (!digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid()) {
-    setMessage("DigiKey inventory refresh is already running", 3);
-    return;
-  }
-  if (settingsDirty_) {
-    setMessage("Save DigiKey settings before refreshing inventory data", 4);
-    return;
-  }
-
-  auto api = createDigiKeyApi();
-  if (api.client == nullptr) {
-    setMessage("DigiKey refresh unavailable: " + api.error, 5);
-    return;
-  }
-
-  stopDigiKeyRefresh();  // Resets the previous run's state.
-  digiKeyRefreshClient_ = move(api.client);
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    stopDigiKeyRefresh();
-    setMessage("DigiKey refresh unavailable while the workspace is changing", 5);
-    return;
-  }
-  digiKeyRefreshGeneration_ = context->generation;
-  for (const auto& item : store_.items()) {
-    const auto lookup = digiKeyRefreshLookup(item);
-    if (!lookup.empty()) {
-      digiKeyRefreshQueue_.emplace_back(item.id, lookup);
-    }
-  }
-  digiKeyRefreshTotal_ = digiKeyRefreshQueue_.size();
-  if (digiKeyRefreshTotal_ == 0) {
-    digiKeyRefreshClient_.reset();
-    setMessage("No inventory items with a DigiKey identifier were found", 5);
-    return;
-  }
-
-  setMessage("Refreshing DigiKey data for " + to_string(digiKeyRefreshTotal_) + " inventory items", 8);
-  dirty_ = true;
+  beginSupplierRefresh(
+      digiKeyRefresh_, "DigiKey",
+      [this]() -> unique_ptr<DigiKeyApiClient> {
+        auto api = createDigiKeyApi();
+        if (api.client == nullptr) setMessage("DigiKey refresh unavailable: " + api.error, 5);
+        return move(api.client);
+      },
+      [](const InventoryItem& item) -> optional<string> {
+        auto lookup = digiKeyRefreshLookup(item);
+        if (lookup.empty()) return nullopt;
+        return lookup;
+      },
+      "No inventory items with a DigiKey identifier were found");
 }
 
 void App::processDigiKeyRefresh() {
-  if (digiKeyRefreshFuture_.valid()) {
-    if (digiKeyRefreshFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
+  auto& run = digiKeyRefresh_;
+  if (run.future.valid()) {
+    const auto result = run.takeResult();
+    if (!result) return;
+    if (!workspaceIsCurrent(result->workspaceGeneration)) {
+      run.queue.clear();
+      run.client.reset();
       return;
     }
-
-    auto result = digiKeyRefreshFuture_.get();
-    if (!workspaceIsCurrent(result.workspaceGeneration)) {
-      digiKeyRefreshQueue_.clear();
-      digiKeyRefreshClient_.reset();
-      return;
-    }
-    ++digiKeyRefreshCompleted_;
-
-    if (result.details) {
-      auto* item = store_.findById(result.itemId);
+    ++run.completed;
+    if (result->details) {
+      auto* item = store_.findById(result->itemId);
       if (item == nullptr) {
-        ++digiKeyRefreshFailed_;
-        digiKeyRefreshLastError_ = "An inventory item disappeared during refresh";
+        ++run.errors;
+        run.lastError = "An inventory item disappeared during refresh";
       } else {
-        if (mergeDigiKeyMetadata(*item, *result.details)) digiKeyRefreshChanged_ = true;
-        ++digiKeyRefreshSucceeded_;
+        if (mergeDigiKeyMetadata(*item, *result->details)) run.changed = true;
+        ++run.succeeded;
       }
     } else {
-      ++digiKeyRefreshFailed_;
-      digiKeyRefreshLastError_ = result.error.empty() ? "DigiKey returned no product details" : result.error;
+      ++run.errors;
+      run.lastError = result->error.empty() ? "DigiKey returned no product details" : result->error;
     }
-
-    if (digiKeyRefreshQueue_.empty()) {
-      digiKeyRefreshClient_.reset();
-      if (digiKeyRefreshChanged_ && !saveState("digikey", "inventory refresh", "DigiKey refresh batch")) {
-        digiKeyRefreshLastError_ = persistenceError_;
-      }
-      const auto summary = "DigiKey refresh complete: " + to_string(digiKeyRefreshSucceeded_) + " updated, " +
-                           to_string(digiKeyRefreshFailed_) + " failed";
-      logActivity("sync", summary);
-      setMessage(summary, 8);
-      dirty_ = true;
+    if (run.queue.empty()) {
+      run.client.reset();
+      finishSupplierRefresh(run.changed, run.lastError, "digikey", "DigiKey",
+                            "DigiKey refresh complete: " + to_string(run.succeeded) + " updated, " +
+                                to_string(run.errors) + " failed");
       return;
     }
   }
-
-  if (digiKeyRefreshQueue_.empty() || digiKeyRefreshClient_ == nullptr) {
-    return;
-  }
-
-  const auto [itemId, lookup] = digiKeyRefreshQueue_.front();
-  digiKeyRefreshQueue_.pop_front();
-  auto* client = digiKeyRefreshClient_.get();
-  digiKeyRefreshFuture_ = async(launch::async, [client, itemId, lookup, generation = digiKeyRefreshGeneration_] {
-    DigiKeyRefreshResult result;
-    result.itemId = itemId;
-    result.workspaceGeneration = generation;
-    if (const auto details = client->fetchProductDetails(lookup, &result.error); details) {
-      result.details = *details;
-    }
-    return result;
-  });
-  dirty_ = true;
+  const bool started =
+      run.startNext([](DigiKeyApiClient& client, const string& lookup, DigiKeyRefreshResult& result) {
+        if (const auto details = client.fetchProductDetails(lookup, &result.error); details) {
+          result.details = *details;
+        }
+      });
+  if (started) dirty_ = true;
 }
 
-void App::stopDigiKeyRefresh() {
-  digiKeyRefreshQueue_.clear();
-  if (digiKeyRefreshFuture_.valid()) {
-    digiKeyRefreshFuture_.wait();
-    digiKeyRefreshFuture_ = {};
+void App::finishSupplierRefresh(bool changed, string& lastError, const string& source, const string& supplier,
+                                const string& summary) {
+  if (changed && !saveState(source, "inventory refresh", supplier + " refresh batch")) {
+    lastError = persistenceError_;
   }
-  digiKeyRefreshClient_.reset();
-  digiKeyRefreshTotal_ = 0;
-  digiKeyRefreshCompleted_ = 0;
-  digiKeyRefreshSucceeded_ = 0;
-  digiKeyRefreshFailed_ = 0;
-  digiKeyRefreshChanged_ = false;
-  digiKeyRefreshGeneration_ = 0;
-  digiKeyRefreshLastError_.clear();
+  logActivity("sync", summary);
+  setMessage(summary, 8);
+  dirty_ = true;
 }
 
 }  // namespace inventatory

@@ -285,10 +285,9 @@ vector<App::Action> App::currentActions() const {
         }
       }
       if (settingsCategory_ == SettingsCategory::Tme) {
-        const bool refreshRunning = !self->tmeRefreshQueue_.empty() || self->tmeRefreshFuture_.valid();
-        if (refreshRunning) {
+        if (self->tmeRefresh_.running()) {
           add("cancel TME refresh", "Sync", "c", chr('c'), [self] {
-            self->tmeRefreshQueue_.clear();
+            self->tmeRefresh_.queue.clear();
             self->setMessage("Cancelling after the current TME request", 4);
           });
         } else {
@@ -297,10 +296,9 @@ vector<App::Action> App::currentActions() const {
         }
       }
       if (settingsCategory_ == SettingsCategory::Mouser) {
-        const bool refreshRunning = !self->mouserRefreshQueue_.empty() || self->mouserRefreshFuture_.valid();
-        if (refreshRunning) {
+        if (self->mouserRefresh_.running()) {
           add("cancel Mouser refresh", "Sync", "c", chr('c'), [self] {
-            self->mouserRefreshQueue_.clear();
+            self->mouserRefresh_.queue.clear();
             self->setMessage("Cancelling after the current Mouser request", 4);
           });
         } else {

@@ -564,4 +564,72 @@ inline std::string digiKeyRefreshLookup(const InventoryItem& item) {
 
 }  // namespace app_actions
 
+template <typename Run, typename MakeClient, typename LookupFor>
+void App::beginSupplierRefresh(Run& run, const std::string& supplier, MakeClient makeClient, LookupFor lookupFor,
+                               const std::string& nothingToRefresh) {
+  if (run.running()) {
+    setMessage(supplier + " inventory refresh is already running", 3);
+    return;
+  }
+  if (settingsDirty_) {
+    setMessage("Save " + supplier + " settings before refreshing inventory data", 4);
+    return;
+  }
+  auto client = makeClient();
+  if (client == nullptr) return;
+
+  run.stop();  // Clears the previous run's state; nothing is running here.
+  run.client = std::move(client);
+  const auto context = currentWorkspaceContext();
+  if (context == nullptr) {
+    run.stop();
+    setMessage(supplier + " refresh unavailable while the workspace is changing", 5);
+    return;
+  }
+  run.generation = context->generation;
+  for (const auto& item : store_.items()) {
+    if (auto lookup = lookupFor(item)) run.queue.emplace_back(item.id, std::move(*lookup));
+  }
+  run.total = run.queue.size();
+  if (run.total == 0) {
+    run.client.reset();
+    setMessage(nothingToRefresh, 5);
+    return;
+  }
+  setMessage("Refreshing " + supplier + " data for " + std::to_string(run.total) + " inventory items", 8);
+  dirty_ = true;
+}
+
+template <typename Run, typename Result, typename Conflict, typename Merge>
+void App::applyCatalogueResult(Run& run, const Result& result, const std::string& supplier, Conflict conflict,
+                               Merge merge) {
+  if (!result.details) {
+    using Outcome = decltype(result.outcome);
+    if (result.outcome == Outcome::NoMatch) {
+      ++run.notFound;
+    } else if (result.outcome == Outcome::Ambiguous) {
+      ++run.ambiguous;
+    } else {
+      ++run.errors;
+    }
+    run.lastError = result.error.empty() ? supplier + " returned no product details" : result.error;
+    return;
+  }
+  auto* item = store_.findById(result.itemId);
+  if (item == nullptr) {
+    ++run.errors;
+    run.lastError = "An inventory item disappeared during refresh";
+  } else if (const auto field = conflict(*item, *result.details); !field.empty()) {
+    // A record for a different part: nothing from it is merged.
+    ++run.errors;
+    run.lastError = supplier + "'s " + field + " for " + item->partName + " disagrees with the stored part; not merged";
+    logActivity("sync", run.lastError);
+  } else {
+    if (merge(*item, *result.details)) run.changed = true;
+    // Reconcile now, so a label printed next shows the part's merged slot.
+    if (reconcileRackAssignment(store_, *item)) run.changed = true;
+    ++run.succeeded;
+  }
+}
+
 }  // namespace inventatory
