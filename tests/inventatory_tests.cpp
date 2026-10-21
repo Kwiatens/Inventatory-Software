@@ -15307,6 +15307,55 @@ void testBomMouserSuggestionChoice() {
   assert(chosen.outcome == BomLookupOutcome::NoMatch && chosen.suggestion.empty());
 }
 
+void testSupplierRefreshRun() {
+  struct FakeClient {
+    int calls = 0;
+  };
+  struct FakeResult {
+    string itemId;
+    WorkspaceGeneration workspaceGeneration = 0;
+    string value;
+  };
+  SupplierRefresh<FakeClient, string, FakeResult> run;
+  assert(!run.running() && !run.takeResult());
+
+  // Without a client nothing starts and the queue is kept.
+  run.queue.emplace_back("item-1", "a");
+  assert(!run.startNext([](FakeClient&, const string&, FakeResult&) {}));
+  assert(run.running() && run.queue.size() == 1);
+
+  // A lookup runs on the worker with the run's workspace and returns its item id.
+  run.client = make_unique<FakeClient>();
+  run.generation = 7;
+  run.queue.emplace_back("item-2", "b");
+  assert(run.startNext([](FakeClient& client, const string& request, FakeResult& result) {
+    ++client.calls;
+    result.value = request + "!";
+  }));
+  assert(run.running() && run.queue.size() == 1);
+  run.future.wait();
+  const auto result = run.takeResult();
+  assert(result && result->itemId == "item-1" && result->workspaceGeneration == 7 && result->value == "a!");
+  assert(run.client->calls == 1 && !run.takeResult());
+
+  // stop() waits for a running lookup, then clears the whole run.
+  assert(run.startNext(
+      [](FakeClient&, const string&, FakeResult&) { this_thread::sleep_for(chrono::milliseconds(20)); }));
+  run.total = 4;
+  run.completed = 1;
+  run.succeeded = 1;
+  run.notFound = 1;
+  run.ambiguous = 2;
+  run.errors = 3;
+  run.changed = true;
+  run.lastError = "lookup failed";
+  assert(catalogueRefreshCounts(run) == "1 updated, 1 not found, 2 ambiguous, 3 errors");
+  run.stop();
+  assert(!run.running() && !run.future.valid() && run.client == nullptr && run.queue.empty());
+  assert(run.total == 0 && run.completed == 0 && run.succeeded == 0 && run.notFound == 0 && run.ambiguous == 0 &&
+         run.errors == 0 && !run.changed && run.generation == 0 && run.lastError.empty());
+}
+
 
 struct TestCase {
   const char* area;
@@ -15488,6 +15537,7 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeLabelScan", testTmeLabelScan},
     {"scan", "VendorBagCodeRecognition", testVendorBagCodeRecognition},
     {"inventory", "VendorDisplayNames", testVendorDisplayNames},
+    {"inventory", "SupplierRefreshRun", testSupplierRefreshRun},
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
     {"scan", "DeviceEventIdConflictIsRefused", testDeviceEventIdConflictIsRefused},

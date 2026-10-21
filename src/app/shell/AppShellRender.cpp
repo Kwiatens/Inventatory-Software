@@ -421,42 +421,20 @@ ftxui::Element App::renderSearchBarUi() const {
 }
 
 ftxui::Element App::renderMessageUi() const {
-  const bool refreshingDigiKey = digiKeyRefreshTotal_ > 0 &&
-                                 (!digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid());
-  if (refreshingDigiKey) {
-    const auto completed = min(digiKeyRefreshCompleted_, digiKeyRefreshTotal_);
+  const auto refreshProgress = [](const auto& run, const char* supplier) -> optional<ftxui::Element> {
+    if (run.total == 0 || !run.running()) return nullopt;
     return fixedMessageRow(ftxui::hbox({
-                               styledText(" Refreshing DigiKey data: ", uiLinkColor()),
-                               uiHeaderText(to_string(completed) + " of " + to_string(digiKeyRefreshTotal_), uiPrimaryText()),
-                               styledText(" parts done", uiMutedColor()),
-                               ftxui::filler(),
-                           }) |
-                           ftxui::bgcolor(uiPanelLeftBg()));
-  }
-  const bool refreshingTme = tmeRefreshTotal_ > 0 && (!tmeRefreshQueue_.empty() || tmeRefreshFuture_.valid());
-  if (refreshingTme) {
-    const auto completed = min(tmeRefreshCompleted_, tmeRefreshTotal_);
-    return fixedMessageRow(ftxui::hbox({
-                               styledText(" Refreshing TME data: ", uiLinkColor()),
-                               uiHeaderText(to_string(completed) + " of " + to_string(tmeRefreshTotal_), uiPrimaryText()),
-                               styledText(" parts done", uiMutedColor()),
-                               ftxui::filler(),
-                           }) |
-                           ftxui::bgcolor(uiPanelLeftBg()));
-  }
-  const bool refreshingMouser =
-      mouserRefreshTotal_ > 0 && (!mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid());
-  if (refreshingMouser) {
-    const auto completed = min(mouserRefreshCompleted_, mouserRefreshTotal_);
-    return fixedMessageRow(ftxui::hbox({
-                               styledText(" Refreshing Mouser data: ", uiLinkColor()),
-                               uiHeaderText(to_string(completed) + " of " + to_string(mouserRefreshTotal_),
+                               styledText(string(" Refreshing ") + supplier + " data: ", uiLinkColor()),
+                               uiHeaderText(to_string(min(run.completed, run.total)) + " of " + to_string(run.total),
                                             uiPrimaryText()),
                                styledText(" parts done", uiMutedColor()),
                                ftxui::filler(),
                            }) |
                            ftxui::bgcolor(uiPanelLeftBg()));
-  }
+  };
+  if (auto row = refreshProgress(digiKeyRefresh_, "DigiKey")) return move(*row);
+  if (auto row = refreshProgress(tmeRefresh_, "TME")) return move(*row);
+  if (auto row = refreshProgress(mouserRefresh_, "Mouser")) return move(*row);
   if (importSyncRunning_) {
     const auto completed = min(importSyncCompleted_, importSyncTotal_);
     return fixedMessageRow(ftxui::hbox({
