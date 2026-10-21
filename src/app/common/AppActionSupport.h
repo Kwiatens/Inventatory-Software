@@ -201,13 +201,17 @@ inline bool upsertVendorSource(InventoryItem& item, const VendorProductMetadata&
   return true;
 }
 
-// TME is the selected source only if none is set or TME is; else it is kept as a source.
-inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& details) {
+// Merges a TME or Mouser catalogue record. The supplier becomes the item's source only if none is
+// set or it already is; otherwise the record is kept as another source. scanPlaceholder is the part
+// name a scan gives an unknown part, which the record may replace; empty when there is none.
+template <typename Details>
+bool mergeCatalogueMetadata(InventoryItem& item, const Details& details, const char* provider,
+                            const std::string& scanPlaceholder) {
   VendorProductMetadata record = details.vendorMetadata;
-  record.provider = "tme";
+  record.provider = provider;
   if (trim(record.providerProductNumber).empty()) return false;
   const auto boundProvider = toLower(trim(item.vendorMetadata.provider));
-  if (!boundProvider.empty() && boundProvider != "tme") {
+  if (!boundProvider.empty() && boundProvider != provider) {
     return upsertVendorSource(item, record);
   }
 
@@ -216,14 +220,14 @@ inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& detai
   const auto assignIfUseful = [&](std::string& target, const std::string& value, bool replaceUnknown = false) {
     const auto trimmed = trim(value);
     if (trimmed.empty()) return;
-    if (target.empty() || (replaceUnknown && (target == "Unknown" || target == "Unsorted" ||
-                                              target == "Scanned TME Item"))) {
+    if (target.empty() ||
+        (replaceUnknown && (target == "Unknown" || target == "Unsorted" || target == scanPlaceholder))) {
       target = trimmed;
       changed = true;
     }
   };
 
-  if ((item.partName.empty() || item.partName == "Scanned TME Item") && !trim(details.productDescription).empty()) {
+  if ((item.partName.empty() || item.partName == scanPlaceholder) && !trim(details.productDescription).empty()) {
     item.partName = trim(details.productDescription);
     changed = true;
   }
@@ -261,7 +265,7 @@ inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& detai
     item.vendorMetadata.parameters = record.parameters;
     changed = true;
   }
-  // Also copies TME's parameters, package, stock and price onto the item.
+  // Also copies the record's parameters, package, stock and price onto the item.
   for (const auto& parameter : details.parameters) {
     if (upsertParameter(item.parameters, parameter.name, parameter.value)) changed = true;
   }
@@ -286,6 +290,10 @@ inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& detai
   }
   item.lastUpdated = time(nullptr);
   return changed;
+}
+
+inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& details) {
+  return mergeCatalogueMetadata(item, details, kVendorProviderTme, "Scanned TME Item");
 }
 
 // Sets or clears the TME symbol. An item bound to another provider keeps that as its source.
@@ -351,90 +359,8 @@ inline std::string tmeRecordConflict(const InventoryItem& item, const TmeProduct
   return {};
 }
 
-// Mouser is the selected source only if none is set or Mouser is; else it is kept as a source.
 inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails& details) {
-  VendorProductMetadata record = details.vendorMetadata;
-  record.provider = kVendorProviderMouser;
-  if (trim(record.providerProductNumber).empty()) return false;
-  const auto boundProvider = toLower(trim(item.vendorMetadata.provider));
-  if (!boundProvider.empty() && boundProvider != kVendorProviderMouser) {
-    return upsertVendorSource(item, record);
-  }
-
-  bool changed = false;
-  // Fills an empty field or an import's placeholder.
-  const auto assignIfUseful = [&](std::string& target, const std::string& value, bool replaceUnknown = false) {
-    const auto trimmed = trim(value);
-    if (trimmed.empty()) return;
-    if (target.empty() || (replaceUnknown && (target == "Unknown" || target == "Unsorted"))) {
-      target = trimmed;
-      changed = true;
-    }
-  };
-
-  if (item.partName.empty() && !trim(details.productDescription).empty()) {
-    item.partName = trim(details.productDescription);
-    changed = true;
-  }
-  assignIfUseful(item.manufacturer, details.manufacturerName, true);
-  assignIfUseful(item.category, details.categoryName, true);
-  assignIfUseful(item.sku, details.vendorMetadata.manufacturerPartNumber);
-  assignIfUseful(item.productUrl, details.productUrl);
-  assignIfUseful(item.datasheetUrl, details.datasheetUrl);
-
-  const auto replaceText = [&](std::string& target, const std::string& value) {
-    if (!value.empty() && target != value) {
-      target = value;
-      changed = true;
-    }
-  };
-  replaceText(item.vendorMetadata.provider, record.provider);
-  replaceText(item.vendorMetadata.providerProductNumber, record.providerProductNumber);
-  replaceText(item.vendorMetadata.manufacturerPartNumber, record.manufacturerPartNumber);
-  replaceText(item.vendorMetadata.categoryId, record.categoryId);
-  replaceText(item.vendorMetadata.title, record.title);
-  replaceText(item.vendorMetadata.productUrl, record.productUrl);
-  replaceText(item.vendorMetadata.locale, record.locale);
-  if (!record.categoryPath.empty() && item.vendorMetadata.categoryPath != record.categoryPath) {
-    item.vendorMetadata.categoryPath = record.categoryPath;
-    changed = true;
-  }
-  const auto& storedParameters = item.vendorMetadata.parameters;
-  const bool parametersDiffer =
-      storedParameters.size() != record.parameters.size() ||
-      !std::equal(storedParameters.begin(), storedParameters.end(), record.parameters.begin(),
-                  [](const Parameter& left, const Parameter& right) {
-                    return left.name == right.name && left.value == right.value;
-                  });
-  if (!record.parameters.empty() && parametersDiffer) {
-    item.vendorMetadata.parameters = record.parameters;
-    changed = true;
-  }
-  // Also copies Mouser's attributes, package, stock and price onto the item.
-  for (const auto& parameter : details.parameters) {
-    if (upsertParameter(item.parameters, parameter.name, parameter.value)) changed = true;
-  }
-  if (!trim(details.packageName).empty() && upsertParameter(item.parameters, "Package", details.packageName)) {
-    changed = true;
-  }
-  if (!trim(details.quantityAvailable).empty() &&
-      upsertParameter(item.parameters, "Quantity Available", details.quantityAvailable)) {
-    changed = true;
-  }
-  if (!trim(details.unitPrice).empty() && upsertParameter(item.parameters, "Unit Price", details.unitPrice)) {
-    changed = true;
-  }
-  if (!trim(details.productStatus).empty() && upsertParameter(item.parameters, "Product Status", details.productStatus)) {
-    changed = true;
-  }
-
-  // A matched record marks the item as synced.
-  if (item.syncStatus != "synced") {
-    item.syncStatus = "synced";
-    changed = true;
-  }
-  item.lastUpdated = time(nullptr);
-  return changed;
+  return mergeCatalogueMetadata(item, details, kVendorProviderMouser, "");
 }
 
 // Lookup order: Mouser part number, manufacturer part number, then SKU.
