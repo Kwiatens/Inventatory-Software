@@ -58,31 +58,6 @@ string escapeStorageField(const string& value, const string& delimiters) {
   return escaped;
 }
 
-vector<string> splitEscapedStorageFields(const string& value, char delimiter) {
-  vector<string> fields;
-  string field;
-  bool escaped = false;
-  for (const char ch : value) {
-    if (escaped) {
-      field.push_back('\\');
-      field.push_back(ch);
-      escaped = false;
-    } else if (ch == '\\') {
-      escaped = true;
-    } else if (ch == delimiter) {
-      fields.push_back(move(field));
-      field.clear();
-    } else {
-      field.push_back(ch);
-    }
-  }
-  if (escaped) {
-    field.push_back('\\');
-  }
-  fields.push_back(move(field));
-  return fields;
-}
-
 bool hasStructuredStoragePrefix(const string& value, size_t& prefixLength) {
   if (value.rfind(kStructuredStoragePrefix, 0) == 0) {
     prefixLength = strlen(kStructuredStoragePrefix);
@@ -150,6 +125,16 @@ bool splitStrictEscapedStorageFields(const string& value, char delimiter, vector
   if (escaped) return false;
   fields.push_back(move(field));
   return true;
+}
+
+// As the strict split, but a trailing unpaired backslash, the one thing it refuses, is kept as text.
+vector<string> splitEscapedStorageFields(const string& value, char delimiter) {
+  vector<string> fields;
+  if (!splitStrictEscapedStorageFields(value, delimiter, fields)) {
+    splitStrictEscapedStorageFields(value.substr(0, value.size() - 1), delimiter, fields);
+    fields.back().push_back('\\');
+  }
+  return fields;
 }
 
 bool deserializeTagsStrictImpl(const string& value, vector<string>& tags) {
