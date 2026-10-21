@@ -104,7 +104,6 @@ class LabelPrinterService {
   string buildRackLabelZpl(const InventatoryRack& rack, SymbolStandard standard = SymbolStandard::Eu) const;
   bool printRackLabel(const InventatoryRack& rack, string* error, SymbolStandard standard = SymbolStandard::Eu) const;
 
-  string summaryText() const;
 
  private:
   // printer.conf as last loaded or written. saveConfig skips unchanged files and never replaces one
