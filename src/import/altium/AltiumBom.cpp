@@ -63,23 +63,9 @@ AltiumColumns mapAltiumColumns(const vector<string>& headers) {
 KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
   KicadBomFile bom;
   bom.projectName = projectName;
-  if (text.size() > kMaximumCsvInputBytes) {
-    bom.error = "BOM import exceeds the 25 MiB safety limit";
-    return bom;
-  }
-
   // Some Altium 365 exports write inch marks as \" in quotes; a backslash must not end the cell.
-  const auto cleaned = stripByteOrderMark(text);
-  string parseError;
-  const auto rows = parseCsvBackslashQuotes(cleaned, sniffDelimiter(cleaned), parseError);
-  if (!parseError.empty()) {
-    bom.error = parseError;
-    return bom;
-  }
-  if (rows.size() < 2) {
-    bom.error = "BOM does not contain a header and component rows";
-    return bom;
-  }
+  vector<vector<string>> rows;
+  if (!readBomRows(text, true, rows, bom)) return bom;
 
   const auto columns = mapAltiumColumns(rows.front());
   if (columns.designator < 0 || columns.value < 0) {
@@ -118,15 +104,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
 
     BomLine line;
     line.sourceRow = sourceRow;
-    if (!splitBomDesignators(csvCell(row, columns.designator), line.designators)) {
-      bom.error = rowLabel + "too many designators on one row. Fix the BOM export and import it again.";
-      return bom;
-    }
-    if (line.designators.empty()) {
-      bom.error =
-          rowLabel + "has no designator, so its parts cannot be placed. Fix the BOM export and import it again.";
-      return bom;
-    }
+    if (!readRequiredBomDesignators(csvCell(row, columns.designator), rowLabel, line, bom)) return bom;
     line.designation = csvCell(row, columns.value);
     if (line.designation.empty()) {
       line.designation = csvCell(row, columns.name);
@@ -141,14 +119,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     line.supplierPartNumber = csvCell(row, columns.supplierPart);
     line.manufacturerPartNumber = csvCell(row, columns.manufacturerPart);
 
-    for (const auto& designator : line.designators) {
-      const auto [seen, inserted] = designatorRows.emplace(designator, sourceRow);
-      if (!inserted) {
-        bom.error = "Designator " + designator + " appears on rows " + to_string(seen->second) + " and " +
-                    to_string(sourceRow) + ". Fix the BOM export and import it again.";
-        return bom;
-      }
-    }
+    if (!claimBomDesignators(line, designatorRows, bom)) return bom;
 
     // Test points, mounting holes and fiducials are never bought. Unlike EasyEDA, a part number
     // does not keep them; the designator and footprint decide, as for KiCad.
@@ -160,34 +131,10 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
       continue;
     }
 
-    // Demand is at least the designator count. A Quantity that disagrees needs confirmation.
-    const int designatorCount = static_cast<int>(line.designators.size());
-    int requested = 0;
-    const auto quantityText = csvCell(row, columns.quantity);
-    if (!trim(quantityText).empty()) {
-      const auto parsed = parseBomCount(quantityText);
-      if (!parsed) {
-        bom.error = rowLabel + "Quantity \"" + quantityText +
-                    "\" is not a whole number. Fix the BOM export and import it again.";
-        return bom;
-      }
-      requested = *parsed;
-      if (requested != designatorCount) {
-        line.quantityConflict = true;
-        bom.warnings.push_back(rowLabel + line.designation + " lists " + to_string(designatorCount) +
-                               " designators but Quantity " + to_string(requested) + "; confirm the match");
-      }
-    }
-    line.quantityPerBoard = max(requested, designatorCount);
+    if (!applyBomQuantity(csvCell(row, columns.quantity), rowLabel, line, bom)) return bom;
     bom.lines.push_back(move(line));
   }
-
-  if (bom.lines.empty()) {
-    bom.error = "BOM headers were recognized, but no orderable component rows were found";
-    return bom;
-  }
-
-  bom.ok = true;
+  finishBom(bom);
   return bom;
 }
 
