@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -87,6 +88,13 @@ bool saveFileDialog(filesystem::path& selectedPath, const string& title, const s
                     const string& defaultExtension);
 bool openFolderDialog(filesystem::path& selectedPath, const string& title);
 vector<string> privateLocalAddresses();
+// 10/8, 172.16/12, 192.168/16 or link-local 169.254/16, given in host byte order.
+inline bool privateIpv4(std::uint32_t hostOrder) {
+  const auto first = (hostOrder >> 24U) & 0xffU;
+  const auto second = (hostOrder >> 16U) & 0xffU;
+  return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
+         (first == 192U && second == 168U) || (first == 169U && second == 254U);
+}
 bool controlModifierPressed();
 
 }  // namespace inventatory

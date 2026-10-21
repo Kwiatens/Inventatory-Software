@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "platform/scanner/MdnsService.h"
+#include "platform/system/Console.h"
 
 #include <array>
 #include <chrono>
@@ -26,13 +27,6 @@ using std::string;
 
 #ifndef _WIN32
 namespace {
-
-bool privateIpv4(uint32_t hostOrder) {
-  const auto first = (hostOrder >> 24U) & 0xffU;
-  const auto second = (hostOrder >> 16U) & 0xffU;
-  return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
-         (first == 192U && second == 168U) || (first == 169U && second == 254U);
-}
 
 string privateInterfaceName(const string& requestedAddress) {
   ifaddrs* interfaces = nullptr;
@@ -198,18 +192,6 @@ struct MdnsService::RegistrationState {
   DWORD deregistrationStatus = ERROR_IO_PENDING;
 };
 
-namespace {
-
-bool isPrivateIpv4(IP4_ADDRESS address) {
-  const auto hostOrder = ntohl(address);
-  const auto first = (hostOrder >> 24U) & 0xffU;
-  const auto second = (hostOrder >> 16U) & 0xffU;
-  return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
-         (first == 192U && second == 168U) || (first == 169U && second == 254U);
-}
-
-}  // namespace
-
 void WINAPI MdnsService::registrationComplete(DWORD status, PVOID context, PDNS_SERVICE_INSTANCE instance) {
   auto* callbackContext = static_cast<RegistrationState::CallbackContext*>(context);
   if (callbackContext == nullptr) return;
@@ -259,7 +241,7 @@ bool MdnsService::start(std::uint16_t port, const string& boundAddress) {
   wideHost += L".local";
   IN_ADDR parsedAddress{};
   const bool haveIpv4Address = InetPtonA(AF_INET, boundAddress.c_str(), &parsedAddress) == 1 &&
-                               isPrivateIpv4(parsedAddress.S_un.S_addr);
+                               privateIpv4(ntohl(parsedAddress.S_un.S_addr));
   IP4_ADDRESS ipv4Address = haveIpv4Address ? parsedAddress.S_un.S_addr : 0;
   const wchar_t* keys[] = {L"protocol"};
   const wchar_t* values[] = {L"1"};

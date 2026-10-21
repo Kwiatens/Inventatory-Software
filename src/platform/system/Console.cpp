@@ -41,13 +41,6 @@ string ipv4ToString(const sockaddr_in& address) {
   return buffer;
 }
 
-bool privateIpv4(uint32_t hostOrder) {
-  const auto first = (hostOrder >> 24U) & 0xffU;
-  const auto second = (hostOrder >> 16U) & 0xffU;
-  return first == 10U || (first == 172U && second >= 16U && second <= 31U) ||
-         (first == 192U && second == 168U) || (first == 169U && second == 254U);
-}
-
 // UTF-8 to UTF-16. Empty output for non-empty input means invalid UTF-8.
 wstring widenUtf8(const string& value) {
   if (value.empty()) return {};
