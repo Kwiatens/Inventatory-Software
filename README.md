@@ -51,7 +51,7 @@ Then run with
 
 ## Building and testing
 
-All the information here and below is only useful, when you want to manually compile the software.
+The information in this section and below is only useful if you want to compile the software yourself.
 
 Build with CMake 3.20 or newer and a C++17 compiler, then run tests with `ctest --test-dir <build-dir> --output-on-failure`.
 
@@ -59,7 +59,8 @@ Build with CMake 3.20 or newer and a C++17 compiler, then run tests with `ctest 
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute.
 - [SECURITY.md](SECURITY.md): private vulnerability reporting and the security scope.
-- [AGENTS.md](AGENTS.md): architecture, invariants and verification rules, also the guide for coding agents.
+- [docs/architecture.md](docs/architecture.md): code layout, threading, persistence and security invariants.
+- [AGENTS.md](AGENTS.md): the guide for coding agents.
 - [docs/project-standards.md](docs/project-standards.md): rules shared with the Scan R1 firmware repository.
 - [docs/releasing.md](docs/releasing.md): release steps and repository settings.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each version.
