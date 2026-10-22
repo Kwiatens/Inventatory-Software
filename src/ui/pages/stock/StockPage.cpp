@@ -194,7 +194,7 @@ ftxui::Element App::renderStockUi() const {
         target(uiSecondaryButton("Print", nullopt, hasItem), "stock.print", UiTargetKind::Button,
                [self] { self->printSelectedLabel(); }, hasItem),
         ftxui::text(" "),
-        // Arms the same confirmation modal as Ctrl+Backspace.
+        // Arms the same confirmation modal as the Del key.
         target(uiSecondaryButton("Delete", uiDangerColor(), hasItem), "stock.delete", UiTargetKind::Button,
                [self] { self->armDeleteConfirmation(); }, hasItem),
         ftxui::filler(),

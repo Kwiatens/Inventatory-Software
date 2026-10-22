@@ -154,7 +154,7 @@ vector<App::Action> App::currentActions() const {
       });
       add("undo", "System", "Ctrl+Z", special(KeyType::CtrlZ), [self] { self->undoLastInventoryChange(); });
       if (hasItem)
-        add("delete", "System", "Ctrl+Bksp", special(KeyType::CtrlBackspace),
+        add("delete", "System", "Del", special(KeyType::Delete),
             [self] { self->armDeleteConfirmation(); });
       add("start stocktake", "Data", "t", chr('t'), [self] { self->beginStocktake(); });
       add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
