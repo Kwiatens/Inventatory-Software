@@ -11100,6 +11100,19 @@ void testKicadBomParsing() {
   const auto explicitQuantity = parseKicadBomText("Designator,Designation,Quantity\nR1 R2,10k,7\n", "explicit");
   assert(explicitQuantity.ok);
   assert(explicitQuantity.lines.front().quantityPerBoard == 7);
+
+  // A part row without a value refuses the BOM, as EasyEDA and Altium do, instead of dropping the part silently.
+  const auto noValue = parseKicadBomText("Designator,Designation,Footprint\nR1,10k,R_0603\nC1 C2,,C_0603\n", "no value");
+  assert(!noValue.ok);
+  assert(noValue.error == "Row 3: has no Value for C1,C2. Fix the BOM export and import it again.");
+  // A non-orderable row without a value is still only a warning.
+  const auto holeNoValue =
+      parseKicadBomText("Designator,Designation,Footprint\nR1,10k,R_0603\nH1,,MountingHole_3.2mm\n", "hole");
+  assert(holeNoValue.ok && holeNoValue.lines.size() == 1U);
+  assert(holeNoValue.warnings.size() == 1U && holeNoValue.warnings.front() == "Row 3: H1 is not orderable");
+  // A row with no designators is not a part and is still skipped.
+  const auto blankRow = parseKicadBomText("Designator,Designation\nR1,10k\n,\n", "blank");
+  assert(blankRow.ok && blankRow.lines.size() == 1U && blankRow.warnings.empty());
 }
 
 void testBomAnalysisHugeDescriptionAndTieBreak() {

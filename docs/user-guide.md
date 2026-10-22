@@ -87,7 +87,9 @@ Open Import and choose a CSV file. The format is detected from its header: a
 DigiKey order CSV goes to the review list, and a KiCad BOM, an EasyEDA BOM export or
 an Altium Designer BOM report goes to Projects. A BOM needs a Designator column, a
 Footprint column, and a value column: Designation or Value for KiCad, Name, Value or
-Comment for EasyEDA, Comment or Description for Altium.
+Comment for EasyEDA, Comment or Description for Altium. A KiCad BOM is refused, with
+the row to fix named, when a part row has designators but no value. A mounting hole
+or test point without a value is skipped with a warning.
 
 For a DigiKey order, review each candidate, correct it if needed, then Accept or
 Skip. After the final row, choose whether to enrich accepted parts with DigiKey

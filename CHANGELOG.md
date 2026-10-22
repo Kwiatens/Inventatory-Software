@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Projects: a KiCad BOM with a part row that has no Value is refused, with a message naming the row and its designators,
+  as EasyEDA and Altium BOMs already are. Such a row used to be skipped without a word, so the part was missing from the
+  shopping list. A mounting hole or test point without a value is still skipped with a warning.
+
 ## [v0.1.7] - 2026-10-22
 
 **Highlights**
