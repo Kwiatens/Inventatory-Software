@@ -78,19 +78,19 @@ bool retryableStatus(std::uint32_t status) {
 }
 
 bool requestHttpOnce(const std::string& method, const std::string& url, const std::string& headers,
-                     const std::string& body, HttpResponse& response, std::string* error) {
+                     const std::string& body, HttpResponse& response, std::string* error, const std::string& service) {
   response = {};
   if (url.empty() || url.size() > kMaximumDigiKeyUrlBytes || body.size() > kMaximumDigiKeyRequestBodyBytes) {
-    if (error != nullptr) *error = "DigiKey request exceeds the configured size limit";
+    if (error != nullptr) *error = service + " request exceeds the configured size limit";
     return false;
   }
   if (url.rfind("https://", 0) != 0) {
-    if (error != nullptr) *error = "DigiKey requests require HTTPS";
+    if (error != nullptr) *error = service + " requests require HTTPS";
     return false;
   }
   CURL* handle = curl_easy_init();
   if (handle == nullptr) {
-    if (error != nullptr) *error = "Unable to initialize the DigiKey HTTPS request";
+    if (error != nullptr) *error = "Unable to initialize the " + service + " HTTPS request";
     return false;
   }
   CurlResponse received;
@@ -104,7 +104,7 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
       if (appendedHeaders == nullptr) {
         curl_slist_free_all(headerList);
         curl_easy_cleanup(handle);
-        if (error != nullptr) *error = "Unable to prepare DigiKey request headers";
+        if (error != nullptr) *error = "Unable to prepare " + service + " request headers";
         return false;
       }
       headerList = appendedHeaders;
@@ -115,7 +115,8 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
   curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, method.c_str());
   curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headerList);
-  curl_easy_setopt(handle, CURLOPT_USERAGENT, "Inventatory DigiKey client/1.0");
+  const auto userAgent = "Inventatory " + service + " client/1.0";
+  curl_easy_setopt(handle, CURLOPT_USERAGENT, userAgent.c_str());
   curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
   curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 8000L);
   // Worker threads share libcurl; NOSIGNAL stops it installing signal handlers.
@@ -137,8 +138,8 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_cleanup(handle);
   if (result != CURLE_OK) {
     if (error != nullptr) {
-      *error = received.oversized ? "DigiKey response exceeds the 4 MiB safety limit"
-                                  : "Unable to complete the DigiKey HTTPS request";
+      *error = received.oversized ? service + " response exceeds the 4 MiB safety limit"
+                                  : "Unable to complete the " + service + " HTTPS request";
     }
     return false;
   }
@@ -172,7 +173,7 @@ string narrow(const wstring& value) {
 }
 
 bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
-                 HttpResponse& response, string* error) {
+                 HttpResponse& response, string* error, const string& service) {
   std::call_once(gCurlInitialized, initializeCurl);
   if (!gCurlAvailable) {
     if (error != nullptr) *error = "Unable to initialize the Linux HTTPS transport";
@@ -182,12 +183,12 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
   const auto encodedUrl = narrow(url);
   const auto encodedHeaders = narrow(headers);
   if (encodedMethod.empty() || encodedUrl.empty() || (headers.size() != 0 && encodedHeaders.empty())) {
-    if (error != nullptr) *error = "DigiKey request contains invalid UTF-8";
+    if (error != nullptr) *error = service + " request contains invalid UTF-8";
     return false;
   }
   const bool retryableMethod = encodedMethod == "GET";
   for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
-    if (!requestHttpOnce(encodedMethod, encodedUrl, encodedHeaders, body, response, error)) return false;
+    if (!requestHttpOnce(encodedMethod, encodedUrl, encodedHeaders, body, response, error, service)) return false;
     if (!retryableMethod || !retryableStatus(response.statusCode) || attempt + 1U >= kMaximumDigiKeyHttpAttempts) {
       return true;
     }
