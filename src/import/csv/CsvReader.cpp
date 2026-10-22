@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Delimiter-agnostic CSV scanning shared by every importer.
 
 #include "import/csv/CsvReader.h"
@@ -222,6 +221,29 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
     }
     return false;
   };
+  // Ends the row with the current field. A blank line adds no row. False when a limit is exceeded.
+  const auto endRow = [&]() {
+    row.push_back(trim(field));
+    field.clear();
+    if (row.size() > kMaximumCsvFieldsPerRow) {
+      error = "CSV row contains too many fields";
+      return false;
+    }
+    if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
+      if (totalCells + row.size() > kMaximumCsvCells) {
+        error = "CSV has too many cells";
+        return false;
+      }
+      if (rows.size() >= kMaximumCsvRows) {
+        error = "CSV contains too many rows";
+        return false;
+      }
+      totalCells += row.size();
+      rows.push_back(move(row));
+    }
+    row.clear();
+    return true;
+  };
 
   for (size_t index = 0; index < text.size(); ++index) {
     const char ch = text[index];
@@ -276,28 +298,9 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
         return {};
       }
     } else if (ch == '\n') {
-      row.push_back(trim(field));
-      field.clear();
-      if (row.size() > kMaximumCsvFieldsPerRow) {
-        error = "CSV row contains too many fields";
-        return {};
-      }
-      if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
-        if (totalCells + row.size() > kMaximumCsvCells) {
-          error = "CSV has too many cells";
-          return {};
-        }
-        if (rows.size() >= kMaximumCsvRows) {
-          error = "CSV contains too many rows";
-          return {};
-        }
-        totalCells += row.size();
-        rows.push_back(move(row));
-        if (rows.size() >= maxRows) {
-          return rows;
-        }
-      }
-      row.clear();
+      const auto rowsBefore = rows.size();
+      if (!endRow()) return {};
+      if (rows.size() > rowsBefore && rows.size() >= maxRows) return rows;
     } else if (ch != '\r') {
       field.push_back(ch);
       if (fieldTooLarge()) return {};
@@ -309,24 +312,7 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
     return {};
   }
 
-  row.push_back(trim(field));
-  if (row.size() > kMaximumCsvFieldsPerRow) {
-    error = "CSV row contains too many fields";
-    return {};
-  }
-  if (!row.empty() && !(row.size() == 1 && row.front().empty())) {
-    if (totalCells + row.size() > kMaximumCsvCells) {
-      error = "CSV has too many cells";
-      return {};
-    }
-    if (rows.size() >= kMaximumCsvRows) {
-      error = "CSV contains too many rows";
-      return {};
-    }
-    totalCells += row.size();
-    rows.push_back(move(row));
-  }
-
+  if (!endRow()) return {};
   return rows;
 }
 

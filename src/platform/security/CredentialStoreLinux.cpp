@@ -18,8 +18,10 @@ namespace inventatory {
 namespace filesystem = std::filesystem;
 namespace {
 
-const SecretSchema kCredentialSchema = {
-    "org.kwiatens.Inventatory", SECRET_SCHEMA_NONE, {{"key", SECRET_SCHEMA_ATTRIBUTE_STRING}}};
+// The reserved members after the attribute array are private to libsecret and must stay zero.
+const SecretSchema kCredentialSchema = {"org.kwiatens.Inventatory", SECRET_SCHEMA_NONE,
+                                        {{"key", SECRET_SCHEMA_ATTRIBUTE_STRING}}, 0, nullptr, nullptr, nullptr,
+                                        nullptr, nullptr, nullptr, nullptr};
 
 std::string credentialAttribute(const std::string& key) { return "Inventatory/" + key; }
 

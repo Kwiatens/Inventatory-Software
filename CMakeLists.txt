@@ -32,6 +32,32 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Hardening from the OpenSSF compiler options guide. Set before the dependencies are fetched, so
+# SQLite and FTXUI are built with it too.
+include(CheckPIESupported)
+check_pie_supported()
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  # Control-flow guard, shadow-stack compatibility, and imported DLLs loaded only from System32,
+  # so a DLL planted beside the executable is never picked up.
+  add_compile_options(/guard:cf)
+  add_link_options(/guard:cf /CETCOMPAT /DEPENDENTLOADFLAG:0x800)
+else()
+  # Fortify needs optimization, so Debug builds leave it out. Level 3 needs GCC 12 or Clang; glibc
+  # warns on every file when an older GCC asks for it.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
+    set(INVENTATORY_FORTIFY_LEVEL 2)
+  else()
+    set(INVENTATORY_FORTIFY_LEVEL 3)
+  endif()
+  add_compile_options(-fstack-protector-strong -fstack-clash-protection -D_GLIBCXX_ASSERTIONS
+                      "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-U_FORTIFY_SOURCE;-D_FORTIFY_SOURCE=${INVENTATORY_FORTIFY_LEVEL}>")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    add_compile_options(-fcf-protection=full)
+  endif()
+  add_link_options(LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack)
+endif()
+
 include(FetchContent)
 
 find_package(Threads REQUIRED)
@@ -46,6 +72,7 @@ if(WIN32)
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningService.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
   set(INVENTATORY_CHILD_PROCESS_SOURCE)
+  set(INVENTATORY_WINDOWS_TEXT_SOURCE src/platform/system/WindowsText.cpp)
 else()
   find_package(PkgConfig REQUIRED)
   find_package(OpenSSL REQUIRED)
@@ -61,6 +88,7 @@ else()
   set(INVENTATORY_BLE_SOURCE src/platform/scanner/BleProvisioningServiceLinux.cpp)
   set(INVENTATORY_UPDATE_SOURCE src/platform/system/UpdateService.cpp)
   set(INVENTATORY_CHILD_PROCESS_SOURCE src/platform/system/ChildProcess.cpp)
+  set(INVENTATORY_WINDOWS_TEXT_SOURCE)
 endif()
 
 # Compiled in so releases never need an ambient sqlite3.dll. The hash pins the source.
@@ -75,6 +103,8 @@ add_library(sqlite3_amalgamation STATIC
   ${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c
 )
 target_include_directories(sqlite3_amalgamation PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
+# Fortify makes GCC report a known false positive in SQLite's column code.
+target_compile_options(sqlite3_amalgamation PRIVATE $<$<C_COMPILER_ID:GNU>:-Wno-stringop-overread>)
 
 FetchContent_Declare(ftxui
   GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
@@ -114,12 +144,13 @@ add_executable(inventatory
   src/app/bom/AppBomActions.cpp
   src/app/bom/AppBomProjectActions.cpp
   src/app/bom/AppBomBuildActions.cpp
-  src/app/settings/AppSettings.cpp
-  src/app/settings/AppSettingsAppearance.cpp
+  src/core/settings/AppSettings.cpp
+  src/core/settings/AppSettingsAppearance.cpp
   ${INVENTATORY_STARTUP_SOURCE}
   src/core/inventory/Inventory.cpp
   src/core/inventory/InventoryHelpers.cpp
   src/core/inventory/InventoryIdentifiers.cpp
+  src/core/inventory/ParameterLookup.cpp
   src/core/parts/PartDescriptor.cpp
   src/core/parts/PartDescriptorContext.cpp
   src/core/parts/PartDescriptorRules.cpp
@@ -188,6 +219,7 @@ add_executable(inventatory
   src/platform/digikey/DigiKeyJsonParser.cpp
   src/platform/digikey/DigiKeyProduct.cpp
   src/platform/digikey/DigiKeyProductDetails.cpp
+  src/platform/digikey/DigiKeyTransportCommon.cpp
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   src/platform/tme/TmeApi.cpp
   src/platform/tme/TmeEncoding.cpp
@@ -196,6 +228,7 @@ add_executable(inventatory
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
+  ${INVENTATORY_WINDOWS_TEXT_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   ${INVENTATORY_BLE_SOURCE}
@@ -236,7 +269,24 @@ if(WIN32)
   set_target_properties(inventatory_background PROPERTIES OUTPUT_NAME "inventatory-background")
 endif()
 
-target_include_directories(inventatory PRIVATE src)
+# The Linux desktop icons are embedded from branding/icons; editing a PNG reconfigures the build.
+set(INVENTATORY_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(NOT WIN32)
+  set(INVENTATORY_ICON_ARRAYS "")
+  set(INVENTATORY_ICON_TABLE "")
+  foreach(size 16 24 32 48 64 128 256 512)
+    set(icon "${CMAKE_CURRENT_SOURCE_DIR}/branding/icons/inventatory-${size}.png")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${icon}")
+    file(READ "${icon}" icon_hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," icon_bytes "${icon_hex}")
+    string(APPEND INVENTATORY_ICON_ARRAYS "inline constexpr unsigned char kIcon${size}Png[] = {${icon_bytes}};\n")
+    string(APPEND INVENTATORY_ICON_TABLE "    {${size}, kIcon${size}Png, sizeof(kIcon${size}Png)},\n")
+  endforeach()
+  configure_file(src/platform/system/AppIconsLinux.h.in
+                 "${INVENTATORY_GENERATED_DIR}/platform/system/AppIconsLinux.h" @ONLY)
+endif()
+
+target_include_directories(inventatory PRIVATE src "${INVENTATORY_GENERATED_DIR}")
 target_compile_definitions(inventatory PRIVATE
   Inventatory_VERSION_STRING="${INVENTATORY_VERSION}"
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
@@ -255,8 +305,8 @@ target_link_libraries(inventatory PRIVATE sqlite3_amalgamation ftxui::screen ftx
 add_executable(inventatory_tests
   tests/inventatory_tests.cpp
   src/app/shell/AppBootstrap.cpp
-  src/app/settings/AppSettings.cpp
-  src/app/settings/AppSettingsAppearance.cpp
+  src/core/settings/AppSettings.cpp
+  src/core/settings/AppSettingsAppearance.cpp
   ${INVENTATORY_STARTUP_SOURCE}
   src/platform/system/UpdateService.cpp
   src/platform/scanner/HttpServer.cpp
@@ -266,6 +316,7 @@ add_executable(inventatory_tests
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
+  ${INVENTATORY_WINDOWS_TEXT_SOURCE}
   ${INVENTATORY_BACKGROUND_SOURCE}
   ${INVENTATORY_CREDENTIAL_SOURCE}
   src/platform/tme/TmeApi.cpp
@@ -277,6 +328,7 @@ add_executable(inventatory_tests
   src/platform/digikey/DigiKeyJsonParser.cpp
   src/platform/digikey/DigiKeyProduct.cpp
   src/platform/digikey/DigiKeyProductDetails.cpp
+  src/platform/digikey/DigiKeyTransportCommon.cpp
   ${INVENTATORY_DIGIKEY_TRANSPORT_SOURCE}
   src/import/csv/CsvReader.cpp
   src/import/csv/CsvFormat.cpp
@@ -296,6 +348,7 @@ add_executable(inventatory_tests
   src/core/inventory/Inventory.cpp
   src/core/inventory/InventoryHelpers.cpp
   src/core/inventory/InventoryIdentifiers.cpp
+  src/core/inventory/ParameterLookup.cpp
   src/core/parts/PartDescriptor.cpp
   src/core/parts/PartDescriptorContext.cpp
   src/core/parts/PartDescriptorRules.cpp
@@ -349,7 +402,7 @@ if(NOT WIN32)
   target_sources(inventatory_tests PRIVATE src/platform/scanner/MdnsService.cpp)
 endif()
 
-target_include_directories(inventatory_tests PRIVATE src)
+target_include_directories(inventatory_tests PRIVATE src "${INVENTATORY_GENERATED_DIR}")
 target_compile_definitions(inventatory_tests PRIVATE
   Inventatory_RELEASE_REPOSITORY="${INVENTATORY_RELEASE_REPOSITORY}"
   Inventatory_SCAN_FIRMWARE_REPOSITORY="${INVENTATORY_SCAN_FIRMWARE_REPOSITORY}"

@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <exception>
+#include <functional>
 #include <future>
 #include <string>
 #include <utility>
@@ -130,58 +132,69 @@ bool App::testStagedDigiKey() {
   config.site = settingsDraft_.digiKeySite;
   config.language = settingsDraft_.digiKeyLanguage;
   config.currency = settingsDraft_.digiKeyCurrency;
-  if (stagedDigiKeySecretChanged_) {
-    config.clientSecret = stagedDigiKeySecret_;
-  } else {
-    const auto stored = CredentialStore::lookup(kDigiKeySecretName);
-    if (stored.status == CredentialReadStatus::Found && stored.secret.has_value()) {
-      config.clientSecret = *stored.secret;
-    } else if (stored.status == CredentialReadStatus::Unavailable) {
-      setMessage("Secure credential storage is unavailable; the saved DigiKey secret cannot be read", 5);
-      return false;
-    }
+  if (!stagedOrStoredSecret(stagedDigiKeySecretChanged_, stagedDigiKeySecret_, kDigiKeySecretName, "DigiKey secret",
+                            config.clientSecret)) {
+    return false;
   }
   if (!config.valid()) {
     setMessage("Client ID and client secret are required", 4);
     return false;
   }
+  return startSupplierTest(digiKeyTestFuture_, "DigiKey", [config](string& error) {
+    DigiKeyApiClient client(config);
+    return client.testConnection(&error);
+  });
+}
+
+bool App::stagedOrStoredSecret(bool staged, const string& stagedValue, const string& credentialName,
+                               const string& description, string& secret) {
+  if (staged) {
+    secret = stagedValue;
+    return true;
+  }
+  const auto stored = CredentialStore::lookup(credentialName);
+  if (stored.status == CredentialReadStatus::Found && stored.secret.has_value()) {
+    secret = *stored.secret;
+  } else if (stored.status == CredentialReadStatus::Unavailable) {
+    setMessage("Secure credential storage is unavailable; the saved " + description + " cannot be read", 5);
+    return false;
+  }
+  return true;
+}
+
+bool App::startSupplierTest(future<SupplierTestResult>& testFuture, const string& supplier,
+                            function<bool(string&)> test, function<string(const string&)> exceptionText) {
   const auto context = currentWorkspaceContext();
   const auto generation = context != nullptr ? context->generation : 0;
   try {
-    digiKeyTestFuture_ = std::async(
-        std::launch::async,
-        [config = std::move(config), generation]() -> DigiKeyTestResult {
-          DigiKeyTestResult result;
-          result.generation = generation;
-          try {
-            DigiKeyApiClient client(std::move(config));
-            result.ok = client.testConnection(&result.error);
-          } catch (const std::exception& e) {
-            result.ok = false;
-            result.error = e.what();
-          } catch (...) {
-            result.ok = false;
-            result.error = "Connection test failed unexpectedly";
-          }
-          return result;
-        });
+    testFuture = async(launch::async, [test = move(test), exceptionText = move(exceptionText), generation] {
+      SupplierTestResult result;
+      result.generation = generation;
+      try {
+        result.ok = test(result.error);
+      } catch (const exception& e) {
+        result.ok = false;
+        result.error = exceptionText ? exceptionText(e.what()) : string(e.what());
+      } catch (...) {
+        result.ok = false;
+        result.error = "Connection test failed unexpectedly";
+      }
+      return result;
+    });
   } catch (...) {
-    setMessage("Unable to start DigiKey test", 4, UiMessageSeverity::Error);
+    setMessage("Unable to start " + supplier + " test", 4, UiMessageSeverity::Error);
     return false;
   }
-  setMessage("Testing DigiKey credentials...", 10);
+  setMessage("Testing " + supplier + " credentials...", 10);
   dirty_ = true;
   return true;
 }
 
-void App::processDigiKeyTest() {
-  if (!digiKeyTestFuture_.valid() ||
-      digiKeyTestFuture_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-    return;
-  }
-  const auto result = digiKeyTestFuture_.get();
+void App::finishSupplierTest(future<SupplierTestResult>& testFuture, const string& supplier) {
+  if (!testFuture.valid() || testFuture.wait_for(chrono::seconds(0)) != future_status::ready) return;
+  const auto result = testFuture.get();
   if (workspaceIsCurrent(result.generation)) {
-    setMessage(result.ok ? "DigiKey credentials are valid" : "DigiKey test failed: " + result.error, 5,
+    setMessage(result.ok ? supplier + " credentials are valid" : supplier + " test failed: " + result.error, 5,
                result.ok ? UiMessageSeverity::Success : UiMessageSeverity::Error);
     dirty_ = true;
   }

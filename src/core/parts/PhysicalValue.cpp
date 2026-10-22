@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Physical value parsing and comparison for component parameters.
 
 #include "core/parts/PhysicalValue.h"
@@ -92,20 +91,6 @@ string trimValue(string value) {
   }
   const auto end = value.find_last_not_of(" \t\r\n");
   return value.substr(begin, end - begin + 1);
-}
-
-bool startsWithInsensitive(const string& value, const string& prefix) {
-  if (value.size() < prefix.size()) {
-    return false;
-  }
-  for (size_t index = 0; index < prefix.size(); ++index) {
-    const auto lhs = static_cast<char>(tolower(static_cast<unsigned char>(value[index])));
-    const auto rhs = static_cast<char>(tolower(static_cast<unsigned char>(prefix[index])));
-    if (lhs != rhs) {
-      return false;
-    }
-  }
-  return true;
 }
 
 struct ParsedUnit {

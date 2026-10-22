@@ -7,6 +7,7 @@
 #define NOMINMAX
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
+#include "platform/system/WindowsText.h"
 #include "core/parts/DecimalParse.h"
 
 #ifdef _WIN32
@@ -36,95 +37,9 @@ namespace inventatory {
 using namespace std;
 namespace digikey_detail {
 
-string encodeComponent(const string& value, bool formEncoding) {
-  ostringstream out;
-  for (unsigned char ch : value) {
-    const bool asciiAlphaNumeric = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-                                   (ch >= '0' && ch <= '9');
-    if (asciiAlphaNumeric || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
-      out << static_cast<char>(ch);
-    } else if (ch == ' ' && formEncoding) {
-      out << '+';
-    } else if (ch == ' ' && !formEncoding) {
-      out << "%20";
-    } else {
-      out << '%' << uppercase << hex << setw(2) << setfill('0') << static_cast<int>(ch)
-          << nouppercase << dec;
-    }
-  }
-  return out.str();
-}
+wstring widen(const string& value) { return utf8ToWide(value); }
 
-string encodeFormValue(const string& value) {
-  return encodeComponent(value, true);
-}
-
-string encodePathSegment(const string& value) {
-  return encodeComponent(value, false);
-}
-
-string escapeJsonString(const string& value) {
-  ostringstream out;
-  for (unsigned char ch : value) {
-    switch (ch) {
-      case '\\':
-        out << "\\\\";
-        break;
-      case '"':
-        out << "\\\"";
-        break;
-      case '\b':
-        out << "\\b";
-        break;
-      case '\f':
-        out << "\\f";
-        break;
-      case '\n':
-        out << "\\n";
-        break;
-      case '\r':
-        out << "\\r";
-        break;
-      case '\t':
-        out << "\\t";
-        break;
-      default:
-        if (ch < 0x20) {
-          out << "\\u" << hex << setw(4) << setfill('0') << static_cast<int>(ch) << dec;
-        } else {
-          out << static_cast<char>(ch);
-        }
-        break;
-    }
-  }
-  return out.str();
-}
-
-wstring widen(const string& value) {
-  if (value.empty() || value.size() > static_cast<size_t>(numeric_limits<int>::max())) {
-    return {};
-  }
-  const int required = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
-  if (required <= 0) {
-    return {};
-  }
-  wstring out(static_cast<size_t>(required), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), out.data(), required);
-  return out;
-}
-
-string narrow(const wstring& value) {
-  if (value.empty()) {
-    return {};
-  }
-  const int required = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
-  if (required <= 0) {
-    return {};
-  }
-  string out(static_cast<size_t>(required), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), out.data(), required, nullptr, nullptr);
-  return out;
-}
+string narrow(const wstring& value) { return wideToUtf8(value); }
 
 string httpErrorMessage(const string& prefix) {
   const DWORD code = GetLastError();
@@ -134,17 +49,17 @@ string httpErrorMessage(const string& prefix) {
 }
 
 bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& headers, const string& body,
-                     HttpResponse& response, string* error) {
+                     HttpResponse& response, string* error, const std::string& service) {
   response = {};
   if (url.empty() || url.size() > kMaximumDigiKeyUrlBytes ||
       url.size() > static_cast<size_t>(numeric_limits<DWORD>::max()) ||
       url.size() > static_cast<size_t>(numeric_limits<int>::max()) ||
       headers.size() > static_cast<size_t>(numeric_limits<int>::max())) {
-    if (error != nullptr) *error = "DigiKey request URL or headers are too large";
+    if (error != nullptr) *error = service + " request URL or headers are too large";
     return false;
   }
   if (body.size() > kMaximumDigiKeyRequestBodyBytes) {
-    if (error != nullptr) *error = "DigiKey request body is too large";
+    if (error != nullptr) *error = service + " request body is too large";
     return false;
   }
   URL_COMPONENTS components{};
@@ -155,8 +70,13 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
   components.dwExtraInfoLength = static_cast<DWORD>(-1);
   if (!WinHttpCrackUrl(url.c_str(), static_cast<DWORD>(url.size()), 0, &components)) {
     if (error != nullptr) {
-      *error = httpErrorMessage("Unable to parse DigiKey URL");
+      *error = httpErrorMessage("Unable to parse " + service + " URL");
     }
+    return false;
+  }
+  // Credentials travel in these requests, so plain HTTP is refused, as on Linux.
+  if (components.nScheme != INTERNET_SCHEME_HTTPS) {
+    if (error != nullptr) *error = service + " requests require HTTPS";
     return false;
   }
 
@@ -167,10 +87,11 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
   }
 
   // Automatic proxy (WPAD/PAC) first; fall back to the default WinHTTP proxy.
-  HINTERNET session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+  const auto userAgent = widen("Inventatory " + service + " client/1.0");
+  HINTERNET session = WinHttpOpen(userAgent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
   if (session == nullptr) {
-    session = WinHttpOpen(L"Inventatory DigiKey client/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session = WinHttpOpen(userAgent.c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                           WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
   }
   if (session == nullptr) {
@@ -185,18 +106,17 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
   HINTERNET connection = WinHttpConnect(session, host.c_str(), components.nPort, 0);
   if (connection == nullptr) {
     if (error != nullptr) {
-      *error = httpErrorMessage("Unable to connect to DigiKey");
+      *error = httpErrorMessage("Unable to connect to " + service);
     }
     WinHttpCloseHandle(session);
     return false;
   }
 
-  const DWORD flags = components.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
   HINTERNET request = WinHttpOpenRequest(connection, method.c_str(), path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                         WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+                                         WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
   if (request == nullptr) {
     if (error != nullptr) {
-      *error = httpErrorMessage("Unable to open DigiKey request");
+      *error = httpErrorMessage("Unable to open " + service + " request");
     }
     WinHttpCloseHandle(connection);
     WinHttpCloseHandle(session);
@@ -210,7 +130,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
   if (!headers.empty() &&
       !WinHttpAddRequestHeaders(request, headers.c_str(), static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD)) {
     if (error != nullptr) {
-      *error = httpErrorMessage("Unable to apply DigiKey request headers");
+      *error = httpErrorMessage("Unable to apply " + service + " request headers");
     }
     WinHttpCloseHandle(request);
     WinHttpCloseHandle(connection);
@@ -222,7 +142,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
   const DWORD bodySize = static_cast<DWORD>(body.size());
   if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, const_cast<void*>(bodyData), bodySize, bodySize, 0)) {
     if (error != nullptr) {
-      *error = httpErrorMessage("Unable to send DigiKey request");
+      *error = httpErrorMessage("Unable to send " + service + " request");
     }
     WinHttpCloseHandle(request);
     WinHttpCloseHandle(connection);
@@ -232,7 +152,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
 
   if (!WinHttpReceiveResponse(request, nullptr)) {
     if (error != nullptr) {
-      *error = httpErrorMessage("Unable to receive DigiKey response");
+      *error = httpErrorMessage("Unable to receive " + service + " response");
     }
     WinHttpCloseHandle(request);
     WinHttpCloseHandle(connection);
@@ -245,7 +165,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
   if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                            &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX)) {
     if (error != nullptr) {
-      *error = httpErrorMessage("Unable to query DigiKey response status");
+      *error = httpErrorMessage("Unable to query " + service + " response status");
     }
     WinHttpCloseHandle(request);
     WinHttpCloseHandle(connection);
@@ -293,7 +213,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     DWORD available = 0;
     if (!WinHttpQueryDataAvailable(request, &available)) {
       if (error != nullptr) {
-        *error = httpErrorMessage("Unable to read DigiKey response");
+        *error = httpErrorMessage("Unable to read " + service + " response");
       }
       WinHttpCloseHandle(request);
       WinHttpCloseHandle(connection);
@@ -306,7 +226,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     }
 
     if (available > kMaximumDigiKeyResponseBytes || bodyText.size() > kMaximumDigiKeyResponseBytes - available) {
-      if (error != nullptr) *error = "DigiKey response exceeds the 4 MiB safety limit";
+      if (error != nullptr) *error = service + " response exceeds the 4 MiB safety limit";
       WinHttpCloseHandle(request);
       WinHttpCloseHandle(connection);
       WinHttpCloseHandle(session);
@@ -317,7 +237,7 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     DWORD read = 0;
     if (!WinHttpReadData(request, bodyText.data() + current, available, &read)) {
       if (error != nullptr) {
-        *error = httpErrorMessage("Unable to copy DigiKey response");
+        *error = httpErrorMessage("Unable to copy " + service + " response");
       }
       WinHttpCloseHandle(request);
       WinHttpCloseHandle(connection);
@@ -342,12 +262,12 @@ bool isRetryableHttpStatus(DWORD statusCode) {
 }
 
 bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
-                 HttpResponse& response, string* error) {
+                 HttpResponse& response, string* error, const string& service) {
   // Only GET is retried: DigiKey publishes no idempotency contract for its POST endpoints.
   const bool retryableMethod = method == L"GET";
   for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
     string attemptError;
-    if (!requestHttpOnce(method, url, headers, body, response, &attemptError)) {
+    if (!requestHttpOnce(method, url, headers, body, response, &attemptError, service)) {
       if (error != nullptr) *error = move(attemptError);
       return false;
     }
@@ -360,54 +280,6 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
     Sleep(delayMs);
   }
   return false;
-}
-
-bool isSafeHeaderValue(const string& value) {
-  if (value.size() > kMaximumDigiKeyFieldBytes) return false;
-  for (const unsigned char character : value) {
-    // Reject all control bytes, not just CR/LF: WinHTTP parsing varies across Windows versions.
-    if (character < 0x20U || character > 0x7EU) return false;
-  }
-  return true;
-}
-
-bool appendHeader(ostringstream& headers, const char* name, const string& value, string* error) {
-  if (!isSafeHeaderValue(value)) {
-    if (error != nullptr) *error = "DigiKey configuration contains invalid header characters";
-    return false;
-  }
-  headers << name << ": " << value << "\r\n";
-  return true;
-}
-
-bool appendAuthorizationHeader(ostringstream& headers, const string& token, string* error) {
-  if (token.size() > 2048U || !isSafeHeaderValue(token)) {
-    if (error != nullptr) *error = "DigiKey returned an invalid access token";
-    return false;
-  }
-  headers << "Authorization: Bearer " << token << "\r\n";
-  return true;
-}
-
-bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
-  const auto trimmed = trim(value);
-  if (trimmed.empty()) return false;
-  unsigned long long parsed = 0;
-  for (const unsigned char character : trimmed) {
-    if (character < '0' || character > '9') return false;
-    const auto digit = static_cast<unsigned long long>(character - '0');
-    if (parsed > (numeric_limits<unsigned long long>::max() - digit) / 10U) return false;
-    parsed = parsed * 10U + digit;
-    if (parsed > maximum) return false;
-  }
-  return true;
-}
-
-bool isFiniteDecimal(const string& value, double maximum) {
-  const auto trimmed = trim(value);
-  if (trimmed.empty()) return false;
-  double parsed = 0.0;
-  return parseClassicDecimal(trimmed, parsed) && isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;
 }
 
 }  // namespace digikey_detail

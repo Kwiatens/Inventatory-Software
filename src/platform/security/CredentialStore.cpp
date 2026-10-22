@@ -4,6 +4,7 @@
 // Windows Credential Manager implementation for user-scoped secrets.
 
 #include "platform/security/CredentialStore.h"
+#include "platform/system/WindowsText.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -27,24 +28,8 @@ namespace filesystem = std::filesystem;
 
 namespace {
 
-wstring widen(const string& value) {
-  if (value.empty()) return {};
-  const int count = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
-  wstring result(static_cast<size_t>(count), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), count);
-  return result;
-}
-
-string narrow(const wchar_t* value, size_t length) {
-  if (value == nullptr || length == 0) return {};
-  const int count = WideCharToMultiByte(CP_UTF8, 0, value, static_cast<int>(length), nullptr, 0, nullptr, nullptr);
-  string result(static_cast<size_t>(count), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, value, static_cast<int>(length), result.data(), count, nullptr, nullptr);
-  return result;
-}
-
 wstring targetName(const string& key) {
-  return L"Inventatory/" + widen(key);
+  return L"Inventatory/" + utf8ToWide(key);
 }
 
 string hexBytes(const unsigned char* bytes, size_t size) {
@@ -117,7 +102,7 @@ CredentialLookup CredentialStore::lookup(const string& key) {
   }
   const auto* text = reinterpret_cast<const wchar_t*>(credential->CredentialBlob);
   const auto length = credential->CredentialBlobSize / sizeof(wchar_t);
-  auto result = narrow(text, length);
+  auto result = wideToUtf8(text, length);
   CredFree(credential);
   return {CredentialReadStatus::Found, move(result)};
 }
@@ -129,7 +114,7 @@ optional<string> CredentialStore::read(const string& key) {
 bool CredentialStore::write(const string& key, const string& secret) {
   if (secret.empty()) return erase(key);
   auto target = targetName(key);
-  auto wideSecret = widen(secret);
+  auto wideSecret = utf8ToWide(secret);
   CREDENTIALW credential{};
   credential.Type = CRED_TYPE_GENERIC;
   credential.TargetName = target.data();

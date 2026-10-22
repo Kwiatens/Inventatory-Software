@@ -399,9 +399,9 @@ void App::stopWorkspaceBoundWork() { stopWorkspaceBoundWorkUntil(nullopt); }
 
 bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point> deadline) {
   stopPrinterWork();
-  digiKeyRefreshQueue_.clear();
-  tmeRefreshQueue_.clear();
-  mouserRefreshQueue_.clear();
+  digiKeyRefresh_.queue.clear();
+  tmeRefresh_.queue.clear();
+  mouserRefresh_.queue.clear();
   scanDigiKeyEnrichmentQueue_.clear();
   scanAutoPrintPending_.clear();  // Their lookups are dropped, so these labels would never settle.
   bomEnrichmentQueue_.clear();
@@ -411,9 +411,9 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
 
   // Workers hold raw pointers into the clients, so reset nothing until every worker has finished.
   bool allFinished = true;
-  allFinished = finishWorker(digiKeyRefreshFuture_, deadline) && allFinished;
-  allFinished = finishWorker(tmeRefreshFuture_, deadline) && allFinished;
-  allFinished = finishWorker(mouserRefreshFuture_, deadline) && allFinished;
+  allFinished = finishWorker(digiKeyRefresh_.future, deadline) && allFinished;
+  allFinished = finishWorker(tmeRefresh_.future, deadline) && allFinished;
+  allFinished = finishWorker(mouserRefresh_.future, deadline) && allFinished;
   allFinished = finishWorker(importSyncFuture_, deadline) && allFinished;
   allFinished = finishWorker(vendorLookupFuture_, deadline) && allFinished;
   allFinished = finishWorker(scanDigiKeyEnrichmentFuture_, deadline) && allFinished;
@@ -421,9 +421,9 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   if (!allFinished) {
     workAbandoned_ = true;
   } else {
-    stopDigiKeyRefresh();  // Workers have finished; this only resets state.
-    stopTmeRefresh();
-    stopMouserRefresh();
+    digiKeyRefresh_.stop();  // Workers have finished; this only resets state.
+    tmeRefresh_.stop();
+    mouserRefresh_.stop();
 
     importSyncFuture_ = {};
     vendorLookupFuture_ = {};

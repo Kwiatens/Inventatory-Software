@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Terminal application controller and shared app state.
 
 #pragma once
@@ -21,6 +20,7 @@
 #include "app/settings/AppSettings.h"
 #include "app/shell/AppBootstrap.h"
 #include "app/shell/AppNavigation.h"
+#include "app/common/SupplierRefresh.h"
 #include "import/digikey/DigiKeyCsvImport.h"
 #include "import/kicad/KicadBom.h"
 #include "platform/digikey/DigiKeyApi.h"
@@ -427,7 +427,8 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
-  struct DigiKeyTestResult {
+  // The outcome of a DigiKey, TME or Mouser credential test.
+  struct SupplierTestResult {
     bool ok = false;
     std::string error;
     WorkspaceGeneration generation = 0;
@@ -441,21 +442,8 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
-  struct TmeTestResult {
-    bool ok = false;
-    std::string error;
-    WorkspaceGeneration generation = 0;
-  };
-
-  struct MouserTestResult {
-    bool ok = false;
-    std::string error;
-    WorkspaceGeneration generation = 0;
-  };
-
   // One Mouser refresh lookup; the manufacturer, when known, tells apart products sharing a number.
   struct MouserRefreshRequest {
-    std::string itemId;
     std::string partNumber;
     std::string manufacturer;
   };
@@ -676,7 +664,18 @@ class App {
   void processScanDigiKeyEnrichment();
   void beginDigiKeyRefresh();
   void processDigiKeyRefresh();
-  void stopDigiKeyRefresh();
+  // Starts a supplier's inventory refresh. makeClient returns the client, or null after showing why
+  // the supplier cannot be used; lookupFor gives an item's lookup, or nothing to leave the item out.
+  template <typename Run, typename MakeClient, typename LookupFor>
+  void beginSupplierRefresh(Run& run, const std::string& supplier, MakeClient makeClient, LookupFor lookupFor,
+                            const std::string& nothingToRefresh);
+  // Merges one TME or Mouser lookup into its item, or counts why it could not be merged.
+  template <typename Run, typename Result, typename Conflict, typename Merge>
+  void applyCatalogueResult(Run& run, const Result& result, const std::string& supplier, Conflict conflict,
+                            Merge merge);
+  // Ends a run: saves the merged changes once and reports the summary.
+  void finishSupplierRefresh(bool changed, std::string& lastError, const std::string& source,
+                             const std::string& supplier, const std::string& summary);
   void beginUpdateCheckIfDue();
   void beginUpdateChecks();
   void processUpdateCheck();
@@ -698,17 +697,14 @@ class App {
   bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
-  void processDigiKeyTest();
-  void processTmeTest();
+  // Shows a finished credential test, unless the workspace changed while it ran.
+  void finishSupplierTest(std::future<SupplierTestResult>& testFuture, const std::string& supplier);
   void beginTmeRefresh();
   // False when the lookup could not be queued (no TME credentials, or no workspace).
   bool enqueueTmeScanLookup(const std::string& itemId, const std::string& symbol);
   void processTmeRefresh();
-  void stopTmeRefresh();
-  void processMouserTest();
   void beginMouserRefresh();
   void processMouserRefresh();
-  void stopMouserRefresh();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();
@@ -766,6 +762,7 @@ class App {
   void applyWizardTransitionTarget();
   bool regenerateInventatoryScanToken();
   bool clearInventatoryScanPairing();
+  bool rotateInventatoryScanPairing(const std::string& tokenNotStoredMessage, const std::string& doneMessage);
   bool copyInventatoryScanToken();
   void refreshBleSetupDiscovery();
   bool provisionSelectedBleSetupDevice();
@@ -802,6 +799,15 @@ class App {
   bool testStagedDigiKey();
   bool testStagedTme();
   bool testStagedMouser();
+  // Runs a credential test off the UI thread. test fills the error and returns whether the
+  // credentials work; exceptionText, when set, rewrites an exception's text before it is shown.
+  bool startSupplierTest(std::future<SupplierTestResult>& testFuture, const std::string& supplier,
+                         std::function<bool(std::string&)> test,
+                         std::function<std::string(const std::string&)> exceptionText = {});
+  // The staged secret, or the saved one when none is staged. False, with a message, when the
+  // credential store cannot be read.
+  bool stagedOrStoredSecret(bool staged, const std::string& stagedValue, const std::string& credentialName,
+                            const std::string& description, std::string& secret);
   // True when the field holds a secret: typed text is masked and wiped after editing.
   bool settingsFieldIsSecret() const;
   void clearStagedTmeCredentials();
@@ -1110,44 +1116,11 @@ class App {
   std::future<ScanDigiKeyEnrichmentResult> scanDigiKeyEnrichmentFuture_;
   // UI thread only: scans whose automatic label waits for their supplier lookup.
   std::vector<std::string> scanAutoPrintPending_;
-  // Inventory-wide DigiKey recovery: one lookup per tick; never changes stock counts.
-  std::deque<std::pair<std::string, std::string>> digiKeyRefreshQueue_;
-  size_t digiKeyRefreshTotal_ = 0;
-  size_t digiKeyRefreshCompleted_ = 0;
-  size_t digiKeyRefreshSucceeded_ = 0;
-  size_t digiKeyRefreshFailed_ = 0;
-  bool digiKeyRefreshChanged_ = false;
-  WorkspaceGeneration digiKeyRefreshGeneration_ = 0;
-  std::string digiKeyRefreshLastError_;
-  std::unique_ptr<DigiKeyApiClient> digiKeyRefreshClient_;
-  // TME inventory refresh: one lookup per tick, merged on the UI thread.
-  std::deque<std::pair<std::string, TmeIdentifier>> tmeRefreshQueue_;
-  size_t tmeRefreshTotal_ = 0;
-  size_t tmeRefreshCompleted_ = 0;
-  size_t tmeRefreshSucceeded_ = 0;
-  size_t tmeRefreshNotFound_ = 0;
-  size_t tmeRefreshAmbiguous_ = 0;
-  size_t tmeRefreshErrors_ = 0;
-  bool tmeRefreshChanged_ = false;
-  WorkspaceGeneration tmeRefreshGeneration_ = 0;
-  std::string tmeRefreshLastError_;
-  std::unique_ptr<TmeApiClient> tmeRefreshClient_;
-  std::future<TmeRefreshResult> tmeRefreshFuture_;
-  // Mouser inventory refresh: one lookup per tick, merged on the UI thread. The client is declared
-  // before the future so the future is destroyed first.
-  std::deque<MouserRefreshRequest> mouserRefreshQueue_;
-  size_t mouserRefreshTotal_ = 0;
-  size_t mouserRefreshCompleted_ = 0;
-  size_t mouserRefreshSucceeded_ = 0;
-  size_t mouserRefreshNotFound_ = 0;
-  size_t mouserRefreshAmbiguous_ = 0;
-  size_t mouserRefreshErrors_ = 0;
-  bool mouserRefreshChanged_ = false;
-  WorkspaceGeneration mouserRefreshGeneration_ = 0;
-  std::string mouserRefreshLastError_;
-  std::unique_ptr<MouserApiClient> mouserRefreshClient_;
-  std::future<MouserRefreshResult> mouserRefreshFuture_;
-  std::future<DigiKeyRefreshResult> digiKeyRefreshFuture_;
+  // Inventory-wide supplier refreshes. A DigiKey refresh never changes stock counts; it counts each
+  // failed lookup as an error.
+  SupplierRefresh<DigiKeyApiClient, std::string, DigiKeyRefreshResult> digiKeyRefresh_;
+  SupplierRefresh<TmeApiClient, TmeIdentifier, TmeRefreshResult> tmeRefresh_;
+  SupplierRefresh<MouserApiClient, MouserRefreshRequest, MouserRefreshResult> mouserRefresh_;
   int fieldMenuIndex_ = 0;
   std::vector<FieldOption> menuOptions_;
   std::vector<Action> sheetActions_;
@@ -1212,9 +1185,9 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
-  std::future<DigiKeyTestResult> digiKeyTestFuture_;
-  std::future<TmeTestResult> tmeTestFuture_;
-  std::future<MouserTestResult> mouserTestFuture_;
+  std::future<SupplierTestResult> digiKeyTestFuture_;
+  std::future<SupplierTestResult> tmeTestFuture_;
+  std::future<SupplierTestResult> mouserTestFuture_;
   mutable std::mutex workspaceMutex_;
   std::shared_ptr<const WorkspaceContext> workspaceContext_;
   bool updateCheckFailed_ = false;
