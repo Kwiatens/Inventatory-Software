@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Scan code resolution for vendor bags (DigiKey and TME), machine codes and TME label payloads.
 
 #include "core/inventory/InventoryInternals.h"

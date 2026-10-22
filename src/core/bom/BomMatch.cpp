@@ -1,13 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
-
 #include "core/bom/BomMatch.h"
 
 #include "BomMatchPrivate.h"
 
-#include "ui/shared/AppUiShared.h"
+#include "core/inventory/ParameterLookup.h"
 
 #include <algorithm>
 #include <cctype>

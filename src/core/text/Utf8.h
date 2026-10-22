@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Strict UTF-8 encoding and decoding shared by the CSV, JSON and DigiKey code.
 
 #pragma once

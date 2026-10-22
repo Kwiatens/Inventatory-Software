@@ -48,12 +48,6 @@ ftxui::Element rackOccupancyIndicator(size_t occupied, size_t capacity, int widt
          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
-string assignmentLabel(RackAssignmentMode mode) {
-  if (mode == RackAssignmentMode::Manual) return "manual";
-  if (mode == RackAssignmentMode::Unassigned) return "unassigned";
-  return "automatic";
-}
-
 string packageSummary(const InventoryItem& item) {
   for (const auto& parameter : item.parameters) {
     if (parameterLabelMatches(parameter.name, "Package") || parameterLabelMatches(parameter.name, "Package / Case")) {
@@ -511,42 +505,9 @@ ftxui::Element App::renderRackManagementUi() const {
     return static_cast<const InventatoryRack*>(nullptr);
   }();
 
-  const auto secondsLeft = rackDeleteConfirmationSecondsLeft();
-  const int popupWidth = std::max(48, std::min(screenWidth - 12, 72));
-
-  ftxui::Elements popupRows;
-  popupRows.push_back(ftxui::paragraphAlignLeft("Are you sure you want to delete this rack from the database?") |
-                      ftxui::color(uiTitleColor()));
-  popupRows.push_back(uiDivider());
-  popupRows.push_back(ftxui::paragraphAlignLeft(
-                         "Selected: " + (rackToDelete == nullptr ? std::string("this rack") : rackToDelete->code)) |
-                      ftxui::color(uiWarnColor()));
-  popupRows.push_back(ftxui::paragraphAlignLeft("Press Enter to confirm after the timer unlocks.") |
-                      ftxui::color(secondsLeft == 0 ? uiTitleColor() : uiMutedColor()));
-  popupRows.push_back(ftxui::paragraphAlignLeft("Press Esc to cancel.") | ftxui::color(uiMutedColor()));
-  popupRows.push_back(ftxui::paragraphAlignLeft(std::to_string(secondsLeft) + " second" +
-                                                (secondsLeft == 1 ? std::string() : std::string("s")) + " remaining") |
-                      ftxui::color(uiWarnColor()));
-
-  auto popup = ftxui::window(styledText("Delete rack", uiDangerColor()),
-                             ftxui::vbox(move(popupRows)) | ftxui::bgcolor(uiPanelRightBg()) |
-                                 ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, popupWidth)) |
-               ftxui::color(uiDangerColor());
-
-  auto overlay = ftxui::vbox({
-      ftxui::filler(),
-      ftxui::hbox({
-          ftxui::filler(),
-          popup,
-          ftxui::filler(),
-      }),
-      ftxui::filler(),
-  });
-
-  return ftxui::dbox({
-      page,
-      overlay,
-  });
+  return uiDeleteConfirmation(move(page), screenWidth, "Delete rack", "rack",
+                              rackToDelete == nullptr ? std::string("this rack") : rackToDelete->code,
+                              rackDeleteConfirmationSecondsLeft());
 }
 
 void App::handleRackManagementKey(const KeyEvent& key) {

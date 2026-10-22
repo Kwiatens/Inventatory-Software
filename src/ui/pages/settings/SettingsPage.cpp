@@ -160,6 +160,24 @@ App::SettingsPageModel App::settingsPageModel() const {
     row.tone = tone;
     return row;
   };
+  // A supplier's "Last refresh" row. counts describes a finished run; warn marks it as a warning.
+  const auto refreshRow = [&](const auto& run, const string& id, bool enabled, function<void()> begin,
+                              const string& counts, bool warn) {
+    string refresh = "Not run yet";
+    auto tone = VoiceTone::Muted;
+    if (run.running()) {
+      refresh = to_string(run.completed) + " of " + to_string(run.total) + " done";
+      tone = VoiceTone::Plain;
+    } else if (run.total > 0) {
+      refresh = counts;
+      tone = warn ? VoiceTone::Warning : VoiceTone::Plain;
+    }
+    auto row = infoRow("Inventory", "Last refresh", refresh, tone);
+    row.targetId = "settings." + id + ".refresh.row";
+    if (enabled) row.activate = begin;
+    row.buttons = {button("Refresh", "r", "settings." + id + ".refresh", begin, false, false, enabled)};
+    return row;
+  };
 
   switch (settingsCategory_) {
     case SettingsCategory::General: {
@@ -492,13 +510,14 @@ App::SettingsPageModel App::settingsPageModel() const {
         rows.push_back(move(setup));
         break;
       }
-      const bool refreshRunning = !digiKeyRefreshQueue_.empty() || digiKeyRefreshFuture_.valid();
+      const auto& run = digiKeyRefresh_;
+      const bool refreshRunning = run.running();
       if (refreshRunning) {
         model.status = {{"Refreshing DigiKey data: "},
-                        {to_string(digiKeyRefreshCompleted_) + " of " + to_string(digiKeyRefreshTotal_), VoiceTone::Strong},
+                        {to_string(run.completed) + " of " + to_string(run.total), VoiceTone::Strong},
                         {" parts done."}};
-      } else if (!digiKeyRefreshLastError_.empty()) {
-        model.status = {{"The last DigiKey refresh failed: ", VoiceTone::Danger}, {digiKeyRefreshLastError_}};
+      } else if (!run.lastError.empty()) {
+        model.status = {{"The last DigiKey refresh failed: ", VoiceTone::Danger}, {run.lastError}};
       } else {
         model.status = {{"DigiKey is set up for "}, {draft.digiKeySite + ", " + draft.digiKeyCurrency, VoiceTone::Strong}, {"."}};
       }
@@ -532,22 +551,9 @@ App::SettingsPageModel App::settingsPageModel() const {
         if (index == 0) row.buttons = {button("Test", "t", "settings.digikey.test", [self] { self->testStagedDigiKey(); })};
         rows.push_back(move(row));
       }
-      string refresh = "Not run yet";
-      auto refreshTone = VoiceTone::Muted;
-      if (refreshRunning) {
-        refresh = to_string(digiKeyRefreshCompleted_) + " of " + to_string(digiKeyRefreshTotal_) + " done";
-        refreshTone = VoiceTone::Plain;
-      } else if (digiKeyRefreshTotal_ > 0) {
-        refresh = to_string(digiKeyRefreshSucceeded_) + " updated, " + to_string(digiKeyRefreshFailed_) + " failed";
-        refreshTone = digiKeyRefreshFailed_ > 0 ? VoiceTone::Warning : VoiceTone::Plain;
-      }
-      auto refreshRow = infoRow("Inventory", "Last refresh", refresh, refreshTone);
-      const bool refreshEnabled = !refreshRunning && !settingsDirty_;
-      refreshRow.targetId = "settings.digikey.refresh.row";
-      if (refreshEnabled) refreshRow.activate = [self] { self->beginDigiKeyRefresh(); };
-      refreshRow.buttons = {button("Refresh", "r", "settings.digikey.refresh", [self] { self->beginDigiKeyRefresh(); }, false,
-                                   false, refreshEnabled)};
-      rows.push_back(move(refreshRow));
+      rows.push_back(refreshRow(run, "digikey", !refreshRunning && !settingsDirty_, [self] { self->beginDigiKeyRefresh(); },
+                                to_string(run.succeeded) + " updated, " + to_string(run.errors) + " failed",
+                                run.errors > 0));
       break;
     }
 
@@ -555,13 +561,14 @@ App::SettingsPageModel App::settingsPageModel() const {
       const bool tokenSet = stagedTmeTokenChanged_ ? !stagedTmeToken_.empty() : hasStoredTmeToken_;
       const bool secretSet = stagedTmeSecretChanged_ ? !stagedTmeSecret_.empty() : hasStoredTmeSecret_;
       const bool configured = tokenSet && secretSet;
-      const bool refreshRunning = !tmeRefreshQueue_.empty() || tmeRefreshFuture_.valid();
+      const auto& run = tmeRefresh_;
+      const bool refreshRunning = run.running();
       if (refreshRunning) {
         model.status = {{"Refreshing TME data: "},
-                        {to_string(tmeRefreshCompleted_) + " of " + to_string(tmeRefreshTotal_), VoiceTone::Strong},
+                        {to_string(run.completed) + " of " + to_string(run.total), VoiceTone::Strong},
                         {" items done."}};
-      } else if (!tmeRefreshLastError_.empty()) {
-        model.status = {{"The last TME refresh reported: ", VoiceTone::Danger}, {tmeRefreshLastError_}};
+      } else if (!run.lastError.empty()) {
+        model.status = {{"The last TME refresh reported: ", VoiceTone::Danger}, {run.lastError}};
       } else if (!configured) {
         model.status = {{"TME needs a token and an application secret."}};
       } else {
@@ -595,27 +602,17 @@ App::SettingsPageModel App::settingsPageModel() const {
         } else if (!row.editing && !secretField) {
           markChange(row, field.value != field.savedValue, field.savedValue.empty() ? "Not set" : field.savedValue);
         }
-        if (index == 0) row.buttons = {button("Test", "t", "settings.tme.test", [self] { self->testStagedTme(); })};
+        // Disabled during a refresh, as on the Mouser page.
+        if (index == 0) {
+          row.buttons = {button("Test", "t", "settings.tme.test", [self] { self->testStagedTme(); }, false, false,
+                                !refreshRunning)};
+        }
         rows.push_back(move(row));
       }
 
-      string refresh = "Not run yet";
-      auto refreshTone = VoiceTone::Muted;
-      if (refreshRunning) {
-        refresh = to_string(tmeRefreshCompleted_) + " of " + to_string(tmeRefreshTotal_) + " done";
-        refreshTone = VoiceTone::Plain;
-      } else if (tmeRefreshTotal_ > 0) {
-        refresh = to_string(tmeRefreshSucceeded_) + " updated, " + to_string(tmeRefreshNotFound_) + " not found, " +
-                  to_string(tmeRefreshAmbiguous_) + " ambiguous, " + to_string(tmeRefreshErrors_) + " errors";
-        refreshTone = tmeRefreshAmbiguous_ + tmeRefreshErrors_ > 0 ? VoiceTone::Warning : VoiceTone::Plain;
-      }
-      auto refreshRow = infoRow("Inventory", "Last refresh", refresh, refreshTone);
-      const bool refreshEnabled = configured && !refreshRunning && !settingsDirty_;
-      refreshRow.targetId = "settings.tme.refresh.row";
-      if (refreshEnabled) refreshRow.activate = [self] { self->beginTmeRefresh(); };
-      refreshRow.buttons = {button("Refresh", "r", "settings.tme.refresh", [self] { self->beginTmeRefresh(); }, false,
-                                   false, refreshEnabled)};
-      rows.push_back(move(refreshRow));
+      rows.push_back(refreshRow(run, "tme", configured && !refreshRunning && !settingsDirty_,
+                                [self] { self->beginTmeRefresh(); }, catalogueRefreshCounts(run),
+                                run.ambiguous + run.errors > 0));
       break;
     }
 
@@ -623,13 +620,14 @@ App::SettingsPageModel App::settingsPageModel() const {
       // A MOUSER_API_KEY environment key also counts as set.
       const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty()
                                                    : (hasStoredMouserKey_ || mouserKeyFromEnvironment_);
-      const bool refreshRunning = !mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid();
+      const auto& run = mouserRefresh_;
+      const bool refreshRunning = run.running();
       if (refreshRunning) {
         model.status = {{"Refreshing Mouser data: "},
-                        {to_string(mouserRefreshCompleted_) + " of " + to_string(mouserRefreshTotal_), VoiceTone::Strong},
+                        {to_string(run.completed) + " of " + to_string(run.total), VoiceTone::Strong},
                         {" items done."}};
-      } else if (!mouserRefreshLastError_.empty()) {
-        model.status = {{"The last Mouser refresh reported: ", VoiceTone::Danger}, {mouserRefreshLastError_}};
+      } else if (!run.lastError.empty()) {
+        model.status = {{"The last Mouser refresh reported: ", VoiceTone::Danger}, {run.lastError}};
       } else if (!keySet) {
         model.status = {{"Mouser needs an API key."}};
       } else {
@@ -647,24 +645,9 @@ App::SettingsPageModel App::settingsPageModel() const {
                             !refreshRunning)};
       rows.push_back(move(row));
 
-      string refresh = "Not run yet";
-      auto refreshTone = VoiceTone::Muted;
-      if (refreshRunning) {
-        refresh = to_string(mouserRefreshCompleted_) + " of " + to_string(mouserRefreshTotal_) + " done";
-        refreshTone = VoiceTone::Plain;
-      } else if (mouserRefreshTotal_ > 0) {
-        refresh = to_string(mouserRefreshSucceeded_) + " updated, " + to_string(mouserRefreshNotFound_) +
-                  " not found, " + to_string(mouserRefreshAmbiguous_) + " ambiguous, " +
-                  to_string(mouserRefreshErrors_) + " errors";
-        refreshTone = mouserRefreshAmbiguous_ + mouserRefreshErrors_ > 0 ? VoiceTone::Warning : VoiceTone::Plain;
-      }
-      auto refreshRow = infoRow("Inventory", "Last refresh", refresh, refreshTone);
-      const bool refreshEnabled = keySet && !refreshRunning && !settingsDirty_;
-      refreshRow.targetId = "settings.mouser.refresh.row";
-      if (refreshEnabled) refreshRow.activate = [self] { self->beginMouserRefresh(); };
-      refreshRow.buttons = {button("Refresh", "r", "settings.mouser.refresh", [self] { self->beginMouserRefresh(); },
-                                   false, false, refreshEnabled)};
-      rows.push_back(move(refreshRow));
+      rows.push_back(refreshRow(run, "mouser", keySet && !refreshRunning && !settingsDirty_,
+                                [self] { self->beginMouserRefresh(); }, catalogueRefreshCounts(run),
+                                run.ambiguous + run.errors > 0));
       break;
     }
   }

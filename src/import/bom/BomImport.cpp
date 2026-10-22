@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Picks the BOM dialect for a file's text and parses it into the shared BOM shape.
 
 #include "import/bom/BomImport.h"

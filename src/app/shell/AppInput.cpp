@@ -201,6 +201,9 @@ void App::handleKey(const KeyEvent& key) {
     case Page::Update:
       handleUpdateKey(key);
       break;
+    case Page::Onboarding:
+      // Onboarding keys are routed above, before this switch, so there is nothing to do here.
+      break;
   }
 }
 

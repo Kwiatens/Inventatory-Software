@@ -224,21 +224,6 @@ bool LabelPrinterService::printRackLabel(const InventatoryRack& rack, string* er
   return backend_->sendRawJob(configuredPrinter_, makeRackJobName(rack), zpl, error);
 }
 
-string LabelPrinterService::summaryText() const {
-  if (!hasConfiguredPrinter()) {
-    return "Printer: not configured";
-  }
-
-  const auto info = configuredPrinterInfo();
-  if (!info) {
-    return "Printer: " + configuredPrinter_ + " [missing]";
-  }
-
-  ostringstream out;
-  out << "Printer: " << info->name << " [" << info->statusText << "]";
-  return out.str();
-}
-
 string sanitizeLabelText(const string& value) {
   return sanitiseZplFragment(value);
 }

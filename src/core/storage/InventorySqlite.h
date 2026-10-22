@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Internal SQLite helpers shared by inventory persistence files.
 
 #pragma once
@@ -14,6 +13,7 @@ namespace inventatory {
 struct SqliteApi {
   decltype(&::sqlite3_initialize) initialize = &::sqlite3_initialize;
   decltype(&::sqlite3_open_v2) open_v2 = &::sqlite3_open_v2;
+  decltype(&::sqlite3_db_config) db_config = &::sqlite3_db_config;
   decltype(&::sqlite3_close) close = &::sqlite3_close;
   decltype(&::sqlite3_exec) exec = &::sqlite3_exec;
   decltype(&::sqlite3_errmsg) errmsg = &::sqlite3_errmsg;

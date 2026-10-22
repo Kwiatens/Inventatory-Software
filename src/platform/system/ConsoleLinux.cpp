@@ -278,15 +278,7 @@ bool ensureTerminalAttached(int argc, char* argv[]) {
 }
 
 bool openUrl(const string& url) {
-  constexpr size_t kMaximumUrlLength = 2048;
-  if (url.size() > kMaximumUrlLength || url.rfind("https://", 0) != 0) return false;
-  for (const unsigned char character : url) {
-    if (character < 0x20U || character == 0x7fU) return false;
-  }
-  const auto hostBegin = sizeof("https://") - 1U;
-  const auto hostEnd = url.find_first_of("/?#", hostBegin);
-  if (hostEnd == hostBegin || url.find_first_of("\\\"<>|", hostBegin) != string::npos) return false;
-  return spawnDetached("xdg-open", url);
+  return openableUrl(url) && spawnDetached("xdg-open", url);
 }
 
 bool copyToClipboard(const string& text) {

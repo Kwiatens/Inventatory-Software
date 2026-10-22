@@ -1065,7 +1065,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/yageo/RC0603FR-0710KL/729604",
       "synced",
       "RC0603FR-0710KL",
-      1710000000, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
+      1710000000, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {},
   });
 
   items.push_back({
@@ -1084,7 +1084,7 @@ vector<InventoryItem> makeSampleInventory() {
       "https://www.digikey.com/en/products/detail/espressif-systems/ESP32-S3/15240400",
       "synced",
       "ESP32-S3-WROOM-1",
-      1710000100, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {},
+      1710000100, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {},
   });
 
   ensureInventoryIdentifiers(items);
@@ -2430,6 +2430,25 @@ void testInventoryHistoryValidation() {
   // Counts that claim a commit changed nothing although its snapshot differs from its parent.
   tampered("UPDATE inventatory_inventory_commits SET changed_item_count = 0 WHERE commit_id=" + commitIdAt(1), false);
 
+  // A planted trigger or view would run hidden SQL on later changes, so the file is refused.
+  for (const string planted : {"CREATE TRIGGER planted AFTER UPDATE ON inventatory_items BEGIN "
+                               "DELETE FROM inventatory_racks; END",
+                               "CREATE VIEW planted AS SELECT id FROM inventatory_items"}) {
+    filesystem::copy_file(pristine, path, filesystem::copy_options::overwrite_existing);
+    {
+      SqliteConnection connection;
+      assert(openDatabase(path, connection));
+      assert(execSql(connection, planted));
+    }
+    InventoryStore workspace;
+    assert(!workspace.load(path));
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(path, connection));
+    string error;
+    assert(!validateInventoryDatabase(connection, &error));
+    assert(error.find("triggers or views") != string::npos);
+  }
+
   // Skipping the full pass trusts older commits but still reads the commit list.
   {
     filesystem::copy_file(pristine, path, filesystem::copy_options::overwrite_existing);
@@ -3167,8 +3186,8 @@ void testSqliteSchemaValidation() {
   filesystem::remove(duplicatePath, cleanupError);
   {
     InventoryStore duplicate;
-    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
-    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+    duplicate.items().push_back({"same-id", "First", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
+    duplicate.items().push_back({"same-id", "Second", "Acme", "Resistors", 1, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
     assert(!duplicate.save(duplicatePath));
   }
   filesystem::remove(duplicatePath, cleanupError);
@@ -5681,7 +5700,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   filesystem::remove(databasePath, removeError);
 
   InventoryStore persisted;
-  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+  persisted.items().push_back({"persisted-item", "Persisted item", "Acme", "Resistors", 7, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
   assert(persisted.save(databasePath));
 
   {
@@ -5691,7 +5710,7 @@ void testIncompleteRackLoadIsNotWrittenBack() {
   }
 
   InventoryStore retained;
-  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}});
+  retained.items().push_back({"live-item", "Live item", "Acme", "Capacitors", 3, 0, "", {}, {}, "", "", "", "", "synced", "", 0, "", 0, "", "", "", RackAssignmentMode::Automatic, "", {}, {}});
   assert(!retained.load(databasePath));
   assert(retained.items().size() == 1);
   assert(retained.items().front().id == "live-item");
@@ -9777,6 +9796,12 @@ void testDeviceSyncRequestParsing() {
   quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
   quickLabelResponse.hasLookupResult = true;
   assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
+  // The scanner refuses malformed UTF-8, so each bad byte goes out as U+FFFD and valid text stays.
+  quickLabelResponse.lookupResult = {"lookup-utf8", "found",
+                                     string("10\xC2\xB5" "F ") + "\xC3" "A \xC0\xAF \xED\xA0\x80 \xF4\x90\x80\x80 \xE2\x82"};
+  assert(deviceSyncResponseJson(quickLabelResponse)
+             .find("10\xC2\xB5" "F \xEF\xBF\xBD" "A \xEF\xBF\xBD\xEF\xBF\xBD \xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD "
+                   "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD \xEF\xBF\xBD\xEF\xBF\xBD\"") != string::npos);
 
   DeviceSyncResponse realisticResponse;
   realisticResponse.requestId = "Inventatory-SCAN-R1-sync-42";
@@ -10297,10 +10322,10 @@ void testBackgroundStartupLauncherPath() {
   assert(launcherPath == L"C:\\Program Files\\Inventatory\\inventatory-background.exe");
   assert(buildBackgroundStartupCommand(launcherPath) ==
          L"\"C:\\Program Files\\Inventatory\\inventatory-background.exe\" --background");
-  assert(buildDesktopShortcutPath(L"C:\\Users\\pawci\\Desktop") ==
-         L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
-  assert(buildDesktopShortcutPath(L"C:\\Users\\pawci\\Desktop\\") ==
-         L"C:\\Users\\pawci\\Desktop\\Inventatory.lnk");
+  assert(buildDesktopShortcutPath(L"C:\\Users\\user\\Desktop") ==
+         L"C:\\Users\\user\\Desktop\\Inventatory.lnk");
+  assert(buildDesktopShortcutPath(L"C:\\Users\\user\\Desktop\\") ==
+         L"C:\\Users\\user\\Desktop\\Inventatory.lnk");
 }
 
 #ifndef _WIN32
@@ -15307,6 +15332,55 @@ void testBomMouserSuggestionChoice() {
   assert(chosen.outcome == BomLookupOutcome::NoMatch && chosen.suggestion.empty());
 }
 
+void testSupplierRefreshRun() {
+  struct FakeClient {
+    int calls = 0;
+  };
+  struct FakeResult {
+    string itemId;
+    WorkspaceGeneration workspaceGeneration = 0;
+    string value;
+  };
+  SupplierRefresh<FakeClient, string, FakeResult> run;
+  assert(!run.running() && !run.takeResult());
+
+  // Without a client nothing starts and the queue is kept.
+  run.queue.emplace_back("item-1", "a");
+  assert(!run.startNext([](FakeClient&, const string&, FakeResult&) {}));
+  assert(run.running() && run.queue.size() == 1);
+
+  // A lookup runs on the worker with the run's workspace and returns its item id.
+  run.client = make_unique<FakeClient>();
+  run.generation = 7;
+  run.queue.emplace_back("item-2", "b");
+  assert(run.startNext([](FakeClient& client, const string& request, FakeResult& result) {
+    ++client.calls;
+    result.value = request + "!";
+  }));
+  assert(run.running() && run.queue.size() == 1);
+  run.future.wait();
+  const auto result = run.takeResult();
+  assert(result && result->itemId == "item-1" && result->workspaceGeneration == 7 && result->value == "a!");
+  assert(run.client->calls == 1 && !run.takeResult());
+
+  // stop() waits for a running lookup, then clears the whole run.
+  assert(run.startNext(
+      [](FakeClient&, const string&, FakeResult&) { this_thread::sleep_for(chrono::milliseconds(20)); }));
+  run.total = 4;
+  run.completed = 1;
+  run.succeeded = 1;
+  run.notFound = 1;
+  run.ambiguous = 2;
+  run.errors = 3;
+  run.changed = true;
+  run.lastError = "lookup failed";
+  assert(catalogueRefreshCounts(run) == "1 updated, 1 not found, 2 ambiguous, 3 errors");
+  run.stop();
+  assert(!run.running() && !run.future.valid() && run.client == nullptr && run.queue.empty());
+  assert(run.total == 0 && run.completed == 0 && run.succeeded == 0 && run.notFound == 0 && run.ambiguous == 0 &&
+         run.errors == 0 && !run.changed && run.generation == 0 && run.lastError.empty());
+}
+
 
 struct TestCase {
   const char* area;
@@ -15488,6 +15562,7 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeLabelScan", testTmeLabelScan},
     {"scan", "VendorBagCodeRecognition", testVendorBagCodeRecognition},
     {"inventory", "VendorDisplayNames", testVendorDisplayNames},
+    {"inventory", "SupplierRefreshRun", testSupplierRefreshRun},
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
     {"scan", "DeviceEventIdConflictIsRefused", testDeviceEventIdConflictIsRefused},
