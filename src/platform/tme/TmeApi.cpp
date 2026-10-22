@@ -511,7 +511,7 @@ bool TmeApiClient::fetchAccessToken(string* error) {
   if (!requestHttp(L"POST", widen(string(kTmeApiBase) + kTmeTokenPath),
                    widen("Authorization: Basic " + credentials +
                          "\r\nContent-Type: application/x-www-form-urlencoded\r\nAccept: application/json\r\n"),
-                   "grant_type=client_credentials", response, error)) {
+                   "grant_type=client_credentials", response, error, "TME")) {
     return false;
   }
   if (response.statusCode == 401 || response.statusCode == 403) {
@@ -567,7 +567,7 @@ bool TmeApiClient::getEndpoint(const string& path, const vector<pair<string, str
     const auto headers = "Authorization: Bearer " + accessToken_ + "\r\nAccept: application/json\r\nAccept-Language: " +
                          config_.language + "\r\n";
     HttpResponse response;
-    if (!requestHttp(L"GET", widen(url), widen(headers), "", response, error)) return false;
+    if (!requestHttp(L"GET", widen(url), widen(headers), "", response, error, "TME")) return false;
     if (response.statusCode == 401) {
       // Cached token rejected; fetch a new one and retry once.
       accessToken_.clear();

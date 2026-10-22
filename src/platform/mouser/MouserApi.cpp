@@ -362,7 +362,8 @@ bool postKeywordSearch(const string& apiKey, const string& keyword, HttpResponse
   const auto body = string(R"({"SearchByKeywordRequest":{"keyword":")") + escapeJsonString(keyword) +
                     R"(","records":)" + to_string(kSearchRecords) + R"(,"startingRecord":0}})";
   string transportError;
-  if (!requestHttp(L"POST", widen(url), widen(kMouserRequestHeaders), body, response, &transportError)) {
+  if (!requestHttp(L"POST", widen(url), widen(kMouserRequestHeaders), body, response, &transportError,
+                   "Mouser")) {
     return setError(error, unreachableMessage());
   }
   return true;
