@@ -9796,6 +9796,12 @@ void testDeviceSyncRequestParsing() {
   quickLabelResponse.lookupResult = {"lookup-control", "found", string("part") + '\x01'};
   quickLabelResponse.hasLookupResult = true;
   assert(deviceSyncResponseJson(quickLabelResponse).find("part\\u0001") != string::npos);
+  // The scanner refuses malformed UTF-8, so each bad byte goes out as U+FFFD and valid text stays.
+  quickLabelResponse.lookupResult = {"lookup-utf8", "found",
+                                     string("10\xC2\xB5" "F ") + "\xC3" "A \xC0\xAF \xED\xA0\x80 \xF4\x90\x80\x80 \xE2\x82"};
+  assert(deviceSyncResponseJson(quickLabelResponse)
+             .find("10\xC2\xB5" "F \xEF\xBF\xBD" "A \xEF\xBF\xBD\xEF\xBF\xBD \xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD "
+                   "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD \xEF\xBF\xBD\xEF\xBF\xBD\"") != string::npos);
 
   DeviceSyncResponse realisticResponse;
   realisticResponse.requestId = "Inventatory-SCAN-R1-sync-42";
