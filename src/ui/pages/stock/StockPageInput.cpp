@@ -148,7 +148,8 @@ void App::handleStockKey(const KeyEvent& key) {
     return;
   }
 
-  if (key.type == KeyType::CtrlBackspace) {
+  // Linux terminals deliver Ctrl+Backspace as plain Backspace, so Del is the key that works everywhere.
+  if (key.type == KeyType::Delete || key.type == KeyType::CtrlBackspace) {
     armDeleteConfirmation();
     return;
   }
