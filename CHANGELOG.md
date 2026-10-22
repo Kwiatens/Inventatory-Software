@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Racks: Escape cancels a move that is in progress and stays on the Racks page, instead of leaving it.
 - A part whose name is too long for the Scan R1 screen shows its short label, such as `Connector`, instead of a name cut off on the screen.
 - Linux: the background service restarts after a stop it did not ask for, such as `pkill -x inventatory`, and takes over when the terminal app closes unexpectedly. The Scan R1 keeps connecting without opening Inventatory.
+- Stock: Del starts deleting the selected part on every system. On Linux the advertised Ctrl+Backspace never reached
+  the app. Ctrl+Backspace still works where the terminal sends it.
+- The delete confirmation covers the page behind it, instead of letting the page text show through.
+- Settings: the TME key Test cannot be started while a Refresh is running, as on the Mouser page.
+- A failed TME or Mouser connection is reported as a TME or Mouser error, instead of a DigiKey error.
+- A part name or error text with a broken character no longer makes the Scan R1 refuse the whole sync. The broken
+  character shows as a replacement mark and the rest of the text stays readable.
+
+### Security
+- An inventory database that contains hidden database code, such as a backup crafted on another computer, is refused
+  instead of opened. Inventatory never creates such code, so your own workspaces and backups are not affected.
 
 ## [v0.1.6] - 2026-10-16
 
