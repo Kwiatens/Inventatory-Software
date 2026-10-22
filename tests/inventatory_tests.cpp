@@ -2430,6 +2430,25 @@ void testInventoryHistoryValidation() {
   // Counts that claim a commit changed nothing although its snapshot differs from its parent.
   tampered("UPDATE inventatory_inventory_commits SET changed_item_count = 0 WHERE commit_id=" + commitIdAt(1), false);
 
+  // A planted trigger or view would run hidden SQL on later changes, so the file is refused.
+  for (const string planted : {"CREATE TRIGGER planted AFTER UPDATE ON inventatory_items BEGIN "
+                               "DELETE FROM inventatory_racks; END",
+                               "CREATE VIEW planted AS SELECT id FROM inventatory_items"}) {
+    filesystem::copy_file(pristine, path, filesystem::copy_options::overwrite_existing);
+    {
+      SqliteConnection connection;
+      assert(openDatabase(path, connection));
+      assert(execSql(connection, planted));
+    }
+    InventoryStore workspace;
+    assert(!workspace.load(path));
+    SqliteConnection connection;
+    assert(openDatabaseReadOnly(path, connection));
+    string error;
+    assert(!validateInventoryDatabase(connection, &error));
+    assert(error.find("triggers or views") != string::npos);
+  }
+
   // Skipping the full pass trusts older commits but still reads the commit list.
   {
     filesystem::copy_file(pristine, path, filesystem::copy_options::overwrite_existing);
