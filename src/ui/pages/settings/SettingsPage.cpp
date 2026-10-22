@@ -602,7 +602,11 @@ App::SettingsPageModel App::settingsPageModel() const {
         } else if (!row.editing && !secretField) {
           markChange(row, field.value != field.savedValue, field.savedValue.empty() ? "Not set" : field.savedValue);
         }
-        if (index == 0) row.buttons = {button("Test", "t", "settings.tme.test", [self] { self->testStagedTme(); })};
+        // Disabled during a refresh, as on the Mouser page.
+        if (index == 0) {
+          row.buttons = {button("Test", "t", "settings.tme.test", [self] { self->testStagedTme(); }, false, false,
+                                !refreshRunning)};
+        }
         rows.push_back(move(row));
       }
 
