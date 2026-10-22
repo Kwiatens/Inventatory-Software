@@ -50,3 +50,30 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 The geometry of the IEC fuse symbol follows the fuse in [Electrical Symbols IEC.svg](https://commons.wikimedia.org/wiki/File:Electrical_Symbols_IEC.svg) on Wikimedia Commons, which is dedicated to the public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). The IC package, pin header and rack grid icons are original to Inventatory. Sources and the generator are in `tools/rack_symbols/`. The electronic-symbols license text is in `tools/rack_symbols/LICENSE.electronic-symbols.txt`.
+
+The pixel lettering in the README artwork (`branding/readme/*.svg`, drawn by `tools/readme_art.py` from
+`tools/readme_art_data/fonts.json`) uses glyph bitmaps from fonts bundled with
+[U8g2](https://github.com/olikraus/u8g2), the same fonts the Scan R1 screen uses. The Helvetica glyphs come from the
+Adobe BDF fonts HELVR08, HELVB08 and HELVB10, under this notice:
+
+Copyright 1984-1989, 1994 Adobe Systems Incorporated.
+Copyright 1988, 1994 Digital Equipment Corporation.
+
+Adobe is a trademark of Adobe Systems Incorporated which may be
+registered in certain jurisdictions.
+Permission to use these trademarks is hereby granted only in
+association with the images described in this file.
+
+Permission to use, copy, modify, distribute and sell this software
+and its documentation for any purpose and without fee is hereby
+granted, provided that the above copyright notices appear in all
+copies and that both those copyright notices and this permission
+notice appear in supporting documentation, and that the names of
+Adobe Systems and Digital Equipment Corporation not be used in
+advertising or publicity pertaining to distribution of the software
+without specific, written prior permission.  Adobe Systems and
+Digital Equipment Corporation make no representations about the
+suitability of this software for any purpose.  It is provided "as
+is" without express or implied warranty.
+
+The monospaced glyphs come from ProFont (ProFont Distribution 2.2, as converted by U8g2).

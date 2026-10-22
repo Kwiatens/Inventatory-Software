@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Inventatory Scan R1 protocol types, validation, persistence, and stock mutation rules.
 
 #include "core/scanner/InventatoryScanProtocol.h"
@@ -142,7 +141,7 @@ bool parseDeviceSyncRequestJson(const string& body, DeviceSyncRequest& request, 
       error = "Duplicate sync event id";
       return false;
     }
-    parsed.events.push_back({*eventId, *type, *code, *value});
+    parsed.events.push_back({*eventId, *type, *code, *value, {}});
   }
   if (parsed.events.size() > 4) {
     error = "Too many sync events";

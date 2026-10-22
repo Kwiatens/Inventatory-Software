@@ -49,12 +49,9 @@ Change a rule here only when the change applies to both repositories.
 - One logical change per commit. Keep formatting-only or unrelated cleanup in a
   separate commit.
 - Breaking changes: put `!` after the scope and add a `BREAKING CHANGE:` footer.
-- AI co-author trailers (`Co-Authored-By:`) are allowed and are kept where they
-  already exist.
 - Commit messages, branch names and pull requests never contain prompts,
   conversation identifiers, local paths, credentials, device identifiers or real
   inventory data.
-- Do not rewrite published history to correct wording or trailers.
 
 ## Changelog
 
@@ -64,16 +61,8 @@ Change a rule here only when the change applies to both repositories.
 - Entries describe what someone running the product sees or can do. Leave out
   refactors, tests, build and CI changes, documentation edits, and the names of
   internal functions and files.
-- A released version is headed `## [x.y.z] - YYYY-MM-DD`.
-
-## Agent autonomy
-
-- Commit, push, tag, open pull requests or publish releases only when the user
-  asks for that step.
-- Do not discard, overwrite or revert changes you did not make, or that the user
-  has not asked you to change.
-- Do not reset a device, flash hardware or change stored credentials unless the
-  user asks for it.
+- A released version is headed `## [vX.Y.Z] - YYYY-MM-DD`, matching its release
+  tag.
 
 ## Secrets and logging
 

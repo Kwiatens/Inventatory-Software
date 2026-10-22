@@ -32,7 +32,7 @@ bool validScanConfigText(const string& value, size_t maximum) {
 
 bool validScanConfig(const InventatoryScanConfig& config) {
   return validScanConfigText(config.deviceId, kMaxScanConfigDeviceIdBytes) &&
-         validScanConfigText(config.fallbackHost, kMaxScanConfigHostBytes) && config.fallbackPort <= 65535;
+         validScanConfigText(config.fallbackHost, kMaxScanConfigHostBytes);
 }
 
 }  // namespace

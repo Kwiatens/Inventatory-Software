@@ -197,20 +197,6 @@ string shortParameterLabel(const string& label) {
   return trim(label);
 }
 
-string compactDescriptor(const string& value, size_t maxLength) {
-  auto cleaned = trim(value);
-  if (cleaned.empty()) {
-    return {};
-  }
-
-  const auto cut = cleaned.find_first_of(",;(/");
-  if (cut != string::npos) {
-    cleaned = trim(cleaned.substr(0, cut));
-  }
-
-  return ellipsize(cleaned, maxLength);
-}
-
 string normalizeResistanceValue(string value) {
   value = trim(value);
   if (value.empty()) {

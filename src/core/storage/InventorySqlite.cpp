@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Internal SQLite helpers shared by inventory persistence files.
 
 #include "core/storage/InventorySqlite.h"
@@ -32,6 +31,14 @@ string quoteIdentifier(const string& identifier) {
   return quoted;
 }
 
+// A restored backup may come from another computer, so every file is treated as untrusted.
+// Defensive mode blocks writes that corrupt the schema, and schema code may not call functions
+// with side effects. Validation also rejects triggers and views.
+bool hardenConnection(sqlite3* db) {
+  const auto& api = sqliteApi();
+  return api.db_config(db, SQLITE_DBCONFIG_DEFENSIVE, 1, nullptr) == SQLITE_OK &&
+         api.db_config(db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, nullptr) == SQLITE_OK;
+}
 
 }  // namespace
 
@@ -83,7 +90,8 @@ bool openDatabase(const filesystem::path& path, SqliteConnection& connection) {
 
   const auto utf8Path = sqlitePath(path);
   if (api.open_v2(utf8Path.c_str(), &connection.db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) !=
-      SQLITE_OK) {
+          SQLITE_OK ||
+      !hardenConnection(connection.db)) {
     // SQLite hands back a handle even when opening fails; it must still be closed.
     if (connection.db != nullptr) api.close(connection.db);
     connection.db = nullptr;
@@ -98,7 +106,8 @@ bool openDatabaseReadOnly(const filesystem::path& path, SqliteConnection& connec
   const auto& api = sqliteApi();
   if (api.open_v2 == nullptr) return false;
   const auto utf8Path = sqlitePath(path);
-  if (api.open_v2(utf8Path.c_str(), &connection.db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+  if (api.open_v2(utf8Path.c_str(), &connection.db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK ||
+      !hardenConnection(connection.db)) {
     if (connection.db != nullptr) api.close(connection.db);
     connection.db = nullptr;
     return false;

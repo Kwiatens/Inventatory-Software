@@ -10,6 +10,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace inventatory::scan_protocol_detail {
@@ -109,9 +110,13 @@ optional<int> jsonInt(const string& body, const string& key) {
   }
 }
 
-optional<string> jsonArrayBody(const string& body, const string& key) {
+namespace {
+
+// The positions of the brackets around the container value of `key`, which opens with `open`.
+// Brackets inside strings do not count.
+optional<pair<size_t, size_t>> jsonContainerSpan(const string& body, const string& key, char open, char close) {
   const auto valuePosition = jsonMemberValuePosition(body, key);
-  if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != '[') return nullopt;
+  if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != open) return nullopt;
   const auto begin = *valuePosition;
   bool inString = false;
   bool escaped = false;
@@ -125,32 +130,26 @@ optional<string> jsonArrayBody(const string& body, const string& key) {
       continue;
     }
     if (ch == '"') inString = true;
-    else if (ch == '[') ++depth;
-    else if (ch == ']' && --depth == 0) return body.substr(begin + 1, index - begin - 1);
+    else if (ch == open) ++depth;
+    else if (ch == close && --depth == 0) return pair<size_t, size_t>{begin, index};
   }
   return nullopt;
 }
 
+}  // namespace
+
+// The array's contents, without its brackets.
+optional<string> jsonArrayBody(const string& body, const string& key) {
+  const auto span = jsonContainerSpan(body, key, '[', ']');
+  if (!span) return nullopt;
+  return body.substr(span->first + 1, span->second - span->first - 1);
+}
+
+// The whole object, braces included.
 optional<string> jsonObjectBody(const string& body, const string& key) {
-  const auto valuePosition = jsonMemberValuePosition(body, key);
-  if (!valuePosition || *valuePosition >= body.size() || body[*valuePosition] != '{') return nullopt;
-  const auto begin = *valuePosition;
-  bool inString = false;
-  bool escaped = false;
-  int depth = 0;
-  for (auto index = begin; index < body.size(); ++index) {
-    const char ch = body[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch == '\\') escaped = true;
-      else if (ch == '"') inString = false;
-      continue;
-    }
-    if (ch == '"') inString = true;
-    else if (ch == '{') ++depth;
-    else if (ch == '}' && --depth == 0) return body.substr(begin, index - begin + 1);
-  }
-  return nullopt;
+  const auto span = jsonContainerSpan(body, key, '{', '}');
+  if (!span) return nullopt;
+  return body.substr(span->first, span->second - span->first + 1);
 }
 
 optional<vector<string>> jsonObjectArray(const string& body, const string& key) {

@@ -85,7 +85,7 @@ string escapeJsonString(const string& value);
 wstring widen(const string& value);
 string narrow(const wstring& value);
 bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
-                 HttpResponse& response, string* error);
+                 HttpResponse& response, string* error, const string& service = "DigiKey");
 
 optional<JsonPtr> parseJson(const string& body, string* error);
 const JsonValue* asValue(const JsonPtr& value);

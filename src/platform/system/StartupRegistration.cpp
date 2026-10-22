@@ -5,6 +5,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include "platform/system/StartupRegistration.h"
+#include "platform/system/WindowsText.h"
 
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -42,15 +43,8 @@ std::string systemError(DWORD code) {
   }
   while (!wide.empty() && wide.back() == L' ') wide.pop_back();
   if (wide.empty()) return fallback;
-  const int length = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0,
-                                         nullptr, nullptr);
-  if (length <= 0) return fallback;
-  std::string text(static_cast<std::size_t>(length), '\0');
-  if (WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(), length, nullptr,
-                          nullptr) <= 0) {
-    return fallback;
-  }
-  return text;
+  const auto text = wideToUtf8(wide);
+  return text.empty() ? fallback : text;
 }
 
 std::wstring currentExecutablePath() {

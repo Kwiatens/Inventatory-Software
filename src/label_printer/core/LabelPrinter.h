@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Zebra label generation and printer queue integration.
 
 #pragma once
@@ -105,7 +104,6 @@ class LabelPrinterService {
   string buildRackLabelZpl(const InventatoryRack& rack, SymbolStandard standard = SymbolStandard::Eu) const;
   bool printRackLabel(const InventatoryRack& rack, string* error, SymbolStandard standard = SymbolStandard::Eu) const;
 
-  string summaryText() const;
 
  private:
   // printer.conf as last loaded or written. saveConfig skips unchanged files and never replaces one

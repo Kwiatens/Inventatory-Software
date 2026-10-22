@@ -78,19 +78,19 @@ bool retryableStatus(std::uint32_t status) {
 }
 
 bool requestHttpOnce(const std::string& method, const std::string& url, const std::string& headers,
-                     const std::string& body, HttpResponse& response, std::string* error) {
+                     const std::string& body, HttpResponse& response, std::string* error, const std::string& service) {
   response = {};
   if (url.empty() || url.size() > kMaximumDigiKeyUrlBytes || body.size() > kMaximumDigiKeyRequestBodyBytes) {
-    if (error != nullptr) *error = "DigiKey request exceeds the configured size limit";
+    if (error != nullptr) *error = service + " request exceeds the configured size limit";
     return false;
   }
   if (url.rfind("https://", 0) != 0) {
-    if (error != nullptr) *error = "DigiKey requests require HTTPS";
+    if (error != nullptr) *error = service + " requests require HTTPS";
     return false;
   }
   CURL* handle = curl_easy_init();
   if (handle == nullptr) {
-    if (error != nullptr) *error = "Unable to initialize the DigiKey HTTPS request";
+    if (error != nullptr) *error = "Unable to initialize the " + service + " HTTPS request";
     return false;
   }
   CurlResponse received;
@@ -104,7 +104,7 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
       if (appendedHeaders == nullptr) {
         curl_slist_free_all(headerList);
         curl_easy_cleanup(handle);
-        if (error != nullptr) *error = "Unable to prepare DigiKey request headers";
+        if (error != nullptr) *error = "Unable to prepare " + service + " request headers";
         return false;
       }
       headerList = appendedHeaders;
@@ -115,7 +115,8 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
   curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, method.c_str());
   curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headerList);
-  curl_easy_setopt(handle, CURLOPT_USERAGENT, "Inventatory DigiKey client/1.0");
+  const auto userAgent = "Inventatory " + service + " client/1.0";
+  curl_easy_setopt(handle, CURLOPT_USERAGENT, userAgent.c_str());
   curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
   curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 8000L);
   // Worker threads share libcurl; NOSIGNAL stops it installing signal handlers.
@@ -137,8 +138,8 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_cleanup(handle);
   if (result != CURLE_OK) {
     if (error != nullptr) {
-      *error = received.oversized ? "DigiKey response exceeds the 4 MiB safety limit"
-                                  : "Unable to complete the DigiKey HTTPS request";
+      *error = received.oversized ? service + " response exceeds the 4 MiB safety limit"
+                                  : "Unable to complete the " + service + " HTTPS request";
     }
     return false;
   }
@@ -149,43 +150,6 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
 }
 
 }  // namespace
-
-string encodeComponent(const string& value, bool formEncoding) {
-  std::ostringstream out;
-  for (const unsigned char ch : value) {
-    const bool asciiAlphaNumeric = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-                                   (ch >= '0' && ch <= '9');
-    if (asciiAlphaNumeric || ch == '-' || ch == '_' || ch == '.' || ch == '~') out << static_cast<char>(ch);
-    else if (ch == ' ' && formEncoding) out << '+';
-    else if (ch == ' ' && !formEncoding) out << "%20";
-    else out << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(ch)
-             << std::nouppercase << std::dec;
-  }
-  return out.str();
-}
-
-string encodeFormValue(const string& value) { return encodeComponent(value, true); }
-string encodePathSegment(const string& value) { return encodeComponent(value, false); }
-
-string escapeJsonString(const string& value) {
-  std::ostringstream out;
-  for (const unsigned char ch : value) {
-    switch (ch) {
-      case '\\': out << "\\\\"; break;
-      case '"': out << "\\\""; break;
-      case '\b': out << "\\b"; break;
-      case '\f': out << "\\f"; break;
-      case '\n': out << "\\n"; break;
-      case '\r': out << "\\r"; break;
-      case '\t': out << "\\t"; break;
-      default:
-        if (ch < 0x20U) out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(ch) << std::dec;
-        else out << static_cast<char>(ch);
-        break;
-    }
-  }
-  return out.str();
-}
 
 wstring widen(const string& value) {
   std::wstring output;
@@ -209,7 +173,7 @@ string narrow(const wstring& value) {
 }
 
 bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
-                 HttpResponse& response, string* error) {
+                 HttpResponse& response, string* error, const string& service) {
   std::call_once(gCurlInitialized, initializeCurl);
   if (!gCurlAvailable) {
     if (error != nullptr) *error = "Unable to initialize the Linux HTTPS transport";
@@ -219,12 +183,12 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
   const auto encodedUrl = narrow(url);
   const auto encodedHeaders = narrow(headers);
   if (encodedMethod.empty() || encodedUrl.empty() || (headers.size() != 0 && encodedHeaders.empty())) {
-    if (error != nullptr) *error = "DigiKey request contains invalid UTF-8";
+    if (error != nullptr) *error = service + " request contains invalid UTF-8";
     return false;
   }
   const bool retryableMethod = encodedMethod == "GET";
   for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
-    if (!requestHttpOnce(encodedMethod, encodedUrl, encodedHeaders, body, response, error)) return false;
+    if (!requestHttpOnce(encodedMethod, encodedUrl, encodedHeaders, body, response, error, service)) return false;
     if (!retryableMethod || !retryableStatus(response.statusCode) || attempt + 1U >= kMaximumDigiKeyHttpAttempts) {
       return true;
     }
@@ -232,51 +196,6 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
     std::this_thread::sleep_for(std::chrono::milliseconds(delay));
   }
   return false;
-}
-
-bool isSafeHeaderValue(const string& value) {
-  if (value.size() > kMaximumDigiKeyFieldBytes) return false;
-  for (const unsigned char character : value) if (character < 0x20U || character > 0x7eU) return false;
-  return true;
-}
-
-bool appendHeader(std::ostringstream& headers, const char* name, const string& value, string* error) {
-  if (!isSafeHeaderValue(value)) {
-    if (error != nullptr) *error = "DigiKey configuration contains invalid header characters";
-    return false;
-  }
-  headers << name << ": " << value << "\r\n";
-  return true;
-}
-
-bool appendAuthorizationHeader(std::ostringstream& headers, const string& token, string* error) {
-  if (token.size() > 2048U || !isSafeHeaderValue(token)) {
-    if (error != nullptr) *error = "DigiKey returned an invalid access token";
-    return false;
-  }
-  headers << "Authorization: Bearer " << token << "\r\n";
-  return true;
-}
-
-bool isUnsignedDecimal(const string& value, unsigned long long maximum) {
-  const auto trimmed = trim(value);
-  if (trimmed.empty()) return false;
-  unsigned long long parsed = 0;
-  for (const unsigned char character : trimmed) {
-    if (character < '0' || character > '9') return false;
-    const auto digit = static_cast<unsigned long long>(character - '0');
-    if (parsed > (std::numeric_limits<unsigned long long>::max() - digit) / 10U) return false;
-    parsed = parsed * 10U + digit;
-    if (parsed > maximum) return false;
-  }
-  return true;
-}
-
-bool isFiniteDecimal(const string& value, double maximum) {
-  const auto trimmed = trim(value);
-  if (trimmed.empty()) return false;
-  double parsed = 0.0;
-  return parseClassicDecimal(trimmed, parsed) && std::isfinite(parsed) && parsed >= 0.0 && parsed <= maximum;
 }
 
 }  // namespace digikey_detail

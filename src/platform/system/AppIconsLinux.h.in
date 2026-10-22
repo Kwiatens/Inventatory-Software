@@ -1,0 +1,21 @@
+// SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
+// SPDX-License-Identifier: GPL-3.0-only
+
+// Linux desktop icons. CMake fills this in from branding/icons/inventatory-<size>.png.
+#pragma once
+
+#include <cstddef>
+
+namespace inventatory {
+
+struct EmbeddedIconAsset {
+  int size;
+  const unsigned char* data;
+  size_t length;
+};
+
+@INVENTATORY_ICON_ARRAYS@
+inline constexpr EmbeddedIconAsset kEmbeddedIconAssets[] = {
+@INVENTATORY_ICON_TABLE@};
+
+}  // namespace inventatory

@@ -59,7 +59,6 @@ class LocalHttpServer {
 
   bool running() const;
   uint16_t port() const;
-  string baseUrl() const;
   vector<string> addresses() const;
 
  private:

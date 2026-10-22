@@ -6,7 +6,7 @@
 #include "BomMatchPrivate.h"
 #include "core/parts/DecimalParse.h"
 
-#include "ui/shared/AppUiShared.h"
+#include "core/inventory/ParameterLookup.h"
 
 #include <algorithm>
 #include <cctype>

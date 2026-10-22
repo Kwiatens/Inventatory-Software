@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // KiCad grouped BOM parsing.
 
 #include "import/kicad/KicadBom.h"
@@ -91,22 +90,8 @@ bool isNonOrderableDesignator(const string& designator, const string& footprint)
 KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
   KicadBomFile bom;
   bom.projectName = projectName;
-  if (text.size() > kMaximumCsvInputBytes) {
-    bom.error = "BOM import exceeds the 25 MiB safety limit";
-    return bom;
-  }
-
-  const auto cleaned = stripByteOrderMark(text);
-  string parseError;
-  const auto rows = parseCsv(cleaned, sniffDelimiter(cleaned), parseError);
-  if (!parseError.empty()) {
-    bom.error = parseError;
-    return bom;
-  }
-  if (rows.size() < 2) {
-    bom.error = "BOM does not contain a header and component rows";
-    return bom;
-  }
+  vector<vector<string>> rows;
+  if (!readBomRows(text, false, rows, bom)) return bom;
 
   const auto columns = mapBomColumns(rows.front());
   if (columns.designator < 0 || columns.designation < 0) {
@@ -156,13 +141,7 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
 
     bom.lines.push_back(move(line));
   }
-
-  if (bom.lines.empty()) {
-    bom.error = "BOM headers were recognized, but no orderable component rows were found";
-    return bom;
-  }
-
-  bom.ok = true;
+  finishBom(bom);
   return bom;
 }
 

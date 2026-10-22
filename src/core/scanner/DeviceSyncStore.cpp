@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Hardware Inventory Management System
 // Durable inbox and result delivery for the Inventatory Scan R1 protocol.
 
 #include "core/scanner/InventatoryScanProtocol.h"

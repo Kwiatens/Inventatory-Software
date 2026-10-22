@@ -321,7 +321,7 @@ void App::clearDeleteConfirmationIfExpired() {
 
 void App::confirmDeleteSelectedItem() {
   if (!deleteConfirmationActive()) {
-    setMessage("Press Ctrl+Backspace first to arm delete", 2, UiMessageSeverity::Warning);
+    setMessage("Press Del first to arm delete", 2, UiMessageSeverity::Warning);
     return;
   }
 

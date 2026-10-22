@@ -4,6 +4,7 @@
 // Inventatory - bounded JSON syntax and member-location parsing.
 
 #include "core/scanner/InventatoryScanProtocolPrivate.h"
+#include "core/text/Utf8.h"
 
 #include <cctype>
 #include <cstring>
@@ -22,9 +23,24 @@ int hexDigit(char ch) {
   return -1;
 }
 
+// The scanner refuses a whole response that holds malformed UTF-8, so each malformed byte becomes U+FFFD.
 string jsonEscape(const string& value) {
   ostringstream out;
-  for (const unsigned char ch : value) {
+  size_t offset = 0;
+  while (offset < value.size()) {
+    const auto ch = static_cast<unsigned char>(value[offset]);
+    if (ch >= 0x80U) {
+      const size_t start = offset;
+      uint32_t codePoint = 0;
+      if (nextUtf8CodePoint(value, offset, codePoint)) {
+        out.write(value.data() + start, static_cast<streamsize>(offset - start));
+      } else {
+        out << "\xEF\xBF\xBD";
+        offset = start + 1;
+      }
+      continue;
+    }
+    ++offset;
     switch (ch) {
       case '\\': out << "\\\\"; break;
       case '"': out << "\\\""; break;

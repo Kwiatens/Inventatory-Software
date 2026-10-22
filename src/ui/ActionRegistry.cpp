@@ -24,9 +24,8 @@ namespace inventatory {
 using namespace std;
 
 namespace {
-KeyEvent chr(char c) { return {KeyType::Character, c}; }
-KeyEvent special(KeyType type) { return {type, '\0'}; }
-KeyEvent none() { return {KeyType::Unknown, '\0'}; }
+KeyEvent chr(char c) { return {KeyType::Character, c, {}}; }
+KeyEvent special(KeyType type) { return {type, '\0', {}}; }
 }  // namespace
 
 vector<App::Action> App::currentActions() const {
@@ -155,7 +154,7 @@ vector<App::Action> App::currentActions() const {
       });
       add("undo", "System", "Ctrl+Z", special(KeyType::CtrlZ), [self] { self->undoLastInventoryChange(); });
       if (hasItem)
-        add("delete", "System", "Ctrl+Bksp", special(KeyType::CtrlBackspace),
+        add("delete", "System", "Del", special(KeyType::Delete),
             [self] { self->armDeleteConfirmation(); });
       add("start stocktake", "Data", "t", chr('t'), [self] { self->beginStocktake(); });
       add("export inventory", "Data", "x", chr('x'), [self] { self->exportInventory(); });
@@ -286,10 +285,9 @@ vector<App::Action> App::currentActions() const {
         }
       }
       if (settingsCategory_ == SettingsCategory::Tme) {
-        const bool refreshRunning = !self->tmeRefreshQueue_.empty() || self->tmeRefreshFuture_.valid();
-        if (refreshRunning) {
+        if (self->tmeRefresh_.running()) {
           add("cancel TME refresh", "Sync", "c", chr('c'), [self] {
-            self->tmeRefreshQueue_.clear();
+            self->tmeRefresh_.queue.clear();
             self->setMessage("Cancelling after the current TME request", 4);
           });
         } else {
@@ -298,10 +296,9 @@ vector<App::Action> App::currentActions() const {
         }
       }
       if (settingsCategory_ == SettingsCategory::Mouser) {
-        const bool refreshRunning = !self->mouserRefreshQueue_.empty() || self->mouserRefreshFuture_.valid();
-        if (refreshRunning) {
+        if (self->mouserRefresh_.running()) {
           add("cancel Mouser refresh", "Sync", "c", chr('c'), [self] {
-            self->mouserRefreshQueue_.clear();
+            self->mouserRefresh_.queue.clear();
             self->setMessage("Cancelling after the current Mouser request", 4);
           });
         } else {
@@ -395,6 +392,11 @@ vector<App::Action> App::currentActions() const {
       }
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
+    case Page::DigiKeySetup:
+    case Page::Onboarding:
+    case Page::ScanSetup:
+    case Page::Update:
+      break;  // These pages register no contextual actions.
   }
 
   return actions;

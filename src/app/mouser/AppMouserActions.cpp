@@ -39,194 +39,73 @@ bool App::testStagedMouser() {
     setMessage("Mouser API key is required", 4);
     return false;
   }
-  const auto context = currentWorkspaceContext();
-  const auto generation = context != nullptr ? context->generation : 0;
-  try {
-    mouserTestFuture_ = std::async(
-        std::launch::async,
-        [config = std::move(config), generation]() -> MouserTestResult {
-          MouserTestResult result;
-          result.generation = generation;
-          try {
-            MouserApiClient client(config);
-            result.ok = client.testConnection(&result.error);
-          } catch (const std::exception& e) {
-            result.ok = false;
-            // Exception text could include the key from the request URL, so it is redacted.
-            result.error = redactMouserKey(e.what(), config.apiKey);
-          } catch (...) {
-            result.ok = false;
-            result.error = "Connection test failed unexpectedly";
-          }
-          return result;
-        });
-  } catch (...) {
-    setMessage("Unable to start Mouser test", 4, UiMessageSeverity::Error);
-    return false;
-  }
-  setMessage("Testing Mouser credentials...", 10);
-  dirty_ = true;
-  return true;
-}
-
-void App::processMouserTest() {
-  if (!mouserTestFuture_.valid() || mouserTestFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
-    return;
-  }
-  const auto result = mouserTestFuture_.get();
-  if (workspaceIsCurrent(result.generation)) {
-    setMessage(result.ok ? "Mouser credentials are valid" : "Mouser test failed: " + result.error, 5,
-               result.ok ? UiMessageSeverity::Success : UiMessageSeverity::Error);
-    dirty_ = true;
-  }
+  // Exception text could include the key from the request URL, so it is redacted.
+  const auto apiKey = config.apiKey;
+  return startSupplierTest(
+      mouserTestFuture_, "Mouser",
+      [config](string& error) {
+        MouserApiClient client(config);
+        return client.testConnection(&error);
+      },
+      [apiKey](const string& text) { return redactMouserKey(text, apiKey); });
 }
 
 void App::beginMouserRefresh() {
-  if (!mouserRefreshQueue_.empty() || mouserRefreshFuture_.valid()) {
-    setMessage("Mouser inventory refresh is already running", 3);
-    return;
-  }
-  if (settingsDirty_) {
-    setMessage("Save Mouser settings before refreshing inventory data", 4);
-    return;
-  }
-  const auto config = loadMouserConfig();
-  if (!config.valid()) {
-    setMessage("Mouser refresh unavailable: the Mouser API key is not configured", 5);
-    return;
-  }
-
-  stopMouserRefresh();  // Resets the previous run's state.
-  mouserRefreshClient_ = make_unique<MouserApiClient>(config);
-  const auto context = currentWorkspaceContext();
-  if (context == nullptr) {
-    stopMouserRefresh();
-    setMessage("Mouser refresh unavailable while the workspace is changing", 5);
-    return;
-  }
-  mouserRefreshGeneration_ = context->generation;
-  for (const auto& item : store_.items()) {
-    const auto partNumber = app_actions::mouserRefreshLookup(item);
-    if (partNumber.empty()) continue;
-    // An "Unknown" manufacturer does not help tell Mouser's products apart.
-    const auto manufacturer = trim(item.manufacturer) == "Unknown" ? string() : trim(item.manufacturer);
-    mouserRefreshQueue_.push_back({item.id, partNumber, manufacturer});
-  }
-  mouserRefreshTotal_ = mouserRefreshQueue_.size();
-  if (mouserRefreshTotal_ == 0) {
-    mouserRefreshClient_.reset();
-    setMessage("No inventory items with a Mouser part number were found", 5);
-    return;
-  }
-
-  setMessage("Refreshing Mouser data for " + to_string(mouserRefreshTotal_) + " inventory items", 8);
-  dirty_ = true;
+  beginSupplierRefresh(
+      mouserRefresh_, "Mouser",
+      [this]() -> unique_ptr<MouserApiClient> {
+        const auto config = loadMouserConfig();
+        if (config.valid()) return make_unique<MouserApiClient>(config);
+        setMessage("Mouser refresh unavailable: the Mouser API key is not configured", 5);
+        return nullptr;
+      },
+      [](const InventoryItem& item) -> optional<MouserRefreshRequest> {
+        const auto partNumber = app_actions::mouserRefreshLookup(item);
+        if (partNumber.empty()) return nullopt;
+        // An "Unknown" manufacturer does not help tell Mouser's products apart.
+        const auto manufacturer = trim(item.manufacturer) == "Unknown" ? string() : trim(item.manufacturer);
+        return MouserRefreshRequest{partNumber, manufacturer};
+      },
+      "No inventory items with a Mouser part number were found");
 }
 
 void App::processMouserRefresh() {
-  if (mouserRefreshFuture_.valid()) {
-    if (mouserRefreshFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
+  auto& run = mouserRefresh_;
+  if (run.future.valid()) {
+    const auto result = run.takeResult();
+    if (!result) return;
+    if (!workspaceIsCurrent(result->workspaceGeneration)) {
+      run.queue.clear();
+      run.client.reset();
       return;
     }
-
-    auto result = mouserRefreshFuture_.get();
-    if (!workspaceIsCurrent(result.workspaceGeneration)) {
-      mouserRefreshQueue_.clear();
-      mouserRefreshClient_.reset();
-      return;
+    ++run.completed;
+    applyCatalogueResult(run, *result, "Mouser", app_actions::mouserRecordConflict,
+                         app_actions::mergeMouserMetadata);
+    // A reached limit or rejected key would fail the rest the same way; drop the run.
+    if (!result->details && (mouserLimitReached(result->error) || mouserKeyRejected(result->error))) {
+      run.queue.clear();
     }
-    ++mouserRefreshCompleted_;
-
-    if (result.details) {
-      auto* item = store_.findById(result.itemId);
-      if (item == nullptr) {
-        ++mouserRefreshErrors_;
-        mouserRefreshLastError_ = "An inventory item disappeared during refresh";
-      } else if (const auto conflict = app_actions::mouserRecordConflict(*item, *result.details); !conflict.empty()) {
-        // A different part: nothing from this record is merged.
-        ++mouserRefreshErrors_;
-        mouserRefreshLastError_ =
-            "Mouser's " + conflict + " for " + item->partName + " disagrees with the stored part; not merged";
-        logActivity("sync", mouserRefreshLastError_);
-      } else {
-        if (app_actions::mergeMouserMetadata(*item, *result.details)) mouserRefreshChanged_ = true;
-        // Reconcile now, so a label printed next shows the part's merged slot.
-        if (reconcileRackAssignment(store_, *item)) mouserRefreshChanged_ = true;
-        ++mouserRefreshSucceeded_;
-      }
-    } else {
-      switch (result.outcome) {
-        case MouserLookupOutcome::NoMatch:
-          ++mouserRefreshNotFound_;
-          break;
-        case MouserLookupOutcome::Ambiguous:
-          ++mouserRefreshAmbiguous_;
-          break;
-        default:
-          ++mouserRefreshErrors_;
-          break;
-      }
-      mouserRefreshLastError_ = result.error.empty() ? "Mouser returned no product details" : result.error;
-      // A reached limit or rejected key would fail the rest the same way; drop the run.
-      if (mouserLimitReached(result.error) || mouserKeyRejected(result.error)) mouserRefreshQueue_.clear();
-    }
-
-    if (mouserRefreshQueue_.empty()) {
-      mouserRefreshClient_.reset();
-      if (mouserRefreshChanged_ && !saveState("mouser", "inventory refresh", "Mouser refresh batch")) {
-        mouserRefreshLastError_ = persistenceError_;
-      }
-      const auto summary = "Mouser refresh complete: " + to_string(mouserRefreshSucceeded_) + " updated, " +
-                           to_string(mouserRefreshNotFound_) + " not found, " + to_string(mouserRefreshAmbiguous_) +
-                           " ambiguous, " + to_string(mouserRefreshErrors_) + " errors";
-      logActivity("sync", summary);
-      setMessage(summary, 8);
-      dirty_ = true;
+    if (run.queue.empty()) {
+      run.client.reset();
+      finishSupplierRefresh(run.changed, run.lastError, "mouser", "Mouser",
+                            "Mouser refresh complete: " + catalogueRefreshCounts(run));
       return;
     }
   }
-
-  if (mouserRefreshQueue_.empty() || mouserRefreshClient_ == nullptr) {
-    return;
-  }
-
-  const auto request = mouserRefreshQueue_.front();
-  mouserRefreshQueue_.pop_front();
-  auto* client = mouserRefreshClient_.get();
-  mouserRefreshFuture_ = async(launch::async, [client, request, generation = mouserRefreshGeneration_] {
-    MouserRefreshResult result;
-    result.itemId = request.itemId;
-    result.workspaceGeneration = generation;
+  const bool started = run.startNext([](MouserApiClient& client, const MouserRefreshRequest& request,
+                                         MouserRefreshResult& result) {
     MouserLookupOutcome outcome = MouserLookupOutcome::Failed;
     try {
-      result.details = client->lookupByPartNumber(request.partNumber, outcome, &result.error, request.manufacturer);
+      result.details = client.lookupByPartNumber(request.partNumber, outcome, &result.error, request.manufacturer);
     } catch (...) {
       // Exception text could include the key from the request URL, so it is not passed on.
       result.details.reset();
       result.error = "Mouser lookup failed unexpectedly";
     }
     result.outcome = outcome;
-    return result;
   });
-  dirty_ = true;
-}
-
-void App::stopMouserRefresh() {
-  mouserRefreshQueue_.clear();
-  if (mouserRefreshFuture_.valid()) {
-    mouserRefreshFuture_.wait();
-    mouserRefreshFuture_ = {};
-  }
-  mouserRefreshClient_.reset();
-  mouserRefreshTotal_ = 0;
-  mouserRefreshCompleted_ = 0;
-  mouserRefreshSucceeded_ = 0;
-  mouserRefreshNotFound_ = 0;
-  mouserRefreshAmbiguous_ = 0;
-  mouserRefreshErrors_ = 0;
-  mouserRefreshChanged_ = false;
-  mouserRefreshGeneration_ = 0;
-  mouserRefreshLastError_.clear();
+  if (started) dirty_ = true;
 }
 
 }  // namespace inventatory
