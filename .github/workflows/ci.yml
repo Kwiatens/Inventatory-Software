@@ -215,7 +215,7 @@ jobs:
       - name: Reject credentials in console output
         run: |
           status=0
-          git grep -n -E -e '(std::(cout|cerr|clog)|printf|fprintf|OutputDebugString|syslog)[^;]*(password|token|secret|credential)' -- src tests tools || status=$?
+          git grep -n -i -E -e '(std::(cout|cerr|clog)|printf|fprintf|OutputDebugString|syslog)[^;]*(password|token|secret|credential|hmac|(api|pairing|signing|private|access)[_ -]?key|\bkeys?\b)' -- src tests tools || status=$?
           if [ "$status" -eq 0 ]; then
             echo "::error::A console output call names a credential"
             exit 1
