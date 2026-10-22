@@ -259,6 +259,8 @@ jobs:
 
   publish:
     needs: [validate, build, build-linux]
+    # The release environment waits for the owner's approval before anything is published.
+    environment: release
     permissions:
       contents: write
     runs-on: windows-latest
