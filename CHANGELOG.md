@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manufacturer part number is not applied.
 - Projects: a Mouser suggestion saved by this version shows as a DigiKey part in an earlier version.
 - Projects: Find in racks counts pieces, not parts, on its stop and finish screens.
+- Projects: a KiCad BOM with a part row that has no Value is refused, with a message naming the row and its designators,
+  as EasyEDA and Altium BOMs already are. Such a row used to be skipped without a word, so the part was missing from the
+  shopping list. A mounting hole or test point without a value is still skipped with a warning.
 
 ### Fixed
 - A TME label whose manufacturer part number contains a `*`, such as `DS1023-1*40S21`, is read when the Scan R1 sends it, instead of being refused.

@@ -122,7 +122,7 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
     }
     line.quantityPerBoard = parsedQuantity.value_or(static_cast<int>(line.designators.size()));
 
-    if (line.designators.empty() || line.designation.empty()) {
+    if (line.designators.empty()) {
       continue;
     }
 
@@ -130,8 +130,16 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
       return isNonOrderableDesignator(ref, line.footprint);
     });
     if (excluded) {
-      bom.warnings.push_back("Row " + to_string(sourceRow) + ": " + line.designation + " is not orderable");
+      const auto& label = line.designation.empty() ? join(line.designators, ',') : line.designation;
+      bom.warnings.push_back("Row " + to_string(sourceRow) + ": " + label + " is not orderable");
       continue;
+    }
+
+    // Skipping the row would drop the part from the shopping list without a word, so the whole BOM is refused.
+    if (line.designation.empty()) {
+      bom.error = "Row " + to_string(sourceRow) + ": has no Value for " + join(line.designators, ',') +
+                  ". Fix the BOM export and import it again.";
+      return bom;
     }
 
     if (line.quantityPerBoard <= 0) {
