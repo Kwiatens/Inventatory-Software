@@ -32,6 +32,32 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Hardening from the OpenSSF compiler options guide. Set before the dependencies are fetched, so
+# SQLite and FTXUI are built with it too.
+include(CheckPIESupported)
+check_pie_supported()
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  # Control-flow guard, shadow-stack compatibility, and imported DLLs loaded only from System32,
+  # so a DLL planted beside the executable is never picked up.
+  add_compile_options(/guard:cf)
+  add_link_options(/guard:cf /CETCOMPAT /DEPENDENTLOADFLAG:0x800)
+else()
+  # Fortify needs optimization, so Debug builds leave it out. Level 3 needs GCC 12 or Clang; glibc
+  # warns on every file when an older GCC asks for it.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
+    set(INVENTATORY_FORTIFY_LEVEL 2)
+  else()
+    set(INVENTATORY_FORTIFY_LEVEL 3)
+  endif()
+  add_compile_options(-fstack-protector-strong -fstack-clash-protection -D_GLIBCXX_ASSERTIONS
+                      "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-U_FORTIFY_SOURCE;-D_FORTIFY_SOURCE=${INVENTATORY_FORTIFY_LEVEL}>")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    add_compile_options(-fcf-protection=full)
+  endif()
+  add_link_options(LINKER:-z,relro LINKER:-z,now LINKER:-z,noexecstack)
+endif()
+
 include(FetchContent)
 
 find_package(Threads REQUIRED)
@@ -77,6 +103,8 @@ add_library(sqlite3_amalgamation STATIC
   ${sqlite3_amalgamation_SOURCE_DIR}/sqlite3.c
 )
 target_include_directories(sqlite3_amalgamation PUBLIC ${sqlite3_amalgamation_SOURCE_DIR})
+# Fortify makes GCC report a known false positive in SQLite's column code.
+target_compile_options(sqlite3_amalgamation PRIVATE $<$<C_COMPILER_ID:GNU>:-Wno-stringop-overread>)
 
 FetchContent_Declare(ftxui
   GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
