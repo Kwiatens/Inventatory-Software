@@ -287,6 +287,15 @@ bool validateCurrentSchema(SqliteConnection& connection, string* error, int sche
   for (const auto& entry : required) {
     if (!requireColumns(connection, entry.table, entry.columns, error)) return false;
   }
+  // Inventatory creates no triggers or views. One in a restored file would run hidden SQL on
+  // every change, so the file is refused.
+  bool hasSchemaCode = false;
+  if (!queryHasRows(connection, "SELECT 1 FROM sqlite_master WHERE type IN ('trigger', 'view') LIMIT 1",
+                    hasSchemaCode) ||
+      hasSchemaCode) {
+    setSqlError(connection, error, "Inventatory SQLite database contains unexpected triggers or views");
+    return false;
+  }
   const char* const itemColumns[] = {
       "label_override", "vendor_provider", "vendor_product_number", "vendor_manufacturer_part_number",
       "vendor_category_id", "vendor_category_path", "vendor_title", "vendor_detailed_description", "vendor_parameters",
