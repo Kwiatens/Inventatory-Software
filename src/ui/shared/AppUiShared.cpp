@@ -230,7 +230,7 @@ ftxui::Element uiDeleteConfirmation(ftxui::Element page, int screenWidth, const 
   auto popup = ftxui::window(styledText(title, uiDangerColor()),
                              ftxui::vbox(move(popupRows)) | ftxui::bgcolor(uiPanelRightBg()) |
                                  ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, popupWidth)) |
-               ftxui::color(uiDangerColor());
+               ftxui::color(uiDangerColor()) | ftxui::clear_under;
   return ftxui::dbox({move(page), ftxui::vbox({ftxui::filler(), centered(move(popup)), ftxui::filler()})});
 }
 
