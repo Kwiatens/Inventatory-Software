@@ -1056,7 +1056,8 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
     close(handshake[0]);
     if (setsid() < 0) {
       const int failure = errno;
-      (void)write(handshake[1], &failure, sizeof(failure));
+      const auto ignored = write(handshake[1], &failure, sizeof(failure));
+      (void)ignored;
       _exit(127);
     }
     const int nullDevice = open("/dev/null", O_RDWR);
@@ -1069,7 +1070,8 @@ bool launchUpdateInstaller(const std::filesystem::path& installerPath,
     execl("/bin/sh", "sh", installer.c_str(), "--update", archive.c_str(), checksums.c_str(), marker.c_str(),
           notes.c_str(), version.c_str(), parent.c_str(), static_cast<char*>(nullptr));
     const int failure = errno;
-    (void)write(handshake[1], &failure, sizeof(failure));
+    const auto ignored = write(handshake[1], &failure, sizeof(failure));
+    (void)ignored;
     _exit(127);
   }
   close(handshake[1]);
