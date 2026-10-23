@@ -176,6 +176,9 @@ bool App::restoreData() {
   }
   settings_.quickLabelPresets = move(restoredQuickLabels);
   settings_.quickLabelRevision = restoredQuickLabelRevision;
+  // The draft was copied before the restored labels loaded; a stale draft would overwrite them on save.
+  settingsDraft_.quickLabelPresets = settings_.quickLabelPresets;
+  settingsDraft_.quickLabelRevision = settings_.quickLabelRevision;
   inventatoryScanConfig_ = {};
   inventatoryScanConfig_.token = generateInventatoryScanToken();
   const bool scannerTokenStored = CredentialStore::writeForWorkspace(
