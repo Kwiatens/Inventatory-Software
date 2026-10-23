@@ -48,6 +48,7 @@ void App::selectSettingsCategory(SettingsCategory category) {
     inputBuffer_.clear();
   }
   if (appearancePickerOpen_) closeAppearancePicker(false);
+  hideVendorKeys();
   settingsCategory_ = category;
   settingsRow_ = 0;
   settingsField_ = 0;
@@ -68,7 +69,9 @@ void App::moveSettingsRow(int delta) {
   auto current = find(focusable.begin(), focusable.end(), settingsRow_);
   long position = current == focusable.end() ? 0 : static_cast<long>(current - focusable.begin());
   position = clamp<long>(position + delta, 0, static_cast<long>(focusable.size()) - 1);
+  const auto previousRow = settingsRow_;
   settingsRow_ = focusable[static_cast<size_t>(position)];
+  if (settingsRow_ != previousRow) hideVendorKeys();
   const auto& row = model.rows[settingsRow_];
   if (row.field >= 0) settingsField_ = row.field;
   dirty_ = true;

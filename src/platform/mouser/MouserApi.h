@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/inventory/Inventory.h"
+#include "core/vendor/VendorOffer.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -41,6 +42,9 @@ struct MouserProductDetails {
   std::string unitPrice;                 // Lowest-quantity price, as Mouser printed it
   std::string productStatus;             // LifecycleStatus, else "Discontinued" when IsDiscontinued
   bool orderable = true;                 // False when discontinued or obsolete
+  // Every price break, the minimum and the multiple. Empty when Mouser gave no usable price.
+  // fetchedAt is set by the client, not the parser.
+  std::optional<VendorOffer> offer;
 };
 
 // NoMatch and Ambiguous are Mouser's answers. Failed (transport, key, status, parse) may succeed

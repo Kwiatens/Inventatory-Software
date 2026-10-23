@@ -139,6 +139,7 @@ add_executable(inventatory
   src/app/scanner/AppScanEnrichment.cpp
   src/app/tme/AppTmeActions.cpp
   src/app/mouser/AppMouserActions.cpp
+  src/app/vendor/AppVendorOffers.cpp
   src/app/import/AppImportActions.cpp
   src/app/bom/AppBomEnrichment.cpp
   src/app/bom/AppBomActions.cpp
@@ -225,6 +226,8 @@ add_executable(inventatory
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
   src/platform/mouser/MouserApi.cpp
+  src/core/vendor/VendorOffer.cpp
+  src/core/vendor/VendorOfferStore.cpp
   src/core/vendor/VendorRateLimits.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
@@ -246,7 +249,7 @@ add_executable(inventatory
   src/ui/pages/printer/PrinterSetupPage.cpp
   src/ui/pages/scanner/InventatoryScanSetupPage.cpp
   src/ui/pages/scanner/InventatoryScanSetupPageRender.cpp
-  src/ui/pages/digikey/DigiKeySetupPage.cpp
+  src/ui/pages/digikey/VendorSetupPage.cpp
   src/ui/pages/onboarding/OnboardingPage.cpp
   src/ui/pages/import/ImportCsvPage.cpp
   src/ui/pages/bom/BomProjectPage.cpp
@@ -324,6 +327,8 @@ add_executable(inventatory_tests
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
   src/platform/mouser/MouserApi.cpp
+  src/core/vendor/VendorOffer.cpp
+  src/core/vendor/VendorOfferStore.cpp
   src/core/vendor/VendorRateLimits.cpp
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp

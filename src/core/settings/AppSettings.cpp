@@ -120,7 +120,8 @@ bool parseBool(const string& value, bool& result) {
 
 // TME storefront keys are optional: a settings file without them loads with the defaults.
 bool isOptionalTmeSettingsKey(const string& key) {
-  return key == "tme_country" || key == "tme_language" || key == "tme_currency";
+  return key == "tme_country" || key == "tme_language" || key == "tme_currency" || key == "digikey_enabled" ||
+         key == "tme_enabled" || key == "mouser_enabled";
 }
 
 bool requiredSettingsKey(const string& key) {
@@ -168,6 +169,41 @@ const set<string>& persistedSettingsKeys() {
 }
 
 }  // namespace
+
+string sharedVendorCurrency(const AppSettings& settings) {
+  if (settings.digiKeyCurrency != settings.tmeCurrency) return {};
+  return settings.digiKeyCurrency;
+}
+
+void setSharedVendorCurrency(AppSettings& settings, const string& currency) {
+  settings.digiKeyCurrency = currency;
+  settings.tmeCurrency = currency;
+}
+
+string sharedVendorRegion(const AppSettings& settings) {
+  if (settings.digiKeySite != settings.tmeCountry) return {};
+  return settings.digiKeySite;
+}
+
+void setSharedVendorRegion(AppSettings& settings, const string& region) {
+  settings.digiKeySite = region;
+  settings.tmeCountry = region;
+}
+
+bool isValidVendorRegion(const string& region) {
+  return region.size() == 2 && all_of(region.begin(), region.end(), [](unsigned char c) { return c >= 'A' && c <= 'Z'; });
+}
+
+// TME prices in EUR, PLN and USD; DigiKey answers in each where the site sells in it.
+const vector<string>& supportedVendorCurrencies() {
+  static const vector<string> currencies = {"EUR", "PLN", "USD"};
+  return currencies;
+}
+
+bool isSupportedVendorCurrency(const string& currency) {
+  const auto& currencies = supportedVendorCurrencies();
+  return find(currencies.begin(), currencies.end(), currency) != currencies.end();
+}
 
 filesystem::path appSettingsDirectory() {
 #ifdef _WIN32
@@ -306,6 +342,12 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       if (!parseQuotedValue(value, loaded.tmeCurrency) || loaded.tmeCurrency.size() > kMaxTmeLocaleFieldBytes) {
         return false;
       }
+    } else if (key == "digikey_enabled") {
+      if (!parseBoolValue(value, loaded.digiKeyEnabled)) return false;
+    } else if (key == "tme_enabled") {
+      if (!parseBoolValue(value, loaded.tmeEnabled)) return false;
+    } else if (key == "mouser_enabled") {
+      if (!parseBoolValue(value, loaded.mouserEnabled)) return false;
     } else if (key == "symbol_standard") {
       string text;
       if (!parseQuotedValue(value, text) || !parseSymbolStandard(text, loaded.symbolStandard)) return false;
@@ -396,6 +438,9 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
   if (settings.tmeCountry != defaults.tmeCountry) output << "tme_country=" << quoted(settings.tmeCountry) << '\n';
   if (settings.tmeLanguage != defaults.tmeLanguage) output << "tme_language=" << quoted(settings.tmeLanguage) << '\n';
   if (settings.tmeCurrency != defaults.tmeCurrency) output << "tme_currency=" << quoted(settings.tmeCurrency) << '\n';
+  if (!settings.digiKeyEnabled) output << "digikey_enabled=false\n";
+  if (!settings.tmeEnabled) output << "tme_enabled=false\n";
+  if (!settings.mouserEnabled) output << "mouser_enabled=false\n";
   if (settings.symbolStandard != SymbolStandard::Eu) {
     output << "symbol_standard=" << quoted(symbolStandardKey(settings.symbolStandard)) << '\n';
   }

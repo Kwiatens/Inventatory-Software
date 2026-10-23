@@ -115,8 +115,8 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
-  if (page_ == Page::DigiKeySetup) {
-    handleDigiKeySetupKey(key);
+  if (page_ == Page::VendorSetup) {
+    handleVendorSetupKey(key);
     return;
   }
 
@@ -192,8 +192,8 @@ void App::handleKey(const KeyEvent& key) {
     case Page::ScanSetup:
       handleInventatoryScanSetupKey(key);
       break;
-    case Page::DigiKeySetup:
-      handleDigiKeySetupKey(key);
+    case Page::VendorSetup:
+      handleVendorSetupKey(key);
       break;
     case Page::Settings:
       handleSettingsKey(key);

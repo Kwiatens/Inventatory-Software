@@ -20,17 +20,49 @@ struct SettingsCategoryEntry {
   int indent = 0;
 };
 
-inline constexpr std::array<SettingsCategoryEntry, 9> settingsCategoryEntries() {
+inline constexpr std::array<SettingsCategoryEntry, 7> settingsCategoryEntries() {
   return {{{0, 0},  // General
            {1, 0},  // Appearance
            {2, 0},  // Updates
            {3, 0},  // Printer
            {4, 1},  // Quick Labels under Printer
            {5, 0},  // Inventatory Scan
-           {6, 0},  // DigiKey
-           {7, 0},  // TME
-           {8, 0}}}; // Mouser
+           {6, 0}}};  // Vendors: currency, DigiKey, TME and Mouser
 }
+
+// The Vendors page is one list of fields. These helpers map a field number to what it edits or acts on.
+enum class VendorSection { None, DigiKey, Tme, Mouser, Currency, Region, Refresh };
+
+inline constexpr int kDigiKeyEnabledField = 0;
+inline constexpr int kDigiKeyKeyField = 1;
+inline constexpr int kTmeEnabledField = 2;
+inline constexpr int kTmeKeyField = 3;
+inline constexpr int kMouserEnabledField = 4;
+inline constexpr int kMouserKeyField = 5;
+inline constexpr int kCurrencyField = 6;
+inline constexpr int kRegionField = 7;
+inline constexpr int kRefreshField = 8;
+
+inline constexpr VendorSection vendorFieldSection(int field) {
+  switch (field) {
+    case kDigiKeyEnabledField:
+    case kDigiKeyKeyField: return VendorSection::DigiKey;
+    case kTmeEnabledField:
+    case kTmeKeyField: return VendorSection::Tme;
+    case kMouserEnabledField:
+    case kMouserKeyField: return VendorSection::Mouser;
+    case kCurrencyField: return VendorSection::Currency;
+    case kRegionField: return VendorSection::Region;
+    case kRefreshField: return VendorSection::Refresh;
+    default: return VendorSection::None;
+  }
+}
+
+struct VendorFieldRef {
+  VendorSection section = VendorSection::None;
+};
+
+inline constexpr VendorFieldRef vendorFieldRef(int field) { return {vendorFieldSection(field)}; }
 
 // Final status line after a settings save that restarted the device service.
 struct SettingsBridgeNotice {
