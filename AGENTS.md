@@ -150,10 +150,14 @@ files or generated output.
 
 ## Releases and changelog
 
+- Every agent must record user-facing work in `CHANGELOG.md` before it reports a
+  task done. Add the entry under `## [Unreleased]` in the matching subsection, in
+  the same change as the work. Update an existing entry instead of adding a second
+  one for the same change.
 - `CHANGELOG.md` follows Keep a Changelog (`## [vX.Y.Z] - YYYY-MM-DD`). Entries
   describe only what a user sees or can do. Leave out refactors, renames, test
   changes, documentation edits, agent guidance, build or CI tweaks, and internal
-  names. Write in plain user terms.
+  names. Work with no user-facing effect gets no entry. Write in plain user terms.
 - When you bump the version or cut a release, add or update that version's
   section with the standard subsections (`### Added`, `### Changed`,
   `### Deprecated`, `### Removed`, `### Fixed`, `### Security`).
@@ -206,7 +210,8 @@ merge-noise messages, or development artifacts. Branch and pull-request names an
       environment blocker is reported.
 - [ ] No credentials, secrets, local paths, generated output, or unrelated
       files entered the diff.
-- [ ] Version bumps include a corresponding entry in `CHANGELOG.md`.
+- [ ] User-facing work is recorded under `## [Unreleased]` in `CHANGELOG.md`,
+      and version bumps have their own entry.
 - [ ] Commit, branch and PR wording follows
       [docs/project-standards.md](docs/project-standards.md), and new source
       files carry the SPDX header.
