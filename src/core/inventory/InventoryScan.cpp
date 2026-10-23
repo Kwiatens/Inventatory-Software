@@ -118,6 +118,56 @@ ScanResolution resolveDigiKeyBag(InventoryStore& store, const VendorBagIdentity&
   return {true, true, store.items().back().id, "Created a placeholder item from the DigiKey bag"};
 }
 
+// Lower case with only letters and digits, so "RC0603FR-0710KL" and "rc0603fr0710kl" agree.
+string partNumberKey(const string& value) {
+  string key;
+  for (const char character : value) {
+    if (isalnum(static_cast<unsigned char>(character))) {
+      key.push_back(static_cast<char>(tolower(static_cast<unsigned char>(character))));
+    }
+  }
+  return key;
+}
+
+// A Mouser bag names no Mouser number, so it matches a part Mouser supplied by manufacturer part number.
+InventoryItem* findMouserPart(InventoryStore& store, const VendorBagIdentity& identity) {
+  const auto number = partNumberKey(identity.manufacturerPartNumber);
+  if (number.empty()) return nullptr;
+  for (auto& item : store.items()) {
+    if (originProvider(item) != "mouser") continue;
+    if (partNumberKey(item.vendorMetadata.manufacturerPartNumber) == number || partNumberKey(item.sku) == number) {
+      return &item;
+    }
+  }
+  return nullptr;
+}
+
+// A Mouser bag creates a placeholder with the manufacturer part number, so the lookup can run after the commit.
+ScanResolution resolveMouserBag(InventoryStore& store, const VendorBagIdentity& identity) {
+  if (auto* existing = findMouserPart(store, identity)) {
+    return {true, false, existing->id, "Matched existing item"};
+  }
+
+  InventoryItem item;
+  item.id = sanitizeIdPart(identity.manufacturerPartNumber) + "-" + makeId().substr(0, 8);
+  item.partName = "Scanned Mouser Item";
+  item.manufacturer = identity.manufacturer.empty() ? "Unknown" : identity.manufacturer;
+  item.category = "Unsorted";
+  item.quantity = 0;
+  item.reorderThreshold = 0;
+  item.location = "Scan Inbox";
+  item.tags = {"scanned"};
+  item.notes = "Created from a Mouser bag scan.";
+  item.sku = identity.manufacturerPartNumber;
+  item.syncStatus = "needs_metadata";
+  item.vendorMetadata.provider = "mouser";
+  item.vendorMetadata.manufacturerPartNumber = identity.manufacturerPartNumber;
+  item.lastUpdated = nowEpoch();
+  item.createdAt = item.lastUpdated;
+  store.items().push_back(move(item));
+  return {true, true, store.items().back().id, "Created a placeholder item from the Mouser bag"};
+}
+
 }  // namespace
 
 optional<TmeLabelFields> parseTmeLabelPayload(const string& rawCode) {
@@ -184,6 +234,7 @@ ScanResolution resolveScanCode(InventoryStore& store, const string& rawCode) {
     return {false, false, {}, kUnrecognizedBagMessage};
   }
   if (identity->provider == "tme") return resolveTmeLabel(store, *identity);
+  if (identity->provider == "mouser") return resolveMouserBag(store, *identity);
   return resolveDigiKeyBag(store, *identity);
 }
 

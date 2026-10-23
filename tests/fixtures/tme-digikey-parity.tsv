@@ -5751,17 +5751,17 @@ dk.param	Supplier Device Package	TO-92-3
 # Accepted differences. Each line exempts one check (scope, check) with the reason it is accepted. A scope is a part
 # number, "family:<DigiKey family>" for every part of that family, or "*" for every part. The test fails on a difference
 # that is not listed here and on a listed difference that no longer occurs.
-exempt	family:Resistors	tile:TEMPCO	TME's record for these resistors does not give a temperature coefficient.
+exempt	family:Resistors	tile:TEMP. COEFF.	TME's record for these resistors does not give a temperature coefficient.
 exempt	family:Capacitors	tile:HEIGHT	TME's records for these capacitors do not give a height; where they do, the figure can differ from DigiKey's.
-exempt	family:Integrated Circuits (ICs)	tile:VIN	DigiKey gives the input voltage maximum (6V); TME gives the range (2.3 to 6V). The label prints each vendor's figure.
-exempt	family:Integrated Circuits (ICs)	tile:VOUT	TME gives the output voltage as a range; DigiKey gives its minimum or fixed value. The label prints the range.
-exempt	family:Circuit Protection	tile:VC	TME's records for these TVS diodes do not give a clamping voltage.
-exempt	family:Circuit Protection	tile:IPP	TME gives the surge current (Ifsm), which is a different rating from DigiKey's 10/1000 µs peak pulse current.
-exempt	family:Discrete Semiconductor Products	tile:VGS(TH)	TME's records for these MOSFETs do not give a gate threshold voltage.
-exempt	family:Discrete Semiconductor Products	tile:RDS(ON)	Each vendor quotes on-state resistance at its own gate voltage and temperature.
+exempt	family:Integrated Circuits (ICs)	tile:INPUT VOLTAGE	DigiKey gives the input voltage maximum (6V); TME gives the range (2.3 to 6V). The label prints each vendor's figure.
+exempt	family:Integrated Circuits (ICs)	tile:OUTPUT VOLTAGE	TME gives the output voltage as a range; DigiKey gives its minimum or fixed value. The label prints the range.
+exempt	family:Circuit Protection	tile:CLAMP VOLTAGE	TME's records for these TVS diodes do not give a clamping voltage.
+exempt	family:Circuit Protection	tile:PEAK PULSE I	TME gives the surge current (Ifsm), which is a different rating from DigiKey's 10/1000 µs peak pulse current.
+exempt	family:Discrete Semiconductor Products	tile:GATE THRESHOLD	TME's records for these MOSFETs do not give a gate threshold voltage.
+exempt	family:Discrete Semiconductor Products	tile:ON RESISTANCE	Each vendor quotes on-state resistance at its own gate voltage and temperature.
 exempt	CC0603ZRY5V9BB104	tolerance	TME gives both limits (-20/+80%); DigiKey gives the lower limit only.
-exempt	LQG15HS27NJ02D	tile:DCR	TME's record for this inductor does not give a DC resistance.
-exempt	LQG15HS27NJ02D	tile:SHIELD	TME's record for this inductor does not say whether it is shielded.
+exempt	LQG15HS27NJ02D	tile:DC RESISTANCE	TME's record for this inductor does not give a DC resistance.
+exempt	LQG15HS27NJ02D	tile:SHIELDING	TME's record for this inductor does not say whether it is shielded.
 exempt	NE555DR	manufacturer	DigiKey names a different maker for this part number (a second source). TME names the original maker.
 exempt	AP63203WU-7	tile:TYPE	TME's record does not say whether this regulator's output is fixed or adjustable.
 exempt	RC0402FR-0722RL	tile:POWER	DigiKey rounds the rating to 0.063 W; TME gives 62.5 mW.
@@ -5772,7 +5772,7 @@ exempt	PTS645SM95-2 LFS	tile:FUNCTION	TME gives the switching method (OFF-(ON)) 
 exempt	PTS645SM95-2 LFS	tile:RATING	TME gives the contact rating with its test voltage (50 mA / 12 V).
 exempt	PTS645SM95-2 LFS	tile:ACTUATOR	TME's record does not give the actuator type.
 exempt	MMBT4403	tile:GAIN	TME gives the gain as a range (20 to 300); DigiKey gives the minimum at one test point.
-exempt	SMBJ30A	tile:VST	DigiKey's record gives a 5 V standoff voltage; the part number and TME both give 30 V.
+exempt	SMBJ30A	tile:STANDOFF V.	DigiKey's record gives a 5 V standoff voltage; the part number and TME both give 30 V.
 exempt	MFR-25FBF52-10K	main	TME's record for this part is withdrawn (not in offer, cannot be ordered) and gives no resistance.
 exempt	MFR-25FBF52-10K	measured	TME's record for this part is withdrawn and gives no resistance.
 exempt	MFR-25FBF52-10K	tolerance	TME's record for this part is withdrawn and gives no tolerance.
@@ -5780,18 +5780,18 @@ exempt	MFR-25FBF52-10K	package	TME's record for this part is withdrawn and gives
 exempt	MFR-25FBF52-10K	tile:POWER	TME's record for this part is withdrawn and gives no power rating.
 exempt	TAJB106K016RNJ	tile:ESR	TME's record for this capacitor does not give an ESR.
 exempt	T491A106K016AT	tile:ESR	TME's record for this capacitor does not give an ESR.
-exempt	LQH3NPN100MMEL	tile:RATED	TME gives the operating current (1.28 A); DigiKey gives the rated current (800 mA).
-exempt	LQH3NPN100MMEL	tile:ISAT	TME's record for this inductor does not give a saturation current.
-exempt	LQH3NPN100MMEL	tile:DCR	TME's record for this inductor does not give a DC resistance.
-exempt	LQH3NPN100MMEL	tile:SHIELD	TME's record for this inductor does not say whether it is shielded.
-exempt	BZX84C5V1-7-F	tile:VF	TME's record for this Zener diode does not give a forward voltage.
+exempt	LQH3NPN100MMEL	tile:RATED CURRENT	TME gives the operating current (1.28 A); DigiKey gives the rated current (800 mA).
+exempt	LQH3NPN100MMEL	tile:SAT. CURRENT	TME's record for this inductor does not give a saturation current.
+exempt	LQH3NPN100MMEL	tile:DC RESISTANCE	TME's record for this inductor does not give a DC resistance.
+exempt	LQH3NPN100MMEL	tile:SHIELDING	TME's record for this inductor does not say whether it is shielded.
+exempt	BZX84C5V1-7-F	tile:FORWARD V.	TME's record for this Zener diode does not give a forward voltage.
 exempt	AO3400A	manufacturer	DigiKey names a different maker for this part number (a second source).
-exempt	AO3400A	tile:ID	DigiKey quotes the drain current at 25 °C; TME quotes it at another test point.
-exempt	DMG2305UX-13	tile:VDS	TME signs the voltage of this P-channel MOSFET (-20 V); DigiKey gives its magnitude.
-exempt	DMG2305UX-13	tile:ID	TME signs the drain current of this P-channel MOSFET; DigiKey gives its magnitude.
+exempt	AO3400A	tile:DRAIN CURRENT	DigiKey quotes the drain current at 25 °C; TME quotes it at another test point.
+exempt	DMG2305UX-13	tile:DRAIN-SOURCE V	TME signs the voltage of this P-channel MOSFET (-20 V); DigiKey gives its magnitude.
+exempt	DMG2305UX-13	tile:DRAIN CURRENT	TME signs the drain current of this P-channel MOSFET; DigiKey gives its magnitude.
 exempt	MMBT3904-7-F	tile:GAIN	TME gives the gain as a range (30 to 300); DigiKey gives the minimum at one test point.
 exempt	MMBT3904-7-F	tile:POWER	TME and DigiKey quote different power ratings for this transistor (0.31 W against 300 mW).
-exempt	TPS63020DSJR	tile:IOUT	TME and DigiKey quote the output current at different conditions (2 A against 3.5 A).
+exempt	TPS63020DSJR	tile:OUTPUT CURRENT	TME and DigiKey quote the output current at different conditions (2 A against 3.5 A).
 exempt	TPS63020DSJR	tile:TYPE	TME's record does not say whether this regulator's output is fixed or adjustable.
 exempt	ATMEGA328P-AU	tile:CORE	TME gives the family (AVR) under another name; its record has no core processor.
 exempt	ATMEGA328P-AU	tile:FLASH / RAM	DigiKey writes 2K and TME writes 2kB; the sizes are the same.
@@ -5799,16 +5799,16 @@ exempt	STM32F103C8T6	tile:CORE	TME writes the core as "Cortex M3" and DigiKey as
 exempt	STM32F103C8T6	tile:FLASH / RAM	DigiKey writes 64KB/20K and TME writes 64kB/20kB; the sizes are the same.
 exempt	MCP2551-I/SN	header	TME's record names the function (CAN transceiver); DigiKey's header is the generic IC.
 exempt	TL072CDR	manufacturer	DigiKey names a different maker for this part number (a second source).
-exempt	TL072CDR	tile:SUPPLY	DigiKey gives the single-supply maximum (36 V); TME gives the dual supply (± 2.25 to 20V).
+exempt	TL072CDR	tile:SUPPLY VOLTAGE	DigiKey gives the single-supply maximum (36 V); TME gives the dual supply (± 2.25 to 20V).
 exempt	TL072CDR	tile:CURRENT	TME's record for this op amp does not give a supply current.
 exempt	SN74HC595DR	header	TME's record names the function (shift register); DigiKey's header is the generic IC.
 exempt	TL431ACLPR	header	TME's record names the function (voltage reference); DigiKey's header is the generic IC.
 exempt	LM324DR	manufacturer	DigiKey names a different maker for this part number (a second source).
-exempt	LM324DR	tile:SUPPLY	DigiKey gives the single-supply span (3 to 32 V); TME gives the dual supply (± 1.5 to 15V).
+exempt	LM324DR	tile:SUPPLY VOLTAGE	DigiKey gives the single-supply span (3 to 32 V); TME gives the dual supply (± 1.5 to 15V).
 exempt	LM324DR	tile:CURRENT	TME's record for this op amp does not give a supply current.
-exempt	LM324DR	tile:TEMP	TME gives the commercial range (0 to 70 °C); DigiKey gives the industrial range (-40 to 85 °C). These are different grades.
+exempt	LM324DR	tile:TEMPERATURE	TME gives the commercial range (0 to 70 °C); DigiKey gives the industrial range (-40 to 85 °C). These are different grades.
 exempt	SN74HC00DR	tile:CURRENT	TME's record for this logic gate does not give a supply current.
-exempt	SN74HC00DR	tile:TEMP	TME's record for this logic gate does not give an operating temperature.
+exempt	SN74HC00DR	tile:TEMPERATURE	TME's record for this logic gate does not give an operating temperature.
 exempt	ABM8-16.000MHZ-B2-T	package	DigiKey gives the package as 4-SMD; TME gives the body size.
 exempt	ABM8-16.000MHZ-B2-T	tile:ESR	TME's record for this crystal does not give an ESR.
 exempt	10118192-0001LF	package	TME's record for this connector gives no package.
@@ -5816,17 +5816,17 @@ exempt	10118192-0001LF	tile:TERMINATION	TME's record for this connector does not
 exempt	G5LE-1A4-DC5	main	TME writes the part number without its punctuation.
 exempt	G5LE-1A4-DC5	package	TME's record for this relay gives no package.
 exempt	G5LE-1A4-DC5	manufacturer	DigiKey names a different maker for this part number.
-exempt	G5LE-1A4-DC5	tile:TEMP	TME's record for this relay does not give an operating temperature.
+exempt	G5LE-1A4-DC5	tile:TEMPERATURE	TME's record for this relay does not give an operating temperature.
 exempt	3296W-1-103LF	package	DigiKey gives the mounting (Through Hole); TME gives the body size.
 exempt	BME280	package	TME's record for this sensor gives no package.
 exempt	BME280	tile:TYPE	TME's sensor type ("temperature and humidity") is too long for a label tile.
 exempt	BME280	tile:OUTPUT	TME's record for this sensor does not give an output resolution.
-exempt	BME280	tile:SUPPLY	TME gives the supply minimum as 1.7 V; DigiKey gives 1.71 V.
+exempt	BME280	tile:SUPPLY VOLTAGE	TME gives the supply minimum as 1.7 V; DigiKey gives 1.71 V.
 exempt	DS18B20+	tile:TYPE	TME gives the kind of sensor (digital thermometer) under a name the label does not read.
 exempt	DS18B20+	tile:OUTPUT	TME gives the bus as the interface (single-wire); DigiKey gives it as the output.
-exempt	DS18B20+	tile:RES	DigiKey writes the resolution as "12 b"; TME writes "12bit".
-exempt	BLM18PG121SN1D	tile:DCR	TME's record for this ferrite bead gives no DC resistance; DigiKey gives 50mΩ.
-exempt	LTST-C170KGKT	tile:VF	DigiKey gives one typical forward voltage (2V); TME gives the range (2 to 2.4V). Both are correct.
+exempt	DS18B20+	tile:RESOLUTION	DigiKey writes the resolution as "12 b"; TME writes "12bit".
+exempt	BLM18PG121SN1D	tile:DC RESISTANCE	TME's record for this ferrite bead gives no DC resistance; DigiKey gives 50mΩ.
+exempt	LTST-C170KGKT	tile:FORWARD V.	DigiKey gives one typical forward voltage (2V); TME gives the range (2 to 2.4V). Both are correct.
 exempt	LTST-C170KGKT	tile:INTENSITY	DigiKey gives the rated intensity (35mcd); TME gives the range (18 to 35mcd). Both are correct.
 exempt	G5LE-1A4-DC5	tile:COIL CURRENT	DigiKey gives the coil current as 79.4 mA; TME gives it rounded to 80mA.
 exempt	G5LE-1A4-DC5	tile:COIL TYPE	TME's record gives the relay variant (monostable, power) and no coil type.

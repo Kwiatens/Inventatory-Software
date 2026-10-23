@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <unordered_map>
 #include <cstring>
 #include <limits>
 
@@ -195,6 +196,78 @@ string shortParameterLabel(const string& label) {
     if (isSymbol && symbol != "Max" && symbol != "Min" && symbol != "Typ" && symbol != "Nom") return symbol;
   }
   return trim(label);
+}
+
+// Captions are spelled out: the label is read at a glance, so "IMPEDANCE" and not "Z". Rules and
+// DigiKey symbols still name tiles by their short form; this maps each to its standard text.
+// Every text fits a tile whole (a test checks it); a caption not listed is printed as it is.
+const unordered_map<string, string>& standardParameterCaptions() {
+  static const unordered_map<string, string> kCaptions = {
+      {"Z", "IMPEDANCE"},
+      {"F", "FREQUENCY"},
+      {"FREQ", "FREQUENCY"},
+      {"C", "CAPACITANCE"},
+      {"R", "RESISTANCE"},
+      {"L", "INDUCTANCE"},
+      {"DCR", "DC RESISTANCE"},
+      {"PWR", "POWER"},
+      {"VR", "REV. VOLTAGE"},
+      {"VDD", "SUPPLY VOLTAGE"},
+      {"SUPPLY", "SUPPLY VOLTAGE"},
+      {"VOUT", "OUTPUT VOLTAGE"},
+      {"VIN", "INPUT VOLTAGE"},
+      {"IOUT", "OUTPUT CURRENT"},
+      {"VF", "FORWARD V."},
+      {"VST", "STANDOFF V."},
+      {"VBR", "BREAKDOWN V"},
+      {"VC", "CLAMP VOLTAGE"},
+      {"IPP", "PEAK PULSE I"},
+      {"PPP", "PEAK PULSE P."},
+      {"ISAT", "SAT. CURRENT"},
+      {"I", "RATED CURRENT"},
+      {"RATED", "RATED CURRENT"},
+      {"ID", "DRAIN CURRENT"},
+      {"VCE", "COLLECTOR V."},
+      {"IC", "COLLECTOR I."},
+      {"VDS", "DRAIN-SOURCE V"},
+      {"RDS", "ON RESISTANCE"},
+      {"RDS(ON)", "ON RESISTANCE"},
+      {"VGS(TH)", "GATE THRESHOLD"},
+      {"QG", "GATE CHARGE"},
+      {"HFE", "GAIN"},
+      {"CL", "LOAD CAP."},
+      {"LOAD C", "LOAD CAP."},
+      {"TEMP", "TEMPERATURE"},
+      {"OUT", "OUTPUT"},
+      {"RES", "RESOLUTION"},
+      {"ACC", "ACCURACY"},
+      {"FEAT", "FEATURES"},
+      {"CONN", "CONNECTOR"},
+      {"SHIELD", "SHIELDING"},
+      {"COMP", "COMPOSITION"},
+      {"TEMPCO", "TEMP. COEFF."},
+      {"CLK", "CLOCK SPEED"},
+      {"CLOCK", "CLOCK SPEED"},
+      {"PKG", "PACKAGE"},
+      {"MAX V", "MAX VOLTAGE"},
+      {"VMAX", "MAX VOLTAGE"},
+      {"IMAX", "MAX CURRENT"},
+      {"VDC", "DC VOLTAGE"},
+      {"VAC", "AC VOLTAGE"},
+      {"IO", "AVG CURRENT"},
+      {"IFSM", "SURGE CURRENT"},
+      {"TECH", "TECHNOLOGY"},
+      {"TOL", "TOLERANCE"},
+      {"SRF", "SELF RESONANCE"},
+      {"MODE", "MODE"},
+  };
+  return kCaptions;
+}
+
+string standardParameterCaption(const string& upperCaption) {
+  const auto& captions = standardParameterCaptions();
+  const auto found = captions.find(upperCaption);
+  return found == captions.end() ? upperCaption : found->second;
 }
 
 string normalizeResistanceValue(string value) {

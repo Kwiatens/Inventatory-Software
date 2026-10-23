@@ -41,7 +41,7 @@ inline std::chrono::seconds deviceSyncRetryDelay(int consecutiveFailures) {
 // The names a scan gives a part until its supplier lookup fills in the details.
 inline bool isScanPlaceholderName(const std::string& name) {
   const auto trimmed = trim(name);
-  return trimmed == "Scanned DigiKey Item" || trimmed == "Scanned TME Item";
+  return trimmed == "Scanned DigiKey Item" || trimmed == "Scanned TME Item" || trimmed == "Scanned Mouser Item";
 }
 
 enum class WorkspaceScannerCredentialStatus {
@@ -360,7 +360,7 @@ inline std::string tmeRecordConflict(const InventoryItem& item, const TmeProduct
 }
 
 inline bool mergeMouserMetadata(InventoryItem& item, const MouserProductDetails& details) {
-  return mergeCatalogueMetadata(item, details, kVendorProviderMouser, "");
+  return mergeCatalogueMetadata(item, details, kVendorProviderMouser, "Scanned Mouser Item");
 }
 
 // Lookup order: Mouser part number, manufacturer part number, then SKU.
