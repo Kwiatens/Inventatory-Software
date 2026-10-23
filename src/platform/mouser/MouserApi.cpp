@@ -252,6 +252,50 @@ void readAttributes(const JsonPtr& record, MouserProductDetails& product) {
   product.vendorMetadata.parameters = product.parameters;
 }
 
+// Mouser's search answer carries packaging only for many parts, with the electrical values in the
+// description alone. A ferrite bead's description names them ("100MHz 100Ohm"); read just those two,
+// and only when the attributes do not already hold them.
+void addFerriteParameters(MouserProductDetails& product) {
+  if (!containsInsensitive(product.categoryName, "ferrite bead")) return;
+  const auto has = [&](const char* name) {
+    return any_of(product.parameters.begin(), product.parameters.end(),
+                  [&](const auto& parameter) { return containsInsensitive(parameter.name, name); });
+  };
+  const auto& text = product.productDescription;
+  // A number followed by a unit word: "100MHz", "100 Ohm", "600 Ohms".
+  const auto find = [&](const string& unitLower, const string& label) {
+    for (size_t index = 0; index < text.size(); ++index) {
+      if (!isdigit(static_cast<unsigned char>(text[index])) ||
+          (index > 0 && (isalnum(static_cast<unsigned char>(text[index - 1])) || text[index - 1] == '.'))) {
+        continue;
+      }
+      size_t end = index;
+      while (end < text.size() && (isdigit(static_cast<unsigned char>(text[end])) || text[end] == '.')) ++end;
+      const auto number = text.substr(index, end - index);
+      auto unitStart = end;
+      while (unitStart < text.size() && text[unitStart] == ' ') ++unitStart;
+      size_t unitEnd = unitStart;
+      while (unitEnd < text.size() && isalpha(static_cast<unsigned char>(text[unitEnd]))) ++unitEnd;
+      const auto unitText = text.substr(unitStart, unitEnd - unitStart);
+      const auto unit = toLower(unitText);
+      if (number.back() != '.' && (unit == unitLower || (unitLower == "ohm" && unit == "ohms"))) {
+        product.parameters.push_back({label, number + " " + unitText});
+        return;
+      }
+      index = end;
+    }
+  };
+  if (!has("impedance")) find("ohm", "Impedance");
+  if (!has("frequency")) {
+    for (const char* unit : {"mhz", "ghz", "khz"}) {
+      const auto before = product.parameters.size();
+      find(unit, "Frequency");
+      if (product.parameters.size() != before) break;
+    }
+  }
+  product.vendorMetadata.parameters = product.parameters;
+}
+
 void readLifecycle(const JsonPtr& record, MouserProductDetails& product) {
   const auto lifecycle = fieldText(record, "LifecycleStatus");
   const bool discontinued = memberIsTrue(record, "IsDiscontinued");
@@ -284,6 +328,7 @@ MouserProductDetails readPart(const JsonPtr& record) {
   product.quantityAvailable = stockCount(record);
   product.unitPrice = lowestQuantityPrice(record);
   readAttributes(record, product);
+  addFerriteParameters(product);
   readLifecycle(record, product);
   return product;
 }

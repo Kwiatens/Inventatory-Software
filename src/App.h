@@ -703,6 +703,9 @@ class App {
   // False when the lookup could not be queued (no TME credentials, or no workspace).
   bool enqueueTmeScanLookup(const std::string& itemId, const std::string& symbol);
   void processTmeRefresh();
+  // False when the lookup could not be queued (no Mouser key, or no workspace).
+  bool enqueueMouserScanLookup(const std::string& itemId, const std::string& partNumber,
+                               const std::string& manufacturer);
   void beginMouserRefresh();
   void processMouserRefresh();
   // Shows queued vendor warnings ("close to the limit") and limit-reached messages.

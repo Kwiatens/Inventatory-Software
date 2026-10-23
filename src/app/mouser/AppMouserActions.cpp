@@ -69,6 +69,27 @@ void App::beginMouserRefresh() {
       "No inventory items with a Mouser part number were found");
 }
 
+// Shares the refresh queue, so lookups run one at a time and merge on the UI thread. A Mouser bag names no
+// Mouser number, so the lookup is by manufacturer part number and the manufacturer on the bag.
+bool App::enqueueMouserScanLookup(const string& itemId, const string& partNumber, const string& manufacturer) {
+  if (mouserRefresh_.client == nullptr) {
+    const auto config = loadMouserConfig();
+    if (!config.valid()) {
+      setMessage("Mouser lookup skipped: the Mouser API key is not configured", 5, UiMessageSeverity::Warning);
+      return false;
+    }
+    const auto context = currentWorkspaceContext();
+    if (context == nullptr) return false;
+    mouserRefresh_.stop();  // Clear the previous run's counters; no client is running here.
+    mouserRefresh_.client = make_unique<MouserApiClient>(config);
+    mouserRefresh_.generation = context->generation;
+  }
+  mouserRefresh_.queue.emplace_back(itemId, MouserRefreshRequest{partNumber, manufacturer});
+  ++mouserRefresh_.total;
+  dirty_ = true;
+  return true;
+}
+
 void App::processMouserRefresh() {
   auto& run = mouserRefresh_;
   if (run.future.valid()) {
@@ -82,6 +103,7 @@ void App::processMouserRefresh() {
     ++run.completed;
     applyCatalogueResult(run, *result, "Mouser", app_actions::mouserRecordConflict,
                          app_actions::mergeMouserMetadata);
+    finishScanAutoPrint(result->itemId, result->details.has_value());
     // A reached limit or rejected key would fail the rest the same way; drop the run.
     if (!result->details && (mouserLimitReached(result->error) || mouserKeyRejected(result->error))) {
       run.queue.clear();

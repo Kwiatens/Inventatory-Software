@@ -71,13 +71,50 @@ optional<VendorBagIdentity> recognizeDigiKeyBag(const string& code) {
 
   if (!isDigiKeyPartNumber(partNumber)) return nullopt;
   if (!manufacturerPartNumber.empty() && !isManufacturerPartNumber(manufacturerPartNumber)) return nullopt;
-  return VendorBagIdentity{"digikey", partNumber, manufacturerPartNumber, {}};
+  return VendorBagIdentity{"digikey", partNumber, manufacturerPartNumber, {}, {}};
+}
+
+// A Mouser bag: Macro 06 with the customer's line (14K) and the invoice (11K). P is the customer part number,
+// 1V the manufacturer. Neither a Mouser number nor a manufacturer part number is printed, so P is taken as the
+// manufacturer part number and the lookup checks it against the manufacturer.
+optional<VendorBagIdentity> recognizeMouserBag(const string& code) {
+  const size_t envelopeSize = sizeof(kDigiKeyEnvelope) - 1;
+  if (code.size() <= envelopeSize || code.compare(0, envelopeSize, kDigiKeyEnvelope) != 0) return nullopt;
+
+  string customerPartNumber;
+  string manufacturer;
+  bool hasLine = false;
+  bool hasInvoice = false;
+  size_t index = envelopeSize;
+  while (index < code.size()) {
+    if (isIso15434Separator(code[index])) {
+      ++index;
+      continue;
+    }
+    const auto end = static_cast<size_t>(find_if(code.begin() + static_cast<long>(index), code.end(),
+                                                 isIso15434Separator) - code.begin());
+    const auto field = trim(code.substr(index, end - index));
+    index = end;
+    if (field.rfind("14K", 0) == 0) {
+      hasLine = field.size() > 3;
+    } else if (field.rfind("11K", 0) == 0) {
+      hasInvoice = field.size() > 3;
+    } else if (field.rfind("1V", 0) == 0) {
+      if (manufacturer.empty()) manufacturer = trim(field.substr(2));
+    } else if (field.rfind("P", 0) == 0) {
+      if (customerPartNumber.empty()) customerPartNumber = trim(field.substr(1));
+    }
+  }
+
+  if (!hasLine || !hasInvoice || !isManufacturerPartNumber(customerPartNumber)) return nullopt;
+  if (manufacturer.size() > kMaximumIdentifierBytes) return nullopt;
+  return VendorBagIdentity{"mouser", {}, customerPartNumber, {}, manufacturer};
 }
 
 optional<VendorBagIdentity> recognizeTmeBag(const string& code) {
   const auto label = parseTmeLabelPayload(code);
   if (!label) return nullopt;
-  return VendorBagIdentity{"tme", label->symbol, label->manufacturerPartNumber, label->productUrl};
+  return VendorBagIdentity{"tme", label->symbol, label->manufacturerPartNumber, label->productUrl, {}};
 }
 
 }  // namespace
@@ -85,6 +122,7 @@ optional<VendorBagIdentity> recognizeTmeBag(const string& code) {
 optional<VendorBagIdentity> recognizeVendorBagCode(const string& code) {
   if (code.empty() || code.size() > kMaximumVendorBagCodeBytes) return nullopt;
   if (auto digiKey = recognizeDigiKeyBag(code)) return digiKey;
+  if (auto mouser = recognizeMouserBag(code)) return mouser;
   return recognizeTmeBag(code);
 }
 

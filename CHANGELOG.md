@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Inventatory Scan: the large Data Matrix on a Mouser bag adds or finds a part, and Mouser fills in its details. It
+  needs the Scan R1 firmware that sends Mouser bag codes. Older firmware still refuses a Mouser bag.
+- Mouser ferrite beads: Mouser lists only packaging for them, so the impedance and frequency are read from the
+  description, and the label shows them.
+- Label parameter tiles are captioned in words (Impedance, Frequency, Capacitance, Drain current) instead of
+  symbols such as Z, F, C and Id.
 - DigiKey, Mouser and TME requests are counted against the vendors' published limits (DigiKey 120/min and 1,000/day,
   Mouser 30/min and 1,000/day; TME publishes none). A message appears when a daily limit is 80% used. Settings shows a
   Usage row on each vendor page. Counts are kept across restarts in `vendor-usage.conf` beside `settings.conf`.
