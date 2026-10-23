@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same treatment as Mouser's.
 
 ### Fixed
+- Stock: a part from a TME label showed TME's raw description, such as `Connector: pin strips; socket; female; data; PIN: 40; THT; straight`. A connector is now named like `Female 40 Pin Connector 2.54mm`, and other TME parts get DigiKey's uppercase list form. A TME part already stored with the raw name is renamed by the next TME refresh; a name you typed is kept.
 - Settings: after restoring a backup or changing the data folder, Quick Labels no longer shows Unsaved, and saving
   that page no longer replaces the restored Quick Labels with the old ones.
 
