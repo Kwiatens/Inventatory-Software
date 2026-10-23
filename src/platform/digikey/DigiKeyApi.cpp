@@ -9,6 +9,7 @@
 #include "platform/digikey/DigiKeyApiPrivate.h"
 
 #include "app/settings/AppSettings.h"
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/Environment.h"
 
@@ -24,6 +25,10 @@ namespace {
 // True for a 2xx status; otherwise reports `what` as failed with the HTTP status.
 bool isSuccessStatus(std::uint32_t statusCode, const char* what, string* error) {
   if (statusCode >= 200 && statusCode < 300) return true;
+  if (statusCode == 429) {
+    if (error != nullptr) *error = VendorRateLimits::instance().limitMessage(Vendor::DigiKey);
+    return false;
+  }
   if (error != nullptr) *error = string("DigiKey ") + what + " failed with HTTP " + to_string(statusCode);
   return false;
 }

@@ -35,6 +35,7 @@ void initializeCurl() {
 struct CurlResponse {
   std::string body;
   std::uint32_t retryAfterSeconds = 0;
+  HttpResponse rate;  // Only the rate-limit header fields are used
   bool oversized = false;
 };
 
@@ -61,6 +62,7 @@ size_t receiveHeader(char* data, size_t size, size_t count, void* context) {
   std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
     return static_cast<char>(std::tolower(ch));
   });
+  readRateLimitHeader(name, line.substr(colon + 1U), response->rate);
   if (name != "retry-after") return bytes;
   std::string value = trim(line.substr(colon + 1U));
   if (value.empty() || !std::all_of(value.begin(), value.end(), [](unsigned char ch) { return ch >= '0' && ch <= '9'; })) {
@@ -145,6 +147,10 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   }
   response.statusCode = static_cast<std::uint32_t>(std::max(0L, status));
   response.retryAfterSeconds = received.retryAfterSeconds;
+  response.retryAfterFullSeconds = received.rate.retryAfterFullSeconds;
+  response.rateLimitLimit = received.rate.rateLimitLimit;
+  response.rateLimitRemaining = received.rate.rateLimitRemaining;
+  response.rateLimitResetSeconds = received.rate.rateLimitResetSeconds;
   response.body = std::move(received.body);
   return true;
 }
@@ -188,7 +194,10 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
   }
   const bool retryableMethod = encodedMethod == "GET";
   for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
+    // A reached vendor limit is answered here as a local 429; nothing is sent.
+    if (!rateLimitAdmit(service, response)) return true;
     if (!requestHttpOnce(encodedMethod, encodedUrl, encodedHeaders, body, response, error, service)) return false;
+    rateLimitNote(service, response);
     if (!retryableMethod || !retryableStatus(response.statusCode) || attempt + 1U >= kMaximumDigiKeyHttpAttempts) {
       return true;
     }

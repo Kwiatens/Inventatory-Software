@@ -5,6 +5,7 @@
 
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/parts/DecimalParse.h"
+#include "core/vendor/VendorRateLimits.h"
 
 #include <cmath>
 #include <iomanip>
@@ -13,6 +14,56 @@
 
 namespace inventatory {
 namespace digikey_detail {
+
+namespace {
+
+// Digits only, at most 15 of them; -1 otherwise (a Retry-After date, for one).
+std::int64_t headerNumber(const string& value) {
+  std::size_t begin = 0;
+  std::size_t end = value.size();
+  while (begin < end && (value[begin] == ' ' || value[begin] == '\t')) ++begin;
+  while (end > begin && (value[end - 1] == ' ' || value[end - 1] == '\t' || value[end - 1] == '\r' || value[end - 1] == '\n')) --end;
+  if (begin == end || end - begin > 15) return -1;
+  std::int64_t number = 0;
+  for (auto i = begin; i < end; ++i) {
+    if (value[i] < '0' || value[i] > '9') return -1;
+    number = number * 10 + (value[i] - '0');
+  }
+  return number;
+}
+
+}  // namespace
+
+void readRateLimitHeader(const string& lowerName, const string& value, HttpResponse& response) {
+  if (lowerName == "retry-after") response.retryAfterFullSeconds = headerNumber(value);
+  else if (lowerName == "x-ratelimit-limit") response.rateLimitLimit = headerNumber(value);
+  else if (lowerName == "x-ratelimit-remaining") response.rateLimitRemaining = headerNumber(value);
+  else if (lowerName == "x-ratelimit-reset" || lowerName == "x-burstlimit-reset") {
+    response.rateLimitResetSeconds = headerNumber(value);
+  }
+}
+
+bool rateLimitAdmit(const string& service, HttpResponse& response) {
+  const auto vendor = vendorFromService(service);
+  if (!vendor.has_value()) return true;
+  if (VendorRateLimits::instance().admit(*vendor)) return true;
+  response = {};
+  response.statusCode = 429;
+  response.refusedLocally = true;
+  return false;
+}
+
+void rateLimitNote(const string& service, const HttpResponse& response) {
+  const auto vendor = vendorFromService(service);
+  if (!vendor.has_value() || response.refusedLocally) return;
+  VendorRateLimits::Response seen;
+  seen.status = response.statusCode;
+  seen.retryAfterSeconds = response.retryAfterFullSeconds;
+  seen.dailyLimit = response.rateLimitLimit;
+  seen.dailyRemaining = response.rateLimitRemaining;
+  seen.windowResetSeconds = response.rateLimitResetSeconds;
+  VendorRateLimits::instance().noteResponse(*vendor, seen);
+}
 
 string encodeComponent(const string& value, bool formEncoding) {
   std::ostringstream out;

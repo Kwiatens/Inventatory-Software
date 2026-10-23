@@ -42,7 +42,16 @@ inline constexpr unsigned kMaximumDigiKeyHttpAttempts = 2;
 struct HttpResponse {
   std::uint32_t statusCode = 0;
   string body;
+  // Retry-After capped at 2 seconds: how long the transport sleeps before it retries a GET.
   std::uint32_t retryAfterSeconds = 0;
+  // Rate-limit headers as sent, -1 when absent. The request tracker reads them.
+  std::int64_t retryAfterFullSeconds = -1;    // Retry-After, uncapped
+  std::int64_t rateLimitLimit = -1;           // X-RateLimit-Limit (requests per day)
+  std::int64_t rateLimitRemaining = -1;       // X-RateLimit-Remaining
+  std::int64_t rateLimitResetSeconds = -1;    // X-RateLimit-Reset or X-BurstLimit-Reset
+  // True when the request was not sent because the vendor's limit is known to be reached. The
+  // status is then 429, so callers report it like any other limit answer.
+  bool refusedLocally = false;
 };
 
 struct JsonValue {
@@ -84,6 +93,13 @@ string encodeComponent(const string& value, bool formEncoding);
 string escapeJsonString(const string& value);
 wstring widen(const string& value);
 string narrow(const wstring& value);
+// Reads one response header (name in lower case) into the rate-limit fields of response.
+void readRateLimitHeader(const string& lowerName, const string& value, HttpResponse& response);
+// Before and after each request to a vendor. rateLimitAdmit counts the request, waits for a short
+// limit and returns false (with response set to a local 429) when the limit is reached for longer.
+bool rateLimitAdmit(const string& service, HttpResponse& response);
+void rateLimitNote(const string& service, const HttpResponse& response);
+
 bool requestHttp(const wstring& method, const wstring& url, const wstring& headers, const string& body,
                  HttpResponse& response, string* error, const string& service = "DigiKey");
 
