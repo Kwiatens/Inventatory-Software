@@ -51,6 +51,10 @@ bool App::testStagedMouser() {
 }
 
 void App::beginMouserRefresh() {
+  if (!settings_.mouserEnabled) {
+    setMessage("Mouser is off; turn it on in Settings > Vendors", 4);
+    return;
+  }
   beginSupplierRefresh(
       mouserRefresh_, "Mouser",
       [this]() -> unique_ptr<MouserApiClient> {

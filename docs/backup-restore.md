@@ -18,6 +18,10 @@ databases receive an `Initial inventory` baseline the first time Inventatory
 opens them; existing `activity.tsv` and movement records are retained as-is and
 are not converted into commits.
 
+Saved vendor prices (`vendor-offers.db` in the data folder) are not part of a
+bundle. They are a cache of vendor answers, and checking prices again fills
+them.
+
 DigiKey secrets remain in Windows Credential Manager and are never exported.
 The Scan R1 token and device configuration are also excluded. Restoring a
 bundle is an explicit **Restore backup** action: Inventatory validates every

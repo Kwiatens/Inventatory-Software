@@ -52,7 +52,21 @@ side by side with what each one would fill in. Choose the vendor the part came f
 for its refreshes. A vendor is chosen once per part.
 
 A Mouser part shows its Mouser part number as **Mouser** in its details. Press `s` on a part with a Mouser part number to
-open its Mouser product page. Refresh for Mouser parts is in the Mouser section of Settings (see Settings workflow).
+open its Mouser product page. Refresh for Mouser parts is **Refresh all** in Settings -> Vendors (see Settings workflow).
+
+A part with a DigiKey, TME or Mouser number shows a **Prices** section in its details. Press `c` to check prices: each
+vendor that is set up and knows the part is asked, and its answer is saved. Each line shows the vendor, the packaging
+(cut tape, reel, Digi-Reel), the price for the smallest quantity, the stock, and where buying starts when a minimum
+order applies. Click a line to open that product on the vendor's site, or press `g`, `l` or `s` for the DigiKey, TME or
+Mouser page. A line says **Old price** when it
+was checked more than 24 hours ago, **Other currency** when the vendor answered in a currency other than the one set in
+Settings, and **Not sold** when the vendor no longer sells it. A check that fails keeps the prices saved before.
+
+All prices are without VAT. TME sends prices with VAT and the rate; Inventatory takes the VAT out so they compare with
+DigiKey and Mouser. DigiKey answers in the chosen currency only when its site sells in it: with the site set to US it
+answers in USD whatever currency is chosen, and its lines then say **Other currency**. Mouser always answers in the
+currency of your Mouser account; change it there to match. Saved prices are kept in `vendor-offers.db` in the data
+folder. They are not part of backups, because a check fills them again.
 
 Use **Start stocktake** from Actions (`Space`, then the action, or `t`) for a
 guided physical count. Inventatory clears the stock filter, keeps each count in
@@ -175,6 +189,14 @@ the paired R1 receives the saved list during its next sync. Selecting a preset o
 configured PC printer. Each cable flag prints normally oriented text on both folded halves, with its font scaled to fit.
 Failed/offline device requests are not queued.
 
+**Settings -> Integrations / Vendors** holds everything about DigiKey, TME and Mouser on one page. Each vendor has an
+**Enabled** switch (Enter toggles it), an **API key** row that reads Hidden, with **Show** (`v`), **Edit** (`e`) and **Test** (`t`), and a **Usage** row. Show, or Enter on the row, asks for a second Enter and then lists the stored keys until the cursor moves away. A
+vendor that is off keeps its stored keys but is skipped for price checks, refreshes and scans. Below the vendors, **All
+vendors** holds **Currency** (EUR, PLN or USD, also asked during first setup), **Region** (a two-letter country code such
+as DE, used as the DigiKey site and the TME country) and **Part data**, where **Refresh all** (`r`) refreshes every part
+at its own vendor and skips vendors that are off or not set up. Edit opens a short form for the keys and turns the
+vendor on when it is saved. Secrets are never shown.
+
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
 next launch. DigiKey, TME and Mouser secrets are stored in the operating system credential store (Windows Credential
@@ -192,24 +214,19 @@ the existing setup wizard. After provisioning is accepted, the section restores
 last contact once it has reported in), the service port, and **Check for firmware
 updates**. Before the first report, the status reads **Waiting for device**.
 
-An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
-collects the Client ID and Client secret, stores the secret in Windows
-Credential Manager, and restores the account and regional settings after the
-credentials are saved. A live credential test remains available afterward.
-
-The TME section takes the application token and application secret, stored in the credential store, and the
-country, language and currency, stored in the settings file. **Test** requests an access token with the token and secret, then makes one product request. **Refresh inventory data** looks up each TME-sourced stock item by its TME symbol when the item has one, and otherwise
-by its manufacturer part number (or its SKU when it has none), and applies a result only when the manufacturer part
-number matches exactly and one product fits. The refresh also reads each part's parameters, datasheet, stock and
-lowest price from TME, so a TME part shows the same details a DigiKey part does.
+The DigiKey form collects the Client ID, the Client secret and an optional Account ID, and stores the secret in the
+credential store. The TME form takes the application token and the application secret. **Test** for TME requests an access
+token with the token and secret, then makes one product request. A refresh looks up each TME-sourced stock item by its
+TME symbol when the item has one, or else by its manufacturer part number (or its SKU when it has none), and applies a
+result only when the manufacturer part number matches exactly and one product fits. The refresh also reads each part's
+parameters, datasheet, stock and lowest price from TME, so a TME part shows the same details a DigiKey part does.
 Refresh looks up only the parts that came from TME. A part that came from DigiKey is never looked up at TME. A TME
 part number typed on a DigiKey part is kept beside it and still identifies that part when its TME label is scanned.
 If the TME record gives a resistance, capacitance or inductance that differs from the stored value, the record is not
 merged; the refresh reports the part as an error instead.
 Lookups are requests to TME, so a large inventory takes a few minutes.
 
-The Mouser section takes the Mouser API key. The key is hidden on screen and is saved to the credential store with
-Save. A key that contains spaces or control characters is refused when it is entered, and it can be at most 256 bytes. The environment variable
+The Mouser form takes the Mouser API key. The key is hidden on screen and is saved to the credential store. A key that contains spaces or control characters is refused when it is entered, and it can be at most 256 bytes. The environment variable
 MOUSER_API_KEY can supply the key instead: when it is set and not blank, Inventatory uses it in place of the stored key.
 **Test** sends one search to Mouser. The key passes when Mouser answers that search without an error, and a reached request limit also shows the key was accepted. A rejected
 key, a failed answer or no connection to Mouser fails the test.
@@ -218,7 +235,7 @@ key, a failed answer or no connection to Mouser fails the test.
 else its SKU. It needs a Mouser key, saved in Settings or set in MOUSER_API_KEY. It makes one Mouser request per part, spaced about two seconds apart, so a large
 inventory takes several minutes. A Mouser record with a manufacturer part number different from the part's is not
 applied, and the part is counted as an error. When Mouser lists several products for a part number and the manufacturer
-does not tell them apart, the part is counted as ambiguous and is left unchanged. The **Last refresh** row shows how
+does not tell them apart, the part is counted as ambiguous and is left unchanged. The **Part data** row shows how
 many parts were updated, not found, ambiguous and in error. A refresh stops early when Mouser reports its request limit
 or rejects the key; the parts it has not reached are left unchanged.
 
