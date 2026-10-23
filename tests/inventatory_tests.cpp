@@ -5233,6 +5233,36 @@ void testScanCodeResolution() {
   assert(!plainNumber.matched && !plainNumber.created);
   assert(plainNumber.message == refusedMessage);
 
+  // A Mouser bag's large Data Matrix, copied from a real bag, names a customer part number (here the
+  // manufacturer's) and the manufacturer, but no Mouser number. Its linear code is a bare Mouser number, which
+  // is still refused like any plain part number.
+  const string gs(1, '\x1d');
+  const string rs(1, '\x1e');
+  const string eot(1, '\x04');
+  const string mouserBag = "[)>" + rs + "06" + gs + "K35194" + gs + "14K003" + gs + "P74279226101" + gs + "Q3" + gs +
+                           "11K088863023" + gs + "4LTW" + gs + "1VWurth" + rs + eot;
+  const auto mouserLinear = resolveScanCode(store, "710-74279226101");
+  assert(!mouserLinear.matched && !mouserLinear.created);
+  assert(mouserLinear.message == refusedMessage);
+
+  const auto itemsBeforeMouser = store.items().size();
+  const auto mouserCreated = resolveScanCode(store, mouserBag);
+  assert(mouserCreated.matched && mouserCreated.created);
+  assert(store.items().size() == itemsBeforeMouser + 1);
+  const auto* mouserItem = store.findById(mouserCreated.itemId);
+  assert(mouserItem != nullptr);
+  assert(mouserItem->partName == "Scanned Mouser Item");
+  assert(mouserItem->manufacturer == "Wurth");
+  assert(mouserItem->sku == "74279226101");
+  assert(mouserItem->vendorMetadata.provider == "mouser");
+  assert(mouserItem->vendorMetadata.manufacturerPartNumber == "74279226101");
+  assert(mouserItem->vendorMetadata.providerProductNumber.empty());
+  assert(mouserItem->syncStatus == "needs_metadata");
+  // The same bag again finds that part, however the number is punctuated.
+  const auto mouserAgain = resolveScanCode(store, mouserBag);
+  assert(mouserAgain.matched && !mouserAgain.created && mouserAgain.itemId == mouserCreated.itemId);
+  assert(store.items().size() == itemsBeforeMouser + 1);
+
   const auto machineResolution = resolveScanCode(store, "0002");
   assert(machineResolution.matched);
   assert(!machineResolution.created);
@@ -6605,9 +6635,9 @@ void testTmeScannedPartLabelPlan() {
   assert(!plan.rackCell.empty());
   // The rating and the limits fill the four tiles, as the DigiKey tiles do for a fuse.
   assert(plan.parameters.size() == 4);
-  assert(plan.parameters[0].caption == "RATED" && plan.parameters[0].value == "100mA");
-  assert(plan.parameters[1].caption == "VMAX" && plan.parameters[1].value == "15V");
-  assert(plan.parameters[2].caption == "IMAX" && plan.parameters[2].value == "40A");
+  assert(plan.parameters[0].caption == "RATED CURRENT" && plan.parameters[0].value == "100mA");
+  assert(plan.parameters[1].caption == "MAX VOLTAGE" && plan.parameters[1].value == "15V");
+  assert(plan.parameters[2].caption == "MAX CURRENT" && plan.parameters[2].value == "40A");
   assert(plan.parameters[3].caption == "POWER" && plan.parameters[3].value == "500mW");
 
   // A typed name prints as is; a supplier's description is replaced by the part number.
@@ -7149,7 +7179,7 @@ void testLabelTilesFollowConcepts() {
   for (const auto* item : {&led, &reversedLed}) {
     const auto tiles = tilesOf(*item);
     assert(valueOf(tiles, "COLOR") == "Green");
-    assert(valueOf(tiles, "VF") == "2V");
+    assert(valueOf(tiles, "FORWARD V.") == "2V");
     assert(valueOf(tiles, "INTENSITY") == "35mcd");
     assert(valueOf(tiles, "VIEWING ANGLE") == u8"130°");
     assert(valueOf(tiles, "LENS TRANSPARENCY") == "<none>");
@@ -7173,9 +7203,9 @@ void testLabelTilesFollowConcepts() {
   filter.parameters = {{"Impedance at 100MHz", u8"120Ω"}, {"Current Rating (Amps)", "2A"}, {"Frequency", "±20ppm"},
                        {"Operating Temperature", "-55 to 125°C"}};
   const auto filterTiles = tilesOf(filter);
-  assert(valueOf(filterTiles, "Z") == u8"120Ω");
-  assert(valueOf(filterTiles, "I") == "2A");
-  assert(valueOf(filterTiles, "TEMP") == u8"-55 to 125°C");
+  assert(valueOf(filterTiles, "IMPEDANCE") == u8"120Ω");
+  assert(valueOf(filterTiles, "RATED CURRENT") == "2A");
+  assert(valueOf(filterTiles, "TEMPERATURE") == u8"-55 to 125°C");
   for (const auto& tile : filterTiles) assert(tile.value != "±20ppm");
 
   // A supply range with a DC qualifier keeps the range and the unit on its tile.
@@ -7185,7 +7215,7 @@ void testLabelTilesFollowConcepts() {
   amplifier.category = "Integrated Circuits (ICs)";
   amplifier.quantity = 1;
   amplifier.parameters = {{"Voltage - Supply", u8"± 2.25 to 20V DC, 4.5 to 40V"}, {"Operating Temperature", "0 to 70°C"}};
-  assert(valueOf(tilesOf(amplifier), "SUPPLY") == u8"± 2.25 to 20V");
+  assert(valueOf(tilesOf(amplifier), "SUPPLY VOLTAGE") == u8"± 2.25 to 20V");
 
   // A timer whose frequency field holds a tolerance is still an IC for its tiles.
   InventoryItem timer;
@@ -7195,7 +7225,7 @@ void testLabelTilesFollowConcepts() {
   timer.quantity = 1;
   timer.parameters = {{"Voltage - Supply", "4.5V ~ 16V"}, {"Current - Supply", "10 mA"}, {"Frequency", "±20ppm"}};
   const auto timerTiles = tilesOf(timer);
-  assert(valueOf(timerTiles, "SUPPLY") == "4.5 to 16V");
+  assert(valueOf(timerTiles, "SUPPLY VOLTAGE") == "4.5 to 16V");
   assert(valueOf(timerTiles, "CURRENT") == "10mA");
   for (const auto& tile : timerTiles) assert(tile.value != "±20ppm");
 }
@@ -8058,18 +8088,18 @@ void testCategoryHeadersAndPartDescriptors() {
   const auto tvsPlan = service.buildLabelPlan(tvsDiode);
   assert(tvsPlan.categoryHeader == "TVS Diode");
   assert(tvsPlan.parameters.size() == 4);
-  assert(tvsPlan.parameters[0].caption == "VST" && tvsPlan.parameters[0].value == "16V");
-  assert(tvsPlan.parameters[1].caption == "VC" && tvsPlan.parameters[1].value == "26V");
-  assert(tvsPlan.parameters[2].caption == "IPP" && tvsPlan.parameters[2].value == "23.1A");
-  assert(labelTile(tvsPlan, "PPP") == "600W");
+  assert(tvsPlan.parameters[0].caption == "STANDOFF V." && tvsPlan.parameters[0].value == "16V");
+  assert(tvsPlan.parameters[1].caption == "CLAMP VOLTAGE" && tvsPlan.parameters[1].value == "26V");
+  assert(tvsPlan.parameters[2].caption == "PEAK PULSE I" && tvsPlan.parameters[2].value == "23.1A");
+  assert(labelTile(tvsPlan, "PEAK PULSE P.") == "600W");
   const auto tvsZpl = service.buildZpl(tvsDiode);
   assert(tvsZpl.find("^FR^FDTVS DIODE^FS") != string::npos);
-  assert(tvsZpl.find("^FO7,110^A0N,12,11^FDVST^FS") != string::npos);
+  assert(tvsZpl.find("^FDSTANDOFF V.^FS") != string::npos);
   assert(tvsZpl.find("^FO7,123^A0N,22,22^FD16V^FS") != string::npos);
-  assert(tvsZpl.find("^FO93,110^A0N,12,11^FDVC^FS") != string::npos);
-  assert(tvsZpl.find("^FO7,149^A0N,12,11^FDIPP^FS") != string::npos);
+  assert(tvsZpl.find("^FDCLAMP VOLTAGE^FS") != string::npos);
+  assert(tvsZpl.find("^FDPEAK PULSE I^FS") != string::npos);
   assert(tvsZpl.find("^FD23.1A^FS") != string::npos);
-  assert(tvsZpl.find("^FO93,149^A0N,12,11^FDPPP^FS") != string::npos);
+  assert(tvsZpl.find("^FDPEAK PULSE P.^FS") != string::npos);
   assert(tvsZpl.find("^FO88,112^GB1,72,1^FS") != string::npos);
 
   InventoryItem circuitProtectionTvs;
@@ -8263,8 +8293,8 @@ void testCategoryHeadersAndPartDescriptors() {
   // The sensor type does not fit a tile whole, so it is left off rather than clipped.
   assert(imuPlan.parameters.size() == 3);
   assert(imuPlan.parameters[0].caption == "OUTPUT");
-  assert(imuPlan.parameters[1].caption == "SUPPLY");
-  assert(imuPlan.parameters[2].caption == "RES");
+  assert(imuPlan.parameters[1].caption == "SUPPLY VOLTAGE");
+  assert(imuPlan.parameters[2].caption == "RESOLUTION");
   assert(service.buildZpl(imu).find("^FR^FD3 AXIS IMU^FS") != string::npos);
 
   {
@@ -8329,8 +8359,8 @@ void testCategoryHeadersAndPartDescriptors() {
   assert(inductorPlan.mainValue.find("100MHz") == string::npos);
   assert(inductorPlan.mainValue == "27nH");
   assert(inductorPlan.mainIsMeasuredValue);
-  assert(labelTile(inductorPlan, "RATED") == "350mA");
-  assert(labelTile(inductorPlan, "SRF") == "1.7GHz");
+  assert(labelTile(inductorPlan, "RATED CURRENT") == "350mA");
+  assert(labelTile(inductorPlan, "SELF RESONANCE") == "1.7GHz");
 }
 
 void testCompactPartNameWrapping() {
@@ -8362,9 +8392,9 @@ void testCompactPartNameWrapping() {
   assert(plan.mainTolerance.empty());
   assert(plan.parameters.size() == 4);
   assert(plan.parameters[0].caption == "CORE" && plan.parameters[0].value == "Cortex-M0+");
-  assert(plan.parameters[1].caption == "CLOCK" && plan.parameters[1].value == "64MHz");
+  assert(plan.parameters[1].caption == "CLOCK SPEED" && plan.parameters[1].value == "64MHz");
   assert(plan.parameters[2].caption == "FLASH / RAM" && plan.parameters[2].value == "128KB/36KB");
-  assert(plan.parameters[3].caption == "SUPPLY" && plan.parameters[3].value == "3.3V");
+  assert(plan.parameters[3].caption == "SUPPLY VOLTAGE" && plan.parameters[3].value == "3.3V");
   const auto zpl = service.buildZpl(item);
   // A manufacturer that cannot fit beside the package pill uses its short name.
   assert(zpl.find("^FDSTMicro") == string::npos);
@@ -8405,8 +8435,8 @@ void testPackageAndMosfetTiles() {
   assert(plan.packageLine == "TO-263-3");
   assert(plan.manufacturerLine == "Alpha & Omega");
   assert(plan.parameters.size() == 2);
-  assert(labelTile(plan, "VDS") == "30V");
-  assert(labelTile(plan, "ID") == "12A");
+  assert(labelTile(plan, "DRAIN-SOURCE V") == "30V");
+  assert(labelTile(plan, "DRAIN CURRENT") == "12A");
 
   const auto zpl = service.buildZpl(item);
   assert(zpl.find("^FR^FDN-MOSFET^FS") != string::npos);
@@ -8419,9 +8449,9 @@ void testPackageAndMosfetTiles() {
   assert(mainSize >= 18 && mainSize <= 40);
   assert(estimateFont0Width("IRLML6344TRPBF", mainSize, mainSize) <= 164);
   assert(zpl.find("^FO12,84^A0N,16,16^FR^FDTO-263-3^FS") != string::npos);
-  assert(zpl.find("^FDVDS^FS") != string::npos);
+  assert(zpl.find("^FDDRAIN-SOURCE V^FS") != string::npos);
   assert(zpl.find("^FD30V^FS") != string::npos);
-  assert(zpl.find("^FDID^FS") != string::npos);
+  assert(zpl.find("^FDDRAIN CURRENT^FS") != string::npos);
   assert(zpl.find("^FD12A^FS") != string::npos);
   // Two tiles fill one row, so the column rule stops after the first row.
   assert(zpl.find("^FO88,112^GB1,33,1^FS") != string::npos);
@@ -8451,9 +8481,9 @@ void testDiodeParameterTiles() {
   diode.parameters = {{"Forward Voltage", "0.38V"}, {"Reverse Voltage", "40V"}, {"Current", "1A"}};
   const auto diodePlan = service.buildLabelPlan(diode);
   assert(diodePlan.parameters.size() == 3);
-  assert(diodePlan.parameters[0].caption == "VR" && diodePlan.parameters[0].value == "40V");
-  assert(diodePlan.parameters[1].caption == "IO" && diodePlan.parameters[1].value == "1A");
-  assert(diodePlan.parameters[2].caption == "VF" && diodePlan.parameters[2].value == "380mV");
+  assert(diodePlan.parameters[0].caption == "REV. VOLTAGE" && diodePlan.parameters[0].value == "40V");
+  assert(diodePlan.parameters[1].caption == "AVG CURRENT" && diodePlan.parameters[1].value == "1A");
+  assert(diodePlan.parameters[2].caption == "FORWARD V." && diodePlan.parameters[2].value == "380mV");
 
   InventoryItem connector;
   connector.id = "conn-1";
@@ -8475,9 +8505,9 @@ void testDiodeParameterTiles() {
   regulator.category = "Voltage Regulators";
   regulator.parameters = {{"Output Voltage", "3.3V"}, {"Voltage - Input", "5V"}, {"Output Current", "1A"}, {"Type", "LDO"}};
   const auto regulatorPlan = service.buildLabelPlan(regulator);
-  assert(labelTile(regulatorPlan, "VOUT") == "3.3V");
-  assert(labelTile(regulatorPlan, "VIN") == "5V");
-  assert(labelTile(regulatorPlan, "IOUT") == "1A");
+  assert(labelTile(regulatorPlan, "OUTPUT VOLTAGE") == "3.3V");
+  assert(labelTile(regulatorPlan, "INPUT VOLTAGE") == "5V");
+  assert(labelTile(regulatorPlan, "OUTPUT CURRENT") == "1A");
   assert(labelTile(regulatorPlan, "TYPE") == "LDO");
 
   InventoryItem crystal;
@@ -8487,8 +8517,8 @@ void testDiodeParameterTiles() {
   crystal.category = "Crystals";
   crystal.parameters = {{"Frequency", "16MHz"}, {"Load Capacitance", "18pF"}, {"ESR", "50Ohm"}};
   const auto crystalPlan = service.buildLabelPlan(crystal);
-  assert(labelTile(crystalPlan, "FREQ") == "16MHz");
-  assert(labelTile(crystalPlan, "LOAD C") == "18pF");
+  assert(labelTile(crystalPlan, "FREQUENCY") == "16MHz");
+  assert(labelTile(crystalPlan, "LOAD CAP.") == "18pF");
   assert(labelTile(crystalPlan, "ESR") == u8"50\u03A9");
 }
 
@@ -8523,7 +8553,7 @@ void testCapacitorValueAndTiles() {
   assert(mlccPlan.parameters.size() == 4);
   assert(labelTile(mlccPlan, "VOLTAGE") == "50V");
   assert(labelTile(mlccPlan, "DIELECTRIC") == "X7R");
-  assert(labelTile(mlccPlan, "TEMP") == u8"-55 to 125\u00B0C");
+  assert(labelTile(mlccPlan, "TEMPERATURE") == u8"-55 to 125\u00B0C");
   assert(labelTile(mlccPlan, "HEIGHT") == "0.55mm");
   assert(labelTile(mlccPlan, "ESR").empty());
   const auto mlccZpl = service.buildZpl(mlcc, "R118-b2");
@@ -8581,11 +8611,11 @@ void testCapacitorValueAndTiles() {
   assert(!mosfetPlan.mainIsMeasuredValue);
   assert(mosfetPlan.packageLine == "SOT-23-3L");
   assert(mosfetPlan.parameters.size() == 4);
-  assert(labelTile(mosfetPlan, "VDS") == "30V");
-  assert(labelTile(mosfetPlan, "ID") == "5.7A");
-  assert(labelTile(mosfetPlan, "RDS(ON)") == u8"26.5m\u03A9");
-  assert(labelTile(mosfetPlan, "VGS(TH)") == "1.45V");
-  assert(labelTile(mosfetPlan, "QG").empty());
+  assert(labelTile(mosfetPlan, "DRAIN-SOURCE V") == "30V");
+  assert(labelTile(mosfetPlan, "DRAIN CURRENT") == "5.7A");
+  assert(labelTile(mosfetPlan, "ON RESISTANCE") == u8"26.5m\u03A9");
+  assert(labelTile(mosfetPlan, "GATE THRESHOLD") == "1.45V");
+  assert(labelTile(mosfetPlan, "GATE CHARGE").empty());
   const auto mosfetZpl = service.buildZpl(mosfet);
   // A long manufacturer drops its corporate suffix instead of being cut.
   assert(mosfetZpl.find("^FDAlpha & Omega Semiconductor Inc.^FS") == string::npos);
@@ -8606,10 +8636,10 @@ void testCapacitorValueAndTiles() {
   const auto inductorPlan = service.buildLabelPlan(inductor);
   assert(inductorPlan.mainValue == u8"4.7\u00B5H");
   assert(inductorPlan.packageLine == "4x4mm");
-  assert(labelTile(inductorPlan, "RATED") == "3A");
-  assert(labelTile(inductorPlan, "ISAT") == "3.6A");
-  assert(labelTile(inductorPlan, "DCR") == u8"48m\u03A9");
-  assert(labelTile(inductorPlan, "SHIELD") == "Shielded");
+  assert(labelTile(inductorPlan, "RATED CURRENT") == "3A");
+  assert(labelTile(inductorPlan, "SAT. CURRENT") == "3.6A");
+  assert(labelTile(inductorPlan, "DC RESISTANCE") == u8"48m\u03A9");
+  assert(labelTile(inductorPlan, "SHIELDING") == "Shielded");
 
   // ICs print the manufacturer part number rather than the distributor description.
   InventoryItem mcu;
@@ -8850,7 +8880,7 @@ void testDielectricNeverComesFromMountingType() {
   const auto electrolyticPlan = service.buildLabelPlan(electrolytic);
   assert(labelTile(electrolyticPlan, "DIELECTRIC").empty());
   assert(labelTile(electrolyticPlan, "VOLTAGE") == "16V");
-  assert(labelTile(electrolyticPlan, "TEMP") == u8"-40 to 85\u00B0C");
+  assert(labelTile(electrolyticPlan, "TEMPERATURE") == u8"-40 to 85\u00B0C");
   assert(labelTile(electrolyticPlan, "HEIGHT") == "12mm");
   assert(electrolyticPlan.parameters.size() == 3);
   const auto electrolyticZpl = service.buildZpl(electrolytic);
@@ -8885,7 +8915,7 @@ void testDielectricNeverComesFromMountingType() {
                            {"ESR (Equivalent Series Resistance)", "50 mOhm @ 100kHz"}};
   const auto mismatchedPlan = service.buildLabelPlan(mismatched);
   assert(labelTile(mismatchedPlan, "VOLTAGE").empty());
-  assert(labelTile(mismatchedPlan, "TEMP").empty());
+  assert(labelTile(mismatchedPlan, "TEMPERATURE").empty());
   assert(labelTile(mismatchedPlan, "HEIGHT").empty());
   assert(labelTile(mismatchedPlan, "ESR") == u8"50m\u03A9");
 
@@ -8905,7 +8935,7 @@ void testDielectricNeverComesFromMountingType() {
   sensor.parameters = {{"Output Type", "Pulse Width Modulation, 12-bit"}, {"Resolution", "1,024 steps"}};
   const auto sensorPlan = service.buildLabelPlan(sensor);
   assert(labelTile(sensorPlan, "OUTPUT").empty());
-  assert(labelTile(sensorPlan, "RES") == "1,024 steps");
+  assert(labelTile(sensorPlan, "RESOLUTION") == "1,024 steps");
   assert(labelTileValue("Polyester, Metallized") == "Polyester");
   assert(labelTileValue("0.472\" (12.50mm)") == "12.5mm");
   assert(labelTileValue(u8"-55\u00B0C ~ 150\u00B0C (TJ)") == u8"-55 to 150\u00B0C");
@@ -8934,10 +8964,10 @@ void testDiscreteSemiconductorKinds() {
                          {"Supplier Device Package", "DO-214AB (SMC)"}};
   const auto schottkyPlan = service.buildLabelPlan(schottky, "R3-A3");
   assert(schottkyPlan.mainValue == "CDBC560-G");
-  assert(labelTile(schottkyPlan, "VR") == "60V");
-  assert(labelTile(schottkyPlan, "IO") == "5A");
-  assert(labelTile(schottkyPlan, "VF") == "750mV");
-  assert(labelTile(schottkyPlan, "TECH") == "Schottky");
+  assert(labelTile(schottkyPlan, "REV. VOLTAGE") == "60V");
+  assert(labelTile(schottkyPlan, "AVG CURRENT") == "5A");
+  assert(labelTile(schottkyPlan, "FORWARD V.") == "750mV");
+  assert(labelTile(schottkyPlan, "TECHNOLOGY") == "Schottky");
   const auto schottkyZpl = service.buildZpl(schottky, "R3-A3");
   assert(schottkyZpl.find("641-1127") == string::npos);
   assert(schottkyZpl.find("^FDComchip^FS") != string::npos);
@@ -8958,10 +8988,10 @@ void testDiscreteSemiconductorKinds() {
                     {"Mounting Type", "Surface Mount"}};
   const auto fetPlan = service.buildLabelPlan(fet, "R6-A2");
   assert(fetPlan.parameters.size() == 4);
-  assert(labelTile(fetPlan, "VDS") == "30V");
-  assert(labelTile(fetPlan, "ID") == "5A");
-  assert(labelTile(fetPlan, "RDS(ON)") == u8"29m\u03A9");
-  assert(labelTile(fetPlan, "VGS(TH)") == "1.1V");
+  assert(labelTile(fetPlan, "DRAIN-SOURCE V") == "30V");
+  assert(labelTile(fetPlan, "DRAIN CURRENT") == "5A");
+  assert(labelTile(fetPlan, "ON RESISTANCE") == u8"29m\u03A9");
+  assert(labelTile(fetPlan, "GATE THRESHOLD") == "1.1V");
   assert(fetPlan.packageLine == "Micro3");
   assert(service.buildZpl(fet, "R6-A2").find("^FDInfineon^FS") != string::npos);
 
@@ -8989,10 +9019,10 @@ void testDiscreteSemiconductorKinds() {
                      {"Synchronous Rectifier", "Yes"},
                      {"Type", "Surface Mount"}};
   const auto buckPlan = service.buildLabelPlan(buck);
-  assert(labelTile(buckPlan, "VOUT") == "3.3V");
-  assert(labelTile(buckPlan, "VIN") == "32V");
-  assert(labelTile(buckPlan, "IOUT") == "2A");
-  assert(labelTile(buckPlan, "VR").empty());
+  assert(labelTile(buckPlan, "OUTPUT VOLTAGE") == "3.3V");
+  assert(labelTile(buckPlan, "INPUT VOLTAGE") == "32V");
+  assert(labelTile(buckPlan, "OUTPUT CURRENT") == "2A");
+  assert(labelTile(buckPlan, "REV. VOLTAGE").empty());
 
   InventoryItem smdFuse;
   smdFuse.partName = "FUSE BRD MT 500MA 125VAC 63VDC";
@@ -9004,7 +9034,7 @@ void testDiscreteSemiconductorKinds() {
                         {"Response Time", "Fast Blow"}};
   const auto fusePlan = service.buildLabelPlan(smdFuse);
   assert(fusePlan.parameters.size() == 4);
-  assert(labelTile(fusePlan, "VDC") == "63V" && labelTile(fusePlan, "SPEED") == "Fast Blow");
+  assert(labelTile(fusePlan, "DC VOLTAGE") == "63V" && labelTile(fusePlan, "SPEED") == "Fast Blow");
 
   InventoryItem timer;
   timer.partName = "IC OSC SNGL TIMER 100KHZ 8-SOIC";
@@ -9014,9 +9044,9 @@ void testDiscreteSemiconductorKinds() {
                       {"Voltage - Supply", "4.5V ~ 16V"},
                       {"Operating Temperature", u8"0\u00B0C ~ 70\u00B0C"}};
   const auto timerPlan = service.buildLabelPlan(timer);
-  assert(labelTile(timerPlan, "SUPPLY") == "4.5 to 16V");
-  assert(labelTile(timerPlan, "FREQ") == "100kHz");
-  assert(labelTile(timerPlan, "VR").empty());
+  assert(labelTile(timerPlan, "SUPPLY VOLTAGE") == "4.5 to 16V");
+  assert(labelTile(timerPlan, "FREQUENCY") == "100kHz");
+  assert(labelTile(timerPlan, "REV. VOLTAGE").empty());
   // A hyphen prints wider than a digit; the estimate must not under-count it.
   assert(estimateFont0Width("641-1127-1-ND", 22, 22) > estimateFont0Width("641112711ND", 22, 22) + 20);
 }
@@ -14257,6 +14287,30 @@ void testVendorBagCodeRecognition() {
   assert(tme->manufacturerPartNumber == "0ZCM0010FF2G");
   assert(tme->productUrl == "https://www.tme.eu/details/0ZCM0010FF2G");
 
+  // The Mouser bag in the photo: no -ND part number, a customer part number and the manufacturer.
+  const string mouserPhoto = "[)>" + rs + "06" + gs + "K35194" + gs + "14K003" + gs + "P74279226101" + gs + "Q3" + gs +
+                             "11K088863023" + gs + "4LTW" + gs + "1VWurth" + rs + eot;
+  const auto mouser = recognizeVendorBagCode(mouserPhoto);
+  assert(mouser.has_value());
+  assert(mouser->provider == "mouser");
+  assert(mouser->providerProductNumber.empty());
+  assert(mouser->manufacturerPartNumber == "74279226101");
+  assert(mouser->manufacturer == "Wurth");
+  // Without the line and invoice fields it is not a Mouser bag; without a part number there is nothing to look up.
+  assert(!recognizeVendorBagCode("[)>" + rs + "06" + gs + "P74279226101" + gs + "Q3" + gs + "1VWurth" + rs + eot)
+              .has_value());
+  assert(!recognizeVendorBagCode("[)>" + rs + "06" + gs + "K35194" + gs + "14K003" + gs + "P74279226101" + gs + "Q3" +
+                                 rs + eot)
+              .has_value());
+  assert(!recognizeVendorBagCode("[)>" + rs + "06" + gs + "K35194" + gs + "14K003" + gs + "P" + gs + "11K088863023" +
+                                 gs + "1VWurth" + rs + eot)
+              .has_value());
+  assert(!recognizeVendorBagCode("[)>" + rs + "06" + gs + "K35194" + gs + "14K003" + gs + "P<b>" + gs +
+                                 "11K088863023" + gs + "1VWurth" + rs + eot)
+              .has_value());
+  // A DigiKey bag keeps its vendor even when it also carries an 11K field.
+  assert(recognizeVendorBagCode(photoBag)->provider == "digikey");
+
   // Not a main code: no envelope on the TME bottom matrix, machine codes, part numbers or URLs.
   for (const char* other : {"P0ZCM0010FF2G1P0ZCM0010FF2GQ54LTWK34115735/9", "0002", "Inventatory:R-0002",
                             "311-10.0KHRCT-ND", "MLZ2012M3R3HT000",
@@ -14515,6 +14569,81 @@ void testMouserResponseParsing() {
   assert(capacitor.quantityAvailable.empty());
   assert(capacitor.packageName.empty() && capacitor.parameters.empty());
   assert(capacitor.vendorMetadata.categoryPath.empty());
+}
+
+// One part of a live v1 keyword search (2026-10-23, mouser.pl account), trimmed of image and compliance blocks. It
+// keeps the shapes the synthetic fixtures above only assume: a null LifecycleStatus, repeated Packaging attributes,
+// a localized price text with its own currency sign, and an object-valued weight.
+void testMouserLiveResponseShape() {
+  const string body = R"MOUSER({"Errors":[],"SearchResults":{"NumberOfResult":1,"Parts":[{"Availability":"3100087 In Stock","DataSheetUrl":"https://www.mouser.com/catalog/specsheets/YAGEO_PYu_RC_Group_51_RoHS_L_12.pdf","Description":"Thick Film Resistors - SMD General Purpose Chip Resistor 0603, 10kOhms, 1%, 1/10W","FactoryStock":"0","Category":"Thick Film Resistors - SMD","LeadTime":"98 Days","LifecycleStatus":null,"Manufacturer":"YAGEO","ManufacturerPartNumber":"RC0603FR-0710KL","Min":"1","Mult":"1","MouserPartNumber":"603-RC0603FR-0710KL","ProductAttributes":[{"AttributeName":"Packaging","AttributeValue":"Reel"},{"AttributeName":"Packaging","AttributeValue":"Cut Tape"},{"AttributeName":"Packaging","AttributeValue":"MouseReel","AttributeCost":"A MouseReel fee will be added and calculated in your basket."},{"AttributeName":"Standard Pack Qty","AttributeValue":"5000"}],"PriceBreaks":[{"Quantity":1,"Price":"0,378 zł","Currency":"PLN"},{"Quantity":10,"Price":"0,053 zł","Currency":"PLN"},{"Quantity":5000,"Price":"0,013 zł","Currency":"PLN"}],"ProductDetailUrl":"https://www.mouser.pl/en/ProductDetail/YAGEO/RC0603FR-0710KL?qs=grNVn54RoB%252B3GtjbJj3wJQ%3D%3D","Reeling":true,"UnitWeightKg":{"UnitWeight":2e-06},"AvailabilityInStock":"3100087","AvailabilityOnOrder":[{"Quantity":5699106,"Date":"2026-11-25T00:00:00"}],"SurchargeMessages":null}]}})MOUSER";
+  vector<MouserProductDetails> products;
+  string error;
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(products.size() == 1);
+
+  const auto& part = products.front();
+  assert(part.vendorMetadata.provider == kVendorProviderMouser);
+  assert(part.vendorMetadata.providerProductNumber == "603-RC0603FR-0710KL");
+  assert(part.vendorMetadata.manufacturerPartNumber == "RC0603FR-0710KL");
+  assert(part.manufacturerName == "YAGEO");
+  assert(part.categoryName == "Thick Film Resistors - SMD");
+  assert(part.quantityAvailable == "3100087");
+  assert(part.unitPrice.rfind("0,378 zł", 0) == 0);
+  assert(part.datasheetUrl == "https://www.mouser.com/catalog/specsheets/YAGEO_PYu_RC_Group_51_RoHS_L_12.pdf");
+  assert(part.productUrl.rfind("https://www.mouser.pl/en/ProductDetail/YAGEO/RC0603FR-0710KL?qs=", 0) == 0);
+  assert(part.orderable && part.productStatus.empty());
+  assert(part.parameters.size() == 4);
+}
+
+// Mouser gives this Würth bead packaging attributes only; the impedance and frequency come from the description.
+void testMouserFerriteParametersFromDescription() {
+  const string body = R"MOUSER({"Errors":[],"SearchResults":{"Parts":[{"Description":"Ferrite Beads WE-MPSB Ferrite 100MHz 100Ohm AECQ2","Category":"Ferrite Beads","Manufacturer":"Wurth Elektronik","ManufacturerPartNumber":"74279226101","MouserPartNumber":"710-74279226101","ProductAttributes":[{"AttributeName":"Packaging","AttributeValue":"Reel"},{"AttributeName":"Standard Pack Qty","AttributeValue":"2500"}]},{"Description":"Ferrite Beads 600 Ohms @ 100 MHz 0603","Category":"Ferrite Beads","ManufacturerPartNumber":"BLM18AG601SN1D","MouserPartNumber":"81-BLM18AG601SN1D"},{"Description":"Fixed Inductors 100MHz 100Ohm","Category":"Fixed Inductors","ManufacturerPartNumber":"X1","MouserPartNumber":"1-X1"}]}})MOUSER";
+  vector<MouserProductDetails> products;
+  string error;
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(products.size() == 3);
+  const auto value = [](const MouserProductDetails& part, const string& name) {
+    for (const auto& parameter : part.parameters) {
+      if (parameter.name == name) return parameter.value;
+    }
+    return string();
+  };
+  assert(value(products[0], "Impedance") == "100 Ohm");
+  assert(value(products[0], "Frequency") == "100 MHz");
+  assert(products[0].vendorMetadata.parameters.size() == products[0].parameters.size());
+  assert(value(products[1], "Impedance") == "600 Ohms");
+  assert(value(products[1], "Frequency") == "100 MHz");
+  // Only ferrite beads are read this way.
+  assert(products[2].parameters.empty());
+
+  // The scanned placeholder merges the record, and the label then carries both values.
+  InventoryItem scanned;
+  scanned.id = "scanned-mouser-bead";
+  scanned.partName = "Scanned Mouser Item";
+  scanned.manufacturer = "Wurth";
+  scanned.category = "Unsorted";
+  scanned.quantity = 3;
+  scanned.sku = "74279226101";
+  assert(app_actions::mergeMouserMetadata(scanned, products[0]));
+  LabelPrinterService service(make_unique<MockPrinterBackend>());
+  service.setConfiguredPrinter("ZDesigner LP 2824 Plus (ZPL)");
+  const auto plan = service.buildLabelPlan(scanned);
+  assert(plan.categoryHeader == "Ferrite Bead");
+  assert(plan.mainValue == "74279226101");
+  assert(plan.parameters.size() == 2);
+  assert(plan.parameters[0].caption == "IMPEDANCE" && plan.parameters[0].value == "100Ω");
+  assert(plan.parameters[1].caption == "FREQUENCY" && plan.parameters[1].value == "100MHz");
+}
+
+// Spelled-out captions are the point of the standard names, so each must print whole in a tile.
+void testLabelCaptionsFitWhole() {
+  for (const auto& [shortForm, text] : label_printer_detail::standardParameterCaptions()) {
+    const auto fitted = label_printer_detail::fitFont0Text(text, label_printer_detail::kLabelTileWidth, {12, 11, 10});
+    if (fitted.text != text) std::cerr << "CAPTION CUT " << shortForm << " -> " << text << "\n";
+    assert(fitted.text == text);
+  }
+  assert(label_printer_detail::standardParameterCaption("Z") == "IMPEDANCE");
+  assert(label_printer_detail::standardParameterCaption("UNLISTED") == "UNLISTED");
 }
 
 void testMouserEmptyPartsIsSuccess() {
@@ -15725,6 +15854,9 @@ const vector<TestCase>& registeredTests() {
     {"tme", "TmeMergeFillsEnrichment", testTmeMergeFillsEnrichment},
     {"tme", "TmeSettingsPersistOptionalKeys", testTmeSettingsPersistOptionalKeys},
     {"mouser", "MouserResponseParsing", testMouserResponseParsing},
+    {"mouser", "MouserLiveResponseShape", testMouserLiveResponseShape},
+    {"mouser", "MouserFerriteParametersFromDescription", testMouserFerriteParametersFromDescription},
+    {"label", "LabelCaptionsFitWhole", testLabelCaptionsFitWhole},
     {"mouser", "MouserEmptyPartsIsSuccess", testMouserEmptyPartsIsSuccess},
     {"mouser", "MouserErrorsListFails", testMouserErrorsListFails},
     {"mouser", "MouserNonObjectBodyFails", testMouserNonObjectBodyFails},

@@ -914,7 +914,7 @@ vector<LabelParameterTile> fallbackParameterTiles(const InventoryItem& item, siz
       continue;
     }
     if (meaning.colour) value[0] = static_cast<char>(toupper(static_cast<unsigned char>(value[0])));
-    auto caption = toUpper(shortParameterLabel(field.label));
+    auto caption = standardParameterCaption(toUpper(shortParameterLabel(field.label)));
     while (!caption.empty() && (caption.back() == ':' || caption.back() == ' ')) caption.pop_back();
     if (caption.empty() || !captionIsWhole(caption)) continue;
     candidates.push_back({meaning.rank, caption, value});
@@ -1133,7 +1133,9 @@ vector<LabelParameterTile> specificParameterTiles(const InventoryItem& item) {
 
 vector<LabelParameterTile> parameterTilesForItem(const InventoryItem& item) {
   auto tiles = specificParameterTiles(item);
-  return tiles.empty() ? fallbackParameterTiles(item, 4) : tiles;
+  if (tiles.empty()) return fallbackParameterTiles(item, 4);
+  for (auto& tile : tiles) tile.caption = standardParameterCaption(toUpper(tile.caption));
+  return tiles;
 }
 
 }  // namespace label_printer_detail
