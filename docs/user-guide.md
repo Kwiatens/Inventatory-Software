@@ -139,6 +139,10 @@ Mouser allows 30 requests a minute and 1,000 a day. Inventatory spaces all its M
 per-minute limit. A large shortage run can use up the daily allowance. When Mouser reports that its limit is reached,
 the run stops asking Mouser, and the lines that only Mouser could answer are looked up again on a later run.
 
+Inventatory counts its requests to DigiKey, Mouser and TME. It warns you when a daily limit is 80% used, and when a
+limit is reached it says which vendor and when it is available again. Each vendor page in Settings has a Usage row. See
+[vendor-rate-limits.md](vendor-rate-limits.md).
+
 Known limit: a line that was answered "no match" before Mouser was set up keeps that answer, and Inventatory does not
 ask Mouser about it.
 

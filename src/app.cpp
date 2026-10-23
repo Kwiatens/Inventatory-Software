@@ -5,6 +5,7 @@
 
 #include "App.h"
 
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/mouser/MouserApi.h"
 #include "platform/security/CredentialStore.h"
@@ -85,6 +86,9 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
                                    : restoreRecoveryNotice;
   }
   activateWorkspaceContext(makeInventatoryDataPaths(dataPath_));
+  // Vendor request counts live beside the app settings, not in the data directory: they describe
+  // this computer's use of the vendors' API keys, not the inventory.
+  VendorRateLimits::instance().setStoragePath(appSettingsDirectory() / "vendor-usage.conf");
   error_code quickLabelsError;
   const bool quickLabelsFileExists = filesystem::exists(quickLabelsPath_, quickLabelsError);
   if (quickLabelsError ||

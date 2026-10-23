@@ -705,6 +705,8 @@ class App {
   void processTmeRefresh();
   void beginMouserRefresh();
   void processMouserRefresh();
+  // Shows queued vendor warnings ("close to the limit") and limit-reached messages.
+  void processVendorNotices();
   void runBackgroundLoop();
   void runInteractiveLoop();
   void stopWorkspaceBoundWork();

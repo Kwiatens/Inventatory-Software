@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- DigiKey, Mouser and TME requests are counted against the vendors' published limits (DigiKey 120/min and 1,000/day,
+  Mouser 30/min and 1,000/day; TME publishes none). A message appears when a daily limit is 80% used. Settings shows a
+  Usage row on each vendor page. Counts are kept across restarts in `vendor-usage.conf` beside `settings.conf`.
+
+### Changed
+- A reached vendor limit is no longer a plain failure: the message names the vendor and says when it is available
+  again, no request is sent until then, and a refresh or shortage run stops at once. DigiKey and TME 429 answers get
+  the same treatment as Mouser's.
+
 ### Fixed
 - Settings: after restoring a backup or changing the data folder, Quick Labels no longer shows Unsaved, and saving
   that page no longer replaces the restored Quick Labels with the old ones.

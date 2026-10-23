@@ -15,6 +15,7 @@
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/Environment.h"
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/tme/TmeEncoding.h"
 #include "platform/tme/TmeVocabulary.h"
 
@@ -514,6 +515,7 @@ bool TmeApiClient::fetchAccessToken(string* error) {
                    "grant_type=client_credentials", response, error, "TME")) {
     return false;
   }
+  if (response.statusCode == 429) return setError(error, VendorRateLimits::instance().limitMessage(Vendor::Tme));
   if (response.statusCode == 401 || response.statusCode == 403) {
     return setError(error, "TME rejected the token or the application secret (HTTP " +
                                to_string(response.statusCode) + ")");
@@ -568,6 +570,7 @@ bool TmeApiClient::getEndpoint(const string& path, const vector<pair<string, str
                          config_.language + "\r\n";
     HttpResponse response;
     if (!requestHttp(L"GET", widen(url), widen(headers), "", response, error, "TME")) return false;
+    if (response.statusCode == 429) return setError(error, VendorRateLimits::instance().limitMessage(Vendor::Tme));
     if (response.statusCode == 401) {
       // Cached token rejected; fetch a new one and retry once.
       accessToken_.clear();
