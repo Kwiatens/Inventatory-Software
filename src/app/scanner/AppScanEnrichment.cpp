@@ -121,6 +121,10 @@ void App::processScanDigiKeyEnrichment() {
 }
 
 void App::beginDigiKeyRefresh() {
+  if (!settings_.digiKeyEnabled) {
+    setMessage("DigiKey is off; turn it on in Settings > Vendors", 4);
+    return;
+  }
   beginSupplierRefresh(
       digiKeyRefresh_, "DigiKey",
       [this]() -> unique_ptr<DigiKeyApiClient> {

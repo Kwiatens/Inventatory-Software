@@ -258,6 +258,8 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::lookupProductDetails(const str
 
     auto details = parseProductDetails(lookupKey, *root);
     details.vendorMetadata.locale = config_.language;
+    const auto fetchedAt = time(nullptr);
+    for (auto& offer : details.offers) offer.fetchedAt = fetchedAt;
     if (details.productDescription.empty() && details.parameters.empty()) {
       if (parseError != nullptr) {
         *parseError = "DigiKey returned an empty details payload";

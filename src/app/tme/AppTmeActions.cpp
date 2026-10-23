@@ -45,6 +45,10 @@ bool App::testStagedTme() {
 }
 
 void App::beginTmeRefresh() {
+  if (!settings_.tmeEnabled) {
+    setMessage("TME is off; turn it on in Settings > Vendors", 4);
+    return;
+  }
   beginSupplierRefresh(
       tmeRefresh_, "TME",
       [this]() -> unique_ptr<TmeApiClient> {
@@ -63,6 +67,7 @@ void App::beginTmeRefresh() {
 
 // Shares the refresh queue, so lookups run one at a time and merge on the UI thread.
 bool App::enqueueTmeScanLookup(const string& itemId, const string& symbol) {
+  if (!settings_.tmeEnabled) return false;
   if (tmeRefresh_.client == nullptr) {
     const auto config = loadTmeConfig();
     if (!config.valid()) {

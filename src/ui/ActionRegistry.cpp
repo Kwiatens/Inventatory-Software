@@ -5,6 +5,7 @@
 // currentActions().
 
 #include "App.h"
+#include "ui/pages/settings/SettingsPagePrivate.h"
 
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/tme/TmeApi.h"
@@ -133,6 +134,7 @@ vector<App::Action> App::currentActions() const {
       if (const auto* selected = self->selectedItem(); selected != nullptr && !mouserPartNumberOf(*selected).empty()) {
         add("Mouser", "Links", "s", chr('s'), openMouser);
       }
+      if (hasItem) add("check prices", "Links", "c", chr('c'), [self] { self->beginOfferRefresh(); });
       if (hasItem) add("print label", "Print", "p", chr('p'), [self] { self->printSelectedLabel(); });
       add(autoPrintScannedLabels_ ? "auto-label off" : "auto-label on", "Print", "P", chr('P'),
           [self] { self->toggleAutoPrintScannedLabels(); });
@@ -275,35 +277,43 @@ vector<App::Action> App::currentActions() const {
           add("forget device", "Device", "c", chr('c'), [self] { self->clearInventatoryScanPairing(); });
         }
       }
-      if (settingsCategory_ == SettingsCategory::DigiKey) {
-        const bool configured = !trim(self->settings_.digiKeyClientId).empty() && self->hasStoredDigiKeySecret_;
-        if (!configured) {
-          add("begin setup", "DigiKey", "b", chr('b'), [self] { self->openDigiKeySetup(); });
-        } else {
-          add("test credentials", "DigiKey", "t", chr('t'), [self] { self->testStagedDigiKey(); });
-          add("refresh inventory data", "DigiKey", "r", chr('r'), [self] { self->beginDigiKeyRefresh(); });
+      if (settingsCategory_ == SettingsCategory::Vendors) {
+        using settings_page_detail::VendorSection;
+        const auto section = settings_page_detail::vendorFieldRef(settingsField_).section;
+        // e and t act on the vendor under the cursor; r and c act on all of them.
+        const auto vendorKeys = [&](const char* name, VendorSetupVendor vendor, bool configured, bool running,
+                                    const function<void()>& test) {
+          const int keyField = vendor == VendorSetupVendor::DigiKey ? settings_page_detail::kDigiKeyKeyField
+                               : vendor == VendorSetupVendor::Tme   ? settings_page_detail::kTmeKeyField
+                                                                    : settings_page_detail::kMouserKeyField;
+          if (configured) {
+            add(self->revealedVendorField_ == keyField ? "hide keys" : "show keys", name, "v", chr('v'),
+                [self, keyField] { self->requestVendorKeyReveal(keyField); });
+          }
+          add(configured ? "edit API key" : "set up API key", name, "e", chr('e'), [self, vendor] { self->openVendorSetup(vendor); });
+          if (configured && !running) add("test credentials", name, "t", chr('t'), test);
+        };
+        if (section == VendorSection::DigiKey) {
+          vendorKeys("DigiKey", VendorSetupVendor::DigiKey,
+                     !trim(self->settings_.digiKeyClientId).empty() && self->hasStoredDigiKeySecret_,
+                     false, [self] { self->testStagedDigiKey(); });
+        } else if (section == VendorSection::Tme) {
+          vendorKeys("TME", VendorSetupVendor::Tme, self->hasStoredTmeToken_ && self->hasStoredTmeSecret_,
+                     self->tmeRefresh_.running(), [self] { self->testStagedTme(); });
+        } else if (section == VendorSection::Mouser) {
+          vendorKeys("Mouser", VendorSetupVendor::Mouser,
+                     self->hasStoredMouserKey_ || self->mouserKeyFromEnvironment_, self->mouserRefresh_.running(),
+                     [self] { self->testStagedMouser(); });
         }
-      }
-      if (settingsCategory_ == SettingsCategory::Tme) {
-        if (self->tmeRefresh_.running()) {
-          add("cancel TME refresh", "Sync", "c", chr('c'), [self] {
+        if (self->digiKeyRefresh_.running() || self->tmeRefresh_.running() || self->mouserRefresh_.running()) {
+          add("cancel refresh", "Sync", "c", chr('c'), [self] {
+            self->digiKeyRefresh_.queue.clear();
             self->tmeRefresh_.queue.clear();
-            self->setMessage("Cancelling after the current TME request", 4);
-          });
-        } else {
-          add("test credentials", "TME", "t", chr('t'), [self] { self->testStagedTme(); });
-          add("refresh inventory data", "TME", "r", chr('r'), [self] { self->beginTmeRefresh(); });
-        }
-      }
-      if (settingsCategory_ == SettingsCategory::Mouser) {
-        if (self->mouserRefresh_.running()) {
-          add("cancel Mouser refresh", "Sync", "c", chr('c'), [self] {
             self->mouserRefresh_.queue.clear();
-            self->setMessage("Cancelling after the current Mouser request", 4);
+            self->setMessage("Cancelling after the current vendor requests", 4);
           });
-        } else {
-          add("test credentials", "Mouser", "t", chr('t'), [self] { self->testStagedMouser(); });
-          add("refresh inventory data", "Mouser", "r", chr('r'), [self] { self->beginMouserRefresh(); });
+        } else if (!settingsDirty_) {
+          add("refresh all vendors", "Sync", "r", chr('r'), [self] { self->beginAllVendorRefresh(); });
         }
       }
       if (settingsDirty_) {
@@ -392,7 +402,7 @@ vector<App::Action> App::currentActions() const {
       }
       add("quit", "System", "q", chr('q'), [self] { self->requestUserExit(); });
       break;
-    case Page::DigiKeySetup:
+    case Page::VendorSetup:
     case Page::Onboarding:
     case Page::ScanSetup:
     case Page::Update:

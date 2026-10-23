@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/inventory/Inventory.h"
+#include "core/vendor/VendorOffer.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -52,6 +53,8 @@ struct DigiKeyProductDetails {
   string unitPrice;
   vector<Parameter> parameters;
   VendorProductMetadata vendorMetadata;
+  // One per packaging DigiKey sells the part in. fetchedAt is set by the client, not the parser.
+  vector<VendorOffer> offers;
 };
 
 // Why a lookup gave no details. NoMatch is authoritative. Failed (transport, auth, rate limit,

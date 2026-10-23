@@ -140,7 +140,7 @@ std::string App::pageName() const {
       return "History";
     case Page::ScanSetup:
       return "Scan R1 Setup";
-    case Page::DigiKeySetup:
+    case Page::VendorSetup:
       return "DigiKey Setup";
     case Page::Settings:
       return "Settings";
@@ -172,7 +172,7 @@ ftxui::Element App::renderHeaderUi() const {
   }
 
   // Clickable route to the action sheet; Space is the keyboard route.
-  const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::DigiKeySetup;
+  const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::VendorSetup;
   const string actionsLabel = " Actions ";
   auto actions = uiBodyText(actionsLabel, inputMode_ == InputMode::ActionSheet ? uiFocusColor() : uiInteractiveColor(),
                             inputMode_ == InputMode::ActionSheet ? uiSelectionBg() : uiSurfaceBg());
@@ -219,8 +219,8 @@ ftxui::Element App::renderPageUi() const {
       return renderHistoryUi();
     case Page::ScanSetup:
       return renderInventatoryScanSetupUi();
-    case Page::DigiKeySetup:
-      return renderDigiKeySetupUi();
+    case Page::VendorSetup:
+      return renderVendorSetupUi();
     case Page::Settings:
       return renderSettingsUi();
     case Page::Onboarding:
@@ -329,7 +329,7 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Setup wizard";
         contextText = "Guided Bluetooth provisioning for Inventatory Scan R1";
         break;
-      case Page::DigiKeySetup:
+      case Page::VendorSetup:
         contextTitle = "Setup wizard";
         contextText = "DigiKey credentials";
         break;
