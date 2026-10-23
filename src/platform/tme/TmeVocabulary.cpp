@@ -3,6 +3,7 @@
 
 #include "platform/tme/TmeVocabulary.h"
 
+#include <algorithm>
 #include <cctype>
 #include <utility>
 #include <vector>
@@ -223,6 +224,80 @@ vector<Parameter> tmeParameters(const string& name, const string& value, const s
     return parameters;
   }
   return {{tmeParameterName(name, family), text}};
+}
+
+string tmeListName(const string& description) {
+  string name;
+  bool pendingSpace = false;
+  for (size_t index = 0; index < description.size(); ++index) {
+    const unsigned char character = static_cast<unsigned char>(description[index]);
+    const bool labelColon = character == ':' && (index + 1 == description.size() || isspace(static_cast<unsigned char>(description[index + 1])));
+    if (character == ';' || labelColon || isspace(character)) {
+      pendingSpace = !name.empty();
+      continue;
+    }
+    if (pendingSpace) name += ' ';
+    pendingSpace = false;
+    // Only ASCII is changed, so "Ø5x11mm" and "±10%" keep their UTF-8 bytes.
+    name += character < 0x80 ? static_cast<char>(toupper(character)) : static_cast<char>(character);
+  }
+  return name;
+}
+
+namespace {
+
+string lowerTrimmed(const string& text) {
+  size_t begin = 0;
+  size_t end = text.size();
+  while (begin < end && isspace(static_cast<unsigned char>(text[begin]))) ++begin;
+  while (end > begin && isspace(static_cast<unsigned char>(text[end - 1]))) --end;
+  string result = text.substr(begin, end - begin);
+  for (char& character : result) character = static_cast<char>(tolower(static_cast<unsigned char>(character)));
+  return result;
+}
+
+}  // namespace
+
+string tmeReadableName(const string& description, const vector<Parameter>& parameters) {
+  vector<string> segments;
+  size_t start = 0;
+  while (start <= description.size()) {
+    const auto end = description.find(';', start);
+    segments.push_back(lowerTrimmed(description.substr(start, end == string::npos ? string::npos : end - start)));
+    if (end == string::npos) break;
+    start = end + 1;
+  }
+  const auto headEnd = segments.empty() ? string::npos : segments.front().find(':');
+  if (headEnd == string::npos || segments.front().substr(0, headEnd) != "connector") return tmeListName(description);
+
+  string pins;
+  string gender;
+  for (const auto& segment : segments) {
+    if (segment == "female") gender = "Female";
+    if (segment == "male") gender = "Male";
+    const auto colon = segment.find(':');
+    if (colon == string::npos) continue;
+    const auto key = lowerTrimmed(segment.substr(0, colon));
+    const auto value = lowerTrimmed(segment.substr(colon + 1));
+    const bool digits = !value.empty() && value.size() <= 3 && all_of(value.begin(), value.end(), [](char c) { return isdigit(static_cast<unsigned char>(c)); });
+    if ((key == "pin" || key == "pins") && digits && value != "0") pins = value;
+  }
+  if (pins.empty()) return tmeListName(description);
+
+  string name = gender.empty() ? pins : gender + " " + pins;
+  name += " Pin Connector";
+  // "Pitch" from TME's own list, or "Pitch - Mating" once the parameters are in DigiKey's form.
+  for (const auto& parameter : parameters) {
+    const auto key = lowerTrimmed(parameter.name);
+    if (key != "pitch" && key != "pitch - mating") continue;
+    string pitch;
+    for (const char character : parameter.value) {
+      if (!isspace(static_cast<unsigned char>(character))) pitch += character;
+    }
+    if (!pitch.empty()) name += " " + pitch;
+    break;
+  }
+  return name;
 }
 
 string tmeParameterName(const string& name, const string& family) {

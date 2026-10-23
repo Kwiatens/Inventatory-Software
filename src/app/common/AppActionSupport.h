@@ -13,6 +13,7 @@
 #include "core/parts/PhysicalValue.h"
 #include "platform/mouser/MouserApi.h"
 #include "platform/tme/TmeApi.h"
+#include "platform/tme/TmeVocabulary.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -292,8 +293,39 @@ bool mergeCatalogueMetadata(InventoryItem& item, const Details& details, const c
   return changed;
 }
 
+// A TME part named with its raw TME title is renamed in place, using the parameters it already stores, so
+// Stock is repaired when the inventory loads and needs no TME request. A name the user typed, and a part
+// bound to another supplier, are left alone.
+inline bool repairTmeName(InventoryItem& item) {
+  if (toLower(trim(item.vendorMetadata.provider)) != "tme") return false;
+  const auto title = trim(item.vendorMetadata.title);
+  if (title.empty() || trim(item.partName) != title) return false;
+  const auto readable = tmeReadableName(title, item.parameters);
+  if (readable.empty() || readable == item.partName) return false;
+  item.partName = readable;
+  return true;
+}
+
+// TME writes a description as "Connector: pin strips; socket; PIN: 40", which Stock shows as one long
+// line. The part gets a short readable name instead. A name an earlier version stored as the raw
+// description is rewritten the same way, so a refresh repairs it.
 inline bool mergeTmeMetadata(InventoryItem& item, const TmeProductDetails& details) {
-  return mergeCatalogueMetadata(item, details, kVendorProviderTme, "Scanned TME Item");
+  const auto raw = trim(details.productDescription);
+  const auto readable = tmeReadableName(raw, details.parameters);
+  const auto bound = toLower(trim(item.vendorMetadata.provider));
+  bool renamed = false;
+  if (!readable.empty() && readable != item.partName && (bound.empty() || bound == "tme")) {
+    const auto name = trim(item.partName);
+    if (name == raw || (!name.empty() && name == trim(item.vendorMetadata.title))) {
+      item.partName = readable;
+      renamed = true;
+    }
+  }
+  TmeProductDetails normalized = details;
+  if (!readable.empty()) normalized.productDescription = readable;
+  const bool merged = mergeCatalogueMetadata(item, normalized, kVendorProviderTme, "Scanned TME Item");
+  if (renamed && !merged) item.lastUpdated = time(nullptr);
+  return merged || renamed;
 }
 
 // Sets or clears the TME symbol. An item bound to another provider keeps that as its source.

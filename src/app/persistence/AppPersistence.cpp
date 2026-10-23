@@ -52,6 +52,11 @@ void App::loadState() {
   // A missing database is an empty workspace. Activate the candidate only after an existing one
   // loads, so a failed switch keeps the in-memory inventory and an empty target cannot inherit it.
   store_ = move(loadedStore);
+  if (inventoryLoaded && inventoryFileExists) {
+    for (auto& item : store_.items()) {
+      if (app_actions::repairTmeName(item)) inventoryNormalized = true;
+    }
+  }
   inventoryRecoveryRequired_ = false;
   inventoryRecoveryDetail_.clear();
   error_code scanConfigError;
