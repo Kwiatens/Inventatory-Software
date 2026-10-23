@@ -144,6 +144,8 @@ void App::processDeviceSyncEvents() {
   string affectedItemId;
   string enrichmentLookup;  // queued for DigiKey after the commit is durable
   string tmeLookupSymbol;   // queued for TME after the commit is durable
+  string mouserLookupPartNumber;  // queued for Mouser after the commit is durable
+  string mouserLookupManufacturer;
   bool created = false;
   if (event.type == "inventory.adjust") {
     DeviceQuantityRequest request{{}, event.eventId, event.code, event.value};
@@ -191,6 +193,9 @@ void App::processDeviceSyncEvents() {
           identity.has_value() && shouldEnrich && originProvider(*item) == identity->provider) {
         if (identity->provider == "tme") {
           tmeLookupSymbol = identity->providerProductNumber;
+        } else if (identity->provider == "mouser") {
+          mouserLookupPartNumber = identity->manufacturerPartNumber;
+          mouserLookupManufacturer = identity->manufacturer;
         } else {
           enrichmentLookup = identity->providerProductNumber;
         }
@@ -228,7 +233,12 @@ void App::processDeviceSyncEvents() {
   if (!enrichmentLookup.empty()) scanDigiKeyEnrichmentQueue_.emplace_back(affectedItemId, enrichmentLookup);
   const bool tmeLookupQueued = !tmeLookupSymbol.empty() && enqueueTmeScanLookup(affectedItemId, tmeLookupSymbol);
   // A created part prints after its lookup settles, so the label has the merged details.
-  if (created && (!enrichmentLookup.empty() || tmeLookupQueued)) queueScanAutoPrint(affectedItemId);
+  const bool mouserLookupQueued = !mouserLookupPartNumber.empty() &&
+                                  enqueueMouserScanLookup(affectedItemId, mouserLookupPartNumber,
+                                                          mouserLookupManufacturer);
+  if (created && (!enrichmentLookup.empty() || tmeLookupQueued || mouserLookupQueued)) {
+    queueScanAutoPrint(affectedItemId);
+  }
   store_ = move(candidate);
   persistedStore_ = store_;
   persistedStoreValid_ = true;

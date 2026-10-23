@@ -62,13 +62,18 @@ save the session. `q` or Escape cancels without changing stock. Corrections are
 recorded in the stock movement history and the selected part shows its recent
 movements below the normal details.
 
-A scan adds or finds a part only from the main code of a bag: the large Data Matrix on a DigiKey bag, or the large
-QR code on a TME bag. Scan one code per bag. Inventatory reads the vendor from that code and records it as the
-part's origin. A code from no supported vendor is refused with a message, and that part is added by hand. Scanning a
-Mouser bag is not supported yet: its code is refused in the same way, and the part is added by hand.
+A scan adds or finds a part only from the main code of a bag: the large Data Matrix on a DigiKey or Mouser bag, or the
+large QR code on a TME bag. Scan one code per bag. Inventatory reads the vendor from that code and records it as the
+part's origin. A code from no supported vendor is refused with a message, and that part is added by hand.
 
-A part that a scan creates prints its label after DigiKey or TME has supplied its details, so the label carries the
-part's name, value and package. When neither supplier finds the part, no label prints and the status line says why;
+A Mouser bag names no Mouser part number in its Data Matrix. Inventatory takes the customer part number printed there,
+which Mouser fills with the manufacturer part number, and looks it up on Mouser together with the manufacturer on the
+bag. A part is filled in only when exactly one Mouser product fits. When you entered your own number in the Mouser
+basket, or Mouser has no such product, the part stays as "Scanned Mouser Item" until you add its details by hand. The
+linear codes on a Mouser bag are not scanned.
+
+A part that a scan creates prints its label after DigiKey, TME or Mouser has supplied its details, so the label carries the
+part's name, value and package. When the supplier finds no part, no label prints and the status line says why;
 print it from the part's details once the details are added.
 
 Each part can have its own **Reorder threshold** in Edit. A positive value

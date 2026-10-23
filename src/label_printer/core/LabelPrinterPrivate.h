@@ -7,6 +7,7 @@
 
 #include "label_printer/core/LabelPrinter.h"
 
+#include <unordered_map>
 #include <ctime>
 #include <initializer_list>
 
@@ -24,6 +25,8 @@ string shortCode(const string& value, size_t maxLength = 14);
 string fieldOrBlank(const string& value, size_t maxLength);
 string sanitiseZplFragment(const string& value);
 string shortParameterLabel(const string& label);
+const std::unordered_map<std::string, std::string>& standardParameterCaptions();
+string standardParameterCaption(const string& upperCaption);
 string normalizeResistanceValue(string value);
 string fitSingleLineLabel(const string& value, size_t maxLength);
 
