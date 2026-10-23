@@ -815,6 +815,34 @@ void testConfirmGuard() {
   assert(cg::confirmed(now + 30, armed, 6, false) && armed == 0);
 }
 
+void testUiDeleteConfirmationLayout() {
+  // Without cooldown (secondsLeft == 0): direct Enter confirmation, no timer mention
+  {
+    auto el = inventatory::uiDeleteConfirmation(ftxui::text("background"), 80, "Delete item", "part", "100nF capacitor", 0);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80), ftxui::Dimension::Fixed(20));
+    ftxui::Render(screen, el);
+    const auto str = screen.ToString();
+    assert(str.find("Are you sure you want to delete this part from the database?") != string::npos);
+    assert(str.find("Selected: 100nF capacitor") != string::npos);
+    assert(str.find("Press Enter to confirm.") != string::npos);
+    assert(str.find("Press Esc to cancel.") != string::npos);
+    assert(str.find("timer") == string::npos);
+    assert(str.find("remaining") == string::npos);
+  }
+  // With cooldown (secondsLeft > 0): timer unlock notice and remaining seconds shown
+  {
+    auto el = inventatory::uiDeleteConfirmation(ftxui::text("background"), 80, "Delete rack", "rack", "R1", 3);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80), ftxui::Dimension::Fixed(20));
+    ftxui::Render(screen, el);
+    const auto str = screen.ToString();
+    assert(str.find("Are you sure you want to delete this rack from the database?") != string::npos);
+    assert(str.find("Selected: R1") != string::npos);
+    assert(str.find("Press Enter to confirm after the timer unlocks.") != string::npos);
+    assert(str.find("Press Esc to cancel.") != string::npos);
+    assert(str.find("3 seconds remaining") != string::npos);
+  }
+}
+
 // UI text helpers measure and cut in cells, never inside a UTF-8 sequence.
 namespace {
 bool wellFormedUtf8(const std::string& text) {
@@ -15675,6 +15703,7 @@ const vector<TestCase>& registeredTests() {
     {"ui", "NumericPromptReplacesDefault", testNumericPromptReplacesDefault},
     {"ui", "TerminalSizeGate", testTerminalSizeGate},
     {"ui", "ConfirmGuard", testConfirmGuard},
+    {"ui", "DeleteConfirmationLayout", testUiDeleteConfirmationLayout},
     {"ui", "Utf8AwareTextLayout", testUtf8AwareTextLayout},
 #ifndef _WIN32
     {"transfer", "RestoreKeepsMachineSpecificSettings", testRestoreKeepsMachineSpecificSettings},

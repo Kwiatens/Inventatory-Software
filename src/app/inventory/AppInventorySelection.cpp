@@ -283,14 +283,11 @@ bool App::deleteConfirmationActive() const {
 }
 
 bool App::deleteConfirmationReady() const {
-  return deleteConfirmationActive() && time(nullptr) >= deleteConfirmationUntil_;
+  return deleteConfirmationActive();
 }
 
 int App::deleteConfirmationSecondsLeft() const {
-  if (!deleteConfirmationActive()) {
-    return 0;
-  }
-  return max(0, static_cast<int>(deleteConfirmationUntil_ - time(nullptr)));
+  return 0;
 }
 
 void App::armDeleteConfirmation() {
@@ -301,7 +298,9 @@ void App::armDeleteConfirmation() {
   }
 
   deleteConfirmationItemId_ = item->id;
-  deleteConfirmationUntil_ = time(nullptr) + 3;
+  deleteConfirmationUntil_ = 0;
+  inputMode_ = InputMode::None;
+  focusedTargetId_.clear();
   dirty_ = true;
 }
 
@@ -322,13 +321,6 @@ void App::clearDeleteConfirmationIfExpired() {
 void App::confirmDeleteSelectedItem() {
   if (!deleteConfirmationActive()) {
     setMessage("Press Del first to arm delete", 2, UiMessageSeverity::Warning);
-    return;
-  }
-
-  if (!deleteConfirmationReady()) {
-    setMessage("Wait " + to_string(deleteConfirmationSecondsLeft()) + " more second" +
-                   (deleteConfirmationSecondsLeft() == 1 ? string() : string("s")) + " to confirm delete",
-               2, UiMessageSeverity::Warning);
     return;
   }
 

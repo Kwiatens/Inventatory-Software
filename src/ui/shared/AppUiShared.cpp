@@ -221,12 +221,17 @@ ftxui::Element uiDeleteConfirmation(ftxui::Element page, int screenWidth, const 
   popupRows.push_back(ftxui::paragraphAlignLeft(question) | ftxui::color(uiTitleColor()));
   popupRows.push_back(uiDivider());
   popupRows.push_back(ftxui::paragraphAlignLeft("Selected: " + selected) | ftxui::color(uiWarnColor()));
-  popupRows.push_back(ftxui::paragraphAlignLeft("Press Enter to confirm after the timer unlocks.") |
-                      ftxui::color(secondsLeft == 0 ? uiTitleColor() : uiMutedColor()));
-  popupRows.push_back(ftxui::paragraphAlignLeft("Press Esc to cancel.") | ftxui::color(uiMutedColor()));
-  popupRows.push_back(ftxui::paragraphAlignLeft(to_string(secondsLeft) + " second" +
-                                                (secondsLeft == 1 ? string() : string("s")) + " remaining") |
-                      ftxui::color(uiWarnColor()));
+  if (secondsLeft > 0) {
+    popupRows.push_back(ftxui::paragraphAlignLeft("Press Enter to confirm after the timer unlocks.") |
+                        ftxui::color(uiMutedColor()));
+    popupRows.push_back(ftxui::paragraphAlignLeft("Press Esc to cancel.") | ftxui::color(uiMutedColor()));
+    popupRows.push_back(ftxui::paragraphAlignLeft(to_string(secondsLeft) + " second" +
+                                                  (secondsLeft == 1 ? string() : string("s")) + " remaining") |
+                        ftxui::color(uiWarnColor()));
+  } else {
+    popupRows.push_back(ftxui::paragraphAlignLeft("Press Enter to confirm.") | ftxui::color(uiTitleColor()));
+    popupRows.push_back(ftxui::paragraphAlignLeft("Press Esc to cancel.") | ftxui::color(uiMutedColor()));
+  }
   auto popup = ftxui::window(styledText(title, uiDangerColor()),
                              ftxui::vbox(move(popupRows)) | ftxui::bgcolor(uiPanelRightBg()) |
                                  ftxui::size(ftxui::WIDTH, ftxui::LESS_THAN, popupWidth)) |
