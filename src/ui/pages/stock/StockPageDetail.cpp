@@ -7,6 +7,7 @@
 
 #include "core/inventory/VendorProvider.h"
 #include "core/parts/PartDescriptor.h"
+#include "platform/system/Console.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -296,6 +297,55 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       detailRows.push_back(uiDivider());
       detailRows.push_back(fullLine("Links", uiSecondaryText(), uiSurfaceBg()));
       for (auto& row : linkRows) detailRows.push_back(move(row));
+    }
+
+    // Saved vendor prices, one line each. A line opens the vendor's product page.
+    const bool hasVendorNumber = !trim(item->digikeyPartNumber).empty() || !mouserPartNumberOf(*item).empty() ||
+                                 !tmeProductSymbol(*item).empty();
+    if (hasVendorNumber) {
+      detailRows.push_back(uiDivider());
+      detailRows.push_back(fullLine("Prices", uiSecondaryText(), uiSurfaceBg()));
+      const auto& offers = selectedItemOffers();
+      if (offers.empty()) {
+        detailRows.push_back(fullLine(offerRefreshFuture_.valid() ? "Checking" : "Not checked", uiMutedText(),
+                                      uiSurfaceBg()));
+      }
+      const auto sharedCurrency = sharedVendorCurrency(settings_);
+      const auto now = time(nullptr);
+      // Fixed columns: vendor, then its part number, with the price and the status right-aligned.
+      constexpr int kVendorColumn = 9;
+      for (size_t index = 0; index < offers.size(); ++index) {
+        const auto& offer = offers[index];
+        const auto line = describeOffer(offer, sharedCurrency, now);
+        const auto statusColor = line.status == OfferStatus::NotSold ? uiDangerColor() : uiWarnColor();
+        const int nameWidth = max(0, detailInnerWidth - kVendorColumn - static_cast<int>(line.price.size()) - 1);
+        const int factsWidth =
+            max(0, detailInnerWidth - kVendorColumn - static_cast<int>(line.statusWord.size()) - 1);
+        auto row = ftxui::vbox({
+                       ftxui::hbox({
+                           fixedCell(vendorDisplayName(offer.provider), kVendorColumn, uiSecondaryText()),
+                           styledText(ellipsize(line.sku, static_cast<size_t>(nameWidth)), uiPrimaryText()),
+                           ftxui::filler(),
+                           uiHeaderText(line.price, uiPrimaryText()),
+                       }),
+                       ftxui::hbox({
+                           ftxui::text(string(kVendorColumn, ' ')),
+                           styledText(ellipsize(line.facts, static_cast<size_t>(factsWidth)), uiMutedText()),
+                           ftxui::filler(),
+                           styledText(line.statusWord, statusColor),
+                       }),
+                   }) |
+                   ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailInnerWidth);
+        if (offer.productUrl.empty() || !openableUrl(offer.productUrl)) {
+          detailRows.push_back(move(row));
+          continue;
+        }
+        const auto url = offer.productUrl;
+        const auto name = vendorDisplayName(offer.provider);
+        detailRows.push_back(target(move(row) | ftxui::hyperlink(url), "stock.offer." + to_string(index),
+                                    UiTargetKind::Link,
+                                    [self, url, name] { self->openCurrentUrl(url, name + " product"); }));
+      }
     }
 
     if (!trim(item->notes).empty()) {

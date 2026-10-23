@@ -4,8 +4,10 @@
 #pragma once
 
 #include "core/inventory/Inventory.h"
+#include "core/vendor/VendorOffer.h"
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -45,6 +47,11 @@ struct TmeProductDetails {
   // TME's availability status in words, and whether the product can be ordered.
   std::string productStatus;
   bool orderable = true;
+  // From the product record; 1 when TME does not say.
+  std::uint64_t minimumOrder = 1;
+  std::uint64_t multiple = 1;
+  // Net prices per break, from the stock and price lookup. Empty when TME gave no usable price.
+  std::optional<VendorOffer> offer;
 };
 
 // What a TME lookup searches for: a symbol, or a part number matched exactly.

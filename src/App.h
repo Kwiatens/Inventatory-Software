@@ -26,6 +26,7 @@
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/tme/TmeApi.h"
 #include "platform/mouser/MouserApi.h"
+#include "core/vendor/VendorOffer.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "platform/system/Console.h"
 #include "platform/scanner/BleProvisioningService.h"
@@ -172,6 +173,20 @@ inline bool parseIntegerInRange(const std::string& text, int minimum, int maximu
   return true;
 }
 
+// One vendor's answer to a price check: the offers, or why there are none.
+struct OfferAnswer {
+  std::string provider;
+  std::string lookupKey;  // The product number the vendor was asked for
+  bool answered = false;  // False: the request failed; the saved offers stay
+  std::vector<VendorOffer> offers;
+  std::string error;
+};
+struct OfferRefreshResult {
+  std::string itemId;
+  WorkspaceGeneration workspaceGeneration = 0;
+  std::vector<OfferAnswer> answers;
+};
+
 class App {
  public:
   App(bool startInBackground, BackgroundController& backgroundController);
@@ -189,7 +204,7 @@ class App {
     Projects,
     History,
     ScanSetup,
-    DigiKeySetup,
+    VendorSetup,
     Settings,
     Onboarding,
     Update,
@@ -208,14 +223,10 @@ class App {
     Complete,
   };
 
-  enum class DigiKeySetupStep {
-    Introduction,
-    ClientId,
-    ClientSecret,
-    Review,
-  };
+  // Vendors with a credentials form. The form's step is 0 for the introduction, then one per field, then the review.
+  enum class VendorSetupVendor { DigiKey, Tme, Mouser };
 
-  enum class OnboardingStep { Welcome, DataFolder, BackgroundService, ScanR1, Complete };
+  enum class OnboardingStep { Welcome, DataFolder, Currency, BackgroundService, ScanR1, Complete };
 
   enum class WizardTransitionPhase { None, SelectionHold, Blank };
 
@@ -272,9 +283,7 @@ class App {
     Printer,
     QuickLabels,
     InventatoryScan,
-    DigiKey,
-    Tme,
-    Mouser,
+    Vendors,
   };
 
   // Non-actionable overlay region that consumes pointer hits so clicks do not reach targets below.
@@ -569,7 +578,7 @@ class App {
   void handleStockKey(const KeyEvent& key);
   void handleRackManagementKey(const KeyEvent& key);
   void handleInventatoryScanSetupKey(const KeyEvent& key);
-  void handleDigiKeySetupKey(const KeyEvent& key);
+  void handleVendorSetupKey(const KeyEvent& key);
   void handleImportCsvKey(const KeyEvent& key);
   void handleBomProjectKey(const KeyEvent& key);
   void handleSettingsKey(const KeyEvent& key);
@@ -603,7 +612,7 @@ class App {
                                         int detailInnerWidth) const;
   ftxui::Element renderRackManagementUi() const;
   ftxui::Element renderInventatoryScanSetupUi() const;
-  ftxui::Element renderDigiKeySetupUi() const;
+  ftxui::Element renderVendorSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderBomProjectUi() const;
   ftxui::Element renderHistoryUi() const;
@@ -705,6 +714,11 @@ class App {
   void processTmeRefresh();
   void beginMouserRefresh();
   void processMouserRefresh();
+  // Prices for the selected stock item: asks every configured vendor the item has a number for, on a
+  // worker, then saves the answers on the UI thread. The detail panel reads them through the cache.
+  void beginOfferRefresh();
+  void processOfferRefresh();
+  const std::vector<VendorOffer>& selectedItemOffers() const;
   // Shows queued vendor warnings ("close to the limit") and limit-reached messages.
   void processVendorNotices();
   void runBackgroundLoop();
@@ -754,7 +768,13 @@ class App {
   void stageSelectedPrinterQueue();
   void toggleSymbolStandard();
   void openInventatoryScanSetup();
-  void openDigiKeySetup();
+  void openVendorSetup(VendorSetupVendor vendor);
+  void beginAllVendorRefresh();
+  bool commitVendorCredentialField(VendorSetupVendor vendor, int local);
+  void focusVendorRow(VendorSetupVendor vendor);
+  void clearStagedVendorCredentials();
+  void requestVendorKeyReveal(int keyField);
+  void hideVendorKeys();
   void advanceOnboarding();
   void finishOnboarding();
   void beginWizardTransition(Page targetPage, OnboardingStep targetOnboardingStep,
@@ -1067,6 +1087,11 @@ class App {
   int importSyncFailedCount_ = 0;
   std::future<ImportSyncBatchResult> importSyncFuture_;
   std::future<VendorLookupBatch> vendorLookupFuture_;
+  std::future<OfferRefreshResult> offerRefreshFuture_;
+  // Saved offers of one item, read when the selection changes or a check finishes. UI thread only.
+  mutable std::string offerCacheItemId_;
+  mutable std::vector<VendorOffer> offerCache_;
+  mutable bool offerCacheValid_ = false;
   std::vector<VendorLookupCandidate> vendorCandidates_;
   std::vector<std::string> vendorLookupNotes_;
   std::string vendorLookupQuery_;
@@ -1144,7 +1169,11 @@ class App {
   bool bleSetupOutcomeUncertain_ = false;
   std::future<BleProvisionResult> bleProvisionFuture_;
   ScanSetupStep scanSetupStep_ = ScanSetupStep::Introduction;
-  DigiKeySetupStep digiKeySetupStep_ = DigiKeySetupStep::Introduction;
+  VendorSetupVendor vendorSetupVendor_ = VendorSetupVendor::DigiKey;
+  int vendorSetupStep_ = 0;
+  // The Vendors page shows keys as Hidden until the user confirms; the shown values are wiped when hidden.
+  int revealedVendorField_ = -1;
+  std::vector<std::pair<std::string, std::string>> revealedVendorValues_;
   std::string wireLabelText_;
   bool autoPrintScannedLabels_ = true;
   std::filesystem::path settingsPath_;

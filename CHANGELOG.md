@@ -10,8 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DigiKey, Mouser and TME requests are counted against the vendors' published limits (DigiKey 120/min and 1,000/day,
   Mouser 30/min and 1,000/day; TME publishes none). A message appears when a daily limit is 80% used. Settings shows a
   Usage row on each vendor page. Counts are kept across restarts in `vendor-usage.conf` beside `settings.conf`.
+- Stock: a part with a DigiKey, TME or Mouser number shows its prices from each vendor. Press `c` to check them. Each
+  line shows the packaging, the price, the stock and the minimum order, says when a price is old or in another
+  currency, and opens the product on the vendor's site. Prices are compared without VAT.
+- One Vendors page in Settings for DigiKey, TME and Mouser: an on/off switch, the API key with a setup form, a test
+  and the request count for each vendor, then one currency, one region and one Refresh all for every part at its own
+  vendor. A vendor that is off keeps its keys but is skipped.
+- One currency for all vendors, chosen during first setup and in Settings > Vendors.
 
 ### Changed
+- The DigiKey and TME currency settings are now one shared currency, and the DigiKey site and TME country are one shared
+  region. The language and account settings are no longer shown.
 - A reached vendor limit is no longer a plain failure: the message names the vendor and says when it is available
   again, no request is sent until then, and a refresh or shortage run stops at once. DigiKey and TME 429 answers get
   the same treatment as Mouser's.

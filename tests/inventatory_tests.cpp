@@ -15,6 +15,8 @@
 #include "app/common/AppActionSupport.h"
 #include "platform/tme/TmeEncoding.h"
 #include "platform/tme/TmeVocabulary.h"
+#include "core/vendor/VendorOffer.h"
+#include "core/vendor/VendorOfferStore.h"
 #include "core/vendor/VendorRateLimits.h"
 #include "platform/mouser/MouserApi.h"
 #include "platform/system/UpdateService.h"
@@ -2652,6 +2654,61 @@ void testInventoryCommitDiffSeparatesAmbiguousValues() {
   assert(parameterChange != changes.end() && parameterChange->after == "Resistance=10k");
 }
 
+// Shaped like a live v4 product details answer from the DE site in EUR: one offer per packaging.
+// Product numbers are synthetic.
+void testDigiKeyOfferParsing() {
+  using namespace digikey_detail;
+  const auto document = [](const string& locale, const string& extra) {
+    return locale +
+           R"j("Product":{"Description":{"ProductDescription":"CAP CER 0.1UF 16V X7R 0402"},)j"
+           R"j("Manufacturer":{"Id":1,"Name":"Synthetic Parts Co"},"ManufacturerProductNumber":"SYN-CAP-0100",)j"
+           R"j("ProductUrl":"https://www.digikey.de/en/products/detail/synthetic/SYN-CAP-0100/1",)j"
+           R"j("ProductStatus":{"Id":0,"Status":"Active"},"Discontinued":false,"EndOfLife":false,"ProductVariations":[)j"
+           R"j({"DigiKeyProductNumber":"SYN-0100-2-ND","PackageType":{"Id":1,"Name":"Tape & Reel (TR)"},)j"
+           R"j("StandardPricing":[{"BreakQuantity":10000,"UnitPrice":0.0046,"TotalPrice":46.0}],)j"
+           R"j("MarketPlace":false,"QuantityAvailableforPackageType":0,"MinimumOrderQuantity":10000,"StandardPackage":10000,"DigiReelFee":0.0},)j"
+           R"j({"DigiKeyProductNumber":"SYN-0100-1-ND","PackageType":{"Id":2,"Name":"Cut Tape (CT)"},)j"
+           R"j("StandardPricing":[{"BreakQuantity":10,"UnitPrice":0.022},{"BreakQuantity":1,"UnitPrice":0.09}],)j"
+           R"j("MarketPlace":false,"QuantityAvailableforPackageType":1200,"MinimumOrderQuantity":1,"StandardPackage":1,"DigiReelFee":0.0},)j"
+           R"j({"DigiKeyProductNumber":"SYN-0100-6-ND","PackageType":{"Id":243,"Name":"Digi-Reel®"},)j"
+           R"j("StandardPricing":[{"BreakQuantity":1,"UnitPrice":0.09}],)j"
+           R"j("MarketPlace":false,"QuantityAvailableforPackageType":1200,"MinimumOrderQuantity":1,"StandardPackage":1,"DigiReelFee":5.5},)j"
+           R"j({"DigiKeyProductNumber":"SYN-0100-MKT","PackageType":{"Name":"Bulk"},)j"
+           R"j("StandardPricing":[{"BreakQuantity":1,"UnitPrice":0.05}],"MarketPlace":true},)j"
+           R"j({"DigiKeyProductNumber":"SYN-0100-BAD","PackageType":{"Name":"Bulk"},)j"
+           R"j("StandardPricing":[{"BreakQuantity":1,"UnitPrice":"call"}],"MarketPlace":false})j" +
+           extra + "]}}";
+  };
+  string error;
+  auto root = parseJson(document(R"j({"SearchLocaleUsed":{"Site":"DE","Language":"en","Currency":"EUR"},)j", ""), &error);
+  assert(root.has_value());
+  const auto details = parseProductDetails("SYN-0100-1-ND", *root);
+  // Marketplace and unreadable variations are left out.
+  assert(details.offers.size() == 3);
+  const auto& reel = details.offers[0];
+  assert(reel.provider == "digikey" && reel.sku == "SYN-0100-2-ND" && reel.currency == "EUR");
+  assert(reel.packaging == "Tape & Reel (TR)");
+  assert(reel.minimumOrder == 10000 && reel.multiple == 10000 && reel.stock == 0ULL);
+  assert(reel.breaks.size() == 1 && reel.breaks[0].unitMicros == 4600);
+  assert(!reel.reelingFeeMicros.has_value());
+  const auto& cut = details.offers[1];
+  assert(cut.sku == "SYN-0100-1-ND" && cut.multiple == 1 && cut.stock == 1200ULL);
+  assert(cut.breaks.size() == 2 && cut.breaks[0].quantity == 1 && cut.breaks[0].unitMicros == 90000);
+  assert(cut.manufacturer == "Synthetic Parts Co" && cut.manufacturerPartNumber == "SYN-CAP-0100");
+  assert(cut.productUrl == details.productUrl && cut.lifecycle == "Active" && cut.orderable);
+  const auto& digiReel = details.offers[2];
+  assert(digiReel.reelingFeeMicros == 5500000);
+  assert(offerCost(digiReel, 90).totalMicros == 90 * 90000 + 5500000);
+
+  // Without the locale DigiKey used, the currency is unknown: no offers.
+  root = parseJson(document("{", ""), &error);
+  assert(root.has_value() && parseProductDetails("SYN-0100-1-ND", *root).offers.empty());
+
+  // The currency is the one DigiKey used, not the one asked for: the US site answers in USD.
+  root = parseJson(document(R"j({"SearchLocaleUsed":{"Site":"US","Language":"en","Currency":"USD"},)j", ""), &error);
+  assert(root.has_value() && parseProductDetails("SYN-0100-1-ND", *root).offers.front().currency == "USD");
+}
+
 // An oversized string must not fail the whole DigiKey document. It is validated but never stored,
 // so readers see it as absent.
 void testDigiKeyOversizedJsonStrings() {
@@ -4730,7 +4787,7 @@ void testRackPageSlotGeometry() {
 
 void testSettingsCategoryEntries() {
   const auto categories = settings_page_detail::settingsCategoryEntries();
-  assert(categories.size() == 9);
+  assert(categories.size() == 7);
   assert(categories[0].categoryIndex == 0);
   assert(categories[1].categoryIndex == 1);
   assert(categories[2].categoryIndex == 2);
@@ -4738,12 +4795,23 @@ void testSettingsCategoryEntries() {
   assert(categories[4].categoryIndex == 4);
   assert(categories[5].categoryIndex == 5);
   assert(categories[6].categoryIndex == 6);
-  assert(categories[7].categoryIndex == 7);
-  assert(categories[8].categoryIndex == 8);
   assert(categories[3].indent == 0);
   assert(categories[4].indent == 1);
   assert(categories[5].indent == 0);
-  assert(categories[8].indent == 0);
+  assert(categories[6].indent == 0);
+
+  using settings_page_detail::VendorSection;
+  using settings_page_detail::vendorFieldRef;
+  assert(vendorFieldRef(0).section == VendorSection::DigiKey);
+  assert(vendorFieldRef(1).section == VendorSection::DigiKey);
+  assert(vendorFieldRef(2).section == VendorSection::Tme);
+  assert(vendorFieldRef(3).section == VendorSection::Tme);
+  assert(vendorFieldRef(4).section == VendorSection::Mouser);
+  assert(vendorFieldRef(5).section == VendorSection::Mouser);
+  assert(vendorFieldRef(6).section == VendorSection::Currency);
+  assert(vendorFieldRef(7).section == VendorSection::Region);
+  assert(vendorFieldRef(8).section == VendorSection::Refresh);
+  assert(vendorFieldRef(9).section == VendorSection::None);
 }
 
 void testWorkspaceGenerationAndQuickLabelCache() {
@@ -6397,6 +6465,60 @@ void testTmeDetailParsing() {
   assert(!parseTmeDocumentResponse("<html>403</html>", "0603X474K100CT", rejected, &error));
 }
 
+// Shaped like live TME v2 answers: the minimum and multiple come with the product, gross prices
+// with the VAT rate come with stock. Symbols and amounts are synthetic.
+void testTmeOfferParsing() {
+  const string found =
+      R"({"status":"OK","data":{"elements":[{"symbol":"SYN-OPA-0200","manufacturer_symbols":["SYN-OPA-0200"],)"
+      R"("manufacturer":{"id":77,"name":"SYNTHETIC PARTS"},"description":"IC: operational amplifier; SO8",)"
+      R"("multiples":5,"minimal_amount":10,"packing":{"elements":[{"id":"RL1","amount":2500}]}}]}})";
+  vector<TmeProductDetails> products;
+  string error;
+  assert(parseTmeProductResponse(found, products, &error));
+  assert(products.size() == 1);
+  auto product = products.front();
+  assert(product.minimumOrder == 10 && product.multiple == 5);
+
+  const auto data = [](const string& prices) {
+    return R"({"status":"OK","data":{"elements":[{"stock_quantity":3783,"symbol":"SYN-OPA-0200",)"
+           R"("unit":{"id":"ST","short_name":"pcs"},"prices":)" +
+           prices + R"(,"deliveries":null}]}})";
+  };
+  // Gross prices become net with the rate TME sent: 0.2202 at 23 percent is 0.179024.
+  const auto gross = data(R"({"elements":[{"amount":5,"price":0.1808,"special":false},)"
+                          R"({"amount":1,"price":0.2202,"special":false},{"amount":2500,"price":0.1058,"special":false}],)"
+                          R"("tax":{"type":"VAT","rate":23.0},"currency":"EUR","type":"GROSS"})");
+  assert(parseTmeStockAndPriceResponse(gross, "SYN-OPA-0200", product, &error));
+  assert(product.offer.has_value());
+  const auto& offer = *product.offer;
+  assert(offer.provider == "tme" && offer.sku == "SYN-OPA-0200" && offer.currency == "EUR");
+  assert(offer.manufacturer == "SYNTHETIC PARTS" && offer.manufacturerPartNumber == "SYN-OPA-0200");
+  assert(offer.breaks.size() == 3);
+  assert(offer.breaks[0].quantity == 1 && offer.breaks[0].unitMicros == 179024);
+  assert(offer.breaks[1].quantity == 5 && offer.breaks[1].unitMicros == 146992);
+  assert(offer.breaks[2].quantity == 2500 && offer.breaks[2].unitMicros == 86016);
+  assert(offer.stock == 3783ULL && offer.minimumOrder == 10 && offer.multiple == 5);
+  // The label price stays as TME printed it.
+  assert(product.unitPrice == "0.2202 EUR");
+
+  // Net prices are kept as they are.
+  auto net = product;
+  assert(parseTmeStockAndPriceResponse(
+      data(R"({"elements":[{"amount":1,"price":0.17}],"currency":"PLN","type":"NET"})"), "SYN-OPA-0200", net, &error));
+  assert(net.offer.has_value() && net.offer->currency == "PLN" && net.offer->breaks.front().unitMicros == 170000);
+
+  // Gross without a rate, an unknown type, an unreadable price or a bad currency: no offer.
+  for (const char* prices :
+       {R"({"elements":[{"amount":1,"price":0.2}],"currency":"EUR","type":"GROSS"})",
+        R"({"elements":[{"amount":1,"price":0.2}],"tax":{"rate":23},"currency":"EUR","type":"OTHER"})",
+        R"({"elements":[{"amount":1,"price":0.2},{"amount":5,"price":"n/a"}],"currency":"EUR","type":"NET"})",
+        R"({"elements":[{"amount":1,"price":0.2}],"currency":"euro","type":"NET"})"}) {
+    auto rejected = product;
+    assert(parseTmeStockAndPriceResponse(data(prices), "SYN-OPA-0200", rejected, &error));
+    assert(!rejected.offer.has_value());
+  }
+}
+
 void testTmeMergeFillsEnrichment() {
   // The record the TME product lookup assembles for a capacitor.
   TmeProductDetails details;
@@ -7380,6 +7502,63 @@ void testTmeSettingsPersistOptionalKeys() {
   }
   AppSettings repeated;
   assert(!loadAppSettings(path, repeated));
+  filesystem::remove(path, cleanupError);
+}
+
+void testSharedVendorCurrencyPersists() {
+  const auto path = testTempRoot() / "inventatory-shared-currency-test.conf";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  // Defaults differ (DigiKey USD, TME EUR), so no shared currency is chosen yet.
+  AppSettings settings;
+  assert(sharedVendorCurrency(settings).empty());
+
+  // One currency, written into the existing keys only, so an older release still loads the file.
+  setSharedVendorCurrency(settings, "PLN");
+  assert(settings.digiKeyCurrency == "PLN" && settings.tmeCurrency == "PLN");
+  assert(saveAppSettings(path, settings));
+  AppSettings loaded;
+  assert(loadAppSettings(path, loaded));
+  assert(sharedVendorCurrency(loaded) == "PLN");
+
+  // A file from before the currency was shared, with different values, has none.
+  loaded.tmeCurrency = "EUR";
+  assert(sharedVendorCurrency(loaded).empty());
+
+  assert(isSupportedVendorCurrency("EUR") && isSupportedVendorCurrency("PLN") && isSupportedVendorCurrency("USD"));
+  assert(!isSupportedVendorCurrency("eur") && !isSupportedVendorCurrency("GBP") && !isSupportedVendorCurrency(""));
+  filesystem::remove(path, cleanupError);
+}
+
+void testSharedVendorRegionAndEnabledPersist() {
+  const auto path = testTempRoot() / "inventatory-vendor-enabled-test.conf";
+  error_code cleanupError;
+  filesystem::remove(path, cleanupError);
+
+  // Defaults differ (DigiKey US, TME PL), so no shared region is chosen yet; every vendor is on.
+  AppSettings settings;
+  assert(sharedVendorRegion(settings).empty());
+  assert(settings.digiKeyEnabled && settings.tmeEnabled && settings.mouserEnabled);
+
+  setSharedVendorRegion(settings, "DE");
+  settings.tmeEnabled = false;
+  assert(saveAppSettings(path, settings));
+  AppSettings loaded;
+  assert(loadAppSettings(path, loaded));
+  assert(sharedVendorRegion(loaded) == "DE");
+  assert(loaded.digiKeyEnabled && !loaded.tmeEnabled && loaded.mouserEnabled);
+
+  // An on vendor writes no key, so an older release still reads the file.
+  settings.tmeEnabled = true;
+  assert(saveAppSettings(path, settings));
+  ifstream input(path);
+  const string text((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  assert(text.find("digikey_enabled") == string::npos && text.find("tme_enabled") == string::npos &&
+         text.find("mouser_enabled") == string::npos);
+
+  assert(isValidVendorRegion("DE") && isValidVendorRegion("PL"));
+  assert(!isValidVendorRegion("de") && !isValidVendorRegion("D") && !isValidVendorRegion("DEU") && !isValidVendorRegion(""));
   filesystem::remove(path, cleanupError);
 }
 
@@ -14517,6 +14696,65 @@ void testMouserResponseParsing() {
   assert(capacitor.vendorMetadata.categoryPath.empty());
 }
 
+// Shaped like a live part-number answer for a Polish account: localized price text in PLN,
+// counts as strings. Part numbers and amounts are synthetic.
+void testMouserOfferParsing() {
+  const string body =
+      R"({"Errors":[],"SearchResults":{"NumberOfResult":5,"Parts":[)"
+      R"({"MouserPartNumber":"999-SYN-CAP-0100","ManufacturerPartNumber":"SYN-CAP-0100","Manufacturer":"Synthetic Parts Co",)"
+      R"("ProductDetailUrl":"https://www.mouser.pl/en/ProductDetail/Synthetic/SYN-CAP-0100?qs=synthetic",)"
+      R"("Min":"1","Mult":"1","Reeling":true,"AvailabilityInStock":"7812462","Availability":"7812462 In Stock",)"
+      R"("LifecycleStatus":null,"PriceBreaks":[{"Quantity":10,"Price":"0,114 zł","Currency":"PLN"},)"
+      R"({"Quantity":1,"Price":"0,453 zł","Currency":"PLN"},{"Quantity":10000,"Price":"0,026 zł","Currency":"PLN"}]},)"
+      R"({"MouserPartNumber":"999-SYN-OPA-0200","ManufacturerPartNumber":"SYN-OPA-0200","Manufacturer":"Other Maker",)"
+      R"("Min":"2,500","Mult":"2,500","AvailabilityInStock":null,"LifecycleStatus":"Not Recommended for New Designs",)"
+      R"("PriceBreaks":[]},)"
+      R"({"MouserPartNumber":"999-SYN-OPA-0300","Min":"2,500","Mult":"2,500",)"
+      R"("PriceBreaks":[{"Quantity":2500,"Price":"1.234,50 zł","Currency":"PLN"}]},)"
+      R"({"MouserPartNumber":"999-SYN-MIX-0400","PriceBreaks":[{"Quantity":1,"Price":"0,50 zł","Currency":"PLN"},)"
+      R"({"Quantity":10,"Price":"€0.10","Currency":"EUR"}]},)"
+      R"({"MouserPartNumber":"999-SYN-BAD-0500","PriceBreaks":[{"Quantity":1,"Price":"0,50 zł","Currency":"PLN"},)"
+      R"({"Quantity":10,"Price":"Call","Currency":"PLN"}]},)"
+      R"({"MouserPartNumber":"999-SYN-UNC-0600","PriceBreaks":[{"Quantity":1,"Price":"$1,234","Currency":"USD"}]},)"
+      R"({"MouserPartNumber":"999-SYN-HNT-0700","PriceBreaks":[{"Quantity":1,"Price":"1,234 z\u0142","Currency":"PLN"},)"
+      R"({"Quantity":10,"Price":"0,986 z\u0142","Currency":"PLN"}]}]}})";
+  vector<MouserProductDetails> products;
+  string error;
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(products.size() == 7);
+
+  // Every break is kept, sorted, in the currency Mouser named.
+  const auto& capacitor = products[0];
+  assert(capacitor.offer.has_value());
+  const auto& offer = *capacitor.offer;
+  assert(offer.provider == kVendorProviderMouser && offer.sku == "999-SYN-CAP-0100");
+  assert(offer.manufacturer == "Synthetic Parts Co" && offer.manufacturerPartNumber == "SYN-CAP-0100");
+  assert(offer.productUrl == capacitor.productUrl);
+  assert(offer.currency == "PLN");
+  assert(offer.breaks.size() == 3);
+  assert(offer.breaks[0].quantity == 1 && offer.breaks[0].unitMicros == 453000);
+  assert(offer.breaks[1].quantity == 10 && offer.breaks[1].unitMicros == 114000);
+  assert(offer.breaks[2].quantity == 10000 && offer.breaks[2].unitMicros == 26000);
+  assert(offer.stock == 7812462ULL && offer.minimumOrder == 1 && offer.multiple == 1);
+  assert(offer.orderable && offer.fetchedAt == 0);
+
+  // No price breaks: no offer, though the record is still listed.
+  assert(!products[1].offer.has_value());
+  // Grouped counts are read; unknown stock stays unknown.
+  const auto& reel = products[2].offer;
+  assert(reel.has_value() && reel->minimumOrder == 2500 && reel->multiple == 2500);
+  assert(reel->breaks.front().unitMicros == 1234500000);
+  assert(!reel->stock.has_value());
+  // Two currencies, or one unreadable price, drop the whole offer.
+  assert(!products[3].offer.has_value());
+  assert(!products[4].offer.has_value());
+  // A list whose only price could be 1,234 or 1.234 is dropped, never guessed.
+  assert(!products[5].offer.has_value());
+  // A clear price in the same list settles it: "0,986" makes the comma the decimal point.
+  const auto& hinted = products[6].offer;
+  assert(hinted.has_value() && hinted->breaks[0].unitMicros == 1234000 && hinted->breaks[1].unitMicros == 986000);
+}
+
 void testMouserEmptyPartsIsSuccess() {
   vector<MouserProductDetails> products(1);
   string error = "unchanged";
@@ -14797,6 +15035,268 @@ void testVendorRateLimitPersistence() {
   limits.setStoragePath(file);
   assert(limits.snapshot(Vendor::Mouser, now).requestsLastDay == 0);
   limits.reset();
+}
+
+void testVendorOfferDecimalAndFormat() {
+  assert(parseDecimalMicros("0.0144") == 14400);
+  assert(parseDecimalMicros("12") == 12 * kMicrosPerUnit);
+  assert(parseDecimalMicros("10000") == kMaximumUnitMicros);
+  // The seventh decimal rounds the sixth half up.
+  assert(parseDecimalMicros("0.0000005") == 1);
+  assert(parseDecimalMicros("0.00000049") == 0);
+  for (const char* bad : {"", ".5", "1.", "1e3", "-1", "1,5", " 1", "10000.000001", "1234567890123"}) {
+    assert(!parseDecimalMicros(bad).has_value());
+  }
+  assert(formatMicros(14400) == "0.0144");
+  assert(formatMicros(1220000) == "1.22");
+  assert(formatMicros(5 * kMicrosPerUnit) == "5.00");
+  assert(formatMicros(0) == "0.00");
+  // Display prices: four decimals, six below 0.01, rounded half up.
+  assert(formatPriceMicros(1816016) == "1.816");
+  assert(formatPriceMicros(2570000) == "2.57");
+  assert(formatPriceMicros(179050) == "0.1791");
+  assert(formatPriceMicros(8520) == "0.00852");
+  assert(formatPriceMicros(4600) == "0.0046");
+  assert(isCurrencyCode("EUR") && !isCurrencyCode("eur") && !isCurrencyCode("EURO") && !isCurrencyCode(""));
+}
+
+void testVendorOfferPriceText() {
+  // As Mouser printed them in a live response, in USD, PLN and EUR.
+  assert(parsePriceTextMicros("$0.10") == 100000);
+  assert(parsePriceTextMicros("0,453 z\xC5\x82") == 453000);
+  assert(parsePriceTextMicros("0.02 EUR") == 20000);
+  assert(parsePriceTextMicros("\xE2\x82\xAC" "0,09") == 90000);
+  // Both separators: the last is the decimal point.
+  assert(parsePriceTextMicros("1.234,56 \xE2\x82\xAC") == 1234560000);
+  assert(parsePriceTextMicros("$1,234.56") == 1234560000);
+  // A no-break space groups thousands.
+  assert(parsePriceTextMicros("1\xC2\xA0" "234,50 z\xC5\x82") == 1234500000);
+  // One separator used several times groups thousands; past the unit price limit is refused.
+  assert(parsePriceTextMicros("1,234,567") == std::nullopt);
+  // One separator with three digits after it is unclear: refused without a hint, read with one.
+  assert(!parsePriceTextMicros("9.999").has_value());
+  assert(!parsePriceTextMicros("$1,234").has_value());
+  assert(parsePriceTextMicros("9.999", '.') == 9999000);
+  assert(parsePriceTextMicros("1,234 z\xC5\x82", ',') == 1234000);
+  assert(parsePriceTextMicros("$1,234", '.') == 1234000000);
+  // A hint that contradicts the number refuses it.
+  assert(!parsePriceTextMicros("1.234,56", '.').has_value());
+  assert(!parsePriceTextMicros("0,5", '.').has_value());
+  // The hint comes from a price that leaves no doubt.
+  assert(priceDecimalPoint("0,453 z\xC5\x82") == ',');
+  assert(priceDecimalPoint("$0.10") == '.');
+  assert(priceDecimalPoint("1.234,56 \xE2\x82\xAC") == ',');
+  assert(priceDecimalPoint("1,234,567") == '.');
+  assert(priceDecimalPoint("$1,234") == 0 && priceDecimalPoint("12") == 0 && priceDecimalPoint("call") == 0);
+  for (const char* bad : {"", "zl", "-$1.00", "+1", ".5", "1,2,3", "1.234.5", "1,234.5,6", "1 2,5", "1x2"}) {
+    assert(!parsePriceTextMicros(bad).has_value());
+  }
+}
+
+void testVendorOfferLinks() {
+  // Links as the vendors sent them in live answers.
+  assert(vendorLinkAllowed("digikey", "https://www.digikey.de/en/products/detail/murata-electronics/GRM155R71C104KA88D/675947"));
+  assert(vendorLinkAllowed("digikey", "https://www.digikey.com/en/products/detail/x/y/1"));
+  assert(vendorLinkAllowed("digikey", "https://www.digikey.co.uk/en/products/detail/x/y/1"));
+  assert(vendorLinkAllowed("mouser", "https://www.mouser.pl/en/ProductDetail/Murata-Electronics/GRM155R71C104KA88D?qs=8YPuuxuUzMJKePo9sU3A2g%3D%3D"));
+  assert(vendorLinkAllowed("tme", "https://www.tme.eu/details/LM358DR"));
+  // Another vendor's site, a look-alike host, a user name, a port, plain http or odd characters.
+  for (const auto& [provider, url] : vector<pair<string, string>>{
+           {"digikey", "https://www.mouser.com/ProductDetail/x"},
+           {"digikey", "https://digikey.example.com/x"},
+           {"digikey", "https://www.digikey.de.example.org/x"},
+           {"digikey", "https://evil.com/www.digikey.de/x"},
+           {"mouser", "https://user@www.mouser.pl/x"},
+           {"mouser", "https://www.mouser.pl:8443/x"},
+           {"mouser", "http://www.mouser.pl/x"},
+           {"tme", "https://www.tme.com/details/x"},
+           {"tme", "https://www.tme.eu/details/x\x1b]8;;"},
+           {"tme", "https://www.tme.eu/details/a b"},
+           {"tme", "https://WWW.TME.EU/details/x"},
+           {"other", "https://www.tme.eu/details/x"},
+           {"digikey", ""}}) {
+    assert(!vendorLinkAllowed(provider, url));
+  }
+}
+
+void testVendorOfferNetFromGross() {
+  // TME sends gross prices with the VAT rate: 0.2202 EUR at 23 percent.
+  assert(netFromGrossMicros(220200, "23.0") == 179024);
+  assert(netFromGrossMicros(220200, "23") == 179024);
+  assert(netFromGrossMicros(220200, "0") == 220200);
+  assert(!netFromGrossMicros(220200, "101").has_value());
+  assert(!netFromGrossMicros(220200, "-5").has_value());
+  assert(!netFromGrossMicros(220200, "").has_value());
+  assert(!netFromGrossMicros(-1, "23").has_value());
+}
+
+VendorOffer cutTapeOffer() {
+  // DigiKey 490-3261-1-ND as the DE site priced it in EUR.
+  VendorOffer offer;
+  offer.provider = "digikey";
+  offer.sku = "490-3261-1-ND";
+  offer.currency = "EUR";
+  offer.breaks = {{1, 90000}, {10, 22000}, {50, 14400}, {100, 12200}, {500, 8520}};
+  return offer;
+}
+
+void testVendorOfferPriceBreaksAndFreshness() {
+  vector<PriceBreak> breaks = {{100, 12200}, {0, 5}, {1, 90000}, {10, 0}, {100, 99}, {10, 22000}};
+  assert(normalizePriceBreaks(breaks));
+  assert(breaks.size() == 3);
+  assert(breaks[0].quantity == 1 && breaks[1].quantity == 10 && breaks[2].quantity == 100);
+  assert(breaks[2].unitMicros == 12200);
+  vector<PriceBreak> none = {{0, 1}, {5, 0}};
+  assert(!normalizePriceBreaks(none) && none.empty());
+
+  VendorOffer offer = cutTapeOffer();
+  const std::time_t now = 1792750000;
+  offer.fetchedAt = now - kOfferFreshSeconds;
+  assert(offerIsFresh(offer, now));
+  offer.fetchedAt = now - kOfferFreshSeconds - 1;
+  assert(!offerIsFresh(offer, now));
+  offer.fetchedAt = now + 60;
+  assert(!offerIsFresh(offer, now));
+  offer.fetchedAt = 0;
+  assert(!offerIsFresh(offer, now));
+}
+
+void testVendorOfferCost() {
+  const auto offer = cutTapeOffer();
+  // 90 pieces fall in the 50 break.
+  const auto ninety = offerCost(offer, 90);
+  assert(ninety.priced && ninety.orderQuantity == 90 && ninety.extra == 0);
+  assert(ninety.unitMicros == 14400 && ninety.totalMicros == 1296000);
+  // 100 pieces cost less than 90; that is offered, not chosen.
+  const auto larger = cheaperLargerOrder(offer, 90);
+  assert(larger.has_value() && larger->orderQuantity == 100 && larger->extra == 10);
+  assert(larger->totalMicros == 1220000);
+  assert(!cheaperLargerOrder(offer, 100).has_value());
+  assert(!offerCost(offer, 0).priced);
+
+  // A reel: the minimum order and the multiple raise the order; the reeling fee is added once.
+  VendorOffer reel;
+  reel.breaks = {{2500, 105800}};
+  reel.minimumOrder = 2500;
+  reel.multiple = 2500;
+  const auto one = offerCost(reel, 1);
+  assert(one.priced && one.orderQuantity == 2500 && one.extra == 2499);
+  assert(offerCost(reel, 2501).orderQuantity == 5000);
+  reel.reelingFeeMicros = 5500000;
+  assert(offerCost(reel, 1).totalMicros == 2500 * 105800 + 5500000);
+
+  // No break at or below the order: not priced.
+  VendorOffer fromTen;
+  fromTen.breaks = {{10, 1000}};
+  assert(!offerCost(fromTen, 5).priced);
+  assert(!offerCost(fromTen, kMaximumOrderQuantity + 1).priced);
+}
+
+void testVendorOfferDescribe() {
+  const std::time_t now = 1792750000;
+  auto offer = cutTapeOffer();
+  offer.packaging = "Cut Tape (CT)";
+  offer.stock = 1200;
+  offer.fetchedAt = now - 60;
+  auto line = describeOffer(offer, "EUR", now);
+  assert(line.sku == "490-3261-1-ND" && line.price == "0.09 EUR" && line.facts == "1200 in stock, Cut Tape");
+  assert(line.status == OfferStatus::None && line.statusWord.empty());
+
+  // A reel starts at its first break; the fee and a non-ASCII mark are handled.
+  VendorOffer reel = offer;
+  reel.breaks = {{10000, 4600}};
+  reel.packaging = "Digi-Reel\xC2\xAE";
+  reel.stock.reset();
+  reel.reelingFeeMicros = 5500000;
+  line = describeOffer(reel, "EUR", now);
+  assert(line.price == "0.0046 EUR");
+  assert(line.facts == "stock unknown, Digi-Reel, from 10000 pcs, reel fee 5.50 EUR");
+  // A minimum order above the first break is where buying starts.
+  reel.breaks = {{1, 4600}};
+  reel.minimumOrder = 2500;
+  assert(describeOffer(reel, "EUR", now).facts == "stock unknown, Digi-Reel, from 2500 pcs, reel fee 5.50 EUR");
+  // Mouser and TME send no packaging: the line still has the part number, and the facts no gap.
+  VendorOffer tme;
+  tme.provider = "tme";
+  tme.sku = "SYN-OPA-0200";
+  tme.currency = "PLN";
+  tme.breaks = {{2, 1816016}};
+  tme.stock = 7916;
+  line = describeOffer(tme, "PLN", now);
+  assert(line.sku == "SYN-OPA-0200" && line.price == "1.816 PLN" && line.facts == "7916 in stock, from 2 pcs");
+
+  // Not sold outranks another currency, which outranks an old price.
+  offer.fetchedAt = now - kOfferFreshSeconds - 1;
+  assert(describeOffer(offer, "EUR", now).statusWord == "Old price");
+  assert(describeOffer(offer, "PLN", now).statusWord == "Other currency");
+  // With no shared currency chosen, nothing is another currency.
+  assert(describeOffer(offer, "", now).status == OfferStatus::OldPrice);
+  offer.orderable = false;
+  assert(describeOffer(offer, "PLN", now).status == OfferStatus::NotSold);
+  assert(describeOffer(offer, "PLN", now).statusWord == "Not sold");
+}
+
+void testVendorOfferStoreRoundTrip() {
+  const auto directory = testTempRoot() / "inventatory-vendor-offer-store";
+  error_code cleanupError;
+  filesystem::remove_all(directory, cleanupError);
+  const auto path = vendorOfferDatabasePath(directory);
+  assert(path.filename() == "vendor-offers.db");
+
+  // No file yet: no offers, and no error.
+  vector<VendorOffer> loaded;
+  string error;
+  assert(loadVendorOffers(path, "digikey", "SYN-0100-1-ND", loaded, &error) && loaded.empty());
+
+  auto cut = cutTapeOffer();
+  cut.stock = 1200;
+  cut.productUrl = "https://www.digikey.de/en/products/detail/synthetic/SYN-CAP-0100/1";
+  cut.packaging = "Cut Tape (CT)";
+  cut.lifecycle = "Active";
+  cut.fetchedAt = 1792750000;
+  VendorOffer reel = cut;
+  reel.sku = "SYN-0100-6-ND";
+  reel.stock.reset();
+  reel.reelingFeeMicros = 5500000;
+  reel.minimumOrder = 1;
+  reel.multiple = 1;
+  reel.orderable = false;
+  assert(saveVendorOffers(path, "digikey", "SYN-0100-1-ND", {cut, reel}, &error));
+  assert(loadVendorOffers(path, "digikey", "SYN-0100-1-ND", loaded, &error));
+  assert(loaded.size() == 2);
+  assert(loaded[0].sku == "490-3261-1-ND" && loaded[0].currency == "EUR" && loaded[0].stock == 1200ULL);
+  assert(loaded[0].breaks.size() == 5 && loaded[0].breaks[2].quantity == 50 && loaded[0].breaks[2].unitMicros == 14400);
+  assert(loaded[0].productUrl == cut.productUrl && loaded[0].packaging == "Cut Tape (CT)");
+  assert(loaded[0].lifecycle == "Active" && loaded[0].orderable && loaded[0].fetchedAt == 1792750000);
+  assert(!loaded[0].reelingFeeMicros.has_value());
+  assert(loaded[1].sku == "SYN-0100-6-ND" && !loaded[1].stock.has_value());
+  assert(loaded[1].reelingFeeMicros == 5500000 && !loaded[1].orderable);
+  // Another lookup or vendor sees nothing of these.
+  assert(loadVendorOffers(path, "mouser", "SYN-0100-1-ND", loaded, &error) && loaded.empty());
+
+  // A refresh replaces the offers of that lookup only.
+  cut.breaks = {{1, 80000}};
+  assert(saveVendorOffers(path, "digikey", "SYN-0100-1-ND", {cut}, &error));
+  assert(loadVendorOffers(path, "digikey", "SYN-0100-1-ND", loaded, &error));
+  assert(loaded.size() == 1 && loaded[0].breaks.size() == 1 && loaded[0].breaks[0].unitMicros == 80000);
+
+  // An incomplete offer fails the save and leaves the saved ones as they were.
+  VendorOffer incomplete = cut;
+  incomplete.currency = "euro";
+  assert(!saveVendorOffers(path, "digikey", "SYN-0100-1-ND", {incomplete}, &error));
+  assert(loadVendorOffers(path, "digikey", "SYN-0100-1-ND", loaded, &error) && loaded.size() == 1);
+  assert(!saveVendorOffers(path, "", "SYN-0100-1-ND", {cut}, &error));
+
+  // A file from a newer release is refused, not overwritten.
+  {
+    SqliteConnection connection;
+    assert(openDatabase(path, connection));
+    assert(execSql(connection, "PRAGMA user_version = 2"));
+  }
+  assert(!loadVendorOffers(path, "digikey", "SYN-0100-1-ND", loaded, &error));
+  assert(error.find("newer") != string::npos);
+  assert(!saveVendorOffers(path, "digikey", "SYN-0100-1-ND", {cut}, &error));
+  filesystem::remove_all(directory, cleanupError);
 }
 
 void testMouserConfigValidity() {
@@ -15587,6 +16087,7 @@ const vector<TestCase>& registeredTests() {
     {"history", "LatestUndoableInventoryCommit", testLatestUndoableInventoryCommit},
     {"history", "SnapshotSemanticsRejectInvalidSnapshots", testSnapshotSemanticsRejectInvalidSnapshots},
     {"import", "DigiKeyOversizedJsonStrings", testDigiKeyOversizedJsonStrings},
+    {"import", "DigiKeyOfferParsing", testDigiKeyOfferParsing},
     {"import", "DigiKeyParsingRobustness", testDigiKeyParsingRobustness},
     {"storage", "SqliteSchemaValidation", testSqliteSchemaValidation},
     {"storage", "SqliteUpgradesLegacyDatabase", testSqliteUpgradesLegacyDatabase},
@@ -15722,9 +16223,13 @@ const vector<TestCase>& registeredTests() {
     {"label", "UnitsManufacturersAndPackagesAgree", testUnitsManufacturersAndPackagesAgreeAcrossVendors},
     {"tme", "TmeSearchTokens", testTmeSearchTokens},
     {"tme", "TmeDetailParsing", testTmeDetailParsing},
+    {"tme", "TmeOfferParsing", testTmeOfferParsing},
     {"tme", "TmeMergeFillsEnrichment", testTmeMergeFillsEnrichment},
     {"tme", "TmeSettingsPersistOptionalKeys", testTmeSettingsPersistOptionalKeys},
+    {"settings", "SharedVendorCurrencyPersists", testSharedVendorCurrencyPersists},
+    {"settings", "SharedVendorRegionAndEnabledPersist", testSharedVendorRegionAndEnabledPersist},
     {"mouser", "MouserResponseParsing", testMouserResponseParsing},
+    {"mouser", "MouserOfferParsing", testMouserOfferParsing},
     {"mouser", "MouserEmptyPartsIsSuccess", testMouserEmptyPartsIsSuccess},
     {"mouser", "MouserErrorsListFails", testMouserErrorsListFails},
     {"mouser", "MouserNonObjectBodyFails", testMouserNonObjectBodyFails},
@@ -15739,6 +16244,14 @@ const vector<TestCase>& registeredTests() {
     {"vendor", "VendorRateLimitServerQuotaRaisesCount", testVendorRateLimitServerQuotaRaisesCount},
     {"vendor", "VendorRateLimitWithoutPublishedLimit", testVendorRateLimitWithoutPublishedLimit},
     {"vendor", "VendorRateLimitPersistence", testVendorRateLimitPersistence},
+    {"vendor", "VendorOfferDecimalAndFormat", testVendorOfferDecimalAndFormat},
+    {"vendor", "VendorOfferPriceText", testVendorOfferPriceText},
+    {"vendor", "VendorOfferNetFromGross", testVendorOfferNetFromGross},
+    {"vendor", "VendorOfferLinks", testVendorOfferLinks},
+    {"vendor", "VendorOfferPriceBreaksAndFreshness", testVendorOfferPriceBreaksAndFreshness},
+    {"vendor", "VendorOfferCost", testVendorOfferCost},
+    {"vendor", "VendorOfferDescribe", testVendorOfferDescribe},
+    {"vendor", "VendorOfferStoreRoundTrip", testVendorOfferStoreRoundTrip},
     {"mouser", "MouserConfigValidity", testMouserConfigValidity},
     {"mouser", "MouserLookupGuardsMakeNoRequest", testMouserLookupGuardsMakeNoRequest},
     {"mouser", "MouserMergeKeepsSelectedIdentity", testMouserMergeKeepsSelectedIdentity},
