@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   again, no request is sent until then, and a refresh or shortage run stops at once. DigiKey and TME 429 answers get
   the same treatment as Mouser's.
 
+### Fixed
+- Settings: after restoring a backup or changing the data folder, Quick Labels no longer shows Unsaved, and saving
+  that page no longer replaces the restored Quick Labels with the old ones.
+
 ## [v0.1.7] - 2026-10-22
 
 **Highlights**
