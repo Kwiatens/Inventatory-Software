@@ -129,6 +129,8 @@ bool App::chooseInventatoryFolder() {
   inventatoryScanConfig_ = {};
   settings_.quickLabelPresets = move(selectedQuickLabels);
   settings_.quickLabelRevision = selectedQuickLabelRevision;
+  settingsDraft_.quickLabelPresets = settings_.quickLabelPresets;
+  settingsDraft_.quickLabelRevision = settings_.quickLabelRevision;
 
   printerQueues_.clear();
   printerCheck_ = {};
