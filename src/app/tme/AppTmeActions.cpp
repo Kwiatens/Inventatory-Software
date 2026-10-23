@@ -6,6 +6,7 @@
 #include "App.h"
 
 #include "app/common/AppActionSupport.h"
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/tme/TmeApi.h"
 
@@ -93,6 +94,8 @@ void App::processTmeRefresh() {
     ++run.completed;
     applyCatalogueResult(run, *result, "TME", app_actions::tmeRecordConflict, app_actions::mergeTmeMetadata);
     finishScanAutoPrint(result->itemId, result->details.has_value());
+    // A reached limit would fail the rest the same way; drop the run.
+    if (!result->details && isVendorLimitMessage(result->error)) run.queue.clear();
     if (run.queue.empty()) {
       run.client.reset();
       finishSupplierRefresh(run.changed, run.lastError, "tme", "TME",

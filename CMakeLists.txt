@@ -225,6 +225,7 @@ add_executable(inventatory
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
   src/platform/mouser/MouserApi.cpp
+  src/core/vendor/VendorRateLimits.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
@@ -323,6 +324,7 @@ add_executable(inventatory_tests
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
   src/platform/mouser/MouserApi.cpp
+  src/core/vendor/VendorRateLimits.cpp
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp
   src/platform/digikey/DigiKeyJsonParser.cpp

@@ -15,6 +15,7 @@
 #include "app/common/AppActionSupport.h"
 #include "platform/tme/TmeEncoding.h"
 #include "platform/tme/TmeVocabulary.h"
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/mouser/MouserApi.h"
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
@@ -14673,6 +14674,131 @@ void testMouserKeyRedaction() {
   assert(redactMouserKey("a [key] b", "[key]") == "a [key] b");
 }
 
+void testVendorRateLimitCountsAndWarns() {
+  auto& limits = VendorRateLimits::instance();
+  limits.reset();
+  const std::int64_t start = 1'800'000'000;
+  // Mouser: 1000 per day. Requests spread over the day never reach the per-minute limit.
+  for (int i = 0; i < 799; ++i) limits.recordRequest(Vendor::Mouser, start + i * 60);
+  assert(limits.takeNotices().empty());
+  limits.recordRequest(Vendor::Mouser, start + 799 * 60);  // 80%
+  auto notices = limits.takeNotices();
+  assert(notices.size() == 1);
+  assert(!notices[0].limitReached);
+  assert(notices[0].text.find("800 of 1000") != string::npos);
+  // One warning per crossing, not one per request.
+  limits.recordRequest(Vendor::Mouser, start + 800 * 60);
+  assert(limits.takeNotices().empty());
+  const auto now = start + 801 * 60;
+  const auto snapshot = limits.snapshot(Vendor::Mouser, now);
+  assert(snapshot.availableAt == 0);
+  assert(snapshot.windows.size() == 2);
+  assert(snapshot.windows[1].used == 801);
+  assert(snapshot.windows[1].warn && !snapshot.windows[1].full);
+  limits.reset();
+}
+
+void testVendorRateLimitFullWindowSaysWhenItEnds() {
+  auto& limits = VendorRateLimits::instance();
+  limits.reset();
+  const std::int64_t start = 1'800'000'000;
+  for (int i = 0; i < 30; ++i) limits.recordRequest(Vendor::Mouser, start + i);
+  // 30 calls inside a minute: wait until the oldest one is a minute old.
+  assert(limits.waitSeconds(Vendor::Mouser, start + 30) == 30);
+  assert(limits.waitSeconds(Vendor::Mouser, start + 59) == 1);
+  assert(limits.waitSeconds(Vendor::Mouser, start + 60) == 0);
+  const auto snapshot = limits.snapshot(Vendor::Mouser, start + 30);
+  assert(snapshot.windows[0].full);
+  assert(snapshot.availableAt == start + 60);
+  const auto message = limits.limitMessage(Vendor::Mouser, start + 30);
+  assert(message.rfind("Mouser request limit reached", 0) == 0);
+  assert(message.find("(30 per minute)") != string::npos);
+  assert(message.find("available again at") != string::npos);
+  assert(mouserLimitReached(message));
+  assert(isVendorLimitMessage(message));
+  limits.reset();
+  // With nothing known, the old wording stays.
+  assert(limits.limitMessage(Vendor::Mouser, start) == "Mouser request limit reached; try again later");
+}
+
+void testVendorRateLimitServerAnswerBlocks() {
+  auto& limits = VendorRateLimits::instance();
+  limits.reset();
+  const std::int64_t start = 1'800'000'000;
+  // DigiKey says the daily limit is used up and gives the wait in seconds.
+  limits.recordLimitReached(Vendor::DigiKey, start, 3 * 3600);
+  assert(limits.waitSeconds(Vendor::DigiKey, start + 10) == 3 * 3600 - 10);
+  auto notices = limits.takeNotices();
+  assert(notices.size() == 1 && notices[0].limitReached);
+  assert(notices[0].text.find("available again at") != string::npos);
+  // The same block is announced once.
+  limits.recordLimitReached(Vendor::DigiKey, start, 3 * 3600);
+  assert(limits.takeNotices().empty());
+  // A short burst limit is waited out, so it does not raise a message.
+  limits.recordLimitReached(Vendor::Mouser, start, 5);
+  assert(limits.waitSeconds(Vendor::Mouser, start) == 5);
+  assert(limits.takeNotices().empty());
+  // Other vendors are unaffected.
+  assert(limits.waitSeconds(Vendor::Tme, start) == 0);
+  limits.reset();
+}
+
+void testVendorRateLimitServerQuotaRaisesCount() {
+  auto& limits = VendorRateLimits::instance();
+  limits.reset();
+  const std::int64_t start = 1'800'000'000;
+  // This copy sent 3 requests; DigiKey reports that 900 of 1000 are used (other apps share the key).
+  for (int i = 0; i < 3; ++i) limits.recordRequest(Vendor::DigiKey, start + i);
+  limits.recordServerQuota(Vendor::DigiKey, start + 3, 1000, 100);
+  const auto snapshot = limits.snapshot(Vendor::DigiKey, start + 4);
+  assert(snapshot.windows[1].used == 900);
+  assert(snapshot.windows[1].warn);
+  limits.reset();
+}
+
+void testVendorRateLimitWithoutPublishedLimit() {
+  auto& limits = VendorRateLimits::instance();
+  limits.reset();
+  const std::int64_t start = 1'800'000'000;
+  for (int i = 0; i < 500; ++i) limits.recordRequest(Vendor::Tme, start + i);
+  assert(limits.waitSeconds(Vendor::Tme, start + 500) == 0);
+  const auto snapshot = limits.snapshot(Vendor::Tme, start + 500);
+  assert(snapshot.windows.empty() && snapshot.requestsLastDay == 500);
+  assert(VendorRateLimits::usageLine(snapshot).find("500 requests") != string::npos);
+  assert(limits.takeNotices().empty());
+  // A 429 from TME still blocks and is reported.
+  limits.recordLimitReached(Vendor::Tme, start + 500, std::nullopt);
+  assert(limits.waitSeconds(Vendor::Tme, start + 500) == 60);
+  limits.reset();
+}
+
+void testVendorRateLimitPersistence() {
+  TestTempRoot root;
+  const auto file = root.path() / "vendor-usage.conf";
+  auto& limits = VendorRateLimits::instance();
+  limits.reset();
+  limits.setStoragePath(file);
+  const auto now = static_cast<std::int64_t>(std::time(nullptr));
+  limits.recordRequest(Vendor::Mouser, now - 100);
+  limits.recordRequest(Vendor::Mouser, now - 50);
+  limits.recordLimitReached(Vendor::DigiKey, now, 4 * 3600);
+  assert(filesystem::exists(file));
+  assert(limits.takeNotices().size() == 1);
+  // A new session reads the counts and the block back; the block is not announced again.
+  limits.setStoragePath(file);
+  assert(limits.snapshot(Vendor::Mouser, now).windows[1].used == 2);
+  assert(limits.waitSeconds(Vendor::DigiKey, now) > 3 * 3600);
+  assert(limits.takeNotices().empty());
+  // A damaged file is ignored.
+  {
+    ofstream out(file, ios::trunc);
+    out << "garbage\nmouser requests 1 2 3\n";
+  }
+  limits.setStoragePath(file);
+  assert(limits.snapshot(Vendor::Mouser, now).requestsLastDay == 0);
+  limits.reset();
+}
+
 void testMouserConfigValidity() {
   assert(!MouserConfig{}.valid());
   assert(!MouserConfig{"synthetic key"}.valid());
@@ -15607,6 +15733,12 @@ const vector<TestCase>& registeredTests() {
     {"mouser", "MouserPartNumberMatching", testMouserPartNumberMatching},
     {"mouser", "MouserCandidateChoice", testMouserCandidateChoice},
     {"mouser", "MouserKeyRedaction", testMouserKeyRedaction},
+    {"vendor", "VendorRateLimitCountsAndWarns", testVendorRateLimitCountsAndWarns},
+    {"vendor", "VendorRateLimitFullWindowSaysWhenItEnds", testVendorRateLimitFullWindowSaysWhenItEnds},
+    {"vendor", "VendorRateLimitServerAnswerBlocks", testVendorRateLimitServerAnswerBlocks},
+    {"vendor", "VendorRateLimitServerQuotaRaisesCount", testVendorRateLimitServerQuotaRaisesCount},
+    {"vendor", "VendorRateLimitWithoutPublishedLimit", testVendorRateLimitWithoutPublishedLimit},
+    {"vendor", "VendorRateLimitPersistence", testVendorRateLimitPersistence},
     {"mouser", "MouserConfigValidity", testMouserConfigValidity},
     {"mouser", "MouserLookupGuardsMakeNoRequest", testMouserLookupGuardsMakeNoRequest},
     {"mouser", "MouserMergeKeepsSelectedIdentity", testMouserMergeKeepsSelectedIdentity},

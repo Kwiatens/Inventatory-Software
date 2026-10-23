@@ -7,6 +7,7 @@
 #include "ui/pages/settings/SettingsPagePrivate.h"
 
 #include "core/storage/InventorySqlite.h"
+#include "core/vendor/VendorRateLimits.h"
 #include "label_printer/symbols/RackSymbols.h"
 #include "ui/shared/AppUiShared.h"
 
@@ -159,6 +160,19 @@ App::SettingsPageModel App::settingsPageModel() const {
     row.value = move(value);
     row.tone = tone;
     return row;
+  };
+  // A supplier's request count against its published limits; red once the limit is reached.
+  const auto usageRow = [&](Vendor vendor) {
+    const auto snapshot = VendorRateLimits::instance().snapshot(vendor);
+    auto tone = VoiceTone::Plain;
+    if (snapshot.availableAt > 0) {
+      tone = VoiceTone::Danger;
+    } else if (any_of(snapshot.windows.begin(), snapshot.windows.end(), [](const WindowUsage& w) { return w.warn; })) {
+      tone = VoiceTone::Warning;
+    } else if (snapshot.requestsLastDay == 0) {
+      tone = VoiceTone::Muted;
+    }
+    return infoRow("Requests", "Usage", VendorRateLimits::usageSummary(snapshot), tone);
   };
   // A supplier's "Last refresh" row. counts describes a finished run; warn marks it as a warning.
   const auto refreshRow = [&](const auto& run, const string& id, bool enabled, function<void()> begin,
@@ -551,6 +565,7 @@ App::SettingsPageModel App::settingsPageModel() const {
         if (index == 0) row.buttons = {button("Test", "t", "settings.digikey.test", [self] { self->testStagedDigiKey(); })};
         rows.push_back(move(row));
       }
+      rows.push_back(usageRow(Vendor::DigiKey));
       rows.push_back(refreshRow(run, "digikey", !refreshRunning && !settingsDirty_, [self] { self->beginDigiKeyRefresh(); },
                                 to_string(run.succeeded) + " updated, " + to_string(run.errors) + " failed",
                                 run.errors > 0));
@@ -610,6 +625,7 @@ App::SettingsPageModel App::settingsPageModel() const {
         rows.push_back(move(row));
       }
 
+      rows.push_back(usageRow(Vendor::Tme));
       rows.push_back(refreshRow(run, "tme", configured && !refreshRunning && !settingsDirty_,
                                 [self] { self->beginTmeRefresh(); }, catalogueRefreshCounts(run),
                                 run.ambiguous + run.errors > 0));
@@ -645,6 +661,7 @@ App::SettingsPageModel App::settingsPageModel() const {
                             !refreshRunning)};
       rows.push_back(move(row));
 
+      rows.push_back(usageRow(Vendor::Mouser));
       rows.push_back(refreshRow(run, "mouser", keySet && !refreshRunning && !settingsDirty_,
                                 [self] { self->beginMouserRefresh(); }, catalogueRefreshCounts(run),
                                 run.ambiguous + run.errors > 0));

@@ -12,6 +12,7 @@
 
 #include "core/inventory/VendorProvider.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/Environment.h"
 
@@ -77,7 +78,8 @@ string unreachableMessage() { return "Unable to reach " + mouserName(); }
 string unparsableMessage() { return "Unable to parse the " + mouserName() + " response"; }
 // mouserLimitReached matches this prefix.
 string limitReachedPrefix() { return mouserName() + " request limit reached"; }
-string limitReachedMessage() { return limitReachedPrefix() + "; try again later"; }
+// Says when the limit ends, once the request tracker knows; otherwise "try again later".
+string limitReachedMessage() { return VendorRateLimits::instance().limitMessage(Vendor::Mouser); }
 
 // mouserKeyRejected matches this prefix.
 string keyRejectedPrefix() { return mouserName() + " rejected the API key"; }

@@ -8,6 +8,7 @@
 
 #include "import/csv/CsvFormat.h"
 #include "core/storage/InventorySqlite.h"
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
 #include "ui/shared/AppUiShared.h"
@@ -158,6 +159,8 @@ void App::processDigiKeyRefresh() {
     } else {
       ++run.errors;
       run.lastError = result->error.empty() ? "DigiKey returned no product details" : result->error;
+      // A reached limit would fail the rest the same way; drop the run.
+      if (isVendorLimitMessage(result->error)) run.queue.clear();
     }
     if (run.queue.empty()) {
       run.client.reset();
