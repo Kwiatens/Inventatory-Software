@@ -5,6 +5,7 @@
 
 #include "App.h"
 
+#include "core/vendor/VendorRateLimits.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/StartupRegistration.h"
@@ -177,6 +178,7 @@ void App::processBackgroundWork() {
   processDigiKeyRefresh();
   processTmeRefresh();
   processMouserRefresh();
+  processVendorNotices();
   processImportSync();
   processVendorLookup();
   processBomEnrichment();
@@ -255,6 +257,12 @@ void App::runInteractiveLoop() {
   running_ = false;
   if (ticker.joinable()) {
     ticker.join();
+  }
+}
+
+void App::processVendorNotices() {
+  for (const auto& notice : VendorRateLimits::instance().takeNotices()) {
+    setMessage(notice.text, 10, notice.limitReached ? UiMessageSeverity::Error : UiMessageSeverity::Warning);
   }
 }
 

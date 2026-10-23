@@ -208,6 +208,26 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     }
   }
 
+  // Rate-limit headers; absent ones leave the fields at -1.
+  struct RateHeader {
+    const wchar_t* name;
+    const char* lowerName;
+  };
+  static const RateHeader kRateHeaders[] = {{L"Retry-After", "retry-after"},
+                                            {L"X-RateLimit-Limit", "x-ratelimit-limit"},
+                                            {L"X-RateLimit-Remaining", "x-ratelimit-remaining"},
+                                            {L"X-RateLimit-Reset", "x-ratelimit-reset"},
+                                            {L"X-BurstLimit-Reset", "x-burstlimit-reset"}};
+  for (const auto& header : kRateHeaders) {
+    wchar_t value[64]{};
+    DWORD valueSize = sizeof(value);
+    if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, header.name, value, &valueSize,
+                             WINHTTP_NO_HEADER_INDEX)) {
+      continue;
+    }
+    readRateLimitHeader(header.lowerName, narrow(value), response);
+  }
+
   string bodyText;
   for (;;) {
     DWORD available = 0;
@@ -267,10 +287,13 @@ bool requestHttp(const wstring& method, const wstring& url, const wstring& heade
   const bool retryableMethod = method == L"GET";
   for (unsigned attempt = 0; attempt < kMaximumDigiKeyHttpAttempts; ++attempt) {
     string attemptError;
+    // A reached vendor limit is answered here as a local 429; nothing is sent.
+    if (!rateLimitAdmit(service, response)) return true;
     if (!requestHttpOnce(method, url, headers, body, response, &attemptError, service)) {
       if (error != nullptr) *error = move(attemptError);
       return false;
     }
+    rateLimitNote(service, response);
     if (!retryableMethod || !isRetryableHttpStatus(response.statusCode) ||
         attempt + 1U >= kMaximumDigiKeyHttpAttempts) {
       return true;
