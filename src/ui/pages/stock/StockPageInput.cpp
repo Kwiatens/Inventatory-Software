@@ -69,6 +69,20 @@ void App::handleClosestSearchKey(const KeyEvent& key) {
 }
 
 void App::handleStockKey(const KeyEvent& key) {
+  if (deleteConfirmationActive()) {
+    if (key.type == KeyType::Enter) {
+      confirmDeleteSelectedItem();
+      return;
+    }
+    if (key.type == KeyType::Escape) {
+      cancelDeleteConfirmation();
+      return;
+    }
+
+    cancelDeleteConfirmation();
+    return;
+  }
+
   if (closestSearchActive_ && inputMode_ == InputMode::None && key.type == KeyType::Enter) {
     openSelectedDetail();
     return;
@@ -111,20 +125,6 @@ void App::handleStockKey(const KeyEvent& key) {
       moveSelection(-10);
       return;
     }
-    return;
-  }
-
-  if (deleteConfirmationActive()) {
-    if (key.type == KeyType::Enter) {
-      confirmDeleteSelectedItem();
-      return;
-    }
-    if (key.type == KeyType::Escape) {
-      cancelDeleteConfirmation();
-      return;
-    }
-
-    cancelDeleteConfirmation();
     return;
   }
 
