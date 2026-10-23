@@ -219,6 +219,13 @@ void App::activateStockFilterOption(int row, int option) {
 }
 
 void App::handleStockFilterKey(const KeyEvent& key) {
+  if (key.type == KeyType::Delete || key.type == KeyType::CtrlBackspace) {
+    inputMode_ = InputMode::None;
+    focusedTargetId_.clear();
+    dirty_ = true;
+    armDeleteConfirmation();
+    return;
+  }
   const bool up = key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k');
   const bool down = key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j');
   const bool left = key.type == KeyType::Left || (key.type == KeyType::Character && key.ch == 'h');

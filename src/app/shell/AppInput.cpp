@@ -47,6 +47,18 @@ void App::handleKey(const KeyEvent& key) {
     focusedTargetId_.clear();
     dirty_ = true;
   }
+
+  // Modal delete confirmations take precedence over all input modes and focus targets.
+  if (page_ == Page::Stock && deleteConfirmationActive()) {
+    handleStockKey(key);
+    return;
+  }
+
+  if (page_ == Page::Racks && rackDeleteConfirmationActive()) {
+    handleRackManagementKey(key);
+    return;
+  }
+
   if (page_ == Page::Update) {
     handleUpdateKey(key);
     return;
@@ -131,17 +143,6 @@ void App::handleKey(const KeyEvent& key) {
   }
   if (key.type == KeyType::Character && key.ch == 'R' && !persistenceError_.empty()) {
     retrySaveState();
-    return;
-  }
-
-  // Modal: route Enter and Escape here before focus can activate a target underneath.
-  if (page_ == Page::Stock && deleteConfirmationActive()) {
-    handleStockKey(key);
-    return;
-  }
-
-  if (page_ == Page::Racks && rackDeleteConfirmationActive()) {
-    handleRackManagementKey(key);
     return;
   }
 
