@@ -11,7 +11,9 @@ rules for changelog entries and versions are in
    `linux-sanitizers`, `secret-logging` and `windows` jobs.
 2. Set the version in `project(InventatorySoftware VERSION x.y.z)` in
    `CMakeLists.txt`.
-3. In `CHANGELOG.md`, move the `[Unreleased]` entries under a new
+3. In `CHANGELOG.md`, add the approved entries from the Changelog section of each
+   pull request merged since the last release, copied as the maintainer wrote
+   them, and any `[Unreleased]` entries, under a new
    `## [x.y.z] - YYYY-MM-DD` heading, using the standard subsections. A
    `**Highlights**` block, when the release has one, moves with them and stays
    directly under the heading (see [AGENTS.md](../AGENTS.md)).
