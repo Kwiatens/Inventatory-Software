@@ -161,15 +161,12 @@ bool App::chooseInventatoryFolder() {
   bomSplitSelection_ = 0;
   bomBuildStep_ = 0;
   bomDeductPrompt_ = false;
-  bomEnrichmentQueue_.clear();
-  bomEnrichmentTotal_ = 0;
-  bomEnrichmentActiveKey_.clear();
-  // Join any in-flight lookup before dropping the client it borrows.
-  if (bomEnrichmentFuture_.valid()) {
-    bomEnrichmentFuture_.wait();
-    bomEnrichmentFuture_ = {};
+  // A part search still running belongs to the old workspace: wait for it and drop its answer.
+  closeBomPartPicker();
+  if (bomPickerFuture_.valid()) {
+    bomPickerFuture_.wait();
+    bomPickerFuture_ = {};
   }
-  bomEnrichmentClient_.reset();
   // Clear the old workspace first, so loadState() creates an empty database rather than
   // saving the previous inventory into the new folder.
   store_ = {};

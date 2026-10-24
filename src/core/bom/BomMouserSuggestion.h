@@ -4,8 +4,10 @@
 #pragma once
 
 #include "core/bom/BomProjectStore.h"
+#include "core/vendor/VendorOffer.h"
 #include "import/kicad/KicadBom.h"
 
+#include <optional>
 #include <string>
 
 namespace inventatory {
@@ -23,6 +25,7 @@ struct BomMouserSuggestion {
   BomLookupOutcome outcome = BomLookupOutcome::Failed;
   string suggestion;      // the Mouser part number
   bool verified = false;  // the record fits the line by the rules stock must pass
+  std::optional<VendorOffer> offer;  // the record's price, when it has one
 };
 
 // Suggests the record's Mouser part number. Not orderable or no part number: NoMatch.

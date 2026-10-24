@@ -5,6 +5,7 @@
 
 #include "import/digikey/DigiKeyCsvImport.h"
 
+#include "core/vendor/VendorPurchase.h"
 #include "import/csv/CsvReader.h"
 
 #include <algorithm>
@@ -158,29 +159,6 @@ string inferCategory(const string& description) {
   return "Unsorted";
 }
 
-string productSearchUrl(const string& digikeyPart) {
-  const auto part = trim(digikeyPart);
-  if (part.empty()) {
-    return {};
-  }
-
-  string encoded;
-  encoded.reserve(part.size());
-  static constexpr char kHex[] = "0123456789ABCDEF";
-  for (const unsigned char character : part) {
-    const bool asciiAlphaNumeric = (character >= 'A' && character <= 'Z') ||
-                                   (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9');
-    if (asciiAlphaNumeric || character == '-' || character == '_' || character == '.' || character == '~') {
-      encoded.push_back(static_cast<char>(character));
-    } else {
-      encoded.push_back('%');
-      encoded.push_back(kHex[(character >> 4U) & 0x0FU]);
-      encoded.push_back(kHex[character & 0x0FU]);
-    }
-  }
-  return "https://www.digikey.com/en/products/result?keywords=" + encoded;
-}
-
 int addQuantities(int current, int incoming) {
   if (incoming > 0 && current > numeric_limits<int>::max() - incoming) {
     return numeric_limits<int>::max();
@@ -309,7 +287,7 @@ CsvImportCandidate candidateFromRow(const vector<string>& row, const ColumnMap& 
     candidate.item.vendorMetadata.provider = "digikey";
     candidate.item.vendorMetadata.providerProductNumber = digikeyPart;
   }
-  candidate.item.productUrl = productSearchUrl(digikeyPart);
+  candidate.item.productUrl = digiKeySearchUrl(trim(digikeyPart));
   candidate.item.syncStatus = "needs_metadata";
   candidate.item.sku = manufacturerPart;
   candidate.item.lastUpdated = time(nullptr);

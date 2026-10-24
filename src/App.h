@@ -16,7 +16,9 @@
 #include "core/scanner/InventatoryScanProtocol.h"
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomPickPlan.h"
+#include "core/bom/BomProjectProgress.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/bom/BomVendorMatch.h"
 #include "app/settings/AppSettings.h"
 #include "app/shell/AppBootstrap.h"
 #include "app/shell/AppNavigation.h"
@@ -27,6 +29,7 @@
 #include "platform/tme/TmeApi.h"
 #include "platform/mouser/MouserApi.h"
 #include "core/vendor/VendorOffer.h"
+#include "core/vendor/VendorPurchase.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "platform/system/Console.h"
 #include "platform/scanner/BleProvisioningService.h"
@@ -55,6 +58,7 @@
 #include <mutex>
 #include <optional>
 #include <utility>
+#include <set>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -108,18 +112,6 @@ inline WorkspaceGeneration advanceWorkspaceGeneration(WorkspaceGeneration curren
 
 inline bool workspaceGenerationMatches(WorkspaceGeneration current, WorkspaceGeneration captured) {
   return current != 0 && current == captured;
-}
-
-// Async BOM results must match the workspace and the project/run that started them.
-inline bool bomEnrichmentScopeMatches(const std::string& currentProjectId,
-                                      const std::string& resultProjectId,
-                                      WorkspaceGeneration currentWorkspaceGeneration,
-                                      WorkspaceGeneration resultWorkspaceGeneration,
-                                      std::uint64_t currentRequestSequence,
-                                      std::uint64_t resultRequestSequence) {
-  return !currentProjectId.empty() && currentProjectId == resultProjectId &&
-         workspaceGenerationMatches(currentWorkspaceGeneration, resultWorkspaceGeneration) &&
-         currentRequestSequence != 0 && currentRequestSequence == resultRequestSequence;
 }
 
 // Polling reuses the request id; only completed or failed ends the exchange. Pending is retryable.
@@ -187,6 +179,19 @@ struct OfferRefreshResult {
   std::vector<OfferAnswer> answers;
 };
 
+// What a manual search for a BOM line's part found, from the store's worker.
+struct BomPartPickerSearch {
+  std::string lineKey;  // the line searched for; a result for a line the user has moved past is dropped
+  bool ok = false;
+  std::string error;
+  std::vector<VendorCandidate> candidates;
+};
+// The steps a manual search has made of the steps it expects. The worker writes them; the page reads them.
+struct BomPickerProgress {
+  std::atomic<size_t> done{0};
+  std::atomic<size_t> total{0};
+};
+
 class App {
  public:
   App(bool startInBackground, BackgroundController& backgroundController);
@@ -210,8 +215,9 @@ class App {
     Update,
   };
 
-  // Projects page views: project list, BOM split comparison, and build walkthrough.
-  enum class BomView { List, Split, Build };
+  // Projects page views. A project opens on its Overview: Find in racks, what is in stock, and the steps
+  // that get the rest. Each step is its own view; Lines is the full table.
+  enum class BomView { List, Overview, Lines, StartNotice, Confirm, Choose, Order, Receive, Build };
 
   enum class ScanSetupStep {
     Introduction,
@@ -313,7 +319,8 @@ class App {
     StockFilter,
     StocktakeCount,
     QuantityAdjust,
-    BomRestock,
+    BomReceive,
+    BomPartSearch,
     HistorySearch,
     HistoryCheckpoint,
     HistoryConfirm,
@@ -465,29 +472,6 @@ class App {
     WorkspaceGeneration workspaceGeneration = 0;
   };
 
-  // Supplier clients for one run. The worker builds them (credential reads can block);
-  // the UI thread releases them only while no lookup runs.
-  struct BomEnrichmentSession {
-    std::unique_ptr<DigiKeyApiClient> client;
-    std::unique_ptr<TmeApiClient> tmeClient;
-    // Mouser's request limit was hit; skip Mouser for this run. Touched only by the worker.
-    bool mouserLimitReached = false;
-  };
-
-  struct BomEnrichmentResult {
-    std::string key;
-    std::string suggestion;
-    // Fits the line by the stock rules; unverified suggestions read "check before ordering".
-    bool verified = false;
-    BomLookupOutcome outcome = BomLookupOutcome::Failed;
-    std::string projectId;
-    WorkspaceGeneration workspaceGeneration = 0;
-    std::uint64_t requestSequence = 0;
-    bool credentialsMissing = false;
-    bool fromTme = false;
-    bool fromMouser = false;
-  };
-
   // Printer work runs on a value snapshot with its own LabelPrinterService, never App state.
   enum class PrinterWorkKind { Refresh, Probe, PrintItem, PrintWire, PrintRack };
 
@@ -593,7 +577,7 @@ class App {
   void activateStockFilterOption(int row, int option);
   void handleStocktakeCountKey(const KeyEvent& key);
   void handleQuantityAdjustKey(const KeyEvent& key);
-  void handleBomRestockKey(const KeyEvent& key);
+  void handleBomReceiveKey(const KeyEvent& key);
   void handleHistoryKey(const KeyEvent& key);
   void handleExitConfirmationKey(const KeyEvent& key);
 
@@ -615,6 +599,13 @@ class App {
   ftxui::Element renderVendorSetupUi() const;
   ftxui::Element renderImportCsvUi() const;
   ftxui::Element renderBomProjectUi() const;
+  ftxui::Element renderBomOverview(int screenWidth) const;
+  ftxui::Element renderBomStartNotice(int screenWidth) const;
+  ftxui::Element renderBomConfirm(int screenWidth) const;
+  ftxui::Element renderBomChoose(int screenWidth) const;
+  ftxui::Element renderBomOrder(int screenWidth) const;
+  ftxui::Element renderBomReceive(int screenWidth) const;
+  ftxui::Element renderBomLines(int screenWidth) const;
   ftxui::Element renderHistoryUi() const;
   ftxui::Element renderSettingsUi() const;
   ftxui::Elements renderSettingsAppearancePicker() const;
@@ -720,6 +711,22 @@ class App {
   // Prices for the selected stock item: asks every configured vendor the item has a number for, on a
   // worker, then saves the answers on the UI thread. The detail panel reads them through the cache.
   void beginOfferRefresh();
+  // Saves the prices an enrichment lookup already returned, under the number the item is priced by.
+  void saveItemOffers(const InventoryItem& item, const std::string& provider, const std::vector<VendorOffer>& offers);
+  // The offers saved for a BOM line: its chosen stock part's, and its supplier suggestion's.
+  std::vector<VendorOffer> offersForBomLine(const BomLine& line, const BomMatch& match) const;
+  std::optional<PurchaseChoice> bestOfferForBomLine(const BomLine& line, const BomMatch& match, std::uint64_t toBuy) const;
+  // Picking a DigiKey part for the selected BOM line by hand. The pick is kept for the line and reused
+  // by every project with the same line.
+  void startBomPartPickerSearch(const BomLine& line, const std::string& typed);
+  void searchBomPartPicker(const std::string& words);
+  void openBomPartPage();
+  void processBomPartPicker();
+  void moveBomPickerSelection(int delta);
+  void useBomPickerSelection();
+  void closeBomPartPicker();
+  void beginBomPartSearchEdit();
+  void handleBomPartSearchKey(const KeyEvent& key);
   void processOfferRefresh();
   const std::vector<VendorOffer>& selectedItemOffers() const;
   // Shows queued vendor warnings ("close to the limit") and limit-reached messages.
@@ -935,8 +942,6 @@ class App {
                                            const std::vector<InventoryItem>& items);
   static void sortBomAnalysisForProject(BomAnalysis& analysis, const std::vector<InventoryItem>& items);
   void adjustBomBoards(int delta);
-  void cycleBomAlternate();
-  void beginBomRestock();
   void deleteSelectedBomProject();
   void openSelectedBomProject();
   void moveBomSelection(int delta);
@@ -944,9 +949,9 @@ class App {
   void advanceBomBuild(int delta);
   void finishBomBuild(bool subtractFromStock);
   bool exportBomShortages();
-  void queueBomEnrichment();
-  void clearBomEnrichmentRun();
-  void processBomEnrichment();
+  static bool providerEnabled(const AppSettings& settings, const std::string& provider);
+  // The vendors to offer in the picker: the enabled ones.
+  std::vector<std::string> bomVendorChoices() const;
   bool saveBomProjects();
   bool exportInventory();
   bool backupData();
@@ -956,7 +961,35 @@ class App {
   // Pieces taken for one pick; defaults to the full committed amount.
   int bomPickTaken(const BomPick& pick) const;
   void adjustBomPickTaken(int delta);
-  void confirmBomMatch();
+  // Project page steps (AppBomSteps.cpp).
+  struct BomPurchase;
+  void refreshBomProgress();
+  void applyBomChoicesFromOtherProjects();
+  void openBomOverview();
+  // 0 Confirm matches, 1 Choose parts to buy, 2 Order, 3 Receive; at a line when one is named.
+  void openBomStep(size_t step, const std::string& atLineKey = {});
+  void openBomLine(size_t matchIndex);
+  // The first step with work left; the overview when none has.
+  void openFirstOpenBomStep();
+  void requestBomFindInRacks();
+  void moveBomViewSelection(int delta);
+  size_t bomMatchIndex(const std::string& lineKey) const;  // npos when the line is gone
+  void showBomStepLine();
+  void advanceBomStep(bool done);
+  void useBomConfirmCandidate();
+  void markBomLineNotInStock();
+  std::string bomProjectStore() const;
+  void cycleBomStore();
+  std::vector<const BomPurchase*> bomPurchasesIn(BomLineState state) const;
+  void saveBomCartFiles();
+  void openBomOrderPage(bool next);
+  void markBomOrdered(bool confirmed);
+  void beginBomReceive();
+  void receiveAllBomOrders();
+  // Adds a received order to `store` and confirms the stock part for the line in `overrides`. Returns the
+  // part's place ("Rack 2  B4", a location, or empty), and its id in `itemId`.
+  std::string applyBomReceipt(InventoryStore& store, std::map<std::string, std::string>& overrides,
+                              const BomPurchase& purchase, int quantity, std::string* itemId) const;
   BomProject* activeBomProject();
   const BomProject* activeBomProject() const;
 
@@ -1119,6 +1152,36 @@ class App {
   mutable ftxui::Box bomTableBounds_;
   size_t bomBuildStep_ = 0;
   bool bomDeductPrompt_ = false;
+  // One BOM line that stock does not cover: what is chosen or ordered for it, and what it costs now.
+  struct BomPurchase {
+    size_t matchIndex = 0;
+    std::string lineKey;
+    BomLineState state = BomLineState::ToChoose;
+    std::string provider;  // the chosen or ordered part's store
+    std::string part;
+    std::uint64_t toBuy = 0;
+    std::optional<VendorOffer> offer;  // the chosen part's offer that can be bought now
+    std::optional<OfferCost> cost;
+    std::optional<BomOrder> order;
+    std::string stockPart;  // Receive: "adds to <name>" or "new: <name>"
+    std::string goesTo;     // Receive: where the part will be put
+  };
+  BomProjectProgress bomProgress_;
+  std::vector<BomPurchase> bomPurchases_;
+  std::string bomOrderCost_;    // the chosen parts' total, "14.20 EUR"
+  std::string bomOrderStores_;  // their stores, "TME"
+  size_t bomOverviewSelection_ = 0;
+  // The lines a Confirm or Choose step walks, fixed when it opens so answers do not reorder it.
+  std::vector<std::string> bomStepKeys_;
+  size_t bomStepPosition_ = 0;
+  size_t bomStepDone_ = 0;
+  size_t bomStepSkipped_ = 0;
+  size_t bomConfirmSelection_ = 0;
+  size_t bomOrderSelection_ = 0;
+  std::set<std::string> bomOrderOpened_;  // line keys whose store page was opened this session
+  bool bomOrderConfirm_ = false;
+  size_t bomReceiveSelection_ = 0;
+  std::string bomReceiveLineKey_;
   // Picks frozen when the walkthrough began; finish deducts only if stock still matches.
   // Taken amounts are indexed by commit, so re-sorting the analysis cannot move them.
   std::vector<BomPickCommit> bomCommits_;
@@ -1126,22 +1189,28 @@ class App {
   // Unconfirmed "next match" picks (bomLineKey -> item id); they never confirm on their own.
   std::map<std::string, std::string> bomSuggestions_;
   size_t bomFinishSelection_ = 0;
-  std::string bomRestockItemId_;
   std::string bomDeleteConfirmationProjectId_;
   time_t bomDeleteConfirmationUntil_ = 0;
   bool bomProjectsDirty_ = false;
-  // Line keys awaiting a suggestion; one is drained per tick to keep the UI responsive.
-  std::vector<std::string> bomEnrichmentQueue_;
-  size_t bomEnrichmentTotal_ = 0;
-  std::string bomEnrichmentActiveKey_;
-  WorkspaceGeneration bomEnrichmentGeneration_ = 0;
-  // One lookup at a time, off the render thread. The client is declared before the future, so
-  // the future (which joins its task) is destroyed first.
-  std::shared_ptr<BomEnrichmentSession> bomEnrichmentClient_;
-  std::future<BomEnrichmentResult> bomEnrichmentFuture_;
-  std::string bomEnrichmentProjectId_;
-  std::string bomEnrichmentActiveProjectId_;
-  std::uint64_t bomEnrichmentSequence_ = 0;
+  struct BomPartPicker {
+    bool open = false;
+    std::string projectId;
+    std::string lineKey;
+    std::string designation;
+    std::string query;    // the words searched: the typed words, or the line's first search
+    std::string reading;  // what the typed words name, "0.28 ohm"; empty when they name no value
+    std::string store;    // the vendor key the picker searches: DigiKey or TME
+    std::uint64_t quantity = 1;
+    std::vector<BomPickerEntry> entries;
+    size_t selection = 0;
+    std::string status;        // an error, a summary of the answer, or empty
+    bool statusWarns = false;  // the status says something went wrong or nothing was found
+    std::shared_ptr<BomPickerProgress> progress;
+    std::chrono::steady_clock::time_point searchStarted{};
+    std::optional<std::string> pendingSearch;  // words to search once the search still running ends
+  };
+  BomPartPicker bomPicker_;
+  std::future<BomPartPickerSearch> bomPickerFuture_;
   std::deque<std::pair<std::string, std::string>> scanDigiKeyEnrichmentQueue_;
   std::future<ScanDigiKeyEnrichmentResult> scanDigiKeyEnrichmentFuture_;
   // UI thread only: scans whose automatic label waits for their supplier lookup.

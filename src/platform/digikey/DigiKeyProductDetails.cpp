@@ -178,10 +178,11 @@ vector<VendorOffer> extractOffers(const JsonPtr& root, const JsonPtr& product, c
   const auto* variationsNode = findMember(product, "ProductVariations");
   const auto* variations = variationsNode == nullptr ? nullptr : asArray(*variationsNode);
   if (variations == nullptr) return offers;
+  // Only a discontinued part is not sold. An obsolete one (the maker stopped making it) is still on sale while
+  // stock lasts, and the stock and price checks decide whether it can be ordered.
   const auto status = toLower(details.productStatus);
   const bool orderable = toLower(readPath(product, {"Discontinued"}).value_or("false")) != "true" &&
-                         toLower(readPath(product, {"EndOfLife"}).value_or("false")) != "true" &&
-                         status.find("obsolete") == string::npos && status.find("discontinued") == string::npos;
+                         status.find("discontinued") == string::npos;
   for (const auto& variation : *variations) {
     if (toLower(readPath(variation, {"MarketPlace"}).value_or("false")) == "true") continue;
     const auto sku = trim(readPath(variation, {"DigiKeyProductNumber"}).value_or(""));
@@ -295,6 +296,30 @@ DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr
   details.offers = extractOffers(root, productNode, details);
 
   return details;
+}
+
+vector<DigiKeyProductDetails> parseSearchProducts(const JsonPtr& root) {
+  vector<DigiKeyProductDetails> products;
+  vector<string> seen;
+  for (const char* bucket : {"ExactMatches", "Products"}) {
+    const auto* member = findMember(root, bucket);
+    const auto* entries = member == nullptr ? nullptr : asArray(*member);
+    if (entries == nullptr) continue;
+    for (const auto& entry : *entries) {
+      if (asObject(entry) == nullptr) continue;
+      const auto number = readPath(entry, {"ManufacturerProductNumber"}).value_or("");
+      const auto maker = readPath(entry, {"Manufacturer", "Name"}).value_or("");
+      if (trim(number).empty()) continue;
+      const auto identity = toLower(maker) + "\x1e" + toLower(number);
+      if (find(seen.begin(), seen.end(), identity) != seen.end()) continue;
+      seen.push_back(identity);
+      // The search answer names the currency at its root, as a details answer does.
+      auto details = parseProductDetails(number, entry);
+      details.offers = extractOffers(root, entry, details);
+      products.push_back(move(details));
+    }
+  }
+  return products;
 }
 
 bool clearInvalidOptionalFields(DigiKeyProductDetails& details) {

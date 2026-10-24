@@ -197,59 +197,6 @@ void App::handleQuantityAdjustKey(const KeyEvent& key) {
   }
 }
 
-void App::handleBomRestockKey(const KeyEvent& key) {
-  if (key.type == KeyType::Character) {
-    if (numeric_prompt::applyDigit(inputBuffer_, key.ch, inputReplaceOnType_, 9U)) dirty_ = true;
-    return;
-  }
-  if (key.type == KeyType::Backspace) {
-    numeric_prompt::applyBackspace(inputBuffer_, inputReplaceOnType_);
-    dirty_ = true;
-    return;
-  }
-  if (key.type == KeyType::Escape) {
-    inputBuffer_.clear();
-    bomRestockItemId_.clear();
-    inputMode_ = InputMode::None;
-    setMessage("Stock receipt cancelled", 2);
-    return;
-  }
-  if (key.type != KeyType::Enter) return;
-
-  const auto text = inputBuffer_;
-  inputBuffer_.clear();
-  inputMode_ = InputMode::None;
-  auto* item = store_.findById(bomRestockItemId_);
-  bomRestockItemId_.clear();
-  if (item == nullptr) {
-    setMessage("The matched stock item no longer exists; add it manually from Stock", 5);
-    return;
-  }
-  int received = 0;
-  try {
-    size_t parsed = 0;
-    received = stoi(text, &parsed);
-    if (parsed != text.size() || received <= 0) throw invalid_argument("quantity");
-  } catch (...) {
-    setMessage("Enter a positive received quantity", 3);
-    return;
-  }
-
-  captureUndoSnapshot();
-  const auto before = item->quantity;
-  item->quantity = before > numeric_limits<int>::max() - received ? numeric_limits<int>::max() : before + received;
-  item->lastUpdated = time(nullptr);
-  reconcileRackAssignment(store_, *item);
-  logActivity("receipt", item->partName + " received " + to_string(received) + " (now " +
-                              to_string(item->quantity) + ")");
-  const bool saved = saveState("stock_receipt", activeBomProjectId_);
-  refreshBomAnalysis();
-  setMessage(saved ? item->partName + " receipt saved; BOM re-analyzed"
-                   : "Receipt is in memory; press R to retry saving, then recheck the BOM",
-             6);
-  dirty_ = true;
-}
-
 void App::handleExitConfirmationKey(const KeyEvent& key) {
   if (key.type == KeyType::Escape) {
     pendingPageAfterSettings_.reset();

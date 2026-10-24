@@ -4,6 +4,7 @@
 // Inventatory - TME credential test and inventory refresh.
 
 #include "App.h"
+#include "core/inventory/VendorProvider.h"
 
 #include "app/common/AppActionSupport.h"
 #include "core/vendor/VendorRateLimits.h"
@@ -98,6 +99,13 @@ void App::processTmeRefresh() {
     }
     ++run.completed;
     applyCatalogueResult(run, *result, "TME", app_actions::tmeRecordConflict, app_actions::mergeTmeMetadata);
+    // The lookup already carried the price, so it is saved without another request.
+    if (result->details) {
+      if (const auto* item = store_.findById(result->itemId); item != nullptr && app_actions::tmeRecordConflict(*item, *result->details).empty()) {
+        saveItemOffers(*item, kVendorProviderTme,
+                       result->details->offer ? vector<VendorOffer>{*result->details->offer} : vector<VendorOffer>{});
+      }
+    }
     finishScanAutoPrint(result->itemId, result->details.has_value());
     // A reached limit would fail the rest the same way; drop the run.
     if (!result->details && isVendorLimitMessage(result->error)) run.queue.clear();

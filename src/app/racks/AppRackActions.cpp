@@ -69,7 +69,7 @@ void App::changePage(Page page) {
     // Leaving the page abandons an unfinished BOM walkthrough.
     bomDeductPrompt_ = false;
     if (bomView_ == BomView::Build) {
-      bomView_ = BomView::Split;
+      bomView_ = BomView::Overview;
       bomBuildStep_ = 0;
     }
     bomDeleteConfirmationProjectId_.clear();

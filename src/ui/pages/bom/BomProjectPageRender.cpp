@@ -5,10 +5,14 @@
 
 #include "App.h"
 
+#include "core/inventory/VendorProvider.h"
+#include "platform/system/Console.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
+#include "ui/pages/bom/BomPageShared.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
+#include <chrono>
 #include <map>
 #include <string>
 #include <vector>
@@ -18,35 +22,9 @@
 namespace inventatory {
 
 using namespace std;
+using namespace bom_page;
 
 namespace {
-
-// A text cell of exact width; bold for the figures a row is read by.
-ftxui::Element cell(const string& text, int width, ftxui::Color color, bool bold = false, bool rightAlign = false) {
-  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, width - 1)));
-  auto content = bold ? uiHeaderText(clipped, color) : styledText(clipped, color);
-  auto row = rightAlign ? ftxui::hbox({ftxui::filler(), move(content), ftxui::text(" ")})
-                        : ftxui::hbox({move(content), ftxui::filler()});
-  return row | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
-}
-
-// A voice line used as a page title: every word is bold, slots keep their focus colour.
-ftxui::Element voiceTitle(const VoiceLine& line) {
-  ftxui::Elements spans;
-  for (const auto& span : line) {
-    spans.push_back(uiHeaderText(span.text, span.tone == VoiceTone::Slot ? uiFocusColor() : uiPrimaryText()));
-  }
-  return ftxui::hbox(move(spans));
-}
-
-ftxui::Element buttonGroup(ftxui::Elements buttons) {
-  ftxui::Elements spaced;
-  for (auto& button : buttons) {
-    if (!spaced.empty()) spaced.push_back(ftxui::text(" "));
-    spaced.push_back(move(button));
-  }
-  return ftxui::hbox(move(spaced));
-}
 
 // "Rack 1 > Rack 2 > Outside racks > Finish", with the current stop in bold focus text.
 ftxui::Element routeLine(const BomPickPlan& plan, size_t current, bool finishing) {
@@ -344,151 +322,18 @@ ftxui::Element App::renderBomProjectUi() const {
            ftxui::bgcolor(surface) | ftxui::flex;
   }
 
-  int suggested = 0;
-  if (project != nullptr) {
-    for (const auto& match : bomAnalysis_.matches) {
-      if (match.sufficient) continue;
-      const auto key = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
-      const auto found = project->enrichment.find(key);
-      if (bomEnrichmentCached(project->enrichment, key) && found->second != kBomEnrichmentNoMatch) ++suggested;
-    }
+  // Every step screen uses the full width. Their columns grow with it, and the detail column takes the rest.
+  ftxui::Element screen;
+  switch (bomView_) {
+    case BomView::Lines: screen = renderBomLines(screenWidth); break;
+    case BomView::StartNotice: screen = renderBomStartNotice(screenWidth); break;
+    case BomView::Confirm: screen = renderBomConfirm(screenWidth); break;
+    case BomView::Choose: screen = renderBomChoose(screenWidth); break;
+    case BomView::Order: screen = renderBomOrder(screenWidth); break;
+    case BomView::Receive: screen = renderBomReceive(screenWidth); break;
+    default: screen = renderBomOverview(screenWidth); break;
   }
-
-  auto title = ftxui::hbox({
-      uiHeaderText(projectName, uiPrimaryText()),
-      ftxui::text("   "),
-      target(uiButton("-"), "bom.boards.less", UiTargetKind::Button, [self] { self->adjustBomBoards(-1); }),
-      uiHeaderText(" " + voiceCount(bomAnalysis_.boards, "board", "boards") + " ", uiPrimaryText()),
-      target(uiButton("+"), "bom.boards.more", UiTargetKind::Button, [self] { self->adjustBomBoards(1); }),
-  });
-  auto buttons = buttonGroup({
-      target(uiButton("Pick parts", "f", UiButtonKind::Primary), "bom.find-in-racks", UiTargetKind::Button,
-             [self] { self->beginBomBuild(); }),
-      target(uiButton("Shopping list", "o"), "bom.shopping-list", UiTargetKind::Button,
-             [self] { self->exportBomShortages(); }),
-  });
-
-  const int indent = 3;
-  const int partWidth = clamp(screenWidth / 4, 20, 32);
-  const int packageWidth = clamp(screenWidth / 9, 11, 18);
-  const int needWidth = 7;
-  const int haveWidth = 7;
-  const int statusWidth = 10;
-  const int whereWidth = max(16, screenWidth - indent - partWidth - packageWidth - needWidth - haveWidth - statusWidth - 2);
-
-  ftxui::Elements tableRows;
-  tableRows.push_back(ftxui::hbox({ftxui::text(string(indent, ' ')), cell("Part", partWidth, uiMutedText()),
-                                   cell("Package", packageWidth, uiMutedText()), cell("Where", whereWidth, uiMutedText()),
-                                   cell("Need", needWidth, uiMutedText(), false, true),
-                                   cell("Have", haveWidth, uiMutedText(), false, true),
-                                   cell("Status", statusWidth, uiMutedText(), false, true)}));
-
-  // In stock: covered. To check: a stock part awaits confirmation.
-  // Missing: no stock covers the line.
-  const auto groupOf = [](const BomMatch& match) -> string {
-    return match.sufficient ? "s" : match.needsConfirmation() ? "c" : "m";
-  };
-  map<string, int> groupCounts;
-  for (const auto& match : bomAnalysis_.matches) {
-    const auto& line = bomAnalysis_.lines[match.lineIndex];
-    ++groupCounts[groupOf(match) + "|" + toLower(bomComparisonCategory(line, match, store_.items()))];
-    ++groupCounts[groupOf(match)];
-  }
-
-  string previousAvailability;
-  string previousCategory;
-  for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
-    const auto& match = bomAnalysis_.matches[index];
-    const auto& line = bomAnalysis_.lines[match.lineIndex];
-    const bool selected = index == min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
-    const auto* item = store_.findById(match.chosenItemId());
-    const string groupKey = groupOf(match);
-    const string availability = groupKey == "s" ? "In stock" : groupKey == "c" ? "To check" : "Missing";
-    const auto category = bomComparisonCategory(line, match, store_.items());
-    if (availability != previousAvailability) {
-      tableRows.push_back(ftxui::hbox({ftxui::text(" "),
-                                       uiHeaderText(availability, groupKey == "s" ? uiSuccessColor()
-                                                                  : groupKey == "c" ? uiWarnColor()
-                                                                                    : uiDangerColor()),
-                                       styledText("  " + to_string(groupCounts[groupKey]), uiMutedText()), ftxui::filler()}) |
-                          ftxui::bgcolor(uiRaisedSurfaceBg()));
-      previousAvailability = availability;
-      previousCategory.clear();
-    }
-    if (toLower(category) != toLower(previousCategory)) {
-      tableRows.push_back(ftxui::hbox({ftxui::text("  "), styledText(category, uiSecondaryText()),
-                                       styledText("  " + to_string(groupCounts[groupKey + "|" + toLower(category)]),
-                                                  uiMutedText()),
-                                       ftxui::filler()}));
-      previousCategory = category;
-    }
-
-    string where = "-";
-    auto whereColor = uiMutedText();
-    if (match.sufficient) {
-      const auto rack = item == nullptr ? string() : rackLocation(*item, store_.racks());
-      if (!rack.empty()) {
-        // rackLocation gives "R1-E3"; spell the rack out as the pick route does.
-        const auto dash = rack.find('-');
-        where = dash == string::npos ? rack : "Rack " + to_string(max(1, rackNumberFromCode(rack.substr(0, dash)))) + "  " + rack.substr(dash + 1);
-      } else if (item != nullptr && !item->location.empty()) {
-        where = item->location;
-      }
-      whereColor = uiLinkColor();
-    } else if (match.needsConfirmation() && item != nullptr) {
-      // The stock part this line would use, awaiting confirmation.
-      where = "Suggested  " + item->partName;
-      whereColor = uiWarnColor();
-    } else if (project != nullptr) {
-      const auto lineKey = bomLineKey(line);
-      const auto found = project->enrichment.find(lineKey);
-      if (bomEnrichmentCached(project->enrichment, lineKey)) {
-        const auto part = bomEnrichmentPart(found->second);
-        const bool verified = bomEnrichmentVerified(found->second);
-        const auto supplier = bomEnrichmentSupplier(found->second);
-        where = part.empty() ? string("No supplier match")
-                             : supplier + "  " + part + (verified ? string() : string("  check before ordering"));
-        whereColor = part.empty() ? uiMutedText() : uiSecondaryText();
-      } else if (bomEnrichmentFuture_.valid() && lineKey == bomEnrichmentActiveKey_) {
-        where = "Looking up on suppliers";
-      } else if (find(bomEnrichmentQueue_.begin(), bomEnrichmentQueue_.end(), lineKey) != bomEnrichmentQueue_.end()) {
-        where = "Waiting for supplier lookup";
-      }
-    }
-
-    const auto haveColor = match.sufficient ? uiPrimaryText() : match.available <= 0 ? uiDangerColor() : uiWarnColor();
-    const int shortBy = max(0, match.needed - match.available);
-    const auto bg = selected ? uiSelectionBg() : surface;
-    auto row = ftxui::hbox({
-                   styledText(selected ? " > " : "   ", uiFocusColor()),
-                   cell(line.designation, partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                   cell(packageFromFootprint(line.footprint), packageWidth, uiSecondaryText()),
-                   cell(where, whereWidth, whereColor),
-                   cell(to_string(match.needed), needWidth, uiSecondaryText(), false, true),
-                   cell(to_string(match.available), haveWidth, haveColor, true, true),
-                   cell(match.sufficient                ? "Ready"
-                        : match.needsConfirmation()     ? "Check"
-                        : match.available > 0           ? "Short " + to_string(shortBy)
-                                                        : "Missing",
-                        statusWidth,
-                        match.sufficient ? uiSuccessColor() : match.needsConfirmation() ? uiWarnColor() : haveColor,
-                        false, true),
-               }) |
-               ftxui::bgcolor(bg);
-    if (selected) row = row | ftxui::select;
-    tableRows.push_back(target(row, "bom.line." + to_string(index), UiTargetKind::Row, [self, index] {
-      self->bomSplitSelection_ = index;
-      self->dirty_ = true;
-    }));
-  }
-
-  return ftxui::vbox({
-             uiPageHeader(move(title), uiVoiceLine(bomProjectSummary(bomAnalysis_, suggested), nullopt, screenWidth - 3), move(buttons)),
-             dirtyRow(),
-             ftxui::vbox(move(tableRows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::flex |
-                 ftxui::reflect(bomTableBounds_),
-         }) |
-         ftxui::bgcolor(surface) | ftxui::flex;
+  return ftxui::vbox({dirtyRow(), move(screen) | ftxui::flex}) | ftxui::bgcolor(surface) | ftxui::flex;
 }
 
 }  // namespace inventatory

@@ -13,10 +13,12 @@
 #include "app/shell/AppBootstrap.h"
 #include "app/settings/AppSettings.h"
 #include "app/common/AppActionSupport.h"
+#include "platform/tme/TmeApi.h"
 #include "platform/tme/TmeEncoding.h"
 #include "platform/tme/TmeVocabulary.h"
 #include "core/vendor/VendorOffer.h"
 #include "core/vendor/VendorOfferStore.h"
+#include "core/vendor/VendorPurchase.h"
 #include "core/vendor/VendorRateLimits.h"
 #include "platform/mouser/MouserApi.h"
 #include "platform/system/UpdateService.h"
@@ -37,6 +39,7 @@
 #include "core/transfer/InventoryTransfer.h"
 #include "core/transfer/InventoryTransferPrivate.h"
 #include "core/transfer/CsvExport.h"
+#include "core/text/AsciiFold.h"
 #ifdef near
 #undef near
 #endif
@@ -56,9 +59,11 @@
 #include "import/altium/AltiumBom.h"
 #include "core/bom/BomMatch.h"
 #include "core/bom/BomPickPlan.h"
+#include "core/bom/BomProjectProgress.h"
 #include "core/bom/BomMouserSuggestion.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/bom/BomProjectStore.h"
+#include "core/bom/BomVendorMatch.h"
 #include "label_printer/core/LabelPrinter.h"
 #include "label_printer/core/LabelPrinterPrivate.h"
 #include "label_printer/platform/CupsStatus.h"
@@ -2707,6 +2712,25 @@ void testDigiKeyOfferParsing() {
   // The currency is the one DigiKey used, not the one asked for: the US site answers in USD.
   root = parseJson(document(R"j({"SearchLocaleUsed":{"Site":"US","Language":"en","Currency":"USD"},)j", ""), &error);
   assert(root.has_value() && parseProductDetails("SYN-0100-1-ND", *root).offers.front().currency == "USD");
+
+  // An obsolete part still in stock is sold: its cut tape stays orderable, marked obsolete. Only a discontinued
+  // part is refused, whatever its end-of-life flag says.
+  const auto obsoleteText = [](const string& status, const string& discontinued) {
+    return string(R"j({"SearchLocaleUsed":{"Currency":"EUR"},"Product":{"ManufacturerProductNumber":"SYN-OBS-0001",)j"
+                  R"j("ProductStatus":{"Id":0,"Status":")j") + status + R"j("},"Discontinued":)j" + discontinued +
+           R"j(,"EndOfLife":true,"ProductVariations":[{"DigiKeyProductNumber":"SYN-OBS-1-ND",)j"
+           R"j("PackageType":{"Id":2,"Name":"Cut Tape (CT)"},"StandardPricing":[{"BreakQuantity":1,"UnitPrice":0.83}],)j"
+           R"j("MarketPlace":false,"QuantityAvailableforPackageType":29860,"MinimumOrderQuantity":1,"StandardPackage":1}]}})j";
+  };
+  root = parseJson(obsoleteText("Obsolete", "false"), &error);
+  assert(root.has_value());
+  const auto obsolete = parseProductDetails("SYN-OBS-1-ND", *root);
+  assert(obsolete.offers.size() == 1 && obsolete.offers[0].orderable && obsolete.offers[0].lifecycle == "Obsolete");
+  assert(orderableOffer(obsolete.offers[0], 1).has_value());
+  root = parseJson(obsoleteText("Discontinued at Digi-Key", "false"), &error);
+  assert(root.has_value() && !parseProductDetails("SYN-OBS-1-ND", *root).offers.front().orderable);
+  root = parseJson(obsoleteText("Obsolete", "true"), &error);
+  assert(root.has_value() && !parseProductDetails("SYN-OBS-1-ND", *root).offers.front().orderable);
 }
 
 // An oversized string must not fail the whole DigiKey document. It is validated but never stored,
@@ -4825,11 +4849,6 @@ void testWorkspaceGenerationAndQuickLabelCache() {
   assert(!workspaceGenerationMatches(second, first));
   assert(!workspaceGenerationMatches(0, first));
   assert(advanceWorkspaceGeneration(numeric_limits<WorkspaceGeneration>::max()) == 1);
-  assert(bomEnrichmentScopeMatches("project-a", "project-a", first, first, 7, 7));
-  assert(!bomEnrichmentScopeMatches("project-b", "project-a", first, first, 7, 7));
-  assert(!bomEnrichmentScopeMatches("project-a", "project-a", second, first, 7, 7));
-  assert(!bomEnrichmentScopeMatches("project-a", "project-a", first, first, 8, 7));
-  assert(!bomEnrichmentScopeMatches("", "project-a", first, first, 7, 7));
   const DeviceQuickLabelPrintResult pending{"request-1", "pending", "queued", "poll again"};
   const DeviceQuickLabelPrintResult completed{"request-1", "completed", "", "Label sent"};
   const DeviceQuickLabelPrintResult failed{"request-1", "failed", "printer_failed", "Printer failed"};
@@ -14974,8 +14993,9 @@ void testMouserOrderableStatus() {
   assert(!parseSyntheticMouserPart(R"(,"IsDiscontinued":"TRUE")").orderable);
   assert(!parseSyntheticMouserPart(R"(,"IsDiscontinued":true)").orderable);
 
+  // The maker stopped making it, but Mouser still sells the stock: orderable, with the status kept.
   const auto obsolete = parseSyntheticMouserPart(R"(,"LifecycleStatus":"Obsolete")");
-  assert(!obsolete.orderable);
+  assert(obsolete.orderable);
   assert(obsolete.productStatus == "Obsolete");
 
   const auto active = parseSyntheticMouserPart(R"(,"LifecycleStatus":"New Product","IsDiscontinued":"false")");
@@ -15269,6 +15289,844 @@ VendorOffer cutTapeOffer() {
   return offer;
 }
 
+void testChooseBestOffer() {
+  const std::time_t now = 1792750000;
+  auto base = cutTapeOffer();
+  base.fetchedAt = now;
+  base.stock = 5000;
+  auto cheap = base;  // Another vendor: cheaper per piece, but only 20 in stock
+  cheap.provider = "tme";
+  cheap.sku = "RES-0603";
+  cheap.breaks = {{1, 50000}, {100, 9000}};
+  cheap.stock = 20;
+  auto other = base;  // Priced in another currency: never compared
+  other.provider = "mouser";
+  other.currency = "PLN";
+  other.breaks = {{1, 1000}};
+  auto notSold = base;
+  notSold.provider = "mouser";
+  notSold.orderable = false;
+  notSold.breaks = {{1, 1000}};
+
+  // 100 pieces: the cheaper vendor lacks the stock, so the one that can deliver wins.
+  auto choice = chooseBestOffer({cheap, base, other, notSold}, 100, "EUR", now);
+  assert(choice.has_value() && choice->offer.provider == "digikey" && choice->enoughStock && !choice->oldPrice);
+  assert(choice->cost.orderQuantity == 100 && choice->cost.totalMicros == 100 * 12200);
+
+  // With enough stock on both, the lower total wins.
+  cheap.stock = 1000;
+  choice = chooseBestOffer({base, cheap}, 100, "EUR", now);
+  assert(choice.has_value() && choice->offer.provider == "tme" && choice->cost.totalMicros == 100 * 9000);
+
+  // An obsolete offer is still sold, but it comes after the offers the maker still makes, however cheap it is.
+  auto obsoleteCheap = base;
+  obsoleteCheap.provider = "mouser";
+  obsoleteCheap.sku = "OBS-0603";
+  obsoleteCheap.lifecycle = "Obsolete";
+  obsoleteCheap.breaks = {{1, 1000}};
+  choice = chooseBestOffer({base, cheap, obsoleteCheap}, 100, "EUR", now);
+  assert(choice.has_value() && choice->offer.sku == cheap.sku && !offerIsObsolete(choice->offer));
+  assert(!choice->cheaperElsewhere);  // The cheaper obsolete offer is not offered as a saving.
+  choice = chooseBestOffer({obsoleteCheap}, 100, "EUR", now);
+  assert(choice.has_value() && choice->offer.sku == "OBS-0603" && choice->cost.totalMicros == 100 * 1000);
+
+  // Only vendors that cannot supply the quantity: still the cheapest, flagged as low on stock.
+  cheap.stock = 20;
+  base.stock = 30;
+  choice = chooseBestOffer({base, cheap}, 100, "EUR", now);
+  assert(choice.has_value() && !choice->enoughStock && choice->offer.provider == "tme");
+
+  // An old price is still chosen, but flagged.
+  base.fetchedAt = now - kOfferFreshSeconds - 1;
+  choice = chooseBestOffer({base}, 1, "EUR", now);
+  assert(choice.has_value() && choice->oldPrice);
+
+  // Another currency or nothing orderable gives no choice; with no shared currency set, any currency counts.
+  assert(!chooseBestOffer({other, notSold}, 1, "EUR", now).has_value());
+  assert(chooseBestOffer({other}, 1, "", now).has_value());
+  assert(!chooseBestOffer({base}, 0, "EUR", now).has_value());
+  assert(!chooseBestOffer({}, 5, "EUR", now).has_value());
+}
+
+void testChooseBestOfferPrefersVendor() {
+  const std::time_t now = 1792750000;
+  auto digikey = cutTapeOffer();
+  digikey.fetchedAt = now;
+  digikey.stock = 5000;
+  auto tme = digikey;
+  tme.provider = "tme";
+  tme.sku = "RES-0603";
+  tme.breaks = {{1, 50000}, {100, 9000}};
+  tme.productUrl = "https://www.tme.eu/details/RES-0603";
+
+  // The preferred vendor wins even when the other is cheaper, and the saving is reported.
+  auto choice = chooseBestOffer({tme, digikey}, 100, "EUR", now, "digikey");
+  assert(choice.has_value() && choice->offer.provider == "digikey" && !choice->notPreferred);
+  assert(choice->cheaperElsewhere && choice->cheaperOffer.provider == "tme");
+  assert(choice->cheaperCost.totalMicros == 100 * 9000 && choice->cost.totalMicros == 100 * 12200);
+
+  // Without a preference the cheapest wins and nothing is cheaper.
+  choice = chooseBestOffer({tme, digikey}, 100, "EUR", now);
+  assert(choice.has_value() && choice->offer.provider == "tme" && !choice->cheaperElsewhere && !choice->notPreferred);
+
+  // A preferred vendor without enough stock gives way, and the fallback is flagged.
+  digikey.stock = 10;
+  choice = chooseBestOffer({tme, digikey}, 100, "EUR", now, "digikey");
+  assert(choice.has_value() && choice->offer.provider == "tme" && choice->notPreferred);
+
+  // A cheaper offer that is out of stock is no saving.
+  digikey.stock = 5000;
+  tme.stock = 5;
+  choice = chooseBestOffer({tme, digikey}, 100, "EUR", now, "digikey");
+  assert(choice.has_value() && choice->offer.provider == "digikey" && !choice->cheaperElsewhere);
+
+  // TME opens its search for the number; other vendors keep their own page.
+  assert(vendorPurchaseUrl(tme) == "https://www.tme.eu/en/katalog/?search=RES-0603");
+  tme.sku = "A B/1";
+  assert(vendorPurchaseUrl(tme) == "https://www.tme.eu/en/katalog/?search=A%20B%2F1");
+  digikey.productUrl = "https://www.digikey.de/x";
+  assert(vendorPurchaseUrl(digikey) == "https://www.digikey.de/x");
+  // DigiKey's search for a part number, used when DigiKey stored no page. Spaces, slashes and non-ASCII bytes are
+  // escaped, so the number stays one search term.
+  assert(digiKeySearchUrl("8300029995B") == "https://www.digikey.com/en/products/result?keywords=8300029995B");
+  assert(digiKeySearchUrl("R 10/k&x") == "https://www.digikey.com/en/products/result?keywords=R%2010%2Fk%26x");
+  assert(digiKeySearchUrl("W\xC3\xBC" "rth") == "https://www.digikey.com/en/products/result?keywords=W%C3%BCrth");
+  assert(digiKeySearchUrl("").empty());
+
+  // The project's choice lives beside its suggestions.
+  map<string, string> enrichment;
+  assert(bomPreferredVendor(enrichment).empty() && bomPreferredProvider(enrichment).empty());
+  enrichment[kBomPreferredVendorKey] = "any";
+  assert(bomPreferredVendor(enrichment) == "any" && bomPreferredProvider(enrichment).empty());
+  enrichment[kBomPreferredVendorKey] = "mouser";
+  assert(bomPreferredProvider(enrichment) == "mouser");
+}
+
+// A searched product for the BOM matcher tests: one cut-tape offer at `unitPrice` EUR.
+VendorCandidate syntheticCandidate(const string& mpn, const string& maker, vector<Parameter> parameters,
+                                   uint64_t stock, double unitPrice) {
+  VendorCandidate candidate;
+  candidate.manufacturer = maker;
+  candidate.manufacturerPartNumber = mpn;
+  candidate.status = "Active";
+  candidate.parameters = move(parameters);
+  candidate.stock = stock;
+  VendorOffer offer;
+  offer.provider = kVendorProviderDigiKey;
+  offer.sku = mpn + "-CT-ND";
+  offer.currency = "EUR";
+  offer.packaging = "Cut Tape (CT)";
+  offer.stock = stock;
+  offer.breaks = {{1, static_cast<int64_t>(unitPrice * 1000000 + 0.5)}};
+  candidate.offers.push_back(offer);
+  return candidate;
+}
+
+BomLine syntheticBomLine(const string& designation, const string& footprint, int quantity = 1) {
+  BomLine line;
+  line.designation = designation;
+  line.footprint = footprint;
+  line.quantityPerBoard = quantity;
+  return line;
+}
+
+void testBomPartSpecReading() {
+  auto spec = bomPartSpec(syntheticBomLine("10K", "R_0603_1608Metric"));
+  assert(spec.kind == BomPartKind::Resistor && spec.chipCode == "0603" && spec.value && fabs(*spec.value - 10000) < 1e-9);
+  assert(spec.partNumbers.empty());
+  // RKM notation: R280 is 0.28 ohm, unlike 280R.
+  spec = bomPartSpec(syntheticBomLine("R280", "R_0603_1608Metric"));
+  assert(spec.kind == BomPartKind::Resistor && fabs(*spec.value - 0.28) < 1e-12);
+  spec = bomPartSpec(syntheticBomLine("100nF/50V X7R", "C_0603_1608Metric"));
+  assert(spec.kind == BomPartKind::Capacitor && fabs(*spec.value - 1e-7) < 1e-15);
+  assert(spec.voltage == 50.0 && spec.dielectric == "X7R");
+  spec = bomPartSpec(syntheticBomLine("100uF", "CP_Radial_D5.0mm_P2.50mm"));
+  assert(spec.kind == BomPartKind::Electrolytic && spec.diameterMm == 5.0 && fabs(*spec.value - 1e-4) < 1e-12);
+  spec = bomPartSpec(syntheticBomLine("32.768KHz", "Crystal_AT310_D3.0mm_L10.0mm_Horizontal"));
+  assert(spec.kind == BomPartKind::Crystal && spec.diameterMm == 3.0 && fabs(*spec.value - 32768) < 1e-6);
+  spec = bomPartSpec(syntheticBomLine("8MHz", "Crystal_SMD_3225-4Pin_3.2x2.5mm"));
+  assert(spec.kind == BomPartKind::Crystal && spec.crystalCode == "3225" && spec.crystalSize == "3.20mm x 2.50mm");
+  spec = bomPartSpec(syntheticBomLine("0.5A", "Fuse_1206_3216Metric"));
+  assert(spec.kind == BomPartKind::Fuse && spec.value == 0.5 && spec.chipCode == "1206");
+  spec = bomPartSpec(syntheticBomLine("LED", "LED_0603_1608Metric_Pad1.05x0.95mm_HandSolder"));
+  assert(spec.kind == BomPartKind::Led && spec.colour.empty() && spec.partNumbers.empty());
+  assert(bomPartSpec(syntheticBomLine("LED Red", "LED_0603_1608Metric")).colour == "red");
+  // Part numbers hide in footprints; package and IPC names are not part numbers.
+  spec = bomPartSpec(syntheticBomLine("RGBW_Strip", "JST_PH_B3B-PH-K_1x03_P2.00mm_Vertical"));
+  assert(spec.kind == BomPartKind::PartNumber && spec.partNumbers == vector<string>{"B3B-PH-K"});
+  spec = bomPartSpec(syntheticBomLine("GP1A57HRJ00F", "XDCR_GP1A57HRJ00F"));
+  assert(spec.partNumbers == vector<string>{"GP1A57HRJ00F"});
+  spec = bomPartSpec(syntheticBomLine("DRV8461SPWP", "SOP65P640X120-29N"));
+  assert(spec.partNumbers == vector<string>{"DRV8461SPWP"} && spec.icFamily == "TSSOP" && spec.icPins == 28);
+  spec = bomPartSpec(syntheticBomLine("BQ32000", "SOIC-8_3.9x4.9mm_P1.27mm"));
+  assert(spec.partNumbers == vector<string>{"BQ32000"} && spec.icFamily == "SOIC" && spec.icPins == 8);
+  spec = bomPartSpec(syntheticBomLine("USB_B_Micro", "USB_Micro-B_Molex-105017-0001"));
+  assert(spec.partNumbers == vector<string>{"105017-0001"});
+  spec = bomPartSpec(syntheticBomLine("RST", "SW_Push_SPST_NO_Alps_SKRK"));
+  assert(spec.kind == BomPartKind::PartNumber && spec.seriesCode == "SKRK" && spec.partNumbers.empty());
+  spec = bomPartSpec(syntheticBomLine("4.7uH", "CDMC6D28NP-4R7MC"));
+  assert(spec.kind == BomPartKind::PartNumber && spec.partNumbers == vector<string>{"CDMC6D28NP-4R7MC"});
+  assert(bomPartSpec(syntheticBomLine("MPB", "SW_PUSH_6mm_H5mm")).kind == BomPartKind::Generic);
+  spec = bomPartSpec(syntheticBomLine("Conn_01x04", "PinHeader_1x04_P2.54mm_Vertical"));
+  assert(spec.kind == BomPartKind::Generic && spec.positions == 4 && spec.pitchMm == 2.54);
+  // An MPN column wins over everything else.
+  auto easyEda = syntheticBomLine("100nF", "C_0402_1005Metric");
+  easyEda.manufacturerPartNumber = "CL05B104KO5NNNC";
+  spec = bomPartSpec(easyEda);
+  assert(spec.kind == BomPartKind::PartNumber && spec.partNumbers.front() == "CL05B104KO5NNNC");
+}
+
+void testVendorQuantityAndStandardValues() {
+  assert(parseVendorQuantity("10 kOhms", "Ohm") == 10000.0);
+  assert(fabs(*parseVendorQuantity("280 mOhms", "Ohm") - 0.28) < 1e-12);
+  assert(parseVendorQuantity("0 Ohms", "Ohm") == 0.0);
+  assert(parseVendorQuantity("1 MOhms", "Ohm") == 1e6);
+  assert(fabs(*parseVendorQuantity("100 \xC2\xB5" "F", "F") - 1e-4) < 1e-15);
+  assert(fabs(*parseVendorQuantity("10000 pF", "F") - 1e-8) < 1e-18);
+  assert(fabs(*parseVendorQuantity("32.768 kHz", "Hz") - 32768) < 1e-9);
+  assert(parseVendorQuantity("500 mA", "A") == 0.5);
+  assert(parseVendorQuantity("16V", "V") == 16.0);
+  assert(!parseVendorQuantity("-", "V").has_value());
+  assert(!parseVendorQuantity("10 kOhms", "F").has_value());
+  // Values outside the series move to the nearest standard one; standard values stay.
+  assert(nearestStandardValue(19000, BomPartKind::Resistor) == 19100.0);
+  assert(nearestStandardValue(42000, BomPartKind::Resistor) == 42200.0);
+  assert(nearestStandardValue(500000, BomPartKind::Resistor) == 499000.0);
+  assert(!nearestStandardValue(5100, BomPartKind::Resistor).has_value());
+  assert(!nearestStandardValue(0.28, BomPartKind::Resistor).has_value());
+  assert(!nearestStandardValue(19100, BomPartKind::Resistor).has_value());
+  assert(!nearestStandardValue(20e-12, BomPartKind::Capacitor).has_value());
+  assert(!nearestStandardValue(1e-8, BomPartKind::Capacitor).has_value());
+}
+
+void testBomVendorMatchByValue() {
+  const auto resistor = [](const string& mpn, const string& value, const string& package, uint64_t stock, double price,
+                           const string& tolerance = "\xC2\xB1" "1%") {
+    return syntheticCandidate(mpn, "Synthetic", {{"Resistance", value}, {"Package / Case", package}, {"Tolerance", tolerance}},
+                              stock, price);
+  };
+  // The fuzzy search answers 19K with 619k and 6.19k; only the parameters decide.
+  vector<string> asked;
+  const BomVendorSearch fuzzy = [&](const string& words) -> optional<vector<VendorCandidate>> {
+    asked.push_back(words);
+    return vector<VendorCandidate>{
+        resistor("R-619K", "619 kOhms", "0603 (1608 Metric)", 5000, 0.01),
+        resistor("R-6K19", "6.19 kOhms", "0603 (1608 Metric)", 5000, 0.01),
+        resistor("R-19K1-0201", "19.1 kOhms", "0201 (0603 Metric)", 5000, 0.01),
+        resistor("R-19K1-NONE", "19.1 kOhms", "0603 (1608 Metric)", 0, 0.01),
+        resistor("R-19K1", "19.1 kOhms", "0603 (1608 Metric)", 5000, 0.09),
+    };
+  };
+  auto answer = matchBomLineAtVendor(syntheticBomLine("19k", "R_0603_1608Metric"), 10, fuzzy);
+  assert(answer.outcome == BomLookupOutcome::Found && answer.part->manufacturerPartNumber == "R-19K1");
+  assert(answer.verified && answer.check && answer.note.find("19.1k (+0.5%)") != string::npos);
+  assert(answer.requests == 3 && asked.front() == "19K 0603" && asked[1] == "RES 19K OHM 0603" && asked[2] == "19.1K 0603");
+
+  // 1% beats 5% when both are in stock; then the cheaper order.
+  const BomVendorSearch tenK = [&](const string&) -> optional<vector<VendorCandidate>> {
+    return vector<VendorCandidate>{resistor("R-10K-5", "10 kOhms", "0603 (1608 Metric)", 9000, 0.01, "\xC2\xB1" "5%"),
+                                   resistor("R-10K-1B", "10 kOhms", "0603 (1608 Metric)", 9000, 0.05),
+                                   resistor("R-10K-1A", "10 kOhms", "0603 (1608 Metric)", 9000, 0.02)};
+  };
+  answer = matchBomLineAtVendor(syntheticBomLine("10K", "R_0603_1608Metric"), 10, tenK);
+  assert(answer.part->manufacturerPartNumber == "R-10K-1A" && !answer.check && answer.requests == 1);
+
+  // KiCad 0603 is imperial: DigiKey's "0201 (0603 Metric)" is another part.
+  const BomVendorSearch metricOnly = [&](const string&) -> optional<vector<VendorCandidate>> {
+    return vector<VendorCandidate>{resistor("R-10K-0201", "10 kOhms", "0201 (0603 Metric)", 9000, 0.01)};
+  };
+  answer = matchBomLineAtVendor(syntheticBomLine("10K", "R_0603_1608Metric"), 10, metricOnly);
+  assert(answer.outcome == BomLookupOutcome::NoMatch && !answer.part.has_value() && answer.requests == 2);
+
+  // A failed request leaves the line for a later try.
+  const BomVendorSearch broken = [](const string&) -> optional<vector<VendorCandidate>> { return nullopt; };
+  answer = matchBomLineAtVendor(syntheticBomLine("10K", "R_0603_1608Metric"), 10, broken);
+  assert(answer.outcome == BomLookupOutcome::Failed && answer.requests == 1);
+
+  // A radial can without a voltage in the BOM is flagged with the voltage chosen.
+  const BomVendorSearch cans = [&](const string&) -> optional<vector<VendorCandidate>> {
+    return vector<VendorCandidate>{
+        syntheticCandidate("CAN-SMD", "Synthetic", {{"Capacitance", "100 \xC2\xB5" "F"}, {"Package / Case", "Radial, Can - SMD"},
+                                                    {"Size / Dimension", "0.197\" Dia (5.00mm)"}, {"Voltage - Rated", "25 V"}}, 900, 0.01),
+        syntheticCandidate("CAN-6V3", "Synthetic", {{"Capacitance", "100 \xC2\xB5" "F"}, {"Package / Case", "Radial, Can"},
+                                                    {"Size / Dimension", "0.197\" Dia (5.00mm)"}, {"Voltage - Rated", "6.3 V"}}, 900, 0.05),
+        syntheticCandidate("CAN-25V", "Synthetic", {{"Capacitance", "100 \xC2\xB5" "F"}, {"Package / Case", "Radial, Can"},
+                                                    {"Size / Dimension", "0.197\" Dia (5.00mm)"}, {"Voltage - Rated", "25 V"}}, 900, 0.20)};
+  };
+  answer = matchBomLineAtVendor(syntheticBomLine("100uF", "CP_Radial_D5.0mm_P2.50mm"), 2, cans);
+  assert(answer.part->manufacturerPartNumber == "CAN-25V" && answer.check && answer.note.find("25 V") != string::npos);
+
+  // Many parts fit a header or a colourless LED: nothing is searched and the user picks.
+  answer = matchBomLineAtVendor(syntheticBomLine("MPB", "SW_PUSH_6mm_H5mm"), 1, broken);
+  assert(answer.outcome == BomLookupOutcome::NoMatch && answer.needsChoice && answer.requests == 0);
+  answer = matchBomLineAtVendor(syntheticBomLine("LED", "LED_0603_1608Metric"), 1, broken);
+  assert(answer.outcome == BomLookupOutcome::NoMatch && answer.needsChoice && answer.requests == 0);
+}
+
+void testBomVendorMatchByPartNumber() {
+  const auto part = [](const string& mpn, const string& maker, const string& package, uint64_t stock, double price) {
+    return syntheticCandidate(mpn, maker, {{"Package / Case", package}}, stock, price);
+  };
+  vector<VendorCandidate> products;
+  const BomVendorSearch search = [&](const string&) -> optional<vector<VendorCandidate>> { return products; };
+
+  // The ordering suffix is accepted, and the BOM line names no reel code.
+  products = {part("AP63203WU-7", "Diodes", "SOT-23-6 Thin, TSOT-23-6", 3000, 0.78)};
+  auto answer = matchBomLineAtVendor(syntheticBomLine("AP63203WU", "TSOT-23-6"), 1, search);
+  assert(answer.outcome == BomLookupOutcome::Found && answer.part->manufacturerPartNumber == "AP63203WU-7");
+  assert(answer.verified && !answer.check);
+
+  // The footprint's package decides between the TSSOP and the SOIC part.
+  products = {part("74HC595PW", "Nexperia", "16-TSSOP (0.173\", 4.40mm Width)", 9000, 0.10),
+              part("74HC595D", "Nexperia", "16-SOIC (0.154\", 3.90mm Width)", 9000, 0.25)};
+  answer = matchBomLineAtVendor(syntheticBomLine("74HC595", "SOIC-16_3.9x9.9mm_P1.27mm"), 1, search);
+  assert(answer.part->manufacturerPartNumber == "74HC595D" && !answer.check);
+
+  // A glued letter can be another part (PCF8574A has another address): the shortest code wins.
+  products = {part("PCF8574ADWR", "TI", "16-SOIC (0.295\", 7.50mm Width)", 9000, 1.00),
+              part("PCF8574DWR", "TI", "16-SOIC (0.295\", 7.50mm Width)", 9000, 1.40)};
+  answer = matchBomLineAtVendor(syntheticBomLine("PCF8574", "SOIC-16W_7.5x10.3mm_P1.27mm"), 1, search);
+  assert(answer.part->manufacturerPartNumber == "PCF8574DWR");
+
+  // The maker sells several options of the number: one is chosen and the line is flagged.
+  products = {part("ESP32-S3-WROOM-1-N8", "Espressif", "SMD Module", 900, 5.20),
+              part("ESP32-S3-WROOM-1-N4", "Espressif", "SMD Module", 900, 4.57),
+              part("ESP32-S3-WROOM-1U-N4", "Espressif", "SMD Module", 900, 4.00)};
+  answer = matchBomLineAtVendor(syntheticBomLine("ESP32-S3-WROOM-1", "ESP32-S3-WROOM-1"), 1, search);
+  assert(answer.part->manufacturerPartNumber == "ESP32-S3-WROOM-1-N4");
+  assert(answer.check && answer.note.find("variants: N4, N8") != string::npos);
+  // Plating and reel codes are the same part, so they are no options to choose from.
+  products = {part("B3B-PH-K-S", "JST", "-", 9000, 0.14), part("B3B-PH-K", "JST", "-", 9000, 0.18)};
+  answer = matchBomLineAtVendor(syntheticBomLine("RGBW_Strip", "JST_PH_B3B-PH-K_1x03_P2.00mm_Vertical"), 1, search);
+  assert(answer.part->manufacturerPartNumber == "B3B-PH-K" && !answer.check);
+
+  // Only another package exists: no part, and the note says why.
+  products = {part("TPS26601RHFT", "TI", "24-VFQFN Exposed Pad", 2000, 3.00)};
+  answer = matchBomLineAtVendor(syntheticBomLine("TPS26601PWP", "HTSSOP-16-1EP_4.4x5mm_P0.65mm"), 1, search);
+  assert(answer.outcome == BomLookupOutcome::NoMatch && answer.note.find("not sold as 16-HTSSOP") != string::npos);
+
+  // Microchip's tape code inside the number still reads as the same part.
+  products = {part("MCP1700T-3302E/TT", "Microchip", "TO-236-3, SC-59, SOT-23-3", 3000, 0.30)};
+  answer = matchBomLineAtVendor(syntheticBomLine("MCP1700-3302E", "SOT-23"), 1, search);
+  assert(answer.outcome == BomLookupOutcome::Found && answer.part->manufacturerPartNumber == "MCP1700T-3302E/TT");
+
+  // A series code from the footprint: any variant fits, and the user is told one was chosen.
+  products = {part("SKRKAHE020", "Alps", "-", 3000, 0.40), part("SKRKAEE020", "Alps", "-", 9000, 0.36)};
+  answer = matchBomLineAtVendor(syntheticBomLine("RST", "SW_Push_SPST_NO_Alps_SKRK"), 2, search);
+  assert(answer.part->manufacturerPartNumber == "SKRKAEE020" && answer.check);
+
+  // The picker lists fitting parts first.
+  products = {part("74HC595PW", "Nexperia", "16-TSSOP (0.173\", 4.40mm Width)", 9000, 0.10),
+              part("74HC595D", "Nexperia", "16-SOIC (0.154\", 3.90mm Width)", 9000, 0.25)};
+  const auto picker = rankBomPickerCandidates(syntheticBomLine("74HC595", "SOIC-16_3.9x9.9mm_P1.27mm"), 1, products);
+  assert(picker.entries.size() == 2 && picker.entries[0].fits &&
+         picker.entries[0].candidate.manufacturerPartNumber == "74HC595D" && !picker.entries[1].fits);
+  assert(bomPickerQuery(syntheticBomLine("Conn_01x04", "PinHeader_1x04_P2.54mm_Vertical")) == "CONN HEADER VERT 4POS 2.54MM");
+  assert(bomPickerQuery(syntheticBomLine("LED", "LED_0603_1608Metric")) == "LED 0603");
+}
+
+void testDecimalCommaValues() {
+  ValueKind kind = ValueKind::None;
+  const auto parsed = [&kind](const char* text) { return parseElectricalValue(text, kind); };
+  // "0,33uF" is 0.33 uF (330 nF), not 33 uF; "4,7k" is 4.7 kOhm.
+  const auto thirtyThree = parsed("0,33uF");
+  assert(thirtyThree.has_value() && kind == ValueKind::Capacitance && fabs(*thirtyThree - 0.33e-6) < 1e-15);
+  const auto spaced = parsed("0,33 uF");
+  assert(spaced.has_value() && fabs(*spaced - 0.33e-6) < 1e-15);
+  const auto fourK7 = parsed("4,7k");
+  assert(fourK7.has_value() && kind == ValueKind::Resistance && fabs(*fourK7 - 4700.0) < 1e-9);
+  const auto noLeadingDigit = parsed(",33uF");
+  assert(noLeadingDigit.has_value() && fabs(*noLeadingDigit - 0.33e-6) < 1e-15);
+  // A comma that groups thousands stays a group, with or without a unit after it.
+  const auto tenThousand = parsed("10,000");
+  assert(tenThousand.has_value() && fabs(*tenThousand - 10000.0) < 1e-9);
+  const auto pico = parsed("1,000pF");
+  assert(pico.has_value() && kind == ValueKind::Capacitance && fabs(*pico - 1e-9) < 1e-21);
+  const auto millions = parsed("4,700,000");
+  assert(millions.has_value() && fabs(*millions - 4.7e6) < 1e-3);
+  // Other commas are refused, and a dot still works.
+  assert(!parsed("1,2,3").has_value());
+  assert(!parsed("4,").has_value());
+  const auto dotted = parsed("0.033uF");
+  assert(dotted.has_value() && fabs(*dotted - 0.033e-6) < 1e-15);
+}
+
+void testBomPickerTypedWords() {
+  const auto cap = syntheticBomLine("330nF", "C_0603_1608Metric");
+  // The value is found among the typed words; the other words are not part of it.
+  const auto typed = bomPickerTypedValue(cap, "0,33 uF 0603 (1608 Metric)");
+  assert(typed.has_value() && fabs(*typed - 0.33e-6) < 1e-15);
+  assert(bomPickerReading(cap, "0,33 uF 0603 (1608 Metric)") == "330nF");
+  assert(!bomPickerTypedValue(cap, "0603 (1608 Metric)").has_value());
+  // A non-breaking space looks like a space on screen and separates the words the same way.
+  assert(bomPickerReading(cap, "0,33\xC2\xA0"
+                               "uF 0603") == "330nF");
+
+  // The typed words narrow each query where they are not already there, so the typed metric size joins the
+  // second query. The plain value query keeps its place as the fallback.
+  const auto plain = bomPickerQueries(cap, "0,33 uF 0603 (1608 Metric)");
+  assert(plain == vector<string>({"0.33 \xC2\xB5"
+                                  "F 0603 (1608 Metric)",
+                                  "CAP CER 0.33UF 0603 (1608 Metric)",
+                                  "CAP CER 0.33UF 0603"}));
+
+  // Words the user adds narrow every query. The plain value queries still follow as the fallback.
+  const auto narrow = bomPickerQueries(cap, "0,33uF X7R 16V");
+  assert(narrow.size() == 4);
+  assert(narrow[0] == "0.33 \xC2\xB5"
+                      "F 0603 (1608 Metric) X7R 16V");
+  assert(narrow[2] == plain[0] && narrow[3] == "CAP CER 0.33UF 0603");
+}
+
+void testBomFootprintLibraryPrefix() {
+  // KiCad writes the footprint with its library in front: "Capacitor_SMD:C_0603_1608Metric". The library name must
+  // not hide the part kind, the package or the IC family.
+  const auto cap = syntheticBomLine("330nF", "Capacitor_SMD:C_0603_1608Metric");
+  assert(bomPartSpec(cap).kind == BomPartKind::Capacitor && bomPartSpec(cap).chipCode == "0603");
+  assert(packageFromFootprint("Capacitor_SMD:C_0603_1608Metric") == "0603");
+  assert(bomPickerReading(cap, "0,33 uF 0603 (1608 Metric)") == "330nF");
+  assert(bomPickerQueries(cap, "0,33 uF 0603 (1608 Metric)") ==
+         bomPickerQueries(syntheticBomLine("330nF", "C_0603_1608Metric"), "0,33 uF 0603 (1608 Metric)"));
+
+  const auto resistor = syntheticBomLine("10k", "Resistor_SMD:R_0603_1608Metric");
+  assert(bomPartSpec(resistor).kind == BomPartKind::Resistor && bomPartSpec(resistor).value.has_value());
+
+  const auto ic = syntheticBomLine("STM32F030", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm");
+  assert(bomPartSpec(ic).icFamily == "SOIC" && bomPartSpec(ic).icPins == 8);
+}
+
+void testBomPickerCommaDecimalLocale() {
+  // The app sets the user's locale, which may write 0,33 with a comma. Search text must still carry a dot.
+  const char* candidates[] = {"pl_PL.UTF-8", "pl_PL.utf8", "de_DE.UTF-8", "de_DE.utf8", "fr_FR.UTF-8"};
+  const string previous = setlocale(LC_ALL, nullptr);
+  bool commaLocale = false;
+  for (const char* name : candidates) {
+    if (setlocale(LC_ALL, name) != nullptr && localeconv()->decimal_point[0] == ',') {
+      commaLocale = true;
+      break;
+    }
+  }
+  if (!commaLocale) {
+    setlocale(LC_ALL, previous.c_str());
+    skipOrFailMissingLocale("testBomPickerCommaDecimalLocale");
+    cout << "No comma-decimal locale installed; skipping locale regression test\n";
+    return;
+  }
+
+  const auto cap = syntheticBomLine("330nF", "C_0603_1608Metric");
+  assert(bomPickerReading(cap, "0,33 uF 0603 (1608 Metric)") == "330nF");
+  assert(bomPickerQueries(cap, "0,33 uF 0603 (1608 Metric)").front() == "0.33 \xC2\xB5"
+                                                                     "F 0603 (1608 Metric)");
+  const auto crystal = syntheticBomLine("8MHz", "Crystal_SMD_3225-4Pin_3.2x2.5mm");
+  assert(bomPartSpec(crystal).crystalSize == "3.20mm x 2.50mm");
+  setlocale(LC_ALL, previous.c_str());
+}
+
+void testVendorTextAscii() {
+  // Letters with marks keep their base letter, as the picker reads them.
+  assert(foldToAscii("W\xC3\xBCrth Elektronik") == "Wurth Elektronik");
+  assert(foldToAscii("\xC5\x81\xC3\xB3" "d\xC5\xBA") == "Lodz");                   // Łódź
+  assert(foldToAscii("Stra\xC3\x9F"
+                     "e") == "Strasse");                                         // Straße
+  assert(foldToAscii("\xC3\x85ngstr\xC3\xB6m") == "Angstrom");                  // Ångström
+  assert(foldToAscii("\xC4\x8C" "esk\xC3\xA1") == "Ceska");                        // Česká
+  assert(foldToAscii("\xC5\x9E" "al\xC4\xB1") == "Sali");                          // Şalı
+  assert(foldToAscii("Caf\xC3\xA9") == "Cafe");                                 // Café
+  // Units and symbols keep their ASCII reading; no other character is guessed.
+  assert(foldToAscii("100 \xC2\xB5"
+                     "F") == "100 uF");
+  assert(foldToAscii("\xC2\xB1" "1%") == "+/-1%");
+  assert(foldToAscii("\xCE\xA9 \xE2\x84\xA6") == "Ohm Ohm");
+  assert(foldToAscii("\xE4\xB8\xAD") == "?");                                   // a CJK character
+  assert(foldToAscii("\xC3") == "?");                                           // truncated UTF-8
+}
+
+void testBomPickerSearchWords() {
+  // Resistor notation reads as written: R280 is 0.28 ohm, 280R is 280 ohm and 4k7 is 4.7 kohm.
+  const auto line = syntheticBomLine("280R", "R_0603_1608Metric");
+  const auto typed = bomPickerTypedValue(line, "R280");
+  assert(typed.has_value() && fabs(*typed - 0.28) < 1e-9);
+  assert(bomPickerTypedValue(line, "280R").has_value() && fabs(*bomPickerTypedValue(line, "280R") - 280) < 1e-9);
+  assert(!bomPickerTypedValue(line, "pin header").has_value());
+  assert(bomPickerReading(line, "R280") == "0.28 ohm" && bomPickerReading(line, "4k7") == "4.7 kohm");
+  assert(bomPickerReading(line, "").empty() && bomPickerReading(line, "pin header").empty());
+
+  // A typed value is searched in the vendor's wording, as an automatic match searches it. With nothing
+  // typed a value line has both of its searches; other words are searched as they are.
+  assert(bomPickerQueries(line, "R280") == vector<string>({"R280 0603", "RES 0.28 OHM 0603"}));
+  assert(bomPickerQueries(line, "") == vector<string>({"280R 0603", "RES 280 OHM 0603"}));
+  assert(bomPickerQueries(line, "CONN HEADER") == vector<string>({"CONN HEADER"}));
+  assert(bomPickerQueries(syntheticBomLine("Conn_01x04", "PinHeader_1x04_P2.54mm_Vertical"), "pin header 2x5") ==
+         vector<string>({"pin header 2x5"}));
+
+  // The picker lists only what can be bought now, fitting parts first. A part out of stock is left out and
+  // counted, even when it fits (a 400 euro batch that is unavailable is not a choice).
+  const auto listed = [](const char* mpn, const char* resistance, uint64_t stock, double price) {
+    return syntheticCandidate(mpn, "Vendor", {{"Resistance", resistance}, {"Package / Case", "0603 (1608 Metric)"}}, stock, price);
+  };
+  const vector<VendorCandidate> products = {
+      listed("UNAVAILABLE-280", "280 Ohms", 0, 400.0),
+      listed("NOT-IN-STOCK-10K", "10 kOhms", 0, 0.50),
+      listed("IN-STOCK-1K", "1 kOhms", 2000, 0.10),
+      listed("IN-STOCK-280", "280 Ohms", 5000, 0.05),
+  };
+  assert(bomPickerFits(line, products[0]) && bomPickerFits(line, products[3]) && !bomPickerFits(line, products[2]));
+  // The 1k part is of another value, so beside a 280 ohm part that fits it is left out and counted.
+  const auto ranking = rankBomPickerCandidates(line, 1, products);
+  assert(ranking.entries.size() == 1 && ranking.leftOut == 2 && ranking.otherValue == 1);
+  assert(ranking.entries[0].candidate.manufacturerPartNumber == "IN-STOCK-280" && ranking.entries[0].fits);
+  assert(bomPickerSummary("DigiKey", 1, 2, 1) ==
+         "DigiKey has 1 part in stock at a normal price. 2 left out: out of stock or not at a normal price. "
+         "1 part of another value left out.");
+  // With nothing that fits, the other value stays, under May not fit: the search may have asked for it.
+  const auto onlyOther = rankBomPickerCandidates(line, 1, {products[2]});
+  assert(onlyOther.entries.size() == 1 && !onlyOther.entries[0].fits && onlyOther.otherValue == 0);
+}
+
+void testOrderableOffer() {
+  // A 12000-piece reel at 0.215 euro, for two capacitors, is 2580 euro: refused even with the stock for it.
+  VendorOffer reel;
+  reel.currency = "EUR";
+  reel.breaks = {{12000, 215000}};
+  reel.minimumOrder = 12000;
+  reel.stock = 50000;
+  assert(!orderableOffer(reel, 2).has_value());
+  // A pack of 100 at 0.01 euro is one euro for two parts: fine, and the order is the pack.
+  VendorOffer pack;
+  pack.currency = "EUR";
+  pack.breaks = {{1, 10000}};
+  pack.minimumOrder = 100;
+  pack.stock = 5000;
+  const auto packOrder = orderableOffer(pack, 2);
+  assert(packOrder.has_value() && packOrder->orderQuantity == 100);
+  // One part costing 25 euro is fine when one is needed: the line asks for a single expensive part.
+  VendorOffer chip;
+  chip.currency = "EUR";
+  chip.breaks = {{1, 25000000}};
+  chip.stock = 3;
+  assert(orderableOffer(chip, 1).has_value());
+  // Out of stock, stock short of the order, unknown stock and not sold are all refused.
+  VendorOffer none = chip;
+  none.stock = 0;
+  assert(!orderableOffer(none, 1).has_value());
+  VendorOffer short_ = pack;
+  short_.stock = 50;
+  assert(!orderableOffer(short_, 2).has_value());
+  VendorOffer unknown = chip;
+  unknown.stock.reset();
+  assert(!orderableOffer(unknown, 1).has_value());
+  VendorOffer closed = chip;
+  closed.orderable = false;
+  assert(!orderableOffer(closed, 1).has_value());
+  // An obsolete part is still sold while stock lasts: only the stock and price rules apply to it.
+  VendorOffer obsolete = chip;
+  obsolete.lifecycle = "Obsolete";
+  assert(offerIsObsolete(obsolete) && orderableOffer(obsolete, 1).has_value());
+  obsolete.stock = 0;
+  assert(!orderableOffer(obsolete, 1).has_value());
+  VendorOffer upper = chip;
+  upper.lifecycle = "OBSOLETE";
+  assert(offerIsObsolete(upper) && !offerIsObsolete(chip));
+  VendorOffer notNew = chip;
+  notNew.lifecycle = "Not For New Designs";
+  assert(!offerIsObsolete(notNew) && orderableOffer(notNew, 1).has_value());
+}
+
+// The part a DigiKey search reported as not at a normal price: obsolete at DigiKey, with its cut tape in stock at
+// 0.83 euro for one piece. The reel is 461 euro for one piece, so the cut tape is the order that is listed.
+void testBomPickerObsoleteInStock() {
+  const auto line = syntheticBomLine("4.7uH", "L_1210");
+  VendorCandidate part;
+  part.manufacturer = "Sumida America Components Inc.";
+  part.manufacturerPartNumber = "CDMC6D28NP-4R7MC";
+  part.status = "Obsolete";
+  part.stock = 29860;
+  VendorOffer cut;
+  cut.provider = kVendorProviderDigiKey;
+  cut.sku = "308-1571-1-ND";
+  cut.currency = "EUR";
+  cut.packaging = "Cut Tape (CT)";
+  cut.lifecycle = "Obsolete";
+  cut.stock = 29860;
+  cut.breaks = {{1, 830000}, {10, 682000}};
+  VendorOffer reel = cut;
+  reel.sku = "308-1571-2-ND";
+  reel.packaging = "Tape & Reel (TR)";
+  reel.stock = 29000;
+  reel.minimumOrder = 1000;
+  reel.multiple = 1000;
+  reel.breaks = {{1000, 461560}};
+  part.offers = {reel, cut};
+  const auto ranking = rankBomPickerCandidates(line, 1, {part});
+  assert(ranking.entries.size() == 1 && ranking.leftOut == 0);
+  assert(ranking.entries[0].candidate.manufacturerPartNumber == "CDMC6D28NP-4R7MC");
+  // It stays listed and orderable, marked End of life: the picker never recommends it as Best.
+  assert(candidateEndOfLife(part) && vendorCandidateCost(part, 1).has_value());
+  auto active = part;
+  active.status = "Active";
+  assert(!candidateEndOfLife(active));
+  // Without the cut tape, the reel alone is out of proportion for one piece: the part is left out.
+  part.offers = {reel};
+  const auto reelOnly = rankBomPickerCandidates(line, 1, {part});
+  assert(reelOnly.entries.empty() && reelOnly.leftOut == 1);
+}
+
+void testBomPickerSummaryWords() {
+  assert(bomPickerSummary("TME", 0, 0) == "TME has nothing for these words. Press / to change them.");
+  assert(bomPickerSummary("TME", 0, 4) ==
+         "TME found 4 parts, but none is in stock at a normal price. Press / to try other words.");
+  assert(bomPickerSummary("TME", 1, 0) == "TME has 1 part in stock at a normal price.");
+  assert(bomPickerSummary("DigiKey", 6, 4) ==
+         "DigiKey has 6 parts in stock at a normal price. 4 left out: out of stock or not at a normal price.");
+  assert(bomPickerContext("TME", 2) == "TME, need 2 pieces. Only parts in stock at a normal price are listed.");
+  assert(bomPickerSearchable(kVendorProviderDigiKey) && bomPickerSearchable(kVendorProviderTme));
+  assert(!bomPickerSearchable(kVendorProviderMouser));
+}
+
+void testBomMatchSkipsUnavailableParts() {
+  // Only an out-of-stock part answers the search: the line has no match, so no unavailable part is suggested.
+  const auto line = syntheticBomLine("280R", "R_0603_1608Metric");
+  const auto search = [](const string& keywords) {
+    (void)keywords;
+    return optional<vector<VendorCandidate>>(
+        vector<VendorCandidate>{syntheticCandidate("ONLY-OUT", "Vendor", {{"Resistance", "280 Ohms"}, {"Package / Case", "0603 (1608 Metric)"}}, 0, 0.05)});
+  };
+  assert(matchBomLineAtVendor(line, 2, search).outcome == BomLookupOutcome::NoMatch);
+  const auto stocked = [](const string& keywords) {
+    (void)keywords;
+    return optional<vector<VendorCandidate>>(
+        vector<VendorCandidate>{syntheticCandidate("ONLY-IN", "Vendor", {{"Resistance", "280 Ohms"}, {"Package / Case", "0603 (1608 Metric)"}}, 100, 0.05)});
+  };
+  const auto answer = matchBomLineAtVendor(line, 2, stocked);
+  assert(answer.outcome == BomLookupOutcome::Found && answer.part.has_value());
+  assert(answer.part->manufacturerPartNumber == "ONLY-IN");
+}
+
+void testTmeCandidateNotSold() {
+  // TME lists a product it cannot sell, with no offer until the stock and price lookup is read.
+  TmeProductDetails product;
+  product.vendorMetadata.manufacturerPartNumber = "B41858G8107M000";
+  product.manufacturerName = "EPCOS";
+  product.orderable = false;
+  assert(tmeCandidate(product).discontinued && tmeCandidate(product).offers.empty());
+  product.orderable = true;
+  assert(!vendorCandidateCost(tmeCandidate(product), 1).has_value());
+  VendorOffer offer;
+  offer.provider = kVendorProviderTme;
+  offer.currency = "EUR";
+  offer.breaks = {{1, 100000}};
+  offer.stock = 10;
+  product.offer = offer;
+  const auto candidate = tmeCandidate(product);
+  assert(candidate.manufacturerPartNumber == "B41858G8107M000" && !candidate.discontinued);
+  assert(vendorCandidateCost(candidate, 1).has_value() && !vendorCandidateCost(candidate, 11).has_value());
+}
+
+void testBomProjectProgress() {
+  // Each line has one state, and the project page counts where the stocked parts are.
+  InventoryStore store;
+  store.racks().push_back({"rack-1", "R1", "Resistors", 5, 5, 0});
+  const auto item = [](const string& id, const string& name, const string& value, const string& package) {
+    InventoryItem part;
+    part.id = id;
+    part.partName = name;
+    part.category = value.back() == 'F' ? "Capacitors" : "Resistors";
+    part.quantity = 100;
+    part.parameters = {{value.back() == 'F' ? "Capacitance" : "Resistance", value}, {"Package", package}};
+    part.rackAssignment = RackAssignmentMode::Manual;
+    return part;
+  };
+  auto racked = item("p-10k", "10k resistor 0603", "10k", "0603");
+  racked.rackId = "rack-1";
+  racked.rackSlot = "A1";
+  auto drawer = item("p-100n", "100nF capacitor 0603", "100nF", "0603");
+  drawer.location = "Drawer 4";
+  const auto loose = item("p-1k", "1k resistor 0603", "1k", "0603");
+  const auto first = item("p-4k7-a", "4.7k resistor 0603 1%", "4.7k", "0603");
+  const auto second = item("p-4k7-b", "4.7k resistor 0603 5%", "4.7k", "0603");
+  InventoryItem header;
+  header.id = "p-header";
+  header.partName = "Received part";
+  header.quantity = 10;
+  header.location = "Drawer 4";
+  store.items() = {racked, drawer, loose, first, second, header};
+
+  const auto line = [](const string& value, const string& footprint) {
+    BomLine bomLine;
+    bomLine.designators = {"X1"};
+    bomLine.designation = value;
+    bomLine.footprint = footprint;
+    bomLine.quantityPerBoard = 1;
+    return bomLine;
+  };
+  KicadBomFile bom;
+  bom.ok = true;
+  bom.lines = {line("10k", "R_0603_1608Metric"), line("100nF", "C_0603_1608Metric"), line("1k", "R_0603_1608Metric"),
+               line("4.7k", "R_0603_1608Metric"), line("22uF", "C_0805_2012Metric"), line("2-pin header", "PinHeader_1x02")};
+  map<string, string> confirmations;
+  map<string, string> enrichment;
+  auto analysis = analyzeBom(bom, store.items(), 1, confirmations);
+  auto progress = bomProjectProgress(analysis, enrichment, store);
+  assert(progress.lines == 6 && progress.inStock == 3 && progress.inRacks == 1 && progress.otherPlaces == 1);
+  assert(progress.noLocation == 1 && progress.places == vector<string>{"Drawer 4"});
+  assert(progress.noLocationParts == vector<string>{"1k 0603"});
+  assert(progress.toConfirm == 1 && progress.toChoose == 2 && progress.chosen == 0 && progress.ordered == 0);
+  assert(bomOverviewSummary(progress, 2) == "2 boards. 3 of 6 parts are in stock. 3 are not yet.");
+
+  // A chosen part, then an order for it.
+  const auto capacitorKey = bomLineKey(bom.lines[4]);
+  BomEnrichmentFlags flags;
+  flags.chosen = true;
+  enrichment[capacitorKey] = *bomEnrichmentEntry(BomLookupOutcome::Found, "CL21A226MAQNNNE", flags, kVendorProviderTme);
+  progress = bomProjectProgress(analysis, enrichment, store);
+  assert(progress.toChoose == 1 && progress.chosen == 1);
+  auto steps = bomProjectSteps(progress, "1.20 EUR", "TME");
+  assert(steps.size() == 4 && steps[0].count == "1 to do" && steps[0].open);
+  assert(steps[1].sentence == "2 parts are not in stock. 1 chosen at TME." && steps[1].count == "1 to do");
+  assert(steps[2].sentence == "1 part chosen, about 1.20 EUR at TME." && steps[3].count == "-" && !steps[3].open);
+  const BomOrder order{kVendorProviderTme, "CL21A226MAQNNNE", 10, 1700000000};
+  assert(decodeBomOrder(encodeBomOrder(order))->quantity == 10 && !decodeBomOrder("tme\x1fpart\x1fx\x1f" "1").has_value());
+  enrichment[bomOrderKey(capacitorKey)] = encodeBomOrder(order);
+  progress = bomProjectProgress(analysis, enrichment, store);
+  assert(progress.chosen == 0 && progress.ordered == 1);
+  steps = bomProjectSteps(progress, "", "");
+  assert(steps[2].count == "-" && steps[3].sentence == "1 part ordered, not received yet." && steps[3].open);
+
+  // "None of these" sends the line to buying. A part confirmed for a line counts though the matcher would not list it.
+  confirmations[bomLineKey(bom.lines[3])] = kBomNotInStock;
+  confirmations[bomLineKey(bom.lines[5])] = encodeBomConfirmation({"p-header", bomItemFingerprint(header)});
+  analysis = analyzeBom(bom, store.items(), 1, confirmations);
+  progress = bomProjectProgress(analysis, enrichment, store);
+  assert(progress.toConfirm == 0 && progress.inStock == 4 && progress.otherPlaces == 2 && progress.toChoose == 1);
+  assert(bomQuantityToBuy(analysis.matches[3]) == 1);
+  header.partName = "Renamed part";
+  store.items().back() = header;
+  analysis = analyzeBom(bom, store.items(), 1, confirmations);
+  assert(bomProjectProgress(analysis, enrichment, store).inStock == 3);
+  progress.inStock = progress.lines;
+  assert(bomOverviewSummary(progress, 1) == "1 board. All 6 parts are in stock.");
+}
+
+void testBomEnrichmentFlags() {
+  BomEnrichmentFlags flags;
+  flags.verified = true;
+  flags.check = true;
+  flags.note = "variants: N4, N8\x1e";
+  const auto stored = bomEnrichmentEntry(BomLookupOutcome::Found, " ESP32-S3-WROOM-1-N4 ", flags, kVendorProviderDigiKey);
+  assert(stored.has_value() && bomEnrichmentPart(*stored) == "ESP32-S3-WROOM-1-N4");
+  assert(bomEnrichmentVerified(*stored) && bomEnrichmentProvider(*stored) == kVendorProviderDigiKey);
+  const auto read = bomEnrichmentFlags(*stored);
+  assert(read.verified && read.check && !read.chosen && read.note == "variants: N4, N8");
+  assert(bomSuggestionCheckText(*stored) == "check: variants: N4, N8");
+  // A TME suggestion keeps its supplier behind the flags.
+  flags = {};
+  flags.chosen = true;
+  const auto tme = bomEnrichmentEntry(BomLookupOutcome::Found, "0ZCM0010FF2G", flags, kVendorProviderTme).value();
+  assert(bomEnrichmentProvider(tme) == kVendorProviderTme && bomEnrichmentChosen(tme));
+  assert(bomSuggestionCheckText(tme) == "chosen by you");
+  // No part: the note says why, and a line many parts fit waits for the user's pick.
+  flags = {};
+  flags.note = "not sold as 16-HTSSOP at DigiKey";
+  const auto missing = bomEnrichmentEntry(BomLookupOutcome::NoMatch, "", flags, "").value();
+  assert(bomEnrichmentPart(missing).empty() && bomEnrichmentProvider(missing).empty() && !bomEnrichmentNeedsChoice(missing));
+  assert(bomSuggestionCheckText(missing) == "not sold as 16-HTSSOP at DigiKey");
+  flags = {};
+  flags.needsChoice = true;
+  const auto pick = bomEnrichmentEntry(BomLookupOutcome::NoMatch, "", flags, "").value();
+  assert(pick == kBomEnrichmentNeedsChoice && bomEnrichmentNeedsChoice(pick) && bomEnrichmentPart(pick).empty());
+  assert(bomSuggestionCheckText(pick) == "pick a part");
+  assert(!bomEnrichmentEntry(BomLookupOutcome::Failed, "X", flags, "").has_value());
+  // Values written before the flags read as they did.
+  assert(bomSuggestionCheckText("verified\x1eSYN-1") == "verified" && !bomEnrichmentFlags("verified\x1eSYN-1").check);
+  assert(bomSuggestionCheckText("SYN-1") == "check before ordering");
+  // A pick in one project is offered to the others with the same line.
+  vector<BomProject> projects(2);
+  projects[0].id = "a";
+  projects[1].id = "b";
+  projects[0].enrichment["led|led0603"] = tme;
+  projects[1].enrichment["led|led0603"] = "SYN-2";
+  assert(bomChosenElsewhere(projects, "b", "led|led0603") == tme);
+  assert(bomChosenElsewhere(projects, "a", "led|led0603").empty());
+  assert(bomChosenElsewhere(projects, "b", "other").empty());
+}
+
+// Shaped like a v4 keyword search answer: products repeat in ExactMatches, marketplace listings have no offers.
+void testDigiKeySearchProducts() {
+  using namespace digikey_detail;
+  const string product =
+      R"j({"Description":{"ProductDescription":"RES 19.1K OHM 1% 1/10W 0603"},"Manufacturer":{"Id":1,"Name":"Synthetic"},)j"
+      R"j("ManufacturerProductNumber":"SYN-19K1","ProductStatus":{"Status":"Active"},"QuantityAvailable":5560,)j"
+      R"j("Category":{"Name":"Resistors"},"Parameters":[{"ParameterText":"Resistance","ValueText":"19.1 kOhms"},)j"
+      R"j({"ParameterText":"Package / Case","ValueText":"0603 (1608 Metric)"}],"ProductVariations":[)j"
+      R"j({"DigiKeyProductNumber":"SYN-19K1-CT-ND","PackageType":{"Name":"Cut Tape (CT)"},)j"
+      R"j("StandardPricing":[{"BreakQuantity":1,"UnitPrice":0.09}],"MarketPlace":false,)j"
+      R"j("QuantityAvailableforPackageType":5560,"MinimumOrderQuantity":1,"StandardPackage":1}]})j";
+  const string market =
+      R"j({"Manufacturer":{"Name":"Reseller"},"ManufacturerProductNumber":"SYN-19K1-M","ProductStatus":{"Status":"Active"},)j"
+      R"j("ProductVariations":[{"DigiKeyProductNumber":"M-ND","PackageType":{"Name":"Bulk"},)j"
+      R"j("StandardPricing":[{"BreakQuantity":1,"UnitPrice":0.01}],"MarketPlace":true}]})j";
+  string error;
+  const auto root = parseJson(R"j({"SearchLocaleUsed":{"Currency":"EUR"},"ExactMatches":[)j" + product +
+                                  R"j(],"Products":[)j" + product + "," + market + "]}",
+                              &error);
+  assert(root.has_value());
+  const auto products = parseSearchProducts(*root);
+  assert(products.size() == 2);
+  const auto candidate = digiKeyCandidate(products[0]);
+  assert(candidate.manufacturerPartNumber == "SYN-19K1" && candidate.stock == 5560ULL);
+  assert(vendorParameter(candidate, "Resistance") == "19.1 kOhms" && candidate.offers.size() == 1);
+  assert(candidate.offers[0].currency == "EUR" && candidate.offers[0].sku == "SYN-19K1-CT-ND");
+  assert(vendorCandidateCost(candidate, 10)->totalMicros == 900000);
+  // Another seller's listing has no offer, so matching never prefers it.
+  assert(digiKeyCandidate(products[1]).offers.empty() && !vendorCandidateCost(digiKeyCandidate(products[1]), 1));
+}
+
+void testBomShortageCsvWithOffers() {
+  KicadBomFile bom;
+  bom.ok = true;
+  BomLine line;
+  line.designation = "10k";
+  line.footprint = "R_0603_1608Metric";
+  line.designators = {"R1"};
+  line.quantityPerBoard = 7;
+  bom.lines.push_back(line);
+  BomLine covered = line;
+  covered.designation = "1k";
+  covered.designators = {"R2"};
+  bom.lines.push_back(covered);
+  InventoryItem stocked;
+  stocked.id = "stocked-1k";
+  stocked.partName = "RES 1K OHM 0603";
+  stocked.category = "Resistors";
+  stocked.quantity = 10;
+  stocked.parameters = {{"Resistance", "1 kOhms"}, {"Package / Case", "0603 (1608 Metric)"}};
+  const auto analysis = analyzeBom(bom, {stocked}, 1, {});
+
+  auto offer = cutTapeOffer();
+  offer.productUrl = "https://www.digikey.de/en/products/detail/x/490-3261-1-ND";
+  uint64_t asked = 0;
+  const BomPurchaseFinder finder = [&](const BomLine& wanted, const BomMatch&, uint64_t toBuy) -> optional<PurchaseChoice> {
+    if (wanted.designation != "10k") return nullopt;
+    asked = toBuy;
+    PurchaseChoice choice;
+    choice.offer = offer;
+    choice.cost = offerCost(offer, toBuy);
+    return choice;
+  };
+  const auto csv = buildBomShortageCsv(analysis, {}, finder);
+  assert(csv.rows == 1 && csv.pricedRows == 1 && asked == 7);
+  assert(csv.text.find("Suggestion check,Vendor,Vendor part number,Order quantity,Unit price,Order total,Currency,Link,Cheaper elsewhere\r\n") !=
+         string::npos);
+  // 7 pieces at the quantity-1 break of 0.09 each.
+  assert(csv.text.find(",\"DigiKey\",\"490-3261-1-ND\",7,0.09,0.63,\"EUR\",\"https://www.digikey.de/en/products/detail/x/490-3261-1-ND\",\"\"\r\n") !=
+         string::npos);
+  assert(csv.totalMicros == 7 * 90000 && csv.purchaseCurrency == "EUR");
+
+  // A line without an offer keeps empty cells in the same columns.
+  const auto none = buildBomShortageCsv(analysis, {}, [](const BomLine&, const BomMatch&, uint64_t) { return optional<PurchaseChoice>(); });
+  assert(none.pricedRows == 0 && none.text.find(",\"\",\"\",\"\",,,,,,,,\r\n") != string::npos);
+}
+
 void testVendorOfferPriceBreaksAndFreshness() {
   vector<PriceBreak> breaks = {{100, 12200}, {0, 5}, {1, 90000}, {10, 0}, {100, 99}, {10, 22000}};
   assert(normalizePriceBreaks(breaks));
@@ -15360,6 +16218,13 @@ void testVendorOfferDescribe() {
   assert(describeOffer(offer, "PLN", now).statusWord == "Other currency");
   // With no shared currency chosen, nothing is another currency.
   assert(describeOffer(offer, "", now).status == OfferStatus::OldPrice);
+  // An obsolete part is End of life: it outranks an old price, and another currency outranks it.
+  offer.lifecycle = "Obsolete";
+  assert(lifecycleIsObsolete("OBSOLETE") && !lifecycleIsObsolete("Not For New Designs") && !lifecycleIsObsolete(""));
+  assert(describeOffer(offer, "EUR", now).status == OfferStatus::EndOfLife);
+  assert(describeOffer(offer, "EUR", now).statusWord == "End of life");
+  assert(describeOffer(offer, "", now).status == OfferStatus::EndOfLife);
+  assert(describeOffer(offer, "PLN", now).status == OfferStatus::OtherCurrency);
   offer.orderable = false;
   assert(describeOffer(offer, "PLN", now).status == OfferStatus::NotSold);
   assert(describeOffer(offer, "PLN", now).statusWord == "Not sold");
@@ -16075,7 +16940,7 @@ void testBomMouserSuggestionChoice() {
                                product);
   assert(chosen.outcome == BomLookupOutcome::Found && chosen.suggestion == "999-SYN-OPA-0001" && !chosen.verified);
 
-  // A discontinued or obsolete part is never chosen, however well it fits.
+  // A discontinued part is never chosen, however well it fits.
   auto discontinued = product;
   discontinued.orderable = false;
   discontinued.productStatus = "Obsolete";
@@ -16370,6 +17235,9 @@ const vector<TestCase>& registeredTests() {
     {"mouser", "MouserPartNumberMatching", testMouserPartNumberMatching},
     {"mouser", "MouserCandidateChoice", testMouserCandidateChoice},
     {"mouser", "MouserKeyRedaction", testMouserKeyRedaction},
+    {"vendor", "ChooseBestOffer", testChooseBestOffer},
+    {"vendor", "ChooseBestOfferPrefersVendor", testChooseBestOfferPrefersVendor},
+    {"vendor", "BomShortageCsvWithOffers", testBomShortageCsvWithOffers},
     {"vendor", "VendorRateLimitCountsAndWarns", testVendorRateLimitCountsAndWarns},
     {"vendor", "VendorRateLimitFullWindowSaysWhenItEnds", testVendorRateLimitFullWindowSaysWhenItEnds},
     {"vendor", "VendorRateLimitServerAnswerBlocks", testVendorRateLimitServerAnswerBlocks},
@@ -16433,6 +17301,24 @@ const vector<TestCase>& registeredTests() {
     {"bom", "BomMouserSuggestionStorage", testBomMouserSuggestionStorage},
     {"bom", "BomMouserLineMatching", testBomMouserLineMatching},
     {"bom", "BomMouserSuggestionChoice", testBomMouserSuggestionChoice},
+    {"bom", "BomPartSpecReading", testBomPartSpecReading},
+    {"bom", "VendorQuantityAndStandardValues", testVendorQuantityAndStandardValues},
+    {"bom", "BomVendorMatchByValue", testBomVendorMatchByValue},
+    {"bom", "BomVendorMatchByPartNumber", testBomVendorMatchByPartNumber},
+    {"bom", "BomPickerSearchWords", testBomPickerSearchWords},
+    {"bom", "DecimalCommaValues", testDecimalCommaValues},
+    {"bom", "BomPickerTypedWords", testBomPickerTypedWords},
+    {"bom", "BomFootprintLibraryPrefix", testBomFootprintLibraryPrefix},
+    {"bom", "BomPickerCommaDecimalLocale", testBomPickerCommaDecimalLocale},
+    {"bom", "VendorTextAscii", testVendorTextAscii},
+    {"bom", "OrderableOffer", testOrderableOffer},
+    {"bom", "BomPickerObsoleteInStock", testBomPickerObsoleteInStock},
+    {"bom", "BomPickerSummaryWords", testBomPickerSummaryWords},
+    {"bom", "BomMatchSkipsUnavailableParts", testBomMatchSkipsUnavailableParts},
+    {"bom", "TmeCandidateNotSold", testTmeCandidateNotSold},
+    {"bom", "BomProjectProgress", testBomProjectProgress},
+    {"bom", "BomEnrichmentFlags", testBomEnrichmentFlags},
+    {"digikey", "DigiKeySearchProducts", testDigiKeySearchProducts},
     {"transfer", "BackupExportAndRestoreWorkflow", testBackupExportAndRestoreWorkflow},
     {"transfer", "BackupEmptyWorkspaceAndInvalidSources", testBackupEmptyWorkspaceAndInvalidSources},
     {"transfer", "BackupBundleEnumerationFailure", testBackupBundleEnumerationFailure},

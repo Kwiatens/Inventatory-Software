@@ -4,6 +4,7 @@
 // Inventatory - Mouser credential test and inventory refresh.
 
 #include "App.h"
+#include "core/inventory/VendorProvider.h"
 
 #include "app/common/AppActionSupport.h"
 #include "platform/mouser/MouserApi.h"
@@ -107,6 +108,13 @@ void App::processMouserRefresh() {
     ++run.completed;
     applyCatalogueResult(run, *result, "Mouser", app_actions::mouserRecordConflict,
                          app_actions::mergeMouserMetadata);
+    // The lookup already carried the price, so it is saved without another request.
+    if (result->details) {
+      if (const auto* item = store_.findById(result->itemId); item != nullptr && app_actions::mouserRecordConflict(*item, *result->details).empty()) {
+        saveItemOffers(*item, kVendorProviderMouser,
+                       result->details->offer ? vector<VendorOffer>{*result->details->offer} : vector<VendorOffer>{});
+      }
+    }
     finishScanAutoPrint(result->itemId, result->details.has_value());
     // A reached limit or rejected key would fail the rest the same way; drop the run.
     if (!result->details && (mouserLimitReached(result->error) || mouserKeyRejected(result->error))) {

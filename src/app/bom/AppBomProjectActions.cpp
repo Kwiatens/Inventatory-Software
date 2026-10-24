@@ -171,10 +171,11 @@ void App::beginBomProject(const string& bomText, const string& name, const files
   bomSuggestions_.clear();
   bomCommits_.clear();
   bomCommitTaken_.clear();
-  bomView_ = BomView::Split;
+  bomView_ = BomView::Overview;
+  bomOverviewSelection_ = 0;
   inputMode_ = InputMode::None;
   refreshBomAnalysis();
-  queueBomEnrichment();
+  applyBomChoicesFromOtherProjects();
   // Save now so an imported BOM survives a restart.
   const bool projectSaved = saveBomProjects();
   changePage(Page::Projects);
@@ -221,6 +222,7 @@ void App::refreshBomAnalysis() {
   } else {
     bomSplitSelection_ = 0;
   }
+  refreshBomProgress();
   dirty_ = true;
 }
 
@@ -244,9 +246,10 @@ void App::openSelectedBomProject() {
   bomSuggestions_.clear();
   bomCommits_.clear();
   bomCommitTaken_.clear();
-  bomView_ = BomView::Split;
+  bomView_ = BomView::Overview;
+  bomOverviewSelection_ = 0;
   refreshBomAnalysis();
-  queueBomEnrichment();
+  applyBomChoicesFromOtherProjects();
   saveBomProjects();
 }
 
@@ -260,7 +263,7 @@ void App::moveBomSelection(int delta) {
     const auto current = static_cast<int>(min(bomProjectSelection_, bomProjects_.size() - 1));
     bomProjectSelection_ =
         static_cast<size_t>(clamp(current + delta, 0, static_cast<int>(bomProjects_.size() - 1)));
-  } else if (bomView_ == BomView::Split) {
+  } else if (bomView_ == BomView::Lines) {
     if (!bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
       bomSplitSelection_ = 0;
       dirty_ = true;
@@ -288,69 +291,6 @@ void App::adjustBomBoards(int delta) {
   setMessage(saved ? to_string(boards) + (boards == 1 ? " board" : " boards")
                   : "Board count changed in memory; press R to retry saving the project",
              saved ? 2 : 5);
-}
-
-void App::cycleBomAlternate() {
-  auto* project = activeBomProject();
-  if (project == nullptr || !bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
-    return;
-  }
-  // Check candidates against current stock, not stock from when the project opened.
-  refreshBomAnalysis();
-  const auto& match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
-  if (match.candidates.size() < 2) {
-    setMessage("No alternate match for this line", 2);
-    return;
-  }
-
-  // Only moves the suggestion; nothing is saved until confirmed with c.
-  const auto selectedLineKey = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
-  const auto next = (match.chosen + 1) % match.candidates.size();
-  bomSuggestions_[selectedLineKey] = match.candidates[next].itemId;
-  refreshBomAnalysis();
-
-  const auto& suggested = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
-  const auto* item = store_.findById(suggested.chosenItemId());
-  setMessage("Suggested " + (item == nullptr ? string("another part") : item->partName) + " (" +
-                 to_string(suggested.chosen + 1) + "/" + to_string(suggested.candidates.size()) +
-                 "). Press c to confirm it.",
-             5);
-  dirty_ = true;
-}
-
-void App::confirmBomMatch() {
-  auto* project = activeBomProject();
-  if (project == nullptr || !bomAnalysisValid_ || bomAnalysis_.matches.empty()) {
-    return;
-  }
-  // Confirm against current stock; the saved fingerprint is what later checks compare.
-  refreshBomAnalysis();
-  const auto match = bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)];
-  const auto selectedLineKey = bomLineKey(bomAnalysis_.lines[match.lineIndex]);
-  const auto* candidate = match.chosenCandidate();
-  if (candidate == nullptr) {
-    setMessage("No stock part to confirm for this line", 3);
-    return;
-  }
-  if (match.confirmed && bomSuggestions_.count(selectedLineKey) == 0) {
-    setMessage("This line is already confirmed", 2);
-    return;
-  }
-  const auto* item = store_.findById(candidate->itemId);
-  if (item == nullptr) {
-    setMessage("That part is no longer in stock; choose again", 4);
-    refreshBomAnalysis();
-    return;
-  }
-
-  project->overrides[selectedLineKey] = encodeBomConfirmation({item->id, bomItemFingerprint(*item)});
-  bomSuggestions_.erase(selectedLineKey);
-  refreshBomAnalysis();
-  const bool saved = saveBomProjects();
-  setMessage(saved ? item->partName + " confirmed for this line"
-                   : "Confirmation changed in memory; press R to retry saving the project",
-             5);
-  dirty_ = true;
 }
 
 void App::deleteSelectedBomProject() {
@@ -382,34 +322,5 @@ void App::deleteSelectedBomProject() {
   }
   setMessage(name + " forgotten", 3);
 }
-
-void App::beginBomRestock() {
-  if (!bomAnalysisValid_ || bomAnalysis_.matches.empty()) return;
-  const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
-  const auto& match = bomAnalysis_.matches[index];
-  if (match.sufficient) {
-    setMessage("That BOM line is already covered", 2);
-    return;
-  }
-  if (match.needsConfirmation()) {
-    // Restocking a suggested part would add units to a part not yet accepted for this line.
-    setMessage("Confirm this line's part first (press c)", 4);
-    return;
-  }
-  const auto itemId = match.chosenItemId();
-  if (itemId.empty() || store_.findById(itemId) == nullptr) {
-    setMessage("This line has no matched stock item; add it manually from Stock", 5);
-    changePage(Page::Stock);
-    beginEditCurrentItem(true);
-    return;
-  }
-  bomRestockItemId_ = itemId;
-  inputBuffer_ = to_string(max(1, match.needed - match.available));
-  inputReplaceOnType_ = true;
-  inputMode_ = InputMode::BomRestock;
-  setMessage("Enter received quantity; default is the shortage", 4);
-  dirty_ = true;
-}
-
 
 }  // namespace inventatory

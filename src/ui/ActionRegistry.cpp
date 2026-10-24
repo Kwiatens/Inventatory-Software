@@ -7,6 +7,7 @@
 #include "App.h"
 #include "ui/pages/settings/SettingsPagePrivate.h"
 
+#include "core/inventory/VendorProvider.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/tme/TmeApi.h"
 #include "ui/shared/ActionSheetLayout.h"
@@ -352,8 +353,7 @@ vector<App::Action> App::currentActions() const {
       break;
 
     case Page::Projects:
-      // Find in racks owns the keyboard while it runs.
-      // Project commands show only in split and list views.
+      // Find in racks owns the keyboard while it runs. Each project view lists only its own commands.
       if (bomDeductPrompt_) {
         add("deduct from stock", "Finish", "y", chr('y'), [self] { self->finishBomBuild(true); });
         add("keep stock", "Finish", "n", chr('n'), [self] { self->finishBomBuild(false); });
@@ -364,34 +364,101 @@ vector<App::Action> App::currentActions() const {
       } else if (bomView_ == BomView::Build) {
         add("rack done", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
         add("previous rack", "Build", "Bksp", special(KeyType::Backspace), [self] { self->advanceBomBuild(-1); });
-      } else if (bomView_ == BomView::Split && bomAnalysisValid_) {
-        add("pick parts", "Project", "f", chr('f'), [self] { self->beginBomBuild(); });
-        add("more boards", "Project", "+", chr('+'), [self] { self->adjustBomBoards(1); });
-        add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
-        add("alternate match", "Match", "a", chr('a'), [self] { self->cycleBomAlternate(); });
-        if (!bomAnalysis_.matches.empty()) {
-          const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
-          if (bomAnalysis_.matches[index].needsConfirmation()) {
-            add("confirm match", "Match", "c", chr('c'), [self] { self->confirmBomMatch(); });
-          }
-        }
-        add("shopping list", "Order", "o", chr('o'), [self] { self->exportBomShortages(); });
-        if (!bomAnalysis_.matches.empty()) {
-          const auto index = min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
-          if (!bomAnalysis_.matches[index].sufficient && !bomAnalysis_.matches[index].needsConfirmation()) {
-            add("receive selected shortage", "Order", "r", chr('r'),
-                [self] { self->beginBomRestock(); });
-          }
-        }
-        add("all projects", "Go", "Esc", special(KeyType::Escape), [self] {
-          self->bomView_ = BomView::List;
-          self->dirty_ = true;
-        });
-      } else {
+      } else if (bomView_ == BomView::List || !bomAnalysisValid_) {
         add("open project", "Project", "Enter", special(KeyType::Enter),
             [self] { self->openSelectedBomProject(); });
         add("forget project", "Project", "d", chr('d'), [self] { self->deleteSelectedBomProject(); });
         add("import a BOM", "Create", "i", chr('i'), [self] { self->beginCsvImport(); });
+      } else {
+        const auto back = [&] {
+          add("back to the project", "Go", "Esc", special(KeyType::Escape), [self] { self->openBomOverview(); });
+        };
+        const auto boards = [&] {
+          add("more boards", "Project", "+", chr('+'), [self] { self->adjustBomBoards(1); });
+          add("fewer boards", "Project", "-", chr('-'), [self] { self->adjustBomBoards(-1); });
+        };
+        const auto findInRacks = [&] {
+          add("find in racks", "Project", "f", chr('f'), [self] { self->requestBomFindInRacks(); });
+        };
+        switch (bomView_) {
+          case BomView::Overview:
+            add("open step", "Project", "Enter", special(KeyType::Enter),
+                [self] { self->openBomStep(self->bomOverviewSelection_); });
+            findInRacks();
+            add("all lines", "Project", "t", chr('t'), [self] {
+              self->bomView_ = BomView::Lines;
+              self->dirty_ = true;
+            });
+            boards();
+            add("shopping list", "Order", "o", chr('o'), [self] { self->exportBomShortages(); });
+            add("all projects", "Go", "Esc", special(KeyType::Escape), [self] {
+              self->bomView_ = BomView::List;
+              self->dirty_ = true;
+            });
+            break;
+          case BomView::Lines:
+            add("open its step", "Project", "Enter", special(KeyType::Enter),
+                [self] { self->openBomLine(self->bomSplitSelection_); });
+            findInRacks();
+            boards();
+            back();
+            break;
+          case BomView::StartNotice:
+            add("start anyway", "Find in racks", "Enter", special(KeyType::Enter), [self] {
+              self->beginBomBuild();
+              if (self->bomView_ != BomView::Build) self->openBomOverview();
+            });
+            add("get them first", "Find in racks", "s", chr('s'), [self] { self->openFirstOpenBomStep(); });
+            back();
+            break;
+          case BomView::Confirm:
+            add("use this part", "Confirm", "Enter", special(KeyType::Enter), [self] { self->useBomConfirmCandidate(); });
+            add("none of these", "Confirm", "n", chr('n'), [self] { self->markBomLineNotInStock(); });
+            add("skip", "Confirm", "s", chr('s'), [self] { self->advanceBomStep(false); });
+            back();
+            break;
+          case BomView::Choose: {
+            const auto* project = activeBomProject();
+            bool chosen = false;
+            if (project != nullptr) {
+              const auto found = project->enrichment.find(bomPicker_.lineKey);
+              chosen = found != project->enrichment.end() && bomEnrichmentChosen(found->second);
+            }
+            if (!bomPicker_.entries.empty()) {
+              add("use this part", "Choose", "Enter", special(KeyType::Enter), [self] { self->useBomPickerSelection(); });
+            } else if (chosen && !bomPickerFuture_.valid()) {
+              add("keep it", "Choose", "Enter", special(KeyType::Enter), [self] { self->advanceBomStep(true); });
+            }
+            add("open in store", "Choose", "l", chr('l'), [self] { self->openBomPartPage(); });
+            add("search", "Choose", "/", chr('/'), [self] { self->beginBomPartSearchEdit(); });
+            add("change store", "Choose", "v", chr('v'), [self] { self->cycleBomStore(); });
+            add("skip", "Choose", "s", chr('s'), [self] { self->advanceBomStep(false); });
+            back();
+            break;
+          }
+          case BomView::Order:
+            if (bomOrderConfirm_) {
+              add("mark them ordered", "Order", "y", chr('y'), [self] { self->markBomOrdered(true); });
+              add("cancel", "Order", "n", chr('n'), [self] {
+                self->bomOrderConfirm_ = false;
+                self->dirty_ = true;
+              });
+            } else {
+              add("open this page", "Order", "Enter", special(KeyType::Enter), [self] { self->openBomOrderPage(false); });
+              add("save cart file", "Order", "c", chr('c'), [self] { self->saveBomCartFiles(); });
+              add("open next page", "Order", "l", chr('l'), [self] { self->openBomOrderPage(true); });
+              add("mark ordered", "Order", "m", chr('m'), [self] { self->markBomOrdered(false); });
+            }
+            back();
+            break;
+          case BomView::Receive:
+            add("receive", "Receive", "Enter", special(KeyType::Enter), [self] { self->beginBomReceive(); });
+            add("receive all", "Receive", "a", chr('a'), [self] { self->receiveAllBomOrders(); });
+            back();
+            break;
+          default:
+            break;
+        }
       }
       if (bomProjectsDirty_) {
         add("retry project save", "Data", "R", chr('R'), [self] { self->retrySaveState(); });

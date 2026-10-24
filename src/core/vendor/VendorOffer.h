@@ -75,6 +75,7 @@ struct VendorOffer {
   std::string packaging;           // "Cut Tape (CT)", "Tape & Reel (TR)", ...
   std::optional<std::int64_t> reelingFeeMicros;  // Added once per order line (DigiKey Digi-Reel)
   std::string lifecycle;           // As the vendor wrote it; empty when not given
+  // False only when the vendor no longer sells the part. An obsolete part is still sold while stock lasts.
   bool orderable = true;
   std::time_t fetchedAt = 0;
 };
@@ -85,6 +86,11 @@ bool normalizePriceBreaks(std::vector<PriceBreak>& breaks);
 
 // True when the offer was fetched no more than kOfferFreshSeconds before now, and not in the future.
 bool offerIsFresh(const VendorOffer& offer, std::time_t now);
+
+// True when the lifecycle says the maker no longer makes the part ("Obsolete"). The vendor still sells such a
+// part while stock lasts, so it is orderable. The app shows it as End of life and ranks it after the others.
+bool lifecycleIsObsolete(const std::string& lifecycle);
+bool offerIsObsolete(const VendorOffer& offer);
 
 // What buying a quantity from an offer costs.
 struct OfferCost {
@@ -105,7 +111,7 @@ std::optional<OfferCost> cheaperLargerOrder(const VendorOffer& offer, std::uint6
 
 // One offer as two stock detail lines: the vendor part number and its price, then the facts and the
 // status. Every vendor fills both lines the same way.
-enum class OfferStatus { None, OldPrice, OtherCurrency, NotSold };
+enum class OfferStatus { None, OldPrice, OtherCurrency, NotSold, EndOfLife };
 struct OfferLine {
   std::string sku;         // The vendor's part number, which every vendor sends
   std::string price;       // Lowest-quantity unit price for display: "0.0046 EUR"
@@ -114,7 +120,7 @@ struct OfferLine {
   std::string statusWord;  // "Old price", "Other currency", "Not sold", or empty
 };
 // The status is the most serious one: not sold, then another currency than the shared one (when one
-// is set), then a price older than kOfferFreshSeconds.
+// is set), then end of life (the maker has stopped making it), then a price older than kOfferFreshSeconds.
 OfferLine describeOffer(const VendorOffer& offer, const std::string& sharedCurrency, std::time_t now);
 
 }  // namespace inventatory

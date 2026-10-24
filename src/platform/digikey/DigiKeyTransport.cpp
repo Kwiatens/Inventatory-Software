@@ -101,7 +101,8 @@ bool requestHttpOnce(const wstring& method, const wstring& url, const wstring& h
     return false;
   }
 
-  WinHttpSetTimeouts(session, 5000, 5000, 5000, 8000);
+  // A broad keyword search can take DigiKey several seconds to answer.
+  WinHttpSetTimeouts(session, 5000, 5000, 5000, 20000);
 
   HINTERNET connection = WinHttpConnect(session, host.c_str(), components.nPort, 0);
   if (connection == nullptr) {
