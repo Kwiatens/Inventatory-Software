@@ -64,6 +64,10 @@ Change a rule here only when the change applies to both repositories.
 - A released version is headed `## [vX.Y.Z] - YYYY-MM-DD`, matching its release
   tag.
 
+- Entries reach `CHANGELOG.md` through the pull request's Changelog section, not by
+  editing the file on a feature branch. The maintainer approves the wording, and the
+  release copies the approved entries into `CHANGELOG.md` as written.
+
 ## Secrets and logging
 
 - Passwords, tokens, pairing secrets, HMAC keys, API credentials and similar

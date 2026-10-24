@@ -822,6 +822,34 @@ void testConfirmGuard() {
   assert(cg::confirmed(now + 30, armed, 6, false) && armed == 0);
 }
 
+void testUiDeleteConfirmationLayout() {
+  // Without cooldown (secondsLeft == 0): direct Enter confirmation, no timer mention
+  {
+    auto el = inventatory::uiDeleteConfirmation(ftxui::text("background"), 80, "Delete item", "part", "100nF capacitor", 0);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80), ftxui::Dimension::Fixed(20));
+    ftxui::Render(screen, el);
+    const auto str = screen.ToString();
+    assert(str.find("Are you sure you want to delete this part from the database?") != string::npos);
+    assert(str.find("Selected: 100nF capacitor") != string::npos);
+    assert(str.find("Press Enter to confirm.") != string::npos);
+    assert(str.find("Press Esc to cancel.") != string::npos);
+    assert(str.find("timer") == string::npos);
+    assert(str.find("remaining") == string::npos);
+  }
+  // With cooldown (secondsLeft > 0): timer unlock notice and remaining seconds shown
+  {
+    auto el = inventatory::uiDeleteConfirmation(ftxui::text("background"), 80, "Delete rack", "rack", "R1", 3);
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(80), ftxui::Dimension::Fixed(20));
+    ftxui::Render(screen, el);
+    const auto str = screen.ToString();
+    assert(str.find("Are you sure you want to delete this rack from the database?") != string::npos);
+    assert(str.find("Selected: R1") != string::npos);
+    assert(str.find("Press Enter to confirm after the timer unlocks.") != string::npos);
+    assert(str.find("Press Esc to cancel.") != string::npos);
+    assert(str.find("3 seconds remaining") != string::npos);
+  }
+}
+
 // UI text helpers measure and cut in cells, never inside a UTF-8 sequence.
 namespace {
 bool wellFormedUtf8(const std::string& text) {
@@ -6189,7 +6217,7 @@ void testTmeMergeKeepsSelectedIdentity() {
   assert(app_actions::mergeTmeMetadata(item, tme));
   assert(item.vendorMetadata.provider == "tme");
   assert(item.vendorMetadata.providerProductNumber == "1N4148-TP");
-  assert(item.partName == "Diode switching");
+  assert(item.partName == "DIODE SWITCHING");
   assert(item.manufacturer == "Vishay");
   assert(item.vendorSources.empty());
   // The same product again changes nothing.
@@ -6342,10 +6370,75 @@ void testTmeLabelScan() {
   details.productDescription = "Fuse: polymer PTC; 100mA; SMD 0603";
   details.manufacturerName = "BEL FUSE";
   assert(app_actions::mergeTmeMetadata(*placeholder, details));
-  assert(placeholder->partName == "Fuse: polymer PTC; 100mA; SMD 0603");
+  assert(placeholder->partName == "FUSE POLYMER PTC 100MA SMD 0603");
   assert(placeholder->manufacturer == "BEL FUSE");
   assert(placeholder->vendorMetadata.provider == "tme");
   assert(placeholder->syncStatus == "synced");
+}
+
+void testTmeDescriptionBecomesAReadableName() {
+  assert(tmeListName("Connector: pin strips; socket; female; data; PIN: 40; THT; straight") ==
+         "CONNECTOR PIN STRIPS SOCKET FEMALE DATA PIN 40 THT STRAIGHT");
+  assert(tmeListName("Capacitor: ceramic; MLCC; 100nF; 16V; X7R; \xC2\xB1""10%; SMD; 0603") ==
+         "CAPACITOR CERAMIC MLCC 100NF 16V X7R \xC2\xB1""10% SMD 0603");
+  // A ratio keeps its colon, and an empty description stays empty.
+  assert(tmeListName("  Ratio 1:1;; ;Pitch: 2.54mm ") == "RATIO 1:1 PITCH 2.54MM");
+  assert(tmeListName(" ; : ").empty());
+
+  // A connector with a pin count reads as a phrase; without one, or for other parts, the list form stays.
+  const vector<Parameter> pitch = {{"Pins", "40"}, {"Pitch", "2.54 mm"}};
+  assert(tmeReadableName("Connector: pin strips; socket; female; data; PIN: 40; THT; straight", pitch) ==
+         "Female 40 Pin Connector 2.54mm");
+  assert(tmeReadableName("Connector: pin header; male; PIN: 6; THT", {}) == "Male 6 Pin Connector");
+  assert(tmeReadableName("Connector: wire-board; PIN: 2x20", pitch) == "CONNECTOR WIRE-BOARD PIN 2X20");
+  assert(tmeReadableName("Diode: switching; SMD", pitch) == "DIODE SWITCHING SMD");
+
+  TmeProductDetails details;
+  details.vendorMetadata.provider = "tme";
+  details.vendorMetadata.providerProductNumber = "ZL262-40SG";
+  details.productDescription = "Connector: pin strips; socket; female; data; PIN: 40; THT; straight";
+  details.vendorMetadata.title = details.productDescription;
+  details.parameters = pitch;
+
+  // A new part from a TME record is named in list form.
+  InventoryItem fresh;
+  fresh.partName = "Scanned TME Item";
+  assert(app_actions::mergeTmeMetadata(fresh, details));
+  assert(fresh.partName == "Female 40 Pin Connector 2.54mm");
+
+  // A part an earlier version named with the raw description is repaired by the next merge.
+  InventoryItem stored;
+  stored.partName = details.productDescription;
+  stored.vendorMetadata = details.vendorMetadata;
+  assert(app_actions::mergeTmeMetadata(stored, details));
+  assert(stored.partName == "Female 40 Pin Connector 2.54mm");
+  assert(!app_actions::mergeTmeMetadata(stored, details) || stored.partName == fresh.partName);
+
+  // Loading repairs a stored raw name from the parameters it already has, with no TME request. The
+  // parameters are in DigiKey's form there, so the pitch is "Pitch - Mating".
+  InventoryItem loaded;
+  loaded.partName = details.productDescription;
+  loaded.vendorMetadata = details.vendorMetadata;
+  loaded.parameters = {{"Number of Positions", "40"}, {"Pitch - Mating", "2.54mm"}};
+  assert(app_actions::repairTmeName(loaded));
+  assert(loaded.partName == "Female 40 Pin Connector 2.54mm");
+  assert(!app_actions::repairTmeName(loaded));
+  InventoryItem typed = loaded;
+  typed.partName = "40 pin female header";
+  assert(!app_actions::repairTmeName(typed));
+
+  // A name the user chose is left alone, and so is a part bound to another supplier.
+  InventoryItem named;
+  named.partName = "40 pin female header";
+  named.vendorMetadata = details.vendorMetadata;
+  app_actions::mergeTmeMetadata(named, details);
+  assert(named.partName == "40 pin female header");
+  InventoryItem digikey;
+  digikey.partName = details.productDescription;
+  digikey.vendorMetadata.provider = "digikey";
+  digikey.vendorMetadata.providerProductNumber = "X";
+  app_actions::mergeTmeMetadata(digikey, details);
+  assert(digikey.partName == details.productDescription);
 }
 
 void testDeviceItemNameFitsTheScanR1Screen() {
@@ -6597,7 +6690,7 @@ void testTmeMergeFillsEnrichment() {
   item.vendorMetadata.provider = "tme";
   item.vendorMetadata.providerProductNumber = "0603X474K100CT";
   assert(app_actions::mergeTmeMetadata(item, details));
-  assert(item.partName == "MLCC SMD capacitor 0.47uF");
+  assert(item.partName == "MLCC SMD CAPACITOR 0.47UF");
   assert(item.manufacturer == "WALSIN");
   assert(item.category == "MLCC SMD capacitors");
   assert(item.sku == "0603X474K100CT");
@@ -17040,6 +17133,7 @@ const vector<TestCase>& registeredTests() {
     {"ui", "NumericPromptReplacesDefault", testNumericPromptReplacesDefault},
     {"ui", "TerminalSizeGate", testTerminalSizeGate},
     {"ui", "ConfirmGuard", testConfirmGuard},
+    {"ui", "DeleteConfirmationLayout", testUiDeleteConfirmationLayout},
     {"ui", "Utf8AwareTextLayout", testUtf8AwareTextLayout},
 #ifndef _WIN32
     {"transfer", "RestoreKeepsMachineSpecificSettings", testRestoreKeepsMachineSpecificSettings},
@@ -17200,6 +17294,7 @@ const vector<TestCase>& registeredTests() {
     {"scan", "BagScanRecordsOrigin", testBagScanRecordsOrigin},
     {"scan", "DeviceSyncEventCarriesBagCode", testDeviceSyncEventCarriesBagCode},
     {"scan", "DeviceEventIdConflictIsRefused", testDeviceEventIdConflictIsRefused},
+    {"scan", "TmeDescriptionBecomesAReadableName", testTmeDescriptionBecomesAReadableName},
     {"scan", "DeviceItemNameFitsTheScanR1Screen", testDeviceItemNameFitsTheScanR1Screen},
     {"scan", "TmeScanEventCommitsAndLooksUp", testTmeScanEventCommitsAndLooksUp},
     {"tme", "TmeSourceChangeIsRecorded", testTmeSourceChangeIsRecorded},

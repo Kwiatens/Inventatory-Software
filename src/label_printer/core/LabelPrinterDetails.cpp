@@ -7,6 +7,7 @@
 
 #include "core/inventory/InventoryInternals.h"
 #include "core/parts/PartDescriptor.h"
+#include "platform/tme/TmeVocabulary.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
@@ -576,8 +577,23 @@ string mainLabelValue(const InventoryItem& item) {
   }
 
   // A part named by its supplier's title prints the part number; a user-typed name is kept as is.
+  // The name may be the title in TME's readable form ("Fuse: PTC; 100mA" as "FUSE PTC 100MA", or a
+  // connector as "Female 40 Pin Connector 2.54mm"), so letters and digits are compared, and the TME
+  // form of the title is accepted too.
+  const auto letters = [](const string& text) {
+    string key;
+    for (const unsigned char character : text) {
+      if (isalnum(character)) key += static_cast<char>(tolower(character));
+    }
+    return key;
+  };
   const auto partNumber = trim(item.vendorMetadata.manufacturerPartNumber);
-  if (!partNumber.empty() && trim(item.partName) == trim(item.vendorMetadata.title)) {
+  const auto name = letters(item.partName);
+  const bool namedBySupplier =
+      name == letters(item.vendorMetadata.title) ||
+      (toLower(trim(item.vendorMetadata.provider)) == "tme" &&
+       name == letters(tmeReadableName(item.vendorMetadata.title, item.parameters)));
+  if (!partNumber.empty() && namedBySupplier) {
     return partNumber;
   }
 
