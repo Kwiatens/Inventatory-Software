@@ -243,6 +243,17 @@ bool offerIsFresh(const VendorOffer& offer, std::time_t now) {
   return static_cast<int64_t>(now - offer.fetchedAt) <= kOfferFreshSeconds;
 }
 
+bool lifecycleIsObsolete(const string& lifecycle) {
+  // ASCII letters only, so the match does not depend on the locale.
+  string lowered;
+  for (const char character : lifecycle) {
+    lowered += (character >= 'A' && character <= 'Z') ? static_cast<char>(character - 'A' + 'a') : character;
+  }
+  return lowered.find("obsolete") != string::npos;
+}
+
+bool offerIsObsolete(const VendorOffer& offer) { return lifecycleIsObsolete(offer.lifecycle); }
+
 OfferCost offerCost(const VendorOffer& offer, uint64_t needed) {
   OfferCost cost;
   if (needed == 0 || needed > kMaximumOrderQuantity) return cost;
@@ -311,6 +322,9 @@ OfferLine describeOffer(const VendorOffer& offer, const string& sharedCurrency, 
   } else if (!sharedCurrency.empty() && offer.currency != sharedCurrency) {
     line.status = OfferStatus::OtherCurrency;
     line.statusWord = "Other currency";
+  } else if (offerIsObsolete(offer)) {
+    line.status = OfferStatus::EndOfLife;
+    line.statusWord = "End of life";
   } else if (!offerIsFresh(offer, now)) {
     line.status = OfferStatus::OldPrice;
     line.statusWord = "Old price";

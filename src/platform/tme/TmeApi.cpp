@@ -690,6 +690,20 @@ vector<TmeProductDetails> TmeApiClient::searchProducts(const string& phrase, Tme
   return products;
 }
 
+VendorCandidate tmeCandidate(const TmeProductDetails& product) {
+  VendorCandidate candidate;
+  candidate.manufacturer = product.manufacturerName;
+  candidate.manufacturerPartNumber = product.vendorMetadata.manufacturerPartNumber;
+  candidate.description = product.productDescription;
+  candidate.category = product.categoryName;
+  // TME's flags say what it can sell, not a lifecycle, so a product it cannot sell counts as discontinued.
+  candidate.discontinued = !product.orderable;
+  candidate.parameters = product.parameters;
+  if (product.offer.has_value()) candidate.offers.push_back(*product.offer);
+  candidate.productUrl = vendorLinkAllowed("tme", product.productUrl) ? product.productUrl : string();
+  return candidate;
+}
+
 bool TmeApiClient::testConnection(string* error) {
   string body;
   if (!getProducts({{"symbols[]", kCredentialTestSymbol}}, body, error)) return false;

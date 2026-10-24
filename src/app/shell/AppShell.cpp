@@ -182,7 +182,7 @@ void App::processBackgroundWork() {
   processVendorNotices();
   processImportSync();
   processVendorLookup();
-  processBomEnrichment();
+  processBomPartPicker();
   processPrinterWork();
 }
 

@@ -68,7 +68,7 @@ void App::beginBomBuild() {
 void App::advanceBomBuild(int delta) {
   const auto plan = bomPickPlan();
   if (plan.empty()) {
-    bomView_ = BomView::Split;
+    bomView_ = BomView::Overview;
     bomDeductPrompt_ = false;
     dirty_ = true;
     return;
@@ -85,7 +85,7 @@ void App::advanceBomBuild(int delta) {
 
   const auto next = static_cast<int>(bomBuildStep_) + delta;
   if (next < 0) {
-    bomView_ = BomView::Split;
+    bomView_ = BomView::Overview;
     bomBuildStep_ = 0;
     dirty_ = true;
     return;
@@ -117,7 +117,7 @@ void App::finishBomBuild(bool subtractFromStock) {
       bomBuildStep_ = 0;
       bomCommits_.clear();
       bomCommitTaken_.clear();
-      bomView_ = BomView::Split;
+      bomView_ = BomView::Overview;
       refreshBomAnalysis();
       setMessage(reason, 7, UiMessageSeverity::Error);
     };
@@ -177,7 +177,7 @@ void App::finishBomBuild(bool subtractFromStock) {
   bomBuildStep_ = 0;
   bomCommits_.clear();
   bomCommitTaken_.clear();
-  bomView_ = BomView::Split;
+  bomView_ = BomView::Overview;
   refreshBomAnalysis();
   if (!stockSaved) {
     setMessage("Build stock changes are in memory; press R to retry saving", 7, UiMessageSeverity::Error);
@@ -217,7 +217,10 @@ bool App::exportBomShortages() {
   }
 
   // Write atomically so a full disk never leaves a truncated export or reports success.
-  const auto exported = buildBomShortageCsv(bomAnalysis_, project->enrichment);
+  const BomPurchaseFinder finder = [this](const BomLine& line, const BomMatch& match, uint64_t toBuy) {
+    return bestOfferForBomLine(line, match, toBuy);
+  };
+  const auto exported = buildBomShortageCsv(bomAnalysis_, project->enrichment, finder);
   string writeError;
   if (!writeFileAtomically(target, exported.text, &writeError)) {
     setMessage("Unable to write " + target.filename().u8string() + (writeError.empty() ? string() : ": " + writeError), 5,
@@ -225,7 +228,12 @@ bool App::exportBomShortages() {
     return false;
   }
 
-  setMessage("Wrote " + to_string(exported.rows) + " shortages to " + target.filename().u8string(), 6);
+  string priced;
+  if (exported.pricedRows > 0) {
+    priced = ", " + to_string(exported.pricedRows) + " priced, about " + formatPriceMicros(exported.totalMicros) + " " +
+             exported.purchaseCurrency;
+  }
+  setMessage("Wrote " + to_string(exported.rows) + " shortages to " + target.filename().u8string() + priced, 6);
   return true;
 }
 

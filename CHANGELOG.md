@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A project opens on an overview: Find in racks first, then what is in stock and where it is (in racks, in other
+  places, or with no location), then four steps that get the rest: Confirm matches, Choose parts to buy, Order and
+  Receive. Each step goes one part at a time, and you can do them in any order. `t` shows all lines in one table.
+- Choose parts to buy searches the project's DigiKey or TME store and lists only parts in stock at a normal price, with
+  the parts that fit the line first and the best one ready for Enter. `l` opens a part on the store's site, `/` searches
+  for other words (`R280` is 0.28 ohm, `280R` is 280 ohm), and `v` changes the store. Parts of another value are left
+  out when parts that fit are found, and the highlighted part is shown in full below the list. A chosen part is used
+  for the same line in your other projects.
+- Order saves a cart file for each store, ready for TME's and DigiKey's cart upload, opens each part's page in turn, and
+  marks the parts as ordered. Receive adds what arrived to stock, creates the stock part when there is none, and shows
+  the rack slot it goes to.
+- Find in racks first lists the parts it will skip when some are not sorted out yet, with Start anyway and Get them first.
+- Vendor prices now come with the lookups that already run: a part refresh, a scan lookup and a part chosen for a
+  project save the price they receive, with no extra request.
+- The project shopping list gets the cheapest offer for each missing part: vendor, part number, order quantity, unit
+  price, order total, currency and product link, and names a cheaper in-stock offer at another store from saved prices.
+- Supplier lookups show a progress bar with a count on the status line: the DigiKey, TME and Mouser refreshes and the
+  import sync. A part search in a project shows its progress and the seconds so far.
 - Inventatory Scan: the large Data Matrix on a Mouser bag adds or finds a part, and Mouser fills in its details. It
   needs the Scan R1 firmware that sends Mouser bag codes. Older firmware still refuses a Mouser bag.
 - Mouser ferrite beads: Mouser lists only packaging for them, so the impedance and frequency are read from the
@@ -25,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - One currency for all vendors, chosen during first setup and in Settings > Vendors.
 
 ### Changed
+- Opening a project no longer searches the stores for every missing part in the background, so it spends no store
+  requests. Parts to buy are searched only in Choose parts to buy, and each result is checked against the line by
+  value, package and part number. Lines many parts fit, such as a pin header, ask you to choose one.
+- Stock matches that need a yes or no are answered in Confirm matches instead of with `a` and `c` on the project table.
 - The DigiKey and TME currency settings are now one shared currency, and the DigiKey site and TME country are one shared
   region. The language and account settings are no longer shown.
 - A reached vendor limit is no longer a plain failure: the message names the vendor and says when it is available
@@ -32,6 +54,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same treatment as Mouser's.
 
 ### Fixed
+- A DigiKey part search no longer fails when DigiKey takes more than 8 seconds to answer a broad search, such as one
+  for a capacitor. A search that still fails is sent once more and then says why.
+- A value typed in a part search with a comma, such as "0,33uF", is read as 0.33 uF. It used to be read as 33 uF or
+  not read at all, so the search found nothing or the wrong parts. A value typed among other words, such as
+  "0,33 uF 0603 (1608 Metric)", is found, and the words added to it still narrow the search.
+- Projects: parts from a KiCad BOM are recognised by their kind, value and package when the footprint carries its
+  library name, such as "Capacitor_SMD:C_0603_1608Metric". Before, such a part was searched by its raw text, so a
+  generic search found nothing.
+- Projects: part searches and vendor matches write decimals with a dot on every system language. On a system set to
+  a comma decimal, such as Polish or German, a search for 0.33 uF was sent as "0,33 uF", which the store could not find.
+- Projects: "Open in store" on a DigiKey part opens DigiKey's search for the part number when DigiKey stored no product
+  page for it, instead of reporting that there is no page.
+- Projects: a part the manufacturer has made obsolete is still offered while the vendor has stock of it at a normal price.
+  Before, it was refused and reported as not at a normal price. It is marked End of life, is never marked Best, and
+  comes after parts that are not obsolete. A discontinued part is still refused. Mouser parts follow the same rule.
+- Vendor text with letters that have marks shows its base letter, so "Würth" reads "Wurth" and "Łódź" reads "Lodz"
+  instead of "?". Letters with no Latin base still show "?".
 - Settings: after restoring a backup or changing the data folder, Quick Labels no longer shows Unsaved, and saving
   that page no longer replaces the restored Quick Labels with the old ones.
 

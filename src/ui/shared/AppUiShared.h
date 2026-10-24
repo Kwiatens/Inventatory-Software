@@ -127,6 +127,9 @@ size_t displayWidth(const string& value);
 string takeCells(const string& value, size_t cells);
 // Cuts on glyph boundaries, never inside a UTF-8 sequence. `maxLength` is in cells.
 string ellipsize(const string& value, size_t maxLength);
+// A progress bar of `cells` ASCII cells, "[####------]", filled by done / total. It is drawn again
+// with each new count, never animated, so the number beside it is what changes.
+string uiProgressBar(size_t done, size_t total, size_t cells = 10);
 
 // Splits a part name ("CAP CER 0.1UF 16V X7R 0603") into type, first value and spec.
 // The pieces rejoin to the original words; a name with no value keeps all in `value`.

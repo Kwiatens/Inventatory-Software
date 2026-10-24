@@ -306,7 +306,8 @@ void readLifecycle(const JsonPtr& record, MouserProductDetails& product) {
   } else if (discontinued) {
     product.productStatus = "Discontinued";
   }
-  if (discontinued || containsInsensitive(lifecycle, "obsolete") || containsInsensitive(lifecycle, "discontinued")) {
+  // An obsolete part is still on sale while stock lasts, so only a discontinued one is not sold.
+  if (discontinued || containsInsensitive(lifecycle, "discontinued")) {
     product.orderable = false;
   }
 }

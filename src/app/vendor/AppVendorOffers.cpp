@@ -6,10 +6,14 @@
 #include "App.h"
 
 #include "core/inventory/VendorProvider.h"
+#include "core/bom/BomProjectStore.h"
 #include "core/vendor/VendorOfferStore.h"
+#include "core/vendor/VendorPurchase.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/mouser/MouserApi.h"
 #include "platform/tme/TmeApi.h"
+
+#include "platform/system/Console.h"
 
 #include <chrono>
 #include <exception>
@@ -223,6 +227,68 @@ void App::processOfferRefresh() {
                4, UiMessageSeverity::Success);
   }
   dirty_ = true;
+}
+
+void App::saveItemOffers(const InventoryItem& item, const string& provider, const vector<VendorOffer>& offers) {
+  for (const auto& [lookupProvider, number] : offerLookups(item, settings_)) {
+    if (lookupProvider != provider) continue;
+    string error;
+    // The prices came with a lookup that already matched the item, so they are saved under its own number.
+    if (saveVendorOffers(vendorOfferDatabasePath(dataPath_), provider, number, offers, &error)) offerCacheValid_ = false;
+    return;
+  }
+}
+
+vector<VendorOffer> App::offersForBomLine(const BomLine& line, const BomMatch& match) const {
+  vector<VendorOffer> offers;
+  const auto databasePath = vendorOfferDatabasePath(dataPath_);
+  const auto add = [&](const string& provider, const string& number) {
+    vector<VendorOffer> loaded;
+    if (loadVendorOffers(databasePath, provider, number, loaded)) offers.insert(offers.end(), loaded.begin(), loaded.end());
+  };
+  // A stock part only counts once the line is confirmed to use it.
+  if (match.confirmed) {
+    if (const auto* item = store_.findById(match.chosenItemId())) {
+      for (const auto& [provider, number] : offerLookups(*item, settings_)) add(provider, number);
+    }
+  }
+  if (const auto* project = activeBomProject()) {
+    const auto found = project->enrichment.find(bomLineKey(line));
+    if (found != project->enrichment.end()) {
+      const auto provider = bomEnrichmentProvider(found->second);
+      const bool enabled = provider == kVendorProviderDigiKey ? settings_.digiKeyEnabled
+                           : provider == kVendorProviderTme   ? settings_.tmeEnabled
+                                                              : settings_.mouserEnabled;
+      if (!provider.empty() && enabled) add(provider, bomEnrichmentPart(found->second));
+    }
+  }
+  return offers;
+}
+
+optional<PurchaseChoice> App::bestOfferForBomLine(const BomLine& line, const BomMatch& match, uint64_t toBuy) const {
+  const auto* project = activeBomProject();
+  const auto preferred = project == nullptr ? string() : bomPreferredProvider(project->enrichment);
+  // An offer that cannot be bought now (out of stock, or priced out of proportion) is not a choice at all.
+  vector<VendorOffer> buyable;
+  for (const auto& offer : offersForBomLine(line, match)) {
+    if (orderableOffer(offer, toBuy).has_value()) buyable.push_back(offer);
+  }
+  return chooseBestOffer(buyable, toBuy, sharedVendorCurrency(settings_), time(nullptr), preferred);
+}
+
+bool App::providerEnabled(const AppSettings& settings, const string& provider) {
+  return provider == kVendorProviderDigiKey ? settings.digiKeyEnabled
+         : provider == kVendorProviderTme   ? settings.tmeEnabled
+         : provider == kVendorProviderMouser ? settings.mouserEnabled
+                                             : false;
+}
+
+vector<string> App::bomVendorChoices() const {
+  vector<string> choices;
+  for (const auto* provider : {kVendorProviderDigiKey, kVendorProviderTme, kVendorProviderMouser}) {
+    if (providerEnabled(settings_, provider)) choices.push_back(provider);
+  }
+  return choices;
 }
 
 const vector<VendorOffer>& App::selectedItemOffers() const {

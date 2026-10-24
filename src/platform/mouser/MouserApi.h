@@ -41,7 +41,7 @@ struct MouserProductDetails {
   std::string quantityAvailable;         // Digits only; empty when unknown
   std::string unitPrice;                 // Lowest-quantity price, as Mouser printed it
   std::string productStatus;             // LifecycleStatus, else "Discontinued" when IsDiscontinued
-  bool orderable = true;                 // False when discontinued or obsolete
+  bool orderable = true;                 // False when discontinued; an obsolete part is still sold while stock lasts
   // Every price break, the minimum and the multiple. Empty when Mouser gave no usable price.
   // fetchedAt is set by the client, not the parser.
   std::optional<VendorOffer> offer;
