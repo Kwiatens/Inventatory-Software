@@ -103,6 +103,11 @@ struct AppSettings {
   std::string tmeCountry = "PL";
   std::string tmeLanguage = "EN";
   std::string tmeCurrency = "EUR";
+  // A vendor that is off is skipped for price checks and refreshes; its keys stay stored. Written only when
+  // false, so older releases can still read the file.
+  bool digiKeyEnabled = true;
+  bool tmeEnabled = true;
+  bool mouserEnabled = true;
   int lowStockThreshold = kDefaultLowStockThreshold;
   // Written to settings.conf only when not the default, so older releases can still read the file.
   SymbolStandard symbolStandard = SymbolStandard::Eu;
@@ -111,6 +116,23 @@ struct AppSettings {
   std::vector<std::string> quickLabelPresets;
   std::uint32_t quickLabelRevision = 1;
 };
+
+// The one currency every vendor is asked to price in. It is stored in the DigiKey and TME currency
+// keys, kept equal, so older releases still read the file. Empty when they differ, which happens
+// only in files written before the currency was shared.
+std::string sharedVendorCurrency(const AppSettings& settings);
+// Sets both keys. The caller checks isSupportedVendorCurrency first.
+void setSharedVendorCurrency(AppSettings& settings, const std::string& currency);
+// The one region every vendor is asked about: the DigiKey site and the TME country, kept equal. Empty when
+// they differ, which happens only in files written before the region was shared.
+std::string sharedVendorRegion(const AppSettings& settings);
+// Sets both. The caller checks isValidVendorRegion first.
+void setSharedVendorRegion(AppSettings& settings, const std::string& region);
+// A two-letter upper-case country code.
+bool isValidVendorRegion(const std::string& region);
+// Currencies offered in setup and Settings: ones the vendors answer in.
+const std::vector<std::string>& supportedVendorCurrencies();
+bool isSupportedVendorCurrency(const std::string& currency);
 
 std::filesystem::path appSettingsDirectory();
 std::filesystem::path appSettingsPath();

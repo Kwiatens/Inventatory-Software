@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -87,15 +89,11 @@ bool App::settingsCategoryDirty(SettingsCategory category) const {
       return draft.quickLabelPresets != saved.quickLabelPresets;
     case SettingsCategory::InventatoryScan:
       return draft.deviceServicePort != saved.deviceServicePort;
-    case SettingsCategory::DigiKey:
-      return draft.digiKeyClientId != saved.digiKeyClientId || draft.digiKeyAccountId != saved.digiKeyAccountId ||
-             draft.digiKeySite != saved.digiKeySite || draft.digiKeyLanguage != saved.digiKeyLanguage ||
-             draft.digiKeyCurrency != saved.digiKeyCurrency || stagedDigiKeySecretChanged_;
-    case SettingsCategory::Tme:
-      return draft.tmeCountry != saved.tmeCountry || draft.tmeLanguage != saved.tmeLanguage ||
-             draft.tmeCurrency != saved.tmeCurrency || stagedTmeTokenChanged_ || stagedTmeSecretChanged_;
-    case SettingsCategory::Mouser:
-      return stagedMouserKeyChanged_;
+    case SettingsCategory::Vendors:
+      return draft.digiKeyEnabled != saved.digiKeyEnabled || draft.tmeEnabled != saved.tmeEnabled ||
+             draft.mouserEnabled != saved.mouserEnabled ||
+             sharedVendorCurrency(draft) != sharedVendorCurrency(saved) ||
+             sharedVendorRegion(draft) != sharedVendorRegion(saved);
   }
   return false;
 }
@@ -172,7 +170,7 @@ App::SettingsPageModel App::settingsPageModel() const {
     } else if (snapshot.requestsLastDay == 0) {
       tone = VoiceTone::Muted;
     }
-    return infoRow("Requests", "Usage", VendorRateLimits::usageSummary(snapshot), tone);
+    return infoRow("", "Usage", VendorRateLimits::usageSummary(snapshot), tone);
   };
   // A supplier's "Last refresh" row. counts describes a finished run; warn marks it as a warning.
   const auto refreshRow = [&](const auto& run, const string& id, bool enabled, function<void()> begin,
@@ -206,19 +204,6 @@ App::SettingsPageModel App::settingsPageModel() const {
       markChange(folder, draft.dataDirectory != saved.dataDirectory, homeRelative(saved.dataDirectory));
       rows.push_back(move(folder));
 
-      auto backup = infoRow("", "Backup", "All inventory data", VoiceTone::Muted);
-      backup.targetId = "settings.data.backup.row";
-      backup.activate = [self] { self->backupData(); };
-      backup.buttons = {button("Back up", "k", "settings.data.backup", [self] { self->backupData(); }),
-                        button("Restore", "r", "settings.data.restore", [self] { self->restoreData(); }, false, true)};
-      rows.push_back(move(backup));
-
-      auto exportRow = infoRow("", "Export", "Every part as CSV", VoiceTone::Muted);
-      exportRow.targetId = "settings.data.export.row";
-      exportRow.activate = [self] { self->exportInventory(); };
-      exportRow.buttons = {button("Export", "x", "settings.data.export", [self] { self->exportInventory(); })};
-      rows.push_back(move(exportRow));
-
       rows.push_back(toggleRow("Behaviour", "Keep running when closed", &AppSettings::backgroundServiceEnabled,
                                "settings.general.background"));
       auto threshold = editRow("", "Low stock at or below", to_string(draft.lowStockThreshold) + " pcs", 0,
@@ -228,6 +213,16 @@ App::SettingsPageModel App::settingsPageModel() const {
       }
       rows.push_back(move(threshold));
       rows.push_back(infoRow("Files", "Settings file", homeRelative(settingsPath_), VoiceTone::Muted));
+
+      // Backup, restore and export are actions on the inventory, not settings, so they sit apart at the bottom.
+      SettingsRow tools;
+      tools.group = "Inventory data";
+      tools.buttonsOnly = true;
+      tools.targetId = "settings.data.tools";
+      tools.buttons = {button("Back up", "k", "settings.data.backup", [self] { self->backupData(); }),
+                       button("Export CSV", "x", "settings.data.export", [self] { self->exportInventory(); }),
+                       button("Restore", "r", "settings.data.restore", [self] { self->restoreData(); }, false, true)};
+      rows.push_back(move(tools));
       break;
     }
 
@@ -369,15 +364,11 @@ App::SettingsPageModel App::settingsPageModel() const {
       queue.targetId = "settings.printer.queue";
       queue.activate = [self] { self->cycleStagedPrinterQueue(); };
       queue.buttons = {button("Test print", "t", "settings.printer.test", [self] { self->testStagedPrinter(); }, false, false,
-                              !draft.printerQueue.empty())};
+                              !draft.printerQueue.empty()),
+                       button("Refresh", "r", "settings.printer.refresh", [self] { self->refreshPrinterState(); })};
       markChange(queue, draft.printerQueue != saved.printerQueue, saved.printerQueue.empty() ? "None" : saved.printerQueue);
       rows.push_back(move(queue));
 
-      auto found = infoRow("", "Printers found", to_string(printerQueues_.size()));
-      found.targetId = "settings.printer.found";
-      found.activate = [self] { self->refreshPrinterState(); };
-      found.buttons = {button("Refresh", "r", "settings.printer.refresh", [self] { self->refreshPrinterState(); })};
-      rows.push_back(move(found));
       rows.push_back(toggleRow("", "Label after each scan", &AppSettings::autoPrintScannedLabels, "settings.printer.autolabel"));
 
       auto symbols = infoRow("Labels", "Rack symbols", symbolStandardLabel(draft.symbolStandard), VoiceTone::Strong);
@@ -472,199 +463,170 @@ App::SettingsPageModel App::settingsPageModel() const {
       auto status = infoRow("Scanner", "Status", !hasIdentity ? "Waiting" : online ? "Online" : "Offline",
                             !hasIdentity ? VoiceTone::Muted : online ? VoiceTone::Success : VoiceTone::Warning);
       if (hasIdentity && deviceLastSeen_ > 0) status.note = "signal " + to_string(deviceRssi_) + " dBm";
+      status.targetId = "settings.scan.status.row";
+      status.activate = [self] { self->openInventatoryScanSetup(); };
+      status.buttons = {button("Pair new", "p", "settings.scan.pair", [self] { self->openInventatoryScanSetup(); }),
+                        button("Forget", "c", "settings.scan.clear", [self] { self->clearInventatoryScanPairing(); }, false, true)};
       rows.push_back(move(status));
       auto device = infoRow("", "Device", hasIdentity ? inventatoryScanConfig_.deviceId : "Not reported yet",
                             hasIdentity ? VoiceTone::Plain : VoiceTone::Muted);
-      device.targetId = "settings.scan.device";
-      device.activate = [self] { self->openInventatoryScanSetup(); };
-      device.buttons = {button("Pair new", "p", "settings.scan.pair", [self] { self->openInventatoryScanSetup(); })};
+      if (!deviceFirmwareVersion_.empty()) device.note = "firmware " + deviceFirmwareVersion_;
       rows.push_back(move(device));
-      rows.push_back(infoRow("", "Firmware", deviceFirmwareVersion_.empty() ? "Not reported" : deviceFirmwareVersion_,
-                             deviceFirmwareVersion_.empty() ? VoiceTone::Muted : VoiceTone::Plain));
 
-      auto waitingRow = infoRow("Scans", "Waiting to save", to_string(waiting));
-      waitingRow.targetId = "settings.scan.events";
-      waitingRow.activate = [self] { self->refreshDeviceEventRecords(); };
-      waitingRow.buttons = {button("Refresh", "v", "settings.scan.events.refresh", [self] { self->refreshDeviceEventRecords(); })};
-      rows.push_back(move(waitingRow));
-      auto failedRow = infoRow("", "Failed to save", to_string(failed), failed > 0 ? VoiceTone::Danger : VoiceTone::Plain);
-      failedRow.targetId = "settings.scan.events.failed";
-      if (failed > 0) failedRow.activate = [self] { self->retryFailedDeviceEvents(); };
-      failedRow.buttons = {
-          button("Retry", "y", "settings.scan.events.retry", [self] { self->retryFailedDeviceEvents(); }, false, false, failed > 0),
-          button("Discard", "x", "settings.scan.events.discard", [self] { self->discardFailedDeviceEvents(); }, false, true,
-                 failed > 0)};
-      rows.push_back(move(failedRow));
+      // Scans that are not saved yet appear only while there are some.
+      if (waiting > 0 || failed > 0) {
+        auto scans = infoRow("", "Unsaved scans", to_string(waiting) + " waiting, " + to_string(failed) + " failed",
+                             failed > 0 ? VoiceTone::Danger : VoiceTone::Plain);
+        scans.targetId = "settings.scan.events";
+        scans.activate = [self] { self->refreshDeviceEventRecords(); };
+        scans.buttons = {
+            button("Retry", "y", "settings.scan.events.retry", [self] { self->retryFailedDeviceEvents(); }, false, false, failed > 0),
+            button("Discard", "x", "settings.scan.events.discard", [self] { self->discardFailedDeviceEvents(); }, false, true,
+                   failed > 0)};
+        rows.push_back(move(scans));
+      }
 
       auto port = editRow("Service", "Port", to_string(draft.deviceServicePort), 0, "settings.scan.port");
       if (!port.editing) markChange(port, draft.deviceServicePort != saved.deviceServicePort, to_string(saved.deviceServicePort));
       port.buttons = {button("Restart", "h", "settings.scan.restart", [self] { self->restartDeviceService(); })};
       rows.push_back(move(port));
 
-      auto token = infoRow("Security", "Access token", "Hidden", VoiceTone::Muted);
+      auto token = infoRow("", "Access token", "Hidden", VoiceTone::Muted);
       token.buttons = {button("Copy", "t", "settings.scan.token.copy", [self] { self->copyInventatoryScanToken(); }),
                        button("Regenerate", "r", "settings.scan.token.regenerate",
                               [self] { self->regenerateInventatoryScanToken(); }, false, true)};
       rows.push_back(move(token));
-      auto pairing = infoRow("", "Pairing", hasIdentity ? inventatoryScanConfig_.deviceId : "Set up", VoiceTone::Plain);
-      pairing.buttons = {button("Forget", "c", "settings.scan.clear", [self] { self->clearInventatoryScanPairing(); }, false, true)};
-      rows.push_back(move(pairing));
       break;
     }
 
-    case SettingsCategory::DigiKey: {
-      const bool configured = !trim(saved.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
-      if (!configured) {
-        model.status = {{"DigiKey is not set up yet."}};
-        SettingsRow setup;
-        setup.buttonsOnly = true;
-        setup.targetId = "settings.digikey.status";
-        setup.activate = [self] { self->openDigiKeySetup(); };
-        setup.buttons = {button("Begin setup", "b", "settings.digikey.begin_setup", [self] { self->openDigiKeySetup(); }, true)};
-        rows.push_back(move(setup));
-        break;
-      }
-      const auto& run = digiKeyRefresh_;
-      const bool refreshRunning = run.running();
-      if (refreshRunning) {
-        model.status = {{"Refreshing DigiKey data: "},
-                        {to_string(run.completed) + " of " + to_string(run.total), VoiceTone::Strong},
-                        {" parts done."}};
-      } else if (!run.lastError.empty()) {
-        model.status = {{"The last DigiKey refresh failed: ", VoiceTone::Danger}, {run.lastError}};
-      } else {
-        model.status = {{"DigiKey is set up for "}, {draft.digiKeySite + ", " + draft.digiKeyCurrency, VoiceTone::Strong}, {"."}};
-      }
-      const bool hasSecret = stagedDigiKeySecretChanged_ ? !stagedDigiKeySecret_.empty() : hasStoredDigiKeySecret_;
-      struct Field {
-        const char* group;
-        const char* label;
-        string value;
-        string savedValue;
-      };
-      const vector<Field> fields = {
-          {"Account", "Client ID", draft.digiKeyClientId, saved.digiKeyClientId},
-          {"", "Client secret", hasSecret ? "Hidden" : "Not set", hasSecret ? "Hidden" : "Not set"},
-          {"", "Account ID", draft.digiKeyAccountId, saved.digiKeyAccountId},
-          {"Region", "Site", draft.digiKeySite, saved.digiKeySite},
-          {"", "Language", draft.digiKeyLanguage, saved.digiKeyLanguage},
-          {"", "Currency", draft.digiKeyCurrency, saved.digiKeyCurrency},
-      };
-      for (size_t index = 0; index < fields.size(); ++index) {
-        const auto& field = fields[index];
-        auto row = editRow(field.group, field.label, field.value.empty() ? "Not set" : field.value, static_cast<int>(index),
-                           "settings.digikey." + to_string(index));
-        if (row.editing && index == 1) row.value = string(inputBuffer_.size(), '*') + "_";
-        if (!row.editing && field.value.empty()) row.tone = VoiceTone::Muted;
-        if (!row.editing && index == 1 && stagedDigiKeySecretChanged_) {
-          row.tone = VoiceTone::Warning;
-          row.note = "changed";
-        } else if (!row.editing) {
-          markChange(row, field.value != field.savedValue, field.savedValue.empty() ? "Not set" : field.savedValue);
-        }
-        if (index == 0) row.buttons = {button("Test", "t", "settings.digikey.test", [self] { self->testStagedDigiKey(); })};
-        rows.push_back(move(row));
-      }
-      rows.push_back(usageRow(Vendor::DigiKey));
-      rows.push_back(refreshRow(run, "digikey", !refreshRunning && !settingsDirty_, [self] { self->beginDigiKeyRefresh(); },
-                                to_string(run.succeeded) + " updated, " + to_string(run.errors) + " failed",
-                                run.errors > 0));
-      break;
-    }
-
-    case SettingsCategory::Tme: {
-      const bool tokenSet = stagedTmeTokenChanged_ ? !stagedTmeToken_.empty() : hasStoredTmeToken_;
-      const bool secretSet = stagedTmeSecretChanged_ ? !stagedTmeSecret_.empty() : hasStoredTmeSecret_;
-      const bool configured = tokenSet && secretSet;
-      const auto& run = tmeRefresh_;
-      const bool refreshRunning = run.running();
-      if (refreshRunning) {
-        model.status = {{"Refreshing TME data: "},
-                        {to_string(run.completed) + " of " + to_string(run.total), VoiceTone::Strong},
-                        {" items done."}};
-      } else if (!run.lastError.empty()) {
-        model.status = {{"The last TME refresh reported: ", VoiceTone::Danger}, {run.lastError}};
-      } else if (!configured) {
-        model.status = {{"TME needs a token and an application secret."}};
-      } else {
-        model.status = {{"TME is set up for "}, {draft.tmeCountry + ", " + draft.tmeCurrency, VoiceTone::Strong}, {"."}};
-      }
-
-      struct Field {
-        const char* group;
-        const char* label;
-        string value;
-        string savedValue;
-      };
-      const vector<Field> fields = {
-          {"Access", "Token", tokenSet ? "Hidden" : "Not set", hasStoredTmeToken_ ? "Hidden" : "Not set"},
-          {"", "Application secret", secretSet ? "Hidden" : "Not set", hasStoredTmeSecret_ ? "Hidden" : "Not set"},
-          {"Region", "Country", draft.tmeCountry, saved.tmeCountry},
-          {"", "Language", draft.tmeLanguage, saved.tmeLanguage},
-          {"", "Currency", draft.tmeCurrency, saved.tmeCurrency},
-      };
-      for (size_t index = 0; index < fields.size(); ++index) {
-        const auto& field = fields[index];
-        const bool secretField = index < 2;
-        auto row = editRow(field.group, field.label, field.value.empty() ? "Not set" : field.value, static_cast<int>(index),
-                           "settings.tme." + to_string(index));
-        if (row.editing && secretField) row.value = string(inputBuffer_.size(), '*') + "_";
-        if (!row.editing && field.value.empty()) row.tone = VoiceTone::Muted;
-        const bool stagedSecret = index == 0 ? stagedTmeTokenChanged_ : (index == 1 && stagedTmeSecretChanged_);
-        if (!row.editing && stagedSecret) {
-          row.tone = VoiceTone::Warning;
-          row.note = "changed";
-        } else if (!row.editing && !secretField) {
-          markChange(row, field.value != field.savedValue, field.savedValue.empty() ? "Not set" : field.savedValue);
-        }
-        // Disabled during a refresh, as on the Mouser page.
-        if (index == 0) {
-          row.buttons = {button("Test", "t", "settings.tme.test", [self] { self->testStagedTme(); }, false, false,
-                                !refreshRunning)};
-        }
-        rows.push_back(move(row));
-      }
-
-      rows.push_back(usageRow(Vendor::Tme));
-      rows.push_back(refreshRow(run, "tme", configured && !refreshRunning && !settingsDirty_,
-                                [self] { self->beginTmeRefresh(); }, catalogueRefreshCounts(run),
-                                run.ambiguous + run.errors > 0));
-      break;
-    }
-
-    case SettingsCategory::Mouser: {
+    case SettingsCategory::Vendors: {
+      const auto currency = sharedVendorCurrency(draft);
+      const auto savedCurrency = sharedVendorCurrency(saved);
+      const auto region = sharedVendorRegion(draft);
+      const auto savedRegion = sharedVendorRegion(saved);
+      const bool digiKeyConfigured = !trim(saved.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
+      const bool tmeConfigured = hasStoredTmeToken_ && hasStoredTmeSecret_;
       // A MOUSER_API_KEY environment key also counts as set.
-      const bool keySet = stagedMouserKeyChanged_ ? !stagedMouserKey_.empty()
-                                                   : (hasStoredMouserKey_ || mouserKeyFromEnvironment_);
-      const auto& run = mouserRefresh_;
-      const bool refreshRunning = run.running();
-      if (refreshRunning) {
-        model.status = {{"Refreshing Mouser data: "},
-                        {to_string(run.completed) + " of " + to_string(run.total), VoiceTone::Strong},
-                        {" items done."}};
-      } else if (!run.lastError.empty()) {
-        model.status = {{"The last Mouser refresh reported: ", VoiceTone::Danger}, {run.lastError}};
-      } else if (!keySet) {
-        model.status = {{"Mouser needs an API key."}};
-      } else {
-        model.status = {{"Mouser is set up."}};
-      }
+      const bool mouserConfigured = hasStoredMouserKey_ || mouserKeyFromEnvironment_;
+      const auto working = [](bool enabled, bool configured) { return enabled && configured ? 1 : 0; };
+      const int active = working(draft.digiKeyEnabled, digiKeyConfigured) + working(draft.tmeEnabled, tmeConfigured) +
+                         working(draft.mouserEnabled, mouserConfigured);
+      model.status = {{"Prices in "},
+                      {currency.empty() ? "no currency yet" : currency, currency.empty() ? VoiceTone::Warning : VoiceTone::Strong},
+                      {", region "},
+                      {region.empty() ? "not set" : region, region.empty() ? VoiceTone::Warning : VoiceTone::Strong},
+                      {". " + to_string(active) + " of 3 vendors on and set up."}};
 
-      auto row = editRow("Access", "API key", keySet ? "Hidden" : "Not set", 0, "settings.mouser.0");
-      if (row.editing) row.value = string(inputBuffer_.size(), '*') + "_";
-      if (!row.editing && stagedMouserKeyChanged_) {
-        row.tone = VoiceTone::Warning;
-        row.note = "changed";
-      }
-      // Disabled during a refresh, and not offered from the keyboard then either.
-      row.buttons = {button("Test", "t", "settings.mouser.test", [self] { self->testStagedMouser(); }, false, false,
-                            !refreshRunning)};
-      rows.push_back(move(row));
+      // One block per vendor: a switch, the keys with Edit and Test, and the request count.
+      const auto vendorBlock = [&](const char* name, const string& id, Vendor vendor, int enabledField, int keyField,
+                                   bool enabled, bool savedEnabled, bool configured,
+                                   const function<void()>& edit, const function<void()>& test, bool testEnabled) {
+        auto onRow = editRow(name, "Enabled", enabled ? "On" : "Off", enabledField, "settings." + id + ".enabled");
+        onRow.tone = enabled ? VoiceTone::Strong : VoiceTone::Muted;
+        onRow.activate = [self, enabledField] {
+          auto& draft = self->settingsDraft_;
+          switch (enabledField) {
+            case kDigiKeyEnabledField: draft.digiKeyEnabled = !draft.digiKeyEnabled; break;
+            case kTmeEnabledField: draft.tmeEnabled = !draft.tmeEnabled; break;
+            default: draft.mouserEnabled = !draft.mouserEnabled; break;
+          }
+          self->settingsField_ = enabledField;
+          self->settingsDirty_ = self->settingsDraftHasChanges();
+          self->dirty_ = true;
+        };
+        markChange(onRow, enabled != savedEnabled, savedEnabled ? "On" : "Off");
+        rows.push_back(move(onRow));
 
-      rows.push_back(usageRow(Vendor::Mouser));
-      rows.push_back(refreshRow(run, "mouser", keySet && !refreshRunning && !settingsDirty_,
-                                [self] { self->beginMouserRefresh(); }, catalogueRefreshCounts(run),
-                                run.ambiguous + run.errors > 0));
+        const bool shown = revealedVendorField_ == keyField;
+        auto keyRow = infoRow("", "API key", configured ? (shown ? "Shown" : "Hidden") : "Not set",
+                              !configured ? VoiceTone::Warning : enabled ? VoiceTone::Plain : VoiceTone::Muted);
+        keyRow.field = keyField;
+        keyRow.targetId = "settings." + id + ".key";
+        // Enter or a click on the row shows the keys after a confirmation; Edit changes them.
+        if (configured) keyRow.activate = [self, keyField] { self->requestVendorKeyReveal(keyField); };
+        else keyRow.activate = edit;
+        if (configured) {
+          keyRow.buttons = {button(shown ? "Hide" : "Show", "v", "settings." + id + ".show",
+                                   [self, keyField] { self->requestVendorKeyReveal(keyField); }),
+                            button("Edit", "e", "settings." + id + ".edit", edit),
+                            button("Test", "t", "settings." + id + ".test", test, false, false, enabled && testEnabled)};
+        } else {
+          keyRow.buttons = {button("Set up", "e", "settings." + id + ".edit", edit, true)};
+        }
+        rows.push_back(move(keyRow));
+        if (shown) {
+          for (const auto& [label, value] : revealedVendorValues_) rows.push_back(infoRow("", label, value, VoiceTone::Strong));
+        }
+
+        auto usage = usageRow(vendor);
+        if (!enabled) usage.tone = VoiceTone::Muted;
+        rows.push_back(move(usage));
+      };
+
+      vendorBlock("DigiKey", "digikey", Vendor::DigiKey, kDigiKeyEnabledField, kDigiKeyKeyField, draft.digiKeyEnabled,
+                  saved.digiKeyEnabled, digiKeyConfigured,
+                  [self] { self->openVendorSetup(VendorSetupVendor::DigiKey); }, [self] { self->testStagedDigiKey(); },
+                  true);
+      vendorBlock("TME", "tme", Vendor::Tme, kTmeEnabledField, kTmeKeyField, draft.tmeEnabled, saved.tmeEnabled,
+                  tmeConfigured,
+                  [self] { self->openVendorSetup(VendorSetupVendor::Tme); }, [self] { self->testStagedTme(); },
+                  !tmeRefresh_.running());
+      vendorBlock("Mouser", "mouser", Vendor::Mouser, kMouserEnabledField, kMouserKeyField, draft.mouserEnabled,
+                  saved.mouserEnabled, mouserConfigured,
+                  [self] { self->openVendorSetup(VendorSetupVendor::Mouser); }, [self] { self->testStagedMouser(); },
+                  !mouserRefresh_.running());
+
+      auto currencyRow = editRow("All vendors", "Currency", currency.empty() ? "Not set" : currency, kCurrencyField,
+                                 "settings.vendors.currency");
+      if (!currencyRow.editing) {
+        if (currency.empty()) currencyRow.tone = VoiceTone::Warning;
+        markChange(currencyRow, currency != savedCurrency, savedCurrency.empty() ? "Not set" : savedCurrency);
+      }
+      rows.push_back(move(currencyRow));
+
+      auto regionRow = editRow("", "Region", region.empty() ? "Not set" : region, kRegionField, "settings.vendors.region");
+      if (!regionRow.editing) {
+        if (region.empty()) {
+          regionRow.tone = VoiceTone::Warning;
+        }
+        markChange(regionRow, region != savedRegion, savedRegion.empty() ? "Not set" : savedRegion);
+      }
+      rows.push_back(move(regionRow));
+
+      // Part data comes from every vendor that is on; each part is refreshed at its own vendor.
+      const bool anyRunning = digiKeyRefresh_.running() || tmeRefresh_.running() || mouserRefresh_.running();
+      const bool anyReady = (draft.digiKeyEnabled && digiKeyConfigured) || (draft.tmeEnabled && tmeConfigured) ||
+                            (draft.mouserEnabled && mouserConfigured);
+      vector<string> parts;
+      bool warn = false;
+      const auto addPart = [&](const char* name, const auto& run, const string& counts) {
+        if (run.running()) {
+          parts.push_back(string(name) + " " + to_string(run.completed) + " of " + to_string(run.total));
+        } else if (run.total > 0) {
+          parts.push_back(string(name) + " " + counts);
+        }
+      };
+      addPart("DigiKey", digiKeyRefresh_, to_string(digiKeyRefresh_.succeeded) + " updated, " + to_string(digiKeyRefresh_.errors) + " failed");
+      addPart("TME", tmeRefresh_, catalogueRefreshCounts(tmeRefresh_));
+      addPart("Mouser", mouserRefresh_, catalogueRefreshCounts(mouserRefresh_));
+      warn = digiKeyRefresh_.errors > 0 || tmeRefresh_.ambiguous + tmeRefresh_.errors > 0 ||
+             mouserRefresh_.ambiguous + mouserRefresh_.errors > 0;
+      string summary = "Not run yet";
+      if (!parts.empty()) {
+        summary.clear();
+        for (const auto& part : parts) summary += (summary.empty() ? "" : "; ") + part;
+      }
+      auto refreshRowAll = infoRow("", "Part data", summary,
+                                   anyRunning ? VoiceTone::Plain : parts.empty() ? VoiceTone::Muted
+                                              : warn                              ? VoiceTone::Warning
+                                                                                  : VoiceTone::Plain);
+      const bool canRefresh = anyReady && !anyRunning && !settingsDirty_;
+      refreshRowAll.field = kRefreshField;
+      refreshRowAll.targetId = "settings.vendors.refresh.row";
+      if (canRefresh) refreshRowAll.activate = [self] { self->beginAllVendorRefresh(); };
+      refreshRowAll.buttons = {button("Refresh all", "r", "settings.vendors.refresh", [self] { self->beginAllVendorRefresh(); },
+                                      false, false, canRefresh)};
+      rows.push_back(move(refreshRowAll));
       break;
     }
   }
@@ -686,6 +648,8 @@ ftxui::Element App::renderSettingsUi() const {
   size_t failedScans = 0;
   for (const auto& record : deviceEventRecords_) failedScans += record.state == "failed" ? 1 : 0;
   const bool digiKeySetUp = !trim(settings_.digiKeyClientId).empty() && hasStoredDigiKeySecret_;
+  const bool tmeSetUp = hasStoredTmeToken_ && hasStoredTmeSecret_;
+  const bool mouserSetUp = hasStoredMouserKey_ || mouserKeyFromEnvironment_;
   const auto navNote = [&](SettingsCategory category) -> pair<string, ftxui::Color> {
     if (settingsCategoryDirty(category)) return {"Unsaved", uiWarnColor()};
     switch (category) {
@@ -699,8 +663,8 @@ ftxui::Element App::renderSettingsUi() const {
         if (!scanSetUp) return {"Off", uiMutedText()};
         if (failedScans > 0) return {"Error", uiDangerColor()};
         break;
-      case SettingsCategory::DigiKey:
-        if (!digiKeySetUp) return {"Off", uiMutedText()};
+      case SettingsCategory::Vendors:
+        if (!digiKeySetUp && !tmeSetUp && !mouserSetUp) return {"Off", uiMutedText()};
         break;
       default:
         break;
@@ -767,6 +731,9 @@ ftxui::Element App::renderSettingsUi() const {
     labelWidth = max(14, labelWidth - (16 - valueWidth));
     valueWidth = contentWidth - markerWidth - groupWidth - labelWidth - actionWidth - 3;
   }
+
+  // On the Vendors page the buttons stay next to the values instead of at the far edge.
+  if (settingsCategory_ == SettingsCategory::Vendors) valueWidth = min(valueWidth, 60);
 
   size_t cursor = settingsRow_;
   if (!model.rows.empty() && (cursor >= model.rows.size() || !model.rows[cursor].focusable())) {

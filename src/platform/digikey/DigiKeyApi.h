@@ -3,7 +3,9 @@
 
 #pragma once
 
+#include "core/bom/BomVendorMatch.h"
 #include "core/inventory/Inventory.h"
+#include "core/vendor/VendorOffer.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -52,6 +54,8 @@ struct DigiKeyProductDetails {
   string unitPrice;
   vector<Parameter> parameters;
   VendorProductMetadata vendorMetadata;
+  // One per packaging DigiKey sells the part in. fetchedAt is set by the client, not the parser.
+  vector<VendorOffer> offers;
 };
 
 // Why a lookup gave no details. NoMatch is authoritative. Failed (transport, auth, rate limit,
@@ -63,6 +67,9 @@ enum class DigiKeyLookupOutcome {
 };
 
 DigiKeyConfig loadDigiKeyConfig();
+
+// A searched product as BOM matching reads it.
+VendorCandidate digiKeyCandidate(const DigiKeyProductDetails& details);
 
 // Validates a DigiKey JSON payload without a network request, for testing the bounded parser.
 bool validateDigiKeyJsonPayload(const string& payload, string* error = nullptr);
@@ -80,6 +87,11 @@ class DigiKeyApiClient {
   optional<DigiKeyProductDetails> lookupProductDetails(const string& productNumber, DigiKeyLookupOutcome& outcome,
                                                        string* error = nullptr);
 
+  // One keyword search: up to 50 products with parameters, stock and prices, and no further request.
+  // Found with an empty list never happens: an answer without products is NoMatch.
+  vector<DigiKeyProductDetails> searchProducts(const string& keywords, DigiKeyLookupOutcome& outcome,
+                                               string* error = nullptr);
+
  private:
   bool ensureAccessToken(string* error);
   bool sendAuthorized(const std::wstring& method, const std::wstring& url, const string& body, bool jsonBody,
@@ -87,7 +99,7 @@ class DigiKeyApiClient {
   optional<string> requestToken(string* error);
   optional<string> requestProductDetails(const string& productNumber, string* error,
                                                    const string& manufacturerId = "");
-  optional<string> requestKeywordSearch(const string& keywords, string* error);
+  optional<string> requestKeywordSearch(const string& keywords, string* error, int limit = 10);
 
   DigiKeyConfig config_;
   string accessToken_;

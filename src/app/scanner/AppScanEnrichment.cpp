@@ -4,6 +4,7 @@
 // Inventatory - scanner queueing and DigiKey enrichment workflows.
 
 #include "App.h"
+#include "core/inventory/VendorProvider.h"
 #include "app/common/AppActionSupport.h"
 
 #include "import/csv/CsvFormat.h"
@@ -84,6 +85,7 @@ void App::processScanDigiKeyEnrichment() {
       if (auto* item = store_.findById(result.itemId); item != nullptr) {
         // Reconcile now, so a label printed next shows the merged part's slot.
         const bool merged = mergeDigiKeyMetadata(*item, *result.details);
+        saveItemOffers(*item, kVendorProviderDigiKey, result.details->offers);
         const bool placed = reconcileRackAssignment(store_, *item);
         if (merged) logActivity("scan", "Synced DigiKey metadata for " + item->partName);
         if (merged || placed) saveState("digikey", result.itemId, "DigiKey enrichment");
@@ -121,6 +123,10 @@ void App::processScanDigiKeyEnrichment() {
 }
 
 void App::beginDigiKeyRefresh() {
+  if (!settings_.digiKeyEnabled) {
+    setMessage("DigiKey is off; turn it on in Settings > Vendors", 4);
+    return;
+  }
   beginSupplierRefresh(
       digiKeyRefresh_, "DigiKey",
       [this]() -> unique_ptr<DigiKeyApiClient> {
@@ -154,6 +160,8 @@ void App::processDigiKeyRefresh() {
         run.lastError = "An inventory item disappeared during refresh";
       } else {
         if (mergeDigiKeyMetadata(*item, *result->details)) run.changed = true;
+        // The lookup already carried the prices, so they are saved without another request.
+        saveItemOffers(*item, kVendorProviderDigiKey, result->details->offers);
         ++run.succeeded;
       }
     } else {

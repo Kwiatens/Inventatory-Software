@@ -178,10 +178,11 @@ void App::processBackgroundWork() {
   processDigiKeyRefresh();
   processTmeRefresh();
   processMouserRefresh();
+  processOfferRefresh();
   processVendorNotices();
   processImportSync();
   processVendorLookup();
-  processBomEnrichment();
+  processBomPartPicker();
   processPrinterWork();
 }
 

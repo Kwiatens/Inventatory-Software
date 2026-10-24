@@ -140,7 +140,7 @@ std::string App::pageName() const {
       return "History";
     case Page::ScanSetup:
       return "Scan R1 Setup";
-    case Page::DigiKeySetup:
+    case Page::VendorSetup:
       return "DigiKey Setup";
     case Page::Settings:
       return "Settings";
@@ -172,7 +172,7 @@ ftxui::Element App::renderHeaderUi() const {
   }
 
   // Clickable route to the action sheet; Space is the keyboard route.
-  const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::DigiKeySetup;
+  const bool actionsAvailable = page_ != Page::ScanSetup && page_ != Page::VendorSetup;
   const string actionsLabel = " Actions ";
   auto actions = uiBodyText(actionsLabel, inputMode_ == InputMode::ActionSheet ? uiFocusColor() : uiInteractiveColor(),
                             inputMode_ == InputMode::ActionSheet ? uiSelectionBg() : uiSurfaceBg());
@@ -219,8 +219,8 @@ ftxui::Element App::renderPageUi() const {
       return renderHistoryUi();
     case Page::ScanSetup:
       return renderInventatoryScanSetupUi();
-    case Page::DigiKeySetup:
-      return renderDigiKeySetupUi();
+    case Page::VendorSetup:
+      return renderVendorSetupUi();
     case Page::Settings:
       return renderSettingsUi();
     case Page::Onboarding:
@@ -242,7 +242,7 @@ ftxui::Element App::renderSearchBarUi() const {
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
                              inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
-                             inputMode_ == InputMode::BomRestock ||
+                             inputMode_ == InputMode::BomReceive || inputMode_ == InputMode::BomPartSearch ||
                              inputMode_ == InputMode::HistorySearch ||
                              inputMode_ == InputMode::HistoryCheckpoint ||
                              inputMode_ == InputMode::ExitConfirmation);
@@ -329,7 +329,7 @@ ftxui::Element App::renderSearchBarUi() const {
         contextTitle = "Setup wizard";
         contextText = "Guided Bluetooth provisioning for Inventatory Scan R1";
         break;
-      case Page::DigiKeySetup:
+      case Page::VendorSetup:
         contextTitle = "Setup wizard";
         contextText = "DigiKey credentials";
         break;
@@ -392,7 +392,14 @@ ftxui::Element App::renderSearchBarUi() const {
     string hints;
     if (bomView_ == BomView::Build && bomDeductPrompt_) hints = "Up/Down part   +/- amount taken   y deduct   n keep stock   Bksp back";
     else if (bomView_ == BomView::Build) hints = "Enter rack done   Bksp back   Esc stop picking";
-    else if (bomView_ == BomView::Split && bomAnalysisValid_) hints = "f pick parts   o shopping list   +/- boards   Esc projects";
+    else if (bomView_ == BomView::Overview) hints = "Enter open   f find in racks   t all lines   Esc projects";
+    else if (bomView_ == BomView::Lines) hints = "Enter open its step   f find in racks   Esc back";
+    else if (bomView_ == BomView::StartNotice) hints = "Enter start anyway   s get them first   Esc back";
+    else if (bomView_ == BomView::Confirm) hints = "Enter use   n none of these   s skip   Esc back";
+    else if (bomView_ == BomView::Choose) hints = "Enter use   l store page   / search   v store   s skip   Esc back";
+    else if (bomView_ == BomView::Order && bomOrderConfirm_) hints = "y mark ordered   n cancel";
+    else if (bomView_ == BomView::Order) hints = "c cart file   l next page   m mark ordered   Esc back";
+    else if (bomView_ == BomView::Receive) hints = "Enter receive   a receive all   Esc back";
     else hints = "Enter open   i import BOM   d forget";
     rows.push_back(ftxui::hbox({std::move(context) | ftxui::flex, styledText(hints + " ", uiMutedColor(), activeBg)}) |
                    ftxui::bgcolor(activeBg));
@@ -425,6 +432,7 @@ ftxui::Element App::renderMessageUi() const {
     if (run.total == 0 || !run.running()) return nullopt;
     return fixedMessageRow(ftxui::hbox({
                                styledText(string(" Refreshing ") + supplier + " data: ", uiLinkColor()),
+                               styledText(uiProgressBar(min(run.completed, run.total), run.total) + " ", uiPrimaryText()),
                                uiHeaderText(to_string(min(run.completed, run.total)) + " of " + to_string(run.total),
                                             uiPrimaryText()),
                                styledText(" parts done", uiMutedColor()),
@@ -439,20 +447,9 @@ ftxui::Element App::renderMessageUi() const {
     const auto completed = min(importSyncCompleted_, importSyncTotal_);
     return fixedMessageRow(ftxui::hbox({
                                styledText(" Syncing the import with DigiKey: ", uiLinkColor()),
+                               styledText(uiProgressBar(completed, importSyncTotal_) + " ", uiPrimaryText()),
                                uiHeaderText(to_string(completed) + " of " + to_string(importSyncTotal_), uiPrimaryText()),
                                styledText(" rows done", uiMutedColor()),
-                               ftxui::filler(),
-                           }) |
-                           ftxui::bgcolor(uiPanelLeftBg()));
-  }
-  const bool enrichingBom = page_ == Page::Projects && bomEnrichmentTotal_ > 0 &&
-                            (!bomEnrichmentQueue_.empty() || bomEnrichmentFuture_.valid());
-  if (enrichingBom) {
-    const auto dispatched = bomEnrichmentTotal_ - bomEnrichmentQueue_.size();
-    return fixedMessageRow(ftxui::hbox({
-                               styledText(" Looking up missing parts on suppliers: ", uiLinkColor()),
-                               uiHeaderText(to_string(dispatched) + " of " + to_string(bomEnrichmentTotal_), uiPrimaryText()),
-                               styledText(" done", uiMutedColor()),
                                ftxui::filler(),
                            }) |
                            ftxui::bgcolor(uiPanelLeftBg()));

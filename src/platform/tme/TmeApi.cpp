@@ -15,13 +15,16 @@
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/Environment.h"
+#include "core/vendor/VendorOffer.h"
 #include "core/vendor/VendorRateLimits.h"
 #include "platform/tme/TmeEncoding.h"
 #include "platform/tme/TmeVocabulary.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
+#include <ctime>
 #include <initializer_list>
 #include <utility>
 #include <variant>
@@ -114,6 +117,17 @@ string firstText(const JsonPtr& node, initializer_list<const char*> keys) {
 const JsonValue::Array* memberArray(const JsonPtr& object, const char* key) {
   const auto* member = findMember(object, key);
   return member == nullptr ? nullptr : asArray(*member);
+}
+
+// A whole positive count such as minimal_amount; nullopt when absent, zero or not digits.
+optional<uint64_t> countText(const JsonPtr& node, const char* key) {
+  const auto text = firstText(node, {key});
+  if (text.empty() || text.size() > 12 || !all_of(text.begin(), text.end(), [](unsigned char c) { return isdigit(c); })) {
+    return nullopt;
+  }
+  const auto value = stoull(text);
+  if (value == 0) return nullopt;
+  return value;
 }
 
 // Lookups list records under data.elements; searches nest them under data.products.
@@ -331,6 +345,8 @@ bool parseTmeProductResponse(const string& body, vector<TmeProductDetails>& prod
     TmeProductDetails product;
     product.vendorMetadata.provider = "tme";
     product.vendorMetadata.providerProductNumber = symbol;
+    product.minimumOrder = countText(record, "minimal_amount").value_or(1);
+    product.multiple = countText(record, "multiples").value_or(1);
 
     // manufacturer_symbols lists the manufacturer part numbers; the original symbol name is the fallback.
     vector<string> partNumbers;
@@ -461,6 +477,49 @@ bool parseTmeDocumentResponse(const string& body, const string& symbol, TmeProdu
   return true;
 }
 
+// The offer from one prices element. TME prices are gross or net as `type` says; gross ones are
+// turned net with the tax rate sent beside them, so they compare with other vendors. Any unreadable
+// level, an unknown type or a gross price without a rate gives no offer at all.
+optional<VendorOffer> readTmeOffer(const JsonPtr& prices, const JsonValue::Array& levels,
+                                   const TmeProductDetails& product) {
+  const auto currency = upperCase(trim(firstText(prices, {"currency"})));
+  const auto type = upperCase(trim(firstText(prices, {"type"})));
+  if (!isCurrencyCode(currency) || (type != "GROSS" && type != "NET")) return nullopt;
+  string rate;
+  if (type == "GROSS") {
+    const auto* tax = findMember(prices, "tax");
+    rate = tax == nullptr ? string() : trim(firstText(*tax, {"rate"}));
+    if (rate.empty()) return nullopt;
+  }
+  VendorOffer offer;
+  for (const auto& level : levels) {
+    const auto amount = countText(level, "amount");
+    auto price = parseDecimalMicros(firstText(level, {"price"}));
+    if (!amount.has_value() || !price.has_value()) return nullopt;
+    if (type == "GROSS") {
+      price = netFromGrossMicros(*price, rate);
+      if (!price.has_value()) return nullopt;
+    }
+    offer.breaks.push_back({*amount, *price});
+  }
+  if (!normalizePriceBreaks(offer.breaks)) return nullopt;
+  offer.provider = "tme";
+  offer.sku = product.vendorMetadata.providerProductNumber;
+  offer.manufacturer = product.manufacturerName;
+  offer.manufacturerPartNumber = product.vendorMetadata.manufacturerPartNumber;
+  offer.productUrl = product.productUrl;
+  offer.currency = currency;
+  const auto& stock = product.quantityAvailable;
+  if (!stock.empty() && stock.size() <= 12 && all_of(stock.begin(), stock.end(), [](unsigned char c) { return isdigit(c); })) {
+    offer.stock = stoull(stock);
+  }
+  offer.minimumOrder = product.minimumOrder;
+  offer.multiple = product.multiple;
+  offer.lifecycle = product.productStatus;
+  offer.orderable = product.orderable;
+  return offer;
+}
+
 bool parseTmeStockAndPriceResponse(const string& body, const string& symbol, TmeProductDetails& product,
                                    string* error) {
   string parseError;
@@ -473,6 +532,7 @@ bool parseTmeStockAndPriceResponse(const string& body, const string& symbol, Tme
 
   product.quantityAvailable.clear();
   product.unitPrice.clear();
+  product.offer.reset();
   const auto* element = elementFor(detailElements(*root), symbol);
   if (element == nullptr) return true;
   product.quantityAvailable = firstText(*element, {"stock_quantity"});
@@ -495,6 +555,7 @@ bool parseTmeStockAndPriceResponse(const string& body, const string& symbol, Tme
       lowestPrice = priceText;
     }
   }
+  product.offer = readTmeOffer(*prices, *levels, product);
   if (lowestAmount == 0) return true;
   const auto currency = trim(firstText(*prices, {"currency"}));
   product.unitPrice = lowestPrice + (currency.empty() ? string() : " " + currency);
@@ -597,6 +658,10 @@ bool TmeApiClient::fetchProductDetails(TmeProductDetails& product, string* error
   if (!parseTmeStockAndPriceResponse(body, symbol, product, error)) return false;
   product.productUrl = tmeProductPageUrl(symbol);
   product.vendorMetadata.productUrl = product.productUrl;
+  if (product.offer.has_value()) {
+    product.offer->productUrl = vendorLinkAllowed("tme", product.productUrl) ? product.productUrl : string();
+    product.offer->fetchedAt = time(nullptr);
+  }
   return true;
 }
 
@@ -623,6 +688,20 @@ vector<TmeProductDetails> TmeApiClient::searchProducts(const string& phrase, Tme
   for (auto& product : products) product.vendorMetadata.locale = config_.language;
   outcome = TmeLookupOutcome::Found;
   return products;
+}
+
+VendorCandidate tmeCandidate(const TmeProductDetails& product) {
+  VendorCandidate candidate;
+  candidate.manufacturer = product.manufacturerName;
+  candidate.manufacturerPartNumber = product.vendorMetadata.manufacturerPartNumber;
+  candidate.description = product.productDescription;
+  candidate.category = product.categoryName;
+  // TME's flags say what it can sell, not a lifecycle, so a product it cannot sell counts as discontinued.
+  candidate.discontinued = !product.orderable;
+  candidate.parameters = product.parameters;
+  if (product.offer.has_value()) candidate.offers.push_back(*product.offer);
+  candidate.productUrl = vendorLinkAllowed("tme", product.productUrl) ? product.productUrl : string();
+  return candidate;
 }
 
 bool TmeApiClient::testConnection(string* error) {

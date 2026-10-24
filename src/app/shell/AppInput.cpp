@@ -95,8 +95,11 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::QuantityAdjust:
       handleQuantityAdjustKey(key);
       return;
-    case InputMode::BomRestock:
-      handleBomRestockKey(key);
+    case InputMode::BomReceive:
+      handleBomReceiveKey(key);
+      return;
+    case InputMode::BomPartSearch:
+      handleBomPartSearchKey(key);
       return;
     case InputMode::HistorySearch:
       handleHistorySearchKey(key);
@@ -127,8 +130,8 @@ void App::handleKey(const KeyEvent& key) {
     return;
   }
 
-  if (page_ == Page::DigiKeySetup) {
-    handleDigiKeySetupKey(key);
+  if (page_ == Page::VendorSetup) {
+    handleVendorSetupKey(key);
     return;
   }
 
@@ -193,8 +196,8 @@ void App::handleKey(const KeyEvent& key) {
     case Page::ScanSetup:
       handleInventatoryScanSetupKey(key);
       break;
-    case Page::DigiKeySetup:
-      handleDigiKeySetupKey(key);
+    case Page::VendorSetup:
+      handleVendorSetupKey(key);
       break;
     case Page::Settings:
       handleSettingsKey(key);
@@ -314,10 +317,8 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
       }
     }
     else if (page_ == Page::Projects) {
-      if (bomView_ == BomView::Split) {
-        if (uiBoxContains(bomTableBounds_, mouse.x, mouse.y)) moveBomSelection(delta);
-      } else {
-        moveBomSelection(delta);
+      if (bomView_ == BomView::List || bomView_ == BomView::Overview || uiBoxContains(bomTableBounds_, mouse.x, mouse.y)) {
+        moveBomViewSelection(delta);
       }
     }
     else if (page_ == Page::Racks) {

@@ -230,6 +230,8 @@ void App::processDeviceSyncEvents() {
   deviceSyncCommitFailures_ = 0;
   deviceSyncRetryAfter_ = {};
   deviceSyncEventsHint_.store(true);  // keep draining until the inbox is empty
+  // A vendor that is off is not asked, and a new part's label must not wait for it.
+  if (!settings_.digiKeyEnabled) enrichmentLookup.clear();
   if (!enrichmentLookup.empty()) scanDigiKeyEnrichmentQueue_.emplace_back(affectedItemId, enrichmentLookup);
   const bool tmeLookupQueued = !tmeLookupSymbol.empty() && enqueueTmeScanLookup(affectedItemId, tmeLookupSymbol);
   // A created part prints after its lookup settles, so the label has the merged details.

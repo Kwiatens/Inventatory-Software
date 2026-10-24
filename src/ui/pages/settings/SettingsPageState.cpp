@@ -9,6 +9,7 @@
 #include "platform/security/CredentialStore.h"
 #include "platform/digikey/DigiKeyApi.h"
 #include "platform/mouser/MouserApi.h"
+#include "platform/tme/TmeApi.h"
 #include "platform/system/StartupRegistration.h"
 #include "core/storage/InventorySqlite.h"
 #include "ui/shared/AppUiShared.h"
@@ -38,14 +39,13 @@ string App::settingsCategoryName(SettingsCategory category) const {
     case SettingsCategory::Printer: return "Printer";
     case SettingsCategory::QuickLabels: return "Quick Labels";
     case SettingsCategory::InventatoryScan: return "Inventatory Scan";
-    case SettingsCategory::DigiKey: return "DigiKey";
-    case SettingsCategory::Tme: return "TME";
-    case SettingsCategory::Mouser: return "Mouser";
+    case SettingsCategory::Vendors: return "Vendors";
   }
   return {};
 }
 
 void App::openSettings(SettingsCategory category) {
+  hideVendorKeys();
   settingsCategory_ = category;
   settingsDraft_ = settings_;
   settingsDraft_.printerQueue = printerService_.configuredPrinter();
@@ -89,7 +89,8 @@ bool App::settingsDraftHasChanges() const {
          settingsDraft_.symbolStandard != settings_.symbolStandard ||
          settingsDraft_.quickLabelPresets != settings_.quickLabelPresets ||
          settingsDraft_.appearance.colors != settings_.appearance.colors ||
-         stagedDigiKeySecretChanged_;
+         settingsDraft_.digiKeyEnabled != settings_.digiKeyEnabled || settingsDraft_.tmeEnabled != settings_.tmeEnabled ||
+         settingsDraft_.mouserEnabled != settings_.mouserEnabled || stagedDigiKeySecretChanged_;
 }
 
 bool App::stageInventatoryFolder() {
@@ -201,9 +202,7 @@ void App::finishSupplierTest(future<SupplierTestResult>& testFuture, const strin
 }
 
 bool App::settingsFieldIsSecret() const {
-  if (settingsCategory_ == SettingsCategory::DigiKey) return settingsField_ == 1;
-  if (settingsCategory_ == SettingsCategory::Tme) return settingsField_ == 0 || settingsField_ == 1;
-  if (settingsCategory_ == SettingsCategory::Mouser) return settingsField_ == 0;
+  // Vendor secrets are typed in the setup form, never in a Settings row.
   return false;
 }
 
@@ -228,6 +227,7 @@ void App::beginSettingsFieldEdit(int field) {
   }
   settingsField_ = field;
   settingsEditingField_ = true;
+  const auto vendorField = settingsCategory_ == SettingsCategory::Vendors ? vendorFieldRef(field) : VendorFieldRef{};
   switch (settingsCategory_) {
     case SettingsCategory::General:
       inputBuffer_ = field == 0 ? to_string(settingsDraft_.lowStockThreshold) : string();
@@ -259,29 +259,12 @@ void App::beginSettingsFieldEdit(int field) {
     case SettingsCategory::InventatoryScan:
       inputBuffer_ = field == 0 ? to_string(settingsDraft_.deviceServicePort) : string();
       break;
-    case SettingsCategory::DigiKey:
-      switch (field) {
-        case 0: inputBuffer_ = settingsDraft_.digiKeyClientId; break;
-        case 1: inputBuffer_.clear(); break;
-        case 2: inputBuffer_ = settingsDraft_.digiKeyAccountId; break;
-        case 3: inputBuffer_ = settingsDraft_.digiKeySite; break;
-        case 4: inputBuffer_ = settingsDraft_.digiKeyLanguage; break;
-        case 5: inputBuffer_ = settingsDraft_.digiKeyCurrency; break;
+    case SettingsCategory::Vendors:
+      switch (vendorField.section) {
+        case VendorSection::Currency: inputBuffer_ = sharedVendorCurrency(settingsDraft_); break;
+        case VendorSection::Region: inputBuffer_ = sharedVendorRegion(settingsDraft_); break;
         default: inputBuffer_.clear(); break;
       }
-      break;
-    case SettingsCategory::Tme:
-      switch (field) {
-        case 0:
-        case 1: inputBuffer_.clear(); break;
-        case 2: inputBuffer_ = settingsDraft_.tmeCountry; break;
-        case 3: inputBuffer_ = settingsDraft_.tmeLanguage; break;
-        case 4: inputBuffer_ = settingsDraft_.tmeCurrency; break;
-        default: inputBuffer_.clear(); break;
-      }
-      break;
-    case SettingsCategory::Mouser:
-      inputBuffer_.clear();
       break;
   }
   dirty_ = true;
@@ -337,7 +320,33 @@ void App::commitSettingsFieldEdit() {
       }
       settingsDraft_.deviceServicePort = static_cast<uint16_t>(port);
     }
-  } else if (settingsCategory_ == SettingsCategory::DigiKey) {
+  } else if (settingsCategory_ == SettingsCategory::Vendors) {
+    const auto ref = vendorFieldRef(settingsField_);
+    if (ref.section == VendorSection::Currency) {
+      const auto currency = toUpper(trim(inputBuffer_));
+      if (!isSupportedVendorCurrency(currency)) {
+        setMessage("Currency must be EUR, PLN or USD", 4);
+        return;
+      }
+      setSharedVendorCurrency(settingsDraft_, currency);
+    } else if (ref.section == VendorSection::Region) {
+      const auto region = toUpper(trim(inputBuffer_));
+      if (!isValidVendorRegion(region)) {
+        setMessage("Region is a two-letter country code, such as DE or PL", 4);
+        return;
+      }
+      setSharedVendorRegion(settingsDraft_, region);
+    }
+  }
+  settingsEditingField_ = false;
+  settingsDirty_ = true;
+  inputBuffer_.clear();
+  dirty_ = true;
+}
+
+// Stages one credential field typed in the vendor setup form. False keeps the form on the step.
+bool App::commitVendorCredentialField(VendorSetupVendor vendor, int local) {
+  if (vendor == VendorSetupVendor::DigiKey) {
     // Keep the editor open on an over-long value; accepting it would make every save fail.
     const auto tooLong = [this](const char* label, size_t limit, const string& text) {
       if (text.size() <= limit) return false;
@@ -345,15 +354,15 @@ void App::commitSettingsFieldEdit() {
       return true;
     };
     const auto value = trim(inputBuffer_);
-    switch (settingsField_) {
+    switch (local) {
       case 0:
-        if (tooLong("DigiKey client ID", kMaxDigiKeyFieldBytes, value)) return;
+        if (tooLong("DigiKey client ID", kMaxDigiKeyFieldBytes, value)) return false;
         settingsDraft_.digiKeyClientId = value;
         break;
       case 1:
         if (trim(inputBuffer_).empty()) {
-          setMessage("Client secret cannot be empty; press Esc to keep the stored secret", 4);
-          return;
+          setMessage("Client secret cannot be empty", 4);
+          return false;
         }
         stagedDigiKeySecret_.assign(stagedDigiKeySecret_.size(), '\0');
         stagedDigiKeySecret_ = inputBuffer_;
@@ -362,24 +371,12 @@ void App::commitSettingsFieldEdit() {
         inputBuffer_.clear();
         break;
       case 2:
-        if (tooLong("DigiKey account ID", kMaxDigiKeyFieldBytes, value)) return;
+        if (tooLong("DigiKey account ID", kMaxDigiKeyFieldBytes, value)) return false;
         settingsDraft_.digiKeyAccountId = value;
-        break;
-      case 3:
-        if (tooLong("DigiKey site", kMaxDigiKeyLocaleFieldBytes, value)) return;
-        settingsDraft_.digiKeySite = value;
-        break;
-      case 4:
-        if (tooLong("DigiKey language", kMaxDigiKeyLocaleFieldBytes, value)) return;
-        settingsDraft_.digiKeyLanguage = value;
-        break;
-      case 5:
-        if (tooLong("DigiKey currency", kMaxDigiKeyLocaleFieldBytes, value)) return;
-        settingsDraft_.digiKeyCurrency = value;
         break;
       default: break;
     }
-  } else if (settingsCategory_ == SettingsCategory::Tme) {
+  } else if (vendor == VendorSetupVendor::Tme) {
     // Over-long values keep the editor open, as for DigiKey.
     const auto tooLong = [this](const char* label, size_t limit, const string& text) {
       if (text.size() <= limit) return false;
@@ -387,13 +384,13 @@ void App::commitSettingsFieldEdit() {
       return true;
     };
     const auto value = trim(inputBuffer_);
-    switch (settingsField_) {
+    switch (local) {
       case 0:
         if (trim(inputBuffer_).empty()) {
-          setMessage("Token cannot be empty; press Esc to keep the stored token", 4);
-          return;
+          setMessage("Token cannot be empty", 4);
+          return false;
         }
-        if (tooLong("TME token", kMaxTmeFieldBytes, inputBuffer_)) return;
+        if (tooLong("TME token", kMaxTmeFieldBytes, inputBuffer_)) return false;
         stagedTmeToken_.assign(stagedTmeToken_.size(), '\0');
         stagedTmeToken_ = inputBuffer_;
         stagedTmeTokenChanged_ = true;
@@ -402,58 +399,41 @@ void App::commitSettingsFieldEdit() {
         break;
       case 1:
         if (trim(inputBuffer_).empty()) {
-          setMessage("Application secret cannot be empty; press Esc to keep the stored secret", 4);
-          return;
+          setMessage("Application secret cannot be empty", 4);
+          return false;
         }
-        if (tooLong("TME application secret", kMaxTmeFieldBytes, inputBuffer_)) return;
+        if (tooLong("TME application secret", kMaxTmeFieldBytes, inputBuffer_)) return false;
         stagedTmeSecret_.assign(stagedTmeSecret_.size(), '\0');
         stagedTmeSecret_ = inputBuffer_;
         stagedTmeSecretChanged_ = true;
         inputBuffer_.assign(inputBuffer_.size(), '\0');
         inputBuffer_.clear();
         break;
-      case 2:
-        if (tooLong("TME country", kMaxTmeLocaleFieldBytes, value)) return;
-        settingsDraft_.tmeCountry = value;
-        break;
-      case 3:
-        if (tooLong("TME language", kMaxTmeLocaleFieldBytes, value)) return;
-        settingsDraft_.tmeLanguage = value;
-        break;
-      case 4:
-        if (tooLong("TME currency", kMaxTmeLocaleFieldBytes, value)) return;
-        settingsDraft_.tmeCurrency = value;
-        break;
       default: break;
     }
-  } else if (settingsCategory_ == SettingsCategory::Mouser) {
-    if (settingsField_ == 0) {
-      auto key = trim(inputBuffer_);
-      if (key.empty()) {
-        setMessage("API key cannot be empty; press Esc to keep the stored key", 4);
-        return;
-      }
-      // An over-long key keeps the editor open.
-      if (key.size() > kMaxMouserKeyBytes) {
-        setMessage("Mouser API key must be " + to_string(kMaxMouserKeyBytes) + " bytes or fewer", 4);
-        return;
-      }
-      // Every call rejects such keys, so never stage one.
-      if (!MouserConfig{key}.valid()) {
-        setMessage("Mouser API key cannot contain spaces or control characters", 4);
-        return;
-      }
-      stagedMouserKey_.assign(stagedMouserKey_.size(), '\0');
-      stagedMouserKey_ = move(key);
-      stagedMouserKeyChanged_ = true;
-      inputBuffer_.assign(inputBuffer_.size(), '\0');
-      inputBuffer_.clear();
+  } else if (vendor == VendorSetupVendor::Mouser) {
+    auto key = trim(inputBuffer_);
+    if (key.empty()) {
+      setMessage("API key cannot be empty", 4);
+      return false;
     }
+    // An over-long key keeps the editor open.
+    if (key.size() > kMaxMouserKeyBytes) {
+      setMessage("Mouser API key must be " + to_string(kMaxMouserKeyBytes) + " bytes or fewer", 4);
+      return false;
+    }
+    // Every call rejects such keys, so never stage one.
+    if (!MouserConfig{key}.valid()) {
+      setMessage("Mouser API key cannot contain spaces or control characters", 4);
+      return false;
+    }
+    stagedMouserKey_.assign(stagedMouserKey_.size(), '\0');
+    stagedMouserKey_ = move(key);
+    stagedMouserKeyChanged_ = true;
+    inputBuffer_.assign(inputBuffer_.size(), '\0');
+    inputBuffer_.clear();
   }
-  settingsEditingField_ = false;
-  settingsDirty_ = true;
-  inputBuffer_.clear();
-  dirty_ = true;
+  return true;
 }
 
 void App::resetSelectedAppearanceColor() {
@@ -542,6 +522,77 @@ void App::cancelSettingsDraft() {
   inputBuffer_.assign(inputBuffer_.size(), '\0');
   inputBuffer_.clear();
   setMessage("Settings changes discarded", 3);
+}
+
+// Puts the Settings cursor on a vendor's API key row, so its keys act on that vendor.
+void App::focusVendorRow(VendorSetupVendor vendor) {
+  const int field = vendor == VendorSetupVendor::DigiKey ? kDigiKeyKeyField
+                    : vendor == VendorSetupVendor::Tme   ? kTmeKeyField
+                                                         : kMouserKeyField;
+  settingsRow_ = 0;
+  settingsField_ = 0;
+  const auto model = settingsPageModel();
+  for (size_t index = 0; index < model.rows.size(); ++index) {
+    if (model.rows[index].focusable() && model.rows[index].field == field) {
+      settingsRow_ = index;
+      settingsField_ = field;
+      break;
+    }
+  }
+  dirty_ = true;
+}
+
+}  // namespace inventatory
+
+namespace inventatory {
+
+void App::hideVendorKeys() {
+  for (auto& [label, value] : revealedVendorValues_) value.assign(value.size(), '\0');
+  revealedVendorValues_.clear();
+  revealedVendorField_ = -1;
+}
+
+// Keys stay Hidden. The first press asks for confirmation; the second, within five seconds, shows them.
+void App::requestVendorKeyReveal(int keyField) {
+  if (revealedVendorField_ == keyField) {
+    hideVendorKeys();
+    dirty_ = true;
+    return;
+  }
+  const string id = "reveal-key-" + to_string(keyField);
+  const auto now = time(nullptr);
+  const char* name = keyField == kDigiKeyKeyField ? "DigiKey" : keyField == kTmeKeyField ? "TME" : "Mouser";
+  if (settingsConfirmAction_ != id || now > settingsConfirmUntil_) {
+    settingsConfirmAction_ = id;
+    settingsConfirmUntil_ = now + 5;
+    setMessage(string("Press Enter again to show the ") + name + " key on screen", 5, UiMessageSeverity::Warning);
+    return;
+  }
+  settingsConfirmAction_.clear();
+  settingsConfirmUntil_ = 0;
+  hideVendorKeys();
+  // The credential store can block, so it is read only now, on request.
+  if (keyField == kDigiKeyKeyField) {
+    auto config = loadDigiKeyConfig();
+    revealedVendorValues_ = {{"Client ID", config.clientId}, {"Client secret", config.clientSecret}};
+    if (!trim(config.accountId).empty()) revealedVendorValues_.emplace_back("Account ID", config.accountId);
+    config.clientSecret.assign(config.clientSecret.size(), '\0');
+  } else if (keyField == kTmeKeyField) {
+    auto config = loadTmeConfig();
+    revealedVendorValues_ = {{"Token", config.token}, {"Application secret", config.applicationSecret}};
+    config.token.assign(config.token.size(), '\0');
+    config.applicationSecret.assign(config.applicationSecret.size(), '\0');
+  } else {
+    auto config = loadMouserConfig();
+    revealedVendorValues_ = {{"API key", config.apiKey}};
+    config.apiKey.assign(config.apiKey.size(), '\0');
+  }
+  for (auto& [label, value] : revealedVendorValues_) {
+    if (value.empty()) value = "Unavailable";
+  }
+  revealedVendorField_ = keyField;
+  setMessage(string(name) + " key shown; it hides when you move away", 4);
+  dirty_ = true;
 }
 
 }  // namespace inventatory

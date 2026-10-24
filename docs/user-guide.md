@@ -52,7 +52,22 @@ side by side with what each one would fill in. Choose the vendor the part came f
 for its refreshes. A vendor is chosen once per part.
 
 A Mouser part shows its Mouser part number as **Mouser** in its details. Press `s` on a part with a Mouser part number to
-open its Mouser product page. Refresh for Mouser parts is in the Mouser section of Settings (see Settings workflow).
+open its Mouser product page. Refresh for Mouser parts is **Refresh all** in Settings -> Vendors (see Settings workflow).
+
+A part with a DigiKey, TME or Mouser number shows a **Prices** section in its details. Press `c` to check prices: each
+vendor that is set up and knows the part is asked, and its answer is saved. Each line shows the vendor, the packaging
+(cut tape, reel, Digi-Reel), the price for the smallest quantity, the stock, and where buying starts when a minimum
+order applies. Click a line to open that product on the vendor's site, or press `g`, `l` or `s` for the DigiKey, TME or
+Mouser page. A line says **Old price** when it
+was checked more than 24 hours ago, **Other currency** when the vendor answered in a currency other than the one set in
+Settings, **End of life** when the manufacturer has stopped making it but the vendor still sells it, and **Not sold** when the
+vendor no longer sells it. A check that fails keeps the prices saved before.
+
+All prices are without VAT. TME sends prices with VAT and the rate; Inventatory takes the VAT out so they compare with
+DigiKey and Mouser. DigiKey answers in the chosen currency only when its site sells in it: with the site set to US it
+answers in USD whatever currency is chosen, and its lines then say **Other currency**. Mouser always answers in the
+currency of your Mouser account; change it there to match. Saved prices are kept in `vendor-offers.db` in the data
+folder. They are not part of backups, because a check fills them again.
 
 Use **Start stocktake** from Actions (`Space`, then the action, or `t`) for a
 guided physical count. Inventatory clears the stock filter, keeps each count in
@@ -122,36 +137,72 @@ so its supplier columns are not read.
 
 ## Project workflow
 
-A BOM becomes a project on the Projects page. Each line is compared with stock:
+A BOM becomes a project on the Projects page. Opening a project shows its overview:
 
-- Ready: a stock part is confirmed for the line, and enough units are on hand.
-- Check: stock has parts that fit the line, but the choice is yours. Press `a` to
-  step to the next candidate, and `c` to confirm the part shown. A confirmation
-  holds for as long as that stock part does not change.
-- Short or Missing: nothing in stock covers the line, or the confirmed part does
-  not have enough units.
+- **Find in racks** (`f`) is the main action. It leads you to every slot that holds a part for this board.
+- **In stock** counts the parts you have for the chosen board count, and says where they are: in racks, in other
+  places (a location with no rack slot), or with no location at all.
+- **To sort out** lists four steps that get the parts you do not have yet. Each row says what is left, and Enter opens
+  it. You can do the steps in any order, or not at all.
 
-A line is chosen without asking only when a stock part carries the line's
-manufacturer part number, supplier part number or DigiKey number, or when exactly one stock part fits
-the line's value and package. Shortages are looked up on DigiKey in the background. TME is asked when DigiKey has no part for the line or is not
-set up. Mouser is asked only when DigiKey and TME have no part for the line, or are not set up, and only by part
-number, so a line without one is not looked up there. A part TME or Mouser cannot order is never suggested, and a part
-Mouser lists under several products is not suggested either. A
-suggestion that does not fit the line is marked check before ordering. `o` writes
-the shopping list beside the BOM, with Suggested part, Supplier and Suggestion check columns.
+`t` shows all lines in one table, grouped as In stock, To confirm and Not in stock. Enter on a line opens the step it
+belongs to. `+` and `-` change the board count. `o` (in the Actions menu) still writes the plain shopping list beside
+the BOM.
 
-Mouser allows 30 requests a minute and 1,000 a day. Inventatory spaces all its Mouser requests together so that they stay under the
-per-minute limit. A large shortage run can use up the daily allowance. When Mouser reports that its limit is reached,
-the run stops asking Mouser, and the lines that only Mouser could answer are looked up again on a later run.
+A line counts as in stock without asking only when a stock part carries the line's manufacturer part number, supplier
+part number or DigiKey number, or when exactly one stock part fits the line's value and package. Nothing is looked up
+on a store when a project opens. Searches run only in the Choose parts to buy step, one part at a time.
+
+### Confirm matches
+
+For each line where stock may have the part, the step shows the stock parts that fit, with their place and stock.
+Enter uses the highlighted part, `n` says none of them is right (the line then goes to the parts to buy), and `s`
+skips the line. A confirmation holds for as long as that stock part does not change.
+
+### Choose parts to buy
+
+The step goes through the parts that are not in stock, one at a time. It searches the project's store and lists only
+parts that are in stock there at a normal price: up to 20 in the store's currency, or at most ten times what the
+pieces you need cost. Parts that fit the line come first, and the top one is marked `Best`, so Enter takes it. A part the manufacturer has stopped making is marked `End of life`: the store still sells it while stock
+lasts, so it can be taken, but it is never marked `Best`, and the highlighted part says to find another part if you
+can. Parts
+the checks cannot confirm are listed under May not fit. Parts of another value (a 100nF capacitor for a 10uF line) are
+left out whenever parts that fit are found. A line that many parts fit (a pin header, a tactile switch, an LED without
+a colour) asks you to choose one. Below the list, the highlighted part is shown in full: its maker, the store's
+description, its details, the store's stock and what your pieces cost. A search that fails says why; `/` and Enter try
+it again.
+
+- `l` opens the highlighted part on the store's site, so you can check it first.
+- `/` searches for other words. A resistor value is read as written, so `R280` is 0.28 ohm and `280R` is 280 ohm.
+- `v` changes the store. A new project starts with the store you used last. Mouser is not searchable yet.
+- `s` skips the part.
+
+A part you chose is kept, and is used for the same line in your other projects. Stepping over a chosen part spends no
+store requests: Enter keeps it, and `/` searches again.
+
+### Order
+
+The step lists the chosen parts with their order quantity and cost, and the total. `c` saves a cart file for each
+store: TME's cart reads it with "Add products from a file", and DigiKey's cart upload asks which column holds the part
+number and the quantity. `l` opens the next part's page, and Enter opens the highlighted one. A part that can no longer
+be bought at a normal price shows Not buyable now and is left out of the cart file. `m` marks the parts as ordered,
+after one question.
+
+### Receive
+
+The step lists the ordered parts. For each one it shows the stock part it adds to, or the new stock part it creates,
+and the rack slot it goes to. Enter asks how many pieces arrived, and `a` receives everything as ordered. The part is
+then in stock for this line, so the next Find in racks picks it up. Ctrl+Z undoes a receipt like any stock change.
 
 Inventatory counts its requests to DigiKey, Mouser and TME. It warns you when a daily limit is 80% used, and when a
 limit is reached it says which vendor and when it is available again. Each vendor page in Settings has a Usage row. See
 [vendor-rate-limits.md](vendor-rate-limits.md).
 
-Known limit: a line that was answered "no match" before Mouser was set up keeps that answer, and Inventatory does not
-ask Mouser about it.
+### Find in racks
 
-`+` and `-` change the board count. `f` starts the build walkthrough. It stops at
+`f` starts Find in racks from the overview or the line table. When some parts are not sorted out yet, a notice first
+lists them, one row each with its package, where it stands and its place on the board. Start anyway (Enter) goes on
+without them; Get them first (`s`) opens the first step with work left. The walkthrough stops at
 one rack at a time, pulsing the slots holding parts this build needs, and lists
 what to take out of each. Only confirmed lines are picked. Enter advances, and
 Backspace goes back. Parts that live outside a rack come last, grouped by location.
@@ -175,6 +226,14 @@ the paired R1 receives the saved list during its next sync. Selecting a preset o
 configured PC printer. Each cable flag prints normally oriented text on both folded halves, with its font scaled to fit.
 Failed/offline device requests are not queued.
 
+**Settings -> Integrations / Vendors** holds everything about DigiKey, TME and Mouser on one page. Each vendor has an
+**Enabled** switch (Enter toggles it), an **API key** row that reads Hidden, with **Show** (`v`), **Edit** (`e`) and **Test** (`t`), and a **Usage** row. Show, or Enter on the row, asks for a second Enter and then lists the stored keys until the cursor moves away. A
+vendor that is off keeps its stored keys but is skipped for price checks, refreshes and scans. Below the vendors, **All
+vendors** holds **Currency** (EUR, PLN or USD, also asked during first setup), **Region** (a two-letter country code such
+as DE, used as the DigiKey site and the TME country) and **Part data**, where **Refresh all** (`r`) refreshes every part
+at its own vendor and skips vendors that are off or not set up. Edit opens a short form for the keys and turns the
+vendor on when it is saved. Secrets are never shown.
+
 Changing the data directory saves the current inventory first and switches only
 after the new location is validated. An R1 service-port change takes effect on the
 next launch. DigiKey, TME and Mouser secrets are stored in the operating system credential store (Windows Credential
@@ -192,24 +251,19 @@ the existing setup wizard. After provisioning is accepted, the section restores
 last contact once it has reported in), the service port, and **Check for firmware
 updates**. Before the first report, the status reads **Waiting for device**.
 
-An unconfigured DigiKey section also shows only **Begin Setup**. Its wizard
-collects the Client ID and Client secret, stores the secret in Windows
-Credential Manager, and restores the account and regional settings after the
-credentials are saved. A live credential test remains available afterward.
-
-The TME section takes the application token and application secret, stored in the credential store, and the
-country, language and currency, stored in the settings file. **Test** requests an access token with the token and secret, then makes one product request. **Refresh inventory data** looks up each TME-sourced stock item by its TME symbol when the item has one, and otherwise
-by its manufacturer part number (or its SKU when it has none), and applies a result only when the manufacturer part
-number matches exactly and one product fits. The refresh also reads each part's parameters, datasheet, stock and
-lowest price from TME, so a TME part shows the same details a DigiKey part does.
+The DigiKey form collects the Client ID, the Client secret and an optional Account ID, and stores the secret in the
+credential store. The TME form takes the application token and the application secret. **Test** for TME requests an access
+token with the token and secret, then makes one product request. A refresh looks up each TME-sourced stock item by its
+TME symbol when the item has one, or else by its manufacturer part number (or its SKU when it has none), and applies a
+result only when the manufacturer part number matches exactly and one product fits. The refresh also reads each part's
+parameters, datasheet, stock and lowest price from TME, so a TME part shows the same details a DigiKey part does.
 Refresh looks up only the parts that came from TME. A part that came from DigiKey is never looked up at TME. A TME
 part number typed on a DigiKey part is kept beside it and still identifies that part when its TME label is scanned.
 If the TME record gives a resistance, capacitance or inductance that differs from the stored value, the record is not
 merged; the refresh reports the part as an error instead.
 Lookups are requests to TME, so a large inventory takes a few minutes.
 
-The Mouser section takes the Mouser API key. The key is hidden on screen and is saved to the credential store with
-Save. A key that contains spaces or control characters is refused when it is entered, and it can be at most 256 bytes. The environment variable
+The Mouser form takes the Mouser API key. The key is hidden on screen and is saved to the credential store. A key that contains spaces or control characters is refused when it is entered, and it can be at most 256 bytes. The environment variable
 MOUSER_API_KEY can supply the key instead: when it is set and not blank, Inventatory uses it in place of the stored key.
 **Test** sends one search to Mouser. The key passes when Mouser answers that search without an error, and a reached request limit also shows the key was accepted. A rejected
 key, a failed answer or no connection to Mouser fails the test.
@@ -218,7 +272,7 @@ key, a failed answer or no connection to Mouser fails the test.
 else its SKU. It needs a Mouser key, saved in Settings or set in MOUSER_API_KEY. It makes one Mouser request per part, spaced about two seconds apart, so a large
 inventory takes several minutes. A Mouser record with a manufacturer part number different from the part's is not
 applied, and the part is counted as an error. When Mouser lists several products for a part number and the manufacturer
-does not tell them apart, the part is counted as ambiguous and is left unchanged. The **Last refresh** row shows how
+does not tell them apart, the part is counted as ambiguous and is left unchanged. The **Part data** row shows how
 many parts were updated, not found, ambiguous and in error. A refresh stops early when Mouser reports its request limit
 or rejects the key; the parts it has not reached are left unchanged.
 

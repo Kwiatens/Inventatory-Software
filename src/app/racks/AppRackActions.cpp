@@ -24,6 +24,7 @@ using namespace std;
 using namespace app_actions;
 
 void App::changePage(Page page) {
+  hideVendorKeys();
   // The unsaved-changes prompt is modal and must be answered first, or the draft is stranded.
   // completeSettingsExit() closes it before navigating.
   if (inputMode_ == InputMode::ExitConfirmation) {
@@ -68,7 +69,7 @@ void App::changePage(Page page) {
     // Leaving the page abandons an unfinished BOM walkthrough.
     bomDeductPrompt_ = false;
     if (bomView_ == BomView::Build) {
-      bomView_ = BomView::Split;
+      bomView_ = BomView::Overview;
       bomBuildStep_ = 0;
     }
     bomDeleteConfirmationProjectId_.clear();
@@ -89,7 +90,7 @@ void App::releasePageState(Page leaving) {
       inputBuffer_.assign(inputBuffer_.size(), '\0');
       inputBuffer_.clear();
       break;
-    case Page::DigiKeySetup:
+    case Page::VendorSetup:
       settingsDraft_ = settings_;
       settingsDirty_ = false;
       settingsEditingField_ = false;

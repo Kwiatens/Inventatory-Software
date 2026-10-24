@@ -502,6 +502,11 @@ string ellipsize(const string& value, size_t maxLength) {
   return takeCells(value, maxLength - 3) + "...";
 }
 
+string uiProgressBar(size_t done, size_t total, size_t cells) {
+  const size_t filled = total == 0 ? 0 : min(cells, done * cells / total);
+  return "[" + string(filled, '#') + string(cells - filled, '-') + "]";
+}
+
 vector<string> wrapText(const string& text, int width) {
   vector<string> lines;
   if (width <= 0) {
