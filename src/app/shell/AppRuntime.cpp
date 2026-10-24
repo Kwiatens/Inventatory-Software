@@ -404,7 +404,6 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   mouserRefresh_.queue.clear();
   scanDigiKeyEnrichmentQueue_.clear();
   scanAutoPrintPending_.clear();  // Their lookups are dropped, so these labels would never settle.
-  bomEnrichmentQueue_.clear();
   if (importSyncCancelFlag_ != nullptr) {
     importSyncCancelFlag_->store(true);
   }
@@ -417,7 +416,8 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
   allFinished = finishWorker(importSyncFuture_, deadline) && allFinished;
   allFinished = finishWorker(vendorLookupFuture_, deadline) && allFinished;
   allFinished = finishWorker(scanDigiKeyEnrichmentFuture_, deadline) && allFinished;
-  allFinished = finishWorker(bomEnrichmentFuture_, deadline) && allFinished;
+  allFinished = finishWorker(bomPickerFuture_, deadline) && allFinished;
+  allFinished = finishWorker(offerRefreshFuture_, deadline) && allFinished;
   if (!allFinished) {
     workAbandoned_ = true;
   } else {
@@ -427,6 +427,8 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
 
     importSyncFuture_ = {};
     vendorLookupFuture_ = {};
+    offerRefreshFuture_ = {};
+    offerCacheValid_ = false;
     importSyncCancelFlag_.reset();
     importSyncRunning_ = false;
     importSyncCancelRequested_ = false;
@@ -434,13 +436,7 @@ bool App::stopWorkspaceBoundWorkUntil(optional<chrono::steady_clock::time_point>
 
     scanDigiKeyEnrichmentFuture_ = {};
 
-    bomEnrichmentFuture_ = {};
-    bomEnrichmentActiveKey_.clear();
-    bomEnrichmentProjectId_.clear();
-    bomEnrichmentActiveProjectId_.clear();
-    bomEnrichmentGeneration_ = 0;
-    bomEnrichmentSequence_ = 0;
-    bomEnrichmentClient_.reset();
+    bomPickerFuture_ = {};
   }
 
   cancelPendingDeviceRequests();

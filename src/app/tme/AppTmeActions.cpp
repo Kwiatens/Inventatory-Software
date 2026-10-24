@@ -4,6 +4,7 @@
 // Inventatory - TME credential test and inventory refresh.
 
 #include "App.h"
+#include "core/inventory/VendorProvider.h"
 
 #include "app/common/AppActionSupport.h"
 #include "core/vendor/VendorRateLimits.h"
@@ -45,6 +46,10 @@ bool App::testStagedTme() {
 }
 
 void App::beginTmeRefresh() {
+  if (!settings_.tmeEnabled) {
+    setMessage("TME is off; turn it on in Settings > Vendors", 4);
+    return;
+  }
   beginSupplierRefresh(
       tmeRefresh_, "TME",
       [this]() -> unique_ptr<TmeApiClient> {
@@ -63,6 +68,7 @@ void App::beginTmeRefresh() {
 
 // Shares the refresh queue, so lookups run one at a time and merge on the UI thread.
 bool App::enqueueTmeScanLookup(const string& itemId, const string& symbol) {
+  if (!settings_.tmeEnabled) return false;
   if (tmeRefresh_.client == nullptr) {
     const auto config = loadTmeConfig();
     if (!config.valid()) {
@@ -93,6 +99,13 @@ void App::processTmeRefresh() {
     }
     ++run.completed;
     applyCatalogueResult(run, *result, "TME", app_actions::tmeRecordConflict, app_actions::mergeTmeMetadata);
+    // The lookup already carried the price, so it is saved without another request.
+    if (result->details) {
+      if (const auto* item = store_.findById(result->itemId); item != nullptr && app_actions::tmeRecordConflict(*item, *result->details).empty()) {
+        saveItemOffers(*item, kVendorProviderTme,
+                       result->details->offer ? vector<VendorOffer>{*result->details->offer} : vector<VendorOffer>{});
+      }
+    }
     finishScanAutoPrint(result->itemId, result->details.has_value());
     // A reached limit would fail the rest the same way; drop the run.
     if (!result->details && isVendorLimitMessage(result->error)) run.queue.clear();

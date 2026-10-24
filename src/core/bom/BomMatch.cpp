@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <regex>
 #include <unordered_map>
 
 namespace inventatory {
@@ -69,8 +70,14 @@ bool bomBuildReady(const BomAnalysis& analysis) {
   return analysis.shortCount == 0 && analysis.confirmCount == 0 && !analysis.matches.empty();
 }
 
-string packageFromFootprint(const string& footprint) {
+string footprintName(const string& footprint) {
   const auto trimmed = trim(footprint);
+  const auto colon = trimmed.rfind(':');
+  return colon == string::npos ? trimmed : trim(trimmed.substr(colon + 1));
+}
+
+string packageFromFootprint(const string& footprint) {
+  const auto trimmed = footprintName(footprint);
   if (trimmed.empty()) {
     return {};
   }
@@ -138,6 +145,29 @@ bool packageMatches(const string& lhs, const string& rhs) {
   return left.find(right) != string::npos || right.find(left) != string::npos;
 }
 
+namespace {
+
+// A comma is the decimal point in a value written the European way ("0,33uF", "4,7k", ",33"). It groups
+// thousands only in the form "1,000", "10,000" or "4,700,000", where the first group has one to three digits
+// and no zero. A multiplier or unit may follow the number: "1,000pF" is 1000 pF. Any other comma is invalid.
+optional<string> readDecimalComma(const string& body) {
+  if (body.find(',') == string::npos) return body;
+  static const regex thousands(R"(^([1-9]\d{0,2})((?:,\d{3})+)([^\d,].*)?$)");
+  static const regex decimal(R"(^(\d*),(\d+)([^\d,].*)?$)");
+  smatch m;
+  if (regex_match(body, m, thousands)) {
+    string digits = m[1];
+    for (const char ch : string(m[2])) {
+      if (ch != ',') digits.push_back(ch);
+    }
+    return digits + string(m[3]);
+  }
+  if (!regex_match(body, m, decimal)) return nullopt;
+  return (m[1].length() == 0 ? string("0") : string(m[1])) + "." + string(m[2]) + string(m[3]);
+}
+
+}  // namespace
+
 optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
   kind = ValueKind::None;
 
@@ -185,6 +215,10 @@ optional<double> parseElectricalValue(const string& text, ValueKind& kind) {
     notation = NumberNotation::Reactive;
     body = compact.substr(0, compact.size() - 1);
   }
+
+  const auto number = readDecimalComma(body);
+  if (!number) return nullopt;
+  body = *number;
 
   // A bare number is ambiguous; only a resistor is written that way, and it needs a digit.
   if (body.empty() || none_of(body.begin(), body.end(), [](unsigned char ch) { return isdigit(ch) != 0; })) {
@@ -433,8 +467,22 @@ BomAnalysis analyzeBom(const KicadBomFile& bom, const vector<InventoryItem>& ite
     // A saved confirmation holds only for the same item and fingerprint. Otherwise it is reported
     // lost, and the line falls back unconfirmed rather than being replaced silently.
     const auto saved = confirmations.find(key);
-    if (saved != confirmations.end()) {
+    if (saved != confirmations.end() && saved->second == kBomNotInStock) {
+      match.candidates.clear();
+      reason = BomCheckReason::None;
+    } else if (saved != confirmations.end()) {
       const auto confirmation = decodeBomConfirmation(saved->second);
+      // A part the user confirmed counts even when the matcher would not list it, such as a part received
+      // for this line: the fingerprint still guards against a later change.
+      if (confirmation) {
+        const auto itemIndex = itemIndexById.find(confirmation->itemId);
+        const bool listed = any_of(match.candidates.begin(), match.candidates.end(),
+                                   [&](const BomMatchCandidate& entry) { return entry.itemId == confirmation->itemId; });
+        if (!listed && itemIndex != itemIndexById.end() &&
+            bomItemFingerprint(items[itemIndex->second]) == confirmation->fingerprint) {
+          match.candidates.push_back({confirmation->itemId, 0, false});
+        }
+      }
       const auto itemIndex = confirmation ? itemIndexById.find(confirmation->itemId) : itemIndexById.end();
       const auto candidate = confirmation ? find_if(match.candidates.begin(), match.candidates.end(),
                                                     [&](const BomMatchCandidate& entry) {

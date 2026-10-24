@@ -120,7 +120,8 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   const auto userAgent = "Inventatory " + service + " client/1.0";
   curl_easy_setopt(handle, CURLOPT_USERAGENT, userAgent.c_str());
   curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, 5000L);
-  curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 8000L);
+  // A broad keyword search can take DigiKey several seconds to answer.
+  curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 20000L);
   // Worker threads share libcurl; NOSIGNAL stops it installing signal handlers.
   curl_easy_setopt(handle, CURLOPT_NOSIGNAL, 1L);
   // No redirects, so authenticated headers never leave the HTTPS origin.
@@ -140,8 +141,9 @@ bool requestHttpOnce(const std::string& method, const std::string& url, const st
   curl_easy_cleanup(handle);
   if (result != CURLE_OK) {
     if (error != nullptr) {
-      *error = received.oversized ? service + " response exceeds the 4 MiB safety limit"
-                                  : "Unable to complete the " + service + " HTTPS request";
+      *error = received.oversized                  ? service + " response exceeds the 4 MiB safety limit"
+               : result == CURLE_OPERATION_TIMEDOUT ? service + " did not answer in time"
+                                                    : "Unable to complete the " + service + " HTTPS request";
     }
     return false;
   }

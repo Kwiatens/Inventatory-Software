@@ -127,6 +127,9 @@ optional<string> extractInductanceFromText(const string& text);
 optional<string> extractComponentPackageFromText(const string& text);
 
 optional<SearchMatch> resolveSearchResult(const JsonPtr& root, const string& query);
+// Every product of a keyword search answer, each parsed as a details answer is. Exact matches come first;
+// a product listed in both buckets is kept once.
+vector<DigiKeyProductDetails> parseSearchProducts(const JsonPtr& root);
 DigiKeyProductDetails parseProductDetails(const string& lookupKey, const JsonPtr& root);
 
 bool isSafeHeaderValue(const string& value);

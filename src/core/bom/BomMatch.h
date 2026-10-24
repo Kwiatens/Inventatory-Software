@@ -26,6 +26,10 @@ enum class ValueKind {
   Frequency,
 };
 
+// The footprint's own name without the KiCad library in front of it:
+// "Capacitor_SMD:C_0603_1608Metric" -> "C_0603_1608Metric". A name with no library is returned as it is.
+string footprintName(const string& footprint);
+
 // Reduces a footprint to the package token used by distributor data:
 // "C_0603_1608Metric" -> "0603", "SOIC-8_3.9x4.9mm_P1.27mm" -> "SOIC-8",
 // "R0402" -> "0402", "CAPC1608X90N" -> "0603".
@@ -97,6 +101,10 @@ struct BomConfirmation {
   string itemId;
   string fingerprint;
 };
+
+// Confirmation value for a line the user said stock does not have: it is bought, as if no stock part
+// matched it.
+inline constexpr const char* kBomNotInStock = "@not-in-stock";
 
 // Fingerprint of the item fields the matcher reads. 16 lowercase hex digits, stable across builds.
 string bomItemFingerprint(const InventoryItem& item);

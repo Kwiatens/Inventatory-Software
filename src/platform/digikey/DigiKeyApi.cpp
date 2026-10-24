@@ -9,6 +9,7 @@
 #include "platform/digikey/DigiKeyApiPrivate.h"
 
 #include "app/settings/AppSettings.h"
+#include "core/vendor/VendorOffer.h"
 #include "core/vendor/VendorRateLimits.h"
 #include "platform/security/CredentialStore.h"
 #include "platform/system/Environment.h"
@@ -203,13 +204,13 @@ optional<string> DigiKeyApiClient::requestProductDetails(const string& productNu
   return responseBody;
 }
 
-optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, string* error) {
+optional<string> DigiKeyApiClient::requestKeywordSearch(const string& keywords, string* error, int limit) {
   if (trim(keywords).empty() || keywords.size() > kMaximumDigiKeyFieldBytes) {
     if (error != nullptr) *error = "DigiKey search keywords are empty or too large";
     return nullopt;
   }
   ostringstream body;
-  body << "{\"Keywords\":\"" << escapeJsonString(keywords) << "\",\"Limit\":10,\"Offset\":0}";
+  body << "{\"Keywords\":\"" << escapeJsonString(keywords) << "\",\"Limit\":" << limit << ",\"Offset\":0}";
 
   std::uint32_t statusCode = 0;
   string responseBody;
@@ -258,6 +259,8 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::lookupProductDetails(const str
 
     auto details = parseProductDetails(lookupKey, *root);
     details.vendorMetadata.locale = config_.language;
+    const auto fetchedAt = time(nullptr);
+    for (auto& offer : details.offers) offer.fetchedAt = fetchedAt;
     if (details.productDescription.empty() && details.parameters.empty()) {
       if (parseError != nullptr) {
         *parseError = "DigiKey returned an empty details payload";
@@ -325,6 +328,48 @@ optional<DigiKeyProductDetails> DigiKeyApiClient::lookupProductDetails(const str
     *error = directError.empty() ? resolvedError : directError + " | " + resolvedError;
   }
   return nullopt;
+}
+
+vector<DigiKeyProductDetails> DigiKeyApiClient::searchProducts(const string& keywords, DigiKeyLookupOutcome& outcome,
+                                                                string* error) {
+  // DigiKey's largest page. The search is fuzzy, so the caller verifies every product by its parameters.
+  constexpr int kSearchLimit = 50;
+  outcome = DigiKeyLookupOutcome::Failed;
+  const auto body = requestKeywordSearch(keywords, error, kSearchLimit);
+  if (!body.has_value()) return {};
+  string parseError;
+  const auto root = parseJson(*body, &parseError);
+  if (!root.has_value() || asObject(*root) == nullptr) {
+    if (error != nullptr) *error = "Unable to parse DigiKey keyword response: " + parseError;
+    return {};
+  }
+  auto products = parseSearchProducts(*root);
+  const auto fetchedAt = time(nullptr);
+  for (auto& product : products) {
+    product.vendorMetadata.locale = config_.language;
+    for (auto& offer : product.offers) offer.fetchedAt = fetchedAt;
+    clearInvalidOptionalFields(product);
+  }
+  outcome = products.empty() ? DigiKeyLookupOutcome::NoMatch : DigiKeyLookupOutcome::Found;
+  return products;
+}
+
+VendorCandidate digiKeyCandidate(const DigiKeyProductDetails& details) {
+  VendorCandidate candidate;
+  candidate.manufacturer = details.manufacturerName;
+  candidate.manufacturerPartNumber = details.manufacturerPartNumber;
+  candidate.description = details.productDescription;
+  candidate.category = details.categoryName;
+  candidate.status = details.productStatus;
+  candidate.discontinued = toLower(details.productStatus).find("discontinued") != string::npos;
+  candidate.parameters = details.parameters;
+  if (isUnsignedDecimal(details.quantityAvailable, 1000000000000ULL)) {
+    candidate.stock = stoull(trim(details.quantityAvailable));
+  }
+  candidate.offers = details.offers;
+  // The page opens in a browser, so only a link to DigiKey itself is kept.
+  candidate.productUrl = vendorLinkAllowed("digikey", details.productUrl) ? details.productUrl : string();
+  return candidate;
 }
 
 }  // namespace inventatory

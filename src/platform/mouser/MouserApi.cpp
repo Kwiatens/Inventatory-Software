@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Mouser catalogue client (Search API v1). A lookup is one keyword search; no second request.
-// Field names follow Mouser's published v1 response, not a live one; check them before release.
+// Field names were checked against a live v1 response on 2026-10-23.
 // Absent fields are absent data, not errors; numbers may arrive as JSON numbers or strings.
 
 #define WIN32_LEAN_AND_MEAN
@@ -11,6 +11,7 @@
 #include "platform/mouser/MouserApi.h"
 
 #include "core/inventory/VendorProvider.h"
+#include "core/vendor/VendorOffer.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/vendor/VendorRateLimits.h"
 #include "platform/security/CredentialStore.h"
@@ -20,6 +21,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <initializer_list>
 #include <mutex>
 #include <thread>
@@ -304,9 +306,55 @@ void readLifecycle(const JsonPtr& record, MouserProductDetails& product) {
   } else if (discontinued) {
     product.productStatus = "Discontinued";
   }
-  if (discontinued || containsInsensitive(lifecycle, "obsolete") || containsInsensitive(lifecycle, "discontinued")) {
+  // An obsolete part is still on sale while stock lasts, so only a discontinued one is not sold.
+  if (discontinued || containsInsensitive(lifecycle, "discontinued")) {
     product.orderable = false;
   }
+}
+
+// A count such as "2,500"; nullopt when absent or not a whole number.
+optional<uint64_t> countField(const JsonPtr& record, const char* key) {
+  const auto text = withoutSeparators(fieldText(record, key));
+  if (!isUnsignedDecimal(text, kMaximumCount)) return nullopt;
+  return stoull(text);
+}
+
+// The offer behind the record, or nullopt when Mouser gave no usable price. Prices are localized
+// text ("0,453 zł") with the currency beside them. One unreadable break or a second currency
+// drops the whole offer: a partial price list could pick the wrong break.
+optional<VendorOffer> readOffer(const JsonPtr& record, const MouserProductDetails& product) {
+  const auto* breaks = memberArray(record, "PriceBreaks");
+  if (breaks == nullptr || breaks->empty() || product.vendorMetadata.providerProductNumber.empty()) return nullopt;
+  // Prices in one list share their format; the first clear one says which separator is the decimal
+  // point. Without one, an unclear "1,234" is refused, and with it the whole offer.
+  char decimalPoint = 0;
+  for (const auto& entry : *breaks) {
+    if (decimalPoint == 0) decimalPoint = priceDecimalPoint(fieldText(entry, "Price"));
+  }
+  VendorOffer offer;
+  for (const auto& entry : *breaks) {
+    const auto quantityText = withoutSeparators(fieldText(entry, "Quantity"));
+    const auto price = parsePriceTextMicros(fieldText(entry, "Price"), decimalPoint);
+    const auto currency = toUpper(fieldText(entry, "Currency"));
+    if (!isUnsignedDecimal(quantityText, kMaximumCount) || !price.has_value() || !isCurrencyCode(currency)) {
+      return nullopt;
+    }
+    if (offer.currency.empty()) offer.currency = currency;
+    if (currency != offer.currency) return nullopt;
+    offer.breaks.push_back({stoull(quantityText), *price});
+  }
+  if (!normalizePriceBreaks(offer.breaks)) return nullopt;
+  offer.provider = kVendorProviderMouser;
+  offer.sku = product.vendorMetadata.providerProductNumber;
+  offer.manufacturer = product.manufacturerName;
+  offer.manufacturerPartNumber = product.vendorMetadata.manufacturerPartNumber;
+  offer.productUrl = vendorLinkAllowed(kVendorProviderMouser, product.productUrl) ? product.productUrl : string();
+  if (!product.quantityAvailable.empty()) offer.stock = stoull(product.quantityAvailable);
+  offer.minimumOrder = max<uint64_t>(countField(record, "Min").value_or(1), 1);
+  offer.multiple = max<uint64_t>(countField(record, "Mult").value_or(1), 1);
+  offer.lifecycle = product.productStatus;
+  offer.orderable = product.orderable;
+  return offer;
 }
 
 MouserProductDetails readPart(const JsonPtr& record) {
@@ -330,6 +378,7 @@ MouserProductDetails readPart(const JsonPtr& record) {
   readAttributes(record, product);
   addFerriteParameters(product);
   readLifecycle(record, product);
+  product.offer = readOffer(record, product);
   return product;
 }
 
@@ -373,6 +422,10 @@ MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetai
   }
   string bodyError;
   const auto failure = readSearchResponse(response.body, products, &bodyError);
+  const auto fetchedAt = time(nullptr);
+  for (auto& product : products) {
+    if (product.offer.has_value()) product.offer->fetchedAt = fetchedAt;
+  }
   if (status == 401 || status == 403) {
     products.clear();
     // A limit can come with a 401 or 403; the key is not the problem.

@@ -182,6 +182,14 @@ ftxui::Element App::renderOnboardingContent() const {
       rows.push_back(styledText("Current folder: " + dataPath_.u8string(), uiSecondaryText()));
       rows.push_back(onboardingPrompt("Enter use this folder   B choose another"));
       break;
+    case OnboardingStep::Currency: {
+      rows.push_back(uiHeaderText("Which currency should prices use?", uiTitleColor()));
+      rows.push_back(styledText("DigiKey, TME and Mouser prices are compared in this currency.", uiSecondaryText()));
+      const auto current = sharedVendorCurrency(settings_);
+      rows.push_back(onboardingPrompt(current.empty() ? "E EUR   P PLN   U USD"
+                                                      : "E EUR   P PLN   U USD   Enter keep " + current));
+      break;
+    }
     case OnboardingStep::BackgroundService:
       rows.push_back(uiHeaderText("Run Inventatory in the background?", uiTitleColor()));
 #ifdef _WIN32
@@ -313,6 +321,17 @@ void App::handleOnboardingKey(const KeyEvent& key) {
         advanceOnboarding();
       }
       return;
+    case OnboardingStep::Currency: {
+      const char* chosen = ch == 'e' ? "EUR" : ch == 'p' ? "PLN" : ch == 'u' ? "USD" : nullptr;
+      if (chosen == nullptr) {
+        if (key.type == KeyType::Enter && !sharedVendorCurrency(settings_).empty()) advanceOnboarding();
+        return;
+      }
+      settingsDraft_ = settings_;
+      setSharedVendorCurrency(settingsDraft_, chosen);
+      if (saveSettingsDraft()) advanceOnboarding();
+      return;
+    }
     case OnboardingStep::BackgroundService:
       if (ch == 'y' || ch == 'n') {
         settingsDraft_ = settings_;

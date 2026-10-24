@@ -3,9 +3,12 @@
 
 #pragma once
 
+#include "core/bom/BomVendorMatch.h"
 #include "core/inventory/Inventory.h"
+#include "core/vendor/VendorOffer.h"
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -45,6 +48,11 @@ struct TmeProductDetails {
   // TME's availability status in words, and whether the product can be ordered.
   std::string productStatus;
   bool orderable = true;
+  // From the product record; 1 when TME does not say.
+  std::uint64_t minimumOrder = 1;
+  std::uint64_t multiple = 1;
+  // Net prices per break, from the stock and price lookup. Empty when TME gave no usable price.
+  std::optional<VendorOffer> offer;
 };
 
 // What a TME lookup searches for: a symbol, or a part number matched exactly.
@@ -87,6 +95,9 @@ bool tmePartNumberMatches(const std::string& partNumber, const TmeProductDetails
 // filters first, then the product whose symbol is the part number. Returns matches.size() if ambiguous.
 std::size_t chooseTmeCandidate(const std::vector<TmeProductDetails>& matches, const std::string& partNumber,
                                const std::string& manufacturer);
+// The product as the matcher and the picker read a vendor part. Its offer comes from the stock and price
+// lookup; a product without one has no price, so it cannot be bought.
+VendorCandidate tmeCandidate(const TmeProductDetails& product);
 
 // TME API v2 client. It gets an access token with OAuth 2.0 client credentials (HTTP Basic), then
 // makes bearer-authenticated requests.

@@ -39,7 +39,7 @@ void App::handleBomProjectKey(const KeyEvent& key) {
       bomBuildStep_ = 0;
       bomCommits_.clear();
       bomCommitTaken_.clear();
-      bomView_ = BomView::Split;
+      bomView_ = BomView::Overview;
       dirty_ = true;
     }
     return;  // Registered actions (y, n, +, -, Backspace) are dispatched first.
@@ -53,7 +53,7 @@ void App::handleBomProjectKey(const KeyEvent& key) {
     } else if (key.type == KeyType::Right) {
       advanceBomBuild(1);
     } else if (key.type == KeyType::Escape) {
-      bomView_ = BomView::Split;
+      bomView_ = BomView::Overview;
       bomBuildStep_ = 0;
       dirty_ = true;
     }
@@ -87,51 +87,24 @@ void App::handleBomProjectKey(const KeyEvent& key) {
     return;
   }
 
-  if (key.type == KeyType::Character) {
-    switch (tolower(static_cast<unsigned char>(key.ch))) {
-      case 'j':
-        moveBomSelection(1);
-        break;
-      case 'k':
-        moveBomSelection(-1);
-        break;
-      // '=' and '_' are the unshifted twins of the registered '+' and '-'.
-      case '=':
-        adjustBomBoards(1);
-        break;
-      case '_':
-        adjustBomBoards(-1);
-        break;
-      default:
-        break;
-    }
-    return;
-  }
-
-  if (key.type == KeyType::Up) {
-    moveBomSelection(-1);
-  } else if (key.type == KeyType::Down) {
-    moveBomSelection(1);
-  } else if (key.type == KeyType::PageUp) {
-    moveBomSelection(-10);
-  } else if (key.type == KeyType::PageDown) {
-    moveBomSelection(10);
-  } else if (key.type == KeyType::Home) {
-    bomSplitSelection_ = 0;
-    dirty_ = true;
-  } else if (key.type == KeyType::End) {
-    if (!bomAnalysis_.matches.empty()) {
-      bomSplitSelection_ = bomAnalysis_.matches.size() - 1;
-      dirty_ = true;
-    }
-  } else if (key.type == KeyType::Enter) {
-    if (!bomAnalysis_.matches.empty() &&
-               !bomAnalysis_.matches[min(bomSplitSelection_, bomAnalysis_.matches.size() - 1)].sufficient) {
-      beginBomRestock();
-    }
+  // The project views: registered actions dispatch first, so only the arrows and Esc land here.
+  const bool up = key.type == KeyType::Up || (key.type == KeyType::Character && key.ch == 'k');
+  const bool down = key.type == KeyType::Down || (key.type == KeyType::Character && key.ch == 'j');
+  if (up || down) {
+    moveBomViewSelection(down ? 1 : -1);
+  } else if (key.type == KeyType::PageUp || key.type == KeyType::PageDown) {
+    moveBomViewSelection(key.type == KeyType::PageDown ? 10 : -10);
+  } else if (key.type == KeyType::Character && (key.ch == '=' || key.ch == '_') &&
+             (bomView_ == BomView::Overview || bomView_ == BomView::Lines)) {
+    // '=' and '_' are the unshifted twins of the registered '+' and '-'.
+    adjustBomBoards(key.ch == '=' ? 1 : -1);
   } else if (key.type == KeyType::Escape) {
-    bomView_ = BomView::List;
-    dirty_ = true;
+    if (bomView_ == BomView::Overview) {
+      bomView_ = BomView::List;
+      dirty_ = true;
+    } else {
+      openBomOverview();
+    }
   }
 }
 
