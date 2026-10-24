@@ -14,6 +14,17 @@ namespace inventatory {
 // Empty when no rule matches; the caller keeps the TME category name.
 std::string tmeCategoryFamily(const std::string& categoryName);
 
+// TME's description in the list form DigiKey names use: "Connector: pin strips; socket; PIN: 40; THT" becomes
+// "CONNECTOR PIN STRIPS SOCKET PIN 40 THT". Colons after a label and the semicolons between attributes are
+// dropped, letters are upper-cased, and the first number stays where the Stock list highlights it. A
+// description with nothing to rewrite is returned trimmed.
+std::string tmeListName(const std::string& description);
+
+// The name a part gets in Stock. A connector with a known pin count reads as a short phrase, "Female 40 Pin
+// Connector 2.54mm", using the gender in the description and the pitch among the parameters. Every other
+// description falls back to tmeListName.
+std::string tmeReadableName(const std::string& description, const std::vector<Parameter>& parameters);
+
 // The DigiKey name for the same quantity, or TME's name when there is none. The family selects the
 // meaning for names that depend on the kind of part.
 std::string tmeParameterName(const std::string& name, const std::string& family);
