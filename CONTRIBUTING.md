@@ -35,8 +35,9 @@ tests, and `inventatory_tests --filter <text>` runs a subset.
 ## Commits and pull requests
 
 - Keep one logical change per commit.
-- If a change is visible to users, add an entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Write
-  the entry in plain terms of what users can see or do, not as a list of code changes.
+- If a change is visible to users, put its entry in the pull request's Changelog section. Write it in plain terms
+  of what users can see or do, not as a list of code changes. The maintainer collects approved entries into
+  [CHANGELOG.md](CHANGELOG.md) at release time.
 
 ## Data, secrets and logging
 
