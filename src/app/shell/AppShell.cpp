@@ -170,6 +170,8 @@ void App::processBackgroundWork() {
   processUpdateCheck();
   processSoftwareUpdate();
   processScanFirmwareCheck();
+  processScanFirmwareDownload();
+  processScanFirmwareTransfer();
   processBleProvisioning();
   finishSupplierTest(digiKeyTestFuture_, "DigiKey");
   finishSupplierTest(tmeTestFuture_, "TME");

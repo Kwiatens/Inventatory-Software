@@ -451,6 +451,7 @@ bool App::stopUpdateWorkUntil(chrono::steady_clock::time_point deadline) {
   finished = finishWorker(updateOperationFuture_, deadline) && finished;
   finished = finishWorker(updateCheckFuture_, deadline) && finished;
   finished = finishWorker(scanFirmwareFuture_, deadline) && finished;
+  finished = finishWorker(scanFirmwareDownloadFuture_, deadline) && finished;
   finished = finishWorker(bleProvisionFuture_, deadline) && finished;
   finished = finishWorker(digiKeyTestFuture_, deadline) && finished;
   finished = finishWorker(tmeTestFuture_, deadline) && finished;
@@ -507,18 +508,19 @@ DeviceServiceRestart App::restartDeviceService() {
   }
   server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                inventatoryScanReplayStatePath(dataPath_));
+  prepareScanFirmwareCourier();
   if (!server_.start(settings_.deviceServicePort,
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
                        return handleDeviceSync(request, response, error);
                      })) {
-    setMessage("Inventatory Scan R1 service failed to restart; terminal still works", 6);
+    setMessage("Inventatory Scanner R1 service failed to restart; terminal still works", 6);
     return DeviceServiceRestart::Failed;
   }
   const auto boundAddresses = server_.addresses();
   if (!boundAddresses.empty() && mdnsService_.start(server_.port(), boundAddresses.front())) {
-    setMessage("Inventatory Scan R1 bridge restarted on port " + to_string(server_.port()), 5);
+    setMessage("Inventatory Scanner R1 bridge restarted on port " + to_string(server_.port()), 5);
   } else {
-    setMessage("Inventatory Scan R1 bridge restarted; network discovery unavailable", 5);
+    setMessage("Inventatory Scanner R1 bridge restarted; network discovery unavailable", 5);
   }
   dirty_ = true;
   return DeviceServiceRestart::Restarted;

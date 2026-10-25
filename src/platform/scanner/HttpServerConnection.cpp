@@ -144,6 +144,10 @@ bool LocalHttpServer::serveConnection(NativeSocket clientSocket, string requestT
     return true;
   }
 
+  if (method == "POST" && target.rfind("/api/v1/device/firmware/", 0) == 0) {
+    return serveFirmwareRequest(clientSocket, target, headerValues, body);
+  }
+
   if (target.rfind("/api/", 0) == 0) {
     const auto response = responseText("404 Not Found", "application/json; charset=utf-8",
                                        statusResultJson(false, "Unsupported device API route"));

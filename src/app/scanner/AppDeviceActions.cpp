@@ -64,6 +64,7 @@ bool App::handleDeviceSync(const DeviceSyncRequest& request, DeviceSyncResponse&
     printDeviceQuickLabel(request.quickLabelPrint, request.deviceId, context->generation,
                           response.quickLabelPrintResult);
   }
+  response.firmwareOffer = scanFirmware_.offersTo(request.firmwareVersion);
   return true;
 }
 

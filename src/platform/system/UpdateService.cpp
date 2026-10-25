@@ -1125,4 +1125,14 @@ UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVer
   return latestRelease(kScanFirmwareRepository, installedVersion);
 }
 
+bool downloadScanFirmwarePackage(const std::string& tag, const std::filesystem::path& destination,
+                                 const UpdateDownloadProgress& progress, std::string& error) {
+  if (!validRepository(kScanFirmwareRepository) || !validReleaseTag(tag)) {
+    error = "Scan R1 firmware releases are not configured";
+    return false;
+  }
+  const auto url = buildReleaseAssetUrl(kScanFirmwareRepository, tag, "firmware.ota");
+  return downloadReleaseAsset(url, destination, progress, error);
+}
+
 }  // namespace inventatory

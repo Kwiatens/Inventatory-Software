@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory Scan R1 protocol types, validation, persistence, and stock mutation rules.
+// Inventatory Scanner R1 protocol types, validation, persistence, and stock mutation rules.
 
 #pragma once
 
@@ -174,6 +174,8 @@ struct DeviceSyncResponse {
   std::vector<std::string> quickLabelPresets;
   bool hasQuickLabelPrintResult = false;
   DeviceQuickLabelPrintResult quickLabelPrintResult;
+  // A hint that a firmware update is waiting. The scanner still asks the firmware offer route first.
+  bool firmwareOffer = false;
 };
 
 bool loadInventatoryScanConfig(const std::filesystem::path& path, InventatoryScanConfig& config);
