@@ -1,0 +1,7 @@
+title: Works with
+
+row: Vendors | DigiKey, TME and Mouser
+row: EDA tools | KiCad, EasyEDA and Altium Designer BOMs
+row: Label printers | ZPL and TSPL thermal printers
+row: Scanner | Inventatory Scanner R1, open hardware
+row: Systems | Windows and Linux, x86-64
