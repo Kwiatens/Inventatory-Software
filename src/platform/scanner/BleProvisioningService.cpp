@@ -122,7 +122,7 @@ void BleProvisioningService::discoveryLoop() {
       });
       if (!matches) return;
       const auto localName = winrt::to_string(args.Advertisement().LocalName());
-      rememberDevice(args.BluetoothAddress(), localName.empty() ? "Inventatory Scan R1" : localName,
+      rememberDevice(args.BluetoothAddress(), localName.empty() ? "Inventatory Scanner R1" : localName,
                      args.RawSignalStrengthInDBm());
     });
     watcher.Start();

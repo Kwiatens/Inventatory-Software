@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <limits>
 #include <chrono>
+#include <iomanip>
 #include <optional>
 #include <sstream>
 
@@ -505,6 +506,32 @@ string ellipsize(const string& value, size_t maxLength) {
 string uiProgressBar(size_t done, size_t total, size_t cells) {
   const size_t filled = total == 0 ? 0 : min(cells, done * cells / total);
   return "[" + string(filled, '#') + string(cells - filled, '-') + "]";
+}
+
+string formatBytes(uint64_t bytes) {
+  static constexpr const char* units[] = {"B", "KB", "MB", "GB"};
+  double value = static_cast<double>(bytes);
+  size_t unit = 0;
+  while (value >= 1024.0 && unit + 1U < size(units)) {
+    value /= 1024.0;
+    ++unit;
+  }
+  ostringstream output;
+  output << fixed << setprecision(unit == 0 ? 0 : value < 10.0 ? 1 : 0) << value << ' ' << units[unit];
+  return output.str();
+}
+
+ftxui::Element uiTransferProgressRow(const UiTransferProgress& progress) {
+  ftxui::Elements parts;
+  parts.push_back(styledText(" " + progress.label + " ", uiLinkColor()));
+  if (progress.hasBar) {
+    const auto percent = progress.total == 0 ? uint64_t{0} : min<uint64_t>(100, progress.done * 100 / progress.total);
+    parts.push_back(styledText(uiProgressBar(min(progress.done, progress.total), progress.total) + " ", uiPrimaryText()));
+    parts.push_back(uiHeaderText(to_string(percent) + "%", uiPrimaryText()));
+  }
+  if (!progress.detail.empty()) parts.push_back(styledText("  " + progress.detail, uiMutedColor()));
+  parts.push_back(ftxui::filler());
+  return ftxui::hbox(move(parts)) | ftxui::bgcolor(uiPanelLeftBg());
 }
 
 vector<string> wrapText(const string& text, int width) {

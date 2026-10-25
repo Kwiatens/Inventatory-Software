@@ -25,7 +25,7 @@ body:
     id: scanner_firmware
     attributes:
       label: Scanner firmware version
-      description: Only if an Inventatory Scan R1 is involved.
+      description: Only if an Inventatory Scanner R1 is involved.
     validations:
       required: false
   - type: textarea

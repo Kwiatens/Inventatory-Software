@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Durable inbox and result delivery for the Inventatory Scan R1 protocol.
+// Durable inbox and result delivery for the Inventatory Scanner R1 protocol.
 
 #include "core/scanner/InventatoryScanProtocol.h"
 

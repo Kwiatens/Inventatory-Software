@@ -130,7 +130,7 @@ namespace {
 // beside restored data would apply a stale journal to the restored database.
 constexpr const char* kRestoreReplacedNames[] = {
     "inventory.db",      "activity.tsv",          "printer.conf",
-    "quick_labels.conf", "inventatory_scan.conf", "inventatory-scan-replay.state",
+    "quick_labels.conf", "inventatory_scanner.conf", "inventatory-scanner-replay.state",
     "inventory.db-wal",  "inventory.db-shm",      "inventory.db-journal"};
 // Names the restore bundle itself occupies in the replacement workspace.
 constexpr const char* kRestoreReservedNames[] = {"settings.conf", "manifest.tsv"};
