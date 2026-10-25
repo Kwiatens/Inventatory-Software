@@ -496,6 +496,15 @@ App::SettingsPageModel App::settingsPageModel() const {
                        button("Regenerate", "r", "settings.scan.token.regenerate",
                               [self] { self->regenerateInventatoryScanToken(); }, false, true)};
       rows.push_back(move(token));
+
+      // The firmware package this app keeps and offers to the R1. Loading a file takes effect at once.
+      const auto packageVersion = scanFirmware_.packageVersion();
+      auto package = infoRow("Firmware", "Package", packageVersion.empty() ? "None" : packageVersion,
+                             packageVersion.empty() ? VoiceTone::Muted : VoiceTone::Plain);
+      package.targetId = "settings.scan.firmware";
+      package.activate = [self] { self->loadScanFirmwareFile(); };
+      package.buttons = {button("Load file", "f", "settings.scan.firmware.load", [self] { self->loadScanFirmwareFile(); })};
+      rows.push_back(move(package));
       break;
     }
 

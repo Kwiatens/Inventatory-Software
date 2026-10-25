@@ -204,7 +204,7 @@ ftxui::Element App::renderOnboardingContent() const {
       }
       break;
     case OnboardingStep::ScanR1:
-      rows.push_back(uiHeaderText("Set up an Inventatory Scan R1?", uiTitleColor()));
+      rows.push_back(uiHeaderText("Set up an Inventatory Scanner R1?", uiTitleColor()));
       rows.push_back(styledText("Have the scanner nearby, powered on, with Bluetooth enabled.", uiSecondaryText()));
       if (wizardTransition_.phase == WizardTransitionPhase::SelectionHold && wizardSelectedOption_.has_value()) {
         rows.push_back(onboardingChoicePrompt(*wizardSelectedOption_, "Set up now", "Skip"));

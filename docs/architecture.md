@@ -26,7 +26,7 @@ separate Windows and Linux releases.
 
 The application has one foreground terminal UI, local SQLite persistence,
 import workflows, label printing, and the authenticated service for the
-physical Inventatory Scan R1 device. Windows keeps a background/tray process.
+physical Inventatory Scanner R1 device. Windows keeps a background/tray process.
 Linux uses a per-user systemd background service.
 
 The user-facing interface is the terminal UI. Normal workspace navigation has
@@ -110,7 +110,7 @@ Keep these points when you change threaded code:
 ## Persistence, history, backup and restore
 
 - The selected data directory holds `inventory.db`, `activity.tsv`,
-  `printer.conf`, `quick_labels.conf` and `inventatory_scan.conf`, as
+  `printer.conf`, `quick_labels.conf` and `inventatory_scanner.conf`, as
   applicable.
 - Local application settings live in `%LOCALAPPDATA%\Inventatory\settings.conf`
   on Windows and `$XDG_CONFIG_HOME/Inventatory/settings.conf` on Linux. They
@@ -152,7 +152,7 @@ See also [backup-restore.md](backup-restore.md).
   existing restart and apply path and show the result to the user. Do not leave
   a service running on stale credentials or paths.
 
-## Inventatory Scan R1 security invariants
+## Inventatory Scanner R1 security invariants
 
 The scanner transport code is a security boundary:
 `src/core/scanner/InventatoryScanProtocol.cpp` and

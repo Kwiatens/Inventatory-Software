@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Authenticated local device service for the Inventatory Scan R1.
+// Authenticated local device service for the Inventatory Scanner R1.
 
 #pragma once
 
@@ -20,12 +20,15 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "platform/scanner/HttpServerProtocolInternal.h"
 #include "platform/scanner/SocketPlatform.h"
 
 #include "core/inventory/Inventory.h"
 #include "core/scanner/InventatoryScanProtocol.h"
 
 namespace inventatory {
+
+class ScanFirmwareCourier;
 
 namespace filesystem = std::filesystem;
 using std::atomic;
@@ -56,6 +59,8 @@ class LocalHttpServer {
   bool start(uint16_t preferredPort, SyncCallback onSync);
   void stop();
   void setDeviceCredentials(string deviceId, string token, path replayStatePath = {});
+  // Must be set while the server is stopped. The courier must outlive the server.
+  void setFirmwareCourier(ScanFirmwareCourier* courier);
 
   bool running() const;
   uint16_t port() const;
@@ -75,8 +80,11 @@ class LocalHttpServer {
   void readerLoop();
   void acceptLoop();
   bool serveConnection(NativeSocket clientSocket, string requestText);
+  bool serveFirmwareRequest(NativeSocket clientSocket, const string& target,
+                            const http_server_detail::HttpHeaderMap& headerValues, const string& body);
   string responseText(const string& status, const string& contentType, const string& body) const;
-  string authenticatedResponseText(int status, std::uint64_t counter, const string& token, const string& body) const;
+  string authenticatedResponseText(int status, std::uint64_t counter, const string& token, const string& body,
+                                   const string& contentType = "application/json; charset=utf-8") const;
   bool reserveReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
   void releaseReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
   bool advanceReplayCounter(std::uint64_t counter, std::uint64_t credentialEpoch);
@@ -98,6 +106,7 @@ class LocalHttpServer {
   condition_variable clientQueueChanged_;
   deque<ReadyClient> clientQueue_;
   SyncCallback onSync_;
+  ScanFirmwareCourier* firmwareCourier_ = nullptr;
   mutable mutex callbackMutex_;
   mutable mutex stateMutex_;
   // The callback runs synchronously, since the response carries its result. Calls are serialized

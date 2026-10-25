@@ -30,7 +30,7 @@ namespace app_actions {
 
 constexpr std::size_t kDeviceStatusQueueLimit = 256;
 constexpr std::uintmax_t kMaximumImportBytes = 25U * 1024U * 1024U;
-constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
+constexpr const char* kInventatoryScanTokenCredential = "inventatory-scanner-pairing-token";
 
 // Retry delay after a failed scanner commit: 2 s, doubling up to 60 s.
 inline std::chrono::seconds deviceSyncRetryDelay(int consecutiveFailures) {

@@ -165,6 +165,27 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
   return true;
 }
 
+bool openFirmwareFileDialog(filesystem::path& selectedPath) {
+  const wchar_t filter[] = L"Scan R1 firmware (*.ota)\0*.ota\0All files (*.*)\0*.*\0";
+  wstring fileName(32768U, L'\0');
+  OPENFILENAMEW dialog{};
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = nullptr;
+  dialog.lpstrFilter = filter;
+  dialog.lpstrFile = fileName.data();
+  dialog.nMaxFile = static_cast<DWORD>(fileName.size());
+  dialog.lpstrTitle = L"Select a Scan R1 firmware file";
+  dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+  dialog.lpstrDefExt = L"ota";
+
+  if (GetOpenFileNameW(&dialog) == 0) {
+    return false;
+  }
+
+  selectedPath = filesystem::path(fileName.c_str());
+  return true;
+}
+
 bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
                     const string& defaultExtension) {
   wstring fileName(32768U, L'\0');

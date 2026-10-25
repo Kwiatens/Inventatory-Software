@@ -35,6 +35,7 @@
 #include "platform/scanner/BleProvisioningService.h"
 #include "platform/system/BackgroundController.h"
 #include "platform/scanner/HttpServer.h"
+#include "platform/scanner/ScanFirmwareCourier.h"
 #include "platform/scanner/MdnsService.h"
 #include "platform/system/UpdateService.h"
 #include "ui/pages/history/HistoryPagePrivate.h"
@@ -190,6 +191,11 @@ struct BomPartPickerSearch {
 struct BomPickerProgress {
   std::atomic<size_t> done{0};
   std::atomic<size_t> total{0};
+};
+// Bytes of a Scan R1 firmware download from GitHub. The worker writes them; the bottom row reads them.
+struct ScanFirmwareDownloadProgress {
+  std::atomic<std::uint64_t> downloaded{0};
+  std::atomic<std::uint64_t> total{0};
 };
 
 class App {
@@ -697,6 +703,11 @@ class App {
   bool stopUpdateWorkUntil(std::chrono::steady_clock::time_point deadline);
   void beginScanFirmwareCheck();
   void processScanFirmwareCheck();
+  void beginScanFirmwareDownload(const std::string& tag);
+  void processScanFirmwareDownload();
+  void processScanFirmwareTransfer();
+  void prepareScanFirmwareCourier();
+  void loadScanFirmwareFile();
   // Shows a finished credential test, unless the workspace changed while it ran.
   void finishSupplierTest(std::future<SupplierTestResult>& testFuture, const std::string& supplier);
   void beginTmeRefresh();
@@ -1012,6 +1023,8 @@ class App {
   LabelPrinterService printerService_;
   std::vector<PrinterQueueInfo> printerQueues_;
   PrinterCheckResult printerCheck_;
+  // Declared before server_, so the courier outlives the server that reads it.
+  ScanFirmwareCourier scanFirmware_;
   LocalHttpServer server_;
   BackgroundController& backgroundController_;
   bool startInBackground_ = false;
@@ -1288,6 +1301,10 @@ class App {
   time_t settingsConfirmUntil_ = 0;
   std::future<UpdateCheckResult> updateCheckFuture_;
   std::future<UpdateCheckResult> scanFirmwareFuture_;
+  std::future<ScanFirmwareDownloadResult> scanFirmwareDownloadFuture_;
+  std::shared_ptr<ScanFirmwareDownloadProgress> scanFirmwareDownloadProgress_;
+  std::string scanFirmwareDownloadVersion_;  // The release being downloaded, for the bottom row.
+  std::string scanFirmwareSeenState_;        // The last scanner state that was announced in a message.
   std::future<SupplierTestResult> digiKeyTestFuture_;
   std::future<SupplierTestResult> tmeTestFuture_;
   std::future<SupplierTestResult> mouserTestFuture_;
@@ -1311,6 +1328,7 @@ class App {
   bool updateInstallerLaunched_ = false;
   std::string scanFirmwareLatestVersion_;
   bool scanFirmwareChecked_ = false;
+  bool scanFirmwareStartupCheckStarted_ = false;
   bool scanFirmwareCheckFailed_ = false;
   mutable std::deque<UiTarget> uiTargets_;  // deque: element addresses must stay stable
   mutable std::string hoveredTargetId_;

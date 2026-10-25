@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory Scan R1 protocol types, validation, persistence, and stock mutation rules.
+// Inventatory Scanner R1 protocol types, validation, persistence, and stock mutation rules.
 
 #include "core/scanner/InventatoryScanProtocol.h"
 #include "core/scanner/InventatoryScanProtocolPrivate.h"
@@ -229,6 +229,8 @@ string deviceSyncResponseJson(const DeviceSyncResponse& response) {
         << jsonEscape(result.code) << "\",\"message\":\""
         << jsonEscape(boundedResponseText(result.message, kInventatoryScanResponseTextLimit)) << "\"}";
   }
+  // A hint only: the scanner asks the firmware offer route before it shows anything to the user.
+  if (response.firmwareOffer) out << ",\"firmwareOffer\":true";
   out << '}';
   return out.str();
 }

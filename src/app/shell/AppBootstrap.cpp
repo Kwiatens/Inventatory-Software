@@ -58,7 +58,7 @@ filesystem::path discoverInventatoryDataPath() {
 
 InventatoryDataPaths makeInventatoryDataPaths(const filesystem::path& dataDirectory) {
   return {dataDirectory, dataDirectory / "inventory.db", dataDirectory / "printer.conf",
-          dataDirectory / "activity.tsv", dataDirectory / "inventatory_scan.conf"};
+          dataDirectory / "activity.tsv", dataDirectory / "inventatory_scanner.conf"};
 }
 
 bool switchInventatoryDataPathsAfterSaving(InventatoryDataPaths& active, const filesystem::path& nextDataDirectory,
