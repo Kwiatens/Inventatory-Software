@@ -14,6 +14,7 @@
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/screen/box.hpp>
 
+#include <cstdint>
 #include <initializer_list>
 #include <optional>
 #include <sstream>
@@ -130,6 +131,19 @@ string ellipsize(const string& value, size_t maxLength);
 // A progress bar of `cells` ASCII cells, "[####------]", filled by done / total. It is drawn again
 // with each new count, never animated, so the number beside it is what changes.
 string uiProgressBar(size_t done, size_t total, size_t cells = 10);
+// Plain bytes for a size, such as "640 KB" or "1.5 MB".
+string formatBytes(uint64_t bytes);
+
+// One line of progress for a long transfer in the bottom message row: a label, then a bar with its
+// percentage when `hasBar` is set, then a muted detail.
+struct UiTransferProgress {
+  string label;
+  bool hasBar = false;
+  uint64_t done = 0;
+  uint64_t total = 0;
+  string detail;
+};
+ftxui::Element uiTransferProgressRow(const UiTransferProgress& progress);
 
 // Splits a part name ("CAP CER 0.1UF 16V X7R 0603") into type, first value and spec.
 // The pieces rejoin to the original words; a name with no value keeps all in `value`.

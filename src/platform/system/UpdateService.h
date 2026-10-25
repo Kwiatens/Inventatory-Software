@@ -65,5 +65,9 @@ UpdateCheckResult checkLatestRelease(const std::string& installedVersion);
 // Latest Scan R1 firmware. An empty `installedVersion` still returns the release, with
 // `updateAvailable` false.
 UpdateCheckResult checkLatestScanFirmwareRelease(const std::string& installedVersion);
+// Downloads firmware.ota of the Scan R1 release `tag` over HTTPS to `destination`, reporting the bytes
+// received to `progress`. The caller checks the package signature before it uses the file.
+bool downloadScanFirmwarePackage(const std::string& tag, const std::filesystem::path& destination,
+                                 const UpdateDownloadProgress& progress, std::string& error);
 
 }  // namespace inventatory

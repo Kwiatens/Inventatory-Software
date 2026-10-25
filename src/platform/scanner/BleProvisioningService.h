@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory Scan R1 BLE discovery and encrypted first-use provisioning.
+// Inventatory Scanner R1 BLE discovery and encrypted first-use provisioning.
 #pragma once
 
 #include <chrono>

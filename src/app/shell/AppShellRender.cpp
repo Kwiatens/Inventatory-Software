@@ -15,6 +15,7 @@
 #include <ftxui/screen/terminal.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <ctime>
 #include <string>
 #include <utility>
@@ -327,7 +328,7 @@ ftxui::Element App::renderSearchBarUi() const {
         break;
       case Page::ScanSetup:
         contextTitle = "Setup wizard";
-        contextText = "Guided Bluetooth provisioning for Inventatory Scan R1";
+        contextText = "Guided Bluetooth provisioning for Inventatory Scanner R1";
         break;
       case Page::VendorSetup:
         contextTitle = "Setup wizard";
@@ -428,6 +429,40 @@ ftxui::Element App::renderSearchBarUi() const {
 }
 
 ftxui::Element App::renderMessageUi() const {
+  // Scanner firmware, in order: the GitHub download, the chunks the scanner takes, then its install.
+  const auto firmwareProgress = [this]() -> optional<ftxui::Element> {
+    using namespace chrono;
+    constexpr auto kStalledAfter = seconds(30);
+    const auto download = scanFirmwareDownloadProgress_;
+    if (download && scanFirmwareDownloadFuture_.valid() &&
+        scanFirmwareDownloadFuture_.wait_for(seconds(0)) != future_status::ready) {
+      const auto done = download->downloaded.load();
+      const auto total = download->total.load();
+      const auto detail = formatBytes(done) + (total > 0 ? " of " + formatBytes(total) : string());
+      return fixedMessageRow(uiTransferProgressRow(
+          {"Downloading Scan R1 firmware " + scanFirmwareDownloadVersion_ + " from GitHub:", total > 0, done, total,
+           detail}));
+    }
+    const auto transfer = scanFirmware_.transfer();
+    if (transfer.version.empty() || transfer.sentBytes == 0) return nullopt;
+    if (transfer.sentBytes < transfer.imageBytes) {
+      auto detail = formatBytes(transfer.sentBytes) + " of " + formatBytes(transfer.imageBytes);
+      if (transfer.lastChunkAt && steady_clock::now() - *transfer.lastChunkAt >= kStalledAfter) {
+        const auto idle = duration_cast<seconds>(steady_clock::now() - *transfer.lastChunkAt).count();
+        detail += ", no request for " + to_string(idle) + " s";
+      }
+      return fixedMessageRow(uiTransferProgressRow(
+          {"Sending firmware " + transfer.version + " to the scanner:", true, transfer.sentBytes,
+           transfer.imageBytes, detail}));
+    }
+    if (transfer.status.state == "installing") {
+      return fixedMessageRow(
+          uiTransferProgressRow({"Scanner is installing firmware " + transfer.version, false, 0, 0, ""}));
+    }
+    return nullopt;
+  };
+  if (auto row = firmwareProgress()) return move(*row);
+
   const auto refreshProgress = [](const auto& run, const char* supplier) -> optional<ftxui::Element> {
     if (run.total == 0 || !run.running()) return nullopt;
     return fixedMessageRow(ftxui::hbox({

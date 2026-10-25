@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Inventatory Scan R1 transport authentication helpers.
+// Inventatory - Inventatory Scanner R1 transport authentication helpers.
 
 #include "core/scanner/InventatoryScanProtocol.h"
 
@@ -114,7 +114,7 @@ string transportMac(const string& token, const char* direction, const string& in
   array<unsigned char, 32> key{};
   array<unsigned char, 32> mac{};
   if (!decodeToken(token, root)) return {};
-  if (!hmacSha256(root.data(), root.size(), string("Inventatory Scan R1 transport v1 ") + direction, key) ||
+  if (!hmacSha256(root.data(), root.size(), string("Inventatory Scanner R1 transport v1 ") + direction, key) ||
       !hmacSha256(key.data(), key.size(), input, mac)) {
     return {};
   }
@@ -151,24 +151,24 @@ filesystem::path inventatoryScanReplayStatePath(const filesystem::path& workspac
   error_code error;
   const auto absoluteDirectory = filesystem::absolute(workspaceDirectory, error);
   if (error || absoluteDirectory.empty()) return {};
-  return absoluteDirectory.lexically_normal() / "inventatory-scan-replay.state";
+  return absoluteDirectory.lexically_normal() / "inventatory-scanner-replay.state";
 }
 
 string deviceRequestMac(const string& token, const string& method, const string& path, const string& deviceId,
                         uint64_t counter, const string& body) {
   return transportMac(token, "client-to-server",
-                      "Inventatory Scan R1/v1\nrequest\n" + method + '\n' + path + '\n' + deviceId + '\n' +
+                      "Inventatory Scanner R1/v1\nrequest\n" + method + '\n' + path + '\n' + deviceId + '\n' +
                           to_string(counter) + '\n' + body);
 }
 
 string deviceResponseMac(const string& token, uint64_t counter, int status, const string& body) {
   return transportMac(token, "server-to-client",
-                      "Inventatory Scan R1/v1\nresponse\n" + to_string(counter) + '\n' + to_string(status) + '\n' +
+                      "Inventatory Scanner R1/v1\nresponse\n" + to_string(counter) + '\n' + to_string(status) + '\n' +
                           body);
 }
 
 string deviceTransportStateFingerprint(const string& token) {
-  return transportMac(token, "replay-state", "Inventatory Scan R1/v1 replay state");
+  return transportMac(token, "replay-state", "Inventatory Scanner R1/v1 replay state");
 }
 
 }  // namespace inventatory

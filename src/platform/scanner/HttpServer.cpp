@@ -339,10 +339,10 @@ string LocalHttpServer::responseText(const string& status, const string& content
 }
 
 string LocalHttpServer::authenticatedResponseText(int status, uint64_t counter, const string& token,
-                                                  const string& body) const {
+                                                  const string& body, const string& contentType) const {
   ostringstream out;
   out << "HTTP/1.1 " << httpStatusText(status) << "\r\n";
-  out << "Content-Type: application/json; charset=utf-8\r\n";
+  out << "Content-Type: " << contentType << "\r\n";
   out << "Content-Length: " << body.size() << "\r\n";
   out << "Connection: close\r\nCache-Control: no-store\r\n";
   out << "X-Inventatory-Protocol: " << kInventatoryScanTransportProtocolVersion << "\r\n";

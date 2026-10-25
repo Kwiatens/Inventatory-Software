@@ -23,7 +23,7 @@ There is no persistent action wall and no separate Detail page. Scan R1 setup
 and DigiKey setup are guided pages opened from Settings.
 
 The retired phone/web scanner is not part of the Inventatory interface. The physical
-Inventatory Scan R1 remains supported through the desktop application's authenticated
+Inventatory Scanner R1 remains supported through the desktop application's authenticated
 device service; UI copy calls this the R1 service rather than a generic bridge.
 
 The minimum supported terminal is 100 by 30 cells. Smaller terminals show a
@@ -32,7 +32,7 @@ resize notice instead of a clipped interface.
 Fresh-install setup is the sole shell exception. It uses a full-window,
 centered terminal flow with the Inventatory wordmark and no navigation,
 operational status, search, or action sheet. It confirms the data folder, offers
-background mode and physical Inventatory Scan R1 setup, and leaves printer and
+background mode and physical Inventatory Scanner R1 setup, and leaves printer and
 vendor configuration for Settings. The Scan R1 setup page remains
 available from Settings after onboarding.
 

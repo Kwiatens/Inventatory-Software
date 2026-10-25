@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Inventatory - Inventatory Scan R1 configuration persistence.
+// Inventatory - Inventatory Scanner R1 configuration persistence.
 
 #include "core/scanner/InventatoryScanProtocol.h"
 #include "core/storage/AtomicFile.h"

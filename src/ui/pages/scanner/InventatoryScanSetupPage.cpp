@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Paweł Kwiatkowski
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Simple pairing and status page for one Inventatory Scan R1 device.
+// Simple pairing and status page for one Inventatory Scanner R1 device.
 
 #include "App.h"
 
@@ -20,7 +20,7 @@ using namespace std;
 
 namespace {
 
-constexpr const char* kInventatoryScanTokenCredential = "inventatory-scan-pairing-token";
+constexpr const char* kInventatoryScanTokenCredential = "inventatory-scanner-pairing-token";
 
 }  // namespace
 
@@ -135,6 +135,125 @@ void App::processScanFirmwareCheck() {
   } else if (result.updateAvailable) {
     setMessage("Scan R1 firmware " + result.latestVersion + " is available", 6);
   }
+  // Keep the newest release, so it can be offered to the scanner even while the scanner is current.
+  // isVersionNewer compares against an empty version as not newer, so an empty copy is handled here.
+  if (result.completed && (scanFirmware_.packageVersion().empty() ||
+                           isVersionNewer(result.latestVersion, scanFirmware_.packageVersion()))) {
+    beginScanFirmwareDownload(result.latestVersion);
+  }
+  dirty_ = true;
+}
+
+void App::beginScanFirmwareDownload(const string& tag) {
+  // Nothing is downloaded until a trusted key exists, so no unusable package is kept.
+  const auto keys = trustedScanFirmwareKeys();
+  if (scanFirmwareDownloadFuture_.valid() || keys.empty()) return;
+  const auto package = scanFirmwarePackagePath(dataPath_);
+  const auto progress = make_shared<ScanFirmwareDownloadProgress>();
+  scanFirmwareDownloadProgress_ = progress;
+  scanFirmwareDownloadVersion_ = tag;
+  scanFirmwareDownloadFuture_ = async(launch::async, [tag, package, keys, progress] {
+    ScanFirmwareDownloadResult result;
+    const auto partial = package.parent_path() / "firmware.ota.part";
+    error_code folderError;
+    filesystem::create_directories(package.parent_path(), folderError);
+    const auto report = [progress](const string&, uint64_t downloaded, uint64_t total) {
+      progress->downloaded.store(downloaded);
+      progress->total.store(total);
+      return true;
+    };
+    if (folderError || !downloadScanFirmwarePackage(tag, partial, report, result.error) ||
+        !loadScanFirmwarePackage(partial, keys, result.package, result.error)) {
+      if (folderError) result.error = "Scan R1 firmware folder could not be created";
+      error_code removeError;
+      filesystem::remove(partial, removeError);
+      return result;
+    }
+    error_code renameError;
+    filesystem::rename(partial, package, renameError);
+    if (renameError) {
+      result.error = "Scan R1 firmware package could not be kept";
+      return result;
+    }
+    result.completed = true;
+    return result;
+  });
+}
+
+void App::processScanFirmwareDownload() {
+  if (!scanFirmwareDownloadFuture_.valid() ||
+      scanFirmwareDownloadFuture_.wait_for(chrono::seconds(0)) != future_status::ready) {
+    return;
+  }
+  const auto result = scanFirmwareDownloadFuture_.get();
+  if (result.completed) {
+    scanFirmware_.setPackage(result.package);
+    setMessage("Scan R1 firmware " + result.package.version + " is ready to offer", 6);
+  } else if (!result.error.empty()) {
+    setMessage(result.error, 6);
+  }
+  dirty_ = true;
+}
+
+void App::processScanFirmwareTransfer() {
+  // The scanner reports each install state. Each new state gets one message, here on the UI thread.
+  const auto status = scanFirmware_.lastStatus();
+  if (status.state.empty()) {
+    scanFirmwareSeenState_.clear();
+    return;
+  }
+  if (status.state == scanFirmwareSeenState_) return;
+  scanFirmwareSeenState_ = status.state;
+  const auto text = scanFirmwareOutcomeText(status.state, scanFirmware_.packageVersion(), status.reason);
+  if (text.empty()) return;
+  const auto severity = status.state == "installed"  ? UiMessageSeverity::Success
+                        : status.state == "declined" ? UiMessageSeverity::Warning
+                                                     : UiMessageSeverity::Error;
+  setMessage(text, 10, severity);
+  dirty_ = true;
+}
+
+void App::prepareScanFirmwareCourier() {
+  // The kept package is checked again on load, in case the trusted keys have changed since it was saved.
+  if (scanFirmware_.packageVersion().empty()) {
+    ScanFirmwarePackage kept;
+    string error;
+    if (loadScanFirmwarePackage(scanFirmwarePackagePath(dataPath_), trustedScanFirmwareKeys(), kept, error)) {
+      scanFirmware_.setPackage(move(kept));
+    }
+  }
+  server_.setFirmwareCourier(&scanFirmware_);
+  // Check for a new Scan R1 release once per start, when a scanner is paired and daily checks are on.
+  if (!scanFirmwareStartupCheckStarted_ && settings_.updateChecksEnabled && !inventatoryScanConfig_.token.empty()) {
+    scanFirmwareStartupCheckStarted_ = true;
+    beginScanFirmwareCheck();
+  }
+}
+
+void App::loadScanFirmwareFile() {
+  // A file from disk passes the same checks as a downloaded release before it is kept or offered.
+  filesystem::path selectedPath;
+  if (!openFirmwareFileDialog(selectedPath)) {
+    setMessage("Firmware file selection cancelled", 2);
+    return;
+  }
+  ScanFirmwarePackage package;
+  string error;
+  if (!loadScanFirmwarePackage(selectedPath, trustedScanFirmwareKeys(), package, error)) {
+    setMessage("Firmware file refused: " + error, 6);
+    return;
+  }
+  const auto kept = scanFirmwarePackagePath(dataPath_);
+  error_code keepError;
+  filesystem::create_directories(kept.parent_path(), keepError);
+  if (!keepError) filesystem::copy_file(selectedPath, kept, filesystem::copy_options::overwrite_existing, keepError);
+  if (keepError) {
+    setMessage("Firmware file could not be kept", 6);
+    return;
+  }
+  const auto version = package.version;
+  scanFirmware_.setPackage(move(package));
+  setMessage("Scan R1 firmware " + version + " loaded", 6);
   dirty_ = true;
 }
 

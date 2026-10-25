@@ -126,6 +126,7 @@ string httpStatusText(int status) {
     case 404: return "404 Not Found";
     case 409: return "409 Conflict";
     case 413: return "413 Payload Too Large";
+    case 416: return "416 Range Not Satisfiable";
     case 426: return "426 Upgrade Required";
     case 503: return "503 Service Unavailable";
     default: return "500 Internal Server Error";

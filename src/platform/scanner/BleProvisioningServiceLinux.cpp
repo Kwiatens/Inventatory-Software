@@ -821,7 +821,7 @@ void BleProvisioningService::discoveryLoop() {
           if (parseBluetoothAddress(addressText, address)) {
             auto name = stringProperty(device, "Alias");
             if (name.empty()) name = stringProperty(device, "Name");
-            if (name.empty()) name = "Inventatory Scan R1";
+            if (name.empty()) name = "Inventatory Scanner R1";
             gint16 rssi = 0;
             g_variant_lookup(device, "RSSI", "n", &rssi);
             rememberDevice(address, name, rssi);

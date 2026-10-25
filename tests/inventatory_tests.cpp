@@ -43,8 +43,10 @@
 #ifdef near
 #undef near
 #endif
+#include "core/scanner/InventatoryScanFirmware.h"
 #include "core/scanner/InventatoryScanProtocol.h"
 #include "platform/scanner/HttpServer.h"
+#include "platform/scanner/ScanFirmwareCourier.h"
 #include "platform/security/CredentialStore.h"
 #ifdef near
 #undef near
@@ -9381,7 +9383,7 @@ void testDeviceQuantityDeltaClamping() {
 }
 
 void testScanConfigSaveAndLoad() {
-  const auto configPath = testTempRoot() / "inventatory-scan-config-test.conf";
+  const auto configPath = testTempRoot() / "inventatory-scanner-config-test.conf";
   const InventatoryScanConfig expected{"r1-test", string(64, 'a'), "192.168.1.2", 8080, true};
   assert(saveInventatoryScanConfig(configPath, expected));
   InventatoryScanConfig loaded;
@@ -9393,7 +9395,7 @@ void testScanConfigSaveAndLoad() {
   assert(loaded.setupComplete);
   assert(loaded.paired());
 
-  const auto pendingPath = testTempRoot() / "inventatory-scan-config-pending-test.conf";
+  const auto pendingPath = testTempRoot() / "inventatory-scanner-config-pending-test.conf";
   const InventatoryScanConfig pending{"", string(64, 'b'), "", 0, true};
   assert(saveInventatoryScanConfig(pendingPath, pending));
   InventatoryScanConfig pendingLoaded;
@@ -9402,7 +9404,7 @@ void testScanConfigSaveAndLoad() {
   assert(pendingLoaded.paired());
   filesystem::remove(pendingPath);
 
-  const auto legacyPath = testTempRoot() / "inventatory-scan-config-legacy-test.conf";
+  const auto legacyPath = testTempRoot() / "inventatory-scanner-config-legacy-test.conf";
   {
     ofstream legacy(legacyPath, ios::trunc);
     legacy << "device_id=r1-legacy\n"
@@ -9423,10 +9425,10 @@ void testScanConfigSaveAndLoad() {
   assert(generateInventatoryScanToken().size() == 64);
   assert(deviceRequestMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "POST",
                           "/api/v1/device/sync", "r1-test", 42, R"({"protocolVersion":1})") ==
-         "d99b3246f156ffc7b1cf9507f98aeb47603e93f103945badc3e95641e5c8f685");
+         "ae44ba492ad3904c9cc811175493d3be47f86b46c8f91389471716142986a018");
   assert(deviceResponseMac("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", 42, 200,
                            R"({"ok":true})") ==
-         "ec5e858f7b38260c65df43b570e13a7dceab39361d4f17ebf3fe8d4523024423");
+         "8ecd193c2722b403a2424662a00f80010bbeef54076bbefb9c9f68c95976113f");
 }
 
 void testPrinterConfigAtomicReplacement() {
@@ -10126,9 +10128,9 @@ void testDeviceSyncRequestParsing() {
                    "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD \xEF\xBF\xBD\xEF\xBF\xBD\"") != string::npos);
 
   DeviceSyncResponse realisticResponse;
-  realisticResponse.requestId = "Inventatory-SCAN-R1-sync-42";
-  realisticResponse.acceptedEventIds = {"Inventatory-SCAN-R1-41"};
-  realisticResponse.results.push_back({"Inventatory-SCAN-R1-41-result", "Inventatory-SCAN-R1-41", "",
+  realisticResponse.requestId = "Inventatory-SCANNER-R1-sync-42";
+  realisticResponse.acceptedEventIds = {"Inventatory-SCANNER-R1-41"};
+  realisticResponse.results.push_back({"Inventatory-SCANNER-R1-41-result", "Inventatory-SCANNER-R1-41", "",
                                        "completed", false, "10k resistor", -3, -3, 17, "R2-B4", "0002",
                                        "Quantity updated"});
   realisticResponse.hasLookupResult = true;
@@ -12918,7 +12920,7 @@ void testBackupExportAndRestoreWorkflow() {
   assert(bundleCreated);
   assert(filesystem::exists(bundle / "manifest.tsv"));
   assert(filesystem::exists(bundle / "inventory.db"));
-  assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
+  assert(!filesystem::exists(bundle / "inventatory_scanner.conf"));
   assert(validateInventatoryBackup(bundle, error));
   {
     SqliteConnection bundleConnection;
@@ -13239,8 +13241,8 @@ void testBackupExportAndRestoreWorkflow() {
       originalItem.partName = "Original item";
       original.items().push_back(originalItem);
       assert(original.save(keepTarget / "inventory.db"));
-      writeBytes(keepTarget / "inventatory_scan.conf", "old pairing identity");
-      writeBytes(keepTarget / "inventatory-scan-replay.state", "old replay state");
+      writeBytes(keepTarget / "inventatory_scanner.conf", "old pairing identity");
+      writeBytes(keepTarget / "inventatory-scanner-replay.state", "old replay state");
       for (const auto& file : unmanagedFiles) writeBytes(keepTarget / filesystem::u8path(file.first), file.second);
       filesystem::create_directories(keepTarget / "empty-folder");
 #ifndef _WIN32
@@ -13338,8 +13340,8 @@ void testBackupExportAndRestoreWorkflow() {
     assert(restoreInventatoryBackup(bundle, keepTarget, keepSettings, error));
     expectUnmanagedIntact();
     assert(loadItemId() == "transfer-item");
-    assert(!filesystem::exists(keepTarget / "inventatory_scan.conf"));
-    assert(!filesystem::exists(keepTarget / "inventatory-scan-replay.state"));
+    assert(!filesystem::exists(keepTarget / "inventatory_scanner.conf"));
+    assert(!filesystem::exists(keepTarget / "inventatory-scanner-replay.state"));
     assert(!filesystem::exists(keepTarget / "manifest.tsv"));
     assert(!filesystem::exists(keepTarget / "settings.conf"));
     assert(restoreArtifacts().empty());
@@ -13355,7 +13357,7 @@ void testBackupExportAndRestoreWorkflow() {
     for (const auto& conflict : conflicts) {
       resetWorkspace();
       error_code conflictError;
-      filesystem::remove(keepTarget / "inventatory-scan-replay.state", conflictError);
+      filesystem::remove(keepTarget / "inventatory-scanner-replay.state", conflictError);
       if (conflict.second) {
         filesystem::create_directories(keepTarget / filesystem::u8path(conflict.first));
         writeBytes(keepTarget / filesystem::u8path(conflict.first) / "inside.txt", "folder content");
@@ -13442,11 +13444,11 @@ void testBackupExportAndRestoreWorkflow() {
         assert(itemId == "preserve-original" || itemId == "transfer-item");
         if (itemId == "transfer-item") {
           ++committedRecoveries;
-          assert(!filesystem::exists(keepTarget / "inventatory_scan.conf"));
-          assert(!filesystem::exists(keepTarget / "inventatory-scan-replay.state"));
+          assert(!filesystem::exists(keepTarget / "inventatory_scanner.conf"));
+          assert(!filesystem::exists(keepTarget / "inventatory-scanner-replay.state"));
         } else {
           ++rolledBackRecoveries;
-          assert(readBytes(keepTarget / "inventatory_scan.conf") == "old pairing identity");
+          assert(readBytes(keepTarget / "inventatory_scanner.conf") == "old pairing identity");
         }
       }
     }
@@ -13748,13 +13750,13 @@ void testBackupEmptyWorkspaceAndInvalidSources() {
   filesystem::remove(missingBundle / "settings.conf", cleanupError);
   assert(!validateInventatoryBackup(missingBundle, error));
 
-  ofstream secret(emptySource / "inventatory_scan.conf", ios::binary);
+  ofstream secret(emptySource / "inventatory_scanner.conf", ios::binary);
   secret << "token=must-not-leak";
   secret.close();
   const auto secretBundle = root / "inventatory-transfer-secret-bundle";
   filesystem::remove_all(secretBundle, cleanupError);
   assert(createInventatoryBackup(emptySource, emptySettingsPath, secretBundle, "1.0.0", error));
-  assert(!filesystem::exists(secretBundle / "inventatory_scan.conf"));
+  assert(!filesystem::exists(secretBundle / "inventatory_scanner.conf"));
   InventoryTransferTestHooks copyFailureHooks;
   copyFailureHooks.copyFile = [](const filesystem::path&, const filesystem::path&, string& injectedError) {
     injectedError = "injected copy failure";
@@ -14456,7 +14458,7 @@ void testBackupBundleHoldsOnlyDocumentedFiles() {
     assert(documented.count(entry.path().filename().string()) == 1);
   }
   assert(entries >= 3);  // the manifest, the database and the settings are always written
-  assert(!filesystem::exists(bundle / "inventatory_scan.conf"));
+  assert(!filesystem::exists(bundle / "inventatory_scanner.conf"));
 
   string settingsText;
   {
@@ -17108,6 +17110,342 @@ void testSupplierRefreshRun() {
 }
 
 
+// A package from tools/sign_firmware.py in the firmware repository, signed with a throwaway P-256 key
+// that was deleted after signing. Only its public key appears here.
+constexpr char kScanFirmwareTestPublicKeyHex[] =
+    "045c889fa6801904a1d87aa95ccd35c62e476054f348fe36a577122b1635a8e72cbd8852087d31b7174163d456b98b5c09ee769429cbb8d86576b2dba7c2a780c1";
+constexpr char kScanFirmwareTestPackageHex[] =
+    "49564f540100000190672e78dd33152a496e76656e7461746f72792d5363616e"
+    "6e65722d5231000000000000000000007761766573686172652d657370333273"
+    "332d6e616e6f00000000000000000000302e322e300000000000000000000000"
+    "00000000000000000000000000000000010000007800000065419ae48dad4871"
+    "c6fa28039045c1f176811e3d9fccf14d6ef53d8b48149c950000000000000000"
+    "0000000000000000000000000000000000000000000000000000000000000000"
+    "0000000000000000000000000000000000000000000000000000000000000000"
+    "0000000000000000000000000000000000000000000000000000000000000000"
+    "10c848207a226bea090193b5c3c65cdfa357755839dc3b600e8ff82777b50b5d"
+    "1c84481ef8aeb744bec8416f204aee2b926e5764575f4ee76b77abc94bbe362e"
+    "e900000000000000495646574944313b76657273696f6e3d302e322e303b7072"
+    "6f647563743d496e76656e7461746f72792d5363616e6e65722d52313b686172"
+    "64776172653d7761766573686172652d657370333273332d6e616e6f3b636f75"
+    "6e7465723d313b00000102030405060708090a0b0c0d0e0f";
+
+string bytesFromHex(const string& hex) {
+  string bytes;
+  for (size_t i = 0; i + 1U < hex.size(); i += 2U) {
+    bytes.push_back(static_cast<char>(stoi(hex.substr(i, 2U), nullptr, 16)));
+  }
+  return bytes;
+}
+
+vector<ScanFirmwareKey> scanFirmwareTestKeys() {
+  ScanFirmwareKey key;
+  assert(scanFirmwareKeyFromHex(kScanFirmwareTestPublicKeyHex, key));
+  return {key};
+}
+
+ScanFirmwarePackage parsedScanFirmwareTestPackage() {
+  ScanFirmwarePackage parsed;
+  string error;
+  const auto package = bytesFromHex(kScanFirmwareTestPackageHex);
+  assert(parseScanFirmwarePackage(package, scanFirmwareTestKeys(), parsed, error));
+  return parsed;
+}
+
+void testScanFirmwarePackageChecks() {
+  const auto trusted = scanFirmwareTestKeys();
+  assert(trusted.size() == 1U);
+  assert(trusted[0].id == "90672e78dd33152a");
+  assert(trusted[0].publicKey.size() == 65U);
+  ScanFirmwareKey malformed;
+  assert(!scanFirmwareKeyFromHex("04", malformed));
+
+  const auto package = bytesFromHex(kScanFirmwareTestPackageHex);
+  assert(package.size() == 440U);
+  const auto parsed = parsedScanFirmwareTestPackage();
+  assert(parsed.version == "0.2.0");
+  assert(parsed.securityCounter == 1U);
+  assert(parsed.keyId == trusted[0].id);
+  assert(parsed.header.size() == kScanFirmwarePackageHeaderSize);
+  assert(parsed.image.size() == 120U);
+  assert(parsed.imageSha256 == scanFirmwareHex(scanFirmwareSha256(parsed.image)));
+
+  // Each altered copy must be refused with a reason. Header and image bytes are covered by the
+  // signature or the signed image hash; the reserved byte and magic are checked before the signature.
+  const auto refuses = [](const string& candidate, const vector<ScanFirmwareKey>& keys) {
+    ScanFirmwarePackage rejected;
+    string reason;
+    return !parseScanFirmwarePackage(candidate, keys, rejected, reason) && !reason.empty();
+  };
+  const auto flipped = [&package](size_t offset) {
+    auto copy = package;
+    copy[offset] = static_cast<char>(copy[offset] ^ 0x01);
+    return copy;
+  };
+  assert(refuses(package, {}));  // No trusted key yet.
+  auto otherId = trusted[0];
+  otherId.id = "0000000000000000";
+  assert(refuses(package, {otherId}));
+  auto otherKey = trusted[0];
+  otherKey.publicKey[10] = static_cast<char>(otherKey.publicKey[10] ^ 0x01);
+  assert(refuses(package, {otherKey}));
+  assert(refuses(flipped(0U), trusted));    // Magic.
+  assert(refuses(flipped(4U), trusted));    // Format.
+  assert(refuses(flipped(80U), trusted));   // Version text, inside the signed header.
+  assert(refuses(flipped(120U), trusted));  // Signed image hash.
+  assert(refuses(flipped(200U), trusted));  // Reserved bytes.
+  assert(refuses(flipped(300U), trusted));  // Signature.
+  assert(refuses(flipped(400U), trusted));  // Image byte, so the hash no longer matches.
+  assert(refuses(package.substr(0, package.size() - 1U), trusted));
+  assert(refuses(package.substr(0, kScanFirmwarePackageHeaderSize), trusted));
+
+  // The same bytes load from disk, and a missing file is refused.
+  const auto directory = testTempRoot() / "inventatory-firmware-load-test";
+  error_code cleanupError;
+  filesystem::remove_all(directory, cleanupError);
+  filesystem::create_directories(directory);
+  const auto path = directory / "firmware.ota";
+  {
+    ofstream out(path, ios::binary);
+    out.write(package.data(), static_cast<streamsize>(package.size()));
+  }
+  ScanFirmwarePackage loaded;
+  string error;
+  assert(loadScanFirmwarePackage(path, trusted, loaded, error));
+  assert(loaded.imageSha256 == parsed.imageSha256);
+  assert(!loadScanFirmwarePackage(directory / "missing.ota", trusted, loaded, error));
+  filesystem::remove_all(directory, cleanupError);
+}
+
+void testScanFirmwareTransferProgress() {
+  const auto parsed = parsedScanFirmwareTestPackage();
+  ScanFirmwareCourier courier;
+  auto transfer = courier.transfer();
+  assert(transfer.version.empty() && transfer.imageBytes == 0 && transfer.sentBytes == 0);
+  assert(!transfer.lastChunkAt);
+
+  courier.setPackage(parsed);
+  transfer = courier.transfer();
+  assert(transfer.version == "0.2.0" && transfer.imageBytes == parsed.image.size() && transfer.sentBytes == 0);
+  assert(!transfer.lastChunkAt);
+
+  string body;
+  ScanFirmwareChunkRequest chunk{parsed.imageSha256, 0, 16};
+  assert(courier.chunk(chunk, body) == 200);
+  assert(courier.transfer().sentBytes == 16 && courier.transfer().lastChunkAt);
+  chunk = {parsed.imageSha256, 103, 17};
+  assert(courier.chunk(chunk, body) == 200);
+  assert(courier.transfer().sentBytes == parsed.image.size());
+  chunk = {parsed.imageSha256, 0, 16};  // A retried chunk does not move the mark back.
+  assert(courier.chunk(chunk, body) == 200);
+  assert(courier.transfer().sentBytes == parsed.image.size());
+  chunk = {parsed.imageSha256, 103, 18};  // A refused range is not progress.
+  assert(courier.chunk(chunk, body) == 416);
+  assert(courier.transfer().sentBytes == parsed.image.size());
+
+  courier.recordStatus({parsed.imageSha256, "installing", "", ""});
+  assert(courier.transfer().status.state == "installing");
+
+  courier.setPackage(parsed);  // A new offer starts with no progress and no scanner report.
+  transfer = courier.transfer();
+  assert(transfer.sentBytes == 0 && !transfer.lastChunkAt && transfer.status.state.empty());
+
+  courier.clear();
+  assert(courier.transfer().version.empty());
+}
+
+void testScanFirmwareOutcomeText() {
+  assert(scanFirmwareReasonText("battery_low") == "battery too low");
+  assert(scanFirmwareReasonText("bad_signature") == "bad signature");
+  assert(scanFirmwareReasonText("").empty());
+  assert(scanFirmwareOutcomeText("installed", "0.2.0", "") == "Scanner installed firmware 0.2.0");
+  assert(scanFirmwareOutcomeText("declined", "0.2.0", "") == "Scanner declined firmware 0.2.0");
+  assert(scanFirmwareOutcomeText("failed", "0.2.0", "battery_low") ==
+         "Scanner could not install firmware 0.2.0: battery too low");
+  assert(scanFirmwareOutcomeText("failed", "0.2.0", "") == "Scanner could not install firmware 0.2.0");
+  assert(scanFirmwareOutcomeText("installing", "0.2.0", "").empty());
+}
+
+void testTransferProgressRowRenders() {
+  assert(formatBytes(1522032) == "1.5 MB");
+  assert(formatBytes(640U * 1024U) == "640 KB");
+  const UiTransferProgress row{"Sending firmware 0.2.0 to the scanner:", true, 42, 100, "42 B of 100 B"};
+  auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(100), ftxui::Dimension::Fixed(1));
+  ftxui::Render(screen, uiTransferProgressRow(row));
+  // ToString keeps the colour codes, so the bar and the percentage are checked as separate pieces.
+  const auto text = screen.ToString();
+  assert(text.find("Sending firmware 0.2.0 to the scanner:") != string::npos);
+  assert(text.find("[####------]") != string::npos);
+  assert(text.find("42%") != string::npos);
+  assert(text.find("42 B of 100 B") != string::npos);
+
+  // The longest line, a stalled transfer, still fits 100 columns in full.
+  const UiTransferProgress stalled{"Sending firmware 0.2.0 to the scanner:", true, 655360, 1522032,
+                                   "640 KB of 1.5 MB, no request for 45 s"};
+  auto stalledScreen = ftxui::Screen::Create(ftxui::Dimension::Fixed(100), ftxui::Dimension::Fixed(1));
+  ftxui::Render(stalledScreen, uiTransferProgressRow(stalled));
+  assert(stalledScreen.ToString().find("no request for 45 s") != string::npos);
+}
+
+void testScanFirmwareCourierAnswers() {
+  const auto parsed = parsedScanFirmwareTestPackage();
+  ScanFirmwareCourier courier;
+  string body;
+  ScanFirmwareOfferRequest request{kScanFirmwareProduct, kScanFirmwareHardware, "0.1.0", 1};
+  assert(courier.offer(request, body) == 200);
+  assert(body == R"({"available":false})");
+  assert(!courier.offersTo("0.1.0"));
+
+  courier.setPackage(parsed);
+  assert(courier.packageVersion() == "0.2.0");
+  assert(courier.offersTo("0.1.0"));
+  assert(!courier.offersTo("0.2.0"));  // Same version: nothing waits.
+  assert(!courier.offersTo("0.3.0"));  // Newer scanner: nothing waits.
+
+  assert(courier.offer(request, body) == 200);
+  assert(body == scanFirmwareOfferJson(scanFirmwareHex(parsed.header)));
+  assert(body.rfind(R"({"available":true,"package":")", 0) == 0);
+  request.version = "0.2.0";
+  assert(courier.offer(request, body) == 200 && body == R"({"available":false})");
+  request.version = "0.1.0";
+  request.product = "Inventatory-Scanner-R2";
+  assert(courier.offer(request, body) == 200 && body == R"({"available":false})");
+  request.product = kScanFirmwareProduct;
+  request.securityCounter = 2;  // The scanner's minimum is above this package's counter.
+  assert(courier.offer(request, body) == 200 && body == R"({"available":false})");
+
+  ScanFirmwareChunkRequest chunk{parsed.imageSha256, 0, 16};
+  assert(courier.chunk(chunk, body) == 200);
+  assert(body == parsed.image.substr(0, 16));
+  chunk = {parsed.imageSha256, 103, 17};
+  assert(courier.chunk(chunk, body) == 200);
+  assert(body == parsed.image.substr(103));
+  chunk = {parsed.imageSha256, 103, 18};
+  assert(courier.chunk(chunk, body) == 416 && body == R"({"error":"bad_range"})");
+  chunk = {parsed.imageSha256, 0, 0};
+  assert(courier.chunk(chunk, body) == 416);
+  chunk = {parsed.imageSha256, 0, kScanFirmwareChunkLimit + 1U};
+  assert(courier.chunk(chunk, body) == 416);
+  chunk = {string(64U, '0'), 0, 16};
+  assert(courier.chunk(chunk, body) == 404 && body == R"({"error":"no_offer"})");
+
+  ScanFirmwareStatusReport report{parsed.imageSha256, "installed", "", ""};
+  courier.recordStatus(report);
+  assert(courier.lastStatus().state == "installed");
+
+  courier.clear();
+  assert(courier.packageVersion().empty());
+  assert(!courier.offersTo("0.1.0"));
+  chunk = {parsed.imageSha256, 0, 16};
+  assert(courier.chunk(chunk, body) == 404);
+}
+
+void testScanFirmwareRequestJson() {
+  ScanFirmwareOfferRequest offer;
+  string error;
+  assert(parseScanFirmwareOfferJson(
+      R"({"product":"Inventatory-Scanner-R1","hardware":"waveshare-esp32s3-nano","version":"0.1.0","securityCounter":1,"keyIds":["90672e78dd33152a"]})",
+      offer, error));
+  assert(offer.product == kScanFirmwareProduct && offer.version == "0.1.0" && offer.securityCounter == 1U);
+  assert(!parseScanFirmwareOfferJson(R"({"product":"Inventatory-Scanner-R1"})", offer, error));
+
+  ScanFirmwareChunkRequest chunk;
+  assert(parseScanFirmwareChunkJson(R"({"imageSha256":"00","offset":8192,"length":8192})", chunk, error));
+  assert(chunk.offset == 8192U && chunk.length == 8192U);
+  assert(!parseScanFirmwareChunkJson(R"({"imageSha256":"00","offset":-1,"length":1})", chunk, error));
+
+  ScanFirmwareStatusReport report;
+  assert(parseScanFirmwareStatusJson(
+      R"({"imageSha256":"00","state":"failed","error":"OTA-01","reason":"bad_signature"})", report, error));
+  assert(report.state == "failed" && report.error == "OTA-01" && report.reason == "bad_signature");
+  assert(!parseScanFirmwareStatusJson(R"({"state":"failed"})", report, error));
+
+  // The sync answer carries the hint only when an offer waits.
+  DeviceSyncResponse sync;
+  sync.requestId = "offer-check";
+  assert(deviceSyncResponseJson(sync).find("firmwareOffer") == string::npos);
+  sync.firmwareOffer = true;
+  assert(deviceSyncResponseJson(sync).find("\"firmwareOffer\":true") != string::npos);
+}
+
+// The firmware route authenticates like the sync route, and each answer carries a MAC for its exact body.
+void testScanFirmwareRoutesAuthenticated() {
+  const auto stateDirectory = testTempRoot() / "inventatory-firmware-route-test";
+  error_code cleanupError;
+  filesystem::remove_all(stateDirectory, cleanupError);
+  const string token = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+  const string deviceId = "r1-firmware";
+  const auto parsed = parsedScanFirmwareTestPackage();
+  ScanFirmwareCourier courier;
+  courier.setPackage(parsed);
+  LocalHttpServer server;
+  server.setFirmwareCourier(&courier);
+  server.setDeviceCredentials(deviceId, token, stateDirectory / "replay.state");
+  assert(server.start(freeScannerTestPort(), [](const DeviceSyncRequest&, DeviceSyncResponse&, string&) {
+    return false;
+  }));
+  const auto port = server.port();
+
+  const auto signedRequest = [&](uint64_t counter, const string& route, const string& body) {
+    const auto path = "/api/v1/device/firmware/" + route;
+    ostringstream request;
+    request << "POST " << path << " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n";
+    request << "Content-Length: " << body.size() << "\r\n";
+    request << "X-Inventatory-Protocol: " << kInventatoryScanTransportProtocolVersion << "\r\n";
+    request << "X-Inventatory-Device: " << deviceId << "\r\n";
+    request << "X-Inventatory-Counter: " << counter << "\r\n";
+    request << "X-Inventatory-Mac: " << deviceRequestMac(token, "POST", path, deviceId, counter, body) << "\r\n\r\n";
+    request << body;
+    return request.str();
+  };
+  const auto bodyOf = [](const string& response) { return response.substr(response.find("\r\n\r\n") + 4U); };
+  const string offerBody =
+      R"({"product":"Inventatory-Scanner-R1","hardware":"waveshare-esp32s3-nano","version":"0.1.0","securityCounter":1,"keyIds":["90672e78dd33152a"]})";
+
+  // Unsigned: refused before the courier is asked.
+  const auto unsignedOffer = sendLocalHttpRequest(
+      port, "POST /api/v1/device/firmware/offer HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: " +
+                to_string(offerBody.size()) + "\r\n\r\n" + offerBody);
+  assert(unsignedOffer.rfind("HTTP/1.1 401 Unauthorized", 0) == 0);
+
+  // Signed offer: the package header comes back with a MAC over its body.
+  const auto offer = sendLocalHttpRequest(port, signedRequest(1, "offer", offerBody));
+  assert(offer.rfind("HTTP/1.1 200 OK", 0) == 0);
+  const auto offerAnswer = bodyOf(offer);
+  assert(offerAnswer == scanFirmwareOfferJson(scanFirmwareHex(parsed.header)));
+  assert(offer.find("X-Inventatory-Mac: " + deviceResponseMac(token, 1, 200, offerAnswer)) != string::npos);
+
+  // Signed chunk: raw image bytes, octet-stream, MAC over the raw bytes.
+  const string chunkBody = R"({"imageSha256":")" + parsed.imageSha256 + R"(","offset":0,"length":16})";
+  const auto chunk = sendLocalHttpRequest(port, signedRequest(2, "chunk", chunkBody));
+  assert(chunk.rfind("HTTP/1.1 200 OK", 0) == 0);
+  assert(chunk.find("Content-Type: application/octet-stream") != string::npos);
+  const auto chunkAnswer = bodyOf(chunk);
+  assert(chunkAnswer == parsed.image.substr(0, 16));
+  assert(chunk.find("X-Inventatory-Mac: " + deviceResponseMac(token, 2, 200, chunkAnswer)) != string::npos);
+
+  // A replayed counter is refused.
+  assert(sendLocalHttpRequest(port, signedRequest(2, "chunk", chunkBody)).rfind("HTTP/1.1 409 Conflict", 0) == 0);
+
+  // A chunk outside the image is refused with bad_range, and its counter is still spent.
+  const string badRange = R"({"imageSha256":")" + parsed.imageSha256 + R"(","offset":103,"length":18})";
+  assert(sendLocalHttpRequest(port, signedRequest(3, "chunk", badRange))
+             .rfind("HTTP/1.1 416 Range Not Satisfiable", 0) == 0);
+
+  // Status reports are recorded, and the answer is an empty object.
+  const string statusBody = R"({"imageSha256":")" + parsed.imageSha256 +
+                            R"(","state":"installing","error":"","reason":""})";
+  const auto status = sendLocalHttpRequest(port, signedRequest(4, "status", statusBody));
+  assert(status.rfind("HTTP/1.1 200 OK", 0) == 0);
+  assert(bodyOf(status) == "{}");
+  assert(courier.lastStatus().state == "installing");
+
+  // An unknown firmware route is an authenticated 404.
+  assert(sendLocalHttpRequest(port, signedRequest(5, "unknown", "{}")).rfind("HTTP/1.1 404 Not Found", 0) == 0);
+  server.stop();
+  filesystem::remove_all(stateDirectory, cleanupError);
+}
+
 struct TestCase {
   const char* area;
   const char* name;
@@ -17431,6 +17769,13 @@ const vector<TestCase>& registeredTests() {
     {"platform", "SystemdUnitRegistration", testSystemdUnitRegistration},
 #endif
     {"scanner", "ScannerHttpNegativeCases", testScannerHttpNegativeCases},
+    {"scanner", "FirmwarePackageChecks", testScanFirmwarePackageChecks},
+    {"scanner", "FirmwareCourierAnswers", testScanFirmwareCourierAnswers},
+    {"scanner", "FirmwareTransferProgress", testScanFirmwareTransferProgress},
+    {"scanner", "FirmwareOutcomeText", testScanFirmwareOutcomeText},
+    {"ui", "TransferProgressRow", testTransferProgressRowRenders},
+    {"scanner", "FirmwareRequestJson", testScanFirmwareRequestJson},
+    {"scanner", "FirmwareRoutesAuthenticated", testScanFirmwareRoutesAuthenticated},
 #ifndef _WIN32
     {"scanner", "ScannerServerSurvivesSignals", testScannerServerSurvivesSignals},
 #endif

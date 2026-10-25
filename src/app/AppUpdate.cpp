@@ -75,19 +75,6 @@ string sanitizeMarkerValue(string value, size_t maximum) {
   return value;
 }
 
-string formatBytes(uint64_t bytes) {
-  static constexpr const char* units[] = {"B", "KB", "MB", "GB"};
-  double value = static_cast<double>(bytes);
-  size_t unit = 0;
-  while (value >= 1024.0 && unit + 1U < size(units)) {
-    value /= 1024.0;
-    ++unit;
-  }
-  ostringstream output;
-  output << fixed << setprecision(unit == 0 ? 0 : value < 10.0 ? 1 : 0) << value << ' ' << units[unit];
-  return output.str();
-}
-
 string formatEta(double seconds) {
   if (!(seconds > 0.0) || !isfinite(seconds)) return "calculating ETA";
   const auto rounded = static_cast<uint64_t>(max(1.0, ceil(seconds)));

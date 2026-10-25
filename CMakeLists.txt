@@ -187,6 +187,8 @@ add_executable(inventatory
   src/core/scanner/InventatoryScanProtocolJson.cpp
   src/core/scanner/InventatoryScanProtocolJsonParser.cpp
   src/core/scanner/InventatoryScanProtocolSecurity.cpp
+  src/core/scanner/InventatoryScanFirmware.cpp
+  src/core/scanner/InventatoryScanFirmwareCrypto.cpp
   src/core/scanner/DeviceSyncStore.cpp
   src/core/bom/BomMatch.cpp
   src/core/bom/BomPickPlan.cpp
@@ -217,6 +219,8 @@ add_executable(inventatory
   src/platform/scanner/HttpServerConnection.cpp
   src/platform/scanner/HttpServerProtocol.cpp
   src/platform/scanner/HttpServerLifecycle.cpp
+  src/platform/scanner/HttpServerFirmware.cpp
+  src/platform/scanner/ScanFirmwareCourier.cpp
   src/platform/scanner/MdnsService.cpp
   src/platform/digikey/DigiKeyApi.cpp
   src/platform/digikey/DigiKeyJson.cpp
@@ -322,6 +326,8 @@ add_executable(inventatory_tests
   src/platform/scanner/HttpServerConnection.cpp
   src/platform/scanner/HttpServerProtocol.cpp
   src/platform/scanner/HttpServerLifecycle.cpp
+  src/platform/scanner/HttpServerFirmware.cpp
+  src/platform/scanner/ScanFirmwareCourier.cpp
   ${INVENTATORY_CONSOLE_SOURCE}
   src/platform/system/Environment.cpp
   ${INVENTATORY_CHILD_PROCESS_SOURCE}
@@ -399,6 +405,8 @@ add_executable(inventatory_tests
   src/core/scanner/InventatoryScanProtocolJson.cpp
   src/core/scanner/InventatoryScanProtocolJsonParser.cpp
   src/core/scanner/InventatoryScanProtocolSecurity.cpp
+  src/core/scanner/InventatoryScanFirmware.cpp
+  src/core/scanner/InventatoryScanFirmwareCrypto.cpp
   src/core/scanner/DeviceSyncStore.cpp
   src/label_printer/core/LabelPrinter.cpp
   src/label_printer/core/LabelPrinterContext.cpp

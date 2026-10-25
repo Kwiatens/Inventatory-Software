@@ -297,6 +297,11 @@ bool openCsvFileDialog(filesystem::path& selectedPath) {
                          "--file-filter=CSV and text files | *.csv *.tsv *.txt", "--file-filter=All files | *"}, selectedPath);
 }
 
+bool openFirmwareFileDialog(filesystem::path& selectedPath) {
+  return runFileChooser({"--file-selection", "--title=Select a Scan R1 firmware file",
+                         "--file-filter=Scan R1 firmware | *.ota", "--file-filter=All files | *"}, selectedPath);
+}
+
 bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
                     const string& defaultExtension) {
   (void)filter;

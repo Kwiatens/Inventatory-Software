@@ -84,6 +84,7 @@ inline bool openableUrl(const string& url) {
 bool openUrl(const string& url);
 bool copyToClipboard(const string& text);
 bool openCsvFileDialog(filesystem::path& selectedPath);
+bool openFirmwareFileDialog(filesystem::path& selectedPath);
 bool saveFileDialog(filesystem::path& selectedPath, const string& title, const string& filter,
                     const string& defaultExtension);
 bool openFolderDialog(filesystem::path& selectedPath, const string& title);

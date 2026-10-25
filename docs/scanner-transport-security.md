@@ -1,4 +1,4 @@
-# Inventatory Scan R1 transport v1
+# Inventatory Scanner R1 transport v1
 
 The R1 connects to the PC after discovering `_inventatory._tcp` over mDNS.
 mDNS is only discovery: it does not authenticate the advertised host.
@@ -11,7 +11,7 @@ an HTTP request or response.
 Each `POST /api/v1/device/sync` carries the device id, a monotonic request
 counter, and an HMAC-SHA-256 MAC over the method, path, device id, counter, and
 exact JSON body. The PC stores the highest accepted counter in the selected
-workspace's `inventatory-scan-replay.state` file and refuses lower or equal
+workspace's `inventatory-scanner-replay.state` file and refuses lower or equal
 counters, including after restart. The R1 reserves the next counter in NVS
 before sending, so a failed attempt can be retried only with a newer counter.
 
@@ -31,6 +31,14 @@ executable's current service port on the Private network profile, limited to
 the local network. This is a user-owned trust decision; the port should not be
 exposed through public profiles or port forwarding. TLS with a device
 trust/bootstrap model remains a future enhancement.
+
+Firmware offers use the same transport. The desktop only couriers a signed
+Scan R1 package (`firmware.ota`). It checks the package signature against its
+trusted public keys and the signed image hash before it offers anything. The
+firmware offer, chunk and status routes authenticate and spend counters like
+sync, and each answer carries a MAC over its exact body, including raw chunk
+bytes. The scanner asks the user before it installs, and it checks the package
+again. Until a trusted key is added, no package is offered.
 
 Regenerate-secret and clear-device actions rotate the pairing secret, reset
 replay state, clear the paired device identity, and require a fresh pairing.

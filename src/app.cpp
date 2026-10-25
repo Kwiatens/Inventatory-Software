@@ -34,7 +34,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       inventoryPath_(dataPath_ / "inventory.db"),
       printerPath_(dataPath_ / "printer.conf"),
       activityPath_(dataPath_ / "activity.tsv"),
-      inventatoryScanConfigPath_(dataPath_ / "inventatory_scan.conf"),
+      inventatoryScanConfigPath_(dataPath_ / "inventatory_scanner.conf"),
       quickLabelsPath_(dataPath_ / "quick_labels.conf"),
       settingsPath_(appSettingsPath()),
       updateMarkerPath_(appSettingsDirectory() / "update-status.conf"),
@@ -67,7 +67,7 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
     inventoryPath_ = dataPath_ / "inventory.db";
     printerPath_ = dataPath_ / "printer.conf";
     activityPath_ = dataPath_ / "activity.tsv";
-    inventatoryScanConfigPath_ = dataPath_ / "inventatory_scan.conf";
+    inventatoryScanConfigPath_ = dataPath_ / "inventatory_scanner.conf";
     quickLabelsPath_ = dataPath_ / "quick_labels.conf";
     }
   } else {
@@ -153,18 +153,19 @@ App::App(bool startInBackground, BackgroundController& backgroundController)
       !scannerCredentialSavePending_) {
     server_.setDeviceCredentials(inventatoryScanConfig_.deviceId, inventatoryScanConfig_.token,
                                  inventatoryScanReplayStatePath(dataPath_));
+    prepareScanFirmwareCourier();
 
     if (!server_.start(settings_.deviceServicePort,
                      [this](const DeviceSyncRequest& request, DeviceSyncResponse& response, string& error) {
                        return handleDeviceSync(request, response, error);
                      })) {
-      setMessage("Inventatory Scan R1 service failed to start; terminal still works", 5);
+      setMessage("Inventatory Scanner R1 service failed to start; terminal still works", 5);
     } else {
       const auto boundAddresses = server_.addresses();
       if (!boundAddresses.empty() && mdnsService_.start(server_.port(), boundAddresses.front())) {
-        setMessage("Inventatory Scan R1 service ready", 5);
+        setMessage("Inventatory Scanner R1 service ready", 5);
       } else {
-        setMessage("Inventatory Scan R1 service ready; network discovery unavailable", 5);
+        setMessage("Inventatory Scanner R1 service ready; network discovery unavailable", 5);
       }
     }
   } else if (!inventoryRecoveryRequired_ &&
