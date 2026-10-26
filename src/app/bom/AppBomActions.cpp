@@ -141,7 +141,7 @@ vector<App::FieldOption> App::fieldOptions() const {
       {"Manufacturer", EditField::Manufacturer},
       {"Category", EditField::Category},
       {"Quantity", EditField::Quantity},
-      {"Reorder threshold", EditField::ReorderThreshold},
+      {"Reorder at", EditField::ReorderThreshold},
       {"Location", EditField::Location},
       {"Rack location", EditField::RackLocation},
       {"Tags", EditField::Tags},
