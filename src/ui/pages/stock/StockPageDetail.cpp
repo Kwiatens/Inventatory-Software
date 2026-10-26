@@ -101,7 +101,11 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     const auto titleText = workingCopy_.isNew ? string("New part") : workingCopy_.item.partName;
     detailRows.push_back(fullLine(titleText, uiTitleColor(), uiRowSelectedBg()));
     detailRows.push_back(uiDivider());
-    const int labelWidth = clamp(detailInnerWidth / 3, 14, 20);
+    // Labels fit the longest one; the value, which matters more, keeps three fifths of the panel.
+    TableColumn labelColumn{0, 10}, valueColumn{0, detailInnerWidth * 3 / 5, true};
+    for (const auto& option : menuOptions_) labelColumn.fit(option.label);
+    valueColumn.content = detailInnerWidth;
+    const int labelWidth = fitColumns({labelColumn, valueColumn}, detailInnerWidth)[0];
     for (size_t index = 0; index < menuOptions_.size(); ++index) {
       const auto& option = menuOptions_[index];
       const bool selected = static_cast<int>(index) == fieldMenuIndex_;
@@ -111,7 +115,8 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
       const auto labelColor = selected ? uiTitleColor() : uiMutedColor();
       const auto valueColor = typing ? uiLinkColor() : (selected ? uiTitleColor() : uiLabelColor());
       auto row = ftxui::hbox({
-                     fixedCell(option.label, labelWidth, labelColor),
+                     fixedCell(option.label, labelWidth - 1, labelColor),
+                     ftxui::text(" "),
                      styledText(ellipsize(value, static_cast<size_t>(max(detailInnerWidth - labelWidth, 4))),
                                 valueColor),
                      ftxui::filler(),

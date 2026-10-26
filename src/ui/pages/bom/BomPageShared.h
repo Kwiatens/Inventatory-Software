@@ -33,6 +33,16 @@ inline ftxui::Element cell(const string& text, int width, ftxui::Color color, bo
   return row | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
+// A data table cell sized by tableColumn: the text, then the column gap. A number sits flush right before its gap,
+// so a column of numbers lines up under its right-aligned heading.
+inline ftxui::Element tableCell(const string& text, int width, ftxui::Color color, bool bold = false, bool rightAlign = false) {
+  const auto clipped = ellipsize(text, static_cast<size_t>(max(0, width - kColumnGap)));
+  auto content = bold ? uiHeaderText(clipped, color) : styledText(clipped, color);
+  auto row = rightAlign ? ftxui::hbox({ftxui::filler(), move(content), ftxui::text(string(kColumnGap, ' '))})
+                        : ftxui::hbox({move(content), ftxui::filler()});
+  return row | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
+}
+
 // Vendor text in ASCII, as every rendered string must be: "100 µF" -> "100 uF", "±1%" -> "+/-1%",
 // "Würth" -> "Wurth".
 inline string asciiVendorText(const string& text) { return foldToAscii(text); }

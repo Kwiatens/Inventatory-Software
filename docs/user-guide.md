@@ -91,7 +91,7 @@ A part that a scan creates prints its label after DigiKey, TME or Mouser has sup
 part's name, value and package. When the supplier finds no part, no label prints and the status line says why;
 print it from the part's details once the details are added.
 
-Each part can have its own **Reorder threshold** in Edit. A positive value
+Each part can have its own reorder threshold, set with **Reorder at** in Edit. A positive value
 overrides the global low-stock warning; `0` uses the global setting. The active
 threshold is used by the dashboard, search, rack indicators, and stock warnings.
 

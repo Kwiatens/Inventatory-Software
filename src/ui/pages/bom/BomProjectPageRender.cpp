@@ -82,11 +82,26 @@ ftxui::Element App::renderBomProjectUi() const {
              ftxui::bgcolor(surface) | ftxui::flex;
     }
 
-    const int nameWidth = clamp(screenWidth / 3, 24, 48);
+    auto nameColumn = tableColumn(16), linesColumn = tableColumn(5), boardsColumn = tableColumn(6), builtColumn = tableColumn(7);
+    nameColumn.fit("Project");
+    linesColumn.fit("Lines");
+    boardsColumn.fit("Boards");
+    builtColumn.fit("Not yet");
+    for (const auto& project : bomProjects_) {
+      nameColumn.fit(project.name);
+      linesColumn.fit(to_string(count(project.bomText.begin(), project.bomText.end(), '\n')));
+      boardsColumn.fit(to_string(project.boards));
+    }
+    const auto widths = fitColumns({nameColumn, linesColumn, boardsColumn, builtColumn}, screenWidth - 5);
+    const int nameWidth = widths[0];
+    const int linesWidth = widths[1];
+    const int boardsWidth = widths[2];
+    const int builtWidth = widths[3];
     ftxui::Elements rows;
-    rows.push_back(ftxui::hbox({ftxui::text("   "), cell("Project", nameWidth, uiMutedText()),
-                                cell("Lines", 8, uiMutedText(), false, true), cell("Boards", 9, uiMutedText(), false, true),
-                                ftxui::text("   "), cell("Built", 12, uiMutedText())}));
+    rows.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Project", nameWidth, uiMutedText()),
+                                tableCell("Lines", linesWidth, uiMutedText(), false, true),
+                                tableCell("Boards", boardsWidth, uiMutedText(), false, true), tableCell("Built", builtWidth, uiMutedText()),
+                                ftxui::filler()}));
     for (size_t index = 0; index < bomProjects_.size(); ++index) {
       const auto& project = bomProjects_[index];
       const bool selected = index == min(bomProjectSelection_, bomProjects_.size() - 1);
@@ -95,11 +110,11 @@ ftxui::Element App::renderBomProjectUi() const {
       const auto lineCount = count(project.bomText.begin(), project.bomText.end(), '\n');
       auto row = ftxui::hbox({
                      styledText(selected ? " > " : "   ", uiFocusColor()),
-                     cell(project.name, nameWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                     cell(to_string(max<long long>(0, lineCount - 1)), 8, uiSecondaryText(), false, true),
-                     cell(to_string(project.boards), 9, uiSecondaryText(), false, true),
-                     ftxui::text("   "),
-                     cell(project.lastBuilt > 0 ? "Yes" : "Not yet", 12, project.lastBuilt > 0 ? uiSuccessColor() : uiMutedText()),
+                     tableCell(project.name, nameWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
+                     tableCell(to_string(max<long long>(0, lineCount - 1)), linesWidth, uiSecondaryText(), false, true),
+                     tableCell(to_string(project.boards), boardsWidth, uiSecondaryText(), false, true),
+                     tableCell(project.lastBuilt > 0 ? "Yes" : "Not yet", builtWidth,
+                               project.lastBuilt > 0 ? uiSuccessColor() : uiMutedText()),
                      ftxui::filler(),
                  }) |
                  ftxui::bgcolor(bg);
@@ -136,15 +151,46 @@ ftxui::Element App::renderBomProjectUi() const {
       int taken = 0;
       vector<string> lowAfter;
       ftxui::Elements rows;
-      const int partWidth = clamp(screenWidth / 5, 16, 26);
-      const int packageWidth = 12;
-      const int fromWidth = 16;
-      const int tookWidth = 7;
-      const int afterWidth = 16;
-      rows.push_back(ftxui::hbox({ftxui::text("   "), cell("Part", partWidth, uiMutedText()),
-                                  cell("Package", packageWidth, uiMutedText()), cell("From", fromWidth, uiMutedText()),
-                                  ftxui::filler(), cell("Took", tookWidth, uiMutedText(), false, true),
-                                  cell("Stock after", afterWidth, uiMutedText(), false, true), ftxui::text("      ")}));
+      auto partColumn = tableColumn(12), packageColumn = tableColumn(8), fromColumn = tableColumn(12), tookColumn = tableColumn(4),
+           afterColumn = tableColumn(11), markColumn = tableColumn(3);
+      partColumn.fit("Part");
+      packageColumn.fit("Package");
+      fromColumn.fit("From");
+      tookColumn.fit("Took");
+      afterColumn.fit("Stock after");
+      markColumn.fit("Out");
+      // "120 to 117" over "4 to 3": both numbers pad to their widest, so the "to" lines up down the column.
+      size_t haveDigits = 1;
+      size_t afterDigits = 1;
+      for (const auto& stop : plan.stops) {
+        for (const auto& pick : stop.picks) {
+          const auto* item = store_.findById(pick.itemId);
+          const int have = item == nullptr ? 0 : item->quantity;
+          partColumn.fit(pick.designation);
+          packageColumn.fit(pick.package);
+          fromColumn.fit(stop.rackId.empty() ? pick.slot : stop.title + "  " + pick.slot);
+          tookColumn.fit(to_string(bomPickTaken(pick)));
+          haveDigits = max(haveDigits, to_string(have).size());
+          afterDigits = max(afterDigits, to_string(max(0, have - bomPickTaken(pick))).size());
+        }
+      }
+      afterColumn.fit(string(haveDigits + 4 + afterDigits, '0'));
+      const auto widths =
+          fitColumns({partColumn, packageColumn, fromColumn, tookColumn, afterColumn, markColumn}, screenWidth - 5);
+      const int partWidth = widths[0];
+      const int packageWidth = widths[1];
+      const int fromWidth = widths[2];
+      const int tookWidth = widths[3];
+      const int afterWidth = widths[4];
+      const int markWidth = widths[5];
+      const auto padded = [](int number, size_t digits) {
+        auto text = to_string(number);
+        return string(digits > text.size() ? digits - text.size() : 0, ' ') + text;
+      };
+      rows.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Part", partWidth, uiMutedText()),
+                                  tableCell("Package", packageWidth, uiMutedText()), tableCell("From", fromWidth, uiMutedText()),
+                                  tableCell("Took", tookWidth, uiMutedText(), false, true),
+                                  tableCell("Stock after", afterWidth, uiMutedText(), false, true), ftxui::filler()}));
       size_t rowIndex = 0;
       size_t pickCount = 0;
       for (const auto& stop : plan.stops) pickCount += stop.picks.size();
@@ -167,16 +213,16 @@ ftxui::Element App::renderBomProjectUi() const {
           const string from = stop.rackId.empty() ? pick.slot : stop.title + "  " + pick.slot;
           auto row = ftxui::hbox({
                          styledText(selected ? " > " : "   ", uiFocusColor()),
-                         cell(pick.designation, partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                         cell(pick.package, packageWidth, uiSecondaryText()),
-                         cell(from, fromWidth, uiLinkColor()),
-                         ftxui::filler(),
-                         cell(to_string(took), tookWidth, took < pick.quantity ? uiWarnColor() : uiPrimaryText(), true, true),
-                         ftxui::hbox({ftxui::filler(), styledText(to_string(have) + " to ", uiMutedText()),
-                                      uiHeaderText(to_string(after), out ? uiDangerColor() : low ? uiWarnColor() : uiPrimaryText()),
-                                      ftxui::text(" ")}) |
+                         tableCell(pick.designation, partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
+                         tableCell(pick.package, packageWidth, uiSecondaryText()),
+                         tableCell(from, fromWidth, uiLinkColor()),
+                         tableCell(to_string(took), tookWidth, took < pick.quantity ? uiWarnColor() : uiPrimaryText(), true, true),
+                         ftxui::hbox({ftxui::filler(), styledText(padded(have, haveDigits) + " to ", uiMutedText()),
+                                      uiHeaderText(padded(after, afterDigits), out ? uiDangerColor() : low ? uiWarnColor() : uiPrimaryText()),
+                                      ftxui::text(string(kColumnGap, ' '))}) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, afterWidth),
-                         cell(out ? "Out" : low ? "Low" : "", 6, out ? uiDangerColor() : uiWarnColor()),
+                         tableCell(out ? "Out" : low ? "Low" : "", markWidth, out ? uiDangerColor() : uiWarnColor()),
+                         ftxui::filler(),
                      }) |
                      ftxui::bgcolor(bg);
           if (selected) row = row | ftxui::select;
@@ -213,23 +259,38 @@ ftxui::Element App::renderBomProjectUi() const {
 
     const bool loose = stop.rackId.empty();
     const int sideWidth = loose ? screenWidth - 2 : clamp(screenWidth * 2 / 5, 44, 64);
-    const int slotWidth = loose ? clamp(sideWidth / 5, 14, 24) : 6;
-    const int partWidth = clamp(sideWidth / 5, 9, 18);
-    const int takeWidth = 6;
-    const int forWidth = max(8, sideWidth - slotWidth - partWidth - takeWidth);
-    ftxui::Elements list;
-    list.push_back(ftxui::hbox({cell(loose ? "Location" : "Slot", slotWidth, uiMutedText()), cell("Part", partWidth, uiMutedText()),
-                                cell("For", forWidth, uiMutedText()), cell("Take", takeWidth, uiMutedText(), false, true)}));
+    auto slotColumn = tableColumn(loose ? 12 : 5), partColumn = tableColumn(9), forColumn = tableColumn(8), takeColumn = tableColumn(4);
+    slotColumn.fit(loose ? "Location" : "Slot");
+    partColumn.fit("Part");
+    forColumn.fit("For");
+    takeColumn.fit("Take");
     for (const auto& pick : stop.picks) {
-      list.push_back(ftxui::hbox({cell(pick.slot, slotWidth, uiFocusColor(), true),
-                                  cell(pick.designation, partWidth, uiPrimaryText(), true),
-                                  cell(designatorText(pick.designators, forWidth), forWidth, uiSecondaryText()),
-                                  cell(to_string(pick.quantity), takeWidth,
-                                       pick.quantity < pick.needed ? uiWarnColor() : uiPrimaryText(), true, true)}));
+      slotColumn.fit(pick.slot);
+      partColumn.fit(pick.designation);
+      forColumn.fit(designatorText(pick.designators, numeric_limits<int>::max()));
+      takeColumn.fit(to_string(pick.quantity));
+    }
+    const auto widths = fitColumns({slotColumn, partColumn, forColumn, takeColumn}, sideWidth);
+    const int slotWidth = widths[0];
+    const int partWidth = widths[1];
+    const int forWidth = widths[2];
+    const int takeWidth = widths[3];
+    ftxui::Elements list;
+    list.push_back(ftxui::hbox({tableCell(loose ? "Location" : "Slot", slotWidth, uiMutedText()),
+                                tableCell("Part", partWidth, uiMutedText()), tableCell("For", forWidth, uiMutedText()),
+                                tableCell("Take", takeWidth, uiMutedText(), false, true), ftxui::filler()}));
+    for (const auto& pick : stop.picks) {
+      // designatorText keeps one cell spare; the column gap needs all of its cells.
+      list.push_back(ftxui::hbox({tableCell(pick.slot, slotWidth, uiFocusColor(), true),
+                                  tableCell(pick.designation, partWidth, uiPrimaryText(), true),
+                                  tableCell(designatorText(pick.designators, forWidth - kColumnGap + 1), forWidth, uiSecondaryText()),
+                                  tableCell(to_string(pick.quantity), takeWidth,
+                                            pick.quantity < pick.needed ? uiWarnColor() : uiPrimaryText(), true, true),
+                                  ftxui::filler()}));
     }
     list.push_back(ftxui::text(""));
-    list.push_back(ftxui::hbox({cell("Total", slotWidth + partWidth + forWidth, uiSecondaryText()),
-                                cell(to_string(stop.pieces()), takeWidth, uiPrimaryText(), true, true)}));
+    list.push_back(ftxui::hbox({tableCell("Total", slotWidth + partWidth + forWidth, uiSecondaryText()),
+                                tableCell(to_string(stop.pieces()), takeWidth, uiPrimaryText(), true, true), ftxui::filler()}));
     list.push_back(ftxui::text(""));
     list.push_back(uiVoiceLine(bomPickNextStop(plan, stopIndex)));
     auto sideList = ftxui::vbox(move(list)) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, sideWidth);

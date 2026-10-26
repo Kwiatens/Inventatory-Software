@@ -210,6 +210,59 @@ ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool
   return content | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, width);
 }
 
+TableColumn& TableColumn::fit(const string& text) {
+  content = max(content, static_cast<int>(displayWidth(text)) + gap);
+  return *this;
+}
+
+vector<int> fitColumns(const vector<TableColumn>& columns, int available) {
+  vector<int> widths;
+  vector<int> floors;
+  int total = 0;
+  for (const auto& column : columns) {
+    widths.push_back(max(column.content, 0));
+    // A column narrower than its minimum already reads in full, so it never shrinks.
+    floors.push_back(min(column.minimum, widths.back()));
+    total += widths.back();
+  }
+  // One cell at a time from the widest column still above its floor, so long columns even out first.
+  while (total > available) {
+    int widest = -1;
+    for (size_t index = 0; index < widths.size(); ++index) {
+      if (widths[index] > floors[index] && (widest < 0 || widths[index] > widths[static_cast<size_t>(widest)])) {
+        widest = static_cast<int>(index);
+      }
+    }
+    if (widest < 0) break;
+    --widths[static_cast<size_t>(widest)];
+    --total;
+  }
+  if (total >= available) return widths;
+  // The spare cells go to the flex columns in proportion to their widths, as a browser table spreads its width. The
+  // numbers after a column stay at the screen edge, and the gaps stay small and even. The rounding remainder goes to
+  // the first flex columns.
+  int weightTotal = 0;
+  for (size_t index = 0; index < columns.size(); ++index) {
+    if (columns[index].flex) weightTotal += max(widths[index], 1);
+  }
+  if (weightTotal == 0) return widths;
+  const int spare = available - total;
+  int given = 0;
+  for (size_t index = 0; index < columns.size(); ++index) {
+    if (!columns[index].flex) continue;
+    const int share = spare * max(widths[index], 1) / weightTotal;
+    widths[index] += share;
+    given += share;
+  }
+  int remainder = spare - given;
+  for (size_t index = 0; index < columns.size() && remainder > 0; ++index) {
+    if (!columns[index].flex) continue;
+    ++widths[index];
+    --remainder;
+  }
+  return widths;
+}
+
 ftxui::Element centered(ftxui::Element element) {
   return ftxui::hbox({ftxui::filler(), move(element), ftxui::filler()});
 }

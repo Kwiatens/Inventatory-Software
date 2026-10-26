@@ -179,11 +179,21 @@ ftxui::Element App::renderRackManagementUi() const {
   }
 
   // Code, type, then a right-aligned occupancy column. Type takes the remaining width.
-  constexpr int rackCodeWidth = 5;
-  constexpr int rackUsedWidth = 12;
   // The scroll indicator takes the last column, so the table is one column narrower.
   const int rackContentWidth = listWidth - 1;
-  const int rackTypeWidth = max(1, rackContentWidth - rackCodeWidth - rackUsedWidth - 1);
+  TableColumn codeColumn{5, 5}, typeColumn{0, 6, true}, usedColumn{0, 6};
+  usedColumn.fit("Usage");
+  for (const auto index : rackIndices) {
+    const auto& candidate = store_.racks()[index];
+    codeColumn.fit(" " + candidate.code);
+    typeColumn.fit(shortComponentType(toTitleCase(candidate.componentType)));
+    usedColumn.fit(to_string(rackOccupiedSlotCount(store_, candidate)) + "/" + to_string(rackCapacity(candidate)));
+  }
+  // A blank cell follows the usage count.
+  const auto rackWidths = fitColumns({codeColumn, typeColumn, usedColumn}, rackContentWidth - 1);
+  const int rackCodeWidth = rackWidths[0];
+  const int rackTypeWidth = rackWidths[1];
+  const int rackUsedWidth = rackWidths[2];
 
   ftxui::Elements rackRows;
   if (!rackIndices.empty()) {

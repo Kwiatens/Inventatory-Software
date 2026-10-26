@@ -89,6 +89,25 @@ ftxui::Element fullLine(const string& text, optional<ftxui::Color> fg = nullopt,
                         optional<ftxui::Color> bg = nullopt);
 // A table cell exactly `width` columns wide: text clipped with an ellipsis, left or right aligned.
 ftxui::Element fixedCell(const string& text, int width, ftxui::Color color, bool rightAlign = false);
+// One table column for fitColumns: the width its widest text needs, the narrowest width that still
+// reads, and whether it takes the room left over.
+struct TableColumn {
+  int content = 0;
+  int minimum = 0;
+  bool flex = false;
+  int gap = 1;
+  // Widens the column to hold `text` plus its gap (the blank cell a table cell keeps after its text).
+  TableColumn& fit(const string& text);
+};
+// The blank cells between two columns of a data table.
+constexpr int kColumnGap = 3;
+// A data table column: as wide as its widest text plus the column gap. Spare width is shared out, so the table spans
+// the screen.
+inline TableColumn tableColumn(int minimum) { return TableColumn{0, minimum, true, kColumnGap}; }
+// Widths for columns sharing `available` cells. Each column gets its widest text when the row fits.
+// Otherwise the widest columns give up cells first, never going below their minimum, so text is cut
+// only when there is no room. Room left over goes to the flex columns.
+vector<int> fitColumns(const vector<TableColumn>& columns, int available);
 ftxui::Element centered(ftxui::Element element);
 // The timed delete confirmation drawn over a page. noun names what is deleted ("part", "rack");
 // Enter confirms once secondsLeft reaches zero.
