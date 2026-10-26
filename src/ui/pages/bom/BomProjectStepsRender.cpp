@@ -133,16 +133,24 @@ ftxui::Element App::renderBomOverview(int screenWidth) const {
                                 ftxui::filler()}));
   } else {
     const auto steps = bomProjectSteps(progress, bomOrderCost_, bomOrderStores_);
-    const int nameWidth = 23;
-    const int countColumn = 9;
-    const int sentenceWidth = max(10, screenWidth - 3 - nameWidth - countColumn - 2);
+    // The count sits right after the longest sentence, not at the far edge of the screen.
+    auto nameColumn = tableColumn(12), sentenceColumn = tableColumn(10), countColumnFit = tableColumn(5);
+    for (const auto& step : steps) {
+      nameColumn.fit(step.name);
+      sentenceColumn.fit(step.sentence);
+      countColumnFit.fit(step.count);
+    }
+    const auto widths = fitColumns({nameColumn, sentenceColumn, countColumnFit}, screenWidth - 5);
+    const int nameWidth = widths[0];
+    const int sentenceWidth = widths[1];
+    const int countColumn = widths[2];
     for (size_t index = 0; index < steps.size(); ++index) {
       const auto& step = steps[index];
       const bool selected = index == min<size_t>(bomOverviewSelection_, steps.size() - 1);
       const auto countColor = step.open ? uiWarnColor() : step.count == "Done" ? uiSuccessColor() : uiMutedText();
-      auto row = selectableRow({cell(step.name, nameWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                                cell(step.sentence, sentenceWidth, step.open ? uiSecondaryText() : uiMutedText()),
-                                cell(step.count, countColumn, countColor, false, true)},
+      auto row = selectableRow({tableCell(step.name, nameWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
+                                tableCell(step.sentence, sentenceWidth, step.open ? uiSecondaryText() : uiMutedText()),
+                                tableCell(step.count, countColumn, countColor)},
                                selected);
       body.push_back(target(move(row), "bom.step." + to_string(index), UiTargetKind::Row, [self, index] {
         self->bomOverviewSelection_ = index;
@@ -201,18 +209,31 @@ ftxui::Element App::renderBomStartNotice(int screenWidth) const {
   const int screenHeight = activeScreen != nullptr ? activeScreen->dimy() : 40;
   // Tab bar, header, column names, the closing sentence and the status bar take the rest.
   const size_t shown = min(rows.size(), static_cast<size_t>(max(4, screenHeight - 15)));
-  const int stateWidth = 21;
-  const int packageWidth = 16;
-  const int valueWidth = clamp((screenWidth - 3 - stateWidth - packageWidth) / 3, 14, 30);
-  const int whereWidth = max(12, screenWidth - 3 - valueWidth - packageWidth - stateWidth - 2);
+  auto valueColumn = tableColumn(14), packageColumn = tableColumn(8), stateColumn = tableColumn(21), whereColumn = tableColumn(12);
+  valueColumn.fit("Part");
+  packageColumn.fit("Package");
+  stateColumn.fit("Now");
+  whereColumn.fit("On the board");
+  for (size_t index = 0; index < shown; ++index) {
+    valueColumn.fit(asciiVendorText(rows[index].value));
+    packageColumn.fit(rows[index].package);
+    stateColumn.fit(rows[index].state);
+    whereColumn.fit(rows[index].where);
+  }
+  const auto widths = fitColumns({valueColumn, packageColumn, stateColumn, whereColumn}, screenWidth - 5);
+  const int valueWidth = widths[0];
+  const int packageWidth = widths[1];
+  const int stateWidth = widths[2];
+  const int whereWidth = widths[3];
   ftxui::Elements body;
-  body.push_back(ftxui::hbox({ftxui::text("   "), cell("Part", valueWidth, uiMutedText()), cell("Package", packageWidth, uiMutedText()),
-                              cell("Now", stateWidth, uiMutedText()), cell("On the board", whereWidth, uiMutedText()), ftxui::filler()}));
+  body.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Part", valueWidth, uiMutedText()),
+                              tableCell("Package", packageWidth, uiMutedText()), tableCell("Now", stateWidth, uiMutedText()),
+                              tableCell("On the board", whereWidth, uiMutedText()), ftxui::filler()}));
   for (size_t index = 0; index < shown; ++index) {
     const auto& row = rows[index];
-    body.push_back(ftxui::hbox({ftxui::text("   "), cell(asciiVendorText(row.value), valueWidth, uiPrimaryText()),
-                                cell(row.package, packageWidth, uiSecondaryText()), cell(row.state, stateWidth, row.color),
-                                cell(row.where, whereWidth, uiSecondaryText()), ftxui::filler()}));
+    body.push_back(ftxui::hbox({ftxui::text("   "), tableCell(asciiVendorText(row.value), valueWidth, uiPrimaryText()),
+                                tableCell(row.package, packageWidth, uiSecondaryText()), tableCell(row.state, stateWidth, row.color),
+                                tableCell(row.where, whereWidth, uiSecondaryText()), ftxui::filler()}));
   }
   if (shown < rows.size()) {
     body.push_back(ftxui::hbox({ftxui::text("   "),
@@ -254,25 +275,42 @@ ftxui::Element App::renderBomConfirm(int screenWidth) const {
                                         uiMutedText()),
                              move(buttons));
 
-  const int packageWidth = 12;
-  const int whereWidth = 18;
-  const int haveWidth = 8;
-  const int nameWidth = max(16, screenWidth - 3 - packageWidth - whereWidth - haveWidth - 2);
+  auto nameColumn = tableColumn(16), packageColumn = tableColumn(8), whereColumn = tableColumn(10), haveColumn = tableColumn(5);
+  nameColumn.fit("Stock part");
+  packageColumn.fit("Package");
+  whereColumn.fit("Where");
+  haveColumn.fit("Have");
+  for (const auto& candidate : match.candidates) {
+    const auto* item = store_.findById(candidate.itemId);
+    if (item == nullptr) continue;
+    const auto place = bomItemPlace(*item, store_.racks());
+    nameColumn.fit(item->partName);
+    packageColumn.fit(itemPackage(*item));
+    whereColumn.fit(place.empty() ? string("No location") : place);
+    haveColumn.fit(to_string(item->quantity));
+  }
+  const auto widths = fitColumns({nameColumn, packageColumn, whereColumn, haveColumn}, screenWidth - 5);
+  const int nameWidth = widths[0];
+  const int packageWidth = widths[1];
+  const int whereWidth = widths[2];
+  const int haveWidth = widths[3];
   ftxui::Elements body;
   body.push_back(gutterRow("BOM line", ftxui::hbox({uiHeaderText(lineLabel(line), uiPrimaryText()),
                                                     styledText("   need " + to_string(match.needed), uiSecondaryText())})));
   body.push_back(ftxui::text(" "));
-  body.push_back(ftxui::hbox({ftxui::text("   "), cell("Stock part", nameWidth, uiMutedText()), cell("Package", packageWidth, uiMutedText()),
-                              cell("Where", whereWidth, uiMutedText()), cell("Have", haveWidth, uiMutedText(), false, true)}));
+  body.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Stock part", nameWidth, uiMutedText()),
+                              tableCell("Package", packageWidth, uiMutedText()), tableCell("Where", whereWidth, uiMutedText()),
+                              tableCell("Have", haveWidth, uiMutedText(), false, true), ftxui::filler()}));
   for (size_t candidateIndex = 0; candidateIndex < match.candidates.size(); ++candidateIndex) {
     const auto* item = store_.findById(match.candidates[candidateIndex].itemId);
     if (item == nullptr) continue;
     const bool selected = candidateIndex == bomConfirmSelection_;
     const auto place = bomItemPlace(*item, store_.racks());
-    auto row = selectableRow({cell(item->partName, nameWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                              cell(itemPackage(*item), packageWidth, uiSecondaryText()),
-                              cell(place.empty() ? string("No location") : place, whereWidth, place.empty() ? uiMutedText() : uiLinkColor()),
-                              cell(to_string(item->quantity), haveWidth, uiPrimaryText(), false, true)},
+    auto row = selectableRow({tableCell(item->partName, nameWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
+                              tableCell(itemPackage(*item), packageWidth, uiSecondaryText()),
+                              tableCell(place.empty() ? string("No location") : place, whereWidth,
+                                        place.empty() ? uiMutedText() : uiLinkColor()),
+                              tableCell(to_string(item->quantity), haveWidth, uiPrimaryText(), false, true)},
                              selected);
     body.push_back(target(move(row), "bom.confirm.row." + to_string(candidateIndex), UiTargetKind::Row, [self, candidateIndex] {
       self->bomConfirmSelection_ = candidateIndex;
@@ -357,27 +395,45 @@ ftxui::Element App::renderBomChoose(int screenWidth) const {
     body.push_back(statusRow("Choose one: many parts fit this line.", uiWarnColor()));
     body.push_back(ftxui::text(" "));
   }
-  // Each name column is as wide as the longest name it holds, so a name is cut only when the screen has no room
-  // left for it. The detail column takes what is left.
-  size_t longestPart = 0;
-  size_t longestMaker = 0;
-  for (const auto& entry : bomPicker_.entries) {
-    longestPart = max(longestPart, asciiVendorText(entry.candidate.manufacturerPartNumber).size());
-    longestMaker = max(longestMaker, asciiVendorText(entry.candidate.manufacturer).size());
-  }
+  // Each column is as wide as the longest text it holds, so a name is cut only when the screen has no room left
+  // for it, and the numbers stay next to the details they belong to.
   const bool showMaker = screenWidth >= 110;
-  // cell() keeps one column free after each cell, so a name needs its length plus one.
-  const int partWidth = clamp(static_cast<int>(longestPart) + 1, 20, max(20, screenWidth / 5));
-  const int makerWidth = showMaker ? clamp(static_cast<int>(longestMaker) + 1, 12, max(12, screenWidth / 4)) : 0;
-  const int stockWidth = 10;
-  const int orderWidth = 10;
-  const int costWidth = 13;
-  const int tagWidth = 12;  // "End of life" is the longest tag
-  const int detailWidth = max(12, screenWidth - 3 - partWidth - makerWidth - stockWidth - orderWidth - costWidth - tagWidth - 2);
-  ftxui::Elements headerCells{cell("Part number", partWidth, uiMutedText())};
-  if (showMaker) headerCells.push_back(cell("Maker", makerWidth, uiMutedText()));
-  for (auto& next : {cell("Details", detailWidth, uiMutedText()), cell("In stock", stockWidth, uiMutedText(), false, true),
-                     cell("Order", orderWidth, uiMutedText(), false, true), cell("Cost", costWidth, uiMutedText(), false, true)}) {
+  auto partColumn = tableColumn(16), makerColumn = tableColumn(10), detailColumn = tableColumn(12), stockColumn = tableColumn(9),
+       orderColumn = tableColumn(8), costColumn = tableColumn(10), tagColumn = tableColumn(12);
+  partColumn.fit("Part number");
+  makerColumn.fit("Maker");
+  stockColumn.fit("In stock");
+  orderColumn.fit("Order");
+  costColumn.fit("Cost");
+  tagColumn.fit("End of life");  // the longest tag
+  for (const auto& entry : bomPicker_.entries) {
+    const auto& candidate = entry.candidate;
+    const auto cost = vendorCandidateCost(candidate, bomPicker_.quantity);
+    const string currency = candidate.offers.empty() ? string() : " " + candidate.offers.front().currency;
+    partColumn.fit(asciiVendorText(candidate.manufacturerPartNumber));
+    makerColumn.fit(asciiVendorText(candidate.manufacturer));
+    detailColumn.fit(pickerDetails(candidate));
+    stockColumn.fit(to_string(vendorCandidateStock(candidate)));
+    if (cost.has_value()) {
+      orderColumn.fit(to_string(cost->orderQuantity) + " pcs");
+      costColumn.fit(formatMicros(cost->totalMicros) + currency);
+    }
+  }
+  if (!showMaker) makerColumn = TableColumn{};
+  const auto widths = fitColumns({partColumn, makerColumn, detailColumn, stockColumn, orderColumn, costColumn, tagColumn},
+                                 screenWidth - 6);
+  const int partWidth = widths[0];
+  const int makerWidth = widths[1];
+  const int detailWidth = widths[2];
+  const int stockWidth = widths[3];
+  const int orderWidth = widths[4];
+  const int costWidth = widths[5];
+  const int tagWidth = widths[6];
+  ftxui::Elements headerCells{tableCell("Part number", partWidth, uiMutedText())};
+  if (showMaker) headerCells.push_back(tableCell("Maker", makerWidth, uiMutedText()));
+  for (auto& next : {tableCell("Details", detailWidth, uiMutedText()), tableCell("In stock", stockWidth, uiMutedText(), false, true),
+                     tableCell("Order", orderWidth, uiMutedText(), false, true),
+                     tableCell("Cost", costWidth, uiMutedText(), false, true)}) {
     headerCells.push_back(next);
   }
   ftxui::Elements rows;
@@ -405,15 +461,17 @@ ftxui::Element App::renderBomChoose(int screenWidth) const {
       tag = "Best";
     }
     if (entry.fits) bestShown = true;
-    ftxui::Elements cells{cell(asciiVendorText(candidate.manufacturerPartNumber), partWidth, selected ? uiFocusColor() : uiPrimaryText(), true)};
-    if (showMaker) cells.push_back(cell(asciiVendorText(candidate.manufacturer), makerWidth, uiSecondaryText()));
-    cells.push_back(cell(pickerDetails(candidate), detailWidth, uiSecondaryText()));
-    cells.push_back(cell(to_string(vendorCandidateStock(candidate)), stockWidth, uiPrimaryText(), false, true));
-    cells.push_back(cell(cost.has_value() ? to_string(cost->orderQuantity) + " pcs" : string(), orderWidth, uiPrimaryText(), false, true));
-    cells.push_back(cell(cost.has_value() ? formatMicros(cost->totalMicros) + currency : string(), costWidth, uiPrimaryText(), true, true));
-    cells.push_back(ftxui::text(" "));
+    ftxui::Elements cells{tableCell(asciiVendorText(candidate.manufacturerPartNumber), partWidth,
+                                    selected ? uiFocusColor() : uiPrimaryText(), true)};
+    if (showMaker) cells.push_back(tableCell(asciiVendorText(candidate.manufacturer), makerWidth, uiSecondaryText()));
+    cells.push_back(tableCell(pickerDetails(candidate), detailWidth, uiSecondaryText()));
+    cells.push_back(tableCell(to_string(vendorCandidateStock(candidate)), stockWidth, uiPrimaryText(), false, true));
+    cells.push_back(tableCell(cost.has_value() ? to_string(cost->orderQuantity) + " pcs" : string(), orderWidth, uiPrimaryText(),
+                              false, true));
+    cells.push_back(tableCell(cost.has_value() ? formatMicros(cost->totalMicros) + currency : string(), costWidth, uiPrimaryText(),
+                              true, true));
     const auto tagColor = tag == "Chosen" ? uiFocusColor() : endOfLife ? uiWarnColor() : uiSuccessColor();
-    cells.push_back(cell(tag, tagWidth, tagColor));
+    cells.push_back(tableCell(tag, tagWidth, tagColor));
     rows.push_back(target(selectableRow(move(cells), selected), "bom.choose.row." + to_string(entryIndex), UiTargetKind::Row,
                           [self, entryIndex] {
                             self->bomPicker_.selection = entryIndex;
@@ -474,30 +532,49 @@ ftxui::Element App::renderBomOrder(int screenWidth) const {
                               : styledText(line2, uiMutedText());
   auto header = uiPageHeader(uiHeaderText("Order", uiPrimaryText()), move(sub), move(buttons));
 
-  const int partWidth = clamp(screenWidth / 5, 16, 26);
-  const int numberWidth = clamp(screenWidth / 4, 18, 28);
-  const int storeWidth = 9;
-  const int orderWidth = 10;
-  const int costWidth = 18;
-  const int pageWidth = max(8, screenWidth - 3 - partWidth - numberWidth - storeWidth - orderWidth - costWidth - 3);
+  auto partColumn = tableColumn(14), numberColumn = tableColumn(14), storeColumn = tableColumn(8), orderColumn = tableColumn(8),
+       costColumn = tableColumn(12), pageColumn = tableColumn(8);
+  partColumn.fit("Part");
+  numberColumn.fit("Part number");
+  storeColumn.fit("Store");
+  orderColumn.fit("Order");
+  costColumn.fit("Not buyable now");
+  pageColumn.fit("Opened");
+  for (const auto* row : rows) {
+    partColumn.fit(lineName(bomAnalysis_.lines[bomAnalysis_.matches[row->matchIndex].lineIndex]));
+    numberColumn.fit(row->part);
+    storeColumn.fit(vendorDisplayName(row->provider));
+    if (row->cost.has_value() && row->offer.has_value()) {
+      orderColumn.fit(to_string(row->cost->orderQuantity) + " pcs");
+      costColumn.fit(formatMicros(row->cost->totalMicros) + " " + row->offer->currency);
+    }
+  }
+  costColumn.fit(bomOrderCost_);
+  const auto widths = fitColumns({partColumn, numberColumn, storeColumn, orderColumn, costColumn, pageColumn}, screenWidth - 5);
+  const int partWidth = widths[0];
+  const int numberWidth = widths[1];
+  const int storeWidth = widths[2];
+  const int orderWidth = widths[3];
+  const int costWidth = widths[4];
+  const int pageWidth = widths[5];
   ftxui::Elements table;
-  table.push_back(ftxui::hbox({ftxui::text("   "), cell("Part", partWidth, uiMutedText()), cell("Part number", numberWidth, uiMutedText()),
-                               cell("Store", storeWidth, uiMutedText()), cell("Order", orderWidth, uiMutedText(), false, true),
-                               cell("Cost", costWidth, uiMutedText(), false, true), ftxui::text("  "),
-                               cell("Page", pageWidth, uiMutedText())}));
+  table.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Part", partWidth, uiMutedText()),
+                               tableCell("Part number", numberWidth, uiMutedText()), tableCell("Store", storeWidth, uiMutedText()),
+                               tableCell("Order", orderWidth, uiMutedText(), false, true),
+                               tableCell("Cost", costWidth, uiMutedText(), false, true), tableCell("Page", pageWidth, uiMutedText()),
+                               ftxui::filler()}));
   for (size_t index = 0; index < rows.size(); ++index) {
     const auto& row = *rows[index];
     const auto& line = bomAnalysis_.lines[bomAnalysis_.matches[row.matchIndex].lineIndex];
     const bool selected = index == min(bomOrderSelection_, rows.size() - 1);
     const bool buyable = row.cost.has_value() && row.offer.has_value();
-    auto tableRow = selectableRow({cell(lineName(line), partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                                   cell(row.part, numberWidth, uiSecondaryText()),
-                                   cell(vendorDisplayName(row.provider), storeWidth, uiSecondaryText()),
-                                   cell(buyable ? to_string(row.cost->orderQuantity) + " pcs" : string(), orderWidth, uiPrimaryText(), false, true),
-                                   cell(buyable ? formatMicros(row.cost->totalMicros) + " " + row.offer->currency : string("Not buyable now"),
-                                        costWidth, buyable ? uiPrimaryText() : uiWarnColor(), buyable, true),
-                                   ftxui::text("  "),
-                                   cell(bomOrderOpened_.count(row.lineKey) > 0 ? "Opened" : "", pageWidth, uiSuccessColor())},
+    auto tableRow = selectableRow(
+        {tableCell(lineName(line), partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
+         tableCell(row.part, numberWidth, uiSecondaryText()), tableCell(vendorDisplayName(row.provider), storeWidth, uiSecondaryText()),
+         tableCell(buyable ? to_string(row.cost->orderQuantity) + " pcs" : string(), orderWidth, uiPrimaryText(), false, true),
+         tableCell(buyable ? formatMicros(row.cost->totalMicros) + " " + row.offer->currency : string("Not buyable now"), costWidth,
+                   buyable ? uiPrimaryText() : uiWarnColor(), buyable, true),
+         tableCell(bomOrderOpened_.count(row.lineKey) > 0 ? "Opened" : "", pageWidth, uiSuccessColor())},
                                   selected);
     table.push_back(target(move(tableRow), "bom.order.row." + to_string(index), UiTargetKind::Row, [self, index] {
       self->bomOrderSelection_ = index;
@@ -505,8 +582,8 @@ ftxui::Element App::renderBomOrder(int screenWidth) const {
     }));
   }
   table.push_back(ftxui::text(" "));
-  table.push_back(ftxui::hbox({ftxui::text("   "), cell("Total", partWidth + numberWidth + storeWidth + orderWidth, uiSecondaryText()),
-                               cell(bomOrderCost_.empty() ? string("-") : bomOrderCost_, costWidth, uiPrimaryText(), true, true),
+  table.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Total", partWidth + numberWidth + storeWidth + orderWidth, uiSecondaryText()),
+                               tableCell(bomOrderCost_.empty() ? string("-") : bomOrderCost_, costWidth, uiPrimaryText(), true, true),
                                ftxui::filler()}));
   return ftxui::vbox({move(header), ftxui::vbox(move(table)) | ftxui::yframe | ftxui::flex | ftxui::reflect(bomTableBounds_)});
 }
@@ -530,25 +607,42 @@ ftxui::Element App::renderBomReceive(int screenWidth) const {
                                         uiMutedText()),
                              move(buttons));
 
-  const int partWidth = clamp(screenWidth / 6, 14, 22);
-  const int numberWidth = clamp(screenWidth / 5, 16, 26);
-  const int orderedWidth = 10;
-  const int whereWidth = 16;
-  const int stockWidth = max(14, screenWidth - 3 - partWidth - numberWidth - orderedWidth - whereWidth - 4);
+  auto partColumn = tableColumn(12), numberColumn = tableColumn(14), orderedColumn = tableColumn(8), stockColumn = tableColumn(14),
+       whereColumn = tableColumn(10);
+  partColumn.fit("Part");
+  numberColumn.fit("Part number");
+  orderedColumn.fit("Ordered");
+  stockColumn.fit("Stock part");
+  whereColumn.fit("Goes to");
+  for (const auto* row : rows) {
+    partColumn.fit(lineName(bomAnalysis_.lines[bomAnalysis_.matches[row->matchIndex].lineIndex]));
+    numberColumn.fit(row->part);
+    orderedColumn.fit(to_string(row->order.has_value() ? row->order->quantity : row->toBuy) + " pcs");
+    stockColumn.fit(row->stockPart);
+    whereColumn.fit(row->goesTo);
+  }
+  const auto widths = fitColumns({partColumn, numberColumn, orderedColumn, stockColumn, whereColumn}, screenWidth - 5);
+  const int partWidth = widths[0];
+  const int numberWidth = widths[1];
+  const int orderedWidth = widths[2];
+  const int stockWidth = widths[3];
+  const int whereWidth = widths[4];
   ftxui::Elements table;
-  table.push_back(ftxui::hbox({ftxui::text("   "), cell("Part", partWidth, uiMutedText()), cell("Part number", numberWidth, uiMutedText()),
-                               cell("Ordered", orderedWidth, uiMutedText(), false, true), ftxui::text("  "),
-                               cell("Stock part", stockWidth, uiMutedText()), cell("Goes to", whereWidth, uiMutedText())}));
+  table.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Part", partWidth, uiMutedText()),
+                               tableCell("Part number", numberWidth, uiMutedText()),
+                               tableCell("Ordered", orderedWidth, uiMutedText(), false, true),
+                               tableCell("Stock part", stockWidth, uiMutedText()), tableCell("Goes to", whereWidth, uiMutedText()),
+                               ftxui::filler()}));
   for (size_t index = 0; index < rows.size(); ++index) {
     const auto& row = *rows[index];
     const auto& line = bomAnalysis_.lines[bomAnalysis_.matches[row.matchIndex].lineIndex];
     const bool selected = index == min(bomReceiveSelection_, rows.size() - 1);
-    auto tableRow = selectableRow({cell(lineName(line), partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                                   cell(row.part, numberWidth, uiSecondaryText()),
-                                   cell(to_string(row.order.has_value() ? row.order->quantity : row.toBuy) + " pcs", orderedWidth,
-                                        uiPrimaryText(), false, true),
-                                   ftxui::text("  "), cell(row.stockPart, stockWidth, uiSecondaryText()),
-                                   cell(row.goesTo, whereWidth, row.goesTo == "No location" ? uiMutedText() : uiLinkColor())},
+    auto tableRow = selectableRow({tableCell(lineName(line), partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
+                                   tableCell(row.part, numberWidth, uiSecondaryText()),
+                                   tableCell(to_string(row.order.has_value() ? row.order->quantity : row.toBuy) + " pcs", orderedWidth,
+                                             uiPrimaryText(), false, true),
+                                   tableCell(row.stockPart, stockWidth, uiSecondaryText()),
+                                   tableCell(row.goesTo, whereWidth, row.goesTo == "No location" ? uiMutedText() : uiLinkColor())},
                                   selected);
     table.push_back(target(move(tableRow), "bom.receive.row." + to_string(index), UiTargetKind::Row, [self, index] {
       self->bomReceiveSelection_ = index;
@@ -568,70 +662,91 @@ ftxui::Element App::renderBomLines(int screenWidth) const {
                                         uiMutedText()),
                              move(buttons));
 
-  const int partWidth = clamp(screenWidth / 4, 20, 32);
-  const int packageWidth = clamp(screenWidth / 9, 11, 18);
-  const int needWidth = 7;
-  const int haveWidth = 7;
-  const int stateWidth = 20;
-  const int whereWidth = max(14, screenWidth - 3 - partWidth - packageWidth - needWidth - haveWidth - stateWidth - 3);
-  ftxui::Elements table;
-  table.push_back(ftxui::hbox({ftxui::text("   "), cell("Part", partWidth, uiMutedText()), cell("Package", packageWidth, uiMutedText()),
-                               cell("Where", whereWidth, uiMutedText()), cell("Need", needWidth, uiMutedText(), false, true),
-                               cell("Have", haveWidth, uiMutedText(), false, true), ftxui::text("  "),
-                               cell("State", stateWidth, uiMutedText())}));
-
   // Rows keep the analysis order, so the arrow keys and the groups agree.
   const auto groupOf = [](BomLineState state) {
     return state == BomLineState::InStock ? 0 : state == BomLineState::ToConfirm ? 1 : 2;
   };
+  struct LineCells {
+    BomLineState state;
+    string where;
+    string stateText;
+    ftxui::Color stateColor;
+  };
   vector<int> groupCounts(3, 0);
-  vector<BomLineState> states;
+  vector<LineCells> lineCells;
+  auto partColumn = tableColumn(14), packageColumn = tableColumn(8), whereColumn = tableColumn(12), needColumn = tableColumn(5),
+       haveColumn = tableColumn(5), stateColumn = tableColumn(12);
+  partColumn.fit("Part");
+  packageColumn.fit("Package");
+  whereColumn.fit("Where");
+  needColumn.fit("Need");
+  haveColumn.fit("Have");
+  stateColumn.fit("State");
   for (const auto& match : bomAnalysis_.matches) {
-    const auto state = project == nullptr ? BomLineState::ToChoose
-                                          : bomLineState(match, bomLineKey(bomAnalysis_.lines[match.lineIndex]), project->enrichment);
-    states.push_back(state);
+    const auto& line = bomAnalysis_.lines[match.lineIndex];
+    const auto state = project == nullptr ? BomLineState::ToChoose : bomLineState(match, bomLineKey(line), project->enrichment);
     ++groupCounts[groupOf(state)];
+    const auto* item = store_.findById(match.chosenItemId());
+    const auto place = item == nullptr ? string() : bomItemPlace(*item, store_.racks());
+    LineCells cells{state, item == nullptr ? string("-") : place.empty() ? string("No location") : place, "In stock", uiSuccessColor()};
+    const int shortBy = max(0, match.needed - match.available);
+    switch (state) {
+      case BomLineState::InStock: break;
+      case BomLineState::ToConfirm: cells.stateText = "To confirm"; cells.stateColor = uiWarnColor(); break;
+      case BomLineState::ToChoose:
+        cells.stateText = match.confirmed && match.available > 0 ? "Short " + to_string(shortBy) : string("To choose");
+        cells.stateColor = uiDangerColor();
+        break;
+      case BomLineState::Chosen: {
+        const auto chosen = project->enrichment.find(bomLineKey(line));
+        cells.stateText = "Chosen at " + bomEnrichmentSupplier(chosen->second);
+        cells.stateColor = uiSecondaryText();
+        break;
+      }
+      case BomLineState::Ordered: cells.stateText = "Ordered"; cells.stateColor = uiLinkColor(); break;
+    }
+    if (state != BomLineState::InStock && state != BomLineState::ToConfirm && !match.confirmed) cells.where = "-";
+    partColumn.fit(line.designation);
+    packageColumn.fit(packageFromFootprint(line.footprint));
+    whereColumn.fit(cells.where);
+    needColumn.fit(to_string(match.needed));
+    haveColumn.fit(to_string(match.available));
+    stateColumn.fit(cells.stateText);
+    lineCells.push_back(move(cells));
   }
+  const auto widths = fitColumns({partColumn, packageColumn, whereColumn, needColumn, haveColumn, stateColumn}, screenWidth - 5);
+  const int partWidth = widths[0];
+  const int packageWidth = widths[1];
+  const int whereWidth = widths[2];
+  const int needWidth = widths[3];
+  const int haveWidth = widths[4];
+  const int stateWidth = widths[5];
+  ftxui::Elements table;
+  table.push_back(ftxui::hbox({ftxui::text("   "), tableCell("Part", partWidth, uiMutedText()),
+                               tableCell("Package", packageWidth, uiMutedText()), tableCell("Where", whereWidth, uiMutedText()),
+                               tableCell("Need", needWidth, uiMutedText(), false, true),
+                               tableCell("Have", haveWidth, uiMutedText(), false, true), tableCell("State", stateWidth, uiMutedText()),
+                               ftxui::filler()}));
+
   int previousGroup = -1;
   for (size_t index = 0; index < bomAnalysis_.matches.size(); ++index) {
     const auto& match = bomAnalysis_.matches[index];
     const auto& line = bomAnalysis_.lines[match.lineIndex];
-    const auto state = states[index];
+    const auto& [state, where, stateText, stateColor] = lineCells[index];
     const int group = groupOf(state);
     if (group != previousGroup) {
       table.push_back(groupRow(group == 0 ? "In stock" : group == 1 ? "To confirm" : "Not in stock",
                                group == 0 ? uiSuccessColor() : group == 1 ? uiWarnColor() : uiDangerColor(), groupCounts[group]));
       previousGroup = group;
     }
-    const auto* item = store_.findById(match.chosenItemId());
-    const auto place = item == nullptr ? string() : bomItemPlace(*item, store_.racks());
-    string where = item == nullptr ? string("-") : place.empty() ? string("No location") : place;
-    string stateText = "In stock";
-    auto stateColor = uiSuccessColor();
-    const int shortBy = max(0, match.needed - match.available);
-    switch (state) {
-      case BomLineState::InStock: break;
-      case BomLineState::ToConfirm: stateText = "To confirm"; stateColor = uiWarnColor(); break;
-      case BomLineState::ToChoose:
-        stateText = match.confirmed && match.available > 0 ? "Short " + to_string(shortBy) : string("To choose");
-        stateColor = uiDangerColor();
-        break;
-      case BomLineState::Chosen: {
-        const auto chosen = project->enrichment.find(bomLineKey(line));
-        stateText = "Chosen at " + bomEnrichmentSupplier(chosen->second);
-        stateColor = uiSecondaryText();
-        break;
-      }
-      case BomLineState::Ordered: stateText = "Ordered"; stateColor = uiLinkColor(); break;
-    }
-    if (state != BomLineState::InStock && state != BomLineState::ToConfirm && !match.confirmed) where = "-";
     const bool selected = index == min(bomSplitSelection_, bomAnalysis_.matches.size() - 1);
-    auto row = selectableRow({cell(line.designation, partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
-                              cell(packageFromFootprint(line.footprint), packageWidth, uiSecondaryText()),
-                              cell(where, whereWidth, where == "-" || where == "No location" ? uiMutedText() : uiLinkColor()),
-                              cell(to_string(match.needed), needWidth, uiSecondaryText(), false, true),
-                              cell(to_string(match.available), haveWidth, match.sufficient ? uiPrimaryText() : uiDangerColor(), true, true),
-                              ftxui::text("  "), cell(stateText, stateWidth, stateColor)},
+    auto row = selectableRow({tableCell(line.designation, partWidth, selected ? uiFocusColor() : uiPrimaryText(), true),
+                              tableCell(packageFromFootprint(line.footprint), packageWidth, uiSecondaryText()),
+                              tableCell(where, whereWidth, where == "-" || where == "No location" ? uiMutedText() : uiLinkColor()),
+                              tableCell(to_string(match.needed), needWidth, uiSecondaryText(), false, true),
+                              tableCell(to_string(match.available), haveWidth, match.sufficient ? uiPrimaryText() : uiDangerColor(),
+                                        true, true),
+                              tableCell(stateText, stateWidth, stateColor)},
                              selected);
     table.push_back(target(move(row), "bom.line." + to_string(index), UiTargetKind::Row, [self, index] {
       self->bomSplitSelection_ = index;

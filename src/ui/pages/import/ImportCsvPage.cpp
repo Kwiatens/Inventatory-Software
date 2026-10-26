@@ -145,11 +145,29 @@ ftxui::Element App::renderImportCsvUi() const {
   const int detailOuterWidth = clamp(screenWidth / 3, 42, 58);
   const int listOuterWidth = max(42, screenWidth - detailOuterWidth - 1);
   const int listInnerWidth = max(20, listOuterWidth - 2);
-  const int statusWidth = 7;
-  const int qtyWidth = 8;
-  const int partWidth = clamp(listInnerWidth / 3, 22, 38);
-  const int manufacturerWidth = clamp(listInnerWidth / 5, 14, 24);
-  const int skuWidth = max(14, listInnerWidth - statusWidth - qtyWidth - partWidth - manufacturerWidth - 10);
+  // Cells end at a " | " divider, so they keep no blank cells of their own. Qty follows Mfr Part instead of
+  // sitting at the far edge of the list.
+  TableColumn statusColumn{0, 7, false, 0}, partColumn{0, 16, false, 0}, manufacturerColumn{0, 10, false, 0},
+      skuColumn{0, 12, true, 0}, qtyColumn{0, 4};
+  statusColumn.fit("Status");
+  partColumn.fit("Part");
+  manufacturerColumn.fit("Manufacturer");
+  skuColumn.fit("Mfr Part");
+  qtyColumn.fit("Qty");
+  for (const auto& candidate : importCandidates_) {
+    statusColumn.fit(importStatusLabel(candidate));
+    partColumn.fit(candidate.item.partName);
+    manufacturerColumn.fit(candidate.item.manufacturer);
+    skuColumn.fit(candidate.item.sku);
+    qtyColumn.fit(to_string(candidate.item.quantity));
+  }
+  // Four dividers.
+  const auto widths = fitColumns({statusColumn, partColumn, manufacturerColumn, skuColumn, qtyColumn}, listInnerWidth - 12);
+  const int statusWidth = widths[0];
+  const int partWidth = widths[1];
+  const int manufacturerWidth = widths[2];
+  const int skuWidth = widths[3];
+  const int qtyWidth = widths[4];
 
   ftxui::Elements listRows;
   listRows.push_back(ftxui::hbox({
@@ -160,8 +178,9 @@ ftxui::Element App::renderImportCsvUi() const {
       fixedCell("Manufacturer", manufacturerWidth, uiMutedColor()),
       styledText(" | ", uiDimColor()),
       fixedCell("Mfr Part", skuWidth, uiMutedColor()),
-      ftxui::filler(),
+      styledText(" | ", uiDimColor()),
       fixedCell("Qty", qtyWidth, uiMutedColor(), true),
+      ftxui::filler(),
   }) | ftxui::bgcolor(uiPanelLeftBg()));
 
   if (importCandidates_.empty()) {
@@ -180,8 +199,9 @@ ftxui::Element App::renderImportCsvUi() const {
           fixedCell(candidate.item.manufacturer, manufacturerWidth, selected ? uiTitleColor() : uiLabelColor()),
           styledText(" | ", uiDimColor()),
           fixedCell(candidate.item.sku, skuWidth, selected ? uiTitleColor() : uiSecondaryText()),
-          ftxui::filler(),
+          styledText(" | ", uiDimColor()),
           fixedCell(to_string(candidate.item.quantity), qtyWidth, uiSuccessColor(), true),
+          ftxui::filler(),
       }) | ftxui::bgcolor(bg);
       if (selected) {
         row = row | ftxui::select;

@@ -54,13 +54,12 @@ ftxui::Element App::renderStockUi() const {
   // Quantity sorting interleaves categories, so it keeps a per-row column.
   const bool groupByCategory = !rankedView && stockSortOrder_ != StockSortOrder::Quantity;
   const int matchWidth = rankedView ? 14 : 0;
-  const int minCategoryWidth = 12;
-  const int maxPartWidth = groupByCategory ? max(18, listInnerWidth - qtyWidth - 1)
-                                           : max(18, listInnerWidth - qtyWidth - matchWidth - minCategoryWidth - 2);
-  const int partWidth = groupByCategory ? maxPartWidth : clamp(static_cast<int>(longestPartName) + 3, 18, maxPartWidth);
-  // Size the category column to its longest value; leftover width becomes the gutter before quantity.
-  const int categoryWidth = clamp(static_cast<int>(longestCategory) + 2, minCategoryWidth,
-                                  max(minCategoryWidth, listInnerWidth - partWidth - qtyWidth - matchWidth - 2));
+  // Part and category fit their longest values; leftover width becomes the gutter before quantity.
+  const auto widths = fitColumns({TableColumn{static_cast<int>(longestPartName) + 3, 18},
+                                  TableColumn{static_cast<int>(longestCategory) + 2, 12}},
+                                 listInnerWidth - qtyWidth - matchWidth - 2);
+  const int partWidth = groupByCategory ? max(18, listInnerWidth - qtyWidth - 1) : widths[0];
+  const int categoryWidth = widths[1];
 
   auto listRows = renderStockListRows(searchMatches, filtered, rankedView, activeSelection, qtyWidth,
                                     partWidth, categoryWidth, matchWidth, groupByCategory);
