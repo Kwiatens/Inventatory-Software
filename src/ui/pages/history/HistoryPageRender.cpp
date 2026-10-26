@@ -102,8 +102,15 @@ ftxui::Element historyCommitRow(const InventoryCommit& commit, int width, bool s
   const int sequenceWidth = 5;
   const int typeWidth = max(8, static_cast<int>(type.size()) + 2);
   const int timeWidth = 6;
-  const int impactWidth = hasImpact && !compact ? min(22, max(12, safeWidth / 4)) : 0;
-  const int messageWidth = max(8, safeWidth - timelineWidth - sequenceWidth - typeWidth - timeWidth - impactWidth);
+  const auto message = compact ? compactHistoryMessage(commit) : historyCommitDisplayMessage(commit);
+  // The message takes the room left; the impact is cut only when the message is cut to its size.
+  TableColumn messageColumn{0, 8, true}, impactColumn{0, 12};
+  messageColumn.fit(message);
+  if (hasImpact && !compact) impactColumn.fit(impact);
+  const auto widths =
+      fitColumns({messageColumn, impactColumn}, safeWidth - timelineWidth - sequenceWidth - typeWidth - timeWidth);
+  const int messageWidth = widths[0];
+  const int impactWidth = widths[1];
   const auto foreground = selected ? uiPrimaryText() : uiSecondaryText();
   const auto metadata = selected ? uiInfoColor() : uiMutedColor();
   const auto rowBackground = selected ? uiSelectionBg() : uiSurfaceBg();
@@ -113,7 +120,6 @@ ftxui::Element historyCommitRow(const InventoryCommit& commit, int width, bool s
   auto sequence = fixedText("#" + to_string(commit.sequence), sequenceWidth, foreground, rowBackground);
   auto badge = historyBadge(type, historyTypeColor(type), historyTypeBackground(type)) |
                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, typeWidth);
-  const auto message = compact ? compactHistoryMessage(commit) : historyCommitDisplayMessage(commit);
   auto messageElement = fixedText(message, messageWidth, foreground, rowBackground);
   auto time = ftxui::hbox({ftxui::filler(), styledText(historyTime(commit), metadata, rowBackground)}) |
               ftxui::size(ftxui::WIDTH, ftxui::EQUAL, timeWidth);
