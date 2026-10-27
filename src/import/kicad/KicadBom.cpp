@@ -91,7 +91,8 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
   KicadBomFile bom;
   bom.projectName = projectName;
   vector<vector<string>> rows;
-  if (!readBomRows(text, false, rows, bom)) return bom;
+  vector<size_t> rowLines;
+  if (!readBomRows(text, false, rows, rowLines, bom)) return bom;
 
   const auto columns = mapBomColumns(rows.front());
   if (columns.designator < 0 || columns.designation < 0) {
@@ -101,7 +102,7 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
 
   for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
     const auto& row = rows[rowIndex];
-    const auto sourceRow = rowIndex + 1;
+    const auto sourceRow = rowLines[rowIndex];
 
     BomLine line;
     line.sourceRow = sourceRow;

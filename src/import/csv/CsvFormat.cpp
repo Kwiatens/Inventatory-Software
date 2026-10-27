@@ -56,17 +56,22 @@ bool hasDigiKeyHeaders(const vector<string>& headers) {
 }  // namespace
 
 // Altium BOM headers overlap KiCad's, so a file is Altium only with a header KiCad does not
-// write (LibRef, or Description beside a supplier or manufacturer part). Anything in doubt is KiCad.
-// Keep the aliases in step with AltiumBom.cpp; "Qty" and "Supplier Part" are left out on purpose.
+// write (LibRef or DesignItemId, or Description beside a supplier or manufacturer part). Anything
+// in doubt is KiCad. Keep the aliases in step with AltiumBom.cpp; "Qty" and "Supplier Part" are
+// left out on purpose.
 bool hasAltiumBomHeaders(const vector<string>& headers) {
   if (findColumn(headers, {"Designator"}) < 0 || findColumn(headers, {"Comment", "Description"}) < 0) {
     return false;
   }
-  if (findColumn(headers, {"Ref", "Reference", "Value", "Qty", "Cmp name"}) >= 0) {
+  if (findColumn(headers, {"Ref", "Reference", "Qty", "Cmp name"}) >= 0) {
     return false;
   }
-  if (findColumn(headers, {"LibRef"}) >= 0) {
+  // Altium components often carry a Value parameter, so Value alone does not mean KiCad.
+  if (findColumn(headers, {"LibRef", "DesignItemId"}) >= 0) {
     return true;
+  }
+  if (findColumn(headers, {"Value"}) >= 0) {
+    return false;
   }
   return findColumn(headers, {"Description"}) >= 0 &&
          findColumn(headers, {"Supplier 1", "Supplier Name 1", "Supplier", "Supplier Part Number 1",

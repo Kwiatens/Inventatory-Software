@@ -65,7 +65,8 @@ KicadBomFile parseEasyEdaBomText(const string& text, const string& projectName) 
   KicadBomFile bom;
   bom.projectName = projectName;
   vector<vector<string>> rows;
-  if (!readBomRows(text, false, rows, bom)) return bom;
+  vector<size_t> rowLines;
+  if (!readBomRows(text, false, rows, rowLines, bom)) return bom;
 
   const auto columns = mapEasyEdaColumns(rows.front());
   if (columns.name < 0 || columns.designator < 0 || columns.footprint < 0) {
@@ -77,7 +78,7 @@ KicadBomFile parseEasyEdaBomText(const string& text, const string& projectName) 
   unordered_map<string, size_t> designatorRows;
   for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
     const auto& row = rows[rowIndex];
-    const auto sourceRow = rowIndex + 1;
+    const auto sourceRow = rowLines[rowIndex];
     const auto rowLabel = "Row " + to_string(sourceRow) + ": ";
 
     BomLine line;

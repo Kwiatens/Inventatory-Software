@@ -30,9 +30,10 @@ bool splitBomDesignators(const string& value, vector<string>& designators);
 optional<int> parseBomCount(const string& value);
 
 // Reads BOM text into CSV rows, checking the size limit and that a header and a component row exist.
-// backslashQuotes keeps a \" inside a quoted cell, as Altium 365 writes inch marks. False with
-// bom.error set.
-bool readBomRows(const string& text, bool backslashQuotes, vector<vector<string>>& rows, KicadBomFile& bom);
+// backslashQuotes keeps a \" inside a quoted cell, as Altium 365 writes inch marks. rowLines gets
+// the file line each row starts on, for row labels in messages. False with bom.error set.
+bool readBomRows(const string& text, bool backslashQuotes, vector<vector<string>>& rows,
+                 vector<size_t>& rowLines, KicadBomFile& bom);
 
 // For dialects that refuse a malformed row (EasyEDA, Altium). Each returns false with bom.error set.
 // Reads the row's designators into the line; a row needs at least one.
