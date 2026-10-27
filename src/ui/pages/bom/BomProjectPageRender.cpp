@@ -125,13 +125,8 @@ ftxui::Element App::renderBomProjectUi() const {
       }));
     }
 
-    const auto count = static_cast<int>(bomProjects_.size());
     return ftxui::vbox({
-               uiPageHeader(uiHeaderText("Projects", uiPrimaryText()),
-                            uiVoiceLine({{voiceCount(count, "project", "projects"), VoiceTone::Strong},
-                                         {count == 1 ? " is pinned. Open it to compare its BOM with stock."
-                                                     : " are pinned. Open one to compare its BOM with stock."}}),
-                            move(importButton)),
+               uiPageHeader(uiHeaderText("Projects", uiPrimaryText()), ftxui::text(""), move(importButton)),
                dirtyRow(),
                ftxui::vbox(move(rows)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::flex,
            }) |
