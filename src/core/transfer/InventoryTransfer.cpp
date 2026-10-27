@@ -37,7 +37,7 @@ bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& pat
   ostringstream output;
   output << "ID,Part name,Manufacturer,Category,Quantity,Location,SKU,Machine code,"
             "DigiKey part,Sync status,Tags,Parameters,Notes,Datasheet URL,Product URL,Last updated,"
-            "Manufacturer part number,TME part\r\n";
+            "Manufacturer part number,TME part,Mouser part\r\n";
   for (const auto& item : store.items()) {
     output << csvTextCell(item.id) << ',' << csvTextCell(item.partName) << ',' << csvTextCell(item.manufacturer) << ','
            << csvTextCell(item.category) << ',' << item.quantity << ','
@@ -47,8 +47,8 @@ bool exportInventoryCsv(const InventoryStore& store, const filesystem::path& pat
            << csvTextCell(serializeParametersForStorage(item.parameters)) << ',' << csvTextCell(item.notes) << ','
            << csvTextCell(item.datasheetUrl) << ',' << csvTextCell(item.productUrl) << ','
            << csvTextCell(nowTimestampString(item.lastUpdated)) << ','
-           << csvTextCell(item.vendorMetadata.manufacturerPartNumber) << ',' << csvTextCell(tmeProductSymbol(item))
-           << "\r\n";
+           << csvTextCell(item.vendorMetadata.manufacturerPartNumber) << ',' << csvTextCell(tmeProductSymbol(item)) << ','
+           << csvTextCell(mouserPartNumberOf(item)) << "\r\n";
   }
 
   string writeError;

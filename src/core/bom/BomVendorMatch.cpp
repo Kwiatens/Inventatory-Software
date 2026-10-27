@@ -1216,7 +1216,14 @@ BomPickerRanking rankBomPickerCandidates(const BomLine& line, uint64_t quantity,
   return out;
 }
 
-bool bomPickerSearchable(const string& store) { return store == kVendorProviderDigiKey || store == kVendorProviderTme; }
+bool bomPickerSearchable(const string& store) {
+  return store == kVendorProviderDigiKey || store == kVendorProviderTme || store == kVendorProviderMouser;
+}
+
+string bomPickerStoreNote(const string& store) {
+  if (store != kVendorProviderMouser) return {};
+  return "Mouser gives less detail about each part than DigiKey and TME, so matching may be less accurate. Check the part before you use it.";
+}
 
 string bomPickerContext(const string& store, uint64_t quantity) {
   return store + ", need " + voiceCount(static_cast<int>(quantity), "piece", "pieces") +
