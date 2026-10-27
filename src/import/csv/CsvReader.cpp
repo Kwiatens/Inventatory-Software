@@ -93,6 +93,12 @@ bool decodeCsvBytes(const string& bytes, string& utf8, string& error) {
     return true;
   }
 
+  // An Excel workbook (.xlsx is a zip, .xls an OLE file) is not text; Altium offers Excel beside CSV.
+  if (bytes.compare(0, 4, "PK\x03\x04") == 0 || bytes.compare(0, 4, "\xD0\xCF\x11\xE0") == 0) {
+    error = "This is an Excel workbook, not a CSV file; export the BOM as CSV and import it again";
+    return false;
+  }
+
   auto text = stripByteOrderMark(bytes);
   if (text.find('\0') != string::npos) {
     error = "CSV contains NUL bytes, so it is probably UTF-16 without a byte order mark; save it as CSV UTF-8 and "
