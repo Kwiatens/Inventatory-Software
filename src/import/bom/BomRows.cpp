@@ -59,7 +59,8 @@ optional<int> parseBomCount(const string& value) {
   return result;
 }
 
-bool readBomRows(const string& text, bool backslashQuotes, vector<vector<string>>& rows, KicadBomFile& bom) {
+bool readBomRows(const string& text, bool backslashQuotes, vector<vector<string>>& rows,
+                 vector<size_t>& rowLines, KicadBomFile& bom) {
   if (text.size() > kMaximumCsvInputBytes) {
     bom.error = "BOM import exceeds the 25 MiB safety limit";
     return false;
@@ -67,8 +68,8 @@ bool readBomRows(const string& text, bool backslashQuotes, vector<vector<string>
   const auto cleaned = stripByteOrderMark(text);
   const auto delimiter = sniffDelimiter(cleaned);
   string parseError;
-  rows = backslashQuotes ? parseCsvBackslashQuotes(cleaned, delimiter, parseError)
-                         : parseCsv(cleaned, delimiter, parseError);
+  rows = backslashQuotes ? parseCsvBackslashQuotes(cleaned, delimiter, parseError, &rowLines)
+                         : parseCsv(cleaned, delimiter, parseError, (numeric_limits<size_t>::max)(), &rowLines);
   if (!parseError.empty()) {
     bom.error = parseError;
     return false;

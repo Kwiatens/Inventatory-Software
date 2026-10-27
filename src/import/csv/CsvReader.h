@@ -42,12 +42,15 @@ bool readCsvFile(const std::filesystem::path& path, const string& kind, string& 
 char sniffDelimiter(const string& text);
 
 // Doubled quotes yield one quote, CR is dropped, and line breaks in quoted fields become spaces.
-// Blank rows are discarded. Scanning stops after `maxRows` non-blank rows.
+// Blank rows are discarded. Scanning stops after `maxRows` non-blank rows. `rowLines`, when given,
+// receives the 1-based file line each returned row starts on, so messages can name the real line.
 vector<vector<string>> parseCsv(const string& text, char delimiter, string& error,
-                                size_t maxRows = (std::numeric_limits<size_t>::max)());
+                                size_t maxRows = (std::numeric_limits<size_t>::max)(),
+                                vector<size_t>* rowLines = nullptr);
 
 // Like parseCsv, but \" inside quotes is one quote (Altium 365 writes inch marks this way).
-vector<vector<string>> parseCsvBackslashQuotes(const string& text, char delimiter, string& error);
+vector<vector<string>> parseCsvBackslashQuotes(const string& text, char delimiter, string& error,
+                                               vector<size_t>* rowLines = nullptr);
 
 // Lowercases and drops non-alphanumerics, so "Digi-Key Part #" matches "digikey part number".
 string normalizeHeader(string value);

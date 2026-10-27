@@ -198,8 +198,9 @@ namespace {
 
 // Shared scanner. With backslashQuotes, \" inside a quoted cell is one quote.
 vector<vector<string>> scanCsv(const string& text, char delimiter, string& error, size_t maxRows,
-                               bool backslashQuotes) {
+                               bool backslashQuotes, vector<size_t>* rowLines) {
   error.clear();
+  if (rowLines) rowLines->clear();
   if (maxRows == 0) {
     return {};
   }
@@ -213,6 +214,9 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
   string field;
   bool inQuotes = false;
   size_t totalCells = 0;
+  // 1-based line numbers; a row starts on the line after the previous row break, blank lines included.
+  size_t line = 1;
+  size_t rowStartLine = 1;
 
   const auto fieldTooLarge = [&]() {
     if (field.size() > kMaximumCsvFieldBytes) {
@@ -240,6 +244,7 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
       }
       totalCells += row.size();
       rows.push_back(move(row));
+      if (rowLines) rowLines->push_back(rowStartLine);
     }
     row.clear();
     return true;
@@ -276,6 +281,7 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
       } else if (ch == '\n') {
         // A line break inside a quoted cell becomes a space, so cells stay single-line.
         field.push_back(' ');
+        ++line;
       } else if (ch != '\r') {
         field.push_back(ch);
       }
@@ -301,6 +307,7 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
       const auto rowsBefore = rows.size();
       if (!endRow()) return {};
       if (rows.size() > rowsBefore && rows.size() >= maxRows) return rows;
+      rowStartLine = ++line;
     } else if (ch != '\r') {
       field.push_back(ch);
       if (fieldTooLarge()) return {};
@@ -318,12 +325,14 @@ vector<vector<string>> scanCsv(const string& text, char delimiter, string& error
 
 }  // namespace
 
-vector<vector<string>> parseCsv(const string& text, char delimiter, string& error, size_t maxRows) {
-  return scanCsv(text, delimiter, error, maxRows, false);
+vector<vector<string>> parseCsv(const string& text, char delimiter, string& error, size_t maxRows,
+                                vector<size_t>* rowLines) {
+  return scanCsv(text, delimiter, error, maxRows, false, rowLines);
 }
 
-vector<vector<string>> parseCsvBackslashQuotes(const string& text, char delimiter, string& error) {
-  return scanCsv(text, delimiter, error, (numeric_limits<size_t>::max)(), true);
+vector<vector<string>> parseCsvBackslashQuotes(const string& text, char delimiter, string& error,
+                                               vector<size_t>* rowLines) {
+  return scanCsv(text, delimiter, error, (numeric_limits<size_t>::max)(), true, rowLines);
 }
 
 string normalizeHeader(string value) {
