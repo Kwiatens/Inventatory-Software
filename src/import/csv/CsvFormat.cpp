@@ -70,6 +70,10 @@ bool hasAltiumBomHeaders(const vector<string>& headers) {
   if (findColumn(headers, {"LibRef", "DesignItemId"}) >= 0) {
     return true;
   }
+  // Part-number parameters KiCad does not write; keep in step with AltiumBom.cpp.
+  if (findColumn(headers, {"MPN", "Mfr Part Number", "Mfg Part Number", "LCSC Part #", "LCSC Part Number"}) >= 0) {
+    return true;
+  }
   if (findColumn(headers, {"Value"}) >= 0) {
     return false;
   }
