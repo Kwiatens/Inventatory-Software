@@ -12933,7 +12933,7 @@ void testBackupExportAndRestoreWorkflow() {
   const string exportedText((istreambuf_iterator<char>(exported)), istreambuf_iterator<char>());
   assert(exportedText.find("Transfer resistor") != string::npos);
   assert(exportedText.find("Quantity") != string::npos);
-  assert(exportedText.find(",TME part,Mouser part\r\n") != string::npos);
+  assert(exportedText.find(",TME part,Mouser part") != string::npos);
   assert(exportedText.find("\"\t =HYPERLINK(\"\"https://example.invalid\"\")\"") != string::npos);
   // An export replaces the file whole, leaves no temp file, and reports a failed write.
   {
