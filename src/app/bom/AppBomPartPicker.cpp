@@ -9,6 +9,7 @@
 #include "core/vendor/VendorOfferStore.h"
 #include "core/vendor/VendorPurchase.h"
 #include "platform/digikey/DigiKeyApi.h"
+#include "platform/mouser/MouserApi.h"
 #include "platform/system/Console.h"
 #include "platform/tme/TmeApi.h"
 
@@ -123,6 +124,42 @@ BomPartPickerSearch searchTmeForPicker(const BomLine& line, const vector<string>
   return result;
 }
 
+// Runs on the worker thread. One request answers each search with up to 50 products, prices and stock included.
+// Mouser allows 30 requests a minute, so a search that fails on the limit is not sent again.
+BomPartPickerSearch searchMouserForPicker(const BomLine& line, const vector<string>& queries, BomPickerProgress& progress) {
+  BomPartPickerSearch result;
+  const auto config = loadMouserConfig();
+  if (!config.valid()) {
+    result.error = "Mouser is not set up. Add its key in Settings, Vendors.";
+    return result;
+  }
+  MouserApiClient client(config);
+  for (const auto& query : queries) {
+    MouserLookupOutcome outcome = MouserLookupOutcome::Failed;
+    string error;
+    auto products = client.searchProducts(query, outcome, &error);
+    if (outcome == MouserLookupOutcome::Failed && !limitReached(error) && !mouserKeyRejected(error)) {
+      error.clear();
+      products = client.searchProducts(query, outcome, &error);
+    }
+    progress.done.fetch_add(1);
+    if (outcome == MouserLookupOutcome::Failed) {
+      if (result.candidates.empty()) {
+        result.error = pickerSearchError("Mouser", error);
+        return result;
+      }
+      break;
+    }
+    for (const auto& product : products) {
+      // A record with no Mouser number cannot be ordered, so it is not offered.
+      if (!product.vendorMetadata.providerProductNumber.empty()) addCandidate(result.candidates, mouserCandidate(product));
+    }
+    if (anyFits(line, result.candidates)) break;
+  }
+  result.ok = true;
+  return result;
+}
+
 }  // namespace
 
 void App::startBomPartPickerSearch(const BomLine& line, const string& typed) {
@@ -152,8 +189,9 @@ void App::startBomPartPickerSearch(const BomLine& line, const string& typed) {
   // The keyring can block, so credentials are read on the worker. The worker shares only the counters.
   const auto store = bomPicker_.store;
   bomPickerFuture_ = async(launch::async, [line, queries, store, key = bomPicker_.lineKey, progress = bomPicker_.progress] {
-    auto result = store == kVendorProviderTme ? searchTmeForPicker(line, queries, *progress)
-                                              : searchDigiKeyForPicker(line, queries, *progress);
+    auto result = store == kVendorProviderTme      ? searchTmeForPicker(line, queries, *progress)
+                  : store == kVendorProviderMouser ? searchMouserForPicker(line, queries, *progress)
+                                                   : searchDigiKeyForPicker(line, queries, *progress);
     result.lineKey = key;
     return result;
   });

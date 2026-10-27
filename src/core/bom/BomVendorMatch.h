@@ -9,7 +9,8 @@
 // order for the quantity needed.
 //
 // Parameter labels are DigiKey's ("Resistance", "Package / Case"). A vendor whose labels differ maps
-// its products onto these before matching.
+// its products onto these before matching. Mouser sends none of them as attributes, so its values are read from
+// the description (see platform/mouser/MouserDescription.h).
 
 #pragma once
 
@@ -148,7 +149,9 @@ std::string bomPickerContext(const std::string& store, std::uint64_t quantity);
 // were left out. Plain words from one template, so the same answer always reads the same.
 std::string bomPickerSummary(const std::string& store, std::size_t listed, std::size_t leftOut,
                              std::size_t otherValue = 0);
-// Whether manual search can list parts for a store. DigiKey and TME can; Mouser cannot yet.
+// Whether manual search can list parts for a store. All three stores can.
 bool bomPickerSearchable(const std::string& store);
+// A warning to show beside the store when its answers are less reliable. Empty for a store with no warning.
+std::string bomPickerStoreNote(const std::string& store);
 
 }  // namespace inventatory
