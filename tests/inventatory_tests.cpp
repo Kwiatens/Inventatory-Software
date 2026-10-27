@@ -21,6 +21,7 @@
 #include "core/vendor/VendorPurchase.h"
 #include "core/vendor/VendorRateLimits.h"
 #include "platform/mouser/MouserApi.h"
+#include "platform/mouser/MouserDescription.h"
 #include "platform/system/UpdateService.h"
 #include "platform/system/Console.h"
 #include "platform/system/StartupRegistration.h"
@@ -12997,6 +12998,7 @@ void testBackupExportAndRestoreWorkflow() {
   const string exportedText((istreambuf_iterator<char>(exported)), istreambuf_iterator<char>());
   assert(exportedText.find("Transfer resistor") != string::npos);
   assert(exportedText.find("Quantity") != string::npos);
+  assert(exportedText.find(",TME part,Mouser part") != string::npos);
   assert(exportedText.find("\"\t =HYPERLINK(\"\"https://example.invalid\"\")\"") != string::npos);
   // An export replaces the file whole, leaves no temp file, and reports a failed write.
   {
@@ -15048,6 +15050,231 @@ void testMouserFerriteParametersFromDescription() {
   assert(plan.parameters[1].caption == "FREQUENCY" && plan.parameters[1].value == "100MHz");
 }
 
+BomLine syntheticBomLine(const string& designation, const string& footprint, int quantity = 1);
+
+// The parameters Mouser's description gives, by label.
+string mouserDescribed(const string& category, const string& description, const string& label) {
+  for (const auto& parameter : mouserDescriptionParameters(category, description)) {
+    if (parameter.name == label) return parameter.value;
+  }
+  return {};
+}
+
+// Mouser sends packaging as its only attribute, so the matcher's values come from the description. These are
+// descriptions as Mouser printed them in live answers (2026-10-27), and the shapes around them.
+void testMouserDescriptionParameters() {
+  const string resistors = "Thick Film Resistors - SMD";
+  assert(mouserDescribed(resistors, "Thick Film Resistors - SMD 10K   OHM   1%", "Resistance") == "10 kOhms");
+  assert(mouserDescribed(resistors, "Thick Film Resistors - SMD 10K   OHM   1%", "Tolerance") == "\xC2\xB1" "1%");
+  assert(mouserDescribed(resistors, "Thick Film Resistors - SMD 10K   OHM   1%", "Package / Case").empty());
+  assert(mouserDescribed(resistors, "General Purpose Chip Resistor 0603, 10kOhms, 1%, 1/10W", "Package / Case") == "0603");
+  assert(mouserDescribed(resistors, "General Purpose Chip Resistor 0603, 10kOhms, 1%, 1/10W", "Resistance") == "10 kOhms");
+  assert(mouserDescribed(resistors, "Thin Film Resistors - SMD MCT 0603-25 0.1% PW 10K", "Resistance") == "10 kOhms");
+  assert(mouserDescribed(resistors, "Thin Film Resistors - SMD MCT 0603-25 0.1% PW 10K", "Package / Case") == "0603");
+  assert(mouserDescribed(resistors, "Resistor 4R7 5% 0805", "Resistance") == "4.7 Ohms");
+  assert(mouserDescribed(resistors, "Resistor 4K7 5% 0805", "Resistance") == "4.7 kOhms");
+  assert(mouserDescribed("Current Sense Resistors - SMD", "Current Sense Resistors 5 mOhm 1% 2512", "Resistance") == "5 mOhms");
+  assert(mouserDescribed(resistors, "Resistor 1M OHM 1% 0402", "Resistance") == "1 MOhms");
+  // Two different values: the text is about something else too, so nothing is read.
+  assert(mouserDescribed(resistors, "Resistor 10K OHM 1% 22K", "Resistance").empty());
+  // A pack of two sizes names no size.
+  assert(mouserDescribed(resistors, "Resistor 10K OHM 0603 0805", "Package / Case").empty());
+  // Networks, thermistors and other categories are not read as chip resistors.
+  assert(mouserDescriptionParameters("Resistor Networks & Arrays", "Resistor Networks 10K OHM 0603").empty());
+  assert(mouserDescriptionParameters("NTC (Negative Temperature Coefficient) Thermistors", "NTC 10K OHM 0603").empty());
+  assert(mouserDescriptionParameters("Headers & Wire Housings", "Headers 2X5 POS HDR 10K").empty());
+  assert(mouserDescriptionParameters(resistors, "").empty());
+
+  const string ceramics = "Multilayer Ceramic Capacitors MLCC - SMD/SMT";
+  // 100KPF is 100 000 pF, which is 100 nF.
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 100KPF 50V 10%", "Capacitance") == "100 nF");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 100KPF 50V 10%", "Voltage - Rated") == "50V");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 100KPF 50V 10%", "Package / Case").empty());
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 50V 0.1uF X7R 0603 10%", "Capacitance") == "100 nF");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 50V 0.1uF X7R 0603 10%", "Temperature Coefficient") == "X7R");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 50V 0.1uF X7R 0603 10%", "Package / Case") == "0603");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT .1UF 50V 5% 0603", "Capacitance") == "100 nF");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 10uF 6.3V X5R 0805", "Capacitance") == "10 \xC2\xB5" "F");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 10uF 6.3V X5R 0805", "Voltage - Rated") == "6.3V");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 22pF 50V C0G 0402", "Capacitance") == "22 pF");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 22pF 50V NP0 0402", "Temperature Coefficient") == "NP0");
+  assert(mouserDescribed(ceramics, "MLCC - SMD/SMT 22pF 50V 100V 0402", "Voltage - Rated").empty());
+  // Electrolytics are not read: their descriptions do not name the can.
+  assert(mouserDescriptionParameters("Aluminum Electrolytic Capacitors - Radial Leaded", "Aluminum Electrolytic 100uF 25V").empty());
+
+  assert(mouserDescribed("Power Inductors - SMD", "Power Inductors - SMD 10uH 20% SMD 1210 AEC-Q200", "Inductance") == "10 \xC2\xB5" "H");
+  assert(mouserDescribed("Power Inductors - SMD", "Power Inductors - SMD 10uH 20% SMD 1210 AEC-Q200", "Package / Case") == "1210");
+  assert(mouserDescribed("RF Inductors - SMD", "RF Inductors - SMD 100nH 5%", "Inductance") == "100 nH");
+  // A bead is read by its own rule, not as an inductor.
+  assert(mouserDescriptionParameters("Ferrite Beads", "Ferrite Beads 10uH").empty());
+
+  assert(mouserDescribed("Single Colour LEDs", "Single Colour LEDs RED 630nm LED 0603 Surface Mount", "Color") == "Red");
+  assert(mouserDescribed("Single Colour LEDs", "Single Colour LEDs RED 630nm LED 0603 Surface Mount", "Package / Case") == "0603");
+  assert(mouserDescribed("Single Colour LEDs", "LEDs RED/GREEN 0603", "Color").empty());
+  assert(mouserDescriptionParameters("LED Drivers", "LED Drivers RED 0603").empty());
+
+  assert(mouserDescribed("Crystals", "Crystals Xtal 3215 2-SMD 0.032768MHz Tol  20ppm", "Frequency") == "32.768 kHz");
+  assert(mouserDescribed("Crystals", "Crystals Xtal 3215 2-SMD 0.032768MHz Tol  20ppm", "Size / Dimension") == "3.20mm x 1.50mm");
+  assert(mouserDescribed("Crystals", "Crystals 8 MHz 18pF HC-49", "Frequency") == "8 MHz");
+  assert(mouserDescribed("Crystals", "Crystals 8 MHz 18pF HC-49", "Package / Case") == "HC-49");
+  assert(mouserDescriptionParameters("Crystal Oscillators", "Oscillators 8 MHz").empty());
+
+  assert(mouserDescribed("Surface Mount Fuses", "Fuse 500mA 63V 0603", "Current Rating (Amps)") == "500 mA");
+  assert(mouserDescribed("Surface Mount Fuses", "Fuse 1.5A 32V 1206", "Current Rating (Amps)") == "1.5 A");
+  assert(mouserDescriptionParameters("Fuse Holders", "Fuse Holders 5A").empty());
+}
+
+vector<MouserProductDetails> readMouserFixture(const string& name) {
+  const auto path = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / ("mouser-live-" + name + ".json");
+  ifstream input(path, ios::binary);
+  assert(input.good());
+  const string body((istreambuf_iterator<char>(input)), istreambuf_iterator<char>());
+  vector<MouserProductDetails> products;
+  string error;
+  assert(parseMouserSearchResponse(body, products, &error));
+  assert(!products.empty());
+  return products;
+}
+
+vector<VendorCandidate> mouserCandidates(const string& name) {
+  vector<VendorCandidate> candidates;
+  for (const auto& product : readMouserFixture(name)) candidates.push_back(mouserCandidate(product));
+  return candidates;
+}
+
+// The picker on real Mouser answers. A part that "fits" must say so in its own description: the value and the
+// chip size the line asks for. A part whose text leaves one out is listed, but under the "might not match" heading.
+void testMouserPickerOnLiveAnswers() {
+  const auto resistors = mouserCandidates("resistor-10k-0603");
+  const auto resistorLine = syntheticBomLine("10K", "R_0603_1608Metric");
+  const auto ranked = rankBomPickerCandidates(resistorLine, 10, resistors);
+  assert(!ranked.entries.empty());
+  size_t fitting = 0;
+  for (const auto& entry : ranked.entries) {
+    if (!entry.fits) continue;
+    ++fitting;
+    // "10K OHM", "10 kOhms" and "10 kOhm" all name the value; the size is written out in every one.
+    string text = toUpper(entry.candidate.description);
+    text.erase(remove(text.begin(), text.end(), ' '), text.end());
+    assert(text.find("10K") != string::npos && text.find("0603") != string::npos);
+    assert(containsInsensitive(entry.candidate.category, "resistors"));
+  }
+  assert(fitting > 0);
+  // Fitting parts come before the others, so Best is a fitting part.
+  assert(ranked.entries.front().fits);
+  for (const auto& candidate : resistors) {
+    if (candidate.category.find("Thermistor") != string::npos) assert(!bomPickerFits(resistorLine, candidate));
+  }
+
+  const auto capacitors = mouserCandidates("capacitor-100nf-0603");
+  const auto capacitorLine = syntheticBomLine("100nF", "C_0603_1608Metric");
+  size_t capacitorsFitting = 0;
+  for (const auto& candidate : capacitors) {
+    if (!bomPickerFits(capacitorLine, candidate)) continue;
+    ++capacitorsFitting;
+    const auto text = toUpper(candidate.description);
+    assert(text.find("0603") != string::npos);
+    assert(text.find("100KPF") != string::npos || text.find("0.1UF") != string::npos || text.find(".1UF") != string::npos ||
+           text.find("100NF") != string::npos || text.find("0.10UF") != string::npos);
+  }
+  assert(capacitorsFitting > 0);
+
+  // Headers carry no description-readable value: nothing is verified, so no part is called Best.
+  const auto headers = mouserCandidates("header-2x5");
+  for (const auto& candidate : headers) assert(!bomPickerFits(syntheticBomLine("Conn_02x05", "PinHeader_2x05_P2.54mm_Vertical"), candidate));
+
+  // A part number the line names fits by its number, whatever the text says.
+  const auto inductors = mouserCandidates("inductor-10uh");
+  size_t inductorsFitting = 0;
+  for (const auto& candidate : inductors) {
+    if (bomPickerFits(syntheticBomLine("10uH", "L_1210_3225Metric"), candidate)) {
+      ++inductorsFitting;
+      assert(containsInsensitive(candidate.description, "1210") && containsInsensitive(candidate.description, "10uH"));
+    }
+  }
+  assert(inductorsFitting > 0);
+
+  // An LED line fits by its chip size, as at DigiKey: the description must name the size.
+  const auto leds = mouserCandidates("led-red-0603");
+  size_t ledsFitting = 0;
+  for (const auto& candidate : leds) {
+    if (!bomPickerFits(syntheticBomLine("LED", "LED_0603_1608Metric"), candidate)) continue;
+    ++ledsFitting;
+    assert(containsInsensitive(candidate.description, "0603"));
+  }
+  assert(ledsFitting > 0);
+  // A colour the line names is a parameter of the part, read from the description.
+  for (const auto& candidate : leds) {
+    if (vendorParameter(candidate, "Color") == "Red") assert(containsInsensitive(candidate.description, "RED"));
+  }
+
+  // A crystal fits by its frequency and its size code.
+  const auto crystals = mouserCandidates("crystal-32khz-3215");
+  size_t crystalsFitting = 0;
+  for (const auto& candidate : crystals) {
+    if (!bomPickerFits(syntheticBomLine("32.768kHz", "Crystal_SMD_3215-2Pin_3.2x1.5mm"), candidate)) continue;
+    ++crystalsFitting;
+    assert(containsInsensitive(candidate.description, "3215"));
+  }
+  assert(crystalsFitting > 0);
+}
+
+// Mouser answers "InvalidCharacters" (HTTP 400) to a search with µ in it, and DigiKey's wording of a value has one.
+void testMouserSearchWords() {
+  assert(mouserSearchWords("10 \xC2\xB5" "F 0805 (2012 Metric)") == "10 uF 0805 (2012 Metric)");
+  assert(mouserSearchWords("4.7 \xCE\xBC" "H 1210") == "4.7 uH 1210");
+  assert(mouserSearchWords("100 \xCE\xA9 0603") == "100 ohm 0603");
+  assert(mouserSearchWords("  plain 0603  ") == "plain 0603");
+  // A character with no ASCII form is dropped, and the gap it leaves is closed.
+  assert(mouserSearchWords("a \xE2\x82\xAC b") == "a b");
+  assert(mouserSearchWords("\xE2\x82\xAC").empty());
+  // A cut-off sequence is dropped, never read past the end.
+  assert(mouserSearchWords("abc\xE2\x82") == "abc");
+  // The wording the picker sends for a 10 uF capacitor reads the same after the change.
+  const auto queries = bomPickerQueries(syntheticBomLine("10uF", "C_0805_2012Metric"), "");
+  assert(!queries.empty());
+  for (const auto& query : queries) {
+    for (const unsigned char character : mouserSearchWords(query)) assert(character < 0x80);
+  }
+}
+
+void testMouserCandidateMapping() {
+  MouserProductDetails product;
+  product.vendorMetadata.provider = kVendorProviderMouser;
+  product.vendorMetadata.providerProductNumber = "603-RC0603FR-0710KL";
+  product.vendorMetadata.manufacturerPartNumber = "RC0603FR-0710KL";
+  product.manufacturerName = "YAGEO";
+  product.categoryName = "Thick Film Resistors - SMD";
+  product.productDescription = "Thick Film Resistors - SMD 10kOhms 1% 0603";
+  product.quantityAvailable = "5000";
+  product.productStatus = "New at Mouser";
+  product.productUrl = "https://www.mouser.com/ProductDetail/YAGEO/RC0603FR-0710KL";
+  auto candidate = mouserCandidate(product);
+  assert(candidate.manufacturerPartNumber == "RC0603FR-0710KL" && candidate.manufacturer == "YAGEO");
+  // A new part is in full production; it is not ranked below an active one.
+  assert(candidate.status == "Active" && !candidate.discontinued && !candidateEndOfLife(candidate));
+  assert(candidate.stock.value_or(0) == 5000);
+  assert(vendorParameter(candidate, "Resistance") == "10 kOhms" && vendorParameter(candidate, "Package / Case") == "0603");
+  assert(candidate.productUrl == product.productUrl);
+
+  // An attribute Mouser sent wins over the description.
+  product.parameters = {{"Package / Case", "0805"}};
+  candidate = mouserCandidate(product);
+  assert(vendorParameter(candidate, "Package / Case") == "0805");
+
+  product.productStatus = "Obsolete";
+  assert(candidateEndOfLife(mouserCandidate(product)));
+  product.orderable = false;
+  assert(mouserCandidate(product).discontinued);
+  product.productUrl = "https://example.org/phish";
+  assert(mouserCandidate(product).productUrl.empty());
+
+  assert(bomPickerSearchable(kVendorProviderMouser) && bomPickerSearchable(kVendorProviderDigiKey) &&
+         bomPickerSearchable(kVendorProviderTme) && !bomPickerSearchable("farnell"));
+  assert(!bomPickerStoreNote(kVendorProviderMouser).empty());
+  assert(bomPickerStoreNote(kVendorProviderDigiKey).empty() && bomPickerStoreNote(kVendorProviderTme).empty());
+}
+
 // Spelled-out captions are the point of the standard names, so each must print whole in a tile.
 void testLabelCaptionsFitWhole() {
   for (const auto& [shortForm, text] : label_printer_detail::standardParameterCaptions()) {
@@ -15637,7 +15864,7 @@ VendorCandidate syntheticCandidate(const string& mpn, const string& maker, vecto
   return candidate;
 }
 
-BomLine syntheticBomLine(const string& designation, const string& footprint, int quantity = 1) {
+BomLine syntheticBomLine(const string& designation, const string& footprint, int quantity) {
   BomLine line;
   line.designation = designation;
   line.footprint = footprint;
@@ -15993,7 +16220,7 @@ void testBomPickerSearchWords() {
   assert(bomPickerSummary("DigiKey", 1, 2, 1) ==
          "DigiKey has 1 part in stock at a normal price. 2 left out: out of stock or not at a normal price. "
          "1 part of another value left out.");
-  // With nothing that fits, the other value stays, under May not fit: the search may have asked for it.
+  // With nothing that fits, the other value stays, under the "might not match" heading: the search may have asked for it.
   const auto onlyOther = rankBomPickerCandidates(line, 1, {products[2]});
   assert(onlyOther.entries.size() == 1 && !onlyOther.entries[0].fits && onlyOther.otherValue == 0);
 }
@@ -16095,7 +16322,7 @@ void testBomPickerSummaryWords() {
          "DigiKey has 6 parts in stock at a normal price. 4 left out: out of stock or not at a normal price.");
   assert(bomPickerContext("TME", 2) == "TME, need 2 pieces. Only parts in stock at a normal price are listed.");
   assert(bomPickerSearchable(kVendorProviderDigiKey) && bomPickerSearchable(kVendorProviderTme));
-  assert(!bomPickerSearchable(kVendorProviderMouser));
+  assert(bomPickerSearchable(kVendorProviderMouser) && !bomPickerSearchable("farnell"));
 }
 
 void testBomMatchSkipsUnavailableParts() {
@@ -17777,6 +18004,10 @@ const vector<TestCase>& registeredTests() {
     {"settings", "SharedVendorRegionAndEnabledPersist", testSharedVendorRegionAndEnabledPersist},
     {"mouser", "MouserResponseParsing", testMouserResponseParsing},
     {"mouser", "MouserLiveResponseShape", testMouserLiveResponseShape},
+    {"mouser", "MouserDescriptionParameters", testMouserDescriptionParameters},
+    {"mouser", "MouserPickerOnLiveAnswers", testMouserPickerOnLiveAnswers},
+    {"mouser", "MouserSearchWords", testMouserSearchWords},
+    {"mouser", "MouserCandidateMapping", testMouserCandidateMapping},
     {"mouser", "MouserFerriteParametersFromDescription", testMouserFerriteParametersFromDescription},
     {"label", "LabelCaptionsFitWhole", testLabelCaptionsFitWhole},
     {"mouser", "MouserOfferParsing", testMouserOfferParsing},

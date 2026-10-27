@@ -12,6 +12,7 @@
 
 #include "core/inventory/VendorProvider.h"
 #include "core/vendor/VendorOffer.h"
+#include "platform/mouser/MouserDescription.h"
 #include "platform/digikey/DigiKeyApiPrivate.h"
 #include "core/vendor/VendorRateLimits.h"
 #include "platform/security/CredentialStore.h"
@@ -457,10 +458,12 @@ MouserFailure readAnswer(const HttpResponse& response, vector<MouserProductDetai
 // Sends one search. Only a transport failure is false; the caller reads the status and body.
 // The DigiKey-worded transport error is replaced. POSTs are never retried, so a failure costs one
 // request.
-bool postKeywordSearch(const string& apiKey, const string& keyword, HttpResponse& response, string* error) {
+bool postKeywordSearch(const string& apiKey, const string& keyword, bool inStockOnly, HttpResponse& response,
+                       string* error) {
   const auto url = string(kMouserKeywordSearchUrl) + encodeComponent(apiKey, false);
   const auto body = string(R"({"SearchByKeywordRequest":{"keyword":")") + escapeJsonString(keyword) +
-                    R"(","records":)" + to_string(kSearchRecords) + R"(,"startingRecord":0}})";
+                    R"(","records":)" + to_string(kSearchRecords) + R"(,"startingRecord":0)" +
+                    (inStockOnly ? R"(,"searchOptions":"InStock")" : string()) + "}}";
   string transportError;
   if (!requestHttp(L"POST", widen(url), widen(kMouserRequestHeaders), body, response, &transportError,
                    "Mouser")) {
@@ -541,6 +544,34 @@ string redactMouserKey(string text, const string& apiKey) {
   return text;
 }
 
+string mouserSearchWords(const string& text) {
+  string out;
+  for (size_t index = 0; index < text.size();) {
+    const auto byte = static_cast<unsigned char>(text[index]);
+    if (byte < 0x80) {
+      out += static_cast<char>(byte);
+      ++index;
+      continue;
+    }
+    // One UTF-8 sequence: its length follows from the first byte.
+    const size_t length = byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : byte >= 0xC0 ? 2 : 1;
+    const auto sequence = text.substr(index, length);
+    if (sequence == "\xC2\xB5" || sequence == "\xCE\xBC") {
+      out += 'u';
+    } else if (sequence == "\xCE\xA9" || sequence == "\xE2\x84\xA6") {
+      out += "ohm";
+    }
+    index += length;
+  }
+  // Dropping a character can leave two spaces behind.
+  string spaced;
+  for (const char character : out) {
+    if (character == ' ' && !spaced.empty() && spaced.back() == ' ') continue;
+    spaced += character;
+  }
+  return trim(spaced);
+}
+
 bool mouserLimitReached(const string& error) { return error.rfind(limitReachedPrefix(), 0) == 0; }
 
 bool mouserKeyRejected(const string& error) { return error.rfind(keyRejectedPrefix(), 0) == 0; }
@@ -562,6 +593,28 @@ bool mouserKeyAccepted(uint32_t statusCode, const string& body, string* error) {
   return setError(error, move(answerError));
 }
 
+VendorCandidate mouserCandidate(const MouserProductDetails& product) {
+  VendorCandidate candidate;
+  candidate.manufacturer = product.manufacturerName;
+  candidate.manufacturerPartNumber = product.vendorMetadata.manufacturerPartNumber;
+  candidate.description = product.productDescription;
+  candidate.category = product.categoryName;
+  // Mouser calls a part "New Product" or "New at Mouser" while it is in full production.
+  const auto status = toLower(product.productStatus);
+  candidate.status = status.find("new") == 0 ? "Active" : product.productStatus;
+  candidate.discontinued = !product.orderable;
+  candidate.parameters = product.parameters;
+  for (auto& parameter : mouserDescriptionParameters(product.categoryName, product.productDescription)) {
+    const bool known = any_of(candidate.parameters.begin(), candidate.parameters.end(),
+                              [&](const Parameter& seen) { return seen.name == parameter.name; });
+    if (!known) candidate.parameters.push_back(move(parameter));
+  }
+  if (!product.quantityAvailable.empty()) candidate.stock = stoull(product.quantityAvailable);
+  if (product.offer.has_value()) candidate.offers.push_back(*product.offer);
+  candidate.productUrl = vendorLinkAllowed(kVendorProviderMouser, product.productUrl) ? product.productUrl : string();
+  return candidate;
+}
+
 MouserApiClient::MouserApiClient(MouserConfig config) : config_(move(config)) {}
 
 void MouserApiClient::waitForRequestSlot() {
@@ -576,13 +629,13 @@ void MouserApiClient::waitForRequestSlot() {
 }
 
 bool MouserApiClient::searchKeyword(const string& keyword, vector<MouserProductDetails>& products,
-                                    MouserLookupOutcome& outcome, string* error) {
+                                    MouserLookupOutcome& outcome, string* error, bool inStockOnly) {
   products.clear();
   outcome = MouserLookupOutcome::Failed;
   if (!config_.valid()) return setError(error, missingKeyMessage());
   waitForRequestSlot();
   HttpResponse response;
-  if (!postKeywordSearch(config_.apiKey, keyword, response, error)) return false;
+  if (!postKeywordSearch(config_.apiKey, keyword, inStockOnly, response, error)) return false;
   string answerError;
   if (readAnswer(response, products, &answerError) != MouserFailure::None) {
     return setError(error, redactMouserKey(answerError, config_.apiKey));
@@ -595,11 +648,24 @@ bool MouserApiClient::testConnection(string* error) {
   if (!config_.valid()) return setError(error, missingKeyMessage());
   waitForRequestSlot();
   HttpResponse response;
-  if (!postKeywordSearch(config_.apiKey, kCredentialTestKeyword, response, error)) return false;
+  if (!postKeywordSearch(config_.apiKey, kCredentialTestKeyword, false, response, error)) return false;
   string answerError;
   // The key passes only if Mouser answers the search; a reached limit also counts.
   if (mouserKeyAccepted(response.statusCode, response.body, &answerError)) return true;
   return setError(error, redactMouserKey(answerError, config_.apiKey));
+}
+
+vector<MouserProductDetails> MouserApiClient::searchProducts(const string& keyword, MouserLookupOutcome& outcome,
+                                                             string* error, bool inStockOnly) {
+  outcome = MouserLookupOutcome::Failed;
+  const auto words = mouserSearchWords(keyword);
+  if (words.size() < kMinimumKeywordBytes || words.size() > kMaximumKeywordBytes) {
+    setError(error, mouserName() + " search words must be 2 to 100 characters");
+    return {};
+  }
+  vector<MouserProductDetails> products;
+  searchKeyword(words, products, outcome, error, inStockOnly);
+  return products;
 }
 
 optional<MouserProductDetails> MouserApiClient::lookupByPartNumber(const string& partNumber,

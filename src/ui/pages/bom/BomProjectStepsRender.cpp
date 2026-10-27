@@ -371,6 +371,10 @@ ftxui::Element App::renderBomChoose(int screenWidth) const {
                                                   [self] { self->beginBomPartSearchEdit(); })
                                          : ftxui::text(""),
                               ftxui::filler()}));
+  // A store whose answers are less reliable says so, wrapped to the screen, for as long as it is the store.
+  if (const auto note = bomPickerStoreNote(bomPicker_.store); !note.empty()) {
+    body.push_back(ftxui::hbox({ftxui::text(" "), ftxui::paragraphAlignLeft(note) | ftxui::color(uiWarnColor()) | ftxui::flex}));
+  }
   body.push_back(ftxui::text(" "));
 
   const auto statusRow = [&](const string& text, ftxui::Color color) {
@@ -445,7 +449,7 @@ ftxui::Element App::renderBomChoose(int screenWidth) const {
     const auto& candidate = entry.candidate;
     // Parts the checks cannot confirm come last, under their own heading.
     if (!entry.fits && (entryIndex == 0 || bomPicker_.entries[entryIndex - 1].fits)) {
-      rows.push_back(groupRow("May not fit", uiWarnColor(), static_cast<int>(mayNotFit)));
+      rows.push_back(groupRow("Some parameters might not match the original. Please verify manually.", uiWarnColor(), static_cast<int>(mayNotFit)));
     }
     const bool selected = entryIndex == bomPicker_.selection;
     const auto cost = vendorCandidateCost(candidate, bomPicker_.quantity);

@@ -233,6 +233,7 @@ add_executable(inventatory
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
   src/platform/mouser/MouserApi.cpp
+  src/platform/mouser/MouserDescription.cpp
   src/core/vendor/VendorOffer.cpp
   src/core/vendor/VendorPurchase.cpp
   src/core/vendor/VendorOfferStore.cpp
@@ -338,6 +339,7 @@ add_executable(inventatory_tests
   src/platform/tme/TmeEncoding.cpp
   src/platform/tme/TmeVocabulary.cpp
   src/platform/mouser/MouserApi.cpp
+  src/platform/mouser/MouserDescription.cpp
   src/core/vendor/VendorOffer.cpp
   src/core/vendor/VendorPurchase.cpp
   src/core/vendor/VendorOfferStore.cpp
