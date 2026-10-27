@@ -128,11 +128,13 @@ Altium Designer: export the Bill of Materials report as CSV, choosing the column
 Comment (or Description, in an Altium 365 export), Designator, Footprint and Quantity,
 and add Supplier 1, Supplier Part Number 1 and Manufacturer Part Number 1 when the parts
 have them. Inventatory finds each column by its header name, so the order of the columns
-does not matter. A row with no Comment or Description uses its Name. The Designator,
-Description, Quantity, supplier and manufacturer names match Altium 365 exports. Comment, Footprint and LibRef have not been checked against an
-Altium desktop export yet. When the Designator or the value column cannot be found, the
-message names it. A report is refused with the same rules as an EasyEDA export, and a
-total row at its foot is skipped. A report that has a Qty column is read as a KiCad BOM,
+does not matter. A row with no Comment or Description uses its Name. The column names
+match Altium Designer reports and Altium 365 exports. Part numbers are read from
+Manufacturer Part Number 1, MPN, and the LCSC Part # column (an LCSC number is
+taken as an LCSC part). When the Designator or the value column cannot be found, the
+message names it. A report is refused with the same rules as an EasyEDA export, a
+total row at its foot is skipped, and so is a heading row with no designator, with a
+warning. An Excel workbook is not read; export the report as CSV. A report that has a Qty column is read as a KiCad BOM,
 so its supplier columns are not read.
 
 ## Project workflow

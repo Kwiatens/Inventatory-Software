@@ -77,3 +77,12 @@ suitability of this software for any purpose.  It is provided "as
 is" without express or implied warranty.
 
 The monospaced glyphs come from ProFont (ProFont Distribution 2.2, as converted by U8g2).
+
+The test fixtures `tests/fixtures/altium-real-*.csv` are Altium Designer BOM exports copied from public
+projects, used only to test the importer:
+
+- `altium-real-gbpp.csv`: [marshallh/gbpp](https://github.com/marshallh/gbpp), MIT License, Copyright (c) 2021 marshallh.
+- `altium-real-ledsp.csv`: [pms67/LeDSP-Audio-SoM](https://github.com/pms67/LeDSP-Audio-SoM), MIT License,
+  Copyright (c) 2022 Philip Salmony.
+- `altium-real-dsi-shield.csv`: [twlostow/dsi-shield](https://github.com/twlostow/dsi-shield), LGPL-3.0.
+- `altium-real-battman.csv`: [raphaelchang/battman-hardware](https://github.com/raphaelchang/battman-hardware), LGPL-3.0.

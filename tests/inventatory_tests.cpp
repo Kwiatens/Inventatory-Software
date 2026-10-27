@@ -12207,6 +12207,71 @@ bool altiumWarningContains(const vector<string>& warnings, const string& text) {
   });
 }
 
+// Reads a fixture copied from a public Altium Designer project; its REAL notice line is dropped.
+string readRealAltiumFixture(const string& name) {
+  const auto path = filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / name;
+  ifstream input(path);
+  assert(input.good());
+  string line;
+  const bool notice = static_cast<bool>(getline(input, line));
+  assert(notice && line.rfind("# REAL", 0) == 0);
+  string text;
+  while (getline(input, line)) text += line + "\n";
+  return text;
+}
+
+void testAltiumRealExportsParse() {
+  // Public Altium Designer projects: the default layout, a Value column, a comma-only row after the
+  // header, UTF-8 text, multi-channel designators and an LCSC part number column.
+  for (const char* name : {"altium-real-gbpp.csv", "altium-real-ledsp.csv", "altium-real-dsi-shield.csv",
+                           "altium-real-battman.csv"}) {
+    const auto bom = parseBomText(readRealAltiumFixture(name), name);
+    assert(bom.ok);
+    assert(!bom.lines.empty());
+    for (const auto& line : bom.lines) {
+      assert(!line.designation.empty() && !line.designators.empty() && !line.footprint.empty());
+    }
+  }
+  const auto ledsp = parseBomText(readRealAltiumFixture("altium-real-ledsp.csv"), "ledsp");
+  assert(ledsp.ok && ledsp.lines.front().designation == "2u2" && ledsp.lines.front().quantityPerBoard == 10);
+  assert(ledsp.lines.front().supplier == "LCSC" && ledsp.lines.front().supplierPartNumber == "C23630");
+  const auto battman = parseBomText(readRealAltiumFixture("altium-real-battman.csv"), "battman");
+  assert(battman.ok && battman.lines[1].designators.size() == 12 && battman.lines[1].designators.front() == "C1_S1");
+}
+
+void testAltiumReadsPartNumberParameters() {
+  const auto bom = parseBomText(
+      "LibRef,Internal PN,Quantity,Designator,Description,Footprint,Comment,MFG,MPN\n"
+      ",,,,,,,,\n"
+      "ANT-A-1JB,CON-0006,1,ANT_UFL,,UFL,ANT-A-1JB,Amphenol,A-1JB\n",
+      "parameters");
+  assert(bom.ok && bom.lines.size() == 1);
+  assert(bom.lines.front().manufacturerPartNumber == "A-1JB");
+}
+
+void testAltiumSkipsHeadingRows() {
+  const auto bom = parseAltiumBomText(
+      "Comment,Designator,Footprint,LibRef,Quantity\n"
+      "10k,R1,R0402,RES,1\n"
+      "\"Through Hole Items \",,,,\n"
+      "USB-C,J2,USB_C,USB,1\n",
+      "headings");
+  assert(bom.ok && bom.lines.size() == 2);
+  assert(altiumWarningContains(bom.warnings, "Row 3: \"Through Hole Items\" has no designator and looks like a heading"));
+  // A row with a footprint but no designator is still a part that lost its designator.
+  const auto lost = parseAltiumBomText("Comment,Designator,Footprint,LibRef\n10k,,R0402,RES\n", "lost");
+  assert(!lost.ok && lost.error.rfind("Row 2: has no designator", 0) == 0);
+}
+
+void testExcelWorkbookIsNamedNotMisread() {
+  string text, error;
+  assert(!decodeCsvBytes(string("PK\x03\x04\x14\x00\x00\x00", 8), text, error));
+  assert(error.find("Excel workbook") != string::npos);
+  error.clear();
+  assert(!decodeCsvBytes(string("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1", 8), text, error));
+  assert(error.find("Excel workbook") != string::npos);
+}
+
 void testAltiumDefaultFixtureParses() {
   const auto text = readAltiumFixture("altium-default.csv");
   // The Import screen sends an Altium export to the BOM flow, as it does a KiCad BOM.
@@ -17772,6 +17837,10 @@ const vector<TestCase>& registeredTests() {
     {"bom", "BomConfirmationLifecycle", testBomConfirmationLifecycle},
     {"bom", "BomLineKeysSeparateEasyEdaParts", testBomLineKeysSeparateEasyEdaParts},
     {"bom", "AltiumDefaultFixtureParses", testAltiumDefaultFixtureParses},
+    {"bom", "AltiumRealExportsParse", testAltiumRealExportsParse},
+    {"bom", "AltiumReadsPartNumberParameters", testAltiumReadsPartNumberParameters},
+    {"bom", "AltiumSkipsHeadingRows", testAltiumSkipsHeadingRows},
+    {"bom", "ExcelWorkbookIsNamedNotMisread", testExcelWorkbookIsNamedNotMisread},
     {"bom", "AltiumSupplierFixtureFillsSupplierColumns", testAltiumSupplierFixtureFillsSupplierColumns},
     {"bom", "AltiumQuotedCellsKeepCommas", testAltiumQuotedCellsKeepCommas},
     {"bom", "AltiumRefusesAmbiguousRows", testAltiumRefusesAmbiguousRows},
