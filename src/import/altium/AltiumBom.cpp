@@ -20,8 +20,11 @@ namespace {
 
 struct AltiumColumns {
   int designator = -1;
+  int comment = -1;
   int value = -1;
+  int description = -1;
   int name = -1;
+  int libRef = -1;
   int footprint = -1;
   int quantity = -1;
   int supplier = -1;
@@ -38,16 +41,20 @@ int findColumnByPriority(const vector<string>& headers, initializer_list<const c
   return -1;
 }
 
-// Columns are found by name, not position, as the user chooses them. The aliases are unverified
-// against a real Altium export. Only the first supplier and manufacturer choice is read.
+// Columns are found by name, not position, as the user chooses them. Comment, Description,
+// Designator, Footprint, LibRef and Quantity match public Altium Designer exports; the supplier
+// aliases are unverified. Only the first supplier and manufacturer choice is read.
 AltiumColumns mapAltiumColumns(const vector<string>& headers) {
   AltiumColumns columns;
   // Only "Designator" is read: BomImport.cpp detects Altium reports by that header.
   columns.designator = findColumnByPriority(headers, {"Designator"});
-  // Comment is Altium's value column; Description is the fallback.
-  columns.value = findColumnByPriority(headers, {"Comment", "Description"});
-  // Name is the last choice when a row has neither.
+  // Comment is Altium's value column. A row with an empty Comment falls back, cell by cell, to a
+  // Value parameter, then Description, Name and the library part name (see designationFor).
+  columns.comment = findColumnByPriority(headers, {"Comment"});
+  columns.value = findColumnByPriority(headers, {"Value"});
+  columns.description = findColumnByPriority(headers, {"Description"});
   columns.name = findColumnByPriority(headers, {"Name"});
+  columns.libRef = findColumnByPriority(headers, {"LibRef"});
   columns.footprint = findColumnByPriority(headers, {"Footprint", "Pattern"});
   // "Qty" is not an alias: KiCad writes that header, and BomImport.cpp never routes it here.
   columns.quantity = findColumnByPriority(headers, {"Quantity"});
@@ -58,6 +65,15 @@ AltiumColumns mapAltiumColumns(const vector<string>& headers) {
   return columns;
 }
 
+// The first non-empty cell of Comment, Value, Description, Name and LibRef; empty when all are.
+string designationFor(const vector<string>& row, const AltiumColumns& columns) {
+  for (const auto column : {columns.comment, columns.value, columns.description, columns.name, columns.libRef}) {
+    auto cell = csvCell(row, column);
+    if (!cell.empty()) return cell;
+  }
+  return {};
+}
+
 }  // namespace
 
 KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
@@ -65,10 +81,11 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
   bom.projectName = projectName;
   // Some Altium 365 exports write inch marks as \" in quotes; a backslash must not end the cell.
   vector<vector<string>> rows;
-  if (!readBomRows(text, true, rows, bom)) return bom;
+  vector<size_t> rowLines;
+  if (!readBomRows(text, true, rows, rowLines, bom)) return bom;
 
   const auto columns = mapAltiumColumns(rows.front());
-  if (columns.designator < 0 || columns.value < 0) {
+  if (columns.designator < 0 || (columns.comment < 0 && columns.description < 0)) {
     bom.error = "BOM is missing the Designator column, or both the Comment and Description columns";
     return bom;
   }
@@ -82,7 +99,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     if (all_of(row.begin(), row.end(), [](const string& cell) { return trim(cell).empty(); })) {
       continue;
     }
-    const auto sourceRow = rowIndex + 1;
+    const auto sourceRow = rowLines[rowIndex];
     const auto rowLabel = "Row " + to_string(sourceRow) + ": ";
 
     // A non-empty cell past the last column means a quote was misread. Empty ones are harmless.
@@ -96,8 +113,10 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     }
 
     // A total fills no part column, so skip it. A part number without a designator is refused.
-    const auto partColumns = {columns.designator, columns.value, columns.footprint, columns.quantity,
-                              columns.supplier, columns.supplierPart, columns.manufacturerPart};
+    // Description counts only when there is no Comment column, as a note row may fill it alone.
+    const auto partColumns = {columns.designator, columns.comment >= 0 ? columns.comment : columns.description,
+                              columns.value, columns.footprint, columns.quantity, columns.supplier,
+                              columns.supplierPart, columns.manufacturerPart};
     if (all_of(partColumns.begin(), partColumns.end(), [&](int column) { return csvCell(row, column).empty(); })) {
       continue;
     }
@@ -105,10 +124,7 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     BomLine line;
     line.sourceRow = sourceRow;
     if (!readRequiredBomDesignators(csvCell(row, columns.designator), rowLabel, line, bom)) return bom;
-    line.designation = csvCell(row, columns.value);
-    if (line.designation.empty()) {
-      line.designation = csvCell(row, columns.name);
-    }
+    line.designation = designationFor(row, columns);
     if (line.designation.empty()) {
       bom.error = rowLabel + "has no Comment, Description or Name for " + join(line.designators, ',') +
                   ". Fix the BOM export and import it again.";
