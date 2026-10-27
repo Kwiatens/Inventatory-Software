@@ -29,6 +29,7 @@ struct AltiumColumns {
   int quantity = -1;
   int supplier = -1;
   int supplierPart = -1;
+  int lcscPart = -1;
   int manufacturerPart = -1;
 };
 
@@ -42,8 +43,8 @@ int findColumnByPriority(const vector<string>& headers, initializer_list<const c
 }
 
 // Columns are found by name, not position, as the user chooses them. Comment, Description,
-// Designator, Footprint, LibRef and Quantity match public Altium Designer exports; the supplier
-// aliases are unverified. Only the first supplier and manufacturer choice is read.
+// Designator, Footprint, LibRef, Value and Quantity match public Altium Designer exports (see the
+// altium-real fixtures); the supplier aliases match Altium 365 exports. Only the first supplier and manufacturer choice is read.
 AltiumColumns mapAltiumColumns(const vector<string>& headers) {
   AltiumColumns columns;
   // Only "Designator" is read: BomImport.cpp detects Altium reports by that header.
@@ -61,7 +62,11 @@ AltiumColumns mapAltiumColumns(const vector<string>& headers) {
   columns.supplier = findColumnByPriority(headers, {"Supplier 1", "Supplier Name 1", "Supplier"});
   // "Supplier Part" is not an alias: BomImport.cpp sends that EasyEDA Pro header elsewhere.
   columns.supplierPart = findColumnByPriority(headers, {"Supplier Part Number 1", "Supplier Part Number"});
-  columns.manufacturerPart = findColumnByPriority(headers, {"Manufacturer Part Number 1", "Manufacturer Part Number"});
+  // Altium parameters carry whatever name the library author chose; these are the ones seen in public
+  // projects. "Manufacturer Part" is not an alias: BomImport.cpp sends that EasyEDA Pro header elsewhere.
+  columns.lcscPart = findColumnByPriority(headers, {"LCSC Part #", "LCSC Part Number", "LCSC Part", "LCSC"});
+  columns.manufacturerPart = findColumnByPriority(
+      headers, {"Manufacturer Part Number 1", "Manufacturer Part Number", "MPN", "Mfr Part Number", "Mfg Part Number"});
   return columns;
 }
 
@@ -116,8 +121,17 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     // Description counts only when there is no Comment column, as a note row may fill it alone.
     const auto partColumns = {columns.designator, columns.comment >= 0 ? columns.comment : columns.description,
                               columns.value, columns.footprint, columns.quantity, columns.supplier,
-                              columns.supplierPart, columns.manufacturerPart};
+                              columns.supplierPart, columns.lcscPart, columns.manufacturerPart};
     if (all_of(partColumns.begin(), partColumns.end(), [&](int column) { return csvCell(row, column).empty(); })) {
+      continue;
+    }
+
+    // A section heading ("Through Hole Items") fills one cell and no designator. Say so, as a
+    // skipped row may also be a part that lost its designator.
+    const auto filledCells = count_if(row.begin(), row.end(), [](const string& cell) { return !trim(cell).empty(); });
+    if (filledCells == 1 && csvCell(row, columns.designator).empty() && !designationFor(row, columns).empty()) {
+      bom.warnings.push_back(rowLabel + "\"" + designationFor(row, columns) +
+                             "\" has no designator and looks like a heading, so it was skipped");
       continue;
     }
 
@@ -133,6 +147,11 @@ KicadBomFile parseAltiumBomText(const string& text, const string& projectName) {
     line.footprint = csvCell(row, columns.footprint);
     line.supplier = csvCell(row, columns.supplier);
     line.supplierPartNumber = csvCell(row, columns.supplierPart);
+    // An LCSC number fills the supplier slot only when the export names no other supplier part.
+    if (line.supplierPartNumber.empty() && !csvCell(row, columns.lcscPart).empty()) {
+      line.supplier = "LCSC";
+      line.supplierPartNumber = csvCell(row, columns.lcscPart);
+    }
     line.manufacturerPartNumber = csvCell(row, columns.manufacturerPart);
 
     if (!claimBomDesignators(line, designatorRows, bom)) return bom;
