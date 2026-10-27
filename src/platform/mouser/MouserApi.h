@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/inventory/Inventory.h"
+#include "core/bom/BomVendorMatch.h"
 #include "core/vendor/VendorOffer.h"
 
 #include <cstddef>
@@ -67,6 +68,10 @@ std::vector<MouserProductDetails> keepMouserMatches(const std::vector<MouserProd
 std::size_t chooseMouserCandidate(const std::vector<MouserProductDetails>& matches, const std::string& partNumber,
                                   const std::string& manufacturer);
 
+// The search words as Mouser accepts them. Its search refuses any character outside ASCII (the answer is
+// "InvalidCharacters"), so µ and μ become u, Ω becomes "ohm", and anything else outside ASCII is dropped.
+std::string mouserSearchWords(const std::string& text);
+
 // Replaces the key with "[key]". Applied to every error string before it leaves this layer.
 std::string redactMouserKey(std::string text, const std::string& apiKey);
 
@@ -80,6 +85,11 @@ bool mouserKeyRejected(const std::string& error);
 // with a JSON object body and no Errors. Otherwise false, with the reason in *error.
 bool mouserKeyAccepted(std::uint32_t statusCode, const std::string& body, std::string* error);
 
+// A search result as the BOM matcher reads it. Mouser's attributes hold only packaging, so the value, rating and
+// size come from the description (see MouserDescription.h). A new part counts as active; those read nothing are
+// left as Mouser sent them.
+VendorCandidate mouserCandidate(const MouserProductDetails& product);
+
 // Mouser Search API v1 client. Requests are spaced process-wide to respect the key's rate limit.
 class MouserApiClient {
  public:
@@ -87,6 +97,11 @@ class MouserApiClient {
 
   // Keyword search with a fixed term; see mouserKeyAccepted for the result rules.
   bool testConnection(std::string* error = nullptr);
+
+  // One keyword search for the project part picker: up to 50 products, in stock only when asked, or none. Found
+  // and NoMatch are answers; Failed carries the reason in *error.
+  std::vector<MouserProductDetails> searchProducts(const std::string& keyword, MouserLookupOutcome& outcome,
+                                                   std::string* error = nullptr, bool inStockOnly = true);
 
   // Keyword search, then exact matches only; never guess from loose matches. Several matches that
   // the manufacturer cannot separate are Ambiguous.
@@ -96,7 +111,7 @@ class MouserApiClient {
 
  private:
   bool searchKeyword(const std::string& keyword, std::vector<MouserProductDetails>& products,
-                     MouserLookupOutcome& outcome, std::string* error);
+                     MouserLookupOutcome& outcome, std::string* error, bool inStockOnly = false);
   // Sleeps so all clients together stay under Mouser's limit of 30 calls per minute.
   void waitForRequestSlot();
 

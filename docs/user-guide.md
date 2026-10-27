@@ -168,7 +168,7 @@ parts that are in stock there at a normal price: up to 20 in the store's currenc
 pieces you need cost. Parts that fit the line come first, and the top one is marked `Best`, so Enter takes it. A part the manufacturer has stopped making is marked `End of life`: the store still sells it while stock
 lasts, so it can be taken, but it is never marked `Best`, and the highlighted part says to find another part if you
 can. Parts
-the checks cannot confirm are listed under May not fit. Parts of another value (a 100nF capacitor for a 10uF line) are
+the checks cannot confirm are listed under "Some parameters might not match the original. Please verify manually." Parts of another value (a 100nF capacitor for a 10uF line) are
 left out whenever parts that fit are found. A line that many parts fit (a pin header, a tactile switch, an LED without
 a colour) asks you to choose one. Below the list, the highlighted part is shown in full: its maker, the store's
 description, its details, the store's stock and what your pieces cost. A search that fails says why; `/` and Enter try
@@ -176,7 +176,7 @@ it again.
 
 - `l` opens the highlighted part on the store's site, so you can check it first.
 - `/` searches for other words. A resistor value is read as written, so `R280` is 0.28 ohm and `280R` is 280 ohm.
-- `v` changes the store. A new project starts with the store you used last. Mouser is not searchable yet.
+- `v` changes the store. A new project starts with the store you used last. Mouser provides less information about each part compared to DigiKey and TME and because of this automatic matching might produce worse/inaccurate results.
 - `s` skips the part.
 
 A part you chose is kept, and is used for the same line in your other projects. Stepping over a chosen part spends no
@@ -185,8 +185,7 @@ store requests: Enter keeps it, and `/` searches again.
 ### Order
 
 The step lists the chosen parts with their order quantity and cost, and the total. `c` saves a cart file for each
-store: TME's cart reads it with "Add products from a file", and DigiKey's cart upload asks which column holds the part
-number and the quantity. `l` opens the next part's page, and Enter opens the highlighted one. A part that can no longer
+store. Upload it on the store's cart page. `l` opens the next part's page, and Enter opens the highlighted one. A part that can no longer
 be bought at a normal price shows Not buyable now and is left out of the cart file. `m` marks the parts as ordered,
 after one question.
 
