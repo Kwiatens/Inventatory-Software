@@ -12285,7 +12285,8 @@ void testAltiumRefusesAmbiguousRows() {
   // A row with no value cannot be priced or matched, so it is refused too.
   const auto noValue = parseAltiumBomText(header + ",R1,R0402,1\n", "no value");
   assert(!noValue.ok && noValue.error.find("has no Comment, Description or Name") != string::npos);
-  const auto emptyName = parseAltiumBomText("Comment,Description,Designator,Name,Quantity\n,,R1,,1\n", "empty name");
+  const auto emptyName =
+      parseAltiumBomText("Comment,Description,Designator,Name,LibRef,Quantity\n,,R1,,,1\n", "empty name");
   assert(!emptyName.ok && emptyName.error.find("has no Comment, Description or Name") != string::npos);
 
   // A quantity that is not a whole number means the export is damaged.
@@ -12317,6 +12318,60 @@ void testAltiumHeaderErrors() {
       parseAltiumBomText("Description,Designator,Footprint\nSynthetic resistor,R1,R0402\n", "described");
   assert(described.ok && described.lines.size() == 1);
   assert(described.lines.front().designation == "Synthetic resistor");
+}
+
+void testAltiumEmptyCommentFallsBackPerRow() {
+  // Real exports leave Comment empty on some rows; each such row takes its own Value, Description or LibRef.
+  const auto bom = parseAltiumBomText(
+      "Comment,Description,Designator,Footprint,LibRef,Quantity,Value\n"
+      "10k,Synthetic resistor,R1,R0402,SYN_RES,1,\n"
+      ",Synthetic op amp,U1,SOIC8,SYN_IC,1,\n"
+      ",Synthetic capacitor,C1,C0603,SYN_CAP,1,2.2uF\n"
+      ",,D1,SOD123,SYN-ZENER-1,1,\n",
+      "fallback");
+  assert(bom.ok && bom.lines.size() == 4);
+  assert(bom.lines[0].designation == "10k");
+  assert(bom.lines[1].designation == "Synthetic op amp");
+  assert(bom.lines[2].designation == "2.2uF");
+  assert(bom.lines[3].designation == "SYN-ZENER-1");
+}
+
+void testAltiumValueColumnStaysAltium() {
+  // Altium parts often carry a Value parameter; LibRef still marks the file as Altium, so Comment is read.
+  const string withValue =
+      "Comment,Description,Designator,Footprint,LibRef,Quantity,Value\n"
+      "0.1uF,Synthetic capacitor,C1,C0603,SYN_CAP,1,\n";
+  assert(detectCsvFormat(withValue) == CsvFormat::KicadBom);
+  const auto bom = parseBomText(withValue, "value column");
+  assert(bom.ok && bom.lines.size() == 1 && bom.lines.front().designation == "0.1uF");
+
+  // Without a Footprint column the file is still found to be a BOM.
+  const string noFootprint = "Quantity,Designator,Value,Comment,Description,LibRef\n1,R1,10k,,Synthetic,SYN_RES\n";
+  assert(detectCsvFormat(noFootprint) == CsvFormat::KicadBom);
+  const auto noFootprintBom = parseBomText(noFootprint, "no footprint");
+  assert(noFootprintBom.ok && noFootprintBom.lines.front().designation == "10k");
+
+  // A KiCad BOM with Value and no Altium-only column stays on the KiCad parser.
+  const string kicadWithDescription =
+      "Designator,Value,Description,Footprint,Manufacturer Part Number\nR1,10k,Synthetic,R0402,SYN-RES\n";
+  const auto kicad = parseBomText(kicadWithDescription, "kicad");
+  assert(kicad.ok && kicad.lines.front().manufacturerPartNumber.empty());
+}
+
+void testBomRowLabelsCountBlankLines() {
+  // The reader reports the file line each row starts on, counting blank lines and quoted line breaks.
+  string error;
+  vector<size_t> rowLines;
+  const auto rows = parseCsv("a,b\n\n\"x\ny\",1\nz,2\n", ',', error, (numeric_limits<size_t>::max)(), &rowLines);
+  assert(error.empty() && rows.size() == 3);
+  assert(rowLines == (vector<size_t>{1, 3, 5}));
+
+  // Altium exports put a blank line after the header; messages name the line the user sees.
+  const auto altium = parseAltiumBomText("Comment,Designator,Footprint,Quantity\n\n10k,R1,R0402,1\n100nF,,C0402,1\n",
+                                         "blank line");
+  assert(!altium.ok && altium.error.rfind("Row 4: has no designator", 0) == 0);
+  const auto kicad = parseKicadBomText("Reference,Value,Footprint,Qty\n\nR1,,R0402,1\n", "blank line");
+  assert(!kicad.ok && kicad.error.rfind("Row 3: has no Value", 0) == 0);
 }
 
 void testAltiumQuantityConflictIsKept() {
@@ -17721,6 +17776,9 @@ const vector<TestCase>& registeredTests() {
     {"bom", "AltiumQuotedCellsKeepCommas", testAltiumQuotedCellsKeepCommas},
     {"bom", "AltiumRefusesAmbiguousRows", testAltiumRefusesAmbiguousRows},
     {"bom", "AltiumHeaderErrors", testAltiumHeaderErrors},
+    {"bom", "AltiumEmptyCommentFallsBackPerRow", testAltiumEmptyCommentFallsBackPerRow},
+    {"bom", "AltiumValueColumnStaysAltium", testAltiumValueColumnStaysAltium},
+    {"bom", "BomRowLabelsCountBlankLines", testBomRowLabelsCountBlankLines},
     {"bom", "AltiumQuantityConflictIsKept", testAltiumQuantityConflictIsKept},
     {"bom", "AltiumDetectionKeepsOtherDialects", testAltiumDetectionKeepsOtherDialects},
     {"bom", "Altium365ExportReachesAltiumParser", testAltium365ExportReachesAltiumParser},
