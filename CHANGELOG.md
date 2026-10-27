@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.8] - 2026-10-27
+
 ### Added
 - A project opens on an overview: Find in racks first, then what is in stock and where it is (in racks, in other
   places, or with no location), then four steps that get the rest: Confirm matches, Choose parts to buy, Order and
