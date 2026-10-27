@@ -94,7 +94,7 @@ ftxui::Element App::renderBomOverview(int screenWidth) const {
       }),
   });
   auto header = uiPageHeader(uiHeaderText(project == nullptr ? string("Project") : project->name, uiPrimaryText()),
-                             styledText(bomOverviewSummary(progress, bomAnalysis_.boards), uiMutedText()), move(buttons));
+                             ftxui::text(""), move(buttons));
 
   ftxui::Elements body;
   body.push_back(ftxui::hbox({ftxui::text(" "), cell("Boards", kGutter - 1, uiMutedText()),
