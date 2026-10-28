@@ -21,8 +21,8 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 
 </div>
 
-> **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
-> There you can explore what the project can do and find the documentation and instructions.
+> **New here?** Visit the [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) - it's a great place to start.
+> You can explore what the project can do and find the documentation and instructions there.
 
 
 ## Core features of the system
@@ -83,22 +83,6 @@ You can also use it to scan vendor bags or send jobs to your label printer.
 
 Inventatory works fully without the scanner. It just makes the intake faster.
 
-<br clear="right">
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="branding/readme/works-with-light.svg">
-  <img src="branding/readme/works-with.svg" alt="Works with: DigiKey, TME and Mouser; KiCad, EasyEDA and Altium Designer BOMs; ZPL and TSPL label printers; the Inventatory Scanner R1; Windows and Linux." width="830">
-</picture>
-
-## Your data stays yours
-
-- **Local.** Your inventory is a database on your own computer. There is no account, no server and no
-  subscription.
-- **Safe.** Backups are checked before they are written, and a restore is all or nothing.
-- **Private keys stay private.** Vendor API keys are kept in the system's credential store (Windows Credential
-  Manager, or the Secret Service on Linux), never in a file.
-- **Free.** Inventatory is open source under GPL-3.0.
-
 ## Install
 
 ### Windows
@@ -115,10 +99,6 @@ Then run `$HOME/.local/bin/inventatory`.
 
 <details>
 <summary>Linux requirements</summary>
-
-Any x86-64 Linux distribution with glibc 2.34 or newer should work. The release is tested on Ubuntu 22.04,
-Debian 12, AlmaLinux 9 (a RHEL 9 rebuild) and Fedora 44. It also needs OpenSSL 3, libsecret, libcurl and a
-Secret Service provider (GNOME Keyring or KWallet) to store tokens.
 
 </details>
 
