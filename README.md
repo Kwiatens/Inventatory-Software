@@ -82,11 +82,11 @@ You can also use it to scan vendor bags or send jobs to your label printer.
 
 Inventatory works fully without the scanner. It just makes the intake faster.
 
-## Install
+## Installation
 
 ### Windows
 
-Open Command Prompt and paste:
+Open CMD and paste:
 
     curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
@@ -94,26 +94,10 @@ Open Command Prompt and paste:
 
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
+## Build
+Build with CMake 3.20 or newer.
 
-## Building from source
-
-Build with CMake 3.20 or newer and a C++17 compiler, then run the tests with
-`ctest --test-dir <build-dir> --output-on-failure`. Dependencies and contribution rules are in
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-<details>
-<summary>Project documentation</summary>
-
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute.
-- [SECURITY.md](SECURITY.md): private vulnerability reporting and the security scope.
-- [docs/architecture.md](docs/architecture.md): code layout, threading, persistence and security invariants.
-- [AGENTS.md](AGENTS.md): the guide for coding agents.
-- [docs/project-standards.md](docs/project-standards.md): rules shared with the Scanner R1 firmware repository.
-- [docs/releasing.md](docs/releasing.md): release steps and repository settings.
-- [CHANGELOG.md](CHANGELOG.md): what changed in each version.
-- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): licenses of bundled dependencies.
-
-</details>
+Ryn the tests with `ctest --test-dir <build-dir> --output-on-failure`.
 
 ## License
 
