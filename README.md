@@ -94,20 +94,6 @@ Open Command Prompt and paste:
 
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
-Then run `$HOME/.local/bin/inventatory`.
-
-<details>
-<summary>Linux requirements</summary>
-
-</details>
-
-The [getting started guide](https://kwiatens.github.io/Inventatory-Site/docs/) walks you through your first
-inventory.
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="branding/readme/roadmap-light.svg">
-  <img src="branding/readme/roadmap.svg" alt="Plans and future features: MCP integration, multi-user workflow, more vendor APIs, more EDA software, custom rack sizes and parametric racks." width="830">
-</picture>
 
 ## Building from source
 
