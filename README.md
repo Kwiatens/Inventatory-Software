@@ -4,11 +4,10 @@
   <img src="branding/inventatory-lockup.svg" alt="Inventatory" width="560">
 </a>
 
-### Every part has a place.
+**Open-source, terminal-based hardware inventory management for PCB designers.**
 
-**A free, open-source inventory for electronic components, built for people who design and build PCBs.**<br>
-Scan a vendor bag and the part is filled in, labelled and given a slot.
-Import a board's BOM and Inventatory finds what you have, buys what you don't, and walks you to every part.
+Track your hardware components in a fast terminal UI. Designed so that most of the work is automated.
+Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1' device and much more.
 
 [![Release](https://img.shields.io/github/v/release/Kwiatens/Inventatory-Software?include_prereleases&style=flat-square&color=58B9B0&labelColor=0D1010)](https://github.com/Kwiatens/Inventatory-Software/releases/latest)
 [![License](https://img.shields.io/github/license/Kwiatens/Inventatory-Software?style=flat-square&color=58B9B0&labelColor=0D1010)](LICENSE)
@@ -16,105 +15,76 @@ Import a board's BOM and Inventatory finds what you have, buys what you don't, a
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-58B9B0?style=flat-square&labelColor=0D1010)
 
 [**Website**](https://kwiatens.github.io/Inventatory-Site/) &nbsp;·&nbsp;
-[Install](#install) &nbsp;·&nbsp;
+[Scanner Firmware](https://github.com/Kwiatens/Inventatory-Firmware) &nbsp;·&nbsp;
 [Documentation](https://kwiatens.github.io/Inventatory-Site/docs/) &nbsp;·&nbsp;
-[Scanner firmware](https://github.com/Kwiatens/Inventatory-Firmware) &nbsp;·&nbsp;
 [Report an issue](https://github.com/Kwiatens/Inventatory-Software/issues)
 
-<br>
-
-<img src="branding/readme/media/stock-a-part.gif" alt="A reel bag is scanned with the Scanner R1. Inventatory looks the part up at the vendor, fills in its details, prints a label and assigns it slot R1-B3 in a rack on the desk." width="768">
-
 </div>
+
+---
+> **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
+> There you can explore what the project can do and find the documentation and instructions.
 
 ---
 
 > **Status:** public beta (`0.1.7`). See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
-## What it is
+## Here are the core features of Inventatory
 
-Inventatory is a parts inventory for hobbyists, makers, small labs and engineers doing prototypes and R&D. It is
-made of four pieces that work as one system:
+### 1. Automation is the priority
 
-- **A desktop app** that runs in your terminal on Windows and Linux. It is fast, keyboard-first, and works with the
-  mouse too.
-- **3D-printable racks** with a 5 × 5 grid, so every part has an exact address like `R1-B3`.
-- **Label printing** on ZPL and TSPL thermal printers, for parts, slots and cable flags.
-- **The Inventatory Scanner R1**, an open-hardware handheld scanner that reads vendor bags at the bench.
+Everything inside Inventatory was designed to be automated and operate quickly as possible. 
+Your job is designing and working on your projects, not baby-sit your inventory. It defeats the whole purpose as it's supposed to save you time.
 
-Most inventory tools are a list of parts you type in by hand. Inventatory covers the whole path, from the
-vendor's bag to the finished board.
+It automatically:
+- Assigns every single parameter (name, type, electrical parameters, datasheet links, pricing and purchase link, etc) of the part.
+- Matches parts to your PCB BOM from KiCad, EasyEDA or Altium Designer, based on the electrical parameters. When a part is not in your inventory, it will search for a part that matches what you need for the best price, from your preferred supplier.
+- Puts your parts on available racks and slots in that racks, for the exact part positioning.
+- Generates and prints the label that goes on each storage tube, with all the information about a part.
+- Creates shopping lists that you can put directly to your vendor.
+- And much more!
 
-## How it works
 
-### 1. Scan it in
+### 2. Each part gets assigned to it's own unique storage location
 
-Scan the code on a DigiKey, TME or Mouser bag, or load an order CSV. Inventatory reads the vendor's code, looks
-the part up at that vendor and fills in its name, parameters, package, datasheet and price. A label prints and the
-part is given a free slot. You don't type anything.
+Instead of manually assigning every single component to a random box, which doesn't really solve anything - Inventatory uses our 3D-printable storage rack system. Racks allow to have unique location for each and every part, meaning the software can tell you where your parts are **precisely**.
 
-<img src="branding/readme/media/stock.png" alt="The Stock page: parts grouped by category with quantities, and the selected 10k resistor's details, parameters and rack slot R1-B4." width="100%">
+This means that when you then upload your BOM (Bill of materials) of your PCB - it will give you not only if you have the needed parts, but also on **which exact rack and slot they are at**, so you can just grab the highlighted tubes and get going.
 
-### 2. Give it a place
-
-Every part lives in a rack slot, so its location reads `R1-B4`, not "the drawer with the resistors". The racks
-show what is in each slot and how much is left, and parts that run low are flagged before you run out.
-
-<img src="branding/readme/media/racks.png" alt="The Racks page: rack R1 as a 5 by 5 grid, each slot showing its part and quantity, with slot B4 selected." width="100%">
-
-### 3. Build a board
-
-Import a BOM from KiCad, EasyEDA or Altium Designer. Inventatory matches every line against your stock and shows
-what you have, where it is, and what is missing.
-
-<img src="branding/readme/media/project-lines.png" alt="A project's line list: seven lines in stock with their rack slots, and three lines not in stock waiting to be chosen." width="100%">
-
-For the parts you don't have, it searches your preferred vendor, and the others when that vendor doesn't stock
-the part. It finds parts that match what the BOM line needs (value, package and parameters), picks the best deal,
-and marks end-of-life parts so you don't design them in. Order saves a ready cart file for each vendor, and
-Receive puts the delivery straight into stock and onto a slot.
-
-When it's time to build, **Find in racks** takes you rack by rack and lights up the slots to pick from. At the end
-it subtracts what you took from stock.
-
-<img src="branding/readme/media/find-in-racks.gif" alt="Find in racks: rack 1 with four slots highlighted and how many to take from each, then rack 2, then the finish screen listing every part taken and the stock left." width="100%">
-
-## Why exact places matter
+> The assigment work, as well as pretty much everything in our system is fully automated - that's the best part!
 
 <div align="center">
 <img src="branding/readme/media/build-a-board.gif" alt="A board's BOM where every line says Drawer 12, pointing at one drawer of identical bags. Then every line is given its own rack slot, and the parts are picked straight from them." width="768">
 </div>
 
-<br>
+### 2. Search by electrical parameters, not only part names
 
-|  | Spreadsheet | Typical inventory app | Inventatory |
-| --- | --- | --- | --- |
-| **Adding a part** | Typed by hand | Typed by hand, sometimes a vendor lookup | One scan of the bag: details, label and slot |
-| **Where it is** | A free-text note | A location field | An exact rack slot, shown on a grid |
-| **Building a board** | Compare the BOM yourself | Shows shortages | Matches the BOM, then walks you slot by slot |
-| **Buying what's missing** | Search each vendor yourself | Links to vendors | Finds matching parts at your vendors, picks the best deal, saves the cart |
-| **Mistakes** | Ctrl+Z until you close the file | Edit it back by hand | Every change kept, any change reverted |
-| **Your data** | A file | Usually a server or a cloud account | A local database on your computer |
+A common problem with inventory systems is that they are not purpose build for electronics. You might type 100nF in the search function, and nothing will pop-up, even though the part is actually there, just marked as 0.1uF. Inventatory solves this, by searching for parts by their physical electrical parameters, not just names.
 
-## Nothing is lost
+
+### 3. It keeps you changes in check, just like git
 
 Every change is saved as a commit with its before and after values, like a git history for your parts. You can
 see exactly what changed, set checkpoints, restore a whole snapshot, or revert a single change while keeping
-everything since. Ctrl+Z works even after a restart.
+everything since.
 
 <img src="branding/readme/media/history.png" alt="The History page: a list of commits, with the build commit selected and its seven changed parts listed." width="100%">
+
+### 3. We have a purpose-built, DiY-able scanner too!
+
+It's designed specyfically for this system. It allows you to modify the quantity of a part you're actively working with, without having to fiddle around with your PC during PCB work, which from experience is very frustrating.
+
+It's main purpose is allowing you to just scan a QR code on the generated label that's on the part container, and then deduct or add quantity to that exact part with just two clicks on the scanner.
+
+You can also use it to scan vendor bags or send jobs to your label printer.
+
+<img src="branding/readme/media/scan-r1-scan.png" alt="The Scanner R1 reading the code on a vendor bag." width="360" align="right">
 
 ## The Scanner R1
 
 <img src="branding/readme/media/scan-r1-scan.png" alt="The Scanner R1 reading the code on a vendor bag." width="360" align="right">
 
-The Scanner R1 is a handheld scanner made for Inventatory. Point it at a vendor bag and the part is added or found,
-and its label prints. Change the quantity on its keypad. You stay at the bench instead of walking back to the
-computer for every bag.
 
-It also prints cable-flag labels from presets, keeps scans safe when the PC is away, and pairs securely with your
-computer. The firmware, wiring and build guides are open source, and the enclosure and charging dock are designed
-for 3D printing.
 
 **[Scanner firmware and build guide →](https://github.com/Kwiatens/Inventatory-Firmware)**
 
