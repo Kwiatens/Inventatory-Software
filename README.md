@@ -21,15 +21,12 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 
 </div>
 
----
 > **New here?** The [Inventatory website](https://kwiatens.github.io/Inventatory-Site/) is a great place to start.
 > There you can explore what the project can do and find the documentation and instructions.
 
----
 
-> **Status:** public beta (`0.1.7`). See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
+## Core features of the system
 
-## Here are the core features of Inventatory
 
 ### 1. Automation is the priority
 
@@ -57,12 +54,13 @@ This means that when you then upload your BOM (Bill of materials) of your PCB - 
 <img src="branding/readme/media/build-a-board.gif" alt="A board's BOM where every line says Drawer 12, pointing at one drawer of identical bags. Then every line is given its own rack slot, and the parts are picked straight from them." width="768">
 </div>
 
-### 2. Search by electrical parameters, not only part names
+
+### 3. Search by electrical parameters, not only part names
 
 A common problem with inventory systems is that they are not purpose build for electronics. You might type 100nF in the search function, and nothing will pop-up, even though the part is actually there, just marked as 0.1uF. Inventatory solves this, by searching for parts by their physical electrical parameters, not just names.
 
 
-### 3. It keeps you changes in check, just like git
+### 4. It keeps you changes in check, just like git
 
 Every change is saved as a commit with its before and after values, like a git history for your parts. You can
 see exactly what changed, set checkpoints, restore a whole snapshot, or revert a single change while keeping
@@ -70,7 +68,8 @@ everything since.
 
 <img src="branding/readme/media/history.png" alt="The History page: a list of commits, with the build commit selected and its seven changed parts listed." width="100%">
 
-### 3. We have a purpose-built, DiY-able scanner too!
+
+## We have a purpose-built, DiY-able scanner too!
 
 It's designed specyfically for this system. It allows you to modify the quantity of a part you're actively working with, without having to fiddle around with your PC during PCB work, which from experience is very frustrating.
 
@@ -80,13 +79,7 @@ You can also use it to scan vendor bags or send jobs to your label printer.
 
 <img src="branding/readme/media/scan-r1-scan.png" alt="The Scanner R1 reading the code on a vendor bag." width="360" align="right">
 
-## The Scanner R1
-
-<img src="branding/readme/media/scan-r1-scan.png" alt="The Scanner R1 reading the code on a vendor bag." width="360" align="right">
-
-
-
-**[Scanner firmware and build guide →](https://github.com/Kwiatens/Inventatory-Firmware)**
+> **[Scanner firmware and build guide →](https://github.com/Kwiatens/Inventatory-Firmware)**
 
 Inventatory works fully without the scanner. It just makes the intake faster.
 
