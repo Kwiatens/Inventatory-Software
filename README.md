@@ -48,11 +48,11 @@ Instead of manually assigning every single component to a random box, which does
 
 This means that when you then upload your BOM (Bill of materials) of your PCB - it will give you not only if you have the needed parts, but also on **which exact rack and slot they are at**, so you can just grab the highlighted tubes and get going.
 
-> The assigment work, as well as pretty much everything in our system is fully automated - that's the best part!
-
 <div align="center">
 <img src="branding/readme/media/build-a-board.gif" alt="A board's BOM where every line says Drawer 12, pointing at one drawer of identical bags. Then every line is given its own rack slot, and the parts are picked straight from them." width="768">
 </div>
+
+> The assigment work, as well as pretty much everything in our system is fully automated - that's the best part!
 
 
 ### 3. Search by electrical parameters, not only part names
