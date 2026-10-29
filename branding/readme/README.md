@@ -17,6 +17,7 @@ request the same workflow fails if the committed SVGs do not match their sources
 | Source | Output |
 | --- | --- |
 | `src/roadmap.txt` | `roadmap.svg` and `roadmap-light.svg`, the planned features |
+| `src/works-with.txt` | `works-with.svg` and `works-with-light.svg`, the supported vendors, EDA tools and printers |
 
 ## Source format
 
