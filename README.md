@@ -30,6 +30,11 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 
 ### 1. Automation is the priority
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/intake-light.gif">
+  <img src="branding/readme/media/intake.gif" align="right" width="202" alt="">
+</picture>
+
 Everything inside Inventatory was designed to be automated and operate quickly as possible. 
 Your job is designing and working on your projects, not baby-sit your inventory. It defeats the whole purpose as it's supposed to save you time.
 
@@ -41,34 +46,56 @@ It automatically:
 - Creates shopping lists that you can put directly to your vendor.
 - And much more!
 
+<br clear="right">
+
 
 ### 2. Each part gets assigned to it's own unique storage location
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/place-light.gif">
+  <img src="branding/readme/media/place.gif" align="right" width="202" alt="">
+</picture>
 
 Instead of manually assigning every single component to a random box, which doesn't really solve anything - Inventatory uses our 3D-printable storage rack system. 
 Racks allow to have a unique location for each and every part, meaning the software can tell you where your parts are **precisely**.
 
 This means that when you then upload your BOM (Bill of materials) of your PCB - it will give you not only if you have the needed parts, but also on **which exact rack and slot they are at**, so you can just grab the highlighted tubes and get going.
 
-<div align="center">
-<img src="branding/readme/media/build-a-board.gif" alt="A board's BOM where every line says Drawer 12, pointing at one drawer of identical bags. Then every line is given its own rack slot, and the parts are picked straight from them." width="768">
-</div>
+<br clear="right">
 
 
 ### 3. Search by electrical parameters, not only part names
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/search-light.gif">
+  <img src="branding/readme/media/search.gif" align="right" width="202" alt="">
+</picture>
+
 A common problem with inventory systems is that they are not purpose build for electronics. You might type 100nF in the search function, and nothing will pop-up, even though the part is actually there, just marked as 0.1uF. Inventatory solves this, by searching for parts by their physical electrical parameters, not just names.
+
+<br clear="right">
 
 
 ### 4. It keeps you changes in check, just like git
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/history-light.gif">
+  <img src="branding/readme/media/history.gif" align="right" width="202" alt="">
+</picture>
 
 Every change is saved as a commit with its before and after values, like a git history for your parts. You can
 see exactly what changed, set checkpoints, restore a whole snapshot, or revert a single change while keeping
 everything since.
 
-<img src="branding/readme/media/history.png" alt="The History page: a list of commits, with the build commit selected and its seven changed parts listed." width="100%">
+<br clear="right">
 
 
 ## We have a purpose-built, DiY-able scanner too!
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/scanner-light.gif">
+  <img src="branding/readme/media/scanner.gif" align="right" width="376" alt="">
+</picture>
 
 It's designed specyfically for this system. It allows you to modify the quantity of a part you're actively working with, without having to fiddle around with your PC during PCB work, which from experience is very frustrating.
 
@@ -76,11 +103,11 @@ It's main purpose is allowing you to just scan a QR code on the generated label 
 
 You can also use it to scan vendor bags or send jobs to your label printer.
 
-<img src="branding/readme/media/scan-r1-scan.png" alt="The Scanner R1 reading the code on a vendor bag." width="360" align="right">
-
 > **[Scanner firmware and build guide →](https://github.com/Kwiatens/Inventatory-Firmware)**
 
 Inventatory works fully without the scanner. It just makes the intake faster.
+
+<br clear="right">
 
 ## Installation
 
