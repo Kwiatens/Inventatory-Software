@@ -75,7 +75,7 @@ BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& stor
                         any_of(store.racks().begin(), store.racks().end(),
                                [&](const InventatoryRack& rack) { return rack.id == item->rackId; });
     if (!racked) {
-      pick.slot = item->location.empty() ? string("No location") : item->location;
+      pick.slot = isPlaceholderLocation(item->location) ? string("No location") : trim(item->location);
       loose.picks.push_back(move(pick));
       continue;
     }
@@ -100,7 +100,7 @@ BomPickPlan planBomPicks(const BomAnalysis& analysis, const InventoryStore& stor
   };
   for (const auto* rack : racks) {
     auto stop = move(rackStops[rack->id]);
-    stop.title = "Rack " + to_string(max(1, rackNumberFromCode(rack->code)));
+    stop.title = isOrganizer(*rack) ? rack->code : "Rack " + to_string(max(1, rackNumberFromCode(rack->code)));
     stop.componentType = rack->componentType;
     sort(stop.picks.begin(), stop.picks.end(), bySlot);
     plan.stops.push_back(move(stop));

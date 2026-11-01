@@ -63,65 +63,6 @@ void App::handleSearchKey(const KeyEvent& key) {
   }
 }
 
-void App::handleEditMenuKey(const KeyEvent& key) {
-  if (key.type == KeyType::Character) {
-    if (key.ch == 's' || key.ch == 'S') {
-      saveWorkingCopy();
-    }
-    return;
-  }
-
-  if (key.type == KeyType::Up) {
-    fieldMenuIndex_ = max(0, fieldMenuIndex_ - 1);
-    dirty_ = true;
-  } else if (key.type == KeyType::Down) {
-    fieldMenuIndex_ = min(fieldMenuIndex_ + 1, static_cast<int>(menuOptions_.size()) - 1);
-    dirty_ = true;
-  } else if (key.type == KeyType::Enter) {
-    if (fieldMenuIndex_ >= 0 && fieldMenuIndex_ < static_cast<int>(menuOptions_.size()) &&
-        menuOptions_[fieldMenuIndex_].field == EditField::VendorSource) {
-      beginVendorLookup();
-    } else if (fieldMenuIndex_ >= 0 && fieldMenuIndex_ < static_cast<int>(menuOptions_.size())) {
-      inputBuffer_ = currentFieldValue(menuOptions_[fieldMenuIndex_].field);
-      inputMode_ = InputMode::EditValue;
-      setMessage("Editing " + fieldLabel(menuOptions_[fieldMenuIndex_].field), 2);
-    }
-  } else if (key.type == KeyType::Escape) {
-    cancelInput();
-  }
-}
-
-void App::handleEditValueKey(const KeyEvent& key) {
-  if (key.type == KeyType::Character) {
-    appendKeyText(inputBuffer_, key);
-    dirty_ = true;
-    return;
-  }
-
-  if (key.type == KeyType::Backspace) {
-    if (!inputBuffer_.empty()) {
-      eraseLastCharacter(inputBuffer_);
-      dirty_ = true;
-    }
-    return;
-  }
-
-  if (key.type == KeyType::Enter) {
-    if (fieldMenuIndex_ >= 0 && fieldMenuIndex_ < static_cast<int>(menuOptions_.size())) {
-      commitEditField(menuOptions_[fieldMenuIndex_].field, inputBuffer_);
-    }
-    inputBuffer_.clear();
-    inputMode_ = InputMode::EditFieldMenu;
-    return;
-  }
-
-  if (key.type == KeyType::Escape) {
-    inputBuffer_.clear();
-    inputMode_ = InputMode::EditFieldMenu;
-    setMessage("Edit cancelled", 2);
-  }
-}
-
 void App::handleRackValueKey(const KeyEvent& key) {
   if (key.type == KeyType::Character) {
     appendKeyText(inputBuffer_, key);
@@ -151,6 +92,12 @@ void App::handleRackValueKey(const KeyEvent& key) {
         break;
       case InputMode::RackCreate:
         createRackWithType(value);
+        break;
+      case InputMode::OrganizerCreate:
+        createOrganizerFromInput(value);
+        break;
+      case InputMode::OrganizerType:
+        createPendingOrganizer(value);
         break;
       case InputMode::RackJump:
         jumpToRack(value);

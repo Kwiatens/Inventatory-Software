@@ -129,6 +129,7 @@ add_executable(inventatory
   src/app/persistence/AppBackupRestore.cpp
   src/app/workspace/AppWorkspace.cpp
   src/app/inventory/AppInventoryEdit.cpp
+  src/app/inventory/AppPartForm.cpp
   src/app/inventory/AppVendorLookup.cpp
   src/app/inventory/AppInventorySelection.cpp
   src/app/racks/AppRackActions.cpp
@@ -160,6 +161,8 @@ add_executable(inventatory
   src/core/query/InventoryQueryMatching.cpp
   src/core/parts/PhysicalValue.cpp
   src/core/racks/RackAllocation.cpp
+  src/core/racks/StorageLocation.cpp
+  src/core/racks/StorageGridLayout.cpp
   src/core/inventory/InventorySerialization.cpp
   src/core/history/InventoryHistory.cpp
   src/core/history/InventoryVersion.cpp
@@ -379,6 +382,8 @@ add_executable(inventatory_tests
   src/core/query/InventoryQueryMatching.cpp
   src/core/parts/PhysicalValue.cpp
   src/core/racks/RackAllocation.cpp
+  src/core/racks/StorageLocation.cpp
+  src/core/racks/StorageGridLayout.cpp
   src/core/inventory/InventorySerialization.cpp
   src/core/history/InventoryHistory.cpp
   src/core/history/InventoryVersion.cpp

@@ -15,6 +15,18 @@ namespace inventatory {
 
 using namespace std;
 
+bool isOrganizer(const InventatoryRack& rack) {
+  return rackNumberFromCode(rack.code) == 0;
+}
+
+int storageGridRows(const InventatoryRack& rack) {
+  return clamp(rack.rows, 0, isOrganizer(rack) ? kOrganizerMaxRows : kRackGridSize);
+}
+
+int storageGridColumns(const InventatoryRack& rack) {
+  return clamp(rack.columns, 0, isOrganizer(rack) ? kOrganizerMaxColumns : kRackGridSize);
+}
+
 namespace {
 
 bool containsAny(const string& text, initializer_list<const char*> values) {
@@ -201,26 +213,35 @@ class SlotIndex {
   unordered_map<string, int> hints_;
 };
 
-bool rackSupportsSlot(const InventatoryRack& rack, const string& slot) {
-  const auto normalized = toUpper(trim(slot));
-  if (normalized.size() != 2 || normalized.front() < 'A' || normalized.front() > 'E' || normalized.back() < '1' ||
-      normalized.back() > '5' || rack.rows <= 0 || rack.columns <= 0) {
-    return false;
+// Parses "B4" into row 1 and column 4 (one-based). Columns have no leading zero.
+bool parseSlot(const string& value, int& row, int& column) {
+  const auto slot = toUpper(trim(value));
+  if (slot.size() < 2 || slot.size() > 3 || slot.front() < 'A' || slot.front() > 'Z' || slot[1] == '0') return false;
+  column = 0;
+  for (size_t index = 1; index < slot.size(); ++index) {
+    if (!isdigit(static_cast<unsigned char>(slot[index]))) return false;
+    column = column * 10 + (slot[index] - '0');
   }
-  const int row = normalized.front() - 'A';
-  const int column = normalized.back() - '0';
-  // The UI addresses a five-by-five space. Persisted dimensions are clamped to it, so corrupt or
-  // legacy values cannot produce invalid letters or unbounded loops.
-  return row < min(rack.rows, 5) && column <= min(rack.columns, 5);
+  row = slot.front() - 'A';
+  return column >= 1 && column <= kOrganizerMaxColumns;
+}
+
+bool rackSupportsSlot(const InventatoryRack& rack, const string& slot) {
+  int row = 0;
+  int column = 0;
+  if (!parseSlot(slot, row, column)) return false;
+  // Persisted dimensions are clamped to the grid the UI can address, so corrupt or legacy values
+  // cannot produce invalid letters or unbounded loops.
+  return row < storageGridRows(rack) && column <= storageGridColumns(rack);
 }
 
 // The first free slot of `rack` in row-major order (A1, A2, ... B1, ...), or empty when it is full.
 string firstFreeSlot(SlotIndex& index, const InventatoryRack& rack) {
-  const int rows = min(max(rack.rows, 0), 5);
-  const int columns = min(max(rack.columns, 0), 5);
+  const int rows = storageGridRows(rack);
+  const int columns = storageGridColumns(rack);
   const int total = rows * columns;
   for (int position = index.hint(rack.id); position < total; ++position) {
-    const string slot = string(1, static_cast<char>('A' + position / columns)) + to_string(position % columns + 1);
+    const string slot = rackSlotLabel(position / columns, position % columns);
     if (!index.occupied(rack.id, slot, nullptr)) {
       index.setHint(rack.id, position);
       return slot;
@@ -257,8 +278,9 @@ string rackLocation(const InventoryItem& item, const vector<InventatoryRack>& ra
 }
 
 bool isValidRackSlot(const string& value) {
-  const auto slot = toLower(trim(value));
-  return slot.size() == 2 && slot[0] >= 'a' && slot[0] <= 'e' && slot[1] >= '1' && slot[1] <= '5';
+  int row = 0;
+  int column = 0;
+  return parseSlot(value, row, column);
 }
 
 namespace {
@@ -299,7 +321,10 @@ bool reconcileRackAssignmentWithIndex(InventoryStore& store, InventoryItem& item
   vector<InventatoryRack*> compatible;
   for (auto& rack : store.racks())
     if (sameRackType(rack.componentType, *componentType)) compatible.push_back(&rack);
-  sort(compatible.begin(), compatible.end(), [](const InventatoryRack* lhs, const InventatoryRack* rhs) {
+  // An organizer the user gave this part type is filled before the numbered racks.
+  stable_sort(compatible.begin(), compatible.end(), [](const InventatoryRack* lhs, const InventatoryRack* rhs) {
+    const bool lhsOrganizer = isOrganizer(*lhs);
+    if (lhsOrganizer != isOrganizer(*rhs)) return lhsOrganizer;
     return rackNumber(lhs->code) < rackNumber(rhs->code);
   });
   for (auto* rack : compatible) {
@@ -367,7 +392,7 @@ bool setManualRackLocation(InventoryStore& store, InventoryItem& item, const str
     item.rackAssignment = RackAssignmentMode::Automatic;
     return true;
   }
-  const auto dash = requested.find('-');
+  const auto dash = requested.rfind('-');
   if (dash == string::npos) {
     error = "Use R3-E3, AUTO, or leave blank";
     return false;
@@ -376,7 +401,7 @@ bool setManualRackLocation(InventoryStore& store, InventoryItem& item, const str
   auto slot = toLower(trim(requested.substr(dash + 1)));
   transform(slot.begin(), slot.end(), slot.begin(), [](unsigned char ch) { return static_cast<char>(toupper(ch)); });
   if (!isValidRackSlot(slot)) {
-    error = "Rack slot must be A1 through E5";
+    error = "A slot is a letter and a number, such as B4";
     return false;
   }
   const auto rack = find_if(store.racks().begin(), store.racks().end(), [&](const InventatoryRack& candidate) {
@@ -400,12 +425,16 @@ bool setManualRackLocation(InventoryStore& store, InventoryItem& item, const str
   return true;
 }
 
+bool storageHasSlot(const InventatoryRack& rack, const string& slot) {
+  return rackSupportsSlot(rack, slot);
+}
+
 int rackNumberFromCode(const string& code) {
   return rackNumber(code);
 }
 
 string rackSlotLabel(int row, int column) {
-  if (row < 0 || row >= 5 || column < 0 || column >= 5) return {};
+  if (row < 0 || row >= kOrganizerMaxRows || column < 0 || column >= kOrganizerMaxColumns) return {};
   return string(1, static_cast<char>('A' + row)) + to_string(column + 1);
 }
 
@@ -435,7 +464,7 @@ bool moveItemToRackSlot(InventoryStore& store, InventoryItem& item, const Invent
                         string& error) {
   error.clear();
   if (!isValidRackSlot(slot)) {
-    error = "Rack slot must be A1 through E5";
+    error = "A slot is a letter and a number, such as B4";
     return false;
   }
   if (!rackSupportsSlot(rack, slot)) {

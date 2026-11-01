@@ -64,8 +64,7 @@ struct InventoryItem {
   string manufacturer;
   string category;
   int quantity = 0;
-  // Retained only so older inventory databases and serialized snapshots round-trip.
-  // Low-stock behavior is controlled by AppSettings::lowStockThreshold.
+  // Low-stock level for this part. 0 uses AppSettings::lowStockThreshold.
   int reorderThreshold = 0;
   string location;
   vector<string> tags;
@@ -91,6 +90,12 @@ struct InventoryItem {
   bool hasMissingMetadata() const;
   string searchableText() const;
 };
+
+// Sync status of a part added by hand. It has no vendor record to fetch, so it is never "unsynced".
+inline constexpr const char* kManualSyncStatus = "manual";
+bool needsVendorSync(const InventoryItem& item);
+// True when the part came from, or names, a DigiKey, TME or Mouser product.
+bool hasVendorRecord(const InventoryItem& item);
 
 struct ActivityEntry {
   time_t timestamp = 0;
@@ -321,6 +326,59 @@ bool moveItemToRackSlot(InventoryStore& store, InventoryItem& item, const Invent
                         string& error);
 bool unassignItemFromRack(InventoryItem& item);
 bool restoreAutomaticRackAssignment(InventoryStore& store, InventoryItem& item);
+
+// Storage: a part sits in a slot of a rack or organizer, at a named place, or nowhere yet.
+// A rack's code is R<number> and its grid is at most 5x5. Any other code is an organizer: a
+// user-named box with its own grid, up to 26 rows (A-Z) by 99 columns.
+constexpr int kRackGridSize = 5;
+// Organizers stay readable on screen and on a label sheet: at most 10 letters (A-J) by 10 numbers.
+constexpr int kOrganizerMaxRows = 10;
+constexpr int kOrganizerMaxColumns = 10;
+constexpr size_t kStorageNameMaxLength = 40;
+bool isOrganizer(const InventatoryRack& rack);
+int storageGridRows(const InventatoryRack& rack);
+int storageGridColumns(const InventatoryRack& rack);
+bool storageHasSlot(const InventatoryRack& rack, const string& slot);
+// `componentType` is optional: parts of that category are placed in the organizer by themselves.
+bool createOrganizer(InventoryStore& store, const string& name, int rows, int columns, string& error,
+                     const string& componentType = string());
+// Reads an organizer size typed as rows x columns, as the Racks page shows it: numbered rows run
+// down and lettered columns run across, so "4x6" is slots A1 to F4. `letters` and `numbers` are
+// the stored row and column counts (a slot's letter is its stored row).
+bool parseOrganizerSize(const string& text, int& letters, int& numbers);
+// Checks an organizer name: not empty, not too long, not a rack code, unique. `exceptId` is the
+// organizer being renamed.
+bool validateStorageName(const InventoryStore& store, const string& name, const string& exceptId, string& error);
+
+// Location texts that mean "not stored yet": blank, and the inboxes scans and imports write.
+bool isPlaceholderLocation(const string& location);
+// The slot ("R3-E3", "Red case-B4"), else the place text, else empty.
+string storageLocation(const InventoryItem& item, const vector<InventatoryRack>& racks);
+
+struct StorageChoice {
+  enum class Kind { NotStored, Automatic, Slot, Place };
+  Kind kind = Kind::NotStored;
+  string rackId;
+  string slot;
+  string place;
+  string display;          // what the field shows afterwards
+  bool newPlace = false;   // no other part is at this place yet
+  bool pickedFreeSlot = false;  // a storage name without a slot took its first free slot
+};
+// Reads what the user typed in the Storage field. `item` is the part being edited, so its own
+// slot never counts as taken.
+bool resolveStorageInput(const InventoryStore& store, const InventoryItem& item, const string& text,
+                         StorageChoice& choice, string& error);
+void applyStorageChoice(InventoryItem& item, const StorageChoice& choice);
+// Splits "Tray2 A2" or "Tray2-A2" into the name and a slot such as A2. False when the text does
+// not end with a slot.
+bool splitTrailingSlot(const string& text, string& name, string& slot);
+// Rack and organizer codes, then places in use, that start with or contain `typed`.
+vector<string> storageSuggestions(const InventoryStore& store, const string& typed, size_t limit);
+// Free slots of the rack or organizer with this code, in order. Empty when the code is unknown.
+vector<string> freeStorageSlots(const InventoryStore& store, const string& code, const InventoryItem* except,
+                                size_t limit);
+const InventatoryRack* findStorageByCode(const InventoryStore& store, const string& code);
 
 bool loadActivities(const filesystem::path& path, vector<ActivityEntry>& activities);
 bool saveActivities(const filesystem::path& path, const vector<ActivityEntry>& activities);

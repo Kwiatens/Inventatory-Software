@@ -5,6 +5,8 @@
 
 #include "App.h"
 
+#include "core/racks/StorageGridLayout.h"
+
 #include "core/inventory/VendorProvider.h"
 #include "platform/system/Console.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
@@ -300,72 +302,119 @@ ftxui::Element App::renderBomProjectUi() const {
     }
 
     // Lit slots carry the BOM value and the take; the other slots are a quiet raised block.
-    constexpr int rows = 5;
-    constexpr int columns = 5;
-    constexpr int designatorWidth = 3;
+    // The map shrinks its cells so every pick of the stop is on screen together.
+    const InventatoryRack* stopRack = nullptr;
+    for (const auto& candidate : store_.racks()) {
+      if (candidate.id == stop.rackId) stopRack = &candidate;
+    }
+    StorageGridRequest request;
+    request.letters = stopRack != nullptr ? storageGridRows(*stopRack) : kRackGridSize;
+    request.numbers = stopRack != nullptr ? storageGridColumns(*stopRack) : kRackGridSize;
+    request.scroll = bomMapScroll_;
+    for (const auto& pick : stop.picks) {
+      const auto slot = toUpper(trim(pick.slot));
+      if (isValidRackSlot(slot)) request.focus.push_back({slot.front() - 'A', stoi(slot.substr(1)) - 1});
+    }
+    const int designatorWidth = request.numbers >= 10 ? 4 : 3;
     const int gridWidth = max(40, screenWidth - sideWidth - 4);
-    const int slotWidth2 = rack_page_detail::equalRackSlotWidth(gridWidth - designatorWidth - (columns - 1), columns);
-    // The 15 rows outside the grid: shell, page header, letter row, row gaps and route line.
-    const int slotHeight = rack_page_detail::equalRackSlotHeight(max(rows * 3, screenHeight - 15), rows);
+    request.width = gridWidth - designatorWidth;
+    // The 11 rows outside the grid and its gaps: shell, page header, letter row and route line.
+    request.height = max(3, screenHeight - 11);
+    const auto fit = fitStorageGrid(request);
+    // Up and Down scroll the map; the scroll is kept to what the map can actually move.
+    {
+      auto unscrolled = request;
+      unscrolled.scroll = 0;
+      bomMapScroll_ = fit.numberStart - fitStorageGrid(unscrolled).numberStart;
+    }
+    const int letterStart = fit.letterStart;
+    const int numberStart = fit.numberStart;
+    const int rows = fit.numberCount;
+    const int columns = fit.letterCount;
+    const int slotWidth2 = fit.cellWidth;
     const bool pulse = uiBlinkOn(700);
 
     map<string, const BomPick*> picksBySlot;
-    for (const auto& pick : stop.picks) picksBySlot[pick.slot] = &pick;
+    for (const auto& pick : stop.picks) picksBySlot[toUpper(trim(pick.slot))] = &pick;
 
     ftxui::Elements grid;
-    ftxui::Elements letters{ftxui::text(string(designatorWidth, ' '))};
-    for (int column = 0; column < columns; ++column) {
-      if (column > 0) letters.push_back(ftxui::text(" "));
-      letters.push_back(ftxui::hbox({ftxui::filler(), uiHeaderText(string(1, static_cast<char>('A' + column)), uiMutedText()),
-                                     ftxui::filler()}) |
-                        ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth2));
-    }
-    grid.push_back(ftxui::hbox(move(letters)));
-    for (int row = 0; row < rows; ++row) {
-      if (row > 0) grid.push_back(ftxui::text(""));
-      ftxui::Elements cells;
-      cells.push_back(ftxui::vbox({ftxui::filler(), uiHeaderText(" " + to_string(row + 1) + " ", uiMutedText()), ftxui::filler()}) |
-                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, designatorWidth));
+    int gridExactWidth = designatorWidth + columns * slotWidth2 + (columns - 1);
+    {
+      ftxui::Elements letters{ftxui::text(string(static_cast<size_t>(designatorWidth), ' '))};
       for (int column = 0; column < columns; ++column) {
-        if (column > 0) cells.push_back(ftxui::text(" "));
-        const auto slot = rackSlotLabel(column, row);
-        const auto found = picksBySlot.find(slot);
-        // Every slot shows its number and stored value in the same place, lit or not.
-        const auto* pick = found != picksBySlot.end() ? found->second : nullptr;
-        const auto* item = pick != nullptr ? store_.findById(pick->itemId) : itemAtRackSlot(store_, stop.rackId, slot);
-        string value = pick != nullptr ? pick->designation : string("-");
-        if (item != nullptr) {
-          const auto split = splitPartName(item->partName).value;
-          value = split.empty() ? item->partName : split;
-        }
-        const auto valueWidth = static_cast<size_t>(max(1, slotWidth2 - 2));
-        ftxui::Element body;
-        if (pick != nullptr) {
-          // Lit slots pulse between two fills; both stay lit.
-          const auto bg = pulse ? uiInteractiveColor() : uiActiveBg();
-          const auto fg = pulse ? uiCanvasBg() : uiPrimaryText();
-          const auto slotFg = pulse ? uiCanvasBg() : uiFocusColor();
-          body = ftxui::vbox({
-                     uiHeaderText(" " + slot, slotFg),
-                     uiHeaderText(" " + ellipsize(value, valueWidth), fg),
-                     ftxui::filler(),
-                     uiHeaderText(" Take " + to_string(pick->quantity), fg),
-                 }) |
-                 ftxui::color(fg) | ftxui::bgcolor(bg);
-        } else {
-          body = ftxui::vbox({
-                     styledText(" " + slot, uiMutedText()),
-                     styledText(" " + ellipsize(value, valueWidth), uiDimColor()),
-                     ftxui::filler(),
-                 }) |
-                 ftxui::bgcolor(uiRaisedSurfaceBg());
-        }
-        cells.push_back(move(body) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth2) |
-                        ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, slotHeight));
+        if (column > 0) letters.push_back(ftxui::text(" "));
+        letters.push_back(ftxui::hbox({ftxui::filler(), uiHeaderText(rack_page_detail::storageLetterHeader(fit, column), uiMutedText()),
+                                       ftxui::filler()}) |
+                          ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth2));
       }
-      grid.push_back(ftxui::hbox(move(cells)));
+      grid.push_back(ftxui::hbox(move(letters)));
+      // While the rows scroll, a bar above and below says how many rows are off screen and which slots
+      // to take from are among them. Up and Down scroll.
+      const auto scrollBar = [&](bool above) {
+        auto text = rack_page_detail::storageScrollText(fit, above);
+        string slots;
+        for (const auto& [letter, number] : fit.hiddenFocus) {
+          if ((number < numberStart) != above) continue;
+          slots += (slots.empty() ? "" : " ") + rackSlotLabel(letter, number);
+        }
+        if (!slots.empty()) text += ", take from " + slots;
+        const bool more = (above ? fit.rowsAbove() : fit.rowsBelow()) > 0;
+        const auto color = !slots.empty() ? uiFocusColor() : more ? uiMutedText() : uiDimColor();
+        return ftxui::hbox({ftxui::text(string(static_cast<size_t>(designatorWidth), ' ')), ftxui::filler(),
+                            uiHeaderText(text, color), ftxui::filler()});
+      };
+      if (fit.scrollBars) grid.push_back(scrollBar(true));
+      const auto valueWidth = static_cast<size_t>(max(1, slotWidth2 - 2));
+      for (int row = 0; row < rows; ++row) {
+        if (row > 0) grid.push_back(ftxui::text(""));
+        const int slotHeight = fit.rowHeight(row);
+        ftxui::Elements cells;
+        cells.push_back(ftxui::vbox({ftxui::filler(),
+                                     ftxui::hbox({ftxui::filler(), uiHeaderText(to_string(numberStart + row + 1), uiMutedText()),
+                                                  ftxui::filler()}),
+                                     ftxui::filler()}) |
+                        ftxui::size(ftxui::WIDTH, ftxui::EQUAL, designatorWidth));
+        for (int column = 0; column < columns; ++column) {
+          if (column > 0) cells.push_back(ftxui::text(" "));
+          const auto slot = rackSlotLabel(letterStart + column, numberStart + row);
+          const auto found = picksBySlot.find(slot);
+          // Every slot shows its number and stored value in the same place, lit or not.
+          const auto* pick = found != picksBySlot.end() ? found->second : nullptr;
+          const auto* item = pick != nullptr ? store_.findById(pick->itemId) : itemAtRackSlot(store_, stop.rackId, slot);
+          string value = pick != nullptr ? pick->designation : string("-");
+          if (item != nullptr) {
+            const auto split = splitPartName(item->partName).value;
+            value = split.empty() ? item->partName : split;
+          }
+          ftxui::Element body;
+          if (pick != nullptr) {
+            // Lit slots pulse between two fills; both stay lit.
+            const auto bg = pulse ? uiInteractiveColor() : uiActiveBg();
+            const auto fg = pulse ? uiCanvasBg() : uiPrimaryText();
+            const auto slotFg = pulse ? uiCanvasBg() : uiFocusColor();
+            const auto take = "Take " + to_string(pick->quantity);
+            body = ftxui::vbox({
+                       uiHeaderText(" " + slot, slotFg),
+                       uiHeaderText(" " + ellipsize(value, valueWidth), fg),
+                       ftxui::filler(),
+                       uiHeaderText(" " + take, fg),
+                   }) |
+                   ftxui::color(fg) | ftxui::bgcolor(bg);
+          } else {
+            body = ftxui::vbox({
+                       styledText(" " + slot, uiMutedText()),
+                       styledText(" " + ellipsize(value, valueWidth), uiDimColor()),
+                       ftxui::filler(),
+                   }) |
+                   ftxui::bgcolor(uiRaisedSurfaceBg());
+          }
+          cells.push_back(move(body) | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, slotWidth2) |
+                          ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, slotHeight));
+        }
+        grid.push_back(ftxui::hbox(move(cells)));
+      }
+      if (fit.scrollBars) grid.push_back(scrollBar(false));
     }
-    const int gridExactWidth = designatorWidth + columns * slotWidth2 + (columns - 1);
 
     return ftxui::vbox({
                move(header),

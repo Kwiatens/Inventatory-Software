@@ -126,6 +126,13 @@ ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg 
 // Look per docs/ui-style-guide.md. A danger button changes only its text colour.
 enum class UiButtonKind { Normal, Primary, Danger };
 ftxui::Element uiButton(const string& label, const string& key = {}, UiButtonKind kind = UiButtonKind::Normal);
+// A button that fills the width it is given: the label on the left, its key on the right.
+ftxui::Element uiWideButton(const string& label, const string& key = {}, UiButtonKind kind = UiButtonKind::Normal,
+                            bool enabled = true);
+// Wide buttons in a grid of `columns` equal columns, one blank cell between columns and one blank line between rows.
+// A one-cell margin sits on each side. Every cell has the same width, worked out from `width`, the width of the
+// area the grid sits in. Missing cells in the last row stay empty.
+ftxui::Element uiButtonGrid(ftxui::Elements cells, int columns, int width);
 
 // One plain-sentence voice line. `maxWidth` > 0 cuts it at that many cells with an
 // ellipsis, since an overflowing row would squeeze every word.

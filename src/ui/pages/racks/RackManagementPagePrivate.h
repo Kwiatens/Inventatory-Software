@@ -9,6 +9,7 @@
 #include <ftxui/dom/elements.hpp>
 
 #include "core/inventory/Inventory.h"
+#include "core/racks/StorageGridLayout.h"
 
 namespace inventatory {
 namespace rack_page_detail {
@@ -43,6 +44,11 @@ inline int equalRackSlotWidth(int slotColumnsSpace, int rackGridColumns) {
 // Shared by the Racks and Projects grids.
 ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowStockThreshold, int cellWidth,
                             int rowHeight);
+
+// The letter above a visible column, with an arrow when letters are off screen on that side: "◂ H", "L ▸".
+std::string storageLetterHeader(const StorageGridFit& fit, int displayColumn);
+// The scroll bar text above or below the rows: "▲ 2 more rows above", or empty when nothing is there.
+std::string storageScrollText(const StorageGridFit& fit, bool above);
 
 }  // namespace rack_page_detail
 }  // namespace inventatory

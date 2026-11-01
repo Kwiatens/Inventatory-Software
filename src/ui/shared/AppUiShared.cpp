@@ -337,6 +337,35 @@ ftxui::Element uiButton(const string& label, const string& key, UiButtonKind kin
   return ftxui::hbox(move(parts));
 }
 
+ftxui::Element uiWideButton(const string& label, const string& key, UiButtonKind kind, bool enabled) {
+  const auto bg = kind == UiButtonKind::Primary && enabled ? uiActiveBg() : uiRaisedSurfaceBg();
+  auto fg = uiPrimaryText();
+  if (!enabled) fg = uiMutedText();
+  else if (kind == UiButtonKind::Danger) fg = uiDangerColor();
+  const auto keyColor = kind == UiButtonKind::Primary && enabled ? uiFocusColor() : uiMutedText();
+  auto name = kind == UiButtonKind::Primary && enabled ? uiHeaderText(" " + label, fg, bg) : styledText(" " + label, fg, bg);
+  return ftxui::hbox({move(name), ftxui::filler(), styledText(key.empty() ? string() : key + " ", keyColor, bg)}) |
+         ftxui::bgcolor(bg);
+}
+
+ftxui::Element uiButtonGrid(ftxui::Elements cells, int columns, int width) {
+  columns = max(1, columns);
+  const int cellWidth = max(1, (width - 2 - (columns - 1)) / columns);
+  ftxui::Elements rows;
+  for (size_t start = 0; start < cells.size(); start += static_cast<size_t>(columns)) {
+    if (!rows.empty()) rows.push_back(ftxui::text(""));
+    ftxui::Elements row = {ftxui::text(" ")};
+    for (int column = 0; column < columns; ++column) {
+      const size_t index = start + static_cast<size_t>(column);
+      if (column > 0) row.push_back(ftxui::text(" "));
+      row.push_back((index < cells.size() ? move(cells[index]) : ftxui::emptyElement()) |
+                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth));
+    }
+    rows.push_back(ftxui::hbox(move(row)));
+  }
+  return ftxui::vbox(move(rows));
+}
+
 ftxui::Element uiVoiceLine(const VoiceLine& line, optional<ftxui::Color> bg, int maxWidth) {
   ftxui::Elements spans;
   int remaining = maxWidth > 0 ? maxWidth : (std::numeric_limits<int>::max)();
