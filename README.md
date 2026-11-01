@@ -28,12 +28,12 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 ## Core features of the system
 
 
+### 1. Automation is the priority
+
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/intake-light.gif">
-  <img src="branding/readme/media/intake.gif" align="right" width="278" alt="The scanner reads the code on a part's bag, the label printer feeds out the new label, the label goes onto a tube, and the tube goes into its free slot, R1-B3.">
+  <img src="branding/readme/media/intake.gif" align="right" width="202" alt="">
 </picture>
-
-### 1. Automation is the priority
 
 Everything inside Inventatory was designed to be automated and operate quickly as possible. 
 Your job is designing and working on your projects, not baby-sit your inventory. It defeats the whole purpose as it's supposed to save you time.
@@ -49,12 +49,12 @@ It automatically:
 <br clear="right">
 
 
+### 2. Each part gets assigned to it's own unique storage location
+
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/place-light.gif">
-  <img src="branding/readme/media/place.gif" align="right" width="278" alt="The camera tilts up over the rack and its grid is named: columns A to E, rows 1 to 5. Back in the normal view, the cursor goes to slots R1-B3, R1-C1 and R1-C2 one by one, and each tube comes up out of the rack and goes back in.">
+  <img src="branding/readme/media/place.gif" align="right" width="202" alt="">
 </picture>
-
-### 2. Each part gets assigned to it's own unique storage location
 
 Instead of manually assigning every single component to a random box, which doesn't really solve anything - Inventatory uses our 3D-printable storage rack system. 
 Racks allow to have a unique location for each and every part, meaning the software can tell you where your parts are **precisely**.
@@ -64,24 +64,24 @@ This means that when you then upload your BOM (Bill of materials) of your PCB - 
 <br clear="right">
 
 
+### 3. Search by electrical parameters, not only part names
+
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/search-light.gif">
-  <img src="branding/readme/media/search.gif" align="right" width="278" alt="Three searches, one after another: 100nF, 4.7kΩ and 2.2µF. Each one lights two tubes in the rack, one labelled the way it was typed and one labelled another way: 0.1µF, 4k7 and 2u2.">
+  <img src="branding/readme/media/search.gif" align="right" width="202" alt="">
 </picture>
-
-### 3. Search by electrical parameters, not only part names
 
 A common problem with inventory systems is that they are not purpose build for electronics. You might type 100nF in the search function, and nothing will pop-up, even though the part is actually there, just marked as 0.1uF. Inventatory solves this, by searching for parts by their physical electrical parameters, not just names.
 
 <br clear="right">
 
 
+### 4. It keeps you changes in check, just like git
+
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/history-light.gif">
-  <img src="branding/readme/media/history.gif" align="right" width="278" alt="Three tubes with their counts: 100, 80 and 50. Parts are used three times; each time a tube's chips sink, its count drops and a new commit is added to the line above. Then the cursor steps back along the line to the first commit, and the tubes fill back up to 100, 80 and 50.">
+  <img src="branding/readme/media/history.gif" align="right" width="202" alt="">
 </picture>
-
-### 4. It keeps you changes in check, just like git
 
 Every change is saved as a commit with its before and after values, like a git history for your parts. You can
 see exactly what changed, set checkpoints, restore a whole snapshot, or revert a single change while keeping
@@ -94,7 +94,7 @@ everything since.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/scanner-light.gif">
-  <img src="branding/readme/media/scanner.gif" align="right" width="278" alt="The QR code on a capacitor's label is scanned. On the scanner's screen the part comes up, 1 and 2 are typed, and B removes 12: the screen says Removed 12 / total 38.">
+  <img src="branding/readme/media/scanner.gif" align="right" width="376" alt="">
 </picture>
 
 It's designed specyfically for this system. It allows you to modify the quantity of a part you're actively working with, without having to fiddle around with your PC during PCB work, which from experience is very frustrating.
