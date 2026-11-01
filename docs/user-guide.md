@@ -44,10 +44,31 @@ Use New, Edit, `-`, `+`, or Print for frequent work; links and administrative
 commands are available through Actions.
 
 Editing happens in the detail side of Stock. Choose a field, type its value, and
-save the working copy with `s`. Escape cancels the active field or the edit.
+save the working copy with `s`. A field opens with its value selected: typing replaces it, Backspace edits its end.
+Escape undoes the active field. Escape on the form closes it; when something is not saved yet, a second Escape
+discards it.
 
-A part added by hand can take its details from DigiKey, TME or Mouser. Enter the part number in **SKU**, then choose
-**Vendor** in the form (Enter, or click it). Inventatory asks each vendor that is set up, and shows the answers
+Press `n` to add a part by hand. The form opens on **Name**, and Enter goes to the next field: **Quantity**,
+**Storage**, **Category** and **Notes**. Enter on Notes saves the part. Only the name is required. Category suggests
+the categories already in use; Tab takes the first suggestion. A category Inventatory knows adds the values that
+matter for it: Resistance, Package, Tolerance and Power for resistors, Capacitance and Voltage for capacitors,
+Inductance for inductors, Frequency for crystals, Color for LEDs. Everything else, such as manufacturer, part number,
+tags, links and the vendor lookup, is under **More details**. Press `C` to start a new part as a copy of the selected
+one: what the part is carries over, its quantity, slot and vendor numbers do not.
+
+**Storage** says where a part is, in one field:
+
+- `R3-E3` is a rack slot, and `Red case-B4` a slot of an organizer (see Rack workflow).
+- An organizer or rack name alone, such as `Red case`, takes its first free slot. While you type, the free slots are
+  listed under the field.
+- Any other text is a place, such as `Drawer 2` or `Guitar shelf`. A new place is made by typing it; places already
+  in use are suggested.
+- `AUTO` lets Inventatory pick a rack slot by part type. Empty means the part is not stored yet.
+
+A part added by hand needs no vendor: it counts as complete once it has a name.
+
+A part added by hand can take its details from DigiKey, TME or Mouser. Enter the part number in **Part number** (or a
+vendor's number in **SKU**), then choose **Vendor** in the form (Enter, or click it). Inventatory asks each vendor that is set up, and shows the answers
 side by side with what each one would fill in. Choose the vendor the part came from; the part keeps that vendor
 for its refreshes. A vendor is chosen once per part.
 
@@ -91,14 +112,20 @@ A part that a scan creates prints its label after DigiKey, TME or Mouser has sup
 part's name, value and package. When the supplier finds no part, no label prints and the status line says why;
 print it from the part's details once the details are added.
 
-Each part can have its own reorder threshold, set with **Reorder at** in Edit. A positive value
+Each part can have its own reorder threshold, set with **Reorder at** under More details in Edit. A positive value
 overrides the global low-stock warning; `0` uses the global setting. The active
 threshold is used by the dashboard, search, rack indicators, and stock warnings.
 
 ## Rack workflow
 
 Select a rack, then a slot in its 5x5 grid. Place/Move starts a move from an
-occupied slot and completes it on the destination. Printing, automatic
+occupied slot and completes it on the destination.
+
+An organizer is storage you name yourself, such as a plastic case with a grid of compartments. Click New storage
+(or press `c`), choose Container with slots, then fill in Name, Rows, Columns and an optional Category: 4 rows and 6
+columns make slots A1 to F4, up to 10 rows and 10 columns. It behaves like a rack: put parts in it from a part's Storage field or with Place/Move, and print their
+labels. A large organizer shows part of its grid at a time and scrolls with the cursor. An organizer is filled by
+hand, unless you give it a part type with `t`: then parts of that type go to it first. Printing, automatic
 assignment, unassignment, filtering, and rack administration are in Actions.
 
 ## Import workflow

@@ -114,7 +114,7 @@ ftxui::Element App::renderUi() const {
   else body.push_back(renderSearchBarUi());
   body.push_back(renderMessageUi());
   // xflex keeps the background full width; without it FTXUI sizes the root to its content.
-  return ftxui::vbox(move(body)) | ftxui::xflex | ftxui::bgcolor(uiCanvasBg());
+  return ftxui::vbox(move(body)) | ftxui::xflex | ftxui::bgcolor(uiSurfaceBg());
 }
 
 // True while the resize notice replaces the workspace. Recovery and the wizards are exempt.
@@ -237,10 +237,12 @@ ftxui::Element App::renderSearchBarUi() const {
   // Stock editing renders inline in the Detail panel, so this line stays a plain search row.
   const bool stockEditing =
       page_ == Page::Stock && (inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue ||
+                               inputMode_ == InputMode::StorageKindChoice || inputMode_ == InputMode::StorageGridSize || inputMode_ == InputMode::StorageGridType ||
                                inputMode_ == InputMode::VendorPick);
   const bool showsPrompt = !stockEditing &&
                             (inputMode_ == InputMode::EditValue || inputMode_ == InputMode::RackRename ||
                              inputMode_ == InputMode::RackType || inputMode_ == InputMode::RackCreate ||
+                             inputMode_ == InputMode::OrganizerCreate || inputMode_ == InputMode::OrganizerType ||
                              inputMode_ == InputMode::RackJump || inputMode_ == InputMode::RackFilter ||
                              inputMode_ == InputMode::QuantityAdjust || inputMode_ == InputMode::StocktakeCount ||
                              inputMode_ == InputMode::BomReceive || inputMode_ == InputMode::BomPartSearch ||

@@ -116,7 +116,7 @@ Summary summarize(const vector<InventoryItem>& items, int lowStockThreshold) {
     if (item.hasMissingMetadata()) {
       ++summary.missingMetadataCount;
     }
-    if (toLower(item.syncStatus) != "synced") {
+    if (needsVendorSync(item)) {
       ++summary.unsyncedCount;
     }
   }

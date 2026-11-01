@@ -5,11 +5,13 @@
 
 #include "App.h"
 
+#include "core/racks/StorageGridLayout.h"
 #include "ui/pages/racks/RackManagementPagePrivate.h"
 #include "ui/shared/AppUiShared.h"
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -27,11 +29,11 @@ ftxui::Element rackCenteredCell(const string& text, int width, ftxui::Color colo
 }
 
 int rackRowCount(const InventatoryRack& rack) {
-  return clamp(rack.rows, 0, 5);
+  return storageGridRows(rack);
 }
 
 int rackColumnCount(const InventatoryRack& rack) {
-  return clamp(rack.columns, 0, 5);
+  return storageGridColumns(rack);
 }
 
 size_t rackCapacity(const InventatoryRack& rack) {
@@ -80,6 +82,22 @@ string shortComponentType(const string& componentType) {
 
 namespace rack_page_detail {
 
+string storageLetterHeader(const StorageGridFit& fit, int displayColumn) {
+  const string letter(1, static_cast<char>('A' + fit.letterStart + displayColumn));
+  string label = letter;
+  if (displayColumn == 0 && fit.hiddenLeft()) label = "◂ " + label;
+  if (displayColumn == fit.letterCount - 1 && fit.hiddenRight()) label += " ▸";
+  return label;
+}
+
+string storageScrollText(const StorageGridFit& fit, bool above) {
+  const int rows = above ? fit.rowsAbove() : fit.rowsBelow();
+  // The far end says so, so the bar line never looks like a gap.
+  if (rows <= 0) return above ? "· top ·" : "· bottom ·";
+  return string(above ? "▲ " : "▼ ") + to_string(rows) + (rows == 1 ? " more row " : " more rows ") +
+         (above ? "above" : "below");
+}
+
 // One slot's contents: type, bold value and specification as the cell height allows,
 // then the quantity. Out of stock also says OUT.
 ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowStockThreshold, int cellWidth,
@@ -101,7 +119,12 @@ ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowSto
   if (parts.type.empty() || areaLines == 1) {
     // No recognizable value, or no room to split: the whole name in bold, wrapped to the cell.
     if (areaLines == 1) {
-      area.push_back(line(uiPartName(item.partName, textWidth, selected)));
+      // One line: the value alone ("100nF") says more than the start of the full name.
+      if (!parts.value.empty()) {
+        area.push_back(line(uiHeaderText(ellipsize(parts.value, static_cast<size_t>(textWidth)), strong)));
+      } else {
+        area.push_back(line(uiPartName(item.partName, textWidth, selected)));
+      }
     } else {
       auto lines = wrapText(item.partName, textWidth);
       if (static_cast<int>(lines.size()) > areaLines) {
@@ -167,25 +190,46 @@ ftxui::Element App::renderRackManagementUi() const {
   int detailWidth = screenWidth < 118 ? 29 : (screenWidth < 160 ? 34 : 40);
   // Horizontal layout reserves the two separator columns. Compact uses the full width.
   int gridWidth = compact ? screenWidth : max(42, screenWidth - listWidth - detailWidth - 2);
-  constexpr int rowDesignatorWidth = 3;
-  const int colCount = rack != nullptr && rackRowCount(*rack) > 0 ? rackRowCount(*rack) : 5;
-  const int separatorCount = colCount;
-  const int slotColumnsSpace = max(colCount * 7, gridWidth - rowDesignatorWidth - separatorCount);
-  const int slotWidth = rack_page_detail::equalRackSlotWidth(slotColumnsSpace, colCount);
-  if (!compact && rack != nullptr && rackRowCount(*rack) > 0) {
-    const int fittedGridWidth = rowDesignatorWidth + separatorCount + slotWidth * colCount;
-    detailWidth += max(0, gridWidth - fittedGridWidth);
-    gridWidth = fittedGridWidth;
+  const bool hasGrid = rack != nullptr && rackRowCount(*rack) > 0 && rackColumnCount(*rack) > 0;
+  const bool plainRack = rack != nullptr && !isOrganizer(*rack);
+  // Two-digit row numbers need a wider column once an arrow marks rows above or below the screen.
+  const int rowDesignatorWidth = hasGrid && !plainRack && rackColumnCount(*rack) >= 10 ? 4 : 3;
+  // Rows outside the slots: the shell (5), the letter row and its divider,
+  // the optional filter banner, and the footer (a divider and a summary band).
+  const int slotRowsSpace = screenHeight - 5 - 4 - (!rackFilter_.empty() ? 1 : 0);
+  StorageGridFit gridFit;
+  if (hasGrid) {
+    StorageGridRequest request;
+    request.letters = rackRowCount(*rack);
+    request.numbers = rackColumnCount(*rack);
+    request.height = slotRowsSpace;
+    request.focus = {{rackRow_, rackColumn_}};
+    request.width = gridWidth - rowDesignatorWidth - 1;
+    gridFit = fitStorageGrid(request);
+    if (!compact && gridFit.letterCount < gridFit.letters) {
+      // A wide organizer takes width from the slot panel before it scrolls sideways.
+      constexpr int narrowestDetail = 29;
+      request.width = max(request.width, screenWidth - listWidth - narrowestDetail - 2 - rowDesignatorWidth - 1);
+      gridFit = fitStorageGrid(request);
+    }
+    if (!compact) {
+      const int fittedGridWidth = rowDesignatorWidth + 1 + gridFit.usedWidth();
+      detailWidth = max(20, screenWidth - listWidth - 2 - fittedGridWidth);
+      gridWidth = fittedGridWidth;
+    }
   }
+  const int slotWidth = gridFit.cellWidth;
+  // PageUp and PageDown move by the rows on screen.
+  rackVisibleNumbers_ = max(1, gridFit.numberCount);
 
   // Code, type, then a right-aligned occupancy column. Type takes the remaining width.
   // The scroll indicator takes the last column, so the table is one column narrower.
   const int rackContentWidth = listWidth - 1;
-  TableColumn codeColumn{5, 5}, typeColumn{0, 6, true}, usedColumn{0, 6};
+  // Names win over types: a name keeps up to 14 cells, and the type gives up its width first.
+  TableColumn codeColumn{5, 5}, typeColumn{0, 0, true}, usedColumn{0, 6};
   usedColumn.fit("Usage");
   for (const auto index : rackIndices) {
     const auto& candidate = store_.racks()[index];
-    codeColumn.fit(" " + candidate.code);
     typeColumn.fit(shortComponentType(toTitleCase(candidate.componentType)));
     usedColumn.fit(to_string(rackOccupiedSlotCount(store_, candidate)) + "/" + to_string(rackCapacity(candidate)));
   }
@@ -204,9 +248,13 @@ ftxui::Element App::renderRackManagementUi() const {
       const auto fg = selected ? uiFocusColor() : uiPrimaryText();
       const auto occupied = rackOccupiedSlotCount(store_, candidate);
       const auto capacity = rackCapacity(candidate);
+      // Each type starts two cells after its own name, so one long name moves only its own row.
+      const int nameWidth = min(static_cast<int>(displayWidth(candidate.code)) + 1, 15);
       auto rackRow = ftxui::hbox({
-          fixedCell(" " + candidate.code, rackCodeWidth, fg),
-          fixedCell(shortComponentType(toTitleCase(candidate.componentType)), rackTypeWidth,
+          // Two blank cells keep a name apart from the type, so "Tray 2" and "Screws" never read as one name.
+          fixedCell(" " + candidate.code, nameWidth, fg),
+          ftxui::text("  "),
+          fixedCell(shortComponentType(toTitleCase(candidate.componentType)), max(0, rackCodeWidth + rackTypeWidth - nameWidth - 2),
                     selected ? uiTitleColor() : uiLabelColor()),
           rackOccupancyIndicator(occupied, capacity, rackUsedWidth,
                                  occupied >= capacity && capacity != 0 ? uiWarnColor() : uiPrimaryText()),
@@ -217,10 +265,7 @@ ftxui::Element App::renderRackManagementUi() const {
       }
       auto self = const_cast<App*>(this);
       rackRows.push_back(target(rackRow, "racks.row." + candidate.id, UiTargetKind::Row, [self, visible] {
-        self->rackSelection_ = visible;
-        self->rackRow_ = 0;
-        self->rackColumn_ = 0;
-        self->dirty_ = true;
+        self->selectRackAt(visible);
       }));
     }
   } else if (!inventoryHasNoRacks) {
@@ -229,7 +274,7 @@ ftxui::Element App::renderRackManagementUi() const {
 
   ftxui::Elements gridRows;
   if (rack == nullptr) {
-    const auto emptyState = inventoryHasNoRacks ? "Add or import an eligible small component to create racks automatically."
+    const auto emptyState = inventoryHasNoRacks ? "Add or import an eligible component to create racks automatically, or press New storage."
                                                 : "No racks match filter.";
     gridRows.push_back(ftxui::filler());
     gridRows.push_back(ftxui::hbox({
@@ -242,53 +287,65 @@ ftxui::Element App::renderRackManagementUi() const {
     if (!rackFilter_.empty()) {
       gridRows.push_back(fullLine("Filter: " + rackFilter_, uiWarnColor(), uiPanelRightBg()));
     }
-    const int rackGridRows = rackRowCount(*rack);
-    const int rackGridColumns = rackColumnCount(*rack);
-    if (rackGridRows == 0 || rackGridColumns == 0) {
+    const int fullGridRows = rackRowCount(*rack);
+    const int fullGridColumns = rackColumnCount(*rack);
+    if (fullGridRows == 0 || fullGridColumns == 0) {
       gridRows.push_back(fullLine("Rack dimensions are unavailable.", uiWarnColor(), uiPanelRightBg()));
     } else {
-      // Row numbers down the left, column letters across the top, both from the selected rack.
-      constexpr int rowHeaderWidth = 3;
-      const int designatorWidth = rowHeaderWidth;
-      // Rows outside the slots: the shell (5), the grid header and row dividers,
-      // the optional filter banner, and the footer (a divider and a summary band).
-      const int shellChromeRows = 5;
-      const int gridChromeRows = 2 + (rackGridColumns - 1) + 2 + (!rackFilter_.empty() ? 1 : 0);
-      const int totalNonSlotRows = shellChromeRows + gridChromeRows;
-      const int slotRowsSpace = max(rackGridColumns * 3, screenHeight - totalNonSlotRows);
-      const int slotHeight = rack_page_detail::equalRackSlotHeight(slotRowsSpace, rackGridColumns);
+      // Letters across the top and numbers down the left. Arrows at the edges mark slots off screen.
+      const int designatorWidth = rowDesignatorWidth;
+      const int letterStart = gridFit.letterStart;
+      const int numberStart = gridFit.numberStart;
+      const int visibleLetters = gridFit.letterCount;
+      const int visibleNumbers = gridFit.numberCount;
       // Leftover rows go to the summary band, so the matrix ends on the bottom edge.
-      const int footerBandRows = 1 + rack_page_detail::rackSlotRemainderRows(slotRowsSpace, rackGridColumns, slotHeight);
+      const int footerBandRows = 1 + max(0, slotRowsSpace - gridFit.usedHeight());
       ftxui::Elements columnHeaders;
       columnHeaders.push_back(rackCenteredCell("", designatorWidth, uiDimColor()));
       columnHeaders.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
-      for (int displayColumn = 0; displayColumn < rackGridRows; ++displayColumn) {
-        columnHeaders.push_back(rackCenteredCell(string(1, static_cast<char>('A' + displayColumn)), slotWidth,
-                                                  uiAccentColor()));
-        if (displayColumn < rackGridRows - 1) {
+      for (int displayColumn = 0; displayColumn < visibleLetters; ++displayColumn) {
+        columnHeaders.push_back(rackCenteredCell(rack_page_detail::storageLetterHeader(gridFit, displayColumn), slotWidth,
+                                                 uiAccentColor()));
+        if (displayColumn < visibleLetters - 1) {
           columnHeaders.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
         }
       }
       gridRows.push_back(ftxui::hbox(move(columnHeaders)) | ftxui::bgcolor(uiPanelRightBg()));
       gridRows.push_back(uiDivider());
+      // While the rows scroll, a bar above and below says how many rows are off screen. A click scrolls one row.
+      const auto scrollBar = [&](bool above) {
+        const auto text = rack_page_detail::storageScrollText(gridFit, above);
+        const bool more = (above ? gridFit.rowsAbove() : gridFit.rowsBelow()) > 0;
+        auto bar = ftxui::hbox({ftxui::filler(), styledText(text, more ? uiAccentColor() : uiDimColor()), ftxui::filler()}) |
+                   ftxui::bgcolor(uiPanelRightBg());
+        if (!more) return bar;
+        auto self = const_cast<App*>(this);
+        const int row = above ? numberStart - 1 : numberStart + visibleNumbers;
+        return target(move(bar), above ? "racks.scroll.up" : "racks.scroll.down", UiTargetKind::Row,
+                      [self, row] { self->jumpToRackSlot(self->rackRow_, row); });
+      };
+      if (gridFit.scrollBars) gridRows.push_back(scrollBar(true));
       // Numbers run down each lettered column, as on the rack. Storage coordinates are unchanged.
-      for (int displayRow = 0; displayRow < rackGridColumns; ++displayRow) {
-        // Every slot row has the same height.
-        const int rowHeight = slotHeight;
+      for (int displayRow = 0; displayRow < visibleNumbers; ++displayRow) {
+        const int rowHeight = gridFit.rowHeight(displayRow);
         ftxui::Elements rowCells;
         auto rowDesignator = ftxui::vbox({
                                   ftxui::filler(),
-                                  rackCenteredCell(to_string(displayRow + 1), designatorWidth, uiAccentColor()),
+                                  ftxui::hbox({ftxui::filler(),
+                                               styledText(to_string(numberStart + displayRow + 1), uiAccentColor()),
+                                               ftxui::filler()}),
                                   ftxui::filler(),
                               }) |
                              ftxui::size(ftxui::WIDTH, ftxui::EQUAL, designatorWidth) |
                              ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, rowHeight);
         rowCells.push_back(move(rowDesignator));
         rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
-        for (int displayColumn = 0; displayColumn < rackGridRows; ++displayColumn) {
-          const auto slot = rackSlotLabel(displayColumn, displayRow);
+        for (int displayColumn = 0; displayColumn < visibleLetters; ++displayColumn) {
+          const int slotLetter = letterStart + displayColumn;
+          const int slotNumber = numberStart + displayRow;
+          const auto slot = rackSlotLabel(slotLetter, slotNumber);
           const auto* item = itemAtRackSlot(store_, rack->id, slot);
-          const bool selected = displayColumn == rackRow_ && displayRow == rackColumn_;
+          const bool selected = slotLetter == rackRow_ && slotNumber == rackColumn_;
           const bool movingSource = item != nullptr && item->id == movingRackItemId_;
           const auto bg = movingSource ? rackMovingSourceBg()
                           : selected ? uiSelectionBg()
@@ -296,8 +353,10 @@ ftxui::Element App::renderRackManagementUi() const {
           const int cellWidth = slotWidth;
           ftxui::Elements cellRows;
           if (item == nullptr) {
+            // Short or narrow cells mark an empty slot with a dot, so the full ones stand out.
+            const auto mark = rowHeight >= 3 && cellWidth >= 8 ? string("empty") : string("·");
             cellRows.push_back(ftxui::filler());
-            cellRows.push_back(ftxui::hbox({ftxui::filler(), styledText("empty", selected ? uiSecondaryText() : uiDimColor()), ftxui::filler()}) |
+            cellRows.push_back(ftxui::hbox({ftxui::filler(), styledText(mark, selected ? uiSecondaryText() : uiDimColor()), ftxui::filler()}) |
                                ftxui::size(ftxui::WIDTH, ftxui::EQUAL, cellWidth));
             cellRows.push_back(ftxui::filler());
           } else {
@@ -312,20 +371,21 @@ ftxui::Element App::renderRackManagementUi() const {
             cell = cell | ftxui::select;
           }
           auto self = const_cast<App*>(this);
-          rowCells.push_back(target(cell, "racks.cell." + slot, UiTargetKind::Cell, [self, displayColumn, displayRow] {
-            self->rackRow_ = displayColumn;
-            self->rackColumn_ = displayRow;
+          rowCells.push_back(target(cell, "racks.cell." + slot, UiTargetKind::Cell, [self, slotLetter, slotNumber] {
+            self->rackRow_ = slotLetter;
+            self->rackColumn_ = slotNumber;
             self->dirty_ = true;
           }));
-          if (displayColumn < rackGridRows - 1) {
+          if (displayColumn < visibleLetters - 1) {
             rowCells.push_back(ftxui::separator() | ftxui::color(uiDimColor()));
           }
         }
         gridRows.push_back(ftxui::hbox(move(rowCells)));
-        if (displayRow < rackGridColumns - 1) {
+        if (displayRow < visibleNumbers - 1) {
           gridRows.push_back(uiDivider());
         }
       }
+      if (gridFit.scrollBars) gridRows.push_back(scrollBar(false));
       // Summary band, centred in the rows the slots could not use.
       size_t lowSlots = 0;
       size_t outSlots = 0;
@@ -334,7 +394,7 @@ ftxui::Element App::renderRackManagementUi() const {
         if (candidate.quantity <= 0) ++outSlots;
         else if (isLowStock(candidate, settings_.lowStockThreshold)) ++lowSlots;
       }
-      ftxui::Elements summary = {styledText(" Rack " + rack->code + "  ", uiMutedColor()),
+      ftxui::Elements summary = {styledText((isOrganizer(*rack) ? " " : " Rack ") + rack->code + "  ", uiMutedColor()),
                                  uiHeaderText(to_string(rackOccupiedSlotCount(store_, *rack)) + "/" +
                                                   to_string(rackCapacity(*rack)) + " used",
                                               uiPrimaryText())};
@@ -348,7 +408,107 @@ ftxui::Element App::renderRackManagementUi() const {
   }
 
   ftxui::Elements detailRows;
-  if (rack == nullptr) {
+  if (inputMode_ == InputMode::StorageNew || inputMode_ == InputMode::StorageForm) {
+    auto selfForm = const_cast<App*>(this);
+    const int formInner = max(10, detailWidth - 2);
+    const auto wide = [&](const string& text, ftxui::Color color) {
+      detailRows.push_back(ftxui::hbox({ftxui::text(" "), ftxui::paragraphAlignLeft(text) | ftxui::color(color) | ftxui::flex}));
+    };
+    const auto formButton = [&](const string& label, const string& keyName, UiButtonKind kind, const string& id,
+                                function<void()> action) {
+      return target(uiButton(label, keyName, kind), id, UiTargetKind::Button, move(action));
+    };
+    detailRows.push_back(uiHeaderText(" New storage", uiSecondaryText()));
+    detailRows.push_back(uiDivider());
+    if (inputMode_ == InputMode::StorageNew) {
+      wide("What are you adding?", uiSecondaryText());
+      detailRows.push_back(ftxui::text(""));
+      detailRows.push_back(ftxui::hbox({ftxui::text(" "),
+                                        formButton("Container with slots", "Enter", UiButtonKind::Primary, "racks.new.container",
+                                                   [selfForm] { selfForm->beginStorageForm(); }),
+                                        ftxui::filler()}));
+      detailRows.push_back(ftxui::text(""));
+      detailRows.push_back(ftxui::hbox({ftxui::text(" "),
+                                        formButton("Rack with slots", "r", UiButtonKind::Normal, "racks.new.rack",
+                                                   [selfForm] {
+                                                     KeyEvent press;
+                                                     press.type = KeyType::Character;
+                                                     press.ch = 'r';
+                                                     selfForm->handleStorageNewKey(press);
+                                                   }),
+                                        ftxui::filler()}));
+      detailRows.push_back(ftxui::text(""));
+      detailRows.push_back(ftxui::hbox({ftxui::text(" "),
+                                        formButton("Cancel", "Esc", UiButtonKind::Normal, "racks.new.cancel",
+                                                   [selfForm] { selfForm->inputMode_ = InputMode::None; selfForm->dirty_ = true; }),
+                                        ftxui::filler()}));
+    } else {
+      struct FormField { const char* label; const char* placeholder; };
+      const FormField fields[4] = {{"Name", "required"}, {"Rows", "1-10"}, {"Columns", "1-10"}, {"Category", "optional"}};
+      for (int index = 0; index < 4; ++index) {
+        const bool focused = index == storageFormField_;
+        const auto& value = storageFormValues_[index];
+        const bool empty = value.empty();
+        // The value sits in a filled box, so it reads as something to click and type in.
+        const int boxWidth = max(6, formInner - 10);
+        const string shown = empty && !focused ? string(fields[index].placeholder) : value + (focused ? "_" : "");
+        auto box = fixedCell(" " + shown, static_cast<size_t>(boxWidth),
+                             focused ? uiTitleColor() : empty ? uiMutedText() : uiPrimaryText()) |
+                   ftxui::bgcolor(focused ? uiSelectionBg() : uiRaisedSurfaceBg());
+        auto row = ftxui::hbox({fixedCell(fields[index].label, 9, focused ? uiTitleColor() : uiMutedColor()), move(box),
+                                ftxui::filler()});
+        detailRows.push_back(target(ftxui::hbox({ftxui::text(" "), move(row)}), "racks.new.field." + to_string(index),
+                                    UiTargetKind::Field, [selfForm, index] {
+                                      selfForm->storageFormField_ = index;
+                                      selfForm->suggestionIndex_ = -1;
+                                      selfForm->dirty_ = true;
+                                    }));
+        if (!focused) continue;
+        if (index != 3) continue;
+        const auto suggestions = organizerTypeSuggestions(suggestionIndex_ >= 0 ? suggestionBase_ : value);
+        for (size_t hint = 0; hint < suggestions.size(); ++hint) {
+          const bool current = static_cast<int>(hint) == suggestionIndex_;
+          auto label = styledText("  " + ellipsize(suggestions[hint], static_cast<size_t>(formInner - 2)),
+                                  current ? uiTitleColor() : uiMutedText());
+          if (current) label = label | ftxui::inverted;
+          const auto suggestion = suggestions[hint];
+          detailRows.push_back(target(ftxui::hbox({ftxui::text(" "), label, ftxui::filler()}),
+                                      "racks.new.suggestion." + to_string(hint), UiTargetKind::Button,
+                                      [selfForm, suggestion] {
+                                        selfForm->storageFormValues_[3] = suggestion;
+                                        selfForm->dirty_ = true;
+                                      }));
+        }
+      }
+      detailRows.push_back(ftxui::text(""));
+      detailRows.push_back(ftxui::hbox({ftxui::text(" "),
+                                        formButton("Create", "Enter", UiButtonKind::Primary, "racks.new.create",
+                                                   [selfForm] { selfForm->submitStorageForm(); }),
+                                        ftxui::text(" "),
+                                        formButton("Cancel", "Esc", UiButtonKind::Normal, "racks.new.cancel",
+                                                   [selfForm] { selfForm->inputMode_ = InputMode::None; selfForm->dirty_ = true; }),
+                                        ftxui::filler()}));
+      // A small picture of the grid this makes, once both sizes are numbers in range.
+      const auto digits = [](const string& text, int maximum) {
+        return text.empty() || text.size() > 2 ? 0 : (stoi(text) >= 1 && stoi(text) <= maximum ? stoi(text) : 0);
+      };
+      const int previewRows = digits(storageFormValues_[1], kOrganizerMaxColumns);
+      const int previewColumns = digits(storageFormValues_[2], kOrganizerMaxRows);
+      detailRows.push_back(ftxui::text(""));
+      if (previewRows > 0 && previewColumns > 0) {
+        const string last = rackSlotLabel(previewColumns - 1, previewRows - 1);
+        wide(to_string(previewRows * previewColumns) + " slots, A1 to " + last, uiSecondaryText());
+        string header = "   ";
+        for (int column = 0; column < previewColumns; ++column) header += string(1, static_cast<char>('A' + column)) + " ";
+        detailRows.push_back(styledText(" " + header, uiLabelColor()));
+        for (int row = 0; row < previewRows; ++row) {
+          string line = (row + 1 < 10 ? " " : "") + to_string(row + 1) + " ";
+          for (int column = 0; column < previewColumns; ++column) line += "o ";
+          detailRows.push_back(styledText(" " + line, uiMutedColor()));
+        }
+      }
+    }
+  } else if (rack == nullptr) {
     if (!inventoryHasNoRacks) {
       detailRows.push_back(fullLine("Slot detail", uiSecondaryText(), uiSurfaceBg()));
       detailRows.push_back(detailFieldLine({"Status: ", "No racks match filter", uiWarnColor(), uiTitleColor()}, detailWidth - 2));
@@ -419,59 +579,42 @@ ftxui::Element App::renderRackManagementUi() const {
     }
 
     detailRows.push_back(ftxui::filler());
-    ftxui::Elements quantityControls;
-    if (selectedSlotItem != nullptr) {
-      quantityControls.push_back(styledText("Qty", uiMutedColor()));
-      quantityControls.push_back(ftxui::text(" "));
-      quantityControls.push_back(target(uiSecondaryButton("-"), "racks.part.minus", UiTargetKind::Button,
-                                        [selfDetail] { selfDetail->adjustSelectedRackItemQuantity(-1); }));
-      quantityControls.push_back(target(uiSecondaryButton("+"), "racks.part.plus", UiTargetKind::Button,
-                                        [selfDetail] { selfDetail->adjustSelectedRackItemQuantity(1); }));
-    }
-    auto moveButton = target(selectedSlotItem != nullptr || !movingRackItemId_.empty() ? uiPrimaryButton("Move")
-                                                                                       : uiSecondaryButton("Move"),
-                             "racks.move", UiTargetKind::Button, [selfDetail] { selfDetail->beginOrCompleteRackMove(); });
-    ftxui::Elements linkControls;
-    if (selectedSlotItem != nullptr) {
-      linkControls.push_back(target(uiSecondaryButton("Datasheet"), "racks.datasheet", UiTargetKind::Button,
-                                    [selfDetail] { selfDetail->openSelectedRackDatasheet(); }));
-      linkControls.push_back(ftxui::text(" "));
-      linkControls.push_back(target(uiSecondaryButton("Remove", uiDangerColor()), "racks.part.remove",
-                                    UiTargetKind::Button, [selfDetail] { selfDetail->unassignSelectedRackItem(); }));
+    // Two columns of wide buttons: Move and Datasheet, quantity, then the removing actions.
+    const bool hasSlotItem = selectedSlotItem != nullptr;
+    ftxui::Elements buttons;
+    buttons.push_back(target(uiWideButton("Move", "v", hasSlotItem || !movingRackItemId_.empty() ? UiButtonKind::Primary : UiButtonKind::Normal),
+                             "racks.move", UiTargetKind::Button, [selfDetail] { selfDetail->beginOrCompleteRackMove(); }));
+    if (hasSlotItem) {
+      buttons.push_back(target(uiWideButton("Datasheet", "d"), "racks.datasheet", UiTargetKind::Button,
+                               [selfDetail] { selfDetail->openSelectedRackDatasheet(); }));
+      buttons.push_back(target(uiWideButton("Add", "+"), "racks.part.plus", UiTargetKind::Button,
+                               [selfDetail] { selfDetail->adjustSelectedRackItemQuantity(1); }));
+      buttons.push_back(target(uiWideButton("Subtract", "-"), "racks.part.minus", UiTargetKind::Button,
+                               [selfDetail] { selfDetail->adjustSelectedRackItemQuantity(-1); }));
+      buttons.push_back(target(uiWideButton("Remove", "u", UiButtonKind::Danger), "racks.part.remove",
+                               UiTargetKind::Button, [selfDetail] { selfDetail->unassignSelectedRackItem(); }));
     }
     if (rackOccupiedSlotCount(store_, *rack) == 0) {
       // Rack-level destructive action; arms the same modal as x.
-      linkControls.push_back(target(uiSecondaryButton("Delete rack", uiDangerColor()), "racks.delete_rack",
-                                    UiTargetKind::Button, [selfDetail] { selfDetail->deleteSelectedRack(); }));
+      buttons.push_back(target(uiWideButton("Delete rack", "x", UiButtonKind::Danger), "racks.delete_rack",
+                               UiTargetKind::Button, [selfDetail] { selfDetail->deleteSelectedRack(); }));
     }
-    // One natural row (Move, quantity, links, Remove) needs 39 columns. Narrower panels split it into two rows.
-    const bool singleRow = detailWidth >= 40;
-    ftxui::Elements firstRow = {ftxui::text(" "), move(moveButton)};
-    if (!quantityControls.empty()) {
-      firstRow.push_back(ftxui::text(" "));
-      for (auto& element : quantityControls) firstRow.push_back(move(element));
-    }
-    if (singleRow) {
-      if (!linkControls.empty()) {
-        firstRow.push_back(ftxui::text(" "));
-        for (auto& element : linkControls) firstRow.push_back(move(element));
-      }
-      detailRows.push_back(ftxui::hbox(move(firstRow)));
-    } else {
-      detailRows.push_back(ftxui::hbox(move(firstRow)));
-      if (!linkControls.empty()) {
-        ftxui::Elements secondRow = {ftxui::text(" ")};
-        for (auto& element : linkControls) secondRow.push_back(move(element));
-        detailRows.push_back(ftxui::hbox(move(secondRow)));
-      }
-    }
+    detailRows.push_back(uiButtonGrid(move(buttons), 2, detailWidth));
   }
 
   auto rackListBody = ftxui::vbox(move(rackRows)) | ftxui::yframe | ftxui::vscroll_indicator |
                       ftxui::bgcolor(uiSurfaceBg()) | ftxui::flex | ftxui::reflect(rackListPanelBounds_);
-  auto rackPanel = move(rackListBody) | ftxui::bgcolor(uiSurfaceBg()) |
+  auto* const app = const_cast<App*>(this);
+  auto newStorageButton = ftxui::vbox({
+      target(uiWideButton("New part", "n"), "racks.new-part", UiTargetKind::Button, [app] { app->beginNewPartInRack(); }),
+      ftxui::text(""),
+      target(uiWideButton("New storage", "c"), "racks.new", UiTargetKind::Button, [app] { app->beginStorageNew(); }),
+  });
+  newStorageButton = ftxui::hbox({ftxui::text(" "), newStorageButton | ftxui::flex, ftxui::text(" ")}) |
+                     ftxui::bgcolor(uiSurfaceBg());
+  auto rackPanel = ftxui::vbox({move(rackListBody), uiDivider(), move(newStorageButton)}) | ftxui::bgcolor(uiSurfaceBg()) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, listWidth) | ftxui::flex;
-  auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::bgcolor(uiSurfaceBg()) |
+  auto gridPanel = ftxui::vbox(move(gridRows)) | ftxui::bgcolor(uiSurfaceBg()) | ftxui::reflect(rackGridPanelBounds_) |
                    ftxui::size(ftxui::WIDTH, ftxui::EQUAL, gridWidth);
   auto detailPanel = ftxui::vbox(move(detailRows)) | ftxui::bgcolor(uiSurfaceBg()) |
                      ftxui::size(ftxui::WIDTH, ftxui::EQUAL, detailWidth);
@@ -560,6 +703,14 @@ void App::handleRackManagementKey(const KeyEvent& key) {
     moveRackSlot(-1, 0);
   } else if (key.type == KeyType::Right) {
     moveRackSlot(1, 0);
+  } else if (key.type == KeyType::PageUp) {
+    moveRackSlot(0, -rackVisibleNumbers_);
+  } else if (key.type == KeyType::PageDown) {
+    moveRackSlot(0, rackVisibleNumbers_);
+  } else if (key.type == KeyType::Home) {
+    jumpToRackSlot(0, 0);
+  } else if (key.type == KeyType::End) {
+    jumpToRackSlot(numeric_limits<int>::max(), numeric_limits<int>::max());
   } else if (key.type == KeyType::Character) {
     // Other commands are registered actions dispatched first; only slot movement is here.
     switch (tolower(static_cast<unsigned char>(key.ch))) {

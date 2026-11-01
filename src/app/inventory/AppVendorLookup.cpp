@@ -27,10 +27,12 @@ void App::beginVendorLookup() {
     setMessage("Vendor lookup is already running", 3);
     return;
   }
-  const auto query = trim(workingCopy_.item.sku).empty() ? trim(workingCopy_.item.vendorMetadata.manufacturerPartNumber)
-                                                          : trim(workingCopy_.item.sku);
+  // The manufacturer part number is what a hand-added part usually has; a vendor SKU also works.
+  const auto query = trim(workingCopy_.item.vendorMetadata.manufacturerPartNumber).empty()
+                         ? trim(workingCopy_.item.sku)
+                         : trim(workingCopy_.item.vendorMetadata.manufacturerPartNumber);
   if (query.empty()) {
-    setMessage("Enter the part number in the SKU field first", 4, UiMessageSeverity::Warning);
+    setMessage("Enter the part number first", 4, UiMessageSeverity::Warning);
     return;
   }
   const auto digiKeyConfig = loadDigiKeyConfig();
@@ -164,7 +166,8 @@ void App::processVendorLookup() {
     return;
   }
   const bool formOpen = page_ == Page::Stock &&
-                        (inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue);
+                        (inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue ||
+                         inputMode_ == InputMode::StorageKindChoice || inputMode_ == InputMode::StorageGridSize || inputMode_ == InputMode::StorageGridType);
   if (!formOpen) {
     setMessage("Vendor lookup finished after the edit was closed; nothing was changed", 4, UiMessageSeverity::Warning);
     dirty_ = true;
@@ -200,7 +203,7 @@ void App::chooseVendorCandidate(size_t index) {
   }
   const auto candidate = vendorCandidates_[index];
   auto& item = workingCopy_.item;
-  // A hand-added part is named "New Part" until a vendor supplies a name.
+  // Older hand-added parts were named "New Part" until a vendor supplied a name.
   if (trim(item.partName) == "New Part") item.partName.clear();
   if (candidate.provider == "digikey" && candidate.digiKey) {
     app_actions::mergeDigiKeyMetadata(item, *candidate.digiKey);

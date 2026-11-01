@@ -76,12 +76,25 @@ void App::handleKey(const KeyEvent& key) {
     case InputMode::EditValue:
       handleEditValueKey(key);
       return;
+    case InputMode::StorageKindChoice:
+    case InputMode::StorageGridSize:
+    case InputMode::StorageGridType:
+      handleStorageChoiceKey(key);
+      return;
     case InputMode::VendorPick:
       handleVendorPickKey(key);
+      return;
+    case InputMode::StorageNew:
+      handleStorageNewKey(key);
+      return;
+    case InputMode::StorageForm:
+      handleStorageFormKey(key);
       return;
     case InputMode::RackRename:
     case InputMode::RackType:
     case InputMode::RackCreate:
+    case InputMode::OrganizerCreate:
+    case InputMode::OrganizerType:
     case InputMode::RackJump:
     case InputMode::RackFilter:
       handleRackValueKey(key);
@@ -323,6 +336,8 @@ bool App::handleMouse(const ftxui::Mouse& mouse) {
     }
     else if (page_ == Page::Racks) {
       if (uiBoxContains(rackListPanelBounds_, mouse.x, mouse.y)) moveRackPage(delta);
+      // Over the grid the wheel moves down the rows, so a tall organizer scrolls.
+      else if (uiBoxContains(rackGridPanelBounds_, mouse.x, mouse.y)) moveRackSlot(0, delta);
     }
     else if (page_ == Page::Settings && !settingsEditingField_ && !appearancePickerOpen_) {
       // The wheel moves the row cursor; it never changes a setting.

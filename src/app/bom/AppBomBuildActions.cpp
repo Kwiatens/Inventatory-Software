@@ -62,10 +62,12 @@ void App::beginBomBuild() {
   bomDeductPrompt_ = false;
   bomFinishSelection_ = 0;
   bomView_ = BomView::Build;
+  bomMapScroll_ = 0;
   dirty_ = true;
 }
 
 void App::advanceBomBuild(int delta) {
+  bomMapScroll_ = 0;
   const auto plan = bomPickPlan();
   if (plan.empty()) {
     bomView_ = BomView::Overview;

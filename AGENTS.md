@@ -112,6 +112,15 @@ moving branch or tag.
 - Settings panels carry settings and state only. No explainer notes, hint lines or
   descriptive copy under a setting. Status values that report real state are not
   explainers. Setup guidance belongs in the setup wizard, longer text in `docs/`.
+- No explainers anywhere in the UI, not only in settings. Do not add hint lines,
+  helper sentences, "how to" notes, placeholder explanations or descriptive copy under
+  a field, button, form or panel. If something needs explaining, rename its label. State
+  that reports something real (a count, an error after a failed action) is not an
+  explainer. Show key hints only in the shared status line.
+- Anything the user can type into or edit must look like an input: a filled box with its
+  own background, visible when empty and when not focused, with the focused one in the
+  selection colour. Plain text beside a label must never be editable. Plain text that
+  cannot be edited must never look like a box.
 - The supported minimum is 100x30 cells. Test fresh maximized-terminal captures at
   100x30, 120x30 and a wider size when a layout changes. Smaller terminals show the
   existing resize notice.

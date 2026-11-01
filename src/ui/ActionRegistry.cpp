@@ -117,6 +117,7 @@ vector<App::Action> App::currentActions() const {
       }
       if (hasItem) add("edit", "Edit", "e", chr('e'), [self] { self->beginEditCurrentItem(false); });
       add("new part", "Edit", "n", chr('n'), [self] { self->beginEditCurrentItem(true); });
+      if (hasItem) add("copy part", "Edit", "C", chr('C'), [self] { self->beginCopyCurrentItem(); });
       if (hasItem) add("add one", "Edit", "+", chr('+'), [self] { self->adjustQuantity(1); });
       if (hasItem) add("remove one", "Edit", "-", chr('-'), [self] { self->adjustQuantity(-1); });
       if (hasItem) add("set quantity", "Edit", "a", chr('a'), [self] {
@@ -178,30 +179,30 @@ vector<App::Action> App::currentActions() const {
       add("auto-assign", "Slot", "a", chr('a'), [self] { self->autoAssignSelectedRackItem(); });
       add("prev rack", "Racks", "[", chr('['), [self] { self->moveRackPage(-1); });
       add("next rack", "Racks", "]", chr(']'), [self] { self->moveRackPage(1); });
-      add("jump", "Racks", "g", chr('g'), [self] {
+      add("go to", "Racks", "g", chr('g'), [self] {
         self->inputBuffer_.clear();
         self->inputMode_ = InputMode::RackJump;
-        self->setMessage("Enter rack code like R3", 3);
       });
       add("filter", "Racks", "f", chr('f'), [self] { self->beginRackFilter(); });
       add("rack label", "Racks", "P", chr('P'), [self] { self->printSelectedRackLabel(); });
-      add("create rack", "Admin", "c", chr('c'), [self] {
-        self->inputBuffer_.clear();
-        self->inputMode_ = InputMode::RackCreate;
-        self->setMessage("Create a new empty rack by type", 3);
-      });
+      add("new part", "Slot", "n", chr('n'), [self] { self->beginNewPartInRack(); });
+      add("new storage", "Admin", "c", chr('c'), [self] { self->beginStorageNew(); });
+      add("new organizer", "Admin", "o", chr('o'), [self] { self->beginStorageForm(); });
       add("rename", "Admin", "r", chr('r'), [self] {
         if (const auto* rack = self->selectedRack()) {
           self->inputBuffer_ = rack->code;
           self->inputMode_ = InputMode::RackRename;
-          self->setMessage("Enter a unique rack code like R12", 3);
+          self->setMessage(isOrganizer(*rack) ? "Enter a new name for this organizer"
+                                              : "Enter a unique rack code like R12", 3);
         }
       });
       add("set type", "Admin", "t", chr('t'), [self] {
         if (const auto* rack = self->selectedRack()) {
           self->inputBuffer_ = rack->componentType;
           self->inputMode_ = InputMode::RackType;
-          self->setMessage("Edit this rack's dedicated component type", 3);
+          self->setMessage(isOrganizer(*rack)
+                               ? "Parts of this type will be placed here by themselves. Leave empty for none"
+                               : "Edit this rack's dedicated component type", 5);
         }
       });
       add("delete rack", "Admin", "x", chr('x'), [self] { self->deleteSelectedRack(); });
@@ -364,6 +365,14 @@ vector<App::Action> App::currentActions() const {
       } else if (bomView_ == BomView::Build) {
         add("rack done", "Build", "Enter", special(KeyType::Enter), [self] { self->advanceBomBuild(1); });
         add("previous rack", "Build", "Bksp", special(KeyType::Backspace), [self] { self->advanceBomBuild(-1); });
+        add("scroll map up", "Map", "Up", special(KeyType::Up), [self] {
+          --self->bomMapScroll_;
+          self->dirty_ = true;
+        });
+        add("scroll map down", "Map", "Down", special(KeyType::Down), [self] {
+          ++self->bomMapScroll_;
+          self->dirty_ = true;
+        });
       } else if (bomView_ == BomView::List || !bomAnalysisValid_) {
         add("open project", "Project", "Enter", special(KeyType::Enter),
             [self] { self->openSelectedBomProject(); });

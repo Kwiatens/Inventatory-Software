@@ -40,7 +40,8 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
   };
 
   // Editing renders inline: the detail panel becomes the form, with live typing in place.
-  const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue;
+  const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue ||
+                       inputMode_ == InputMode::StorageKindChoice || inputMode_ == InputMode::StorageGridSize || inputMode_ == InputMode::StorageGridType;
   const InventorySearchMatch* selectedMatch = nullptr;
   if (rankedView && !searchMatches.empty()) {
     const auto selectedPosition = min(activeSelection, searchMatches.size() - 1);
@@ -98,27 +99,75 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     }
     detailRows.push_back(styledText(ellipsize("Up/Down choose   Enter use this vendor   Esc back", width), uiMutedColor()));
   } else if (editing) {
-    const auto titleText = workingCopy_.isNew ? string("New part") : workingCopy_.item.partName;
-    detailRows.push_back(fullLine(titleText, uiTitleColor(), uiRowSelectedBg()));
+    const auto titleText = !workingCopy_.isNew              ? workingCopy_.item.partName
+                           : workingCopy_.copiedFrom.empty() ? string("New part")
+                                                             : "Copy of " + workingCopy_.copiedFrom;
+    detailRows.push_back(fullLine(ellipsize(titleText, static_cast<size_t>(max(detailInnerWidth, 8))), uiTitleColor(),
+                                  uiRowSelectedBg()));
     detailRows.push_back(uiDivider());
     // Labels fit the longest one; the value, which matters more, keeps three fifths of the panel.
     TableColumn labelColumn{0, 10}, valueColumn{0, detailInnerWidth * 3 / 5, true};
     for (const auto& option : menuOptions_) labelColumn.fit(option.label);
     valueColumn.content = detailInnerWidth;
     const int labelWidth = fitColumns({labelColumn, valueColumn}, detailInnerWidth)[0];
+    const auto valueWidth = static_cast<size_t>(max(detailInnerWidth - labelWidth, 4));
+    const auto suggestions = editFieldSuggestions();
+    const auto slotHint = editFieldSlotHint();
+    // A click on another field keeps what was typed in this one, as Enter would.
+    const auto openField = [self](size_t index) {
+      if (self->inputMode_ == InputMode::EditValue && self->fieldMenuIndex_ != static_cast<int>(index) &&
+          self->fieldMenuIndex_ >= 0 && self->fieldMenuIndex_ < static_cast<int>(self->menuOptions_.size())) {
+        if (!self->commitEditField(self->menuOptions_[self->fieldMenuIndex_], self->inputBuffer_)) return;
+        self->inputBuffer_.clear();
+        self->inputMode_ = InputMode::EditFieldMenu;
+        // A changed category can add or remove fields, so the clicked row is looked up again.
+        if (index >= self->menuOptions_.size()) return;
+      }
+      self->beginEditFieldAt(static_cast<int>(index));
+    };
     for (size_t index = 0; index < menuOptions_.size(); ++index) {
       const auto& option = menuOptions_[index];
       const bool selected = static_cast<int>(index) == fieldMenuIndex_;
-      const bool typing = selected && inputMode_ == InputMode::EditValue;
-      const auto value = typing ? inputBuffer_ + "_" : currentFieldValue(option.field);
       const auto bg = selected ? uiSelectionBg() : uiSurfaceBg();
+      if (option.field == EditField::MoreDetails) {
+        // The less used fields sit behind this row, under a divider.
+        detailRows.push_back(uiDivider());
+        auto row = ftxui::hbox({
+                       styledText((editMoreDetails_ ? " - " : " + ") + option.label,
+                                  selected ? uiTitleColor() : uiSecondaryText()),
+                       ftxui::filler(),
+                   }) |
+                   ftxui::bgcolor(bg);
+        if (selected) row = row | ftxui::select;
+        detailRows.push_back(target(row, "stock.field." + to_string(index), UiTargetKind::Button,
+                                    [openField, index] { openField(index); }));
+        continue;
+      }
+      const bool choosingStorage =
+          selected && (inputMode_ == InputMode::StorageKindChoice || inputMode_ == InputMode::StorageGridSize || inputMode_ == InputMode::StorageGridType);
+      const bool typing = selected && (inputMode_ == InputMode::EditValue || choosingStorage);
+      auto value = choosingStorage ? storagePendingName_ : typing ? inputBuffer_ + "_" : currentFieldValue(option);
+      // An empty field says what it is waiting for.
+      bool placeholder = false;
+      if (!typing && trim(value).empty()) {
+        if (option.field == EditField::PartName) value = "required", placeholder = true;
+        else if (option.field == EditField::Storage) value = "not stored yet", placeholder = true;
+      }
       const auto labelColor = selected ? uiTitleColor() : uiMutedColor();
-      const auto valueColor = typing ? uiLinkColor() : (selected ? uiTitleColor() : uiLabelColor());
+      const auto valueColor = typing        ? uiLinkColor()
+                              : placeholder ? uiMutedText()
+                              : selected    ? uiTitleColor()
+                                            : uiLabelColor();
+      // A value the next key replaces is shown inverted, like selected text.
+      auto valueText = styledText(ellipsize(value, valueWidth), valueColor);
+      if (typing && !choosingStorage && inputReplaceOnType_) {
+        valueText = ftxui::hbox({styledText(ellipsize(inputBuffer_, valueWidth), valueColor) | ftxui::inverted,
+                                 styledText("_", valueColor)});
+      }
       auto row = ftxui::hbox({
                      fixedCell(option.label, labelWidth - 1, labelColor),
                      ftxui::text(" "),
-                     styledText(ellipsize(value, static_cast<size_t>(max(detailInnerWidth - labelWidth, 4))),
-                                valueColor),
+                     valueText,
                      ftxui::filler(),
                  }) |
                  ftxui::bgcolor(bg);
@@ -126,16 +175,88 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
         row = row | ftxui::select;
       }
       detailRows.push_back(target(row, "stock.field." + to_string(index), UiTargetKind::Field,
-                                  [self, index] {
-                                    self->fieldMenuIndex_ = static_cast<int>(index);
-                                    if (self->menuOptions_[index].field == EditField::VendorSource) {
-                                      self->beginVendorLookup();
-                                      return;
-                                    }
-                                    self->inputBuffer_ = self->currentFieldValue(self->menuOptions_[index].field);
-                                    self->inputMode_ = InputMode::EditValue;
-                                    self->dirty_ = true;
-                                  }));
+                                  [openField, index] { openField(index); }));
+      if (!typing) continue;
+      const string indent(static_cast<size_t>(labelWidth), ' ');
+      // The question about a new storage name uses the whole panel width, below the field.
+      const auto wideLine = [&](const string& text, ftxui::Color color) {
+        detailRows.push_back(ftxui::hbox({styledText(ellipsize(" " + text, static_cast<size_t>(detailInnerWidth)), color),
+                                          ftxui::filler()}));
+      };
+      // Each answer is a button, in the style used across the app: a raised block with its key.
+      const auto choiceButton = [&](const string& label, const string& keyName, UiButtonKind kind, const string& id,
+                                    const string& note, KeyType keyType, char ch) {
+        detailRows.push_back(ftxui::text(""));
+        detailRows.push_back(ftxui::hbox({ftxui::text(" "),
+                                          target(uiButton(label, keyName, kind), id, UiTargetKind::Button,
+                                                 [self, keyType, ch] {
+                                                   KeyEvent press;
+                                                   press.type = keyType;
+                                                   press.ch = ch;
+                                                   self->handleStorageChoiceKey(press);
+                                                 }),
+                                          ftxui::filler()}));
+        if (!note.empty()) wideLine(" " + note, uiMutedText());  // under the button's label
+      };
+      if (inputMode_ == InputMode::StorageKindChoice) {
+        // A storage name nobody uses yet: a plain place, or an organizer with slots.
+        wideLine(storagePendingName_ + " is new. What is it?", uiSecondaryText());
+        choiceButton("Generic location", "Enter", UiButtonKind::Primary, "stock.storage.place", "With no slots, like a drawer or shelf",
+                     KeyType::Enter, '\0');
+        choiceButton("Storage location with slots", "g", UiButtonKind::Normal, "stock.storage.grid",
+                     storagePendingSlot_.empty() ? string("Like an organizer")
+                                                 : "Like an organizer, part in " + storagePendingSlot_,
+                     KeyType::Character, 'g');
+        detailRows.push_back(ftxui::text(""));
+        continue;
+      }
+      if (inputMode_ == InputMode::StorageGridSize) {
+        wideLine("Size of " + storagePendingName_ + ", rows x columns:", uiSecondaryText());
+        detailRows.push_back(ftxui::hbox({ftxui::text(" "),
+                                          styledText(" " + inputBuffer_ + "_ ", uiLinkColor(), uiSelectionBg()),
+                                          ftxui::filler()}));
+        wideLine("4x6 is 4 rows and 6 columns, A1 to F4", uiMutedText());
+        choiceButton("Next", "Enter", UiButtonKind::Primary, "stock.storage.size", string(), KeyType::Enter, '\0');
+        detailRows.push_back(ftxui::text(""));
+        continue;
+      }
+      if (inputMode_ == InputMode::StorageGridType) {
+        wideLine("What goes in " + storagePendingName_ + "? Category, optional:", uiSecondaryText());
+        detailRows.push_back(ftxui::hbox({ftxui::text(" "),
+                                          styledText(" " + inputBuffer_ + "_ ", uiLinkColor(), uiSelectionBg()),
+                                          ftxui::filler()}));
+        const auto typeSuggestions = organizerTypeSuggestions(suggestionIndex_ >= 0 ? suggestionBase_ : inputBuffer_);
+        for (size_t hint = 0; hint < typeSuggestions.size(); ++hint) {
+          const bool current = static_cast<int>(hint) == suggestionIndex_;
+          auto label = styledText("  " + typeSuggestions[hint], current ? uiTitleColor() : uiMutedText());
+          if (current) label = label | ftxui::inverted;
+          detailRows.push_back(ftxui::hbox({label, ftxui::filler()}));
+        }
+        choiceButton("Create", "Enter", UiButtonKind::Primary, "stock.storage.create", string(), KeyType::Enter, '\0');
+        detailRows.push_back(ftxui::text(""));
+        continue;
+      }
+      // Suggestions and free slots sit under the field being typed; each Tab takes the next one.
+      for (size_t hint = 0; hint < suggestions.size(); ++hint) {
+        const auto suggestion = suggestions[hint];
+        const bool current = static_cast<int>(hint) == suggestionIndex_;
+        auto label = styledText(ellipsize(suggestion, valueWidth), current ? uiTitleColor() : uiMutedText());
+        if (current) label = label | ftxui::inverted;
+        auto line = ftxui::hbox({
+            ftxui::text(indent),
+            label,
+            ftxui::filler(),
+        });
+        detailRows.push_back(target(line, "stock.suggestion." + to_string(hint), UiTargetKind::Button,
+                                    [self, suggestion] {
+                                      self->inputBuffer_ = suggestion;
+                                      self->dirty_ = true;
+                                    }));
+      }
+      if (!slotHint.empty()) {
+        detailRows.push_back(ftxui::hbox({ftxui::text(indent), styledText(ellipsize(slotHint, valueWidth), uiMutedText()),
+                                          ftxui::filler()}));
+      }
     }
   } else if (const auto* item = selectedItem()) {
     const auto electricalFields = electricalFieldsForItem(*item);
@@ -158,7 +279,7 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     }
 
     // Qty and rack sit under the summary, not in the details list.
-    const auto rack = rackLocation(*item, store_.racks());
+    const auto rack = storageLocation(*item, store_.racks());
     const auto quantityColor = uiQuantityColor(*item, settings_.lowStockThreshold);
     const bool outOfStock = item->quantity <= 0;
     const bool lowStock = !outOfStock && isLowStock(*item, settings_.lowStockThreshold);
@@ -170,8 +291,8 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     if (outOfStock || lowStock) {
       essentials.push_back(uiHeaderText(outOfStock ? "  OUT" : "  LOW", quantityColor, uiRaisedSurfaceBg()));
     }
-    essentials.push_back(styledText("     Rack ", uiMutedColor(), uiRaisedSurfaceBg()));
-    essentials.push_back(uiHeaderText(rack.empty() ? "NOT ASSIGNED" : rack, rack.empty() ? uiWarnColor() : uiFocusColor(),
+    essentials.push_back(styledText("     Storage ", uiMutedColor(), uiRaisedSurfaceBg()));
+    essentials.push_back(uiHeaderText(rack.empty() ? "NOT STORED" : rack, rack.empty() ? uiWarnColor() : uiFocusColor(),
                                       uiRaisedSurfaceBg()));
     essentials.push_back(ftxui::filler());
     detailRows.push_back(ftxui::hbox(move(essentials)) | ftxui::bgcolor(uiRaisedSurfaceBg()));
@@ -266,7 +387,6 @@ ftxui::Elements App::renderStockDetailRows(const vector<InventorySearchMatch>& s
     detailField("Mouser", mouserPartNumberOf(*item), uiPrimaryText());
     detailField("SKU", item->sku, uiPrimaryText());
     detailField("Inventatory ID", item->inventatoryId, uiPrimaryText());
-    detailField("Location", item->location, uiPrimaryText());
     detailField("Tags", renderTags(item->tags), uiPrimaryText());
     // The heading shows how many fields are hidden, so it never looks like missing data.
     detailRows.push_back(uiDivider());

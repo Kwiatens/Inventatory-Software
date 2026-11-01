@@ -81,8 +81,21 @@ bool InventoryItem::hasMissingMetadata() const {
   // Identified by its DigiKey, TME or Mouser part number, whichever it was enriched from.
   const bool hasVendorNumber =
       !digikeyPartNumber.empty() || !tmeProductSymbol(*this).empty() || !mouserPartNumberOf(*this).empty();
+  // A part with no vendor at all was added by hand: it is complete once it has a name.
+  if (!hasVendorRecord(*this)) return trim(partName).empty();
   return partName.empty() || manufacturer.empty() || category.empty() || !hasVendorNumber ||
          datasheetUrl.empty() || productUrl.empty();
+}
+
+bool needsVendorSync(const InventoryItem& item) {
+  const auto status = toLower(trim(item.syncStatus));
+  if (status == "synced" || status == kManualSyncStatus) return false;
+  return hasVendorRecord(item);  // with no vendor there is nothing to sync
+}
+
+bool hasVendorRecord(const InventoryItem& item) {
+  return !trim(item.vendorMetadata.provider).empty() || !item.digikeyPartNumber.empty() ||
+         !tmeProductSymbol(item).empty() || !mouserPartNumberOf(item).empty();
 }
 
 string InventoryItem::searchableText() const {
