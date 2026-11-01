@@ -65,6 +65,7 @@ ftxui::Element App::renderStockUi() const {
                                     partWidth, categoryWidth, matchWidth, groupByCategory);
   auto detailRows = renderStockDetailRows(searchMatches, rankedView, activeSelection, detailInnerWidth);
   const bool editing = inputMode_ == InputMode::EditFieldMenu || inputMode_ == InputMode::EditValue ||
+                       inputMode_ == InputMode::StorageKindChoice || inputMode_ == InputMode::StorageGridSize || inputMode_ == InputMode::StorageGridType ||
                        inputMode_ == InputMode::VendorPick;
   auto self = const_cast<App*>(this);
   const bool filtersEnabled = !stocktakeActive_ && !closestSearchActive_;
@@ -145,7 +146,7 @@ ftxui::Element App::renderStockUi() const {
   // Header and footer sit outside the scrolling detail, so the controls stay reachable.
   ftxui::Element detailFooter;
   if (editing) {
-    detailFooter = styledText(" Up/Down field   Enter edit   s save   Esc cancel", uiMutedColor());
+    detailFooter = styledText(partFormFooterHint(), uiMutedColor());
   } else if (closestSearchActive_) {
     detailFooter = styledText(inputMode_ == InputMode::ClosestSearch
                                   ? " type target   Up/Down select   Enter keep   Esc close"
@@ -153,61 +154,40 @@ ftxui::Element App::renderStockUi() const {
                               uiMutedColor());
   } else if (stocktakeActive_) {
     const bool ready = stocktakeCountedItems() == store_.items().size();
-    detailFooter = ftxui::hbox({
-        target(uiSecondaryButton("Count", nullopt, selectedItem() != nullptr), "stocktake.count", UiTargetKind::Button,
-               [self] { self->beginStocktakeCount(); }, selectedItem() != nullptr),
-        ftxui::text(" "),
-        target(uiSecondaryButton("Finish", nullopt, ready), "stocktake.finish", UiTargetKind::Button,
-               [self] { self->finishStocktake(); }, ready),
-        ftxui::text(" "),
-        target(uiSecondaryButton("Cancel"), "stocktake.cancel", UiTargetKind::Button,
-               [self] { self->cancelStocktake(); }),
-        ftxui::filler(),
-    });
+    detailFooter = uiButtonGrid(
+        {target(uiWideButton("Count", "Enter", UiButtonKind::Normal, selectedItem() != nullptr), "stocktake.count",
+                UiTargetKind::Button, [self] { self->beginStocktakeCount(); }, selectedItem() != nullptr),
+         target(uiWideButton("Finish", "s", UiButtonKind::Normal, ready), "stocktake.finish", UiTargetKind::Button,
+                [self] { self->finishStocktake(); }, ready),
+         target(uiWideButton("Cancel", "q"), "stocktake.cancel", UiTargetKind::Button, [self] { self->cancelStocktake(); })},
+        2, detailOuterWidth);
   } else {
     const bool hasItem = selectedItem() != nullptr;
-    ftxui::Elements editRow = {
-        target(uiSecondaryButton("New"), "stock.new", UiTargetKind::Button,
-               [self] { self->beginEditCurrentItem(true); }),
-        ftxui::text(" "),
-        target(uiSecondaryButton("Edit", nullopt, hasItem), "stock.edit", UiTargetKind::Button,
-               [self] { self->beginEditCurrentItem(false); }, hasItem),
-        ftxui::text(" "),
-        target(uiSecondaryButton("-", nullopt, hasItem), "stock.decrement", UiTargetKind::Button,
-               [self] { self->adjustQuantity(-1); }, hasItem),
-        target(uiSecondaryButton("+", nullopt, hasItem), "stock.increment", UiTargetKind::Button,
-               [self] { self->adjustQuantity(1); }, hasItem),
-        ftxui::text(" "),
-        target(uiSecondaryButton("Set qty", nullopt, hasItem), "stock.set_quantity", UiTargetKind::Button,
-               [self] {
-                 if (const auto* item = self->selectedItem()) {
-                   self->inputBuffer_ = to_string(item->quantity);
-                   self->inputReplaceOnType_ = true;
-                   self->inputMode_ = App::InputMode::QuantityAdjust;
-                   self->setMessage("Enter the total quantity on hand", 3);
-                 }
-               }, hasItem),
-    };
-    ftxui::Elements outputRow = {
-        // Peer actions use the raised role; only Delete is danger, since it removes records.
-        target(uiSecondaryButton("Print", nullopt, hasItem), "stock.print", UiTargetKind::Button,
-               [self] { self->printSelectedLabel(); }, hasItem),
-        ftxui::text(" "),
-        // Arms the same confirmation modal as the Del key.
-        target(uiSecondaryButton("Delete", uiDangerColor(), hasItem), "stock.delete", UiTargetKind::Button,
-               [self] { self->armDeleteConfirmation(); }, hasItem),
-        ftxui::filler(),
-    };
-    // The button strip needs 46 columns; narrower panels wrap it rather than clip Delete.
-    const bool wrap = detailOuterWidth < 47;
-    if (wrap) {
-      editRow.push_back(ftxui::filler());
-      detailFooter = ftxui::vbox({ftxui::hbox(move(editRow)), ftxui::hbox(move(outputRow))});
-    } else {
-      editRow.push_back(ftxui::text(" "));
-      for (auto& element : outputRow) editRow.push_back(move(element));
-      detailFooter = ftxui::hbox(move(editRow));
-    }
+    const auto normal = UiButtonKind::Normal;
+    detailFooter = uiButtonGrid(
+        {target(uiWideButton("New part", "n"), "stock.new", UiTargetKind::Button, [self] { self->beginEditCurrentItem(true); }),
+         target(uiWideButton("Edit", "e", normal, hasItem), "stock.edit", UiTargetKind::Button,
+                [self] { self->beginEditCurrentItem(false); }, hasItem),
+         target(uiWideButton("Add", "+", normal, hasItem), "stock.increment", UiTargetKind::Button,
+                [self] { self->adjustQuantity(1); }, hasItem),
+         target(uiWideButton("Subtract", "-", normal, hasItem), "stock.decrement", UiTargetKind::Button,
+                [self] { self->adjustQuantity(-1); }, hasItem),
+         target(uiWideButton("Set qty", "a", normal, hasItem), "stock.set_quantity", UiTargetKind::Button,
+                [self] {
+                  if (const auto* item = self->selectedItem()) {
+                    self->inputBuffer_ = to_string(item->quantity);
+                    self->inputReplaceOnType_ = true;
+                    self->inputMode_ = App::InputMode::QuantityAdjust;
+                    self->setMessage("Enter the total quantity on hand", 3);
+                  }
+                },
+                hasItem),
+         target(uiWideButton("Print", "p", normal, hasItem), "stock.print", UiTargetKind::Button,
+                [self] { self->printSelectedLabel(); }, hasItem),
+         // Arms the same confirmation modal as the Del key.
+         target(uiWideButton("Delete", "Del", UiButtonKind::Danger, hasItem), "stock.delete", UiTargetKind::Button,
+                [self] { self->armDeleteConfirmation(); }, hasItem)},
+        2, detailOuterWidth);
   }
   auto detailPanel = ftxui::vbox({
                          fullLine(editing ? "Edit item" : "Item detail", uiSecondaryText(), uiSurfaceBg()),

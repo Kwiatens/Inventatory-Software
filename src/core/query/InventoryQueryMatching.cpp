@@ -246,7 +246,7 @@ bool tokenMatchesStatus(const InventoryItem& item, const string& value, int lowS
     return toLower(item.syncStatus) == "synced";
   }
   if (lowerValue == "unsynced") {
-    return toLower(item.syncStatus) != "synced";
+    return needsVendorSync(item);
   }
   return containsInsensitive(item.syncStatus, lowerValue);
 }

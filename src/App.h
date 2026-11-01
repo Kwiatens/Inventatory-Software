@@ -320,6 +320,13 @@ class App {
     RackRename,
     RackType,
     RackCreate,
+    OrganizerCreate,
+    StorageKindChoice,  // a new storage name: a place, or a grid with slots
+    StorageGridSize,    // the rows x columns of that grid
+    StorageGridType,    // its category, optional
+    OrganizerType,      // Racks page: the category of a new organizer, optional
+    StorageNew,         // Racks page: a numbered rack, or a container with slots
+    StorageForm,        // Racks page: the form for a container with slots
     RackJump,
     RackFilter,
     StockFilter,
@@ -362,11 +369,17 @@ class App {
     Sku,
     RackLocation,
     VendorSource,
+    Storage,
+    PartNumber,
+    TypeParameter,  // a parameter the category asks for, such as Resistance
+    MoreDetails,    // the row that shows or hides the less used fields
   };
 
   struct FieldOption {
     std::string label;
     EditField field;
+    // TypeParameter only: the name it is saved under, then the names it is also read from.
+    std::vector<std::string> parameterNames = {};
   };
 
   struct WorkingCopy {
@@ -375,6 +388,7 @@ class App {
     InventoryItem original;
     bool isNew = false;
     size_t originalIndex = 0;
+    std::string copiedFrom;  // name of the part a copy started from
   };
 
   // Settings rows; one model per category drives rendering, input and mouse targets.
@@ -881,12 +895,22 @@ class App {
   void syncRackSelection();
   void moveRackSlot(int rowDelta, int columnDelta);
   void moveRackPage(int delta);
+  void selectRackAt(size_t position);
+  void jumpToRackSlot(int letter, int number);
   void beginOrCompleteRackMove();
   void unassignSelectedRackItem();
   void autoAssignSelectedRackItem();
   void renameSelectedRack(const std::string& value);
   void changeSelectedRackType(const std::string& value);
   void createRackWithType(const std::string& value);
+  void createOrganizerFromInput(const std::string& value);
+  void createPendingOrganizer(const std::string& componentType);
+  void beginStorageNew();
+  void beginStorageForm();
+  void handleStorageNewKey(const KeyEvent& key);
+  void handleStorageFormKey(const KeyEvent& key);
+  void submitStorageForm();
+  std::vector<std::string> organizerTypeSuggestions(const std::string& typed) const;
   void deleteSelectedRack();
   bool rackDeleteConfirmationActive() const;
   bool rackDeleteConfirmationReady() const;
@@ -910,8 +934,18 @@ class App {
   void clearClosestSearch();
   void cancelInput();
   void beginEditCurrentItem(bool createNew);
+  // A new part started from the Racks page: storage starts as the selected slot, and the form returns there.
+  void beginNewPartInRack();
+  void leavePartFormPage(const InventoryItem* shown);
   void beginEditImportCandidate();
-  void commitEditField(EditField field, const std::string& value);
+  bool commitEditField(const FieldOption& option, const std::string& value);
+  void beginCopyCurrentItem();
+  void refreshFieldOptions();
+  void beginEditFieldAt(int index);
+  bool workingCopyChanged() const;
+  void closePartEditor();
+  void finishEditValueMove(int move);
+  void handleStorageChoiceKey(const KeyEvent& key);
   void saveWorkingCopy();
   void adjustQuantity(int delta);
   void setSelectedQuantityFromInput(const std::string& value);
@@ -1005,8 +1039,10 @@ class App {
   const BomProject* activeBomProject() const;
 
   void openCurrentUrl(const std::string& url, const std::string& label);
-  std::string fieldLabel(EditField field) const;
-  std::string currentFieldValue(EditField field) const;
+  std::string currentFieldValue(const FieldOption& option) const;
+  std::vector<std::string> editFieldSuggestions() const;
+  std::string editFieldSlotHint() const;
+  std::string partFormFooterHint() const;
   std::vector<FieldOption> fieldOptions() const;
   std::string softwareVersion() const;
   std::string activePrompt() const;
@@ -1078,10 +1114,16 @@ class App {
   size_t selectedPosition_ = 0;
   size_t closestSelectedPosition_ = 0;
   bool closestSearchActive_ = false;
+  bool partFormFromRacks_ = false;
   size_t rackSelection_ = 0;
   mutable ftxui::Box rackListPanelBounds_;
   int rackRow_ = 0;
   int rackColumn_ = 0;
+  // Rows of slots on screen in the last drawn grid, for PageUp and PageDown.
+  mutable int rackVisibleNumbers_ = 5;
+  mutable ftxui::Box rackGridPanelBounds_;
+  // The last slot used in each rack or organizer, by id, so switching back returns there.
+  std::unordered_map<std::string, std::pair<int, int>> rackCursorMemory_;
   std::string movingRackItemId_;
   std::string movingRackSource_;
   std::string rackFilter_;
@@ -1126,6 +1168,19 @@ class App {
   WorkingCopy workingCopy_;
   UndoSnapshot undoSnapshot_;
   bool editingImportCandidate_ = false;
+  bool editMoreDetails_ = false;   // the part form shows its less used fields
+  bool editDiscardArmed_ = false;  // Esc was pressed once on a form with unsaved changes
+  // The container form on the Racks page: name, rows (numbers down), columns (letters across), category.
+  std::string storageFormValues_[4];
+  int storageFormField_ = 0;
+  std::string storagePendingName_;  // a new storage name waiting for "place or grid"
+  int storagePendingMove_ = 0;      // where the form goes once it is answered: 0 Enter, -1 Up, +1 Down
+  int storagePendingRows_ = 0;      // a new organizer's size, kept while its category is asked
+  int storagePendingColumns_ = 0;
+  std::string storagePendingSize_;  // the size as typed, for Esc back to it
+  std::string storagePendingSlot_;  // a slot typed after the new name ("Tray2 A2"), or empty
+  std::string suggestionBase_;      // what was typed before Tab started stepping through suggestions
+  int suggestionIndex_ = -1;        // the suggestion Tab put in the field, or -1
   size_t importEditIndex_ = 0;
   size_t importSelection_ = 0;
   bool importSyncPrompt_ = false;
@@ -1164,6 +1219,8 @@ class App {
   // The comparison table owns wheel/key navigation.
   mutable ftxui::Box bomTableBounds_;
   size_t bomBuildStep_ = 0;
+  // Rows the Find in racks map is scrolled past the picks it centres on. Reset at each stop.
+  mutable int bomMapScroll_ = 0;
   bool bomDeductPrompt_ = false;
   // One BOM line that stock does not cover: what is chosen or ordered for it, and what it costs now.
   struct BomPurchase {

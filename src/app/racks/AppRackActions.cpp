@@ -17,6 +17,7 @@
 #include <limits>
 #include <memory>
 #include <system_error>
+#include <unordered_set>
 
 namespace inventatory {
 
@@ -169,8 +170,8 @@ InventatoryRack* App::selectedRack() {
 string App::selectedRackSlot() const {
   const auto* rack = selectedRack();
   if (rack == nullptr) return {};
-  const int rows = clamp(rack->rows, 0, 5);
-  const int columns = clamp(rack->columns, 0, 5);
+  const int rows = storageGridRows(*rack);
+  const int columns = storageGridColumns(*rack);
   if (rackRow_ >= rows || rackColumn_ >= columns) return {};
   return rackSlotLabel(rackRow_, rackColumn_);
 }
@@ -197,8 +198,8 @@ void App::syncRackSelection() {
   }
   rackSelection_ = min(rackSelection_, indices.size() - 1);
   const auto* rack = selectedRack();
-  const int rows = rack == nullptr ? 0 : clamp(rack->rows, 0, 5);
-  const int columns = rack == nullptr ? 0 : clamp(rack->columns, 0, 5);
+  const int rows = rack == nullptr ? 0 : storageGridRows(*rack);
+  const int columns = rack == nullptr ? 0 : storageGridColumns(*rack);
   rackRow_ = clamp(rackRow_, 0, max(0, rows - 1));
   rackColumn_ = clamp(rackColumn_, 0, max(0, columns - 1));
   dirty_ = true;
@@ -208,6 +209,22 @@ void App::renameSelectedRack(const string& value) {
   auto* rack = selectedRack();
   if (rack == nullptr) {
     setMessage("No rack selected", 2);
+    return;
+  }
+  if (isOrganizer(*rack)) {
+    const auto name = trim(value);
+    string error;
+    if (!validateStorageName(store_, name, rack->id, error)) {
+      setMessage(error, 4, UiMessageSeverity::Warning);
+      return;
+    }
+    captureUndoSnapshot();
+    const auto previous = rack->code;
+    rack->code = name;
+    logActivity("rack", previous + " renamed to " + name);
+    saveState();
+    syncRackSelection();
+    setMessage("Organizer renamed to " + name, 2);
     return;
   }
   auto code = trim(value);
@@ -239,7 +256,8 @@ void App::changeSelectedRackType(const string& value) {
     return;
   }
   const auto type = trim(value);
-  if (type.empty()) {
+  // An organizer without a type is filled by hand only.
+  if (type.empty() && !isOrganizer(*rack)) {
     setMessage("Rack type cannot be empty", 3);
     return;
   }
@@ -282,6 +300,75 @@ void App::createRackWithType(const string& value) {
   saveState();
   syncRackSelection();
   setMessage(rack.code + " created", 2);
+}
+
+// "Red case 4x6": the last word is rows x columns as seen on the Racks page, where numbered rows
+// run down and lettered columns run across. Red case 4x6 has slots A1 to F4.
+void App::createOrganizerFromInput(const string& value) {
+  const auto text = trim(value);
+  const auto space = text.find_last_of(' ');
+  int rows = 0;     // stored rows: the slot letters
+  int columns = 0;  // stored columns: the slot numbers
+  if (space == string::npos || !parseOrganizerSize(text.substr(space + 1), rows, columns)) {
+    return;
+  }
+  const auto name = trim(text.substr(0, space));
+  string error;
+  if (!validateStorageName(store_, name, string(), error)) {
+    setMessage(error, 4, UiMessageSeverity::Warning);
+    return;
+  }
+  // The category comes next, on the same prompt line.
+  storagePendingName_ = name;
+  storagePendingRows_ = rows;
+  storagePendingColumns_ = columns;
+  inputBuffer_.clear();
+  inputMode_ = InputMode::OrganizerType;
+  dirty_ = true;
+}
+
+void App::createPendingOrganizer(const string& componentType) {
+  captureUndoSnapshot();
+  string error;
+  if (!createOrganizer(store_, storagePendingName_, storagePendingRows_, storagePendingColumns_, error,
+                       componentType)) {
+    setMessage(error, 4, UiMessageSeverity::Warning);
+    return;
+  }
+  const auto created = store_.racks().back();
+  rackFilter_.clear();
+  const auto indices = sortedRackIndices();
+  for (size_t position = 0; position < indices.size(); ++position) {
+    if (store_.racks()[indices[position]].id == created.id) rackSelection_ = position;
+  }
+  rackRow_ = 0;
+  rackColumn_ = 0;
+  logActivity("rack", created.code + " organizer created, " + to_string(storagePendingColumns_) + "x" +
+                          to_string(storagePendingRows_));
+  saveState();
+  syncRackSelection();
+  setMessage(created.code + " created.", 5,
+             UiMessageSeverity::Success);
+}
+
+vector<string> App::organizerTypeSuggestions(const string& typed) const {
+  const auto wanted = toLower(trim(typed));
+  vector<string> suggestions;
+  if (wanted.empty()) return suggestions;
+  unordered_set<string> seen;
+  for (const auto& rack : store_.racks()) {
+    const auto type = trim(rack.componentType);
+    const auto key = toLower(type);
+    if (key.empty() || !seen.insert(key).second || key.find(wanted) == string::npos) continue;
+    suggestions.push_back(type);
+  }
+  sort(suggestions.begin(), suggestions.end(), [&](const string& lhs, const string& rhs) {
+    const bool lhsPrefix = toLower(lhs).rfind(wanted, 0) == 0;
+    if (lhsPrefix != (toLower(rhs).rfind(wanted, 0) == 0)) return lhsPrefix;
+    return lhs < rhs;
+  });
+  if (suggestions.size() > 6) suggestions.resize(6);
+  return suggestions;
 }
 
 void App::deleteSelectedRack() {
@@ -371,21 +458,49 @@ void App::confirmRackDeletion() {
 }
 
 void App::jumpToRack(const string& value) {
-  const auto requested = toLower(trim(value));
-  if (requested.empty()) {
-    setMessage("Enter a rack code like R3", 2);
+  const auto typed = trim(value);
+  if (typed.empty()) {
     return;
   }
   const auto indices = sortedRackIndices();
-  for (size_t position = 0; position < indices.size(); ++position) {
-    if (toLower(store_.racks()[indices[position]].code) == requested) {
-      rackSelection_ = position;
-      rackRow_ = 0;
-      rackColumn_ = 0;
-      setMessage("Jumped to " + store_.racks()[indices[position]].code, 2);
-      dirty_ = true;
+  const auto selectCode = [&](const string& code) {
+    for (size_t position = 0; position < indices.size(); ++position) {
+      if (toLower(store_.racks()[indices[position]].code) == toLower(trim(code))) {
+        selectRackAt(position);
+        return true;
+      }
+    }
+    return false;
+  };
+  const auto goToSlot = [&](const string& slot) {
+    const auto* rack = selectedRack();
+    const auto wanted = toUpper(trim(slot));
+    if (rack == nullptr || !isValidRackSlot(wanted) || !storageHasSlot(*rack, wanted)) return false;
+    jumpToRackSlot(wanted.front() - 'A', stoi(wanted.substr(1)) - 1);
+    return true;
+  };
+  // A storage name on its own, then a slot of the storage on screen, then a name followed by a slot.
+  if (selectCode(typed)) {
+    setMessage("Jumped to " + selectedRack()->code, 2);
+    return;
+  }
+  if (goToSlot(typed)) {
+    setMessage("Jumped to " + selectedRack()->code + "-" + selectedRackSlot(), 2);
+    return;
+  }
+  string name;
+  string slot;
+  if (splitTrailingSlot(typed, name, slot) && findStorageByCode(store_, name) != nullptr) {
+    const auto previous = rackSelection_;
+    if (selectCode(name)) {
+      if (goToSlot(slot)) {
+        setMessage("Jumped to " + selectedRack()->code + "-" + selectedRackSlot(), 2);
+        return;
+      }
+      setMessage(selectedRack()->code + " has no slot " + slot, 3);
       return;
     }
+    rackSelection_ = previous;
   }
   setMessage("Rack not visible/found: " + value, 3);
 }
@@ -444,6 +559,126 @@ void App::openSelectedRackItemDetail() {
   cancelRackDeletion();
   page_ = Page::Stock;
   dirty_ = true;
+}
+
+// New storage from the Racks page: a button opens a short choice, then for a container with slots a form.
+void App::beginStorageNew() {
+  inputBuffer_.clear();
+  inputMode_ = InputMode::StorageNew;
+  dirty_ = true;
+}
+
+void App::beginStorageForm() {
+  for (auto& value : storageFormValues_) value.clear();
+  storageFormField_ = 0;
+  suggestionIndex_ = -1;
+  inputBuffer_.clear();
+  inputMode_ = InputMode::StorageForm;
+  dirty_ = true;
+}
+
+void App::handleStorageNewKey(const KeyEvent& key) {
+  if (key.type == KeyType::Escape) {
+    inputMode_ = InputMode::None;
+    dirty_ = true;
+  } else if (key.type == KeyType::Enter || (key.type == KeyType::Character && (key.ch == 'c' || key.ch == 'C'))) {
+    beginStorageForm();
+  } else if (key.type == KeyType::Character && (key.ch == 'r' || key.ch == 'R')) {
+    inputBuffer_.clear();
+    inputMode_ = InputMode::RackCreate;
+    setMessage("What goes in the new rack?", 4);
+  }
+}
+
+void App::handleStorageFormKey(const KeyEvent& key) {
+  auto& field = storageFormField_;
+  const auto move = [&](int step) {
+    field = (field + step + 4) % 4;
+    suggestionIndex_ = -1;
+    dirty_ = true;
+  };
+  if (key.type == KeyType::Escape) {
+    inputMode_ = InputMode::None;
+    setMessage("New storage cancelled", 2);
+    return;
+  }
+  if (key.type == KeyType::TabReverse || key.type == KeyType::Up) {
+    move(-1);
+    return;
+  }
+  if (key.type == KeyType::Down) {
+    move(1);
+    return;
+  }
+  if (key.type == KeyType::Tab) {
+    // In the category, Tab steps through the categories racks already use; with none to offer it moves on.
+    if (field == 3) {
+      if (suggestionIndex_ < 0) suggestionBase_ = storageFormValues_[3];
+      const auto suggestions = organizerTypeSuggestions(suggestionBase_);
+      if (!suggestions.empty()) {
+        suggestionIndex_ = suggestionIndex_ < 0 ? 0 : (suggestionIndex_ + 1) % static_cast<int>(suggestions.size());
+        storageFormValues_[3] = suggestions[static_cast<size_t>(suggestionIndex_)];
+        dirty_ = true;
+        return;
+      }
+    }
+    move(1);
+    return;
+  }
+  if (key.type == KeyType::Enter) {
+    if (field < 3) {
+      move(1);
+    } else {
+      submitStorageForm();
+    }
+    return;
+  }
+  suggestionIndex_ = -1;
+  auto& value = storageFormValues_[field];
+  if (key.type == KeyType::Backspace) {
+    if (!value.empty()) eraseLastCharacter(value);
+    dirty_ = true;
+  } else if (key.type == KeyType::Character) {
+    // The two sizes are numbers of at most two digits.
+    if (field == 1 || field == 2) {
+      if (key.ch >= '0' && key.ch <= '9' && value.size() < 2) value += key.ch;
+    } else {
+      appendKeyText(value, key);
+    }
+    dirty_ = true;
+  }
+}
+
+void App::submitStorageForm() {
+  const auto name = trim(storageFormValues_[0]);
+  string error;
+  if (!validateStorageName(store_, name, string(), error)) {
+    storageFormField_ = 0;
+    setMessage(error, 4, UiMessageSeverity::Warning);
+    return;
+  }
+  const auto number = [](const string& text, int maximum) {
+    if (text.empty()) return 0;
+    const int value = stoi(text);
+    return value >= 1 && value <= maximum ? value : 0;
+  };
+  const int numbers = number(storageFormValues_[1], kOrganizerMaxColumns);  // rows down the screen
+  const int letters = number(storageFormValues_[2], kOrganizerMaxRows);     // columns across the screen
+  if (numbers == 0) {
+    storageFormField_ = 1;
+    setMessage("Rows: a number from 1 to " + to_string(kOrganizerMaxColumns), 4, UiMessageSeverity::Warning);
+    return;
+  }
+  if (letters == 0) {
+    storageFormField_ = 2;
+    setMessage("Columns: a number from 1 to " + to_string(kOrganizerMaxRows), 4, UiMessageSeverity::Warning);
+    return;
+  }
+  storagePendingName_ = name;
+  storagePendingRows_ = letters;
+  storagePendingColumns_ = numbers;
+  createPendingOrganizer(storageFormValues_[3]);
+  if (findStorageByCode(store_, name) != nullptr) inputMode_ = InputMode::None;
 }
 
 }  // namespace inventatory

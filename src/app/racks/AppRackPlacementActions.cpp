@@ -23,8 +23,8 @@ using namespace app_actions;
 
 void App::moveRackSlot(int rowDelta, int columnDelta) {
   const auto* rack = selectedRack();
-  const int rows = rack == nullptr ? 0 : clamp(rack->rows, 0, 5);
-  const int columns = rack == nullptr ? 0 : clamp(rack->columns, 0, 5);
+  const int rows = rack == nullptr ? 0 : storageGridRows(*rack);
+  const int columns = rack == nullptr ? 0 : storageGridColumns(*rack);
   rackRow_ = clamp(rackRow_ + rowDelta, 0, max(0, rows - 1));
   rackColumn_ = clamp(rackColumn_ + columnDelta, 0, max(0, columns - 1));
   dirty_ = true;
@@ -37,9 +37,35 @@ void App::moveRackPage(int delta) {
     return;
   }
   const auto current = static_cast<int>(min(rackSelection_, indices.size() - 1));
-  rackSelection_ = static_cast<size_t>(clamp(current + delta, 0, static_cast<int>(indices.size() - 1)));
+  selectRackAt(static_cast<size_t>(clamp(current + delta, 0, static_cast<int>(indices.size() - 1))));
   movingRackItemId_.clear();
   movingRackSource_.clear();
+  dirty_ = true;
+}
+
+void App::selectRackAt(size_t position) {
+  // Each rack or organizer keeps its own cursor, so a slot left in a wide organizer never lands
+  // outside a smaller one.
+  if (const auto* current = selectedRack()) rackCursorMemory_[current->id] = {rackRow_, rackColumn_};
+  const auto indices = sortedRackIndices();
+  if (indices.empty()) return;
+  rackSelection_ = min(position, indices.size() - 1);
+  rackRow_ = 0;
+  rackColumn_ = 0;
+  if (const auto* next = selectedRack()) {
+    if (const auto found = rackCursorMemory_.find(next->id); found != rackCursorMemory_.end()) {
+      rackRow_ = clamp(found->second.first, 0, max(0, storageGridRows(*next) - 1));
+      rackColumn_ = clamp(found->second.second, 0, max(0, storageGridColumns(*next) - 1));
+    }
+  }
+  dirty_ = true;
+}
+
+void App::jumpToRackSlot(int letter, int number) {
+  const auto* rack = selectedRack();
+  if (rack == nullptr) return;
+  rackRow_ = clamp(letter, 0, max(0, storageGridRows(*rack) - 1));
+  rackColumn_ = clamp(number, 0, max(0, storageGridColumns(*rack) - 1));
   dirty_ = true;
 }
 

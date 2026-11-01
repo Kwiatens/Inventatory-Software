@@ -8,6 +8,7 @@
 #endif
 
 #include "core/inventory/Inventory.h"
+#include "core/racks/StorageGridLayout.h"
 #include "App.h"
 #include "app/UpdateWizardPresentation.h"
 #include "app/shell/AppBootstrap.h"
@@ -5499,6 +5500,185 @@ void testDuplicateInventatoryIdsGetFreshIds() {
   assert(validateInventoryIdentifiers(items, {}));
 }
 
+// One Storage field: rack slots, organizer slots, named places, AUTO and blank.
+void testStorageGridFillsThenScrolls() {
+  const auto request = [](int letters, int numbers, int width, int height, vector<pair<int, int>> focus, int scroll = 0) {
+    StorageGridRequest value;
+    value.letters = letters;
+    value.numbers = numbers;
+    value.width = width;
+    value.height = height;
+    value.focus = move(focus);
+    value.scroll = scroll;
+    return value;
+  };
+  // A 5x5 rack on a 100x30 terminal keeps its three-line, seven-column cells.
+  auto fit = fitStorageGrid(request(5, 5, 39, 21, {{0, 0}}));
+  assert(fit.cellHeight == 3 && fit.cellWidth == 7 && !fit.windowed());
+  // 5 rows x 7 columns on a tall screen: the rows share the whole height, so no more than a divider's worth
+  // of lines is left under the grid.
+  fit = fitStorageGrid(request(7, 5, 120, 41, {{0, 0}}));
+  assert(!fit.windowed() && fit.numberCount == 5 && fit.cellHeight == 7 && 41 - fit.usedHeight() < fit.numberCount);
+  // 7 rows on a 100x30 terminal do not fit at three lines each: they scroll between two bars around the cursor.
+  fit = fitStorageGrid(request(5, 7, 39, 21, {{2, 6}}));
+  assert(fit.scrollBars && fit.numberCount == 5 && fit.rowsAbove() == 2 && fit.rowsBelow() == 0);
+  assert(fit.usedHeight() <= 21 && fit.cellHeight == 3);
+  // 10 letters do not fit at 100 columns: readable columns around the cursor, letters marked as hidden.
+  fit = fitStorageGrid(request(10, 4, 39, 21, {{9, 0}}));
+  assert(fit.letterCount == 4 && fit.letterStart == 6 && fit.hiddenLeft() && !fit.hiddenRight());
+  // Every pick of a stop stays on the map when the rows fit.
+  fit = fitStorageGrid(request(5, 7, 39, 31, {{0, 0}, {2, 3}, {4, 6}}));
+  assert(fit.hiddenFocus.empty() && !fit.scrollBars);
+  // Picks too far apart: the first stays in view and the others are reported, never silently dropped.
+  fit = fitStorageGrid(request(10, 10, 39, 21, {{0, 0}, {0, 9}}));
+  assert(fit.numberStart == 0 && fit.hiddenFocus.size() == 1 && fit.hiddenFocus.front().second == 9);
+  // Scrolling by hand moves the window and stops at the last row.
+  fit = fitStorageGrid(request(10, 10, 39, 21, {{0, 0}, {0, 9}}, 99));
+  assert(fit.rowsBelow() == 0 && fit.hiddenFocus.size() == 1 && fit.hiddenFocus.front().second == 0);
+  // An empty grid has nothing to draw.
+  fit = fitStorageGrid(request(0, 5, 39, 21, {}));
+  assert(fit.letterCount == 0 && fit.numberCount == 0);
+}
+
+void testStorageFieldResolvesSlotsPlacesAndOrganizers() {
+  InventoryStore store;
+  InventatoryRack rack;
+  rack.id = "storage-rack";
+  rack.code = "R1";
+  rack.componentType = "Resistors";
+  store.racks().push_back(rack);
+
+  string error;
+  assert(!createOrganizer(store, "R7", 3, 4, error));
+  assert(error.find("racks") != string::npos);
+  assert(!createOrganizer(store, "Red case", 0, 4, error));
+  assert(!createOrganizer(store, "Red case", 3, 11, error));
+  assert(!createOrganizer(store, "Red case", 11, 3, error));
+  assert(createOrganizer(store, "Red case", 3, 8, error));
+  assert(!createOrganizer(store, "red CASE", 2, 2, error));
+  assert(error.find("already exists") != string::npos);
+  const auto& organizer = store.racks().back();
+  assert(isOrganizer(organizer));
+  assert(!isOrganizer(store.racks().front()));
+  assert(storageGridRows(organizer) == 3 && storageGridColumns(organizer) == 8);
+  assert(storageHasSlot(organizer, "C8"));
+  assert(!storageHasSlot(organizer, "D1"));
+  assert(!storageHasSlot(store.racks().front(), "A6"));
+
+  InventoryItem strings;
+  strings.id = "storage-strings";
+  strings.partName = "Guitar strings 10-46";
+  strings.location = "Guitar shelf";
+  store.items().push_back(strings);
+  InventoryItem inbox;
+  inbox.id = "storage-inbox";
+  inbox.partName = "Scanned part";
+  inbox.location = "Scan Inbox";
+  store.items().push_back(inbox);
+
+  InventoryItem part;
+  part.id = "storage-part";
+  part.partName = "M3 washers";
+  StorageChoice choice;
+
+  // A storage name alone takes the first free slot; a slot after a dash is checked.
+  assert(resolveStorageInput(store, part, "red case", choice, error));
+  assert(choice.kind == StorageChoice::Kind::Slot && choice.display == "Red case-A1" && choice.pickedFreeSlot);
+  applyStorageChoice(part, choice);
+  store.items().push_back(part);
+  assert(storageLocation(store.items().back(), store.racks()) == "Red case-A1");
+  assert(part.rackAssignment == RackAssignmentMode::Manual);
+
+  InventoryItem nuts;
+  nuts.id = "storage-nuts";
+  assert(resolveStorageInput(store, nuts, "Red case", choice, error));
+  assert(choice.display == "Red case-A2");
+  assert(!resolveStorageInput(store, nuts, "Red case-a1", choice, error));
+  assert(error.find("already holds") != string::npos);
+  assert(!resolveStorageInput(store, nuts, "Red case-D1", choice, error));
+  assert(error.find("no slot D1") != string::npos);
+  assert(resolveStorageInput(store, nuts, "Red case-c8", choice, error));
+  assert(choice.display == "Red case-C8" && !choice.pickedFreeSlot);
+  // The part being edited never blocks its own slot.
+  assert(resolveStorageInput(store, store.items().back(), "Red case", choice, error));
+  assert(choice.display == "Red case-A1" && !choice.pickedFreeSlot);
+  assert(resolveStorageInput(store, nuts, "R1-B2", choice, error));
+  assert(choice.display == "R1-B2");
+  assert(!resolveStorageInput(store, nuts, "R9-A1", choice, error));
+  assert(error.find("does not exist") != string::npos);
+  // A space works like the dash, and a rack slot may be written together with its rack.
+  assert(resolveStorageInput(store, nuts, "R1 B3", choice, error) && choice.display == "R1-B3");
+  assert(resolveStorageInput(store, nuts, "r1b4", choice, error) && choice.display == "R1-B4");
+  assert(resolveStorageInput(store, nuts, "Red case c7", choice, error) && choice.display == "Red case-C7");
+  assert(!resolveStorageInput(store, nuts, "R10 A2", choice, error));
+  assert(error == "Rack R10 does not exist");
+  assert(!resolveStorageInput(store, nuts, "r10a2", choice, error));
+  assert(error == "Rack R10 does not exist");
+  string name;
+  string slot;
+  assert(splitTrailingSlot("Tray2 a2", name, slot) && name == "Tray2" && slot == "A2");
+  assert(splitTrailingSlot("Blue box-C10", name, slot) && name == "Blue box" && slot == "C10");
+  assert(!splitTrailingSlot("Drawer 2", name, slot));
+  assert(!splitTrailingSlot("A2", name, slot));
+  // A place whose last word is not a slot of an existing storage stays a place.
+  assert(resolveStorageInput(store, nuts, "Drawer 2", choice, error) && choice.kind == StorageChoice::Kind::Place);
+
+  // Any other text is a place; an existing one keeps its spelling.
+  assert(resolveStorageInput(store, nuts, "guitar SHELF", choice, error));
+  assert(choice.kind == StorageChoice::Kind::Place && choice.place == "Guitar shelf" && !choice.newPlace);
+  assert(resolveStorageInput(store, nuts, "  Drawer 2 ", choice, error));
+  assert(choice.place == "Drawer 2" && choice.newPlace);
+  applyStorageChoice(nuts, choice);
+  assert(nuts.location == "Drawer 2" && nuts.rackId.empty() && nuts.rackAssignment == RackAssignmentMode::Unassigned);
+  assert(storageLocation(nuts, store.racks()) == "Drawer 2");
+
+  assert(resolveStorageInput(store, nuts, "auto", choice, error));
+  applyStorageChoice(nuts, choice);
+  assert(nuts.rackAssignment == RackAssignmentMode::Automatic && nuts.location.empty());
+  assert(resolveStorageInput(store, nuts, "", choice, error));
+  applyStorageChoice(nuts, choice);
+  assert(nuts.rackAssignment == RackAssignmentMode::Unassigned && storageLocation(nuts, store.racks()).empty());
+
+  // Inboxes are not places to offer; organizers come first.
+  assert(storageLocation(store.items()[1], store.racks()).empty());
+  const auto all = storageSuggestions(store, "", 10);
+  assert((all == vector<string>{"Red case", "Guitar shelf", "R1"}));
+  assert((storageSuggestions(store, "shelf", 10) == vector<string>{"Guitar shelf"}));
+  const auto free = freeStorageSlots(store, "red case", nullptr, 3);
+  assert((free == vector<string>{"A2", "A3", "A4"}));
+
+  // An organizer given a part type is filled before the numbered racks; one without stays manual.
+  store.racks().back().componentType = "Resistors";
+  InventoryItem resistor;
+  resistor.id = "storage-resistor";
+  resistor.partName = "10k";
+  resistor.category = "Resistors";
+  resistor.parameters = {{"Package", "0603"}};
+  store.items().push_back(resistor);
+  reconcileRackAssignment(store, store.items().back());
+  assert(storageLocation(store.items().back(), store.racks()) == "Red case-A2");
+
+  // Sizes are typed as on screen: rows (numbers) x columns (letters).
+  int letters = 0;
+  int numbers = 0;
+  assert(parseOrganizerSize("4x6", letters, numbers) && letters == 6 && numbers == 4);
+  assert(parseOrganizerSize(" 10 X 10 ", letters, numbers) && letters == 10 && numbers == 10);
+  assert(!parseOrganizerSize("4x11", letters, numbers));
+  assert(!parseOrganizerSize("11x4", letters, numbers));
+  assert(!parseOrganizerSize("0x6", letters, numbers));
+  assert(!parseOrganizerSize("4by6", letters, numbers));
+  assert(!parseOrganizerSize("x6", letters, numbers));
+
+  // Hand-added parts with no vendor are complete once named, and never "unsynced".
+  InventoryItem manual;
+  manual.partName = "Guitar strings";
+  manual.syncStatus = "needs_metadata";
+  assert(!manual.hasMissingMetadata());
+  assert(!needsVendorSync(manual));
+  manual.partName.clear();
+  assert(manual.hasMissingMetadata());
+}
+
 void testRackAssignmentAndSlots() {
   InventoryStore rackStore;
   for (int index = 0; index < 26; ++index) {
@@ -5533,7 +5713,10 @@ void testRackAssignmentAndSlots() {
   assert(itemAtRackSlot(rackStore, rackStore.racks()[1].id, "E5") == nullptr);
   assert(rackSlotLabel(0, 0) == "A1");
   assert(rackSlotLabel(4, 4) == "E5");
-  assert(rackSlotLabel(5, 0).empty());
+  assert(rackSlotLabel(5, 0) == "F1");  // organizers go past E5
+  assert(rackSlotLabel(9, 9) == "J10");
+  assert(rackSlotLabel(10, 0).empty());
+  assert(rackSlotLabel(0, 10).empty());
 
   string moveError;
   assert(!moveItemToRackSlot(rackStore, rackStore.items()[0], rackStore.racks()[0], "A2", moveError));
@@ -5672,7 +5855,9 @@ void testRackAssignmentAndSlots() {
   assert(!setManualRackLocation(rackStore, manuallyPlaced, "R99-A1", error));
   assert(error.find("does not exist") != string::npos);
   assert(!setManualRackLocation(rackStore, manuallyPlaced, "R2-Z9", error));
-  assert(error.find("A1 through E5") != string::npos);
+  assert(error.find("does not contain slot Z9") != string::npos);
+  assert(!setManualRackLocation(rackStore, manuallyPlaced, "R2-9Z", error));
+  assert(error.find("letter and a number") != string::npos);
 
   assert(setManualRackLocation(rackStore, manuallyPlaced, "", error));
   reconcileRackAssignment(rackStore, manuallyPlaced);
@@ -6747,8 +6932,8 @@ void testTmeMergeFillsEnrichment() {
   bare.category = "Category";
   bare.datasheetUrl = "https://example.invalid/sheet.pdf";
   bare.productUrl = "https://example.invalid/part";
-  assert(bare.hasMissingMetadata());
   bare.vendorMetadata.provider = "tme";
+  assert(bare.hasMissingMetadata());
   bare.vendorMetadata.providerProductNumber = "0603X474K100CT";
   assert(!bare.hasMissingMetadata());
 }
@@ -16905,8 +17090,8 @@ void testMouserPartNumberOf() {
   bare.category = "Category";
   bare.datasheetUrl = "https://example.invalid/sheet.pdf";
   bare.productUrl = "https://example.invalid/part";
-  assert(bare.hasMissingMetadata());
   bare.vendorMetadata.provider = "mouser";
+  assert(bare.hasMissingMetadata());
   bare.vendorMetadata.providerProductNumber = "999-SYN-0001";
   assert(!bare.hasMissingMetadata());
 
@@ -17901,6 +18086,8 @@ const vector<TestCase>& registeredTests() {
 #endif
     {"inventory", "DuplicateInventatoryIdsGetFreshIds", testDuplicateInventatoryIdsGetFreshIds},
     {"inventory", "RackAssignmentAndSlots", testRackAssignmentAndSlots},
+    {"inventory", "StorageFieldResolvesSlotsPlacesAndOrganizers", testStorageFieldResolvesSlotsPlacesAndOrganizers},
+    {"inventory", "StorageGridFillsThenScrolls", testStorageGridFillsThenScrolls},
     {"inventory", "BulkRackAllocationStaysFast", testBulkRackAllocationStaysFast},
     {"inventory", "ScanPlaceholderStaysPendingForRacking", testScanPlaceholderStaysPendingForRacking},
     {"storage", "ItemSerializationRoundTrip", testItemSerializationRoundTrip},

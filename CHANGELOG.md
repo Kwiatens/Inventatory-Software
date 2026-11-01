@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Adding a part by hand is a short form: Name, Quantity, Storage, Category and Notes, with Enter going to the next
+  field and saving at the end. Only the name is required. A known category adds its values, such as Resistance and
+  Package for resistors. The rest is under More details.
+- One Storage field for where a part is: a rack slot, an organizer slot, a named place such as "Drawer 2", AUTO, or
+  not stored yet. It suggests organizers and places in use and lists free slots while you type.
+- Organizers: name your own storage with a grid of up to 10 rows and 10 columns. On the Racks page, click New storage
+  (or press `c`) and choose Container with slots. It works like a rack, and large ones scroll.
+- New part on the Racks page (button, or `n`): the form opens with Storage set to the selected slot, and you return to
+  the slot after saving.
+- Buttons on the Racks and Stock pages are wide, in two equal columns, with the key shown on each. Fields you can type
+  in look like input boxes.
+- `C` on Stock starts a new part as a copy of the selected one.
+- Category suggestions in the form, completed with Tab.
+
+### Changed
+- A part with no vendor counts as complete once it has a name, and is no longer listed as missing data or unsynced.
+- The vendor lookup in the form uses the new Part number field, then SKU.
+- Escape on a form with unsaved changes asks for a second Escape before discarding them.
+- A field opens with its value selected, so typing replaces it.
+
 ## [v0.1.8] - 2026-10-27
 
 ### Added
