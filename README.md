@@ -14,8 +14,8 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-58B9B0?style=flat-square&labelColor=0D1010)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-58B9B0?style=flat-square&labelColor=0D1010)
 
-[**Website**](https://kwiatens.github.io/Inventatory-Site/) &nbsp;·&nbsp;
-[Scanner Firmware](https://github.com/Kwiatens/Inventatory-Firmware) &nbsp;·&nbsp;
+[Website](https://kwiatens.github.io/Inventatory-Site/) &nbsp;·&nbsp;
+[Firmware for scanner](https://github.com/Kwiatens/Inventatory-Firmware) &nbsp;·&nbsp;
 [Documentation](https://kwiatens.github.io/Inventatory-Site/docs/) &nbsp;·&nbsp;
 [Report an issue](https://github.com/Kwiatens/Inventatory-Software/issues)
 
@@ -113,28 +113,23 @@ It's main purpose is allowing you to just scan a QR code on the generated label 
 
 You can also use it to scan vendor bags or send jobs to your label printer.
 
-> **[Scanner firmware and build guide →](https://github.com/Kwiatens/Inventatory-Firmware)**
+Inventatory works fully without it. It just makes the intake faster.
 
-Inventatory works fully without the scanner. It just makes the intake faster.
+> [More about the scaner is on the project website](https://github.com/Kwiatens/Inventatory-Firmware)
 
 
 ## Installation
 
-### Windows
+### For Windows
 
 Open CMD and paste:
 
     curl.exe -fL "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.ps1" -o "%TEMP%\Install-Inventatory.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\Install-Inventatory.ps1" && del /q "%TEMP%\Install-Inventatory.ps1"
 
-### Linux
+### For Linux
 
     mkdir -p "$HOME/.cache/inventatory-installer" && cd "$HOME/.cache/inventatory-installer" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Inventatory-linux-x64.tar.gz" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/SHA256SUMS-linux.txt" && curl -fLO "https://github.com/Kwiatens/Inventatory-Software/releases/latest/download/Install-Inventatory.sh" && chmod +x Install-Inventatory.sh && ./Install-Inventatory.sh
 
-## Build
-Build with CMake 3.20 or newer.
-
-Ryn the tests with `ctest --test-dir <build-dir> --output-on-failure`.
 
 ## License
-
 Inventatory is licensed under GPL-3.0-only. See [LICENSE.md](LICENSE.md) for the project notice.
