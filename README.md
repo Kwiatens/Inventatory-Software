@@ -115,7 +115,7 @@ You can also use it to scan vendor bags or send jobs to your label printer.
 
 Inventatory works fully without it. It just makes the intake faster.
 
-> [More about the scaner is on the project website](https://github.com/Kwiatens/Inventatory-Firmware)
+> More about the scanner is on the [project website](https://github.com/Kwiatens/Inventatory-Firmware)
 
 
 ## Installation
