@@ -32,7 +32,7 @@ Features a 3D printable rack system, label printing, the 'Inventatory Scanner R1
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/intake-light.gif">
-  <img src="branding/readme/media/intake.gif" align="right" width="202" alt="">
+  <img src="branding/readme/media/intake.gif" align="right" width="318" alt="">
 </picture>
 
 Everything inside Inventatory was designed to be automated and operate quickly as possible. 
@@ -53,23 +53,27 @@ It automatically:
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/place-light.gif">
-  <img src="branding/readme/media/place.gif" align="right" width="202" alt="">
+  <img src="branding/readme/media/place.gif" align="left" width="318" alt="">
 </picture>
+
+<img src="branding/readme/media/spacer.png" width="1" height="27" alt="">
 
 Instead of manually assigning every single component to a random box, which doesn't really solve anything - Inventatory uses our 3D-printable storage rack system. 
 Racks allow to have a unique location for each and every part, meaning the software can tell you where your parts are **precisely**.
 
 This means that when you then upload your BOM (Bill of materials) of your PCB - it will give you not only if you have the needed parts, but also on **which exact rack and slot they are at**, so you can just grab the highlighted tubes and get going.
 
-<br clear="right">
+<br clear="left">
 
 
 ### 3. Search by electrical parameters, not only part names
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/search-light.gif">
-  <img src="branding/readme/media/search.gif" align="right" width="202" alt="">
+  <img src="branding/readme/media/search.gif" align="right" width="318" alt="">
 </picture>
+
+<img src="branding/readme/media/spacer.png" width="1" height="48" alt="">
 
 A common problem with inventory systems is that they are not purpose build for electronics. You might type 100nF in the search function, and nothing will pop-up, even though the part is actually there, just marked as 0.1uF. Inventatory solves this, by searching for parts by their physical electrical parameters, not just names.
 
@@ -80,22 +84,28 @@ A common problem with inventory systems is that they are not purpose build for e
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/history-light.gif">
-  <img src="branding/readme/media/history.gif" align="right" width="202" alt="">
+  <img src="branding/readme/media/history.gif" align="left" width="318" alt="">
 </picture>
+
+<img src="branding/readme/media/spacer.png" width="1" height="74" alt="">
 
 Every change is saved as a commit with its before and after values, like a git history for your parts. You can
 see exactly what changed, set checkpoints, restore a whole snapshot, or revert a single change while keeping
 everything since.
 
-<br clear="right">
+<br clear="left">
 
+
+<div align="center">
 
 ## We have a purpose-built, DiY-able scanner too!
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="branding/readme/media/scanner-light.gif">
-  <img src="branding/readme/media/scanner.gif" align="right" width="376" alt="">
+  <img src="branding/readme/media/scanner.gif" width="426" alt="">
 </picture>
+
+</div>
 
 It's designed specyfically for this system. It allows you to modify the quantity of a part you're actively working with, without having to fiddle around with your PC during PCB work, which from experience is very frustrating.
 
@@ -107,7 +117,6 @@ You can also use it to scan vendor bags or send jobs to your label printer.
 
 Inventatory works fully without the scanner. It just makes the intake faster.
 
-<br clear="right">
 
 ## Installation
 
