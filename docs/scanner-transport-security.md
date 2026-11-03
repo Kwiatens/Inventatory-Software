@@ -1,49 +1,77 @@
-# Inventatory Scanner R1 transport v1
+# Scanner transport
 
-The R1 connects to the PC after discovering `_inventatory._tcp` over mDNS.
-mDNS is only discovery: it does not authenticate the advertised host.
+Here I describe how the Inventatory Hardware <-> Software communication works.
 
-During the existing physically verified Bluetooth LE pairing flow, the PC
-provisions a random 32-byte pairing secret. It is retained by the Windows
-Credential Manager on the PC and NVS on the R1. The secret is never placed in
-an HTTP request or response.
+> Current version of the protocol: v1
 
-Each `POST /api/v1/device/sync` carries the device id, a monotonic request
-counter, and an HMAC-SHA-256 MAC over the method, path, device id, counter, and
-exact JSON body. The PC stores the highest accepted counter in the selected
-workspace's `inventatory-scanner-replay.state` file and refuses lower or equal
-counters, including after restart. The R1 reserves the next counter in NVS
-before sending, so a failed attempt can be retried only with a newer counter.
+## Pairing process
 
-The PC signs each response with a distinct, derived server-to-client key and
-the same request counter. The R1 rejects unsigned, altered, mismatched, or
-replayed responses. Derived directional keys prevent a request MAC from being
-accepted as a response MAC.
+Over Bluetooth the desktop sends a random 32-byte secret to the scanner. On Windows it keeps that information in the WCM (Windows Credential Manager), on Linux in the LSS (Linux Secret Service).
+The device keeps its secret in NVS (non-volatile memory).
 
-This protocol provides device binding, integrity, replay resistance, and
-mutual authentication against an active local-network attacker. It does not
-provide payload confidentiality: request and response JSON can still be read
-by a local-network observer. An observer cannot recover or replay the pairing
-secret from that traffic. The R1-compatible bridge continues to bind on the LAN
-interface rather than loopback. Inventatory does not change Windows Firewall
-settings. If Scan R1 cannot connect, the user can manually allow the
-executable's current service port on the Private network profile, limited to
-the local network. This is a user-owned trust decision; the port should not be
-exposed through public profiles or port forwarding. TLS with a device
-trust/bootstrap model remains a future enhancement.
+Pairing persists only on one workspace - if system is moved on a new desktop, then pairing process has to be redone.
 
-Firmware offers use the same transport. The desktop only couriers a signed
-Scan R1 package (`firmware.ota`). It checks the package signature against its
-trusted public keys and the signed image hash before it offers anything. The
-firmware offer, chunk and status routes authenticate and spend counters like
-sync, and each answer carries a MAC over its exact body, including raw chunk
-bytes. The scanner asks the user before it installs, and it checks the package
-again. Until a trusted key is added, no package is offered.
+## Finding the PC
 
-Regenerate-secret and clear-device actions rotate the pairing secret, reset
-replay state, clear the paired device identity, and require a fresh pairing.
+Scanner looks up `_inventatory._tcp` over mDNS. This only finds the PC, it proves nothing about it.
 
-Pairing credentials are always scoped to the selected workspace. A newly
-created or copied workspace does not inherit another workspace's credential or
-replay state; if its pairing metadata has no matching scoped credential, the
-Scan R1 service remains disabled until the user pairs that workspace again.
+## Requests
+
+The scanner sends `POST /api/v1/device/sync` for sync, and `POST /api/v1/device/firmware/offer`, `chunk` and `status` for updates.
+
+Every request carries:
+
+| Header | Value |
+| --- | --- |
+| `X-Inventatory-Protocol` | `1` |
+| `X-Inventatory-Device` | the device id |
+| `X-Inventatory-Counter` | a number that only goes up |
+| `X-Inventatory-Mac` | HMAC-SHA-256, hex |
+
+The response carries the same counter and its own MAC.
+
+## Keys and MACs
+
+Each direction has its own key that's derived from the secret:
+
+```text
+request key  = HMAC-SHA-256(secret, "Inventatory Scanner R1 transport v1 client-to-server")
+response key = HMAC-SHA-256(secret, "Inventatory Scanner R1 transport v1 server-to-client")
+```
+
+The MACs cover these exact strings:
+
+```text
+request:  "Inventatory Scanner R1/v1\nrequest\n<method>\n<path>\n<device>\n<counter>\n<body>"
+response: "Inventatory Scanner R1/v1\nresponse\n<counter>\n<status>\n<body>"
+```
+
+So a request MAC can never pass as a response MAC. Changing any byte of the body breaks it.
+
+## Replay
+
+The PC stores the highest counter it accepted inside of `inventatory-scanner-replay.state` in the workspace.
+It refuses any counter that is lower or equal, also after a restart.
+
+The scanner saves the next counter in NVS before it sends, so a retry always uses a new number.
+
+## Limits
+
+Request bodies are <= 64 KiB.
+
+Response bodies <= 8 KiB.
+
+## Firmware updates
+
+The desktop offers a `firmware.ota` package, that was signed with a key it trusts.
+The scanner then checks the signature and asks the user for confirmation.
+
+## Reset
+
+Regenerating the secret and/or clearing the device makes a new secret, resets the replay state and forgets
+the device.
+
+## What it does not do
+
+There is **NO** encryption of the data packets that move around from the scanner to the desktop as for now.
+Anyone on the local network can read the JSON messages made from the scanning process, but cannot forge a message, replay one, or recover the secret.
