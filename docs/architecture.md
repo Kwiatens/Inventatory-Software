@@ -132,8 +132,6 @@ Keep these points when you change threaded code:
 - Do not read old activity or movement records as inventory history. Do not
   silently drop historical records during a migration of current data.
 
-See also [backup-restore.md](backup-restore.md).
-
 ## Settings and secrets
 
 - Ordinary settings go through the versioned settings path named above, with

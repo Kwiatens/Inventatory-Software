@@ -16,7 +16,7 @@ namespace inventatory {
 
 // Request limits of the vendor APIs, and a process-wide count of the requests sent to each.
 // The counts warn the user before a limit is reached and say when a reached limit ends.
-// Limits are the vendors' published figures; see docs/vendor-rate-limits.md.
+// Limits are the vendors' published figures.
 
 enum class Vendor { DigiKey, Mouser, Tme };
 
