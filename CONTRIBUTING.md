@@ -29,8 +29,8 @@ tests, and `inventatory_tests --filter <text>` runs a subset.
 - The code is C++17. Match the code around your change: two-space indentation, the existing naming, and the
   ownership boundaries in [AGENTS.md](AGENTS.md).
 - Keep platform-specific code behind the existing platform files and preprocessor guards.
-- Anything shown on screen follows [docs/ui-style-guide.md](docs/ui-style-guide.md).
-- New source files carry the SPDX header described in [docs/project-standards.md](docs/project-standards.md).
+- Anything shown on screen follows [docs/ui-guide.md](docs/ui-guide.md).
+- New source files carry the SPDX header described in [AGENTS.md](AGENTS.md).
 
 ## Commits and pull requests
 

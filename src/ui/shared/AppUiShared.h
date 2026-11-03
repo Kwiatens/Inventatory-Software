@@ -123,7 +123,7 @@ ftxui::Element footerField(const string& title, const string& body, ftxui::Color
 ftxui::Element uiPrimaryButton(const string& label, bool enabled = true);
 ftxui::Element uiSecondaryButton(const string& label, optional<ftxui::Color> fg = nullopt, bool enabled = true);
 
-// Look per docs/ui-style-guide.md. A danger button changes only its text colour.
+// Look per docs/ui-guide.md. A danger button changes only its text colour.
 enum class UiButtonKind { Normal, Primary, Danger };
 ftxui::Element uiButton(const string& label, const string& key = {}, UiButtonKind kind = UiButtonKind::Normal);
 // A button that fills the width it is given: the label on the left, its key on the right.
