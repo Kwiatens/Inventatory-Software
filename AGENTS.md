@@ -1,14 +1,61 @@
 # Inventatory guide for coding agents
 
-This file is the short operating guide for coding agents. The code layout,
-threading model, persistence rules and security invariants are in
-[docs/architecture.md](docs/architecture.md). Read that first. Other sources:
+This file is the operating guide for coding agents. Other sources:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): build dependencies and contribution rules.
-- [docs/ui-style-guide.md](docs/ui-style-guide.md): binding rules for anything rendered.
-- [docs/project-standards.md](docs/project-standards.md): commit and changelog format,
-  licensing headers, secrets and logging, verification reporting. Shared with the
-  scanner firmware repository.
+- [docs/ui-guide.md](docs/ui-guide.md): binding rules for anything rendered.
+- [docs/scanner-transport-security.md](docs/scanner-transport-security.md): the Scan R1
+  transport protocol.
+
+## Code layout
+
+- `src/app.cpp` is the shell, `App.h` holds the application state, and `src/app/` holds
+  the workflows. Do not split `App` or add a new state scheme for an ordinary feature.
+- `src/ui/pages/` is page-local rendering and input. `src/ui/shared/` holds shared roles
+  and formatting.
+- `src/core/` owns models, SQLite, restore and the scanner protocol. Never duplicate a
+  database or protocol rule in UI code.
+- `src/import/`, `src/platform/` and `src/label_printer/` hold the importers, the OS code
+  and the label printer.
+- Keep `src/app/shell/AppNavigation.h` and the UI guide in step on the six destinations.
+
+## Threading
+
+- Document the owning thread of any new shared state. Use scoped locks.
+- Never hold a mutex across a callback, network or printer I/O, or a long SQLite call.
+- Settings, data directory, restore, scanner and quick-label state are reached from both
+  the foreground and background callbacks. Check both paths.
+
+## Persistence, backup and restore
+
+- The data directory holds `inventory.db`, `activity.tsv`, `printer.conf`,
+  `quick_labels.conf` and `inventatory_scanner.conf`. `settings.conf` lives in
+  `LOCALAPPDATA` or `XDG_CONFIG_HOME` and never holds secrets.
+- SQLite is the authority. Keep multi-step writes in one transaction. The UI never opens
+  its own database path.
+- Settings and quick-label writes are atomic (temp file, then replace). Validate a draft
+  before it becomes active. A setting that affects a running service goes through the
+  existing restart and apply path.
+- A failed save, import, print or restore keeps the in-memory state so the user can retry.
+- Backups carry each file's size and SHA-256 in a manifest and are validated in staging.
+  Restore makes a pre-restore backup first and is never partly activated. Secrets and
+  Scan R1 pairing data are never in a backup. After a restore, rotate the scanner token,
+  clear replay state and remove the device identity.
+- Activity and movement records are not inventory history. A migration never drops
+  history.
+
+## Label units and vendors
+
+- Normalize units only in `normalizedUnitValue`
+  (`src/label_printer/core/LabelPrinterDetails.cpp`), never in a vendor parser. No space
+  before the unit, and the SI prefix that gives a mantissa of 1 to 999. Capacitance is the
+  exception: F from 1 F, mF from 100 mF, then µF, nF, pF. Both ends of a range share one
+  prefix. Values the rule does not own print as the vendor sent them.
+- When two vendors name one package differently, add the pair to `canonicalPackageName`.
+- Manufacturer names print in full when they fit, otherwise cut to the leading word
+  before any smaller type. Short brand names (ST, TI, ADI) are tried last.
+- A new vendor adds records to `tests/fixtures/tme-digikey-parity.tsv`. Only a real data
+  difference may be exempted, with the reason.
 
 Do not use this file as a reason to redesign the application. Understand the existing
 path, keep its invariants, and make the smallest coherent change.
@@ -86,14 +133,18 @@ moving branch or tag.
 - Use the existing value types, `std::filesystem`, `std::optional`, RAII and the
   existing result and error-string conventions. No raw owning pointers, no naked
   `new`/`delete`, no new error framework for a local change.
-- Do not mutate UI state or render from a worker thread. See the threading section
-  in `docs/architecture.md`.
+- Do not mutate UI state or render from a worker thread.
+- Every new first-party C, C++ or Python file starts with these two lines (after a
+  shebang, `#` instead of `//` in Python):
+  `// SPDX-FileCopyrightText: <year> Paweł Kwiatkowski` and
+  `// SPDX-License-Identifier: GPL-3.0-only`. Third-party code keeps its own licence,
+  is listed in `THIRD_PARTY_NOTICES.md` and never carries this header.
 - Use prepared SQLite statements with bound parameters, and the existing
   `InventoryStore` and save helpers.
 
 ## Terminal UI
 
-- Read `docs/ui-style-guide.md` before changing anything that is rendered. It is
+- Read `docs/ui-guide.md` before changing anything that is rendered. It is
   binding. In short: ASCII text only (no dots, arrows, chevrons, ticks, or bracketed
   values), fixed aligned columns, status as words, calm status colours that match the
   petrol-cyan base, and a plain-sentence header voice built from tested templates.
@@ -136,20 +187,26 @@ moving branch or tag.
   or device protocol diagnostics.
 - Treat the scanner transport implementation in
   `src/core/scanner/InventatoryScanProtocol.cpp` and
-  `src/platform/scanner/HttpServer.cpp` as a security boundary. Preserve every
-  invariant listed in the Scan R1 section of `docs/architecture.md`. Do not
-  weaken authentication, do not describe or build the protocol as encrypted
-  transport, and do not log tokens, MAC material, full authenticated bodies or
-  credentials while debugging.
-- Persistence, backup and restore rules are in `docs/architecture.md`. Keep them.
-  A restore must never be partly activated.
+  `src/platform/scanner/HttpServer.cpp` as a security boundary:
+  - BLE provisioning sends a random 32-byte shared secret. It is never sent over HTTP.
+  - HMAC-SHA-256 covers the exact method, path, device identity, counter and JSON body.
+  - Keys are directional. Counters are monotonic and persist across restarts.
+  - The protocol gives integrity and freshness, not confidentiality. Do not call it or
+    build it as encrypted transport.
+  - mDNS is for discovery only. Never bind the service publicly or remove the
+    private-LAN and user-consent boundary.
+  - Token rotation, reset, device identity and replay state change together and fail safely.
+- Never log scanned codes, raw buffers, tokens, MAC material, authenticated bodies or
+  credentials. Keep the CI `secret-logging` check passing.
 
 ## Testing expectations
 
 Add or update a focused test for every changed persistence, import, history,
 backup/restore, settings, printer, or Scan R1 behavior, including its failure
-behavior. For protocol or replay changes, use the negative cases listed in
-`docs/architecture.md`. For UI changes, verify keyboard and mouse routes,
+behavior. For protocol or replay changes, add positive and negative tests: wrong
+method, path, body and device, a bad MAC, stale or replayed counters, restart
+persistence, rotation and reset, malformed JSON, and a failing durable callback. For
+UI changes, verify keyboard and mouse routes,
 action-sheet presence, 100x30 layout, focus order, overlays and resize. The test
 program does not replace that check.
 
@@ -180,9 +237,21 @@ files or generated output.
   bullet that starts with `**Before you upgrade:**`. Every highlighted change also
   appears in its subsection. While a release is open, keep the block under
   `## [Unreleased]`. Use plain Markdown only: bold, code spans and bullets.
-Release workflow details are in [docs/releasing.md](docs/releasing.md). Keep the notes
-standard Markdown, without raw HTML or unbounded ASCII art, because the update wizard
-renders them.
+- Keep release notes standard Markdown, without raw HTML or unbounded ASCII art,
+  because the update wizard renders them.
+
+To cut a release:
+
+1. The required CI jobs pass: `linux`, `linux-runtime`, `linux-clang`,
+   `linux-sanitizers`, `secret-logging` and `windows`.
+2. Bump the version in `project(InventatorySoftware VERSION x.y.z)` in `CMakeLists.txt`.
+3. Tag `vX.Y.Z`, or `vX.Y.Z-rc.N` for a release candidate.
+4. The release notes come from the first that exists: `release-notes/<tag>.md`, the
+   workflow input, the `CHANGELOG.md` section, then GitHub's generated notes.
+5. Check that the published packages report the new version.
+
+Leave the `SCAN_FIRMWARE_REPOSITORY` variable unset until the firmware repository is
+public.
 
 ## Generated and local artifacts
 
@@ -194,10 +263,17 @@ tracked source or script that produces it and verify the result locally.
 
 ## Commits and changelog
 
-The commit format (types, shared scopes, subject and body rules, breaking
-changes) and the changelog rules are in
-[docs/project-standards.md](docs/project-standards.md). The domain scopes for this
-repository are:
+- Format: `type(scope): subject`. Types: `feat`, `fix`, `refactor`, `perf`, `style`,
+  `test`, `docs`, `build`, `ci`, `chore`, `revert`.
+- Subject: imperative, lowercase after the colon, no full stop, 72 characters or fewer.
+  Name the outcome, not the tool.
+- Breaking change: `!` after the scope.
+- Never put prompts, conversation ids, local paths, credentials, device ids or real
+  inventory data in commits, branch names or pull requests.
+
+Shared scopes: `build` (build system, packaging, CI), `docs` (files under `docs/`),
+`project` (root files and GitHub templates), `release` (release process and notes).
+The domain scopes for this repository are:
 
 `app`, `background`, `bom`, `catalogue`, `core`, `device`, `digikey`, `history`,
 `import`, `inventory`, `labels`, `platform`, `printer`, `racks`, `restore`,
@@ -223,6 +299,5 @@ merge-noise messages, or development artifacts. Branch and pull-request names an
 - [ ] `CHANGELOG.md` is not edited on this branch. The proposed entry is in the
       completion summary, and the approved wording is in the pull request's Changelog
       section. Version bumps have their own entry.
-- [ ] Commit, branch and PR wording follows
-      [docs/project-standards.md](docs/project-standards.md), and new source
+- [ ] Commit, branch and PR wording follows the commit rules above, and new source
       files carry the SPDX header.
