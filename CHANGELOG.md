@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.9] - 2026-11-11
+
+**Highlights**
+- Refined adding parts by hand.
+- Refined the action buttons layout.
+- Added support for custom slotted storage solutions, up to 10x10 slots.
+- Updated the part entry workflow, now it's more seamless.
+
 ### Added
 - Adding a part by hand is a short form: Name, Quantity, Storage, Category and Notes, with Enter going to the next
   field and saving at the end. Only the name is required. A known category adds its values, such as Resistance and
