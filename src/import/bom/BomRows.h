@@ -44,6 +44,20 @@ bool claimBomDesignators(const BomLine& line, std::unordered_map<string, size_t>
 // Demand is at least the designator count. A Quantity that disagrees is kept and needs confirmation.
 bool applyBomQuantity(const string& quantityText, const string& rowLabel, BomLine& line, KicadBomFile& bom);
 
+// Where the parts sit in a BOM table, found from the cells instead of the header names, so a BOM
+// exported in any language or with renamed or extra columns still reads. A column index is -1 when unknown.
+struct BomLayout {
+  int designator = -1;
+  int footprint = -1;
+  int value = -1;
+  int quantity = -1;
+};
+
+// rows[0] is the header. Known English header names are used as hints; every other column is judged
+// by its cells (reference lists, counts that equal the reference count, footprint-looking text).
+// False unless both a designator and a value column were found.
+bool inferBomLayout(const vector<vector<string>>& rows, BomLayout& layout);
+
 // Marks the BOM ok, or fails it when no orderable line was found.
 void finishBom(KicadBomFile& bom);
 

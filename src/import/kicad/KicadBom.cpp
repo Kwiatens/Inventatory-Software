@@ -94,10 +94,18 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
   vector<size_t> rowLines;
   if (!readBomRows(text, false, rows, rowLines, bom)) return bom;
 
-  const auto columns = mapBomColumns(rows.front());
+  auto columns = mapBomColumns(rows.front());
   if (columns.designator < 0 || columns.designation < 0) {
-    bom.error = "BOM is missing the Designator or Designation column";
-    return bom;
+    // Another language or renamed columns: find them from the cells instead.
+    BomLayout layout;
+    if (!inferBomLayout(rows, layout)) {
+      bom.error = "Could not find the reference and value columns in this BOM";
+      return bom;
+    }
+    columns.designator = layout.designator;
+    columns.designation = layout.value;
+    columns.footprint = layout.footprint;
+    columns.quantity = layout.quantity;
   }
 
   for (size_t rowIndex = 1; rowIndex < rows.size(); ++rowIndex) {
@@ -136,11 +144,10 @@ KicadBomFile parseKicadBomText(const string& text, const string& projectName) {
       continue;
     }
 
-    // Skipping the row would drop the part from the shopping list without a word, so the whole BOM is refused.
+    // A part with no value cannot be matched, so it is listed in the warnings and the rest still imports.
     if (line.designation.empty()) {
-      bom.error = "Row " + to_string(sourceRow) + ": has no Value for " + join(line.designators, ',') +
-                  ". Fix the BOM export and import it again.";
-      return bom;
+      bom.warnings.push_back("Row " + to_string(sourceRow) + ": no value for " + join(line.designators, ','));
+      continue;
     }
 
     if (line.quantityPerBoard <= 0) {

@@ -959,6 +959,9 @@ class App {
   bool undoLastInventoryChange();
   void logActivity(const std::string& kind, const std::string& message);
   void beginCsvImport();
+  void beginCsvImportFile(const std::filesystem::path& selectedPath);
+  // True when keys typed in one burst were a dropped file path and its import has started.
+  bool importDroppedText(const std::string& text);
   void cancelImportSession();
   bool confirmImportDiscard();
   void requestImportDiscard();

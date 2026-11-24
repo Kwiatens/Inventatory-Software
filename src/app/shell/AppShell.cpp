@@ -213,7 +213,48 @@ void App::runInteractiveLoop() {
   screen.ForceHandleCtrlZ(false);
   screen.TrackMouse();
   auto renderer = ftxui::Renderer([this] { return renderUi(); });
-  auto component = ftxui::CatchEvent(renderer, [this, &screen](ftxui::Event event) {
+  // A file dropped on the terminal arrives as typed characters. A path-looking start is held back for a
+  // moment; if the burst turns out to be a file path the import starts, otherwise the keys are replayed.
+  struct HeldKeys {
+    vector<KeyEvent> keys;
+    string text;
+    chrono::steady_clock::time_point last;
+  } held;
+  const auto kBurstGap = chrono::milliseconds(40);
+  const auto flushHeld = [this, &held] {
+    if (held.keys.empty()) return;
+    auto keys = move(held.keys);
+    auto text = move(held.text);
+    held.keys.clear();
+    held.text.clear();
+    if (keys.size() >= 3 && importDroppedText(text)) return;
+    for (const auto& key : keys) handleKey(key);
+  };
+  auto component = ftxui::CatchEvent(renderer, [this, &screen, &held, &flushHeld, kBurstGap](ftxui::Event event) {
+    const auto now = chrono::steady_clock::now();
+    if (!held.keys.empty() && (event == ftxui::Event::Custom || now - held.last > kBurstGap)) {
+      flushHeld();
+      if (!running_) screen.ExitLoopClosure()();
+    }
+    if (event != ftxui::Event::Custom && !event.is_mouse()) {
+      const auto typed = translateEvent(event);
+      const bool character = typed.type == KeyType::Character && typed.ch != '\0';
+      const bool enter = typed.type == KeyType::Enter;
+      if (!held.keys.empty() && (character || enter)) {
+        held.keys.push_back(typed);
+        held.text.push_back(enter ? '\n' : typed.ch);
+        held.last = now;
+        return true;
+      }
+      if (!held.keys.empty()) flushHeld();
+      if (held.keys.empty() && character && inputMode_ == InputMode::None &&
+          (typed.ch == '/' || typed.ch == '\'' || typed.ch == '"')) {
+        held.keys.push_back(typed);
+        held.text.push_back(typed.ch);
+        held.last = now;
+        return true;
+      }
+    }
     if (event == ftxui::Event::Custom) {
       if (foregroundRequested_.exchange(false)) {
         // Another launch found this window open; ask the desktop to draw attention.

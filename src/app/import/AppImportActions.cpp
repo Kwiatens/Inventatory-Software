@@ -35,7 +35,18 @@ void App::beginCsvImport() {
     setMessage("CSV import cancelled", 2);
     return;
   }
+  beginCsvImportFile(selectedPath);
+}
 
+bool App::importDroppedText(const string& text) {
+  const auto path = parseDroppedPath(text);
+  error_code error;
+  if (!path || !filesystem::is_regular_file(*path, error)) return false;
+  beginCsvImportFile(*path);
+  return true;
+}
+
+void App::beginCsvImportFile(const filesystem::path& selectedPath) {
   ifstream input(selectedPath, ios::binary);
   if (!input) {
     setMessage("Unable to open " + selectedPath.filename().u8string(), 6);
