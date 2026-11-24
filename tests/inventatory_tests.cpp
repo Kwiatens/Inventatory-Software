@@ -11611,10 +11611,10 @@ void testKicadBomParsing() {
   assert(explicitQuantity.ok);
   assert(explicitQuantity.lines.front().quantityPerBoard == 7);
 
-  // A part row without a value refuses the BOM, as EasyEDA and Altium do, instead of dropping the part silently.
+  // A part row without a value is reported and skipped; the rest of the BOM still imports.
   const auto noValue = parseKicadBomText("Designator,Designation,Footprint\nR1,10k,R_0603\nC1 C2,,C_0603\n", "no value");
-  assert(!noValue.ok);
-  assert(noValue.error == "Row 3: has no Value for C1,C2. Fix the BOM export and import it again.");
+  assert(noValue.ok && noValue.lines.size() == 1U);
+  assert(noValue.warnings.size() == 1U && noValue.warnings.front() == "Row 3: no value for C1,C2");
   // A non-orderable row without a value is still only a warning.
   const auto holeNoValue =
       parseKicadBomText("Designator,Designation,Footprint\nR1,10k,R_0603\nH1,,MountingHole_3.2mm\n", "hole");
@@ -11623,6 +11623,48 @@ void testKicadBomParsing() {
   // A row with no designators is not a part and is still skipped.
   const auto blankRow = parseKicadBomText("Designator,Designation\nR1,10k\n,\n", "blank");
   assert(blankRow.ok && blankRow.lines.size() == 1U && blankRow.warnings.empty());
+}
+
+void testDroppedPathParsing() {
+  assert(parseDroppedPath("/home/a/BOM.csv").value() == filesystem::path("/home/a/BOM.csv"));
+  assert(parseDroppedPath("'/home/a/My BOM.csv' \n").value() == filesystem::path("/home/a/My BOM.csv"));
+  assert(parseDroppedPath("\"/home/a/b.csv\"").value() == filesystem::path("/home/a/b.csv"));
+  assert(parseDroppedPath("/home/a/My\\ BOM.csv ").value() == filesystem::path("/home/a/My BOM.csv"));
+  assert(parseDroppedPath("file:///home/a/My%20BOM.csv\r\n").value() == filesystem::path("/home/a/My BOM.csv"));
+  assert(!parseDroppedPath("BOM.csv"));
+  assert(!parseDroppedPath("/"));
+}
+
+void testKicadBomAnyLanguage() {
+  // A KiCad set to Polish names the columns Id;Oznaczenie;Footprint;Liczba;Oznaczenie (twice). The columns are
+  // found from their cells, not their names.
+  const string polish =
+      "\"Id\";\"Oznaczenie\";\"Footprint\";\"Liczba\";\"Oznaczenie\";\"Dostawca i numer artykułu\";\n"
+      "1;\"C1, C5, C7\";\"C_0603_1608Metric\";3;\"100nF\";;;\n"
+      "2;\"J1\";\"PinHeader_1x02_P1.27mm_Vertical\";1;\"RESET\";;;\n"
+      "3;\"R2, R6\";\"R_0603_1608Metric\";2;\"10k\";;;\n"
+      "4;\"U1\";\"SOIC-8_5.3x5.3mm_P1.27mm\";1;\"W25Q128JVSIQ\";;;\n";
+  assert(detectCsvFormat(polish) == CsvFormat::KicadBom);
+  const auto bom = parseBomText(polish, "Polish");
+  assert(bom.ok && bom.lines.size() == 4U);
+  assert(bom.lines.front().designators.size() == 3U);
+  assert(bom.lines.front().designation == "100nF");
+  assert(bom.lines.front().footprint == "C_0603_1608Metric");
+  assert(bom.lines.front().quantityPerBoard == 3);
+  assert(bom.lines.back().designation == "W25Q128JVSIQ");
+
+  // Columns in another order, with a datasheet link column and no quantity.
+  const auto reordered = parseBomText("Wartość,Karta,Obudowa,Elementy\n"
+                                      "10k,https://x/y.pdf,R_0603,\"R1 R2 R3\"\n"
+                                      "1uF,https://x/z.pdf,C_0603,C4\n", "order");
+  assert(reordered.ok && reordered.lines.size() == 2U);
+  assert(reordered.lines.front().designation == "10k");
+  assert(reordered.lines.front().quantityPerBoard == 3);
+
+  // The real export that failed on 2026-11-23.
+  const auto real = loadKicadBomFile(filesystem::path(Inventatory_TEST_SOURCE_DIR) / "tests" / "fixtures" / "kicad-polish-headers.csv");
+  assert(real.ok && real.lines.size() == 51U);  // JP1 is a solder jumper, not a part to buy
+  assert(real.warnings.size() == 1U);
 }
 
 void testBomAnalysisHugeDescriptionAndTieBreak() {
@@ -12622,7 +12664,7 @@ void testBomRowLabelsCountBlankLines() {
                                          "blank line");
   assert(!altium.ok && altium.error.rfind("Row 4: has no designator", 0) == 0);
   const auto kicad = parseKicadBomText("Reference,Value,Footprint,Qty\n\nR1,,R0402,1\n", "blank line");
-  assert(!kicad.ok && kicad.error.rfind("Row 3: has no Value", 0) == 0);
+  assert(!kicad.ok && !kicad.warnings.empty() && kicad.warnings.front().rfind("Row 3: no value", 0) == 0);
 }
 
 void testAltiumQuantityConflictIsKept() {
@@ -12643,7 +12685,6 @@ void testAltium365ExportReachesAltiumParser() {
   // An Altium 365 export has no Comment column, so its value comes from Description.
   const auto text = readAltiumFixture("altium-365.csv");
   assert(detectCsvFormat(text) == CsvFormat::KicadBom);
-  assert(!parseKicadBomText(text, "Altium 365").ok);
   const auto bom = parseBomText(text, "Altium 365");
   assert(bom.ok && bom.lines.size() == 4);
 
@@ -18238,6 +18279,8 @@ const vector<TestCase>& registeredTests() {
     {"import", "CsvEncodingValidation", testCsvEncodingValidation},
     {"import", "CsvFormatDetection", testCsvFormatDetection},
     {"bom", "KicadBomParsing", testKicadBomParsing},
+    {"bom", "KicadBomAnyLanguage", testKicadBomAnyLanguage},
+    {"import", "DroppedPathParsing", testDroppedPathParsing},
     {"bom", "ElectricalValueParsing", testElectricalValueParsing},
     {"bom", "BomAnalysisHugeDescriptionAndTieBreak", testBomAnalysisHugeDescriptionAndTieBreak},
     {"bom", "PackageFromFootprint", testPackageFromFootprint},

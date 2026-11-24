@@ -5,7 +5,10 @@
 
 #include "import/csv/CsvFormat.h"
 
+#include "import/bom/BomRows.h"
 #include "import/csv/CsvReader.h"
+
+#include <cctype>
 
 namespace inventatory {
 
@@ -82,6 +85,35 @@ bool hasAltiumBomHeaders(const vector<string>& headers) {
                               "Supplier Part Number", "Manufacturer Part Number 1", "Manufacturer Part Number"}) >= 0;
 }
 
+optional<filesystem::path> parseDroppedPath(const string& text) {
+  string value = text;
+  const auto isSpace = [](unsigned char ch) { return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n'; };
+  while (!value.empty() && isSpace(static_cast<unsigned char>(value.back()))) value.pop_back();
+  size_t start = 0;
+  while (start < value.size() && isSpace(static_cast<unsigned char>(value[start]))) ++start;
+  value.erase(0, start);
+  if (value.size() >= 2 && (value.front() == '\'' || value.front() == '"') && value.back() == value.front()) {
+    value = value.substr(1, value.size() - 2);
+  }
+  const bool url = value.rfind("file://", 0) == 0;
+  if (url) value.erase(0, 7);
+  string path;
+  for (size_t index = 0; index < value.size(); ++index) {
+    const char ch = value[index];
+    if (url && ch == '%' && index + 2 < value.size() && isxdigit(static_cast<unsigned char>(value[index + 1])) &&
+        isxdigit(static_cast<unsigned char>(value[index + 2]))) {
+      path.push_back(static_cast<char>(stoi(value.substr(index + 1, 2), nullptr, 16)));
+      index += 2;
+    } else if (!url && ch == '\\' && index + 1 < value.size()) {
+      path.push_back(value[++index]);
+    } else {
+      path.push_back(ch);
+    }
+  }
+  if (path.size() < 2 || path.front() != '/') return nullopt;
+  return filesystem::path(path);
+}
+
 CsvFormat detectCsvFormat(const string& text) {
   const auto cleaned = stripByteOrderMark(text);
   string error;
@@ -105,11 +137,17 @@ CsvFormat detectCsvFormat(const string& text) {
   if (hasAltiumBomHeaders(rows.front())) {
     return CsvFormat::KicadBom;
   }
-  if (hasBomHeadersWithoutValue(rows.front())) {
-    return CsvFormat::BomMissingValue;
-  }
   if (hasDigiKeyHeaders(rows.front())) {
     return CsvFormat::DigiKeyOrder;
+  }
+  // Other languages or renamed columns: a table whose cells look like a BOM is one.
+  const auto sample = parseCsv(cleaned, sniffDelimiter(cleaned), error, 200);
+  BomLayout layout;
+  if (error.empty() && inferBomLayout(sample, layout)) {
+    return CsvFormat::KicadBom;
+  }
+  if (hasBomHeadersWithoutValue(rows.front())) {
+    return CsvFormat::BomMissingValue;
   }
   return CsvFormat::Unknown;
 }

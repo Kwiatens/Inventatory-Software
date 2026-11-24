@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,6 +26,10 @@ enum class CsvFormat {
 
 // Reads only the header row, so it is cheap and ignores the product lines.
 CsvFormat detectCsvFormat(const string& text);
+
+// A terminal types a dropped file's path as keystrokes: plain, quoted, backslash-escaped or as a file:// URL,
+// often with a trailing space or newline. Returns that path, or nothing when the text is not an absolute path.
+std::optional<std::filesystem::path> parseDroppedPath(const string& text);
 
 // True when the header row is an Altium BOM. Shared by the detector and the BOM dispatch.
 bool hasAltiumBomHeaders(const vector<string>& headers);
