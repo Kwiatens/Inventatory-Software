@@ -434,6 +434,7 @@ ftxui::Element App::renderBomProjectUi() const {
     case BomView::StartNotice: screen = renderBomStartNotice(screenWidth); break;
     case BomView::Confirm: screen = renderBomConfirm(screenWidth); break;
     case BomView::Choose: screen = renderBomChoose(screenWidth); break;
+    case BomView::Browse: screen = renderBomBrowse(screenWidth); break;
     case BomView::Order: screen = renderBomOrder(screenWidth); break;
     case BomView::Receive: screen = renderBomReceive(screenWidth); break;
     default: screen = renderBomOverview(screenWidth); break;

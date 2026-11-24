@@ -223,7 +223,7 @@ class App {
 
   // Projects page views. A project opens on its Overview: Find in racks, what is in stock, and the steps
   // that get the rest. Each step is its own view; Lines is the full table.
-  enum class BomView { List, Overview, Lines, StartNotice, Confirm, Choose, Order, Receive, Build };
+  enum class BomView { List, Overview, Lines, StartNotice, Confirm, Choose, Order, Receive, Build, Browse };
 
   enum class ScanSetupStep {
     Introduction,
@@ -623,6 +623,7 @@ class App {
   ftxui::Element renderBomStartNotice(int screenWidth) const;
   ftxui::Element renderBomConfirm(int screenWidth) const;
   ftxui::Element renderBomChoose(int screenWidth) const;
+  ftxui::Element renderBomBrowse(int screenWidth) const;
   ftxui::Element renderBomOrder(int screenWidth) const;
   ftxui::Element renderBomReceive(int screenWidth) const;
   ftxui::Element renderBomLines(int screenWidth) const;
@@ -1024,6 +1025,8 @@ class App {
   size_t bomMatchIndex(const std::string& lineKey) const;  // npos when the line is gone
   void showBomStepLine();
   void advanceBomStep(bool done);
+  void openBomBrowse();
+  void pickBomBrowseLine(size_t position);
   void useBomConfirmCandidate();
   void markBomLineNotInStock();
   std::string bomProjectStore() const;
@@ -1250,6 +1253,10 @@ class App {
   size_t bomStepDone_ = 0;
   size_t bomStepSkipped_ = 0;
   size_t bomConfirmSelection_ = 0;
+  // The all-parts list opened from a Confirm or Choose step: the step it returns to and the row under the cursor.
+  BomView bomBrowseReturn_ = BomView::Confirm;
+  size_t bomBrowseSelection_ = 0;
+  bool bomStepFromBrowse_ = false;  // the step was entered from the all-parts list, so Esc goes back to it
   size_t bomOrderSelection_ = 0;
   std::set<std::string> bomOrderOpened_;  // line keys whose store page was opened this session
   bool bomOrderConfirm_ = false;

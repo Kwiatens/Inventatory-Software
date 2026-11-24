@@ -424,7 +424,11 @@ vector<App::Action> App::currentActions() const {
             add("use this part", "Confirm", "Enter", special(KeyType::Enter), [self] { self->useBomConfirmCandidate(); });
             add("none of these", "Confirm", "n", chr('n'), [self] { self->markBomLineNotInStock(); });
             add("skip", "Confirm", "s", chr('s'), [self] { self->advanceBomStep(false); });
-            back();
+            add("all parts", "Confirm", "a", chr('a'), [self] { self->openBomBrowse(); });
+            add("back", "Go", "Esc", special(KeyType::Escape), [self] {
+              if (self->bomStepFromBrowse_) self->openBomBrowse();
+              else self->openBomOverview();
+            });
             break;
           case BomView::Choose: {
             const auto* project = activeBomProject();
@@ -442,9 +446,18 @@ vector<App::Action> App::currentActions() const {
             add("search", "Choose", "/", chr('/'), [self] { self->beginBomPartSearchEdit(); });
             add("change store", "Choose", "v", chr('v'), [self] { self->cycleBomStore(); });
             add("skip", "Choose", "s", chr('s'), [self] { self->advanceBomStep(false); });
-            back();
+            add("all parts", "Choose", "a", chr('a'), [self] { self->openBomBrowse(); });
+            add("back", "Go", "Esc", special(KeyType::Escape), [self] {
+              if (self->bomStepFromBrowse_) self->openBomBrowse();
+              else self->openBomOverview();
+            });
             break;
           }
+          case BomView::Browse:
+            add("go to this part", "Parts", "Enter", special(KeyType::Enter),
+                [self] { self->pickBomBrowseLine(self->bomBrowseSelection_); });
+            back();
+            break;
           case BomView::Order:
             if (bomOrderConfirm_) {
               add("mark them ordered", "Order", "y", chr('y'), [self] { self->markBomOrdered(true); });
