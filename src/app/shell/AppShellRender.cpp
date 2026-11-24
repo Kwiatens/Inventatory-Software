@@ -70,6 +70,23 @@ ftxui::Element semanticMessageRow(const string& text, UiMessageSeverity severity
 // Frame: header, content, context line or action sheet, message. Space opens the action sheet.
 ftxui::Element App::renderUi() const {
   uiTargets_.clear();
+  // Share one stock search across everything that asks for the matches while this frame builds.
+  struct FrameMatches {
+    const App& app;
+    bool owner;
+    explicit FrameMatches(const App& value) : app(value), owner(!value.frameStockMatchesActive_) {
+      if (owner) {
+        app.frameStockMatches_.reset();
+        app.frameStockMatchesActive_ = true;
+      }
+    }
+    ~FrameMatches() {
+      if (owner) {
+        app.frameStockMatchesActive_ = false;
+        app.frameStockMatches_.reset();
+      }
+    }
+  } frameMatches(*this);
   if (inventoryRecoveryRequired_) {
     return ftxui::vbox({
         ftxui::filler(),
