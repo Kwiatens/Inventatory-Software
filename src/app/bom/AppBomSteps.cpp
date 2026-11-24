@@ -168,6 +168,7 @@ void App::applyBomChoicesFromOtherProjects() {
 }
 
 void App::openBomOverview() {
+  bomStepFromBrowse_ = false;
   closeBomPartPicker();
   bomOrderConfirm_ = false;
   bomView_ = BomView::Overview;
@@ -178,6 +179,7 @@ void App::openBomStep(size_t step, const string& atLineKey) {
   auto* project = activeBomProject();
   if (project == nullptr || !bomAnalysisValid_) return;
   step = min(step, kLastStep);
+  bomStepFromBrowse_ = false;
   bomOverviewSelection_ = step;
   bomStepKeys_.clear();
   bomStepPosition_ = 0;
@@ -312,6 +314,7 @@ void App::moveBomViewSelection(int delta) {
       break;
     }
     case BomView::Choose: moveBomPickerSelection(delta); return;
+    case BomView::Browse: clampMove(bomBrowseSelection_, bomStepKeys_.size()); break;
     case BomView::Order: clampMove(bomOrderSelection_, bomPurchasesIn(BomLineState::Chosen).size()); break;
     case BomView::Receive: clampMove(bomReceiveSelection_, bomPurchasesIn(BomLineState::Ordered).size()); break;
     default: moveBomSelection(delta); return;
@@ -373,6 +376,34 @@ void App::showBomStepLine() {
     return;
   }
   startBomPartPickerSearch(line, "");
+}
+
+void App::openBomBrowse() {
+  if (bomView_ != BomView::Confirm && bomView_ != BomView::Choose) return;
+  if (bomStepKeys_.empty()) return;
+  bomBrowseReturn_ = bomView_;
+  bomBrowseSelection_ = min(bomStepPosition_, bomStepKeys_.size() - 1);
+  bomView_ = BomView::Browse;
+  dirty_ = true;
+}
+
+void App::pickBomBrowseLine(size_t position) {
+  const auto* project = activeBomProject();
+  if (project == nullptr || position >= bomStepKeys_.size()) return;
+  const auto index = bomMatchIndex(bomStepKeys_[position]);
+  if (index == string::npos) return;
+  const auto state = bomLineState(bomAnalysis_.matches[index], bomStepKeys_[position], project->enrichment);
+  const bool confirming = bomBrowseReturn_ == BomView::Confirm;
+  const bool belongs = confirming ? state == BomLineState::ToConfirm
+                                  : state == BomLineState::ToChoose || state == BomLineState::Chosen;
+  if (!belongs) {
+    setMessage("That part is already done", 2);
+    return;
+  }
+  bomStepPosition_ = position;
+  bomView_ = bomBrowseReturn_;
+  bomStepFromBrowse_ = true;
+  showBomStepLine();
 }
 
 void App::advanceBomStep(bool done) {

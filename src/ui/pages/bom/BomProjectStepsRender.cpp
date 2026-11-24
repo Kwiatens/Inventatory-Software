@@ -267,6 +267,7 @@ ftxui::Element App::renderBomConfirm(int screenWidth) const {
              [self] { self->useBomConfirmCandidate(); }),
       target(uiButton("None of these", "n"), "bom.confirm.none", UiTargetKind::Button, [self] { self->markBomLineNotInStock(); }),
       target(uiButton("Skip", "s"), "bom.confirm.skip", UiTargetKind::Button, [self] { self->advanceBomStep(false); }),
+      target(uiButton("All parts", "a"), "bom.confirm.browse", UiTargetKind::Button, [self] { self->openBomBrowse(); }),
   });
   const string who = line.designators.empty() ? lineName(line) : line.designators.front();
   auto header = uiPageHeader(uiHeaderText("Confirm matches", uiPrimaryText()),
@@ -348,6 +349,7 @@ ftxui::Element App::renderBomChoose(int screenWidth) const {
   }
   buttonList.push_back(target(uiButton("Open in store", "l"), "bom.choose.page", UiTargetKind::Button, [self] { self->openBomPartPage(); }));
   buttonList.push_back(target(uiButton("Skip", "s"), "bom.choose.skip", UiTargetKind::Button, [self] { self->advanceBomStep(false); }));
+  buttonList.push_back(target(uiButton("All parts", "a"), "bom.choose.browse", UiTargetKind::Button, [self] { self->openBomBrowse(); }));
   auto header = uiPageHeader(uiHeaderText("Choose parts to buy", uiPrimaryText()),
                              styledText("Part " + to_string(bomStepPosition_ + 1) + " of " + to_string(bomStepKeys_.size()) + ". " +
                                             lineLabel(line) + ", need " + to_string(bomPicker_.quantity) + ".",
@@ -449,7 +451,12 @@ ftxui::Element App::renderBomChoose(int screenWidth) const {
     const auto& candidate = entry.candidate;
     // Parts the checks cannot confirm come last, under their own heading.
     if (!entry.fits && (entryIndex == 0 || bomPicker_.entries[entryIndex - 1].fits)) {
-      rows.push_back(groupRow("Some parameters might not match the original. Please verify manually.", uiWarnColor(), static_cast<int>(mayNotFit)));
+      rows.push_back(ftxui::text(" "));
+      rows.push_back(ftxui::hbox({ftxui::text(" "),
+                                  ftxui::paragraphAlignLeft("The next " + to_string(mayNotFit) + (mayNotFit == 1 ? " part" : " parts") +
+                                                            " may not match this line. Check them in the store before you use one.") |
+                                      ftxui::color(uiWarnColor()) | ftxui::bold | ftxui::flex}));
+      rows.push_back(ftxui::text(" "));
     }
     const bool selected = entryIndex == bomPicker_.selection;
     const auto cost = vendorCandidateCost(candidate, bomPicker_.quantity);
@@ -755,6 +762,76 @@ ftxui::Element App::renderBomLines(int screenWidth) const {
     table.push_back(target(move(row), "bom.line." + to_string(index), UiTargetKind::Row, [self, index] {
       self->bomSplitSelection_ = index;
       self->dirty_ = true;
+    }));
+  }
+  return ftxui::vbox({move(header), ftxui::vbox(move(table)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::flex |
+                                        ftxui::reflect(bomTableBounds_)});
+}
+
+ftxui::Element App::renderBomBrowse(int screenWidth) const {
+  auto self = const_cast<App*>(this);
+  const auto* project = activeBomProject();
+  const bool confirming = bomBrowseReturn_ == BomView::Confirm;
+  size_t open = 0;
+  struct Row {
+    string part, package, detail, mark;
+    ftxui::Color color;
+    bool todo;
+  };
+  vector<Row> rows;
+  auto partColumn = tableColumn(14), packageColumn = tableColumn(8), detailColumn = tableColumn(12);
+  partColumn.fit("Part");
+  packageColumn.fit("Package");
+  detailColumn.fit("State");
+  for (const auto& key : bomStepKeys_) {
+    const auto index = bomMatchIndex(key);
+    if (index == string::npos || project == nullptr) continue;
+    const auto& match = bomAnalysis_.matches[index];
+    const auto& line = bomAnalysis_.lines[match.lineIndex];
+    const auto state = bomLineState(match, key, project->enrichment);
+    Row row{lineName(line), packageFromFootprint(line.footprint), "", "[x]", uiSuccessColor(), false};
+    if (confirming) {
+      row.todo = state == BomLineState::ToConfirm;
+      row.detail = row.todo ? "To confirm" : "Done";
+    } else {
+      row.todo = state == BomLineState::ToChoose;
+      row.detail = state == BomLineState::ToChoose ? "To choose"
+                   : state == BomLineState::Chosen ? "Chosen at " + bomEnrichmentSupplier(project->enrichment.at(key))
+                                                   : "Done";
+    }
+    if (row.todo) {
+      row.mark = "[ ]";
+      row.color = uiWarnColor();
+      ++open;
+    }
+    partColumn.fit(row.part);
+    packageColumn.fit(row.package);
+    detailColumn.fit(row.detail);
+    rows.push_back(move(row));
+  }
+  auto header = uiPageHeader(uiHeaderText(confirming ? "All parts to confirm" : "All parts to buy", uiPrimaryText()),
+                             styledText(to_string(open) + " of " + to_string(rows.size()) + " still to do. Pick any part to go to it.",
+                                        uiMutedText()),
+                             buttonGroup({target(uiButton("Back to the project", "Esc"), "bom.browse.back", UiTargetKind::Button,
+                                                 [self] { self->openBomOverview(); })}));
+  const auto widths = fitColumns({partColumn, packageColumn, detailColumn}, screenWidth - 9);
+  ftxui::Elements table;
+  table.push_back(ftxui::hbox({ftxui::text("      "), tableCell("Part", widths[0], uiMutedText()),
+                               tableCell("Package", widths[1], uiMutedText()), tableCell("State", widths[2], uiMutedText()),
+                               ftxui::filler()}));
+  const auto selection = rows.empty() ? size_t{0} : min(bomBrowseSelection_, rows.size() - 1);
+  for (size_t index = 0; index < rows.size(); ++index) {
+    const auto& row = rows[index];
+    const bool selected = index == selection;
+    const bool current = index == bomStepPosition_;
+    auto line = selectableRow({styledText(row.mark + " ", row.color),
+                               tableCell(row.part, widths[0], selected ? uiFocusColor() : row.todo ? uiPrimaryText() : uiMutedText(), true),
+                               tableCell(row.package, widths[1], uiSecondaryText()),
+                               tableCell(row.detail + (current ? "  (here)" : ""), widths[2], row.color)},
+                              selected);
+    table.push_back(target(move(line), "bom.browse.row." + to_string(index), UiTargetKind::Row, [self, index] {
+      self->bomBrowseSelection_ = index;
+      self->pickBomBrowseLine(index);
     }));
   }
   return ftxui::vbox({move(header), ftxui::vbox(move(table)) | ftxui::yframe | ftxui::vscroll_indicator | ftxui::flex |

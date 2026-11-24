@@ -398,8 +398,9 @@ ftxui::Element App::renderSearchBarUi() const {
     else if (bomView_ == BomView::Overview) hints = "Enter open   f find in racks   t all lines   Esc projects";
     else if (bomView_ == BomView::Lines) hints = "Enter open its step   f find in racks   Esc back";
     else if (bomView_ == BomView::StartNotice) hints = "Enter start anyway   s get them first   Esc back";
-    else if (bomView_ == BomView::Confirm) hints = "Enter use   n none of these   s skip   Esc back";
-    else if (bomView_ == BomView::Choose) hints = "Enter use   l store page   / search   v store   s skip   Esc back";
+    else if (bomView_ == BomView::Confirm) hints = "Enter use   n none of these   s skip   a all parts   Esc back";
+    else if (bomView_ == BomView::Choose) hints = "Enter use   l store page   / search   v store   s skip   a all parts   Esc back";
+    else if (bomView_ == BomView::Browse) hints = "Up/Down part   Enter go to it   Esc back to the project";
     else if (bomView_ == BomView::Order && bomOrderConfirm_) hints = "y mark ordered   n cancel";
     else if (bomView_ == BomView::Order) hints = "c cart file   l next page   m mark ordered   Esc back";
     else if (bomView_ == BomView::Receive) hints = "Enter receive   a receive all   Esc back";
