@@ -40,13 +40,18 @@ ftxui::Element App::renderStockUi() const {
   size_t longestQuantity = string("Qty").size();
   size_t longestPartName = string("Part").size();
   size_t longestCategory = string("Category").size();
+  // Items sit in category runs, so the width of a repeated category is not worked out again.
+  const string* previousCategory = nullptr;
   for (const auto& item : store_.items()) {
     longestPartName = max(longestPartName, displayWidth(item.partName));
     longestQuantity = max(longestQuantity, to_string(item.quantity).size());
     if (stocktakeActive_) {
       longestQuantity = max(longestQuantity, to_string(stocktakeCountFor(item)).size());
     }
-    longestCategory = max(longestCategory, displayWidth(displayCategory(item.category)));
+    if (previousCategory == nullptr || *previousCategory != item.category) {
+      longestCategory = max(longestCategory, displayWidth(displayCategory(item.category)));
+      previousCategory = &item.category;
+    }
   }
   // Column widths come from the whole inventory, so filtering does not move columns.
   const int qtyWidth = max(7, static_cast<int>(longestQuantity) + 4);

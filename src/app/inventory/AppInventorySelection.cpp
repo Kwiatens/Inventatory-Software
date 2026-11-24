@@ -127,7 +127,52 @@ bool App::stockDateFilterMatches(const InventoryItem& item) const {
   return true;
 }
 
+string App::stockMatchSignature() const {
+  string signature;
+  signature.reserve(searchQuery_.size() + closestSearchQuery_.size() + 48);
+  signature += closestSearchActive_ ? 'c' : 's';
+  signature += to_string(static_cast<int>(stockDateFilter_));
+  signature += ',';
+  signature += to_string(settings_.lowStockThreshold);
+  signature += ',';
+  signature += to_string(store_.items().size());
+  signature += ',';
+  signature += to_string(store_.racks().size());
+  signature += '|';
+  signature += searchQuery_;
+  signature += '|';
+  signature += closestSearchQuery_;
+  return signature;
+}
+
+// The matches are needed several times per redraw (list, detail pane, action buttons). Nothing
+// mutates the store or the filters while a frame renders, so the first result serves the whole frame.
 vector<InventorySearchMatch> App::stockSearchMatches() const {
+  if (frameStockMatchesActive_) {
+    if (!frameStockMatches_.has_value()) {
+      frameStockMatches_ = computeStockSearchMatches();
+      stockMatchCountSignature_ = stockMatchSignature();
+      stockMatchCountCached_ = frameStockMatches_->size();
+      stockMatchCountValid_ = true;
+    }
+    return *frameStockMatches_;
+  }
+  return computeStockSearchMatches();
+}
+
+// Scrolling only needs how many rows there are. The count from the last draw stays valid until a
+// search input changes, and every key that changes one is followed by a draw that refreshes it.
+size_t App::stockMatchCount() const {
+  const auto signature = stockMatchSignature();
+  if (stockMatchCountValid_ && signature == stockMatchCountSignature_) return stockMatchCountCached_;
+  const auto count = computeStockSearchMatches().size();
+  stockMatchCountSignature_ = signature;
+  stockMatchCountCached_ = count;
+  stockMatchCountValid_ = true;
+  return count;
+}
+
+vector<InventorySearchMatch> App::computeStockSearchMatches() const {
   auto matches = closestSearchActive_
                      ? findClosestPhysicalValues(store_.items(), closestSearchQuery_)
                      : rankedFilterItems(store_.items(), searchQuery_, store_.racks(), settings_.lowStockThreshold);
@@ -151,6 +196,19 @@ vector<InventorySearchMatch> App::stockSearchMatches() const {
     }
     return 3;
   };
+  // Sort keys are built once per match; building them inside the comparator allocated strings on
+  // every comparison.
+  struct SortKey {
+    string category;
+    string name;
+  };
+  vector<SortKey> keys(store_.items().size());
+  for (const auto& match : matches) {
+    const auto& item = store_.items()[match.itemIndex];
+    auto& key = keys[match.itemIndex];
+    if (stockSortOrder_ != StockSortOrder::Quantity) key.category = toLower(displayCategory(item.category));
+    key.name = toLower(item.partName);
+  }
   const auto fallbackLess = [&](size_t lhs, size_t rhs) {
     const auto& left = store_.items()[lhs];
     const auto& right = store_.items()[rhs];
@@ -158,14 +216,14 @@ vector<InventorySearchMatch> App::stockSearchMatches() const {
       return left.quantity > right.quantity;
     }
     if (stockSortOrder_ != StockSortOrder::Quantity) {
-      const auto leftCategory = toLower(displayCategory(left.category));
-      const auto rightCategory = toLower(displayCategory(right.category));
+      const auto& leftCategory = keys[lhs].category;
+      const auto& rightCategory = keys[rhs].category;
       if (leftCategory != rightCategory) {
         return stockSortOrder_ == StockSortOrder::Za ? leftCategory > rightCategory : leftCategory < rightCategory;
       }
     }
-    const auto leftName = toLower(left.partName);
-    const auto rightName = toLower(right.partName);
+    const auto& leftName = keys[lhs].name;
+    const auto& rightName = keys[rhs].name;
     if (leftName != rightName) {
       return stockSortOrder_ == StockSortOrder::Za ? leftName > rightName : leftName < rightName;
     }
@@ -263,16 +321,16 @@ bool App::selectStockItemById(const string& itemId, bool keepView) {
 }
 
 void App::moveSelection(int delta) {
-  const auto matches = stockSearchMatches();
-  if (matches.empty()) {
+  const auto count = stockMatchCount();
+  if (count == 0) {
     if (closestSearchActive_) closestSelectedPosition_ = 0;
     else selectedPosition_ = 0;
     return;
   }
 
   const auto currentPosition = closestSearchActive_ ? closestSelectedPosition_ : selectedPosition_;
-  const auto current = static_cast<int>(min(currentPosition, matches.size() - 1));
-  const auto next = clamp(current + delta, 0, static_cast<int>(matches.size() - 1));
+  const auto current = static_cast<int>(min(currentPosition, count - 1));
+  const auto next = clamp(current + delta, 0, static_cast<int>(count - 1));
   if (closestSearchActive_) closestSelectedPosition_ = static_cast<size_t>(next);
   else selectedPosition_ = static_cast<size_t>(next);
   dirty_ = true;

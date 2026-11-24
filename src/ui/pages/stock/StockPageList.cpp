@@ -7,6 +7,8 @@
 
 #include "ui/shared/AppUiShared.h"
 
+#include <ftxui/component/screen_interactive.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -131,7 +133,35 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
     }
     listRows.push_back(fullLine(message, uiMutedColor(), uiPanelLeftBg()));
   } else {
-    for (size_t index = 0; index < filtered.size(); ++index) {
+    // Only rows near the selection are built. A viewport's worth of rows on each side keeps the
+    // framed view identical to a full list, and spacers stand in for the rest so the scroll
+    // indicator and the selection's place in the list stay right.
+    const auto* activeScreen = ftxui::ScreenInteractive::Active();
+    const size_t viewportRows = static_cast<size_t>(max(activeScreen != nullptr ? activeScreen->dimy() : 60, 30));
+    const size_t selectedRow = min(activeSelection, filtered.size() - 1);
+    const size_t windowBegin = selectedRow > viewportRows ? selectedRow - viewportRows : 0;
+    const size_t windowEnd = min(filtered.size(), selectedRow + viewportRows + 1);
+    // Rows a group start adds above its item: a band or category header, plus a blank line between bands.
+    const auto extraRows = [&](size_t index) -> int {
+      if (rankedView) {
+        if (index == 0) return 1;
+        return searchMatches[index].band != searchMatches[index - 1].band ? 2 : 0;
+      }
+      if (!groupByCategory) return 0;
+      if (index == 0) return 1;
+      const auto& previous = store_.items()[filtered[index - 1]].category;
+      const auto& current = store_.items()[filtered[index]].category;
+      return previous != current && displayCategory(previous) != displayCategory(current) ? 1 : 0;
+    };
+    const auto hiddenHeight = [&](size_t from, size_t to) {
+      int height = 0;
+      for (size_t index = from; index < to; ++index) height += 1 + extraRows(index);
+      return height;
+    };
+    if (windowBegin > 0) {
+      listRows.push_back(ftxui::text("") | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, hiddenHeight(0, windowBegin)));
+    }
+    for (size_t index = windowBegin; index < windowEnd; ++index) {
       const auto& searchMatch = searchMatches[index];
       const auto& item = store_.items()[searchMatch.itemIndex];
       const auto category = displayCategory(item.category);
@@ -212,6 +242,10 @@ ftxui::Elements App::renderStockListRows(const vector<InventorySearchMatch>& sea
         self->syncSelectionToFilter();
         self->dirty_ = true;
       }));
+    }
+    if (windowEnd < filtered.size()) {
+      listRows.push_back(ftxui::text("") |
+                         ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, hiddenHeight(windowEnd, filtered.size())));
     }
   }
   return listRows;

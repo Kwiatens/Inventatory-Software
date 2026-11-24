@@ -837,6 +837,10 @@ class App {
 
   std::vector<size_t> filteredIndices() const;
   std::vector<InventorySearchMatch> stockSearchMatches() const;
+  std::vector<InventorySearchMatch> computeStockSearchMatches() const;
+  // Number of stock matches, reused between redraws while the search inputs are unchanged.
+  size_t stockMatchCount() const;
+  std::string stockMatchSignature() const;
   size_t selectedIndex() const;
   InventoryItem* selectedItem();
   const InventoryItem* selectedItem() const;
@@ -1199,6 +1203,13 @@ class App {
   std::future<VendorLookupBatch> vendorLookupFuture_;
   std::future<OfferRefreshResult> offerRefreshFuture_;
   // Saved offers of one item, read when the selection changes or a check finishes. UI thread only.
+  // Matches computed once per redraw: nothing changes the store or filters while a frame renders.
+  mutable std::optional<std::vector<InventorySearchMatch>> frameStockMatches_;
+  mutable bool frameStockMatchesActive_ = false;
+  // Match count of the last computation and the inputs it was computed for; lets scrolling skip a search.
+  mutable std::string stockMatchCountSignature_;
+  mutable size_t stockMatchCountCached_ = 0;
+  mutable bool stockMatchCountValid_ = false;
   mutable std::string offerCacheItemId_;
   mutable std::vector<VendorOffer> offerCache_;
   mutable bool offerCacheValid_ = false;

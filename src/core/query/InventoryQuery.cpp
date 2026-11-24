@@ -65,6 +65,15 @@ vector<InventorySearchMatch> rankedFilterItems(const vector<InventoryItem>& item
                                                const vector<InventatoryRack>& racks, int lowStockThreshold) {
   vector<InventorySearchMatch> matches;
   matches.reserve(items.size());
+  if (tokenizeQuery(query).empty()) {
+    // No search text: every item matches, so skip the per-item rack lookup and evaluation.
+    for (size_t index = 0; index < items.size(); ++index) {
+      InventorySearchMatch match;
+      match.itemIndex = index;
+      matches.push_back(match);
+    }
+    return matches;
+  }
   for (size_t index = 0; index < items.size(); ++index) {
     const auto result = evaluateQueryWithRack(items[index], query, rackLocation(items[index], racks), lowStockThreshold);
     if (!result.matched) continue;
