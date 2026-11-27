@@ -163,6 +163,9 @@ ftxui::Element rackCellBody(const InventoryItem& item, bool selected, int lowSto
       area.push_back(line(styledText(ellipsize(parts.spec, static_cast<size_t>(textWidth)), dim)));
     }
   }
+  // The quantity takes the bottom line; one blank line on top balances it, so the text sits in the slot's middle.
+  const int textLines = static_cast<int>(area.size()) - 1;
+  if (areaLines - textLines >= 2) area.insert(area.begin(), ftxui::text(""));
   area.push_back(ftxui::filler());
 
   const auto quantityColor = uiQuantityColor(item, lowStockThreshold);

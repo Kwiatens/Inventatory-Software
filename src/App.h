@@ -877,7 +877,9 @@ class App {
   void beginSettingsFieldEdit(int field);
   void commitSettingsFieldEdit();
   void resetSelectedAppearanceColor();
-  void resetAppearanceColors();
+  void setAppearanceTheme(AppearanceTheme theme);
+  void toggleAppearanceTheme();
+  void toggleAppearanceAdvanced();
   void openAppearancePicker();
   void moveAppearancePicker(int hueDelta, int valueDelta);
   void applyAppearancePickerColor();
@@ -1351,6 +1353,8 @@ class App {
   int appearancePickerHue_ = 0;
   int appearancePickerValue_ = 0;
   std::uint32_t appearancePickerOriginalColor_ = 0;
+  AppearanceTheme appearancePickerOriginalTheme_ = AppearanceTheme::Light;
+  bool appearanceAdvancedOpen_ = false;  // the custom colour rows under Settings > Appearance
   std::string stagedDigiKeySecret_;
   bool stagedDigiKeySecretChanged_ = false;
   bool hasStoredDigiKeySecret_ = false;

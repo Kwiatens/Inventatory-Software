@@ -102,12 +102,56 @@ bool parseAppearanceColorHex(const string& text, uint32_t& rgb) {
   return true;
 }
 
+const char* appearanceThemeKey(AppearanceTheme theme) {
+  switch (theme) {
+    case AppearanceTheme::Light: return "light";
+    case AppearanceTheme::Dark: return "dark";
+    case AppearanceTheme::Custom: return "custom";
+  }
+  return "light";
+}
+
+const char* appearanceThemeLabel(AppearanceTheme theme) {
+  switch (theme) {
+    case AppearanceTheme::Light: return "Light";
+    case AppearanceTheme::Dark: return "Dark";
+    case AppearanceTheme::Custom: return "Custom";
+  }
+  return "Light";
+}
+
+bool parseAppearanceTheme(const string& text, AppearanceTheme& theme) {
+  for (const auto candidate : {AppearanceTheme::Light, AppearanceTheme::Dark, AppearanceTheme::Custom}) {
+    if (text == appearanceThemeKey(candidate)) {
+      theme = candidate;
+      return true;
+    }
+  }
+  return false;
+}
+
+const AppearancePalette& appearanceThemePalette(AppearanceTheme theme) {
+  return theme == AppearanceTheme::Dark ? kDarkAppearancePalette : kLightAppearancePalette;
+}
+
+void selectAppearanceTheme(AppearanceSettings& appearance, AppearanceTheme theme) {
+  appearance.theme = theme;
+  if (theme != AppearanceTheme::Custom) appearance.colors = appearanceThemePalette(theme);
+}
+
+AppearanceTheme appearanceBaseTheme(const AppearanceSettings& appearance) {
+  if (appearance.theme != AppearanceTheme::Custom) return appearance.theme;
+  const auto canvas = appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)];
+  const auto luma = 0.2126 * ((canvas >> 16) & 0xFFu) + 0.7152 * ((canvas >> 8) & 0xFFu) + 0.0722 * (canvas & 0xFFu);
+  return luma >= 128.0 ? AppearanceTheme::Light : AppearanceTheme::Dark;
+}
+
 bool upgradeLegacyAppearanceDefaults(AppearanceSettings& appearance) {
   struct Upgrade {
     AppearanceColorRole role;
     uint32_t legacy;
   };
-  // Earlier shipped defaults. A color still at one of them moves to the current default.
+  // Earlier shipped Slate values. A color still at one of them moves to the last Slate value.
   static const Upgrade kUpgrades[] = {
       {AppearanceColorRole::WarningText, 0xD8B56B}, {AppearanceColorRole::DangerText, 0xE08C83},
       {AppearanceColorRole::WarningBg, 0x3A3327},   {AppearanceColorRole::DangerBg, 0x3E2A29},
@@ -117,15 +161,25 @@ bool upgradeLegacyAppearanceDefaults(AppearanceSettings& appearance) {
       {AppearanceColorRole::DangerText, 0xE4707C},  {AppearanceColorRole::WarningBg, 0x3B2F28},
       {AppearanceColorRole::DangerBg, 0x43262B},    {AppearanceColorRole::DangerFlashBg, 0x74404B},
   };
-  const AppearanceSettings defaults;
   bool changed = false;
   for (const auto& upgrade : kUpgrades) {
     const auto index = static_cast<size_t>(upgrade.role);
     if (appearance.colors[index] != upgrade.legacy) continue;
-    appearance.colors[index] = defaults.colors[index];
+    appearance.colors[index] = kSlateAppearancePalette[index];
     changed = true;
   }
   return changed;
+}
+
+void migrateAppearanceWithoutTheme(AppearanceSettings& appearance) {
+  upgradeLegacyAppearanceDefaults(appearance);
+  if (appearance.colors == kSlateAppearancePalette || appearance.colors == kDarkAppearancePalette) {
+    selectAppearanceTheme(appearance, AppearanceTheme::Dark);
+  } else if (appearance.colors == kLightAppearancePalette) {
+    selectAppearanceTheme(appearance, AppearanceTheme::Light);
+  } else {
+    appearance.theme = AppearanceTheme::Custom;
+  }
 }
 
 }  // namespace inventatory

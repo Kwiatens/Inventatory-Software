@@ -88,7 +88,7 @@ bool App::settingsDraftHasChanges() const {
          settingsDraft_.lowStockThreshold != settings_.lowStockThreshold ||
          settingsDraft_.symbolStandard != settings_.symbolStandard ||
          settingsDraft_.quickLabelPresets != settings_.quickLabelPresets ||
-         settingsDraft_.appearance.colors != settings_.appearance.colors ||
+         settingsDraft_.appearance != settings_.appearance ||
          settingsDraft_.digiKeyEnabled != settings_.digiKeyEnabled || settingsDraft_.tmeEnabled != settings_.tmeEnabled ||
          settingsDraft_.mouserEnabled != settings_.mouserEnabled || stagedDigiKeySecretChanged_;
 }
@@ -297,6 +297,7 @@ void App::commitSettingsFieldEdit() {
       return;
     }
     settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] = parsed;
+    settingsDraft_.appearance.theme = AppearanceTheme::Custom;
     applyUiAppearance(settingsDraft_.appearance);
     settingsDirty_ = settingsDraftHasChanges();
   } else if (settingsCategory_ == SettingsCategory::QuickLabels) {
@@ -441,8 +442,10 @@ void App::resetSelectedAppearanceColor() {
       settingsField_ >= static_cast<int>(kAppearanceColorCount)) {
     return;
   }
+  // Back to the colour of the built-in theme this palette is closest to.
   settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] =
-      AppearanceSettings{}.colors[static_cast<size_t>(settingsField_)];
+      appearanceThemePalette(appearanceBaseTheme(settingsDraft_.appearance))[static_cast<size_t>(settingsField_)];
+  settingsDraft_.appearance.theme = AppearanceTheme::Custom;
   appearancePickerOpen_ = false;
   applyUiAppearance(settingsDraft_.appearance);
   settingsDirty_ = settingsDraftHasChanges();
@@ -450,14 +453,27 @@ void App::resetSelectedAppearanceColor() {
   setMessage("Selected color reset; save settings to keep it", 3);
 }
 
-void App::resetAppearanceColors() {
-  if (settingsCategory_ != SettingsCategory::Appearance) return;
-  settingsDraft_.appearance = AppearanceSettings{};
+void App::setAppearanceTheme(AppearanceTheme theme) {
+  if (settingsCategory_ != SettingsCategory::Appearance || theme == AppearanceTheme::Custom) return;
+  selectAppearanceTheme(settingsDraft_.appearance, theme);
   appearancePickerOpen_ = false;
+  settingsEditingField_ = false;
   applyUiAppearance(settingsDraft_.appearance);
   settingsDirty_ = settingsDraftHasChanges();
   dirty_ = true;
-  setMessage("Appearance reset to defaults; save settings to keep it", 3);
+}
+
+void App::toggleAppearanceTheme() {
+  setAppearanceTheme(appearanceBaseTheme(settingsDraft_.appearance) == AppearanceTheme::Dark ? AppearanceTheme::Light
+                                                                                             : AppearanceTheme::Dark);
+}
+
+void App::toggleAppearanceAdvanced() {
+  if (settingsCategory_ != SettingsCategory::Appearance) return;
+  appearanceAdvancedOpen_ = !appearanceAdvancedOpen_;
+  appearancePickerOpen_ = false;
+  settingsEditingField_ = false;
+  dirty_ = true;
 }
 
 void App::openAppearancePicker() {
@@ -470,6 +486,7 @@ void App::openAppearancePicker() {
   appearancePickerHue_ = coordinates.hue;
   appearancePickerValue_ = coordinates.value;
   appearancePickerOriginalColor_ = color;
+  appearancePickerOriginalTheme_ = settingsDraft_.appearance.theme;
   appearancePickerOpen_ = true;
   settingsEditingField_ = false;
   inputBuffer_.clear();
@@ -491,8 +508,9 @@ void App::applyAppearancePickerColor() {
   }
   settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] =
       pickerColor(appearancePickerHue_, appearancePickerValue_);
+  settingsDraft_.appearance.theme = AppearanceTheme::Custom;
   applyUiAppearance(settingsDraft_.appearance);
-  settingsDirty_ = settingsDraft_.appearance.colors != settings_.appearance.colors;
+  settingsDirty_ = settingsDraftHasChanges();
   dirty_ = true;
 }
 
@@ -500,6 +518,7 @@ void App::closeAppearancePicker(bool accept) {
   if (!appearancePickerOpen_) return;
   if (!accept && settingsField_ >= 0 && settingsField_ < static_cast<int>(kAppearanceColorCount)) {
     settingsDraft_.appearance.colors[static_cast<size_t>(settingsField_)] = appearancePickerOriginalColor_;
+    settingsDraft_.appearance.theme = appearancePickerOriginalTheme_;
     applyUiAppearance(settingsDraft_.appearance);
     settingsDirty_ = settingsDraftHasChanges();
   }

@@ -651,8 +651,8 @@ void testQuantityColorSeparatesOutLowAndHealthyStock() {
   assert(uiQuantityColor(item, 5) == uiPrimaryText());
   // Low and out are distinct hues so state never rests on brightness alone.
   assert(!(uiWarnColor() == uiDangerColor()));
-  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] == 0xDBCDA9);
-  assert(AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::DangerText)] == 0xCC8BA4);
+  assert(AppearanceSettings{}.theme == AppearanceTheme::Light);
+  assert(AppearanceSettings{}.colors == kLightAppearancePalette);
 }
 
 // Focus is tracked by target id, so a changing target list cannot send Enter to another control.
@@ -10593,6 +10593,7 @@ void testAppSettingsRoundTrip() {
   expected.digiKeyLanguage = "pl";
   expected.digiKeyCurrency = "PLN";
   expected.lowStockThreshold = 12;
+  expected.appearance.theme = AppearanceTheme::Custom;
   expected.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] = 0x123456;
   expected.appearance.colors[static_cast<size_t>(AppearanceColorRole::Interactive)] = 0xABCDEF;
   expected.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerBg)] = 0x000000;
@@ -10618,6 +10619,7 @@ void testAppSettingsRoundTrip() {
   assert(loaded.digiKeyLanguage == "pl");
   assert(loaded.digiKeyCurrency == "PLN");
   assert(loaded.lowStockThreshold == 12);
+  assert(loaded.appearance.theme == AppearanceTheme::Custom);
   assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] == 0x123456);
   assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::Interactive)] == 0xABCDEF);
   assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerBg)] == 0x000000);
@@ -10646,6 +10648,7 @@ void testAppSettingsRoundTrip() {
   assert(text.find("secret") == string::npos);
   assert(text.find("device_service_port=8181") != string::npos);
   assert(text.find("low_stock_threshold=12") != string::npos);
+  assert(text.find("theme=\"custom\"") != string::npos);
   assert(text.find("appearance_canvas_bg=#123456") != string::npos);
   assert(text.find("appearance_interactive=#ABCDEF") != string::npos);
   assert(text.find("quick_label") == string::npos);
@@ -11019,9 +11022,9 @@ void testLegacySettingsAppearanceFallback() {
   legacy.close();
   AppSettings loaded;
   assert(loadAppSettings(path, loaded));
-  assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::CanvasBg)] == 0x0D1010);
-  assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)] ==
-         AppearanceSettings{}.colors[static_cast<size_t>(AppearanceColorRole::DangerFlashBg)]);
+  // The malformed colour falls back to the default, so the file holds the Light palette and becomes Light.
+  assert(loaded.appearance.theme == AppearanceTheme::Light);
+  assert(loaded.appearance.colors == kLightAppearancePalette);
   error_code removeError;
   filesystem::remove(path, removeError);
   assert(!removeError);
@@ -11030,9 +11033,8 @@ void testLegacySettingsAppearanceFallback() {
 void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
   AppearanceSettings appearance;
   const auto at = [&](AppearanceColorRole role) -> uint32_t& { return appearance.colors[static_cast<size_t>(role)]; };
-  const AppearanceSettings defaults;
-  const auto current = [&](AppearanceColorRole role) { return defaults.colors[static_cast<size_t>(role)]; };
-  // Old defaults upgrade, but a colour the user customised (DangerBg) is kept.
+  const auto current = [&](AppearanceColorRole role) { return kSlateAppearancePalette[static_cast<size_t>(role)]; };
+  // Old Slate values upgrade to the last Slate value, but a colour the user customised (DangerBg) is kept.
   at(AppearanceColorRole::WarningText) = 0xD8B56B;
   at(AppearanceColorRole::DangerText) = 0xE08C83;
   at(AppearanceColorRole::WarningBg) = 0x3A3327;
@@ -11066,15 +11068,48 @@ void testLegacyWarningDangerColorsUpgradeToCurrentDefaults() {
   assert(role(AppearanceColorRole::DangerFlashBg) == 0x123456);
   assert(!upgradeLegacyAppearanceDefaults(apricot));
 
+  // A file from before themes: no theme line. An old Slate palette becomes Dark, custom colours stay Custom.
   const auto path = testTempRoot() / "inventatory-legacy-palette-settings-test.conf";
-  AppSettings settings;
-  settings.dataDirectory = "legacy-palette";
-  settings.appearance.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] = 0xD8B56B;
-  assert(saveAppSettings(path, settings));
+  const auto saveWithoutTheme = [&](const AppearancePalette& colors) {
+    AppSettings settings;
+    settings.dataDirectory = "legacy-palette";
+    settings.appearance.theme = AppearanceTheme::Custom;
+    settings.appearance.colors = colors;
+    assert(saveAppSettings(path, settings));
+    ifstream in(path);
+    string line, kept;
+    while (getline(in, line)) {
+      if (line.rfind("theme=", 0) != 0) kept += line + "\n";
+    }
+    in.close();
+    ofstream out(path, ios::trunc);
+    out << kept;
+  };
+  auto slate = kSlateAppearancePalette;
+  slate[static_cast<size_t>(AppearanceColorRole::WarningText)] = 0xD8B56B;
+  saveWithoutTheme(slate);
   AppSettings loaded;
   assert(loadAppSettings(path, loaded));
-  assert(loaded.appearance.colors[static_cast<size_t>(AppearanceColorRole::WarningText)] ==
-         current(AppearanceColorRole::WarningText));
+  assert(loaded.appearance.theme == AppearanceTheme::Dark);
+  assert(loaded.appearance.colors == kDarkAppearancePalette);
+
+  auto custom = kSlateAppearancePalette;
+  custom[static_cast<size_t>(AppearanceColorRole::CanvasBg)] = 0x101820;
+  saveWithoutTheme(custom);
+  assert(loadAppSettings(path, loaded));
+  assert(loaded.appearance.theme == AppearanceTheme::Custom);
+  assert(loaded.appearance.colors == custom);
+
+  // A built-in theme always loads its current palette, whatever colours the file holds.
+  AppSettings dark;
+  dark.dataDirectory = "legacy-palette";
+  selectAppearanceTheme(dark.appearance, AppearanceTheme::Dark);
+  dark.appearance.colors[0] = 0x000000;
+  assert(saveAppSettings(path, dark));
+  assert(loadAppSettings(path, loaded));
+  assert(loaded.appearance.theme == AppearanceTheme::Dark);
+  assert(loaded.appearance.colors == kDarkAppearancePalette);
+
   error_code removeError;
   filesystem::remove(path, removeError);
   assert(!removeError);
