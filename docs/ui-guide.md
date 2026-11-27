@@ -173,28 +173,21 @@ Rules:
   row.
 - Status backgrounds (warning, danger, flash) are reserved for banners and confirmations. Do
   not use them on ordinary rows.
-- Status colours must sit in the same calm family as the petrol-cyan accent. In OKLCH, keep
-  status text at lightness 0.70 to 0.86 and chroma at or below the interactive colour's chroma
-  (about 0.09). Warning is a pale straw/sand yellow (hue about 85 to 95), not orange. Danger is a
-  muted rose (hue about 350 to 20). Success is a sea-glass green (hue about 160 to 175). Saturated
-  oranges, pure reds, and bright greens clash with the blue base and are not allowed.
-- The chosen status palette is **Slate**. Its text colours are also cooled so that nothing
-  reads warm against the petrol-cyan base:
-
-  | Role | Hex |
-  |---|---|
-  | Primary text | `#E5EDEC` |
-  | Secondary text | `#BFCAC9` |
-  | Success | `#A0D0C0` |
-  | Warning | `#DBCDA9` |
-  | Danger | `#CC8BA4` |
-  | Warning background | `#2A261C` |
-  | Danger background | `#322027` |
-  | Danger flash background | `#583744` |
-
-- Default values live in `src/app/settings/AppSettings.h`. When a default changes, add the
-  previous default to `upgradeLegacyAppearanceDefaults` so that installs which never customised
-  the colour move to the new value.
+- There are two built-in themes, matching the website's colours: **Light** (a blue-grey page,
+  the default) and **Dark** (the website's navy night sections). Both use cyan as the one accent.
+  Settings > Appearance switches between them; Advanced > Custom colours edits single colours and
+  turns the theme into **Custom**.
+- Status colours stay in the blue family: warning is a sand/amber, danger a muted rose, success a
+  sea-glass green. No saturated orange, pure red or bright green. On Light they are dark ink
+  tones; on Dark they are pale.
+- Every screen uses one background (canvas and surface are the same colour). Bands, buttons and
+  empty slots use the raised surface, so the page never looks patchy.
+- Text on the active surface (the primary button) is primary text, and its key hint is focus
+  text: check both stay readable when a palette changes.
+- The palettes live in `src/core/settings/AppSettings.h` (`kLightAppearancePalette`,
+  `kDarkAppearancePalette`). A built-in theme always loads its current palette, so changing a
+  value there reaches everyone who did not pick their own colours. A settings file from before
+  themes has no `theme` line: the old Slate palette becomes Dark, anything else Custom.
 
 ## 8. Motion
 
@@ -296,8 +289,8 @@ route, and every accelerator must remain discoverable on screen or in Actions.
 
 ### Color and layout
 
-Use semantic neutral-graphite / petrol-cyan helpers rather than literal RGB
-values. Petrol-cyan is for interaction, focus, links, progress, and active
+Use the semantic helpers rather than literal RGB
+values. Cyan is for interaction, focus, links, progress, and active
 navigation; sage, amber, and coral are reserved for real state. Use one surface
 for normal rows and reserve hover/selection backgrounds for interaction. Prefer
 alignment and a single dim divider over windows nested inside windows.

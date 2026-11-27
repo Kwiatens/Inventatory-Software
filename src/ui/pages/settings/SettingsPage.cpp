@@ -79,7 +79,7 @@ bool App::settingsCategoryDirty(SettingsCategory category) const {
       return draft.dataDirectory != saved.dataDirectory || draft.backgroundServiceEnabled != saved.backgroundServiceEnabled ||
              draft.lowStockThreshold != saved.lowStockThreshold;
     case SettingsCategory::Appearance:
-      return draft.appearance.colors != saved.appearance.colors;
+      return draft.appearance != saved.appearance;
     case SettingsCategory::Updates:
       return draft.updateChecksEnabled != saved.updateChecksEnabled;
     case SettingsCategory::Printer:
@@ -227,17 +227,33 @@ App::SettingsPageModel App::settingsPageModel() const {
     }
 
     case SettingsCategory::Appearance: {
-      const AppearanceSettings defaults;
-      int changedFromDefault = 0;
-      for (size_t index = 0; index < kAppearanceColorCount; ++index) {
-        if (draft.appearance.colors[index] != defaults.colors[index]) ++changedFromDefault;
-      }
-      if (changedFromDefault == 0) {
-        model.status = VoiceLine{{"Using the default Slate colours."}};
+      const auto theme = draft.appearance.theme;
+      if (theme == AppearanceTheme::Custom) {
+        model.status = VoiceLine{{"Using "}, {"your own colours", VoiceTone::Strong}, {"."}};
       } else {
-        model.status = VoiceLine{{voiceCount(changedFromDefault, "colour", "colours"), VoiceTone::Strong},
-                                 {changedFromDefault == 1 ? " differs from the defaults." : " differ from the defaults."}};
+        model.status = VoiceLine{{"Using the "}, {theme == AppearanceTheme::Dark ? "dark" : "light", VoiceTone::Strong},
+                                 {" theme."}};
       }
+      auto themeRow = infoRow("Theme", "Colours", appearanceThemeLabel(theme), VoiceTone::Strong);
+      themeRow.targetId = "settings.appearance.theme";
+      themeRow.activate = [self] { self->toggleAppearanceTheme(); };
+      themeRow.buttons = {
+          button("Light", "", "settings.appearance.theme.light", [self] { self->setAppearanceTheme(AppearanceTheme::Light); },
+                 theme == AppearanceTheme::Light),
+          button("Dark", "", "settings.appearance.theme.dark", [self] { self->setAppearanceTheme(AppearanceTheme::Dark); },
+                 theme == AppearanceTheme::Dark),
+          button("Switch", "t", "settings.appearance.theme.toggle", [self] { self->toggleAppearanceTheme(); })};
+      markChange(themeRow, theme != saved.appearance.theme, appearanceThemeLabel(saved.appearance.theme));
+      rows.push_back(move(themeRow));
+
+      auto advanced = infoRow("Advanced", "Custom colours", appearanceAdvancedOpen_ ? "Shown" : "Hidden", VoiceTone::Muted);
+      advanced.targetId = "settings.appearance.advanced";
+      advanced.activate = [self] { self->toggleAppearanceAdvanced(); };
+      advanced.buttons = {button(appearanceAdvancedOpen_ ? "Hide" : "Show", "a", "settings.appearance.advanced.toggle",
+                                 [self] { self->toggleAppearanceAdvanced(); })};
+      rows.push_back(move(advanced));
+      if (!appearanceAdvancedOpen_) break;
+
       const auto addGroup = [&](const string& group, initializer_list<AppearanceColorRole> roles) {
         bool first = true;
         for (const auto role : roles) {
@@ -261,7 +277,9 @@ App::SettingsPageModel App::settingsPageModel() const {
                                 [self] { self->beginSettingsFieldEdit(self->settingsField_); }),
                          button("Reset", "r", "settings.appearance.reset.selected",
                                 [self] { self->resetSelectedAppearanceColor(); })};
-          if (!editing) markChange(row, color != saved.appearance.colors[static_cast<size_t>(index)],
+          // A theme switch changes every colour; the Theme row already says what it was.
+          if (!editing && draft.appearance.theme == saved.appearance.theme)
+            markChange(row, color != saved.appearance.colors[static_cast<size_t>(index)],
                                    appearanceColorHex(saved.appearance.colors[static_cast<size_t>(index)]));
           rows.push_back(move(row));
           first = false;
@@ -275,11 +293,6 @@ App::SettingsPageModel App::settingsPageModel() const {
                            AppearanceColorRole::WarningText, AppearanceColorRole::DangerText});
       addGroup("Status fills", {AppearanceColorRole::ActiveBg, AppearanceColorRole::ActiveSoftBg, AppearanceColorRole::WarningBg,
                                 AppearanceColorRole::DangerBg, AppearanceColorRole::DangerFlashBg});
-      auto all = infoRow("", "All colours", changedFromDefault == 0 ? "Defaults" : to_string(changedFromDefault) + " changed",
-                         VoiceTone::Muted);
-      all.buttons = {button("Reset all", "d", "settings.appearance.reset.all", [self] { self->resetAppearanceColors(); },
-                            false, true, changedFromDefault > 0)};
-      rows.push_back(move(all));
       break;
     }
 
@@ -729,6 +742,14 @@ ftxui::Element App::renderSettingsUi() const {
   for (const auto& row : model.rows) {
     longestGroup = max(longestGroup, static_cast<int>(row.group.size()));
     longestLabel = max(longestLabel, static_cast<int>(row.label.size()));
+  }
+  if (settingsCategory_ == SettingsCategory::Appearance) {
+    // The custom colour rows can be hidden; size the columns as if they were shown, so opening them moves nothing.
+    longestGroup = max(longestGroup, static_cast<int>(string("Status fills").size()));
+    for (size_t index = 0; index < kAppearanceColorCount; ++index) {
+      longestLabel = max(longestLabel, static_cast<int>(string(appearanceColorLabel(static_cast<AppearanceColorRole>(index))).size()));
+    }
+    actionWidth = max(actionWidth, static_cast<int>(string("Pick p Hex e Reset r").size()) + 6);
   }
   const int markerWidth = 2;
   // Narrow terminals put group names on their own line above the group.

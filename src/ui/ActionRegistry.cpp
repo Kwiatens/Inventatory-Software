@@ -230,13 +230,16 @@ vector<App::Action> App::currentActions() const {
           add("update Inventatory", "Updates", "u", chr('u'), [self] { self->beginSoftwareUpdate(); });
         }
       }
-      if (settingsCategory_ == SettingsCategory::Appearance) {
+      if (settingsCategory_ == SettingsCategory::Appearance && appearanceAdvancedOpen_) {
         add("edit hex color", "Appearance", "e", chr('e'),
             [self] { self->beginSettingsFieldEdit(self->settingsField_); });
         add("open color picker", "Appearance", "p", chr('p'), [self] { self->openAppearancePicker(); });
         add("reset selected color", "Appearance", "r", chr('r'),
             [self] { self->resetSelectedAppearanceColor(); });
-        add("reset all colors", "Appearance", "d", chr('d'), [self] { self->resetAppearanceColors(); });
+      }
+      if (settingsCategory_ == SettingsCategory::Appearance) {
+        add("switch light or dark", "Appearance", "t", chr('t'), [self] { self->toggleAppearanceTheme(); });
+        add("show or hide custom colours", "Appearance", "a", chr('a'), [self] { self->toggleAppearanceAdvanced(); });
       }
       if (settingsCategory_ == SettingsCategory::Printer) {
         add("refresh printers", "Printer", "r", chr('r'), [self] { self->refreshPrinterState(); });

@@ -233,6 +233,7 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   set<string> seenTmeKeys;
   bool legacyFormat = false;
   bool seenSymbolStandard = false;
+  bool seenTheme = false;
   bool malformedLine = false;
   bool malformedAppearance = false;
   string line;
@@ -252,10 +253,12 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       legacyFormat = true;
     } else if (key.rfind("appearance_", 0) == 0 && !requiredSettingsKey(key)) {
       return false;
-    } else if (!requiredSettingsKey(key) && key != "symbol_standard" && !isOptionalTmeSettingsKey(key)) {
+    } else if (!requiredSettingsKey(key) && key != "symbol_standard" && key != "theme" &&
+               !isOptionalTmeSettingsKey(key)) {
       return false;
     }
     if (key == "symbol_standard" && seenSymbolStandard) return false;
+    if (key == "theme" && seenTheme) return false;
     if (isOptionalTmeSettingsKey(key) && !seenTmeKeys.insert(key).second) return false;
     string requiredKey = key == "bridge_port" ? "device_service_port" : key;
     if (requiredSettingsKey(requiredKey) && !seenRequiredKeys.insert(requiredKey).second) return false;
@@ -348,6 +351,10 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
       if (!parseBoolValue(value, loaded.tmeEnabled)) return false;
     } else if (key == "mouser_enabled") {
       if (!parseBoolValue(value, loaded.mouserEnabled)) return false;
+    } else if (key == "theme") {
+      string text;
+      if (!parseQuotedValue(value, text) || !parseAppearanceTheme(text, loaded.appearance.theme)) return false;
+      seenTheme = true;
     } else if (key == "symbol_standard") {
       string text;
       if (!parseQuotedValue(value, text) || !parseSymbolStandard(text, loaded.symbolStandard)) return false;
@@ -400,7 +407,13 @@ bool loadAppSettings(const filesystem::path& path, AppSettings& settings) {
   if (loaded.schemaVersion == 2) legacyFormat = true;
   if (!legacyFormat && seenRequiredKeys != persistedSettingsKeys()) return false;
   if (loaded.schemaVersion == 2) loaded.schemaVersion = 1;
-  upgradeLegacyAppearanceDefaults(loaded.appearance);
+  // Files from before themes have no theme line; their colours decide it. A built-in theme always shows its
+  // current palette, so a palette change in an update reaches everyone who did not pick their own colours.
+  if (!seenTheme) {
+    migrateAppearanceWithoutTheme(loaded.appearance);
+  } else {
+    selectAppearanceTheme(loaded.appearance, loaded.appearance.theme);
+  }
   settings = move(loaded);
   return true;
 }
@@ -444,6 +457,8 @@ bool saveAppSettings(const filesystem::path& path, const AppSettings& settings) 
   if (settings.symbolStandard != SymbolStandard::Eu) {
     output << "symbol_standard=" << quoted(symbolStandardKey(settings.symbolStandard)) << '\n';
   }
+  // Always written: a file without it is one from before themes.
+  output << "theme=" << quoted(appearanceThemeKey(settings.appearance.theme)) << '\n';
   for (size_t index = 0; index < kAppearanceColorCount; ++index) {
     const auto role = static_cast<AppearanceColorRole>(index);
     output << "appearance_" << appearanceColorKey(role) << '='
